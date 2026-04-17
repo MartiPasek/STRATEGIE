@@ -16,7 +16,7 @@ from modules.audit.application.service import log_analysis
 
 logger = get_logger("ai_processing")
 
-MODEL = "claude-sonnet-4-20250514"
+MODEL = "claude-haiku-4-5-20251001"
 
 
 def _check_api_key() -> None:

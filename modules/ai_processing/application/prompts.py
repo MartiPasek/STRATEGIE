@@ -18,6 +18,7 @@ Rules:
 - recommendations: suggestions or advice you would add based on the content
 - Return ONLY the JSON object, no explanation, no markdown
 - If a section has no content, return an empty list []
+- Always respond in the same language as the input text
 """.strip()
 
 

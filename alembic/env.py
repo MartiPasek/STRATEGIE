@@ -5,14 +5,14 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Přidej root projektu do sys.path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import settings
 from core.database import Base
 
-# Importuj všechny modely aby je Alembic viděl
-from modules.audit.infrastructure.models import AuditLog  # noqa: F401
+# Importuj všechny modely aby je Alembic viděl při autogenerate
+from modules.audit.infrastructure.models import AuditLog          # noqa: F401
+from modules.identity.infrastructure.models import User, UserIdentity  # noqa: F401
 
 config = context.config
 

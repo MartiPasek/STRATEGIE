@@ -1,5 +1,3 @@
-from datetime import datetime, timezone
-
 from core.database import get_db_session
 from modules.audit.infrastructure.models import AuditLog
 
@@ -12,10 +10,11 @@ def save_audit_log(
     duration_ms: int,
     input_length: int,
     error: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """
     Zapíše audit záznam do DB.
-    Jednoduchý přímý zápis bez abstraktních vrstev.
+    user_id je volitelný — NULL pro systémová volání.
     """
     session = get_db_session()
     try:
@@ -27,6 +26,7 @@ def save_audit_log(
             duration_ms=duration_ms,
             input_length=input_length,
             error=error,
+            user_id=user_id,
         )
         session.add(record)
         session.commit()

@@ -20,7 +20,6 @@ MODEL = "claude-haiku-4-5-20251001"
 
 
 def _check_api_key() -> None:
-    """Ověří, že je nastaven API klíč. Rychlá kontrola před voláním LLM."""
     if not settings.anthropic_api_key:
         raise ProcessingError(
             "ANTHROPIC_API_KEY is not set. "
@@ -29,10 +28,6 @@ def _check_api_key() -> None:
 
 
 def _call_llm(text: str) -> str:
-    """
-    Zavolá LLM a vrátí spojený textový výstup ze všech textových bloků.
-    Raises LLMCallError při selhání volání nebo prázdné odpovědi.
-    """
     try:
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
         message = client.messages.create(
@@ -61,10 +56,6 @@ def _call_llm(text: str) -> str:
 
 
 def _parse_response(raw: str) -> AnalysisOutput:
-    """
-    Parsuje surový LLM výstup na AnalysisOutput.
-    Ošetřuje markdown obal, nevalidní JSON, chybějící pole.
-    """
     cleaned = re.sub(r"^```(?:json)?\s*", "", raw.strip())
     cleaned = re.sub(r"\s*```$", "", cleaned.strip())
 
@@ -81,13 +72,13 @@ def _parse_response(raw: str) -> AnalysisOutput:
         raise LLMParseError("LLM response does not match expected structure.")
 
 
-def analyse_text(input_data: AnalysisInput) -> AnalysisOutput:
+def analyse_text(
+    input_data: AnalysisInput,
+    user_id: str | None = None,
+) -> AnalysisOutput:
     """
     Hlavní orchestrace analýzy textu.
-    1. Ověří API klíč
-    2. Zavolá LLM
-    3. Parsuje odpověď
-    4. Audituje výsledek (úspěch i nečekaná chyba)
+    user_id: volitelný, předává se z dev headeru X-Dev-User-Id.
     """
     _check_api_key()
 
@@ -105,6 +96,7 @@ def analyse_text(input_data: AnalysisInput) -> AnalysisOutput:
             duration_ms=duration_ms,
             status="error",
             error=str(e),
+            user_id=user_id,
         )
         raise
     except Exception as e:
@@ -117,6 +109,7 @@ def analyse_text(input_data: AnalysisInput) -> AnalysisOutput:
             duration_ms=duration_ms,
             status="error",
             error=f"Unexpected: {type(e).__name__}",
+            user_id=user_id,
         )
         raise
 
@@ -127,6 +120,7 @@ def analyse_text(input_data: AnalysisInput) -> AnalysisOutput:
         model=MODEL,
         duration_ms=duration_ms,
         status="success",
+        user_id=user_id,
     )
 
     return output

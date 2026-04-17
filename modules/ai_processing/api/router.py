@@ -1,4 +1,4 @@
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, Header, HTTPException
 
 from core.common import ProcessingError
 from core.logging import get_logger
@@ -10,14 +10,16 @@ logger = get_logger("ai_processing.api")
 
 router = APIRouter(prefix="/api/v1", tags=["ai_processing"])
 
-# Obecná zpráva pro klienta — detail chyby se neposílá ven
 _PROCESSING_ERROR_MESSAGE = (
     "The analysis could not be completed. Please try again later."
 )
 
 
 @router.post("/analyse", response_model=AnalyseResponse)
-def analyse(request: AnalyseRequest) -> AnalyseResponse:
+def analyse(
+    request: AnalyseRequest,
+    x_dev_user_id: str | None = Header(default=None),
+) -> AnalyseResponse:
     """
     Analyse input text and return structured output.
 
@@ -25,9 +27,14 @@ def analyse(request: AnalyseRequest) -> AnalyseResponse:
     - **action_items**: concrete tasks or next steps
     - **persons**: people or organizations mentioned
     - **recommendations**: suggestions based on the content
+
+    Optional header **X-Dev-User-Id**: UUID of the user (dev only, not authenticated).
     """
     try:
-        result = analyse_text(AnalysisInput(text=request.text))
+        result = analyse_text(
+            AnalysisInput(text=request.text),
+            user_id=x_dev_user_id,
+        )
         return AnalyseResponse(**result.model_dump())
     except ProcessingError as e:
         logger.error(f"Processing error (not exposed to client): {e}")

@@ -219,3 +219,23 @@ class ElevatedAccessLog(BaseCore):
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class AuditLog(BaseCore):
+    """
+    Systémový audit log — každá důležitá akce v systému.
+    Patří do css_db — je to systémová pravda, ne provozní data.
+    """
+    __tablename__ = "audit_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    entity_type: Mapped[str] = mapped_column(String(50))    # "analysis" | "conversation" | "action"
+    action: Mapped[str] = mapped_column(String(50))         # "analyse_text" | "chat" | "send_email"
+    status: Mapped[str] = mapped_column(String(20))         # "success" | "error"
+    model: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    input_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

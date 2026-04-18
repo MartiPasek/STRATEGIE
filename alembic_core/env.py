@@ -10,12 +10,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from core.config import settings
 from core.database_core import BaseCore
 
-# Importuj všechny modely z nového core modulu
 from modules.core.infrastructure.models_core import (  # noqa: F401
     User, UserIdentity, Tenant, UserTenant, Project, UserProject,
     SystemPrompt, Persona, Agent, Invitation, OnboardingSession,
     UserSession, UserNotificationSetting, UserContact, ContactRequest,
-    KillSwitch, ElevatedAccessLog,
+    KillSwitch, ElevatedAccessLog, AuditLog,
 )
 
 config = context.config

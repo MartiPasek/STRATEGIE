@@ -1,3 +1,7 @@
+"""
+Conversation repository — používá modely z modules/core/infrastructure.
+Žádné lokální modely — vše je v core.
+"""
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
@@ -61,10 +65,6 @@ def get_messages(conversation_id: int) -> list[dict]:
 
 
 def get_last_conversation(user_id: int) -> dict | None:
-    """
-    Načte poslední konverzaci uživatele včetně zpráv.
-    Vrátí dict nebo None pokud žádná neexistuje.
-    """
     session = get_data_session()
     try:
         conversation = (

@@ -9,11 +9,15 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
 
-
-    # Database
+    # Databases
     database_url: str = ""
     database_core_url: str = ""
     database_data_url: str = ""
+
+    # EWS (Exchange Web Services)
+    ews_email: str = ""
+    ews_password: str = ""
+    ews_server: str = ""
 
     # Logging
     log_level: str = "INFO"

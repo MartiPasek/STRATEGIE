@@ -4,6 +4,7 @@ import os
 
 from core.logging import setup_logging
 from modules.ai_processing.api.router import router as ai_processing_router
+from modules.conversation.api.router import router as conversation_router
 
 setup_logging()
 
@@ -14,20 +15,17 @@ app = FastAPI(
 )
 
 app.include_router(ai_processing_router)
+app.include_router(conversation_router)
 
-INDEX_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static", "index.html")
+static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
+os.makedirs(static_dir, exist_ok=True)
 
 
 @app.get("/")
 def index():
-    return FileResponse(INDEX_PATH)
+    return FileResponse(os.path.join(static_dir, "index.html"))
 
 
 @app.get("/health")
 def health() -> dict:
-    return {
-        "status": "ok",
-        "version": "0.1.0",
-        "index_path": INDEX_PATH,
-        "exists": os.path.exists(INDEX_PATH),
-    }
+    return {"status": "ok", "version": "0.1.0"}

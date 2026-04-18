@@ -4,8 +4,8 @@ Conversation repository — používá modely z modules/core/infrastructure.
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
-from modules.core.infrastructure.models_core import SystemPrompt
-from modules.core.infrastructure.models_data import Conversation, Message, ConversationShare
+from modules.core.infrastructure.models_core import SystemPrompt, Persona
+from modules.core.infrastructure.models_data import Conversation, Message
 
 logger = get_logger("conversation")
 
@@ -35,11 +35,7 @@ def create_conversation(user_id: int | None = None) -> int:
 def save_message(conversation_id: int, role: str, content: str) -> int:
     session = get_data_session()
     try:
-        message = Message(
-            conversation_id=conversation_id,
-            role=role,
-            content=content,
-        )
+        message = Message(conversation_id=conversation_id, role=role, content=content)
         session.add(message)
         session.commit()
         session.refresh(message)
@@ -62,41 +58,37 @@ def get_messages(conversation_id: int) -> list[dict]:
         session.close()
 
 
+def get_active_persona_name(conversation_id: int) -> str:
+    """Vrátí název aktivní persony pro konverzaci."""
+    data_session = get_data_session()
+    try:
+        conversation = data_session.query(Conversation).filter_by(id=conversation_id).first()
+        active_agent_id = conversation.active_agent_id if conversation else None
+    finally:
+        data_session.close()
+
+    core_session = get_core_session()
+    try:
+        if active_agent_id:
+            persona = core_session.query(Persona).filter_by(id=active_agent_id).first()
+            if persona:
+                return persona.name
+        # Default
+        persona = core_session.query(Persona).filter_by(is_default=True).first()
+        return persona.name if persona else "Marti-AI"
+    finally:
+        core_session.close()
+
+
 def get_last_conversation(user_id: int) -> dict | None:
-    """
-    Načte poslední konverzaci uživatele — vlastní i sdílené.
-    """
     session = get_data_session()
     try:
-        # Vlastní konverzace
-        own = (
+        conversation = (
             session.query(Conversation)
             .filter_by(user_id=user_id, is_deleted=False)
             .order_by(Conversation.id.desc())
             .first()
         )
-
-        # Sdílené konverzace
-        shared = (
-            session.query(Conversation)
-            .join(ConversationShare, ConversationShare.conversation_id == Conversation.id)
-            .filter(
-                ConversationShare.shared_with_user_id == user_id,
-                Conversation.is_deleted == False,
-            )
-            .order_by(Conversation.id.desc())
-            .first()
-        )
-
-        # Vezmi novější z obou
-        conversation = None
-        if own and shared:
-            conversation = own if own.id > shared.id else shared
-        elif own:
-            conversation = own
-        elif shared:
-            conversation = shared
-
         if not conversation:
             return None
 

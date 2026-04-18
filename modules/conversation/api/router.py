@@ -3,7 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.logging import get_logger
 from modules.conversation.api.schemas import ChatRequest, ChatResponse, LastConversationResponse
 from modules.conversation.application.service import chat
-from modules.conversation.infrastructure.repository import get_last_conversation
+from modules.conversation.infrastructure.repository import get_last_conversation, get_active_persona_name
 
 logger = get_logger("conversation.api")
 
@@ -16,15 +16,18 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         user_id_str = req.cookies.get("user_id")
         user_id = int(user_id_str) if user_id_str else None
 
-        conversation_id, reply, switch_to = chat(
+        conversation_id, reply, _ = chat(
             conversation_id=request.conversation_id,
             user_message=request.text,
             user_id=user_id,
         )
+
+        persona_name = get_active_persona_name(conversation_id)
+
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
-            switch_to_conversation_id=switch_to,
+            active_persona=persona_name,
         )
     except Exception as e:
         logger.exception(f"Chat failed: {e}")
@@ -37,4 +40,13 @@ def get_last(req: Request):
     if not user_id_str:
         return None
     user_id = int(user_id_str)
-    return get_last_conversation(user_id)
+    result = get_last_conversation(user_id)
+    if not result:
+        return None
+
+    persona_name = get_active_persona_name(result["conversation_id"])
+    return LastConversationResponse(
+        conversation_id=result["conversation_id"],
+        messages=result["messages"],
+        active_persona=persona_name,
+    )

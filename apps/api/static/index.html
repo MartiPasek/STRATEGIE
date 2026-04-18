@@ -226,6 +226,9 @@
       if (!data || !data.messages || data.messages.length === 0) return;
       conversationId = data.conversation_id;
       convIdLabel.textContent = `#${conversationId}`;
+      if (data.active_persona) {
+        document.getElementById('agentName').textContent = data.active_persona;
+      }
       data.messages.forEach(msg => renderMessage(msg.role, msg.content));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
@@ -326,11 +329,8 @@
         conversationId = data.conversation_id;
         convIdLabel.textContent = `#${conversationId}`;
         addMessage('assistant', data.reply);
-
-        // Pokud AI přepnula konverzaci (start_chat) — aktualizuj UI
-        if (data.switch_to_conversation_id && data.switch_to_conversation_id !== conversationId) {
-          conversationId = data.switch_to_conversation_id;
-          convIdLabel.textContent = `#${conversationId} (sdílená)`;
+        if (data.active_persona) {
+          document.getElementById('agentName').textContent = data.active_persona;
         }
       }
     } catch (e) {

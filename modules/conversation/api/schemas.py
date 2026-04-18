@@ -9,7 +9,8 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     conversation_id: int
     reply: str
-    switch_to_conversation_id: int | None = None  # při přepnutí konverzace
+    active_persona: str | None = None
+    switch_to_conversation_id: int | None = None
 
 
 class HistoryMessage(BaseModel):
@@ -20,3 +21,4 @@ class HistoryMessage(BaseModel):
 class LastConversationResponse(BaseModel):
     conversation_id: int
     messages: list[HistoryMessage]
+    active_persona: str | None = None

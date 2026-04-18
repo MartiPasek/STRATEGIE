@@ -14,18 +14,21 @@
     }
     html, body { height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 15px; }
 
-    .login-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; gap: 24px; }
-    .login-box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 360px; display: flex; flex-direction: column; gap: 20px; }
-    .login-logo { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
-    .login-title { font-size: 20px; font-weight: 500; text-align: center; }
-    .login-sub { font-size: 13px; color: var(--muted); text-align: center; }
-    .login-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; width: 100%; transition: border-color .2s; }
-    .login-input:focus { border-color: var(--accent); }
-    .login-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; padding: 12px; color: #fff; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity .2s; width: 100%; }
-    .login-btn:hover { opacity: .85; }
-    .login-btn:disabled { opacity: .4; cursor: not-allowed; }
-    .login-error { font-size: 13px; color: var(--error); text-align: center; min-height: 18px; }
+    /* ── SHARED BOX ── */
+    .centered { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
+    .box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 380px; display: flex; flex-direction: column; gap: 20px; }
+    .box-logo { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+    .box-title { font-size: 20px; font-weight: 500; text-align: center; }
+    .box-sub { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6; }
+    .box-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; width: 100%; transition: border-color .2s; }
+    .box-input:focus { border-color: var(--accent); }
+    .box-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; padding: 12px; color: #fff; font-family: 'DM Sans', sans-serif; font-size: 14px; font-weight: 500; cursor: pointer; transition: opacity .2s; width: 100%; }
+    .box-btn:hover { opacity: .85; }
+    .box-btn:disabled { opacity: .4; cursor: not-allowed; }
+    .box-error { font-size: 13px; color: var(--error); text-align: center; min-height: 18px; }
+    .box-success { font-size: 13px; color: #34d399; text-align: center; }
 
+    /* ── APP ── */
     .app { display: none; flex-direction: column; height: 100vh; max-width: 820px; margin: 0 auto; padding: 0 16px; }
     .header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .logo { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
@@ -67,17 +70,29 @@
 </head>
 <body>
 
-  <div class="login-screen" id="loginScreen">
-    <div class="login-box">
-      <div class="login-logo">Strategie</div>
-      <div class="login-title">Vítej zpět</div>
-      <div class="login-sub">Zadej svůj email pro přihlášení</div>
-      <input class="login-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" />
-      <button class="login-btn" id="loginBtn">Přihlásit se</button>
-      <div class="login-error" id="loginError"></div>
+  <!-- INVITE ACCEPT -->
+  <div class="centered" id="inviteScreen" style="display:none">
+    <div class="box">
+      <div class="box-logo">Strategie</div>
+      <div class="box-title">Vítej v STRATEGIE</div>
+      <div class="box-sub" id="inviteSub">Přijímám pozvánku…</div>
+      <div class="box-error" id="inviteError"></div>
     </div>
   </div>
 
+  <!-- LOGIN -->
+  <div class="centered" id="loginScreen">
+    <div class="box">
+      <div class="box-logo">Strategie</div>
+      <div class="box-title">Vítej zpět</div>
+      <div class="box-sub">Zadej svůj email pro přihlášení</div>
+      <input class="box-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" />
+      <button class="box-btn" id="loginBtn">Přihlásit se</button>
+      <div class="box-error" id="loginError"></div>
+    </div>
+  </div>
+
+  <!-- APP -->
   <div class="app" id="appScreen">
     <header class="header">
       <div class="logo">Strategie</div>
@@ -109,19 +124,59 @@
   let currentUser = null;
   let conversationId = null;
 
-  const loginScreen = document.getElementById('loginScreen');
-  const appScreen   = document.getElementById('appScreen');
-  const loginEmail  = document.getElementById('loginEmail');
-  const loginBtn    = document.getElementById('loginBtn');
-  const loginError  = document.getElementById('loginError');
-  const userPill    = document.getElementById('userPill');
-  const convIdLabel = document.getElementById('convIdLabel');
-  const newChatBtn  = document.getElementById('newChatBtn');
-  const logoutBtn   = document.getElementById('logoutBtn');
-  const messagesEl  = document.getElementById('messages');
-  const inputEl     = document.getElementById('inputText');
-  const sendBtn     = document.getElementById('sendBtn');
-  const emptyState  = document.getElementById('emptyState');
+  const inviteScreen = document.getElementById('inviteScreen');
+  const loginScreen  = document.getElementById('loginScreen');
+  const appScreen    = document.getElementById('appScreen');
+  const loginEmail   = document.getElementById('loginEmail');
+  const loginBtn     = document.getElementById('loginBtn');
+  const loginError   = document.getElementById('loginError');
+  const userPill     = document.getElementById('userPill');
+  const convIdLabel  = document.getElementById('convIdLabel');
+  const newChatBtn   = document.getElementById('newChatBtn');
+  const logoutBtn    = document.getElementById('logoutBtn');
+  const messagesEl   = document.getElementById('messages');
+  const inputEl      = document.getElementById('inputText');
+  const sendBtn      = document.getElementById('sendBtn');
+  const emptyState   = document.getElementById('emptyState');
+
+  // ── INVITE FLOW ────────────────────────────────────────────────────────
+  async function checkInviteToken() {
+    const path = window.location.pathname;
+    const match = path.match(/^\/invite\/(.+)$/);
+    if (!match) return false;
+
+    const token = match[1];
+    loginScreen.style.display = 'none';
+    inviteScreen.style.display = 'flex';
+    document.getElementById('inviteSub').textContent = 'Přijímám pozvánku…';
+
+    try {
+      const res = await fetch(`/api/v1/auth/accept/${token}`, {
+        credentials: 'include',
+      });
+
+      if (!res.ok) {
+        document.getElementById('inviteSub').textContent = '';
+        document.getElementById('inviteError').textContent = 'Pozvánka není platná nebo vypršela.';
+        return true;
+      }
+
+      currentUser = await res.json();
+      document.getElementById('inviteSub').textContent =
+        `Vítej, ${currentUser.first_name || currentUser.email}! Přihlašuji tě…`;
+
+      // Přesměruj na root po 1.5s
+      setTimeout(() => {
+        window.history.replaceState({}, '', '/');
+        inviteScreen.style.display = 'none';
+        showApp();
+      }, 1500);
+
+    } catch (e) {
+      document.getElementById('inviteError').textContent = 'Chyba spojení.';
+    }
+    return true;
+  }
 
   // ── LOGIN ──────────────────────────────────────────────────────────────
   loginBtn.addEventListener('click', doLogin);
@@ -162,36 +217,27 @@
     inputEl.focus();
   }
 
-  // ── NAČTENÍ POSLEDNÍ KONVERZACE ────────────────────────────────────────
+  // ── LAST CONVERSATION ──────────────────────────────────────────────────
   async function loadLastConversation() {
     try {
       const res = await fetch('/api/v1/conversation/last', { credentials: 'include' });
       if (!res.ok) return;
       const data = await res.json();
       if (!data || !data.messages || data.messages.length === 0) return;
-
       conversationId = data.conversation_id;
       convIdLabel.textContent = `#${conversationId}`;
-
-      data.messages.forEach(msg => {
-        renderMessage(msg.role, msg.content);
-      });
-
+      data.messages.forEach(msg => renderMessage(msg.role, msg.content));
       messagesEl.scrollTop = messagesEl.scrollHeight;
-    } catch (e) {
-      console.error('Failed to load last conversation:', e);
-    }
+    } catch (e) {}
   }
 
   // ── LOGOUT ─────────────────────────────────────────────────────────────
   logoutBtn.addEventListener('click', async () => {
     await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' });
-    currentUser = null;
-    conversationId = null;
+    currentUser = null; conversationId = null;
     appScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
-    loginEmail.value = '';
-    loginError.textContent = '';
+    loginEmail.value = ''; loginError.textContent = '';
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
@@ -199,8 +245,7 @@
 
   // ── CHAT ───────────────────────────────────────────────────────────────
   newChatBtn.addEventListener('click', () => {
-    conversationId = null;
-    convIdLabel.textContent = '';
+    conversationId = null; convIdLabel.textContent = '';
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
@@ -214,7 +259,6 @@
   inputEl.addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
   });
-
   sendBtn.addEventListener('click', send);
 
   function renderMessage(role, content) {
@@ -229,8 +273,7 @@
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.textContent = content;
-    msg.appendChild(roleEl);
-    msg.appendChild(bubble);
+    msg.appendChild(roleEl); msg.appendChild(bubble);
     messagesEl.appendChild(msg);
     return msg;
   }
@@ -250,13 +293,11 @@
       msg.classList.add('loading');
       bubble.innerHTML = `<div class="dots"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div> Přemýšlím…`;
     } else if (type === 'error') {
-      msg.classList.add('error');
-      bubble.textContent = content;
+      msg.classList.add('error'); bubble.textContent = content;
     } else {
       bubble.textContent = content;
     }
-    msg.appendChild(roleEl);
-    msg.appendChild(bubble);
+    msg.appendChild(roleEl); msg.appendChild(bubble);
     messagesEl.appendChild(msg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return msg;
@@ -266,8 +307,7 @@
     const text = inputEl.value.trim();
     if (!text) return;
     sendBtn.disabled = true;
-    inputEl.value = '';
-    inputEl.style.height = 'auto';
+    inputEl.value = ''; inputEl.style.height = 'auto';
     addMessage('user', text);
     const loadingMsg = addMessage('loading', '', 'loading');
     try {
@@ -286,6 +326,12 @@
         conversationId = data.conversation_id;
         convIdLabel.textContent = `#${conversationId}`;
         addMessage('assistant', data.reply);
+
+        // Pokud AI přepnula konverzaci (start_chat) — aktualizuj UI
+        if (data.switch_to_conversation_id && data.switch_to_conversation_id !== conversationId) {
+          conversationId = data.switch_to_conversation_id;
+          convIdLabel.textContent = `#${conversationId} (sdílená)`;
+        }
       }
     } catch (e) {
       loadingMsg.remove();
@@ -295,6 +341,14 @@
       inputEl.focus();
     }
   }
+
+  // ── INIT ───────────────────────────────────────────────────────────────
+  (async () => {
+    const handled = await checkInviteToken();
+    if (!handled) {
+      loginScreen.style.display = 'flex';
+    }
+  })();
 </script>
 </body>
 </html>

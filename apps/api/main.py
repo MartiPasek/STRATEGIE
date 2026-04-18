@@ -23,11 +23,18 @@ app.include_router(memory_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)
+INDEX = os.path.join(static_dir, "index.html")
 
 
 @app.get("/")
 def index():
-    return FileResponse(os.path.join(static_dir, "index.html"))
+    return FileResponse(INDEX)
+
+
+@app.get("/invite/{token}")
+def invite_page(token: str):
+    """Pozvánkový link — vrátí stejný index.html, JS se postará o přijetí."""
+    return FileResponse(INDEX)
 
 
 @app.get("/health")

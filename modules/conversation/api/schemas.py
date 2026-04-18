@@ -9,6 +9,7 @@ class ChatRequest(BaseModel):
 class ChatResponse(BaseModel):
     conversation_id: int
     reply: str
+    switch_to_conversation_id: int | None = None  # při přepnutí konverzace
 
 
 class HistoryMessage(BaseModel):

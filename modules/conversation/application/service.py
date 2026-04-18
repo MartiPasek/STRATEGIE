@@ -1,6 +1,5 @@
 """
 Conversation service s Execution layer.
-Pending akce jsou uložené v DB — přežijí restart serveru.
 """
 import json
 import anthropic
@@ -9,7 +8,10 @@ from core.config import settings
 from core.database_data import get_data_session
 from core.logging import get_logger
 from modules.conversation.application.composer import build_prompt
-from modules.conversation.application.tools import TOOLS, format_email_preview, find_user_in_system
+from modules.conversation.application.tools import (
+    TOOLS, format_email_preview, find_user_in_system,
+    invite_user_to_strategie, start_chat_with_user,
+)
 from modules.conversation.infrastructure.repository import (
     create_conversation,
     save_message,
@@ -26,12 +28,10 @@ CONFIRM_KEYWORDS = {"ano", "pošli", "odeslat", "posli", "ok", "jo", "yes", "sen
 
 def _is_confirmation(text: str) -> bool:
     cleaned = text.strip().lower()
-    logger.info(f"CONFIRM_CHECK | text='{cleaned}' | has_at={'@' in cleaned} | words={len(cleaned.split())}")
+    logger.info(f"CONFIRM_CHECK | text='{cleaned}'")
     if "@" in cleaned or len(cleaned.split()) > 3:
         return False
-    result = cleaned in CONFIRM_KEYWORDS
-    logger.info(f"CONFIRM_CHECK | result={result}")
-    return result
+    return cleaned in CONFIRM_KEYWORDS
 
 
 def _save_pending_action(conversation_id: int, action_type: str, payload: dict) -> None:
@@ -45,7 +45,7 @@ def _save_pending_action(conversation_id: int, action_type: str, payload: dict) 
         )
         session.add(action)
         session.commit()
-        logger.info(f"PENDING_ACTION | saved | conversation_id={conversation_id} | type={action_type}")
+        logger.info(f"PENDING_ACTION | saved | type={action_type}")
     finally:
         session.close()
 
@@ -55,9 +55,7 @@ def _get_pending_action(conversation_id: int) -> dict | None:
     try:
         action = session.query(PendingAction).filter_by(conversation_id=conversation_id).first()
         if not action:
-            logger.info(f"PENDING_ACTION | not found | conversation_id={conversation_id}")
             return None
-        logger.info(f"PENDING_ACTION | found | conversation_id={conversation_id} | type={action.action_type}")
         return {"type": action.action_type, **json.loads(action.payload)}
     finally:
         session.close()
@@ -76,26 +74,16 @@ def _execute_pending_action(conversation_id: int) -> str | None:
     action = _get_pending_action(conversation_id)
     if not action:
         return None
-
     _delete_pending_action(conversation_id)
-
     if action["type"] == "send_email":
         from modules.notifications.application.email_service import send_email
-        sent = send_email(
-            to=action["to"],
-            subject=action["subject"],
-            body=action["body"],
-        )
-        if sent:
-            return f"✅ Email byl odeslán na {action['to']}."
-        else:
-            return f"❌ Email se nepodařilo odeslat. Zkus to znovu."
-
+        sent = send_email(to=action["to"], subject=action["subject"], body=action["body"])
+        return f"✅ Email byl odeslán na {action['to']}." if sent else "❌ Email se nepodařilo odeslat."
     return None
 
 
-def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int) -> str:
-    logger.info(f"TOOL | name={tool_name} | input={tool_input}")
+def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> tuple[str, int | None]:
+    logger.info(f"TOOL | name={tool_name}")
 
     if tool_name == "send_email":
         _save_pending_action(conversation_id, "send_email", {
@@ -107,31 +95,50 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int) -> str:
             to=tool_input.get("to", ""),
             subject=tool_input.get("subject", ""),
             body=tool_input.get("body", ""),
-        )
+        ), None
 
     if tool_name == "find_user":
         result = find_user_in_system(tool_input.get("query", ""))
-        logger.info(f"FIND_USER | result={result}")
         if result["found"]:
-            name = result["name"]
             status = result["status"]
+            name = result["name"]
             if status == "active":
-                return (
-                    f"✅ {name} je v systému STRATEGIE.\n\n"
-                    f"Chceš:\n- Poslat mu/jí email?\n- Nebo něco jiného?"
-                )
+                return f"✅ {name} je v systému.\n\nChceš zahájit chat nebo poslat email?", None
             else:
-                return (
-                    f"⏳ {name} má pozvánku do STRATEGIE, ale ještě se nepřihlásil/a.\n\n"
-                    f"Chceš poslat připomínku?"
-                )
-        else:
-            return (
-                f"❌ '{tool_input.get('query', '')}' není v systému STRATEGIE.\n\n"
-                f"Chceš ho/ji pozvat? Řekni mi email a pošleme pozvánku."
-            )
+                return f"⏳ {name} má pozvánku ale ještě se nepřihlásil/a.", None
+        return f"❌ '{tool_input.get('query', '')}' není v systému.\n\nChceš ho/ji pozvat?", None
 
-    return ""
+    if tool_name == "invite_user":
+        email = tool_input.get("email", "")
+        result = invite_user_to_strategie(email=email, name=tool_input.get("name", ""), invited_by_user_id=user_id or 1)
+        if result["success"] and result["email_sent"]:
+            return f"✅ Pozvánka odeslána na {email}.", None
+        return f"⚠️ Pozvánka vytvořena ale email se nepodařilo odeslat.", None
+
+    if tool_name == "start_chat":
+        query = tool_input.get("query", "")
+        user_result = find_user_in_system(query)
+        if not user_result["found"]:
+            return f"❌ '{query}' není v systému.\n\nChceš ho/ji pozvat?", None
+        if user_result["status"] != "active":
+            return f"⏳ {user_result['name']} ještě nepřijal/a pozvánku.", None
+
+        result = start_chat_with_user(
+            target_user_id=user_result["user_id"],
+            target_name=user_result["name"],
+            initiated_by_user_id=user_id or 1,
+        )
+        if result["success"]:
+            new_conv_id = result["conversation_id"]
+            name = result["target_name"]
+            msg = (
+                f"✅ Zahájil/a jsem konverzaci s {name}.\n\n"
+                f"Konverzace #{new_conv_id} je sdílená. Napiš svou zprávu."
+            )
+            return msg, new_conv_id
+        return f"❌ Nepodařilo se zahájit konverzaci.", None
+
+    return "", None
 
 
 def chat(
@@ -140,18 +147,24 @@ def chat(
     user_id: int | None = None,
     tenant_id: int | None = None,
     project_id: int | None = None,
-) -> tuple[int, str]:
+) -> tuple[int, str, int | None]:
+    """
+    Vrátí (conversation_id, reply, switch_to_conversation_id).
+    """
+    switch_to = None
+
     if conversation_id is None:
         conversation_id = create_conversation(user_id=user_id)
 
-    # Potvrzení čekající akce z DB
+    # Potvrzení čekající akce
     if _is_confirmation(user_message) and _get_pending_action(conversation_id):
         save_message(conversation_id, role="user", content=user_message)
         result = _execute_pending_action(conversation_id)
         if result:
             save_message(conversation_id, role="assistant", content=result)
-            return conversation_id, result
+            return conversation_id, result, None
 
+    # Uložíme zprávu uživatele do AKTUÁLNÍ konverzace
     save_message(conversation_id, role="user", content=user_message)
 
     system_prompt, messages = build_prompt(conversation_id)
@@ -171,17 +184,21 @@ def chat(
         if block.type == "text":
             assistant_reply += block.text
         elif block.type == "tool_use":
-            logger.info(f"TOOL_USE | name={block.name} | input={block.input}")
-            tool_result = _handle_tool(block.name, block.input, conversation_id)
-            logger.info(f"TOOL_RESULT | result={tool_result[:100] if tool_result else 'EMPTY'}")
-            assistant_reply += tool_result
+            logger.info(f"TOOL_USE | name={block.name}")
+            tool_text, new_conv_id = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
+            assistant_reply += tool_text
+            if new_conv_id:
+                switch_to = new_conv_id
 
     if not assistant_reply:
         assistant_reply = "Promiň, něco se pokazilo. Zkus to znovu."
 
-    save_message(conversation_id, role="assistant", content=assistant_reply)
-    logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")
+    # Odpověď AI uložíme do SDÍLENÉ konverzace pokud došlo k přepnutí
+    save_conv_id = switch_to if switch_to else conversation_id
+    save_message(save_conv_id, role="assistant", content=assistant_reply)
+    logger.info(f"CONVERSATION | chat | original={conversation_id} | saved_to={save_conv_id} | user_id={user_id}")
 
+    # Memory extrakce z původní konverzace
     try:
         from modules.memory.application.service import extract_and_save
         all_messages = get_messages(conversation_id)
@@ -189,10 +206,9 @@ def chat(
             conversation_id=conversation_id,
             messages=all_messages,
             user_id=user_id,
-            tenant_id=tenant_id,
-            project_id=project_id,
         )
     except Exception as e:
-        logger.error(f"MEMORY | background extraction failed: {e}")
+        logger.error(f"MEMORY | failed: {e}")
 
-    return conversation_id, assistant_reply
+    # Vrátíme sdílenou konverzaci jako aktivní
+    return save_conv_id, assistant_reply, switch_to

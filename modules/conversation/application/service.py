@@ -6,6 +6,7 @@ from modules.conversation.application.composer import build_prompt
 from modules.conversation.infrastructure.repository import (
     create_conversation,
     save_message,
+    get_messages,
 )
 
 logger = get_logger("conversation")
@@ -17,15 +18,12 @@ def chat(
     conversation_id: int | None,
     user_message: str,
     user_id: int | None = None,
+    tenant_id: int | None = None,
+    project_id: int | None = None,
 ) -> tuple[int, str]:
     """
-    Hlavní funkce konverzace.
-    1. Vytvoří novou konverzaci pokud neexistuje (s user_id pokud je přihlášen)
-    2. Uloží zprávu uživatele
-    3. Composer sestaví prompt
-    4. Zavolá LLM
-    5. Uloží odpověď asistenta
-    6. Vrátí (conversation_id, odpověď)
+    Hlavní orchestrace konverzace.
+    Po odpovědi AI spustí extrakci pamětí na pozadí.
     """
     if conversation_id is None:
         conversation_id = create_conversation(user_id=user_id)
@@ -46,5 +44,19 @@ def chat(
     save_message(conversation_id, role="assistant", content=assistant_reply)
 
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")
+
+    # Spusť extrakci pamětí — tiše, selhání nerozbije chat
+    try:
+        from modules.memory.application.service import extract_and_save
+        all_messages = get_messages(conversation_id)
+        extract_and_save(
+            conversation_id=conversation_id,
+            messages=all_messages,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
+        )
+    except Exception as e:
+        logger.error(f"MEMORY | background extraction failed: {e}")
 
     return conversation_id, assistant_reply

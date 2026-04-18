@@ -1,5 +1,6 @@
 """
-Execution layer — nástroje dostupné pro Marti-AI.
+Execution layer — nástroje dostupné pro AI asistenta.
+Každý uživatel má svůj vlastní chat. Žádné sdílené konverzace.
 """
 
 TOOLS = [
@@ -8,7 +9,6 @@ TOOLS = [
         "description": (
             "Tento nástroj MUSÍŠ použít vždy když uživatel chce poslat email. "
             "NIKDY neodpovídej textem o emailu — vždy zavolej tento nástroj. "
-            "Rovnou zavolej tento nástroj s připraveným emailem. "
             "Nástroj email NEPOŠLE — nejprve ukáže návrh uživateli a počká na potvrzení."
         ),
         "input_schema": {
@@ -36,26 +36,10 @@ TOOLS = [
         },
     },
     {
-        "name": "start_chat",
-        "description": (
-            "Použij tento nástroj když uživatel chce zahájit chat nebo konverzaci s konkrétním člověkem. "
-            "Triggers: 'přepni na', 'spoj mě s', 'chci mluvit s', 'zaháj chat s'. "
-            "Nástroj najde uživatele a vytvoří sdílenou konverzaci."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Jméno nebo email osoby"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
         "name": "invite_user",
         "description": (
             "Použij tento nástroj když uživatel chce pozvat někoho do systému STRATEGIE. "
-            "Nástroj pošle pozvánkový email s odkazem pro vstup do systému. "
-            "Použij ho vždy když zazní 'pozvi', 'pozvánka do STRATEGIE', 'přidej do systému' apod."
+            "Pošle pozvánkový email s odkazem pro vstup do systému."
         ),
         "input_schema": {
             "type": "object",
@@ -64,6 +48,22 @@ TOOLS = [
                 "name": {"type": "string", "description": "Jméno pozvaného (volitelné)"},
             },
             "required": ["email"],
+        },
+    },
+    {
+        "name": "switch_persona",
+        "description": (
+            "Použij tento nástroj když uživatel chce mluvit s jiným agentem nebo osobou. "
+            "Například: 'přepni na Ondru', 'chci mluvit s Klárkou', 'spoj mě s Ondrou'. "
+            "Systém přepne aktivní personu — každý agent má svůj styl a kontext. "
+            "Uživatel stále mluví se svým vlastním AI asistentem, ale ten přebere roli jiné osoby."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Jméno nebo role osoby na kterou chce přepnout"},
+            },
+            "required": ["query"],
         },
     },
 ]
@@ -98,50 +98,24 @@ def find_user_in_system(query: str) -> dict:
             user = session.query(User).filter_by(id=identity.user_id).first()
             if user:
                 name = " ".join(filter(None, [user.first_name, user.last_name]))
-                return {
-                    "found": True,
-                    "user_id": user.id,
-                    "name": name or identity.value,
-                    "email": identity.value,
-                    "status": user.status,
-                }
+                return {"found": True, "user_id": user.id, "name": name or identity.value, "email": identity.value, "status": user.status}
 
         users = session.query(User).filter(
-            or_(
-                User.first_name.ilike(f"%{query_lower}%"),
-                User.last_name.ilike(f"%{query_lower}%"),
-            )
+            or_(User.first_name.ilike(f"%{query_lower}%"), User.last_name.ilike(f"%{query_lower}%"))
         ).all()
 
         if users:
             user = users[0]
-            identity = session.query(UserIdentity).filter_by(
-                user_id=user.id, type="email"
-            ).first()
+            identity = session.query(UserIdentity).filter_by(user_id=user.id, type="email").first()
             name = " ".join(filter(None, [user.first_name, user.last_name]))
-            return {
-                "found": True,
-                "user_id": user.id,
-                "name": name,
-                "email": identity.value if identity else "",
-                "status": user.status,
-            }
+            return {"found": True, "user_id": user.id, "name": name, "email": identity.value if identity else "", "status": user.status}
 
         return {"found": False, "query": query}
-
     finally:
         session.close()
 
 
-def invite_user_to_strategie(
-    email: str,
-    name: str | None,
-    invited_by_user_id: int,
-) -> dict:
-    """
-    Pozve uživatele do STRATEGIE a odešle pozvánkový email.
-    Vrátí výsledek operace.
-    """
+def invite_user_to_strategie(email: str, name: str | None, invited_by_user_id: int) -> dict:
     from modules.auth.application.invitation_service import create_invitation
     from modules.notifications.application.email_service import send_invitation_email
     from core.database_core import get_core_session
@@ -156,132 +130,51 @@ def invite_user_to_strategie(
         session.close()
 
     try:
-        token = create_invitation(
-            email=email.strip().lower(),
-            invited_by_user_id=invited_by_user_id,
-            tenant_id=tenant_id or 1,
-        )
-
-        sent = send_invitation_email(
-            to=email,
-            invited_by=inviter_name,
-            token=token,
-        )
-
-        return {
-            "success": True,
-            "email": email,
-            "email_sent": sent,
-            "name": name,
-        }
+        token = create_invitation(email=email.strip().lower(), invited_by_user_id=invited_by_user_id, tenant_id=tenant_id or 1)
+        sent = send_invitation_email(to=email, invited_by=inviter_name, token=token)
+        return {"success": True, "email": email, "email_sent": sent}
     except Exception as e:
-        return {
-            "success": False,
-            "email": email,
-            "error": str(e),
-        }
+        return {"success": False, "email": email, "error": str(e)}
 
 
-def start_chat_with_user(
-    target_user_id: int,
-    target_name: str,
-    initiated_by_user_id: int,
-) -> dict:
+def switch_persona_for_user(query: str, conversation_id: int) -> dict:
     """
-    Zahájí nebo najde existující sdílenou konverzaci mezi dvěma uživateli.
-    Vrátí conversation_id a informaci o tom co se stalo.
+    Přepne aktivní personu v konverzaci.
+    Hledá personu podle jména v css_db.
+    Pokud nenajde personu, vrátí found=False.
     """
+    from core.database_core import get_core_session
     from core.database_data import get_data_session
-    from modules.core.infrastructure.models_data import Conversation, ConversationShare
-    from datetime import datetime, timezone
+    from modules.core.infrastructure.models_core import Persona
+    from modules.core.infrastructure.models_data import Conversation
 
-    session = get_data_session()
+    query_lower = query.strip().lower()
+
+    # Hledej personu podle jména
+    core_session = get_core_session()
     try:
-        # Hledej existující sdílenou konverzaci
-        existing_share = (
-            session.query(ConversationShare)
-            .filter_by(shared_with_user_id=target_user_id)
-            .join(Conversation, Conversation.id == ConversationShare.conversation_id)
-            .filter(Conversation.user_id == initiated_by_user_id)
-            .first()
-        )
+        personas = core_session.query(Persona).all()
+        matched = None
+        for p in personas:
+            if query_lower in p.name.lower():
+                matched = p
+                break
 
-        if existing_share:
-            return {
-                "success": True,
-                "conversation_id": existing_share.conversation_id,
-                "new": False,
-                "target_name": target_name,
-            }
+        if not matched:
+            return {"found": False, "query": query}
 
-        # Vytvoř novou konverzaci
-        conversation = Conversation(
-            user_id=initiated_by_user_id,
-            title=f"Chat s {target_name}",
-        )
-        session.add(conversation)
-        session.flush()
-
-        # Sdílej s druhým uživatelem
-        share = ConversationShare(
-            conversation_id=conversation.id,
-            shared_with_user_id=target_user_id,
-            access_level="write",
-        )
-        session.add(share)
-        session.commit()
-
-        return {
-            "success": True,
-            "conversation_id": conversation.id,
-            "new": True,
-            "target_name": target_name,
-        }
-    except Exception as e:
-        session.rollback()
-        return {"success": False, "error": str(e)}
+        persona_id = matched.id
+        persona_name = matched.name
     finally:
-        session.close()
+        core_session.close()
 
-
-
-
-
-def start_chat_with_user(
-    target_user_id: int,
-    target_name: str,
-    initiated_by_user_id: int,
-) -> dict:
-    from core.database_data import get_data_session
-    from modules.core.infrastructure.models_data import Conversation, ConversationShare
-    from core.logging import get_logger
-    
-    logger = get_logger("start_chat")
-    logger.info(f"START_CHAT | target={target_user_id} | by={initiated_by_user_id}")
-    
-    session = get_data_session()
+    # Aktualizuj active_persona_id v konverzaci
+    data_session = get_data_session()
     try:
-        conversation = Conversation(
-            user_id=initiated_by_user_id,
-            title=f"Chat s {target_name}",
-        )
-        session.add(conversation)
-        session.flush()
-        logger.info(f"START_CHAT | conversation created | id={conversation.id}")
-
-        share = ConversationShare(
-            conversation_id=conversation.id,
-            shared_with_user_id=target_user_id,
-            access_level="write",
-        )
-        session.add(share)
-        session.commit()
-        logger.info(f"START_CHAT | share created | conversation_id={conversation.id} | shared_with={target_user_id}")
-
-        return {"success": True, "conversation_id": conversation.id, "new": True, "target_name": target_name}
-    except Exception as e:
-        session.rollback()
-        logger.error(f"START_CHAT | error: {e}")
-        return {"success": False, "error": str(e)}
+        conversation = data_session.query(Conversation).filter_by(id=conversation_id).first()
+        if conversation:
+            conversation.active_agent_id = persona_id
+            data_session.commit()
+        return {"found": True, "persona_id": persona_id, "persona_name": persona_name}
     finally:
-        session.close()        
+        data_session.close()

@@ -1,12 +1,12 @@
 """
 Composer — skládá prompt z více vrstev.
-Všechny modely z modules/core/infrastructure.
+Načítá personu podle active_agent_id konverzace.
 """
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
 from modules.core.infrastructure.models_core import SystemPrompt, Persona
-from modules.core.infrastructure.models_data import Message, ConversationSummary
+from modules.core.infrastructure.models_data import Message, ConversationSummary, Conversation
 
 logger = get_logger("conversation.composer")
 
@@ -28,13 +28,27 @@ def _get_system_prompt() -> str:
         session.close()
 
 
-def _get_persona_prompt() -> str | None:
-    session = get_core_session()
+def _get_persona_prompt(conversation_id: int) -> str | None:
+    """
+    Načte personu podle active_agent_id konverzace.
+    Pokud není nastavena, použije default personu.
+    """
+    data_session = get_data_session()
     try:
-        persona = session.query(Persona).filter_by(is_default=True).first()
+        conversation = data_session.query(Conversation).filter_by(id=conversation_id).first()
+        active_agent_id = conversation.active_agent_id if conversation else None
+    finally:
+        data_session.close()
+
+    core_session = get_core_session()
+    try:
+        if active_agent_id:
+            persona = core_session.query(Persona).filter_by(id=active_agent_id).first()
+        else:
+            persona = core_session.query(Persona).filter_by(is_default=True).first()
         return persona.system_prompt if persona else None
     finally:
-        session.close()
+        core_session.close()
 
 
 def _get_latest_summary(conversation_id: int) -> ConversationSummary | None:
@@ -76,11 +90,11 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
-    Pořadí: system → persona → summary → zprávy
+    Persona se načte podle active_agent_id konverzace.
     """
     system_prompt = _get_system_prompt()
 
-    persona_prompt = _get_persona_prompt()
+    persona_prompt = _get_persona_prompt(conversation_id)
     if persona_prompt:
         system_prompt = f"{system_prompt}\n\n{persona_prompt}"
 

@@ -8,10 +8,6 @@ logger = get_logger("conversation")
 
 
 def get_system_prompt() -> str | None:
-    """
-    Načte první dostupný system prompt z css_db.
-    Vrátí content nebo None pokud žádný neexistuje.
-    """
     session = get_core_session()
     try:
         prompt = session.query(SystemPrompt).first()
@@ -20,22 +16,21 @@ def get_system_prompt() -> str | None:
         session.close()
 
 
-def create_conversation() -> int:
-    """Vytvoří novou konverzaci v data_db. Vrátí její id."""
+def create_conversation(user_id: int | None = None) -> int:
+    """Vytvoří novou konverzaci. Propojí s user_id pokud je přihlášen."""
     session = get_data_session()
     try:
-        conversation = Conversation()
+        conversation = Conversation(user_id=user_id)
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
-        logger.info(f"CONVERSATION | created | id={conversation.id}")
+        logger.info(f"CONVERSATION | created | id={conversation.id} | user_id={user_id}")
         return conversation.id
     finally:
         session.close()
 
 
 def save_message(conversation_id: int, role: str, content: str) -> int:
-    """Uloží zprávu do data_db. Vrátí její id."""
     session = get_data_session()
     try:
         message = Message(
@@ -52,10 +47,6 @@ def save_message(conversation_id: int, role: str, content: str) -> int:
 
 
 def get_messages(conversation_id: int) -> list[dict]:
-    """
-    Načte všechny zprávy konverzace seřazené podle id.
-    Vrátí list slovníků {role, content}.
-    """
     session = get_data_session()
     try:
         messages = (
@@ -65,5 +56,35 @@ def get_messages(conversation_id: int) -> list[dict]:
             .all()
         )
         return [{"role": m.role, "content": m.content} for m in messages]
+    finally:
+        session.close()
+
+
+def get_last_conversation(user_id: int) -> dict | None:
+    """
+    Načte poslední konverzaci uživatele včetně zpráv.
+    Vrátí dict nebo None pokud žádná neexistuje.
+    """
+    session = get_data_session()
+    try:
+        conversation = (
+            session.query(Conversation)
+            .filter_by(user_id=user_id, is_deleted=False)
+            .order_by(Conversation.id.desc())
+            .first()
+        )
+        if not conversation:
+            return None
+
+        messages = (
+            session.query(Message)
+            .filter_by(conversation_id=conversation.id)
+            .order_by(Message.id)
+            .all()
+        )
+        return {
+            "conversation_id": conversation.id,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+        }
     finally:
         session.close()

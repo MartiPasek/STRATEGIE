@@ -1,10 +1,11 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 import os
 
 from core.logging import setup_logging
 from modules.ai_processing.api.router import router as ai_processing_router
 from modules.conversation.api.router import router as conversation_router
+from modules.auth.api.router import router as auth_router
 
 setup_logging()
 
@@ -16,6 +17,7 @@ app = FastAPI(
 
 app.include_router(ai_processing_router)
 app.include_router(conversation_router)
+app.include_router(auth_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

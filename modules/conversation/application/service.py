@@ -13,26 +13,86 @@ from modules.conversation.application.composer import build_prompt
 from modules.conversation.application.tools import (
     TOOLS, format_email_preview, find_user_in_system,
     invite_user_to_strategie, switch_persona_for_user,
+    get_user_default_persona_name,
 )
 from modules.conversation.infrastructure.repository import (
     create_conversation,
     save_message,
     get_messages,
 )
-from modules.core.infrastructure.models_data import PendingAction
+from modules.core.infrastructure.models_data import ActionLog, Message, PendingAction
 
 logger = get_logger("conversation")
 
 MODEL = "claude-haiku-4-5-20251001"
 
-CONFIRM_KEYWORDS = {"ano", "pošli", "odeslat", "posli", "ok", "jo", "yes", "send"}
+CONFIRM_KEYWORDS = {
+    # jednoslovná potvrzení
+    "ano", "jo", "jojo", "joo", "jj", "ja",
+    "pošli", "posli", "odeslat", "poslat",
+    "ok", "oky", "okay",
+    "jasně", "jasne", "jasný", "jasny", "jasan", "jasnačka",
+    "můžeš", "muzes", "můžem", "muzem",
+    "klidně", "klidne",
+    "souhlas", "potvrzuji", "potvrdit", "schvaluji",
+    "yes", "send", "yep", "yeah", "sure", "yup",
+    # běžné krátké fráze
+    "tak jo", "tak ano",
+    "ano pošli", "ano posli", "ano odeslat",
+    "jo pošli", "jo posli",
+    "pošli to", "posli to",
+    "ok pošli", "ok posli",
+    "můžeš poslat", "muzes poslat",
+    "můžeš odeslat", "muzes odeslat",
+}
 
 
 def _is_confirmation(text: str) -> bool:
-    cleaned = text.strip().lower()
-    if "@" in cleaned or len(cleaned.split()) > 3:
+    # Normalizace: malá písmena, bez okolních mezer a běžné interpunkce na konci.
+    cleaned = text.strip().lower().rstrip(".!?,;:")
+    if "@" in cleaned:
+        return False
+    if len(cleaned) > 30:
         return False
     return cleaned in CONFIRM_KEYWORDS
+
+
+def _looks_like_email_preview(text: str) -> bool:
+    """
+    Heuristika: rozpozná text, který vypadá jako email preview
+    (ať už legitimní z format_email_preview, nebo Claudeho mimikry).
+    Používá se v detekci, zda bylo poslední AI sdělení preview.
+    """
+    if not text:
+        return False
+    low = text.lower()
+    if "mohu email odeslat" in low or "mám email odeslat" in low or "mám ho odeslat" in low:
+        return True
+    if "📧" in text and "návrh emailu" in low:
+        return True
+    return False
+
+
+def _last_assistant_message_looks_like_email_preview(conversation_id: int) -> bool:
+    """
+    True, pokud POSLEDNÍ zpráva od asistenta v konverzaci vypadá jako email
+    preview. Rozhodující signál pro zabezpečení potvrzovací větve:
+    pokud „ano" přichází těsně po preview, ale v DB chybí pending,
+    nedovolíme Claude halucinovat úspěšné odeslání.
+    """
+    session = get_data_session()
+    try:
+        last = (
+            session.query(Message)
+            .filter_by(conversation_id=conversation_id, role="assistant")
+            .order_by(Message.id.desc())
+            .first()
+        )
+        if not last:
+            return False
+        return _looks_like_email_preview(last.content)
+    finally:
+        session.close()
 
 
 # ── PERSONA SWITCH — SERVER-SIDE INTENT DETECTION ─────────────────────────
@@ -41,14 +101,45 @@ def _is_confirmation(text: str) -> bool:
 # nejspolehlivější řešení je pro explicitní příkazy Claude úplně obejít.
 
 _PERSONA_SWITCH_PATTERNS = [
-    # "přepni na X" / "prepni na X" + tolerance k překlepům "n X" místo "na X"
-    re.compile(r"^\s*p[rř]epni\s+(?:mě\s+|me\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
-    re.compile(r"^\s*p[rř]epnout\s+(?:mě\s+|me\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    # "přepni [mi/mě/se] na X" / + tolerance k překlepům "n X" místo "na X"
+    re.compile(r"^\s*p[rř]epni\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*p[rř]epnout\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
     re.compile(r"^\s*spoj\s+m[eě]\s+s\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
     re.compile(r"^\s*chci\s+mluvit\s+s\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
     re.compile(r"^\s*mluv\s+jako\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
     re.compile(r"^\s*switch\s+to\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
 ]
+
+# "přepni zpět" / "na mě" / "na moji" / "původní" / "výchozí" — návrat do
+# uživatelovy výchozí persony (jeho digitálního dvojčete).
+# Přípustná kratičká slova mezi slovesem a cílem: mi, mě, me, mne, si, se.
+_ME_PRON = r"(?:m[eě]|mi|mne|si|se)"
+_PERSONA_RESET_PATTERNS = [
+    re.compile(rf"^\s*p[rř]epni\s+(?:{_ME_PRON}\s+)?(?:zp[eě]t|zp[aá]tky)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(
+        rf"^\s*p[rř]epni\s+(?:{_ME_PRON}\s+)?n[aA]?\s+"
+        r"(?:m[eě]|mne|moji|sv[oé]ho|sv[eé]|p[uů]vodn[ií]|v[yý]choz[ií])"
+        r"(?:-?ai)?\s*[.!?]?\s*$",
+        re.IGNORECASE,
+    ),
+    re.compile(r"^\s*chci\s+(?:zp[eě]t|zp[aá]tky)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(rf"^\s*vra[tť]\s+(?:{_ME_PRON}\s+)?zp[eě]t\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*zp[aá]tky\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*zp[eě]t\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*back\s+to\s+(?:me|default)\s*[.!?]?\s*$", re.IGNORECASE),
+]
+
+
+def _detect_persona_reset(text: str) -> bool:
+    """True, pokud user chce zpět na svou výchozí personu."""
+    if not text:
+        return False
+    if len(text.strip().split()) > 5:
+        return False
+    for pat in _PERSONA_RESET_PATTERNS:
+        if pat.match(text):
+            return True
+    return False
 
 
 def _detect_persona_switch(text: str) -> str | None:
@@ -101,15 +192,71 @@ def _delete_pending_action(conversation_id: int) -> None:
         session.close()
 
 
-def _execute_pending_action(conversation_id: int) -> str | None:
+def _log_email_action(
+    to: str,
+    subject: str,
+    body: str,
+    status: str,
+    user_id: int | None,
+    conversation_id: int,
+    error: str | None = None,
+) -> None:
+    """
+    Zaloguje přesný obsah odeslaného (nebo selhaného) emailu do action_logs.
+    Kritické pro audit — musí být možné zpětně ověřit, co přesně se odeslalo.
+    """
+    session = get_data_session()
+    try:
+        log = ActionLog(
+            user_id=user_id,
+            action_type="confirm",
+            tool_name="send_email",
+            input=json.dumps(
+                {"to": to, "subject": subject, "body": body, "conversation_id": conversation_id},
+                ensure_ascii=False,
+            ),
+            output=f"to={to} | chars={len(body)}" + (f" | error={error}" if error else ""),
+            status=status,
+            error_message=error,
+            approval_required=True,
+            approved_by=user_id,
+        )
+        session.add(log)
+        session.commit()
+    except Exception as e:
+        logger.error(f"AUDIT | action_log failed: {e}")
+    finally:
+        session.close()
+
+
+def _build_email_sent_message(to: str, body: str) -> str:
+    """
+    Potvrzovací text pro UI — krátký a bez balastu.
+    Kompletní tělo se ukládá do action_logs pro zpětnou auditaci.
+    """
+    return "✅ Email odeslán"
+
+
+def _execute_pending_action(conversation_id: int, user_id: int | None = None) -> str | None:
     action = _get_pending_action(conversation_id)
     if not action:
         return None
     _delete_pending_action(conversation_id)
     if action["type"] == "send_email":
         from modules.notifications.application.email_service import send_email
-        sent = send_email(to=action["to"], subject=action["subject"], body=action["body"])
-        return f"✅ Email byl odeslán na {action['to']}." if sent else "❌ Email se nepodařilo odeslat."
+        to = action["to"]
+        subject = action["subject"]
+        body = action["body"]
+        try:
+            sent = send_email(to=to, subject=subject, body=body)
+        except Exception as e:
+            _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
+            return "❌ Email se nepodařilo odeslat."
+        if sent:
+            _log_email_action(to, subject, body, "success", user_id, conversation_id)
+            return _build_email_sent_message(to, body)
+        _log_email_action(to, subject, body, "error", user_id, conversation_id, error="send_email returned False")
+        return "❌ Email se nepodařilo odeslat."
     return None
 
 
@@ -181,20 +328,59 @@ def chat(
     if conversation_id is None:
         conversation_id = create_conversation(user_id=user_id)
 
-    if _is_confirmation(user_message) and _get_pending_action(conversation_id):
-        save_message(conversation_id, role="user", content=user_message)
-        result = _execute_pending_action(conversation_id)
-        if result:
-            save_message(conversation_id, role="assistant", content=result)
-            return conversation_id, result, None
+    if _is_confirmation(user_message):
+        pending = _get_pending_action(conversation_id)
+        if pending:
+            # Skutečná pending akce existuje — vykonej a potvrď.
+            save_message(conversation_id, role="user", content=user_message)
+            result = _execute_pending_action(conversation_id, user_id=user_id)
+            if result:
+                save_message(conversation_id, role="assistant", content=result)
+                return conversation_id, result, None
+        elif _last_assistant_message_looks_like_email_preview(conversation_id):
+            # Bezpečnostní stopka: poslední AI odpověď sice vypadala jako
+            # email preview, ale v DB není žádná pending akce (Claude ji
+            # jen napsal, tool nezavolal). Nesmíme pustit Claude na tuhle
+            # větev — napsal by „✅ Email odeslán" jako text a uživatel by
+            # byl přesvědčen, že email odešel. Reálně by se neodeslalo nic.
+            save_message(conversation_id, role="user", content=user_message)
+            reply = (
+                "❌ Žádný email nebyl systémově připraven k odeslání.\n\n"
+                "Napiš znovu explicitně, co mám poslat, např.:\n"
+                "„pošli email m.pasek@eurosoft.com — Ahoj Marti, …"
+            )
+            save_message(conversation_id, role="assistant", content=reply)
+            return conversation_id, reply, None
+        # Jinak (ano bez pendingu a bez email kontextu) = běžné potvrzení,
+        # nechej to dojít k Claude standardní cestou.
 
     save_message(conversation_id, role="user", content=user_message)
 
-    # Explicitní persona switch — Claude občas tool call přeskočí,
-    # takže na jednoznačné příkazy reagujeme servisně bez LLM.
-    switch_target = _detect_persona_switch(user_message)
+    # ── Explicitní persona switch ───────────────────────────────────────
+    # Claude občas tool call přeskočí, takže na jednoznačné příkazy
+    # reagujeme servisně bez LLM.
+    # Pořadí: nejdřív reset (návrat na výchozí personu), pak obecný switch.
+
+    switch_target: str | None = None
+
+    if user_id and _detect_persona_reset(user_message):
+        logger.info(f"PERSONA | reset_intent detected | user={user_id} | conv={conversation_id}")
+        default_name = get_user_default_persona_name(user_id)
+        if default_name:
+            switch_target = default_name
+        else:
+            reply = (
+                "❌ Nemám pro tebe nastavenou výchozí personu.\n\n"
+                "Zkus uvést konkrétní jméno (např. 'přepni na Marti')."
+            )
+            save_message(conversation_id, role="assistant", content=reply)
+            return conversation_id, reply, None
+
+    if switch_target is None:
+        switch_target = _detect_persona_switch(user_message)
+
     if switch_target:
-        logger.info(f"PERSONA | switch_intent detected | target={switch_target!r} | conv={conversation_id}")
+        logger.info(f"PERSONA | switch_intent | target={switch_target!r} | conv={conversation_id}")
         result = switch_persona_for_user(query=switch_target, conversation_id=conversation_id)
         if result.get("found"):
             name = result["persona_name"]

@@ -9,7 +9,18 @@ TOOLS = [
         "description": (
             "Tento nástroj MUSÍŠ použít vždy když uživatel chce poslat email. "
             "NIKDY neodpovídej textem o emailu — vždy zavolej tento nástroj. "
-            "Nástroj email NEPOŠLE — nejprve ukáže návrh uživateli a počká na potvrzení."
+            "Nástroj email NEPOŠLE — nejprve ukáže návrh uživateli a počká na potvrzení. "
+            "\n\nÚPRAVY EMAILU: Pokud uživatel chce email upravit, změnit, dodat tam něco, "
+            "smazat část, atd. (např. 'uprav', 'změň', 'dodej', 'smaž', 'doplň', "
+            "'přidej tam'), MUSÍŠ tento nástroj zavolat ZNOVU s kompletním novým body. "
+            "NIKDY nepiš upravený návrh emailu jen jako text ve své odpovědi — "
+            "systém si ukládá jen obsah z volání nástroje a pokud nevoláš, "
+            "odešle se stará verze. Toto je kritické pravidlo."
+            "\n\nADRESA PŘÍJEMCE: NIKDY si nevymýšlej email adresu ('marti@email.com', "
+            "'jan.novak@example.com' apod.). Pokud uživatel uvede jen jméno osoby a NENÍ zřejmé "
+            "jakou má email adresu, NEJPRVE zavolej `find_user` tool. Pokud find_user nenajde "
+            "nebo uživatel explicitně uvedl jinou adresu, použij tu. "
+            "Když si nejsi jistý, ZEPTEJ SE uživatele na email adresu, NIKDY ji nevymýšlej."
         ),
         "input_schema": {
             "type": "object",
@@ -72,14 +83,50 @@ TOOLS = [
 ]
 
 
+def _is_email_in_system(email: str) -> bool:
+    """
+    True, pokud adresa patří aktivnímu uživateli systému (v user_identities).
+    Kontrola proti halucinované adrese — uživatel je okamžitě varován
+    v preview, že AI mohla vymyslet cílovou adresu.
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import User, UserIdentity
+
+    needle = (email or "").strip().lower()
+    if not needle:
+        return False
+    session = get_core_session()
+    try:
+        identity = (
+            session.query(UserIdentity)
+            .filter(UserIdentity.type == "email", UserIdentity.value.ilike(needle))
+            .first()
+        )
+        if not identity:
+            return False
+        user = session.query(User).filter_by(id=identity.user_id).first()
+        return bool(user and user.status in ("active", "pending"))
+    finally:
+        session.close()
+
+
 def format_email_preview(to: str, subject: str, body: str) -> str:
+    # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
+    # typická známka halucinace nebo překlepu.
+    try:
+        in_system = _is_email_in_system(to)
+    except Exception:
+        in_system = False
+    to_line = f"Komu: {to}"
+    if not in_system:
+        to_line += "   ⚠️ TATO ADRESA NENÍ V SYSTÉMU — OVĚŘ NEŽ POTVRDÍŠ"
     return (
         f"📧 Návrh emailu\n\n"
-        f"Komu: {to}\n"
+        f"{to_line}\n"
         f"Předmět: {subject}\n\n"
         f"{body}\n\n"
         f"---\n"
-        f"Mám email odeslat? Napiš ano nebo pošli."
+        f"Mohu email odeslat?"
     )
 
 
@@ -145,6 +192,43 @@ def _strip_diacritics(s: str) -> str:
     import unicodedata
     nfkd = unicodedata.normalize("NFKD", s)
     return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+
+
+def get_user_default_persona_name(user_id: int) -> str | None:
+    """
+    Vrátí název uživatelovy výchozí persony (digitálního dvojčete).
+
+    Konvence: persona pojmenovaná podle first_name uživatele —
+    např. Marti Pašek → persona 'Marti-AI', Klára Vlková → 'Klára-AI'.
+    Hledání je accent-insensitive. Pokud nic nenajde, vrátí None.
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Persona, User
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or not user.first_name:
+            return None
+
+        first_name_bare = _strip_diacritics(user.first_name)
+        personas = session.query(Persona).all()
+
+        # 1. preferuj personu, jejíž base-name (bez -AI) přesně odpovídá first_name
+        for p in personas:
+            base = _strip_diacritics(p.name).replace("-ai", "").strip()
+            if base == first_name_bare:
+                return p.name
+
+        # 2. fallback: substring shoda v obou směrech
+        for p in personas:
+            base = _strip_diacritics(p.name).replace("-ai", "").strip()
+            if first_name_bare and (first_name_bare in base or base in first_name_bare):
+                return p.name
+
+        return None
+    finally:
+        session.close()
 
 
 def switch_persona_for_user(query: str, conversation_id: int) -> dict:

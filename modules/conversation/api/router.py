@@ -16,7 +16,7 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         user_id_str = req.cookies.get("user_id")
         user_id = int(user_id_str) if user_id_str else None
 
-        conversation_id, reply, _ = chat(
+        conversation_id, reply, summary_info = chat(
             conversation_id=request.conversation_id,
             user_message=request.text,
             user_id=user_id,
@@ -24,10 +24,16 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
 
         persona_name = get_active_persona_name(conversation_id)
 
+        summary_notice: str | None = None
+        if summary_info:
+            cnt = summary_info.get("message_count", 0)
+            summary_notice = f"⏳ Shrnul jsem {cnt} starších zpráv do historie."
+
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
             active_persona=persona_name,
+            summary_notice=summary_notice,
         )
     except Exception as e:
         logger.exception(f"Chat failed: {e}")

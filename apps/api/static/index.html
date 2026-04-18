@@ -31,7 +31,7 @@
     /* ── APP ── */
     .app { display: none; flex-direction: column; height: 100vh; max-width: 820px; margin: 0 auto; padding: 0 16px; }
     .header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .logo { font-family: 'DM Mono', monospace; font-size: 13px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .logo { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .conv-id { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
@@ -59,13 +59,58 @@
     .empty p { font-size: 14px; max-width: 280px; }
     .input-area { padding: 14px 0 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
     .input-row { display: flex; gap: 10px; align-items: flex-end; }
-    textarea { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 48px; max-height: 160px; transition: border-color .2s; }
+    textarea { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 48px; max-height: 160px; transition: border-color .2s; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     textarea:focus { border-color: var(--accent); }
     textarea::placeholder { color: var(--muted); }
+    textarea::-webkit-scrollbar { width: 6px; }
+    textarea::-webkit-scrollbar-track { background: transparent; }
+    textarea::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+    textarea::-webkit-scrollbar-thumb:hover { background: #3a3d44; }
     .send-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: opacity .2s, transform .15s; }
     .send-btn:hover { opacity: .85; transform: scale(1.05); }
     .send-btn:disabled { opacity: .35; cursor: not-allowed; transform: none; }
     .send-btn svg { width: 18px; height: 18px; fill: #fff; }
+
+    /* ── SUMMARY BANNER ── */
+    .summary-banner { background: #1c1a2e; border: 1px solid #3a2f5c; color: #b5a8e8; padding: 8px 14px; border-radius: 8px; margin: 8px 0; font-size: 12px; display: flex; align-items: center; gap: 8px; animation: fadeIn .3s ease; }
+
+    /* ── MODE SWITCHER ── */
+    .mode-switch { display: flex; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+    .mode-btn { background: transparent; border: none; color: var(--muted); padding: 6px 12px; font-size: 12px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background .15s, color .15s; }
+    .mode-btn.active { background: linear-gradient(135deg, var(--accent), var(--accent2)); color: #fff; }
+    .mode-btn:hover:not(.active) { color: var(--text); }
+
+    /* ── DM LIST ── */
+    .dm-view { display: none; flex-direction: column; flex: 1; min-height: 0; }
+    .dm-list { flex: 1; overflow-y: auto; padding: 16px 0; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .dm-item { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; transition: border-color .15s, background .15s; display: flex; align-items: center; gap: 12px; }
+    .dm-item:hover { border-color: var(--accent); }
+    .dm-avatar { width: 36px; height: 36px; border-radius: 50%; background: linear-gradient(135deg, #334, #556); display: flex; align-items: center; justify-content: center; color: #cfd; font-size: 13px; font-weight: 500; flex-shrink: 0; font-family: 'DM Mono', monospace; }
+    .dm-meta { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .dm-name { font-size: 14px; font-weight: 500; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dm-preview { font-size: 12px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .dm-unread { background: var(--accent); color: #fff; border-radius: 10px; padding: 2px 8px; font-size: 11px; font-weight: 500; flex-shrink: 0; }
+    .dm-list-empty { color: var(--muted); text-align: center; padding: 40px 20px; font-size: 13px; }
+
+    /* ── NEW DM / SEARCH ── */
+    .dm-toolbar { display: flex; gap: 8px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .dm-toolbar input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; }
+    .dm-toolbar input:focus { border-color: var(--accent); }
+    .dm-search-results { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; max-height: 260px; overflow-y: auto; display: none; }
+    .dm-search-result { padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--border); transition: background .15s; }
+    .dm-search-result:last-child { border-bottom: none; }
+    .dm-search-result:hover { background: #1c1f24; }
+    .dm-search-name { font-size: 13px; color: var(--text); }
+    .dm-search-email { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .dm-search-hint { color: var(--muted); font-size: 12px; padding: 10px 12px; }
+
+    /* ── DM CONVERSATION ── */
+    .dm-conv-header { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .dm-back-btn { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 18px; padding: 4px 8px; }
+    .dm-back-btn:hover { color: var(--text); }
+    .dm-conv-title { font-size: 15px; font-weight: 500; }
+    .dm-conv-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .msg.from-me .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
   </style>
 </head>
 <body>
@@ -97,25 +142,65 @@
     <header class="header">
       <div class="logo">Strategie</div>
       <div class="header-right">
+        <div class="mode-switch">
+          <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
+          <button class="mode-btn" id="modeDmBtn" data-mode="dm">Lidé</button>
+        </div>
         <div class="user-pill" id="userPill"></div>
         <div class="conv-id" id="convIdLabel"></div>
         <button class="new-chat-btn" id="newChatBtn">+ Nová</button>
         <button class="logout-btn" id="logoutBtn">Odhlásit</button>
       </div>
     </header>
-    <div class="agent-bar">Mluvíš s: <span id="agentName">Marti-AI</span></div>
-    <div class="messages" id="messages">
-      <div class="empty" id="emptyState">
-        <div class="empty-icon">◈</div>
-        <p>Začni psát — Marti-AI tě provede.</p>
+
+    <!-- AI VIEW -->
+    <div id="aiView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
+      <div class="agent-bar">Mluvíš s: <span id="agentName">Marti-AI</span></div>
+      <div class="messages" id="messages">
+        <div class="empty" id="emptyState">
+          <div class="empty-icon">◈</div>
+          <p>Začni psát — tvůj AI asistent tě provede.</p>
+        </div>
+      </div>
+      <div class="input-area">
+        <div class="input-row">
+          <textarea id="inputText" placeholder="Napiš zprávu…" rows="2"></textarea>
+          <button class="send-btn" id="sendBtn">
+            <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+          </button>
+        </div>
       </div>
     </div>
-    <div class="input-area">
-      <div class="input-row">
-        <textarea id="inputText" placeholder="Napiš zprávu…" rows="2"></textarea>
-        <button class="send-btn" id="sendBtn">
-          <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
-        </button>
+
+    <!-- DM LIST VIEW -->
+    <div class="dm-view" id="dmListView">
+      <div class="dm-toolbar">
+        <input id="dmSearchInput" placeholder="Najít uživatele (jméno nebo email)…" />
+      </div>
+      <div class="dm-search-results" id="dmSearchResults"></div>
+      <div class="dm-list" id="dmList">
+        <div class="dm-list-empty" id="dmListEmpty">Žádné konverzace s lidmi. Vyhledej uživatele výše a napiš mu.</div>
+      </div>
+    </div>
+
+    <!-- DM CONVERSATION VIEW -->
+    <div class="dm-view" id="dmConvView">
+      <div class="dm-conv-header">
+        <button class="dm-back-btn" id="dmBackBtn" title="Zpět">←</button>
+        <div class="dm-avatar" id="dmConvAvatar">?</div>
+        <div style="flex:1; min-width:0;">
+          <div class="dm-conv-title" id="dmConvTitle">—</div>
+          <div class="dm-conv-sub" id="dmConvSub"></div>
+        </div>
+      </div>
+      <div class="messages" id="dmMessages"></div>
+      <div class="input-area">
+        <div class="input-row">
+          <textarea id="dmInputText" placeholder="Napiš zprávu…" rows="2"></textarea>
+          <button class="send-btn" id="dmSendBtn">
+            <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+          </button>
+        </div>
       </div>
     </div>
   </div>
@@ -200,6 +285,7 @@
         return;
       }
       currentUser = await res.json();
+      try { localStorage.setItem('last_email', email); } catch (_) {}
       await showApp();
     } catch (e) {
       loginError.textContent = 'Chyba spojení.';
@@ -208,11 +294,27 @@
     }
   }
 
+  // Auto-login přes existující cookie — po F5 nepadáme na login když jsme přihlášení.
+  async function tryAutoLogin() {
+    try {
+      const res = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      if (!res.ok) return false;
+      currentUser = await res.json();
+      await showApp();
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
   async function showApp() {
     loginScreen.style.display = 'none';
     appScreen.style.display = 'flex';
     const name = [currentUser.first_name, currentUser.last_name].filter(Boolean).join(' ') || currentUser.email;
     userPill.textContent = name;
+    // Reset jména persony — ať nezůstane "Marti-AI" z HTML defaultu,
+    // když se přihlásí jiný user. Server ho doplní v /last nebo v první odpovědi.
+    document.getElementById('agentName').textContent = '—';
     await loadLastConversation();
     inputEl.focus();
   }
@@ -240,7 +342,12 @@
     currentUser = null; conversationId = null;
     appScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
-    loginEmail.value = ''; loginError.textContent = '';
+    loginError.textContent = '';
+    // předvyplň posledně použitý email (pohodlí)
+    try {
+      const last = localStorage.getItem('last_email');
+      loginEmail.value = last || '';
+    } catch (_) { loginEmail.value = ''; }
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
@@ -259,10 +366,35 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
   });
 
+  // Enter = nový řádek (víceřádkový vstup). Zpráva se odesílá jen tlačítkem.
+  // (Volitelně: Ctrl+Enter = odeslat — pro power usery.)
   inputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
   });
   sendBtn.addEventListener('click', send);
+
+  function currentAgentLabel() {
+    // Aktuálně aktivní persona — čteme z hlavičky, kam ji server při každé
+    // odpovědi (active_persona) doplní. Fallback pokud zatím chybí.
+    const el = document.getElementById('agentName');
+    return (el && el.textContent && el.textContent.trim()) || 'AI';
+  }
+
+  function showSummaryBanner(text) {
+    // Banner v messages containeru — viditelný signál, že backend právě
+    // shrnul starší část konverzace. Auto-dismiss po 6 sekundách.
+    emptyState.style.display = 'none';
+    const banner = document.createElement('div');
+    banner.className = 'summary-banner';
+    banner.textContent = text;
+    messagesEl.appendChild(banner);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+    setTimeout(() => {
+      banner.style.transition = 'opacity .5s ease';
+      banner.style.opacity = '0';
+      setTimeout(() => banner.remove(), 500);
+    }, 6000);
+  }
 
   function renderMessage(role, content) {
     emptyState.style.display = 'none';
@@ -272,7 +404,7 @@
     roleEl.className = 'msg-role';
     roleEl.textContent = role === 'user'
       ? ([currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ') || 'Ty')
-      : 'Marti-AI';
+      : currentAgentLabel();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.textContent = content;
@@ -289,7 +421,7 @@
     roleEl.className = 'msg-role';
     roleEl.textContent = role === 'user'
       ? ([currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ') || 'Ty')
-      : role === 'loading' ? '' : 'Marti-AI';
+      : role === 'loading' ? '' : currentAgentLabel();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     if (type === 'loading') {
@@ -328,9 +460,15 @@
         const data = await res.json();
         conversationId = data.conversation_id;
         convIdLabel.textContent = `#${conversationId}`;
-        addMessage('assistant', data.reply);
+        // aktualizuj jméno persony DŘÍVE než vykreslíme bubble,
+        // ať má popisek zprávy správnou identitu (např. Klára-AI vs Marti-AI)
         if (data.active_persona) {
           document.getElementById('agentName').textContent = data.active_persona;
+        }
+        addMessage('assistant', data.reply);
+        // Banner pokud backend shrnul starší historii v tomto cyklu
+        if (data.summary_notice) {
+          showSummaryBanner(data.summary_notice);
         }
       }
     } catch (e) {
@@ -342,12 +480,293 @@
     }
   }
 
+  // ── MODE SWITCH (AI ↔ DM) ─────────────────────────────────────────────
+  const aiView        = document.getElementById('aiView');
+  const dmListView    = document.getElementById('dmListView');
+  const dmConvView    = document.getElementById('dmConvView');
+  const modeAiBtn     = document.getElementById('modeAiBtn');
+  const modeDmBtn     = document.getElementById('modeDmBtn');
+
+  let currentMode = 'ai';
+  let activeDmId  = null;
+  let dmLastMessageId = 0;
+  let dmPollTimer = null;
+
+  function setMode(mode) {
+    currentMode = mode;
+    modeAiBtn.classList.toggle('active', mode === 'ai');
+    modeDmBtn.classList.toggle('active', mode === 'dm');
+    aiView.style.display       = (mode === 'ai')  ? 'flex' : 'none';
+    dmListView.style.display   = (mode === 'dm' && !activeDmId) ? 'flex' : 'none';
+    dmConvView.style.display   = (mode === 'dm' && activeDmId)  ? 'flex' : 'none';
+    if (mode === 'ai') stopDmPoll();
+    if (mode === 'dm' && !activeDmId) loadDmList();
+  }
+  modeAiBtn.addEventListener('click', () => setMode('ai'));
+  modeDmBtn.addEventListener('click', () => { activeDmId = null; setMode('dm'); });
+
+  // ── DM LIST ────────────────────────────────────────────────────────────
+  const dmListEl    = document.getElementById('dmList');
+  const dmListEmpty = document.getElementById('dmListEmpty');
+
+  function initialsOf(user) {
+    if (!user) return '?';
+    const f = (user.first_name || '').charAt(0);
+    const l = (user.last_name  || '').charAt(0);
+    const s = (f + l).toUpperCase();
+    if (s) return s;
+    return (user.email || '?').charAt(0).toUpperCase();
+  }
+  function displayName(user) {
+    if (!user) return 'Neznámý';
+    return [user.first_name, user.last_name].filter(Boolean).join(' ') || user.email || `User ${user.user_id}`;
+  }
+
+  async function loadDmList() {
+    try {
+      const res = await fetch('/api/v1/dm/list', { credentials: 'include' });
+      if (!res.ok) { dmListEmpty.textContent = 'Nepodařilo se načíst konverzace.'; return; }
+      const items = await res.json();
+      renderDmList(items);
+    } catch (e) {
+      dmListEmpty.textContent = 'Chyba spojení.';
+    }
+  }
+
+  function renderDmList(items) {
+    dmListEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      dmListEl.appendChild(dmListEmpty);
+      dmListEmpty.style.display = '';
+      dmListEmpty.textContent = 'Žádné konverzace s lidmi. Vyhledej uživatele výše a napiš mu.';
+      return;
+    }
+    dmListEmpty.style.display = 'none';
+    for (const it of items) {
+      const row = document.createElement('div');
+      row.className = 'dm-item';
+      row.innerHTML = `
+        <div class="dm-avatar">${initialsOf(it.counterparty)}</div>
+        <div class="dm-meta">
+          <div class="dm-name">${displayName(it.counterparty)}</div>
+          <div class="dm-preview">${it.last_message_at ? new Date(it.last_message_at).toLocaleString('cs-CZ') : 'žádné zprávy'}</div>
+        </div>
+        ${it.unread_count > 0 ? `<div class="dm-unread">${it.unread_count}</div>` : ''}
+      `;
+      row.addEventListener('click', () => openDm(it.conversation_id, it.counterparty));
+      dmListEl.appendChild(row);
+    }
+  }
+
+  // ── USER SEARCH ────────────────────────────────────────────────────────
+  const dmSearchInput   = document.getElementById('dmSearchInput');
+  const dmSearchResults = document.getElementById('dmSearchResults');
+  let searchTimer = null;
+
+  dmSearchInput.addEventListener('input', () => {
+    const q = dmSearchInput.value.trim();
+    clearTimeout(searchTimer);
+    if (q.length < 2) { dmSearchResults.style.display = 'none'; return; }
+    searchTimer = setTimeout(() => runUserSearch(q), 250);
+  });
+
+  async function runUserSearch(q) {
+    try {
+      const res = await fetch(`/api/v1/dm/_users/search?q=${encodeURIComponent(q)}`, { credentials: 'include' });
+      if (!res.ok) { dmSearchResults.style.display = 'none'; return; }
+      const data = await res.json();
+      renderSearchResults(data.results || []);
+    } catch (e) {
+      dmSearchResults.style.display = 'none';
+    }
+  }
+
+  function renderSearchResults(results) {
+    dmSearchResults.innerHTML = '';
+    if (results.length === 0) {
+      const h = document.createElement('div');
+      h.className = 'dm-search-hint';
+      h.textContent = 'Nikdo nenalezen.';
+      dmSearchResults.appendChild(h);
+    } else {
+      for (const u of results) {
+        const r = document.createElement('div');
+        r.className = 'dm-search-result';
+        r.innerHTML = `
+          <div class="dm-search-name">${displayName(u)}</div>
+          <div class="dm-search-email">${u.email || ''}</div>
+        `;
+        r.addEventListener('click', () => startDmWith(u));
+        dmSearchResults.appendChild(r);
+      }
+    }
+    dmSearchResults.style.display = 'block';
+  }
+
+  async function startDmWith(user) {
+    dmSearchResults.style.display = 'none';
+    dmSearchInput.value = '';
+    try {
+      const res = await fetch('/api/v1/dm/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ target_user_id: user.user_id }),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || 'Nepodařilo se zahájit chat.');
+        return;
+      }
+      const data = await res.json();
+      openDm(data.conversation_id, user);
+    } catch (e) {
+      alert('Chyba spojení.');
+    }
+  }
+
+  // ── DM CONVERSATION ────────────────────────────────────────────────────
+  const dmMessagesEl  = document.getElementById('dmMessages');
+  const dmInputEl     = document.getElementById('dmInputText');
+  const dmSendBtn     = document.getElementById('dmSendBtn');
+  const dmBackBtn     = document.getElementById('dmBackBtn');
+  const dmConvTitle   = document.getElementById('dmConvTitle');
+  const dmConvSub     = document.getElementById('dmConvSub');
+  const dmConvAvatar  = document.getElementById('dmConvAvatar');
+
+  dmBackBtn.addEventListener('click', () => { activeDmId = null; stopDmPoll(); setMode('dm'); });
+  dmSendBtn.addEventListener('click', sendDm);
+  // Enter = nový řádek, odeslání jen tlačítkem (volitelně Ctrl+Enter).
+  dmInputEl.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendDm(); }
+  });
+  dmInputEl.addEventListener('input', () => {
+    dmInputEl.style.height = 'auto';
+    dmInputEl.style.height = Math.min(dmInputEl.scrollHeight, 160) + 'px';
+  });
+
+  async function openDm(conversationId, counterpartyHint) {
+    activeDmId = conversationId;
+    dmLastMessageId = 0;
+    dmMessagesEl.innerHTML = '';
+    if (counterpartyHint) {
+      dmConvTitle.textContent  = displayName(counterpartyHint);
+      dmConvSub.textContent    = counterpartyHint.email || `#${conversationId}`;
+      dmConvAvatar.textContent = initialsOf(counterpartyHint);
+    } else {
+      dmConvTitle.textContent = '…';
+      dmConvSub.textContent = `#${conversationId}`;
+      dmConvAvatar.textContent = '?';
+    }
+    setMode('dm');   // přepne na conv view
+
+    // načti detail (pro jméno protistrany) a historii
+    try {
+      const detailRes = await fetch(`/api/v1/dm/${conversationId}`, { credentials: 'include' });
+      if (detailRes.ok) {
+        const detail = await detailRes.json();
+        if (detail.counterparty) {
+          dmConvTitle.textContent  = displayName(detail.counterparty);
+          dmConvSub.textContent    = detail.counterparty.email || `#${conversationId}`;
+          dmConvAvatar.textContent = initialsOf(detail.counterparty);
+        }
+      }
+    } catch (e) {}
+
+    await pollDmMessages();
+    startDmPoll();
+  }
+
+  function renderDmMessage(m) {
+    const fromMe = m.author_user_id === (currentUser && currentUser.user_id);
+    const wrap = document.createElement('div');
+    wrap.className = `msg ${fromMe ? 'from-me user' : 'assistant'}`;
+    const roleEl = document.createElement('div');
+    roleEl.className = 'msg-role';
+    roleEl.textContent = fromMe ? 'Ty' : (dmConvTitle.textContent || 'Protistrana');
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    bubble.textContent = m.content;
+    wrap.appendChild(roleEl); wrap.appendChild(bubble);
+    dmMessagesEl.appendChild(wrap);
+  }
+
+  async function pollDmMessages() {
+    if (!activeDmId) return;
+    try {
+      const url = `/api/v1/dm/${activeDmId}/messages${dmLastMessageId ? `?since_message_id=${dmLastMessageId}` : ''}`;
+      const res = await fetch(url, { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      let lastId = dmLastMessageId;
+      for (const m of (data.messages || [])) {
+        renderDmMessage(m);
+        if (m.id > lastId) lastId = m.id;
+      }
+      if (lastId !== dmLastMessageId) {
+        dmLastMessageId = lastId;
+        dmMessagesEl.scrollTop = dmMessagesEl.scrollHeight;
+        // označ jako přečtené
+        fetch(`/api/v1/dm/${activeDmId}/read`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ last_read_message_id: dmLastMessageId }),
+          credentials: 'include',
+        }).catch(() => {});
+      }
+    } catch (e) {}
+  }
+
+  function startDmPoll() {
+    stopDmPoll();
+    dmPollTimer = setInterval(pollDmMessages, 4000);
+  }
+  function stopDmPoll() {
+    if (dmPollTimer) { clearInterval(dmPollTimer); dmPollTimer = null; }
+  }
+
+  async function sendDm() {
+    const text = dmInputEl.value.trim();
+    if (!text || !activeDmId) return;
+    dmSendBtn.disabled = true;
+    dmInputEl.value = ''; dmInputEl.style.height = 'auto';
+    try {
+      const res = await fetch(`/api/v1/dm/${activeDmId}/send`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text }),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || `Chyba ${res.status}`);
+      } else {
+        await pollDmMessages();
+      }
+    } catch (e) {
+      alert('Chyba spojení.');
+    } finally {
+      dmSendBtn.disabled = false;
+      dmInputEl.focus();
+    }
+  }
+
   // ── INIT ───────────────────────────────────────────────────────────────
   (async () => {
     const handled = await checkInviteToken();
-    if (!handled) {
-      loginScreen.style.display = 'flex';
-    }
+    if (handled) return;
+
+    // Zkus auto-login přes cookie. Pokud selže, ukaž login screen
+    // a předvyplň poslední použitý email (localStorage).
+    const loggedIn = await tryAutoLogin();
+    if (loggedIn) return;
+
+    loginScreen.style.display = 'flex';
+    try {
+      const last = localStorage.getItem('last_email');
+      if (last) loginEmail.value = last;
+    } catch (_) {}
+    loginEmail.focus();
   })();
 </script>
 </body>

@@ -53,15 +53,18 @@ TOOLS = [
     {
         "name": "switch_persona",
         "description": (
-            "Použij tento nástroj když uživatel chce mluvit s jiným agentem nebo osobou. "
-            "Například: 'přepni na Ondru', 'chci mluvit s Klárkou', 'spoj mě s Ondrou'. "
-            "Systém přepne aktivní personu — každý agent má svůj styl a kontext. "
-            "Uživatel stále mluví se svým vlastním AI asistentem, ale ten přebere roli jiné osoby."
+            "Tento nástroj MUSÍŠ použít VŽDY, když uživatel chce přepnout na jinou osobu / personu / agenta. "
+            "NIKDY neodpovídej textem ve smyslu 'přepnul jsem', 'už mluvíš s X', 'jsem X', 'jsem zpátky' — "
+            "vždy nejdřív zavolej tento nástroj. Systém sám v DB změní aktivní personu "
+            "a vrátí potvrzovací hlášku; tvoje vlastní text NENÍ potvrzení přepnutí. "
+            "Spouštěč: jakákoli varianta 'přepni na X', 'chci X', 'spoj mě s X', "
+            "'mluv jako X', 'dej mi X', 'potřebuju X'. "
+            "Pokud si nejsi jistý, zda už personou jsi, přesto VOLEJ nástroj — je idempotentní."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "query": {"type": "string", "description": "Jméno nebo role osoby na kterou chce přepnout"},
+                "query": {"type": "string", "description": "Jméno nebo role osoby na kterou chce přepnout (např. 'Marti', 'Klára', 'Ondra')"},
             },
             "required": ["query"],
         },
@@ -137,10 +140,18 @@ def invite_user_to_strategie(email: str, name: str | None, invited_by_user_id: i
         return {"success": False, "email": email, "error": str(e)}
 
 
+def _strip_diacritics(s: str) -> str:
+    """Převede 'Klára' → 'klara' pro accent-insensitive hledání."""
+    import unicodedata
+    nfkd = unicodedata.normalize("NFKD", s)
+    return "".join(c for c in nfkd if not unicodedata.combining(c)).lower()
+
+
 def switch_persona_for_user(query: str, conversation_id: int) -> dict:
     """
     Přepne aktivní personu v konverzaci.
     Hledá personu podle jména v css_db.
+    Hledání je case- a accent-insensitive ('klara' = 'Klára').
     Pokud nenajde personu, vrátí found=False.
     """
     from core.database_core import get_core_session
@@ -149,16 +160,54 @@ def switch_persona_for_user(query: str, conversation_id: int) -> dict:
     from modules.core.infrastructure.models_data import Conversation
 
     query_lower = query.strip().lower()
+    query_bare = _strip_diacritics(query_lower)
 
-    # Hledej personu podle jména
+    # Hledej personu. Hledání je accent-insensitive + case-insensitive,
+    # s obousměrným substringem a prefixovou shodou pro české pády.
     core_session = get_core_session()
     try:
         personas = core_session.query(Persona).all()
-        matched = None
+
+        # Předpočítej bare (bez diakritiky) názvy pro každou personu
+        persona_keys = []
         for p in personas:
-            if query_lower in p.name.lower():
+            name_bare = _strip_diacritics(p.name)
+            base_bare = name_bare.replace("-ai", "").strip()
+            persona_keys.append((p, name_bare, base_bare))
+
+        matched = None
+
+        # 1. krok: přesná shoda
+        for p, name_bare, base_bare in persona_keys:
+            if name_bare == query_bare or base_bare == query_bare:
                 matched = p
                 break
+
+        # 2. krok: substring v obou směrech
+        if matched is None:
+            for p, name_bare, base_bare in persona_keys:
+                if query_bare in name_bare or name_bare in query_bare:
+                    matched = p
+                    break
+                if base_bare and (query_bare in base_bare or base_bare in query_bare):
+                    matched = p
+                    break
+
+        # 3. krok: prefixová shoda na alespoň 4 znaky
+        # (pokrývá české pády jako "Kláře"/"Kláru" → "Klára")
+        if matched is None:
+            for p, name_bare, base_bare in persona_keys:
+                if not base_bare:
+                    continue
+                common = 0
+                for a, b in zip(base_bare, query_bare):
+                    if a == b:
+                        common += 1
+                    else:
+                        break
+                if common >= 4 and common >= min(len(base_bare), len(query_bare)) - 2:
+                    matched = p
+                    break
 
         if not matched:
             return {"found": False, "query": query}

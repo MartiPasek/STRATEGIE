@@ -11,6 +11,9 @@ class ChatResponse(BaseModel):
     reply: str
     active_persona: str | None = None
     switch_to_conversation_id: int | None = None
+    # Když se v tomto cyklu vytvořilo nové summary, frontend tuto hlášku zobrazí
+    # jako banner (např. „⏳ Shrnul jsem 10 starších zpráv"). Jinak None.
+    summary_notice: str | None = None
 
 
 class HistoryMessage(BaseModel):

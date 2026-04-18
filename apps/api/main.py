@@ -5,6 +5,7 @@ import os
 from core.logging import setup_logging
 from modules.ai_processing.api.router import router as ai_processing_router
 from modules.conversation.api.router import router as conversation_router
+from modules.conversation.api.dm_router import router as dm_router
 from modules.auth.api.router import router as auth_router
 from modules.memory.api.router import router as memory_router
 
@@ -18,6 +19,7 @@ app = FastAPI(
 
 app.include_router(ai_processing_router)
 app.include_router(conversation_router)
+app.include_router(dm_router)
 app.include_router(auth_router)
 app.include_router(memory_router)
 

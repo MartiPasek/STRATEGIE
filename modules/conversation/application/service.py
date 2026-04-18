@@ -3,6 +3,7 @@ Conversation service s Execution layer.
 Každý uživatel má svůj vlastní chat. Přepínání person místo sdílených konverzací.
 """
 import json
+import re
 import anthropic
 
 from core.config import settings
@@ -32,6 +33,41 @@ def _is_confirmation(text: str) -> bool:
     if "@" in cleaned or len(cleaned.split()) > 3:
         return False
     return cleaned in CONFIRM_KEYWORDS
+
+
+# ── PERSONA SWITCH — SERVER-SIDE INTENT DETECTION ─────────────────────────
+# Spouštěče, které VŽDY vedou k zavolání switch_persona toolu bez ohledu
+# na LLM. Claude Haiku občas ignoruje tool call a odpověď halucinuje, takže
+# nejspolehlivější řešení je pro explicitní příkazy Claude úplně obejít.
+
+_PERSONA_SWITCH_PATTERNS = [
+    # "přepni na X" / "prepni na X" + tolerance k překlepům "n X" místo "na X"
+    re.compile(r"^\s*p[rř]epni\s+(?:mě\s+|me\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*p[rř]epnout\s+(?:mě\s+|me\s+)?n[aA]?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*spoj\s+m[eě]\s+s\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*chci\s+mluvit\s+s\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*mluv\s+jako\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*switch\s+to\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+]
+
+
+def _detect_persona_switch(text: str) -> str | None:
+    """
+    Vrátí extrahovaný cíl přepnutí (název persony), nebo None.
+    Porovnává jen krátké explicitní příkazy; dlouhé věty nechává Claude.
+    """
+    if not text:
+        return None
+    if len(text.strip().split()) > 6:
+        return None
+    for pat in _PERSONA_SWITCH_PATTERNS:
+        m = pat.match(text)
+        if m:
+            target = m.group(1).strip()
+            # ořízni běžné suffixy / koncovky
+            target = re.sub(r"-?ai$", "", target, flags=re.IGNORECASE).strip()
+            return target or None
+    return None
 
 
 def _save_pending_action(conversation_id: int, action_type: str, payload: dict) -> None:
@@ -135,8 +171,12 @@ def chat(
     user_id: int | None = None,
     tenant_id: int | None = None,
     project_id: int | None = None,
-) -> tuple[int, str, None]:
-    """Vrátí (conversation_id, reply, None) — switch_to vždy None (žádné sdílení)."""
+) -> tuple[int, str, dict | None]:
+    """
+    Vrátí (conversation_id, reply, summary_info).
+    `summary_info` je None pokud se v tomto cyklu summary nevytvořilo,
+    jinak dict s metadaty o nově vytvořeném shrnutí (pro UI banner).
+    """
 
     if conversation_id is None:
         conversation_id = create_conversation(user_id=user_id)
@@ -149,6 +189,23 @@ def chat(
             return conversation_id, result, None
 
     save_message(conversation_id, role="user", content=user_message)
+
+    # Explicitní persona switch — Claude občas tool call přeskočí,
+    # takže na jednoznačné příkazy reagujeme servisně bez LLM.
+    switch_target = _detect_persona_switch(user_message)
+    if switch_target:
+        logger.info(f"PERSONA | switch_intent detected | target={switch_target!r} | conv={conversation_id}")
+        result = switch_persona_for_user(query=switch_target, conversation_id=conversation_id)
+        if result.get("found"):
+            name = result["persona_name"]
+            reply = f"✅ Přepnuto na {name}.\n\nNyní mluvíš s {name}. Jak ti mohu pomoci?"
+        else:
+            reply = (
+                f"❌ Personu '{switch_target}' jsem v systému nenašel/a.\n\n"
+                f"Zkus přesnější jméno (např. celé jméno persony)."
+            )
+        save_message(conversation_id, role="assistant", content=reply)
+        return conversation_id, reply, None
 
     system_prompt, messages = build_prompt(conversation_id)
 
@@ -184,4 +241,14 @@ def chat(
     except Exception as e:
         logger.error(f"MEMORY | failed: {e}")
 
-    return conversation_id, assistant_reply, None
+    # Summary job — idempotentní, sám si ověří podmínky spuštění.
+    # Běží synchronně (přidá malou latenci při překročení prahu), ale je
+    # robustní vůči chybám: návrat None při jakékoli výjimce.
+    summary_info: dict | None = None
+    try:
+        from modules.conversation.application.summary_service import maybe_create_summary
+        summary_info = maybe_create_summary(conversation_id)
+    except Exception as e:
+        logger.error(f"SUMMARY | failed: {e}")
+
+    return conversation_id, assistant_reply, summary_info

@@ -1,13 +1,23 @@
 """
 Conversation repository — používá modely z modules/core/infrastructure.
 """
+from datetime import datetime, timezone
+
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
 from modules.core.infrastructure.models_core import SystemPrompt, Persona
-from modules.core.infrastructure.models_data import Conversation, Message
+from modules.core.infrastructure.models_data import (
+    Conversation,
+    ConversationParticipant,
+    Message,
+)
 
 logger = get_logger("conversation")
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
 
 
 def get_system_prompt() -> str | None:
@@ -32,11 +42,44 @@ def create_conversation(user_id: int | None = None) -> int:
         session.close()
 
 
-def save_message(conversation_id: int, role: str, content: str) -> int:
+def save_message(
+    conversation_id: int,
+    role: str,
+    content: str,
+    *,
+    author_type: str = "ai",
+    author_user_id: int | None = None,
+    agent_id: int | None = None,
+    message_type: str = "text",
+) -> int:
+    """
+    Uloží zprávu a zároveň aktualizuje denormalizovaná pole v konverzaci
+    (last_message_id, last_message_at) — potřebné pro listing DM vláken.
+
+    Zpětně kompatibilní: staré volání `save_message(cid, role, content)`
+    zůstává funkční a použije defaulty pro AI chat.
+    """
     session = get_data_session()
     try:
-        message = Message(conversation_id=conversation_id, role=role, content=content)
+        now = _now_utc()
+        message = Message(
+            conversation_id=conversation_id,
+            role=role,
+            content=content,
+            author_type=author_type,
+            author_user_id=author_user_id,
+            agent_id=agent_id,
+            message_type=message_type,
+        )
         session.add(message)
+        session.flush()   # získá id před commitem
+
+        # Denormalizace pro rychlý listing
+        conversation = session.query(Conversation).filter_by(id=conversation_id).first()
+        if conversation is not None:
+            conversation.last_message_id = message.id
+            conversation.last_message_at = now
+
         session.commit()
         session.refresh(message)
         return message.id

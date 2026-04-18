@@ -7,7 +7,7 @@ from modules.auth.api.schemas import LoginRequest, LoginResponse
 from modules.auth.application.service import login_by_email
 from modules.auth.application.invitation_service import create_invitation, accept_invitation
 from modules.notifications.application.email_service import send_invitation_email
-from modules.core.infrastructure.models_core import User
+from modules.core.infrastructure.models_core import User, UserIdentity
 
 logger = get_logger("auth.api")
 
@@ -34,6 +34,41 @@ def logout(response: Response) -> dict:
     response.delete_cookie("user_id")
     response.delete_cookie("tenant_id")
     return {"status": "logged out"}
+
+
+@router.get("/me", response_model=LoginResponse)
+def me(req: Request) -> LoginResponse:
+    """
+    Vrátí aktuálního uživatele podle cookie `user_id`.
+    Používá se po reloadu stránky, ať nepadneme na login když je user stále přihlášený.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Účet není aktivní.")
+        primary = (
+            session.query(UserIdentity)
+            .filter_by(user_id=user_id, type="email", is_primary=True)
+            .first()
+        )
+        return LoginResponse(
+            user_id=user.id,
+            first_name=user.first_name,
+            last_name=user.last_name,
+            email=primary.value if primary else "",
+            tenant_id=user.last_active_tenant_id,
+        )
+    finally:
+        session.close()
 
 
 # ── INVITATIONS ────────────────────────────────────────────────────────────

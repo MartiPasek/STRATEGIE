@@ -28,10 +28,16 @@ class Conversation(BaseData):
     active_agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     interaction_mode: Mapped[str] = mapped_column(String(10), default="ai")   # ai | human
     handoff_state: Mapped[str] = mapped_column(String(30), default="idle")    # idle | clarifying_request | ready_for_handoff | sent_to_human
+    conversation_type: Mapped[str] = mapped_column(String(20), default="ai")  # ai | dm | (group later)
+    created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Pro DM: uspořádaná dvojice user_id (low < high) pro jednoznačný lookup a partial unique index.
+    dm_user_low_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    dm_user_high_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     title: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -47,6 +53,7 @@ class Message(BaseData):
     agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     author_type: Mapped[str] = mapped_column(String(10), default="ai")   # ai | human
     author_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    message_type: Mapped[str] = mapped_column(String(20), default="text")  # text | system | ai_summary
     last_human_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_human_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
@@ -74,6 +81,25 @@ class ConversationShare(BaseData):
     shared_with_user_id: Mapped[int] = mapped_column(BigInteger)
     access_level: Mapped[str] = mapped_column(String(10))   # read | write
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class ConversationParticipant(BaseData):
+    """
+    Účastníci konverzace (MVP: pouze DM = dva řádky na konverzaci).
+    Každý účastník drží svůj read-state, mute/archive flag.
+    Pro AI konverzace se tento záznam NEvyplňuje — vlastníka drží Conversation.user_id.
+    """
+    __tablename__ = "conversation_participants"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"))
+    user_id: Mapped[int] = mapped_column(BigInteger)   # FK logická — users žijí v css_db
+    participant_role: Mapped[str] = mapped_column(String(20), default="member")   # owner | member
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    last_read_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    is_muted: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
 # ── PAMĚŤ ──────────────────────────────────────────────────────────────────

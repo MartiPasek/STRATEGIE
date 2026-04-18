@@ -139,3 +139,13 @@ class ActionLog(BaseData):
     approval_required: Mapped[bool] = mapped_column(Boolean, default=False)
     approved_by: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class PendingAction(BaseData):
+    __tablename__ = "pending_actions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("conversations.id", ondelete="CASCADE"))
+    action_type: Mapped[str] = mapped_column(String(50))   # "send_email"
+    payload: Mapped[str] = mapped_column(Text)             # JSON
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

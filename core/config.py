@@ -9,8 +9,11 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
 
+
     # Database
     database_url: str = ""
+    database_core_url: str = ""
+    database_data_url: str = ""
 
     # Logging
     log_level: str = "INFO"

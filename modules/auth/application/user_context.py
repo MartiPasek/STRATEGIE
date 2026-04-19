@@ -12,6 +12,7 @@ from core.logging import get_logger
 from modules.core.infrastructure.models_core import (
     User, UserContact, UserAlias,
     Tenant, UserTenant, UserTenantProfile,
+    Persona,
 )
 
 logger = get_logger("auth.user_context")
@@ -105,6 +106,14 @@ def get_user_context(user_id: int) -> dict | None:
         # Všechny aktivní tenanty, jichž je user členem — pro dropdown
         available_tenants = _list_user_tenants(session, user_id)
 
+        # Default persona (typicky "Marti-AI") — UI ji ukazuje v hlavičce
+        # "Mluvíš s: …" hned po loginu / nové konverzaci, ještě než se
+        # konverzace fakticky vytvoří.
+        default_persona = (
+            session.query(Persona).filter_by(is_default=True).first()
+        )
+        default_persona_name = default_persona.name if default_persona else "Marti-AI"
+
         return {
             "user_id": user.id,
             "first_name": user.first_name,
@@ -118,6 +127,7 @@ def get_user_context(user_id: int) -> dict | None:
             "tenant_code": tenant_code,
             "aliases": aliases,
             "available_tenants": available_tenants,
+            "default_persona_name": default_persona_name,
         }
     finally:
         session.close()

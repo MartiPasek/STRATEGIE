@@ -38,6 +38,10 @@ class LoginResponse(BaseModel):
     tenant_name: str | None = None      # z tenants
     tenant_code: str | None = None      # z tenants — krátký kód (EUR, MARTI)
     aliases: list[str] = []             # z user_aliases (active, primary first)
+    # Default persona (typicky "Marti-AI") — UI ji ukazuje v hlavičce
+    # "Mluvíš s: …" hned po loginu / nové konverzaci, aby user věděl s kým
+    # mluví ještě před první zprávou.
+    default_persona_name: str | None = None
     # Všechny aktivní tenanty, jichž je user členem — pro UI tenant dropdown.
     available_tenants: list[TenantInfo] = []
     # Pokud /switch_tenant vložil do konverzace systémový marker, vrátí se tu

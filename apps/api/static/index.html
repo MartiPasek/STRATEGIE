@@ -222,12 +222,17 @@
        - .tenant-pill-name (jméno) → otevře profil dropdown
        - .tenant-pill-tenant + sep (tenant) → otevře tenant přepínač
        Hover indikátor je per-zóna (jemný background podtržení). */
-    .tenant-pill { display: inline-flex; align-items: center; padding: 3px 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; white-space: pre; user-select: none; transition: border-color .15s; }
+    /* Tenant pilulka — sjednocena s .conv-dd-trigger / .new-chat-btn:
+       stejný font (DM Sans), surface background, 8px border-radius, výška
+       přes padding 6px. Accent barva zůstává jen na jménu jako signál
+       "tohle jsi ty". Dvě klikatelné zóny (jméno / tenant) oddělené tenkým
+       separátorem. overflow:hidden aby vnitřní hover backgroundy nevyčuhovaly. */
+    .tenant-pill { display: inline-flex; align-items: center; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; color: var(--text); font-family: 'DM Sans', sans-serif; white-space: pre; user-select: none; transition: border-color .15s; overflow: hidden; }
     .tenant-pill:hover { border-color: var(--accent); }
-    .tenant-pill-name { color: var(--accent); font-weight: 500; padding: 2px 8px; border-radius: 99px; cursor: pointer; transition: background .12s; }
+    .tenant-pill-name { color: var(--accent); font-weight: 500; padding: 6px 10px; cursor: pointer; transition: background .12s; }
     .tenant-pill-name:hover { background: rgba(79,142,247,0.12); }
-    .tenant-pill-sep { color: var(--muted); cursor: pointer; }
-    .tenant-pill-tenant { color: var(--text); padding: 2px 8px; border-radius: 99px; cursor: pointer; transition: background .12s; }
+    .tenant-pill-sep { color: var(--muted); cursor: default; padding: 0 2px; }
+    .tenant-pill-tenant { color: var(--text); padding: 6px 10px; cursor: pointer; transition: background .12s; }
     .tenant-pill-tenant:hover { background: rgba(255,255,255,0.06); }
     .tenant-pill-caret { color: var(--muted); margin-left: 6px; font-size: 10px; }
     /* Profile dropdown — sdílený styl s tenant-dropdown */
@@ -741,9 +746,11 @@
     loginScreen.style.display = 'none';
     appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
     appScreen.classList.add('show');
-    // Reset jména persony — ať nezůstane "Marti-AI" z HTML defaultu,
-    // když se přihlásí jiný user. Server ho doplní v /last nebo v první odpovědi.
-    document.getElementById('agentName').textContent = '—';
+    // Jméno persony hlavičky — použij default z /me (typicky "Marti-AI").
+    // loadLastConversation případně přepíše na konkrétní active personu
+    // z existující konverzace.
+    document.getElementById('agentName').textContent =
+      (currentUser && currentUser.default_persona_name) || 'Marti-AI';
     // Hlavičková pilulka: "<display_name> - <tenant_name>"
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
     updateBrowserTitle();
@@ -804,12 +811,22 @@
 
   // ── CHAT ───────────────────────────────────────────────────────────────
   newChatBtn.addEventListener('click', () => {
+    // "+ Nová" je sémanticky AI akce — když jsme zrovna v Lidé módu,
+    // nejdřív se přepneme zpět na AI, pak založíme prázdnou konverzaci.
+    // (Jinak by klik vypadal jako nefunkční — uživatel by zůstal v DM view.)
+    if (typeof currentMode !== 'undefined' && currentMode !== 'ai') {
+      setMode('ai');
+    }
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
     // Odznač aktivní položku v sidebaru — žádná konverzace není načtena.
     document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
+    // Nová konverzace pojede s default personou — ukaž ji v hlavičce hned,
+    // ne až po první odpovědi (aby user věděl s kým bude mluvit).
+    document.getElementById('agentName').textContent =
+      (currentUser && currentUser.default_persona_name) || 'Marti-AI';
   });
 
   // ── SIDEBAR — seznam AI konverzací ─────────────────────────────────────
@@ -1974,12 +1991,20 @@
     if (cd && cd.classList.contains('open')) cd.classList.remove('open');
   });
 
-  // Konverzační dropdown — toggle při kliknutí na trigger
+  // Konverzační dropdown — toggle při kliknutí na trigger.
+  // Pokud jsme v Lidé módu, nejdřív přepneme zpět na AI a dropdown vždycky
+  // OTEVŘEME (ne toggle — uživatel přichází z DM a chce VIDĚT svoje konverzace,
+  // ne zavřít něco co neviděl). V AI módu normálně togglujeme.
   const convDdTrigger = document.getElementById('convDdTrigger');
   if (convDdTrigger) {
     convDdTrigger.addEventListener('click', (ev) => {
       ev.stopPropagation();
       const panel = document.getElementById('convDdPanel');
+      if (typeof currentMode !== 'undefined' && currentMode !== 'ai') {
+        setMode('ai');
+        panel.classList.add('open');
+        return;
+      }
       panel.classList.toggle('open');
     });
   }

@@ -12,7 +12,7 @@ from sqlalchemy import and_, func, or_
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
-from modules.core.infrastructure.models_core import User, UserIdentity, UserTenant
+from modules.core.infrastructure.models_core import User, UserContact, UserTenant
 from modules.core.infrastructure.models_data import (
     Conversation,
     ConversationParticipant,
@@ -331,8 +331,8 @@ def get_user_basic(user_id: int) -> dict | None:
         if not user:
             return None
         primary = (
-            session.query(UserIdentity)
-            .filter_by(user_id=user_id, type="email", is_primary=True)
+            session.query(UserContact)
+            .filter_by(user_id=user_id, contact_type="email", is_primary=True, status="active")
             .first()
         )
         return {
@@ -340,7 +340,7 @@ def get_user_basic(user_id: int) -> dict | None:
             "first_name": user.first_name,
             "last_name": user.last_name,
             "status": user.status,
-            "email": primary.value if primary else None,
+            "email": primary.contact_value if primary else None,
         }
     finally:
         session.close()
@@ -375,18 +375,20 @@ def search_users_in_tenant(tenant_id: int, query: str, limit: int = 20) -> list[
         # map user_id -> primary email (pro hledání i výstup)
         emails = {
             row[0]: row[1]
-            for row in session.query(UserIdentity.user_id, UserIdentity.value)
+            for row in session.query(UserContact.user_id, UserContact.contact_value)
             .filter(
-                UserIdentity.user_id.in_(tenant_user_ids),
-                UserIdentity.type == "email",
-                UserIdentity.is_primary == True,  # noqa: E712
+                UserContact.user_id.in_(tenant_user_ids),
+                UserContact.contact_type == "email",
+                UserContact.is_primary == True,  # noqa: E712
+                UserContact.status == "active",
             )
             .all()
         }
-        # když user nemá primary, vezmi aspoň první email
-        for row in session.query(UserIdentity.user_id, UserIdentity.value).filter(
-            UserIdentity.user_id.in_(tenant_user_ids),
-            UserIdentity.type == "email",
+        # když user nemá primary, vezmi aspoň první aktivní email
+        for row in session.query(UserContact.user_id, UserContact.contact_value).filter(
+            UserContact.user_id.in_(tenant_user_ids),
+            UserContact.contact_type == "email",
+            UserContact.status == "active",
         ):
             emails.setdefault(row[0], row[1])
 

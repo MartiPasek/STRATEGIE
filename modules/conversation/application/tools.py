@@ -85,26 +85,30 @@ TOOLS = [
 
 def _is_email_in_system(email: str) -> bool:
     """
-    True, pokud adresa patří aktivnímu uživateli systému (v user_identities).
+    True, pokud adresa patří aktivnímu uživateli systému (v user_contacts).
     Kontrola proti halucinované adrese — uživatel je okamžitě varován
     v preview, že AI mohla vymyslet cílovou adresu.
     """
     from core.database_core import get_core_session
-    from modules.core.infrastructure.models_core import User, UserIdentity
+    from modules.core.infrastructure.models_core import User, UserContact
 
     needle = (email or "").strip().lower()
     if not needle:
         return False
     session = get_core_session()
     try:
-        identity = (
-            session.query(UserIdentity)
-            .filter(UserIdentity.type == "email", UserIdentity.value.ilike(needle))
+        contact = (
+            session.query(UserContact)
+            .filter(
+                UserContact.contact_type == "email",
+                UserContact.contact_value.ilike(needle),
+                UserContact.status == "active",
+            )
             .first()
         )
-        if not identity:
+        if not contact:
             return False
-        user = session.query(User).filter_by(id=identity.user_id).first()
+        user = session.query(User).filter_by(id=contact.user_id).first()
         return bool(user and user.status in ("active", "pending"))
     finally:
         session.close()
@@ -131,34 +135,63 @@ def format_email_preview(to: str, subject: str, body: str) -> str:
 
 
 def find_user_in_system(query: str) -> dict:
+    """
+    Pozn.: Toto je „minimum-viable" verze pro Fázi 1 — najde prvního usera podle
+    emailu nebo jména. Ve Fázi 5 se rozšíří o aliasy, multi-source search,
+    list kandidátů a disambiguation.
+    """
     from core.database_core import get_core_session
-    from modules.core.infrastructure.models_core import User, UserIdentity
+    from modules.core.infrastructure.models_core import User, UserContact
     from sqlalchemy import or_
 
     session = get_core_session()
     try:
         query_lower = query.strip().lower()
 
-        identity = session.query(UserIdentity).filter(
-            UserIdentity.value.ilike(f"%{query_lower}%"),
-            UserIdentity.type == "email",
-        ).first()
+        contact = (
+            session.query(UserContact)
+            .filter(
+                UserContact.contact_type == "email",
+                UserContact.contact_value.ilike(f"%{query_lower}%"),
+                UserContact.status == "active",
+            )
+            .first()
+        )
 
-        if identity:
-            user = session.query(User).filter_by(id=identity.user_id).first()
+        if contact:
+            user = session.query(User).filter_by(id=contact.user_id).first()
             if user:
                 name = " ".join(filter(None, [user.first_name, user.last_name]))
-                return {"found": True, "user_id": user.id, "name": name or identity.value, "email": identity.value, "status": user.status}
+                return {
+                    "found": True,
+                    "user_id": user.id,
+                    "name": name or contact.contact_value,
+                    "email": contact.contact_value,
+                    "status": user.status,
+                }
 
         users = session.query(User).filter(
-            or_(User.first_name.ilike(f"%{query_lower}%"), User.last_name.ilike(f"%{query_lower}%"))
+            or_(
+                User.first_name.ilike(f"%{query_lower}%"),
+                User.last_name.ilike(f"%{query_lower}%"),
+            )
         ).all()
 
         if users:
             user = users[0]
-            identity = session.query(UserIdentity).filter_by(user_id=user.id, type="email").first()
+            primary_contact = (
+                session.query(UserContact)
+                .filter_by(user_id=user.id, contact_type="email", is_primary=True, status="active")
+                .first()
+            )
             name = " ".join(filter(None, [user.first_name, user.last_name]))
-            return {"found": True, "user_id": user.id, "name": name, "email": identity.value if identity else "", "status": user.status}
+            return {
+                "found": True,
+                "user_id": user.id,
+                "name": name,
+                "email": primary_contact.contact_value if primary_contact else "",
+                "status": user.status,
+            }
 
         return {"found": False, "query": query}
     finally:

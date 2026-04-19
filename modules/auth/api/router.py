@@ -4,10 +4,10 @@ from pydantic import BaseModel
 from core.database_core import get_core_session
 from core.logging import get_logger
 from modules.auth.api.schemas import LoginRequest, LoginResponse
-from modules.auth.application.service import login_by_email
+from modules.auth.application.service import login_by_email, AmbiguousEmailError
 from modules.auth.application.invitation_service import create_invitation, accept_invitation
 from modules.notifications.application.email_service import send_invitation_email
-from modules.core.infrastructure.models_core import User, UserIdentity
+from modules.core.infrastructure.models_core import User, UserContact
 
 logger = get_logger("auth.api")
 
@@ -19,7 +19,10 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 @router.post("/login", response_model=LoginResponse)
 def login(request: LoginRequest, response: Response) -> LoginResponse:
     """Jednoduchý login přes email. MVP: bez hesla."""
-    result = login_by_email(request.email)
+    try:
+        result = login_by_email(request.email)
+    except AmbiguousEmailError as e:
+        raise HTTPException(status_code=401, detail=str(e))
     if not result:
         raise HTTPException(status_code=401, detail="Email nenalezen nebo účet není aktivní.")
 
@@ -56,15 +59,15 @@ def me(req: Request) -> LoginResponse:
         if not user or user.status != "active":
             raise HTTPException(status_code=401, detail="Účet není aktivní.")
         primary = (
-            session.query(UserIdentity)
-            .filter_by(user_id=user_id, type="email", is_primary=True)
+            session.query(UserContact)
+            .filter_by(user_id=user_id, contact_type="email", is_primary=True, status="active")
             .first()
         )
         return LoginResponse(
             user_id=user.id,
             first_name=user.first_name,
             last_name=user.last_name,
-            email=primary.value if primary else "",
+            email=primary.contact_value if primary else "",
             tenant_id=user.last_active_tenant_id,
         )
     finally:

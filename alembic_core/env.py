@@ -11,9 +11,12 @@ from core.config import settings
 from core.database_core import BaseCore
 
 from modules.core.infrastructure.models_core import (  # noqa: F401
-    User, UserIdentity, Tenant, UserTenant, Project, UserProject,
-    SystemPrompt, Persona, Agent, Invitation, OnboardingSession,
-    UserSession, UserNotificationSetting, UserContact, ContactRequest,
+    User, UserContact, UserAlias,
+    Tenant, UserTenant, UserTenantProfile, UserTenantAlias,
+    Project, UserProject,
+    SystemPrompt, Persona, Agent,
+    Invitation, OnboardingSession,
+    UserSession, UserNotificationSetting,
     KillSwitch, ElevatedAccessLog, AuditLog,
 )
 

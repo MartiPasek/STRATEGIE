@@ -1,13 +1,23 @@
 """
-DB_Core (css_db) SQLAlchemy models.
-Obsahuje všechny tabulky pro centrální systémová data.
+DB_Core (css_db) SQLAlchemy modely — po identity refaktoru v2.
+
+Obsahuje:
+  - identitní vrstvu (8 tabulek): users, user_contacts, user_aliases,
+    tenants, user_tenants, user_tenant_profiles, user_tenant_aliases,
+    user_notification_settings
+  - ostatní DB_Core tabulky: projects, user_projects, system_prompts,
+    personas, agents, invitations, onboarding_sessions, user_sessions,
+    kill_switches, elevated_access_log, audit_log
+
+Specifikace: docs/identity_refactor_v2.md
 """
 from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
-    Integer, String, Text
+    Integer, String, Text,
 )
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy.orm import Mapped, mapped_column
+
 from core.database_core import BaseCore
 
 
@@ -15,58 +25,130 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── USERS ──────────────────────────────────────────────────────────────────
+# ── USERS & IDENTITY ──────────────────────────────────────────────────────
 
 class User(BaseCore):
+    """Stabilní identita člověka napříč celým systémem."""
     __tablename__ = "users"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|active|disabled
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
-    invited_by_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    short_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    invited_by_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_active_tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    sms_when_offline: Mapped[bool] = mapped_column(Boolean, default=True)
-    sms_when_online: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
-class UserIdentity(BaseCore):
-    __tablename__ = "user_identities"
+class UserContact(BaseCore):
+    """
+    Komunikační kanály uživatele (emaily, telefony).
+    Patří USEROVI, ne tenantovi. Tenant si vybírá `preferred_contact_id`
+    přes user_tenant_profiles.
+
+    Pozor: Tato tabulka NAHRAZUJE původní `user_identities` (rename + extension).
+    Stará tabulka `user_contacts` (vztahy mezi usery) byla v refaktoru zrušena.
+    """
+    __tablename__ = "user_contacts"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    type: Mapped[str] = mapped_column(String(20))   # email | phone
-    value: Mapped[str] = mapped_column(String(255))
+    contact_type: Mapped[str] = mapped_column(String(20))   # email | phone
+    contact_value: Mapped[str] = mapped_column(String(255))
+    label: Mapped[str | None] = mapped_column(String(50), nullable=True)   # private | work | backup
     is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(20), default="active")     # active | archived
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
-# ── TENANTS ────────────────────────────────────────────────────────────────
+class UserAlias(BaseCore):
+    """Globální přezdívky uživatele (mimo tenant kontext). Fallback k tenant aliasům."""
+    __tablename__ = "user_aliases"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    alias_value: Mapped[str] = mapped_column(String(100))
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=False)
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+# ── TENANTS ───────────────────────────────────────────────────────────────
 
 class Tenant(BaseCore):
+    """Kontext / svět, ve kterém user vystupuje (firma / osobní / rodina / projekt)."""
     __tablename__ = "tenants"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    name: Mapped[str] = mapped_column(String(255))
-    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    tenant_type: Mapped[str] = mapped_column(String(50))    # company | personal | family | project
+    tenant_name: Mapped[str] = mapped_column(String(255))
+    tenant_code: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    owner_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
+    status: Mapped[str] = mapped_column(String(20), default="active")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
 class UserTenant(BaseCore):
+    """Vazba mezi userem a tenantem. UNIQUE(user_id, tenant_id)."""
     __tablename__ = "user_tenants"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
     tenant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tenants.id", ondelete="CASCADE"))
-    role: Mapped[str] = mapped_column(String(50))   # owner | admin | member
+    role: Mapped[str] = mapped_column(String(50), default="member")        # owner | admin | member (RBAC)
+    membership_status: Mapped[str] = mapped_column(String(20), default="active")  # active | inactive | invited | archived
+    joined_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    left_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
-# ── PROJECTS ───────────────────────────────────────────────────────────────
+class UserTenantProfile(BaseCore):
+    """
+    Hlavní profil uživatele v daném tenantu (1:1 s user_tenants).
+    Drží display_name, role_label, preferred_contact_id, communication_style.
+    """
+    __tablename__ = "user_tenant_profiles"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_tenant_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("user_tenants.id", ondelete="CASCADE"), unique=True
+    )
+    display_name: Mapped[str] = mapped_column(String(150))
+    role_label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    preferred_contact_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("user_contacts.id", ondelete="SET NULL"), nullable=True
+    )
+    communication_style: Mapped[str | None] = mapped_column(String(50), nullable=True)  # formal | casual | family
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+class UserTenantAlias(BaseCore):
+    """Aliasové varianty uživatele v daném tenantu. Override globálních aliasů."""
+    __tablename__ = "user_tenant_aliases"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_tenant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("user_tenants.id", ondelete="CASCADE"))
+    alias_value: Mapped[str] = mapped_column(String(100))
+    status: Mapped[str] = mapped_column(String(20), default="active")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
+# ── PROJECTS ──────────────────────────────────────────────────────────────
 
 class Project(BaseCore):
     __tablename__ = "projects"
@@ -74,7 +156,9 @@ class Project(BaseCore):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("tenants.id", ondelete="CASCADE"))
     name: Mapped[str] = mapped_column(String(255))
-    owner_user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    owner_user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
@@ -104,7 +188,9 @@ class Persona(BaseCore):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255))
     system_prompt: Mapped[str] = mapped_column(Text)
-    tenant_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
+    )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
 
 
@@ -114,7 +200,9 @@ class Agent(BaseCore):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255))
     type: Mapped[str] = mapped_column(String(20))   # user | expert
-    user_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    user_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
     persona_prompt: Mapped[str | None] = mapped_column(Text, nullable=True)
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
 
@@ -159,6 +247,11 @@ class UserSession(BaseCore):
 
 
 class UserNotificationSetting(BaseCore):
+    """
+    Notifikační kanály per user.
+    Po identity refaktoru obohaceno o `send_when_offline` / `send_when_online`
+    (přesunuto z `users.sms_when_offline` / `sms_when_online`).
+    """
     __tablename__ = "user_notification_settings"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
@@ -166,34 +259,9 @@ class UserNotificationSetting(BaseCore):
     channel: Mapped[str] = mapped_column(String(20))   # inapp | email | sms | whatsapp
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True)
     priority: Mapped[int] = mapped_column(Integer, default=0)
+    send_when_offline: Mapped[bool | None] = mapped_column(Boolean, nullable=True)   # použito jen pro channel='sms'
+    send_when_online: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-
-
-# ── KONTAKTY ───────────────────────────────────────────────────────────────
-
-class UserContact(BaseCore):
-    __tablename__ = "user_contacts"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    contact_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-
-
-class ContactRequest(BaseCore):
-    __tablename__ = "contact_requests"
-
-    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
-    from_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    to_user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
-    status: Mapped[str] = mapped_column(String(20), default="pending")  # pending|accepted|rejected|expired
-    message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    structured_message: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
-    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    last_reminded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    reminder_count: Mapped[int] = mapped_column(Integer, default=0)
 
 
 # ── GOVERNANCE ─────────────────────────────────────────────────────────────

@@ -672,6 +672,15 @@
             });
             if (r.ok) currentUser = await r.json();
           } catch (e) { /* nech to být — vstoupí i tak */ }
+        } else {
+          // hasName=true: accept-invite vrátilo jen základ (user_id, first_name,
+          // email, tenant_id). Refreshneme přes /me, ať máme plný kontext pro
+          // hlavičku (display_name, tenant_name, aliases) — bez toho by tenant
+          // pilulka ukazovala jen fallback jméno bez názvu tenantu.
+          try {
+            const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
+            if (r.ok) currentUser = await r.json();
+          } catch (e) { /* fallback zvládne showApp */ }
         }
         window.history.replaceState({}, '', '/');
         inviteScreen.style.display = 'none';

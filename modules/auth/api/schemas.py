@@ -37,3 +37,8 @@ class LoginResponse(BaseModel):
     aliases: list[str] = []             # z user_aliases (active, primary first)
     # Všechny aktivní tenanty, jichž je user členem — pro UI tenant dropdown.
     available_tenants: list[TenantInfo] = []
+    # Pokud /switch_tenant vložil do konverzace systémový marker, vrátí se tu
+    # jeho přesné znění — frontend ho rovnou vykreslí jako persistentní
+    # systémovou zprávu (label STRATEGIE), aby uživatel viděl totéž co AI.
+    # /me a /login mají vždy None.
+    tenant_switch_marker: str | None = None

@@ -84,7 +84,9 @@ def switch_tenant(body: SwitchTenantRequest, req: Request) -> LoginResponse:
 
     new_tenant_name: str | None = None
     new_tenant_code: str | None = None
+    user_first_name: str | None = None
     actual_change = False
+    inserted_marker_text: str | None = None
 
     session = get_core_session()
     try:
@@ -111,6 +113,10 @@ def switch_tenant(body: SwitchTenantRequest, req: Request) -> LoginResponse:
         user = session.query(User).filter_by(id=user_id).first()
         if not user:
             raise HTTPException(status_code=401, detail="User neexistuje.")
+        # Zachyť first_name HNED po načtení — po session.commit() se instance
+        # expires a přístup k atributům po session.close() by hodil
+        # DetachedInstanceError (chytlo by to except níže a marker by zmizel).
+        user_first_name = user.first_name
         if user.last_active_tenant_id != body.tenant_id:
             user.last_active_tenant_id = body.tenant_id
             session.commit()
@@ -127,9 +133,15 @@ def switch_tenant(body: SwitchTenantRequest, req: Request) -> LoginResponse:
             data_session = get_data_session()
             try:
                 code_part = f" ({new_tenant_code})" if new_tenant_code else ""
+                # Osobní, gender-neutrální formulace (funguje pro Marti, Kláru,
+                # Kristý...). 'profil' místo 'tenant' (čeština). Reflexivní vazba
+                # 'se ti přepnul' obejde rod. AI dostává tenant kontext z
+                # USER CONTEXT bloku v Composeru, takže v marker textu nemusí
+                # být explicitní pokyn 'pracuj v tomto kontextu'.
+                user_display = user_first_name or "Uživateli"
                 marker_text = (
-                    f"🔄 [SYSTÉM] Uživatel právě přepnul aktivní tenant na "
-                    f"{new_tenant_name}{code_part}. Od této zprávy pracuj v tomto kontextu."
+                    f"{user_display}, právě se ti přepnul aktivní profil na "
+                    f"{new_tenant_name}{code_part}. Počítám s tím 👍"
                 )
                 msg = Message(
                     conversation_id=body.conversation_id,
@@ -141,6 +153,7 @@ def switch_tenant(body: SwitchTenantRequest, req: Request) -> LoginResponse:
                 )
                 data_session.add(msg)
                 data_session.commit()
+                inserted_marker_text = marker_text
             finally:
                 data_session.close()
         except Exception as e:
@@ -150,7 +163,7 @@ def switch_tenant(body: SwitchTenantRequest, req: Request) -> LoginResponse:
     ctx = get_user_context(user_id)
     if ctx is None:
         raise HTTPException(status_code=401, detail="Účet není aktivní.")
-    return LoginResponse(**ctx)
+    return LoginResponse(**ctx, tenant_switch_marker=inserted_marker_text)
 
 
 # ── INVITATIONS ────────────────────────────────────────────────────────────

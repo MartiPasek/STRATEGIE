@@ -27,6 +27,9 @@ class ChatResponse(BaseModel):
 class HistoryMessage(BaseModel):
     role: str
     content: str
+    # message_type: 'text' (běžné) | 'system' (systémové markery jako tenant switch).
+    # Frontend podle toho rozhodne renderování (left-aligned, label 'STRATEGIE').
+    message_type: str = "text"
 
 
 class LastConversationResponse(BaseModel):

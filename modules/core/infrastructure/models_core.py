@@ -37,6 +37,10 @@ class User(BaseCore):
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     last_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
     short_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Rod uživatele pro českou gramatiku v AI komunikaci.
+    # Hodnoty: 'male' | 'female' | 'other' | NULL (neznámý → AI použije neutrální tvary).
+    # Composer injektuje gramatickou instrukci do USER CONTEXT bloku.
+    gender: Mapped[str | None] = mapped_column(String(10), nullable=True)
     invited_by_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )

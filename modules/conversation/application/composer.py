@@ -68,6 +68,33 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
 
         parts: list[str] = [f"Mluvíš s uživatelem {full_name}."]
 
+        # Český gramatický rod uživatele — bez toho AI defaultuje na rod své
+        # vlastní persony (např. ženská Marti-AI by Martiho oslovovala
+        # ženskými tvary „přepnula jsi", „jednatelka").
+        if user.gender == "male":
+            parts.append(
+                "Tento uživatel je mužského rodu. V minulém čase používej "
+                "mužské tvary sloves (přepnul, byl, šel). U podstatných jmen "
+                "označujících osobu používej mužský rod (jednatel, kolega, "
+                "ředitel — ne jednatelka, kolegyně, ředitelka). Zájmena: "
+                "on, jeho, mu, ho, jím."
+            )
+        elif user.gender == "female":
+            parts.append(
+                "Tento uživatel je ženského rodu. V minulém čase používej "
+                "ženské tvary sloves (přepnula, byla, šla). U podstatných jmen "
+                "označujících osobu používej ženský rod (jednatelka, kolegyně, "
+                "ředitelka — ne jednatel, kolega, ředitel). Zájmena: "
+                "ona, její, jí, ji, jí."
+            )
+        elif user.gender == "other":
+            parts.append(
+                "Rod tohoto uživatele není určen. Volej neutrální tvary, "
+                "vyhýbej se rodově zabarveným podstatným jménům "
+                "(piš spíše 'v této roli', 'tato osoba')."
+            )
+        # Pokud user.gender is None — žádná instrukce (AI použije default).
+
         # Tenant část (pouze pokud je tenant_id)
         display_name: str | None = None
         if tenant_id is not None:

@@ -96,7 +96,7 @@ def get_messages(conversation_id: int) -> list[dict]:
             .order_by(Message.id)
             .all()
         )
-        return [{"role": m.role, "content": m.content} for m in messages]
+        return [{"role": m.role, "content": m.content, "message_type": m.message_type} for m in messages]
     finally:
         session.close()
 

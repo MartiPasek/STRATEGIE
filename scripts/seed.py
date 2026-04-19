@@ -102,6 +102,7 @@ def seed():
             first_name="Marti",
             last_name="Pašek",
             short_name="Marti",
+            gender="male",
             created_at=now(),
             updated_at=now(),
         )

@@ -344,3 +344,118 @@ def switch_persona_for_user(query: str, conversation_id: int) -> dict:
         return {"found": True, "persona_id": persona_id, "persona_name": persona_name}
     finally:
         data_session.close()
+
+
+# ── TENANT SWITCH ──────────────────────────────────────────────────────────
+
+def switch_tenant_for_user(user_id: int, query: str) -> dict:
+    """
+    Přepne aktivní tenant uživatele.
+
+    Vyhledávání:
+      1. přesná shoda tenant_code (case + accent insensitive)
+      2. substring v tenant_code
+      3. substring v tenant_name (accent insensitive)
+    Vrátí jen tenanty, kde má user aktivní `user_tenants` membership.
+
+    Vrací:
+      {"found": True,  "tenant_id": int, "tenant_name": str, "tenant_code": str,
+                       "already_active": bool}
+      {"found": False, "query": str}
+      {"found": False, "ambiguous": True, "candidates": [
+          {"tenant_id", "tenant_name", "tenant_code"}, ...
+      ]}
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import User, Tenant, UserTenant
+
+    query_clean = (query or "").strip()
+    if not query_clean:
+        return {"found": False, "query": query}
+    query_bare = _strip_diacritics(query_clean)
+
+    session = get_core_session()
+    try:
+        # Aktivní tenanty, jichž je user členem
+        rows = (
+            session.query(Tenant)
+            .join(UserTenant, UserTenant.tenant_id == Tenant.id)
+            .filter(
+                UserTenant.user_id == user_id,
+                UserTenant.membership_status == "active",
+                Tenant.status == "active",
+            )
+            .all()
+        )
+
+        if not rows:
+            return {"found": False, "query": query, "no_memberships": True}
+
+        # Předpočítej bare (lowercase + bez diakritiky) klíče
+        tenant_keys = []
+        for t in rows:
+            code_bare = _strip_diacritics(t.tenant_code or "")
+            name_bare = _strip_diacritics(t.tenant_name or "")
+            tenant_keys.append((t, code_bare, name_bare))
+
+        # 1. krok: přesná shoda code
+        exact = [t for t, code, _ in tenant_keys if code and code == query_bare]
+        if len(exact) == 1:
+            return _tenant_switch_apply(session, user_id, exact[0])
+        if len(exact) > 1:
+            return _ambiguous(exact)
+
+        # 2. krok: substring v code
+        code_match = [t for t, code, _ in tenant_keys if code and (query_bare in code or code in query_bare)]
+        if len(code_match) == 1:
+            return _tenant_switch_apply(session, user_id, code_match[0])
+        if len(code_match) > 1:
+            return _ambiguous(code_match)
+
+        # 3. krok: substring v name
+        name_match = [t for t, _, name in tenant_keys if name and (query_bare in name or name in query_bare)]
+        if len(name_match) == 1:
+            return _tenant_switch_apply(session, user_id, name_match[0])
+        if len(name_match) > 1:
+            return _ambiguous(name_match)
+
+        return {"found": False, "query": query}
+    finally:
+        session.close()
+
+
+def _ambiguous(tenants) -> dict:
+    return {
+        "found": False,
+        "ambiguous": True,
+        "candidates": [
+            {
+                "tenant_id": t.id,
+                "tenant_name": t.tenant_name,
+                "tenant_code": t.tenant_code,
+            }
+            for t in tenants
+        ],
+    }
+
+
+def _tenant_switch_apply(session, user_id: int, tenant) -> dict:
+    """Provede update users.last_active_tenant_id, vrátí success dict."""
+    from modules.core.infrastructure.models_core import User
+
+    user = session.query(User).filter_by(id=user_id).first()
+    if not user:
+        return {"found": False, "query": tenant.tenant_name, "error": "user not found"}
+
+    already_active = user.last_active_tenant_id == tenant.id
+    if not already_active:
+        user.last_active_tenant_id = tenant.id
+        session.commit()
+
+    return {
+        "found": True,
+        "tenant_id": tenant.id,
+        "tenant_name": tenant.tenant_name,
+        "tenant_code": tenant.tenant_code,
+        "already_active": already_active,
+    }

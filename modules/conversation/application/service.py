@@ -13,7 +13,7 @@ from modules.conversation.application.composer import build_prompt
 from modules.conversation.application.tools import (
     TOOLS, format_email_preview, find_user_in_system,
     invite_user_to_strategie, switch_persona_for_user,
-    get_user_default_persona_name,
+    get_user_default_persona_name, switch_tenant_for_user,
 )
 from modules.conversation.infrastructure.repository import (
     create_conversation,
@@ -140,6 +140,41 @@ def _detect_persona_reset(text: str) -> bool:
         if pat.match(text):
             return True
     return False
+
+
+# ── TENANT SWITCH — SERVER-SIDE INTENT DETECTION ──────────────────────────
+# „přepni do EUROSOFTu", „chci do DOMA", „switch to EUR"
+# Klíčový rozdíl od persona switche: PŘEDLOŽKA „do" (tenant) vs. „na" (persona).
+# Tj. „přepni na Marti" = persona, „přepni do EUROSOFTu" = tenant.
+
+_TENANT_SWITCH_PATTERNS = [
+    re.compile(r"^\s*p[rř]epni\s+(?:m[eě]\s+|me\s+|mi\s+|mne\s+|si\s+|se\s+)?do\s+(?:tenantu\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*p[rř]epnout\s+(?:m[eě]\s+|me\s+|mi\s+|mne\s+|si\s+|se\s+)?do\s+(?:tenantu\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*chci\s+do\s+(?:tenantu\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*jdi\s+do\s+(?:tenantu\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*switch\s+to\s+(?:tenant\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*go\s+to\s+(?:tenant\s+)?(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+]
+
+
+def _detect_tenant_switch(text: str) -> str | None:
+    """
+    Vrátí target tenant string, nebo None.
+    Pozor: kontroluje předložku 'do' (tenant), ne 'na' (persona).
+    """
+    if not text:
+        return None
+    if len(text.strip().split()) > 6:
+        return None
+    for pat in _TENANT_SWITCH_PATTERNS:
+        m = pat.match(text)
+        if m:
+            target = m.group(1).strip()
+            # ořízni eventuální "u" suffix u akuzativ ("EUROSOFTu" → "EUROSOFT")
+            # to zlepší matching, ale není kritické — fuzzy matcher v switch_tenant
+            # to zvládne i tak.
+            return target or None
+    return None
 
 
 def _detect_persona_switch(text: str) -> str | None:
@@ -356,6 +391,46 @@ def chat(
 
     save_message(conversation_id, role="user", content=user_message)
 
+    # ── Explicitní TENANT switch ───────────────────────────────────────
+    # „přepni do EUROSOFTu", „chci do DOMA", „switch to EUR".
+    # Předložka 'do' (tenant) vs. 'na' (persona) — patterny se nekříží.
+    if user_id:
+        tenant_target = _detect_tenant_switch(user_message)
+        if tenant_target:
+            logger.info(
+                f"TENANT | switch_intent | user={user_id} | target={tenant_target!r}"
+            )
+            result = switch_tenant_for_user(user_id=user_id, query=tenant_target)
+            if result.get("found"):
+                name = result["tenant_name"]
+                code = result.get("tenant_code") or ""
+                code_part = f" ({code})" if code else ""
+                if result.get("already_active"):
+                    reply = f"✅ Už jsi v tenantu {name}{code_part}."
+                else:
+                    reply = (
+                        f"✅ Přepnuto do tenantu {name}{code_part}.\n\n"
+                        f"Od této zprávy s tebou pracuju v tomto kontextu."
+                    )
+            elif result.get("ambiguous"):
+                lines = ["Mám víc tenantů odpovídajících tvému zadání:"]
+                for i, c in enumerate(result["candidates"], 1):
+                    lines.append(f"  {i}. {c['tenant_name']} ({c['tenant_code'] or '—'})")
+                lines.append("\nUveď přesnější jméno nebo kód.")
+                reply = "\n".join(lines)
+            elif result.get("no_memberships"):
+                reply = (
+                    "❌ Nejsi členem žádného aktivního tenantu.\n\n"
+                    "Kontaktuj admina, aby tě někam přidal."
+                )
+            else:
+                reply = (
+                    f"❌ Tenant '{tenant_target}' nenalezen "
+                    f"(nebo nemáš ke kterému členství)."
+                )
+            save_message(conversation_id, role="assistant", content=reply)
+            return conversation_id, reply, None
+
     # ── Explicitní persona switch ───────────────────────────────────────
     # Claude občas tool call přeskočí, takže na jednoznačné příkazy
     # reagujeme servisně bez LLM.
@@ -386,10 +461,34 @@ def chat(
             name = result["persona_name"]
             reply = f"✅ Přepnuto na {name}.\n\nNyní mluvíš s {name}. Jak ti mohu pomoci?"
         else:
-            reply = (
-                f"❌ Personu '{switch_target}' jsem v systému nenašel/a.\n\n"
-                f"Zkus přesnější jméno (např. celé jméno persony)."
-            )
+            # Fallback — uživatel mohl říct „přepni na EUROSOFT" pro tenant
+            # (intuitivní — předložka 'na' obvykle pro persony, ale lidé to
+            # mixují). Zkus tedy tenant switch se stejným query.
+            tenant_fallback = None
+            if user_id:
+                tenant_fallback = switch_tenant_for_user(user_id=user_id, query=switch_target)
+            if tenant_fallback and tenant_fallback.get("found"):
+                tname = tenant_fallback["tenant_name"]
+                tcode = tenant_fallback.get("tenant_code") or ""
+                code_part = f" ({tcode})" if tcode else ""
+                if tenant_fallback.get("already_active"):
+                    reply = f"✅ Už jsi v tenantu {tname}{code_part}."
+                else:
+                    reply = (
+                        f"✅ Přepnuto do tenantu {tname}{code_part}.\n\n"
+                        f"Od této zprávy s tebou pracuju v tomto kontextu."
+                    )
+            elif tenant_fallback and tenant_fallback.get("ambiguous"):
+                lines = ["Mám víc tenantů odpovídajících tvému zadání:"]
+                for i, c in enumerate(tenant_fallback["candidates"], 1):
+                    lines.append(f"  {i}. {c['tenant_name']} ({c['tenant_code'] or '—'})")
+                lines.append("\nUveď přesnější jméno nebo kód.")
+                reply = "\n".join(lines)
+            else:
+                reply = (
+                    f"❌ Nenašel/a jsem '{switch_target}' — ani jako personu, ani jako tenant.\n\n"
+                    f"Zkus přesnější jméno."
+                )
         save_message(conversation_id, role="assistant", content=reply)
         return conversation_id, reply, None
 

@@ -41,11 +41,11 @@
     .logout-btn:hover { color: var(--error); }
     .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
-    .messages { flex: 1; overflow-y: auto; padding: 20px 0; display: flex; flex-direction: column; gap: 16px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
-    .msg { display: flex; flex-direction: column; gap: 4px; animation: fadeIn .25s ease; }
+    .messages { flex: 1; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .msg { display: flex; flex-direction: column; gap: 2px; animation: fadeIn .25s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
-    .msg-role { font-size: 11px; font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .1em; color: var(--muted); padding-left: 2px; }
-    .msg-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; font-size: 14px; white-space: pre-wrap; word-break: break-word; }
+    .msg-role { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .08em; color: var(--muted); padding-left: 2px; }
+    .msg-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
     .msg.user .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
     .msg.loading .msg-bubble { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
     .dots { display: flex; gap: 4px; }
@@ -366,10 +366,23 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
   });
 
-  // Enter = nový řádek (víceřádkový vstup). Zpráva se odesílá jen tlačítkem.
-  // (Volitelně: Ctrl+Enter = odeslat — pro power usery.)
+  // Enter = nový řádek (víceřádkový vstup).
+  // Ctrl+Enter (nebo Cmd+Enter) = odeslat (power-user shortcut).
+  // Trojí Enter za sebou = odeslat (intuitivní = "už jsem dopsal, pošli to").
   inputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); send(); }
+    if (e.key !== 'Enter') return;
+    if (e.ctrlKey || e.metaKey) {
+      e.preventDefault();
+      send();
+      return;
+    }
+    // Detekce 3. consecutive Enteru: tělo už končí na "\n\n"
+    if (inputEl.value.endsWith('\n\n')) {
+      e.preventDefault();
+      // Ořízni trailing newlines z toho, co jdeme poslat
+      inputEl.value = inputEl.value.replace(/\n+$/, '');
+      send();
+    }
   });
   sendBtn.addEventListener('click', send);
 
@@ -378,6 +391,16 @@
     // odpovědi (active_persona) doplní. Fallback pokud zatím chybí.
     const el = document.getElementById('agentName');
     return (el && el.textContent && el.textContent.trim()) || 'AI';
+  }
+
+  function currentUserLabel() {
+    // Preferuj display_name (z user_tenant_profiles aktuálního tenantu),
+    // jinak hlavní globální alias, jinak first_name, jinak fallback "Ty".
+    if (!currentUser) return 'Ty';
+    if (currentUser.display_name) return currentUser.display_name;
+    if (currentUser.aliases && currentUser.aliases.length > 0) return currentUser.aliases[0];
+    if (currentUser.first_name) return currentUser.first_name;
+    return 'Ty';
   }
 
   function showSummaryBanner(text) {
@@ -396,19 +419,27 @@
     }, 6000);
   }
 
+  function _attachCopySpacer(msgEl) {
+    // Neviditelný separátor pro kopírování (Ctrl+C) — UVNITŘ msg divu, ať
+    // nezasáhne flex gap rodiče (.messages má gap:16px mezi flex dětmi).
+    const sep = document.createElement('div');
+    sep.style.cssText = 'height:0; overflow:hidden; white-space:pre; user-select:text;';
+    sep.textContent = '\n';
+    msgEl.appendChild(sep);
+  }
+
   function renderMessage(role, content) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     msg.className = `msg ${role}`;
     const roleEl = document.createElement('div');
     roleEl.className = 'msg-role';
-    roleEl.textContent = role === 'user'
-      ? ([currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ') || 'Ty')
-      : currentAgentLabel();
+    roleEl.textContent = role === 'user' ? currentUserLabel() : currentAgentLabel();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     bubble.textContent = content;
     msg.appendChild(roleEl); msg.appendChild(bubble);
+    _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     return msg;
   }
@@ -420,7 +451,7 @@
     const roleEl = document.createElement('div');
     roleEl.className = 'msg-role';
     roleEl.textContent = role === 'user'
-      ? ([currentUser?.first_name, currentUser?.last_name].filter(Boolean).join(' ') || 'Ty')
+      ? currentUserLabel()
       : role === 'loading' ? '' : currentAgentLabel();
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -433,6 +464,7 @@
       bubble.textContent = content;
     }
     msg.appendChild(roleEl); msg.appendChild(bubble);
+    if (type !== 'loading') _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
     return msg;
@@ -638,7 +670,13 @@
   dmSendBtn.addEventListener('click', sendDm);
   // Enter = nový řádek, odeslání jen tlačítkem (volitelně Ctrl+Enter).
   dmInputEl.addEventListener('keydown', e => {
-    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); sendDm(); }
+    if (e.key !== 'Enter') return;
+    if (e.ctrlKey || e.metaKey) { e.preventDefault(); sendDm(); return; }
+    if (dmInputEl.value.endsWith('\n\n')) {
+      e.preventDefault();
+      dmInputEl.value = dmInputEl.value.replace(/\n+$/, '');
+      sendDm();
+    }
   });
   dmInputEl.addEventListener('input', () => {
     dmInputEl.style.height = 'auto';

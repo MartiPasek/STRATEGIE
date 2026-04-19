@@ -174,14 +174,40 @@ def mark_read(requester_user_id: int, conversation_id: int, last_read_message_id
 
 # ── USER SEARCH ──────────────────────────────────────────────────────────
 
+def _resolve_active_tenant(requester_user_id: int) -> int | None:
+    """Vrátí user.last_active_tenant_id; fallback na první tenant z user_tenants."""
+    from modules.core.infrastructure.models_core import User
+    from core.database_core import get_core_session
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=requester_user_id).first()
+        if u and u.last_active_tenant_id:
+            return u.last_active_tenant_id
+    finally:
+        cs.close()
+    tenants = dm_repo.get_user_tenants(requester_user_id)
+    return tenants[0] if tenants else None
+
+
 def search_users_for_dm(requester_user_id: int, query: str) -> list[dict]:
     """
-    Hledá usery v aktuálním tenantu requestera (v MVP = první tenant, kde je členem).
+    Hledá usery v aktuálním tenantu requestera (last_active_tenant_id).
     Sám sebe z výsledků vyhazuje.
     """
-    tenants = dm_repo.get_user_tenants(requester_user_id)
-    if not tenants:
+    tenant_id = _resolve_active_tenant(requester_user_id)
+    if tenant_id is None:
         return []
-    tenant_id = tenants[0]   # MVP: aktuální tenant = první; později last_active_tenant_id
     raw = dm_repo.search_users_in_tenant(tenant_id, query, limit=20)
     return [u for u in raw if u["user_id"] != requester_user_id]
+
+
+def list_users_for_dm(requester_user_id: int) -> list[dict]:
+    """
+    Vrátí seznam všech aktivních uživatelů v aktuálním tenantu requestera
+    (bez fulltextu, pro UI dropdown 'dostupní lidé v tenantu').
+    Sám sebe vynechává.
+    """
+    tenant_id = _resolve_active_tenant(requester_user_id)
+    if tenant_id is None:
+        return []
+    return dm_repo.list_users_in_tenant(tenant_id, exclude_user_id=requester_user_id, limit=100)

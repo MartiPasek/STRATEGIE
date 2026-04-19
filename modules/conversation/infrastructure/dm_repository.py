@@ -346,6 +346,64 @@ def get_user_basic(user_id: int) -> dict | None:
         session.close()
 
 
+def list_users_in_tenant(tenant_id: int, exclude_user_id: int | None = None, limit: int = 100) -> list[dict]:
+    """
+    Vrátí všechny aktivní/pending uživatele v daném tenantu (bez fulltextu).
+    Pro UI dropdown 'dostupní lidé v tenantu' v DM view.
+    Excluduje sebe (exclude_user_id) — nemá smysl si chatovat sám se sebou.
+    """
+    session = get_core_session()
+    try:
+        tenant_user_ids = [
+            r[0] for r in session.query(UserTenant.user_id).filter_by(tenant_id=tenant_id).all()
+        ]
+        if exclude_user_id is not None:
+            tenant_user_ids = [uid for uid in tenant_user_ids if uid != exclude_user_id]
+        if not tenant_user_ids:
+            return []
+
+        emails = {
+            row[0]: row[1]
+            for row in session.query(UserContact.user_id, UserContact.contact_value)
+            .filter(
+                UserContact.user_id.in_(tenant_user_ids),
+                UserContact.contact_type == "email",
+                UserContact.is_primary == True,  # noqa: E712
+                UserContact.status == "active",
+            )
+            .all()
+        }
+        for row in session.query(UserContact.user_id, UserContact.contact_value).filter(
+            UserContact.user_id.in_(tenant_user_ids),
+            UserContact.contact_type == "email",
+            UserContact.status == "active",
+        ):
+            emails.setdefault(row[0], row[1])
+
+        users = (
+            session.query(User)
+            .filter(
+                User.id.in_(tenant_user_ids),
+                User.status.in_(("active", "pending")),
+            )
+            .order_by(User.first_name.asc().nullslast(), User.last_name.asc().nullslast())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {
+                "user_id": u.id,
+                "first_name": u.first_name,
+                "last_name": u.last_name,
+                "email": emails.get(u.id),
+                "status": u.status,
+            }
+            for u in users
+        ]
+    finally:
+        session.close()
+
+
 def search_users_in_tenant(tenant_id: int, query: str, limit: int = 20) -> list[dict]:
     """
     Hledá usery v daném tenantu podle jména, příjmení nebo emailu (ilike).

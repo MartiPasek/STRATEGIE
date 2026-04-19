@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>STRATEGIE</title>
+  <!-- Favicon: inline SVG s velkym 'S' v gradient barve loga (modra -> fialova).
+       Tmave pozadi, zaobleny ctverec — vizualne sjednoceno s app theme. -->
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>" />
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
   <!-- Logo font: Galano Grotesque (commercial — bude doplněno přes @font-face,
        až bude k dispozici licence). Do té doby fallback na Montserrat (geometric
@@ -106,6 +109,10 @@
     /* Custom confirm modal (sladěn s dark themou — nahrazuje nativní confirm()).
        Title je stylizován jako logo STRATEGIE (gradient text). */
     .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; animation: fadeIn .15s ease; }
+    /* Confirm modal MUSÍ být nad ostatními modaly (např. archiv),
+       aby se zobrazil na vrchu, když user klikne 'Vrátit zpět' / 'Smazat'
+       v archive modalu. Stejný overlay class, jen vyšší z-index. */
+    #confirmModal.modal-overlay { z-index: 1100; }
     .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; min-width: 280px; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.5); animation: slideUp .2s ease; }
     .modal-box-wide { max-width: 560px; min-width: 360px; }
     .archive-list { max-height: 50vh; overflow-y: auto; margin-bottom: 16px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -114,6 +121,18 @@
     .archive-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
     .archive-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .archive-item-meta { font-size: 10px; color: var(--muted); }
+    /* Profile / Settings modal — read-only sekce + key/value řádky. */
+    .profile-content { display: flex; flex-direction: column; gap: 18px; max-height: 60vh; overflow-y: auto; padding-right: 6px; margin-bottom: 16px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .profile-section { display: flex; flex-direction: column; gap: 6px; }
+    .profile-section-title { font-size: 10px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding-bottom: 4px; border-bottom: 1px solid var(--border); }
+    .profile-row { display: flex; align-items: baseline; gap: 12px; padding: 4px 0; }
+    .profile-row-label { font-size: 11px; color: var(--muted); width: 110px; flex-shrink: 0; }
+    .profile-row-value { font-size: 13px; color: var(--text); word-break: break-word; }
+    .profile-row-value.muted { color: var(--muted); font-style: italic; }
+    .profile-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+    .profile-chip { padding: 3px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; color: var(--text); }
+    .profile-chip.accent { color: var(--accent); border-color: var(--accent); }
+    .profile-note { font-size: 11px; color: var(--muted); font-style: italic; padding: 8px 10px; background: var(--bg); border-radius: 6px; border-left: 2px solid var(--accent); }
     @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .modal-title { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .modal-text { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 16px; }
@@ -157,19 +176,35 @@
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .conv-id { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
-    .new-chat-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 5px 12px; color: var(--muted); font-size: 12px; cursor: pointer; transition: border-color .2s; }
+    /* Sjednoceno s .conv-dd-trigger (padding 6px → stejná výška).
+       .conv-group slepuje 'Konverzace' + '+ Nová' s mini gap (4px). */
+    .new-chat-btn { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 12px; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; cursor: pointer; transition: border-color .2s, color .2s; }
     .new-chat-btn:hover { border-color: var(--accent); color: var(--text); }
+    .conv-group { display: flex; gap: 4px; align-items: center; }
     .logout-btn { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 5px 8px; }
     .logout-btn:hover { color: var(--error); }
     .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
     .tenant-pill-wrap { position: relative; display: inline-block; }
-    .tenant-pill { display: inline-flex; align-items: center; padding: 3px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; white-space: pre; cursor: pointer; transition: border-color .15s, background .15s; user-select: none; }
+    /* Pilulka má 2 klikabilní zóny:
+       - .tenant-pill-name (jméno) → otevře profil dropdown
+       - .tenant-pill-tenant + sep (tenant) → otevře tenant přepínač
+       Hover indikátor je per-zóna (jemný background podtržení). */
+    .tenant-pill { display: inline-flex; align-items: center; padding: 3px 4px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; white-space: pre; user-select: none; transition: border-color .15s; }
     .tenant-pill:hover { border-color: var(--accent); }
-    .tenant-pill-name { color: var(--accent); font-weight: 500; }
-    .tenant-pill-sep { color: var(--muted); }
-    .tenant-pill-tenant { color: var(--text); }
+    .tenant-pill-name { color: var(--accent); font-weight: 500; padding: 2px 8px; border-radius: 99px; cursor: pointer; transition: background .12s; }
+    .tenant-pill-name:hover { background: rgba(79,142,247,0.12); }
+    .tenant-pill-sep { color: var(--muted); cursor: pointer; }
+    .tenant-pill-tenant { color: var(--text); padding: 2px 8px; border-radius: 99px; cursor: pointer; transition: background .12s; }
+    .tenant-pill-tenant:hover { background: rgba(255,255,255,0.06); }
     .tenant-pill-caret { color: var(--muted); margin-left: 6px; font-size: 10px; }
+    /* Profile dropdown — sdílený styl s tenant-dropdown */
+    .profile-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
+    .profile-dropdown.open { display: block; }
+    .profile-dd-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 12px; color: var(--text); font-family: 'DM Sans', sans-serif; transition: background .12s; display: flex; align-items: center; gap: 8px; }
+    .profile-dd-item:hover { background: var(--bg); }
+    .profile-dd-item.danger:hover { color: var(--error); background: rgba(248,113,113,0.10); }
+    .profile-dd-divider { height: 1px; background: var(--border); margin: 4px 6px; }
     .tenant-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
     .tenant-dropdown.open { display: block; }
     .tenant-dropdown-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .12s; }
@@ -242,6 +277,16 @@
     .dm-toolbar { display: flex; gap: 8px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); flex-shrink: 0; }
     .dm-toolbar input { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; }
     .dm-toolbar input:focus { border-color: var(--accent); }
+    /* Lidé-dropdown vpravo v DM toolbaru — seznam dostupných usery v aktualnim tenantu. */
+    .dm-people-wrap { position: relative; display: inline-block; flex-shrink: 0; }
+    .dm-people-btn { background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-size: 13px; font-family: 'DM Sans', sans-serif; padding: 8px 12px; border-radius: 8px; cursor: pointer; transition: border-color .12s, color .12s; }
+    .dm-people-btn:hover { border-color: var(--accent); color: var(--text); }
+    .dm-people-panel { position: absolute; top: calc(100% + 4px); right: 0; min-width: 240px; max-width: 320px; max-height: 50vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .dm-people-panel.open { display: block; }
+    .dm-people-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .12s; }
+    .dm-people-item:hover { background: var(--bg); }
+    .dm-people-item-name { font-size: 13px; color: var(--text); }
+    .dm-people-item-email { font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .dm-search-results { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-top: 8px; max-height: 260px; overflow-y: auto; display: none; }
     .dm-search-result { padding: 10px 12px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; border-bottom: 1px solid var(--border); transition: background .15s; }
     .dm-search-result:last-child { border-bottom: none; }
@@ -292,7 +337,7 @@
         <div class="sidebar-empty">Načítám…</div>
       </div>
       <div class="sidebar-footer" id="sidebarFooter">
-        <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevři archiv konverzací">📦 Můj archív konverzací</button>
+        <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
       </div>
     </aside>
 
@@ -301,17 +346,22 @@
     <header class="header">
       <div class="logo">Strategie</div>
       <div class="header-right">
-        <div class="conv-dd-wrap" id="convDdWrap">
-          <button class="conv-dd-trigger" id="convDdTrigger" data-tooltip="Otevři seznam konverzací" aria-label="Otevři seznam konverzací">☰ Konverzace</button>
-          <div class="conv-dd-panel" id="convDdPanel"></div>
+        <div class="conv-group">
+          <div class="conv-dd-wrap" id="convDdWrap">
+            <button class="conv-dd-trigger" id="convDdTrigger" data-tooltip="Otevřu seznam tvých konverzací" aria-label="Otevřu seznam tvých konverzací">☰ Konverzace</button>
+            <div class="conv-dd-panel" id="convDdPanel"></div>
+          </div>
+          <button class="new-chat-btn" id="newChatBtn" data-tooltip="Zahájím novou konverzaci" aria-label="Zahájím novou konverzaci">+ Nová</button>
         </div>
         <div class="mode-switch">
           <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
           <button class="mode-btn" id="modeDmBtn" data-mode="dm">Lidé</button>
         </div>
-        <div class="conv-id" id="convIdLabel"></div>
-        <button class="new-chat-btn" id="newChatBtn">+ Nová</button>
-        <button class="logout-btn" id="logoutBtn">Odhlásit</button>
+        <div class="conv-id" id="convIdLabel" style="display:none"></div>
+        <!-- Logout button skrytý — duplikuje akci v profil dropdownu.
+             Element zůstává v DOM jako proxy pro JS handler (profil dropdown
+             ho 'klikne' programaticky). -->
+        <button class="logout-btn" id="logoutBtn" style="display:none">Odhlásit</button>
       </div>
     </header>
 
@@ -320,8 +370,9 @@
       <div class="agent-bar">
         <div>Mluvíš s: <span id="agentName">Marti-AI</span></div>
         <div class="tenant-pill-wrap">
-          <div class="tenant-pill" id="tenantPill" style="display:none" data-tooltip="Klikni pro výběr tenantu" aria-label="Klikni pro výběr tenantu"></div>
+          <div class="tenant-pill" id="tenantPill" style="display:none"></div>
           <div class="tenant-dropdown" id="tenantDropdown"></div>
+          <div class="profile-dropdown" id="profileDropdown"></div>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -332,7 +383,7 @@
       </div>
       <div class="input-area">
         <div class="input-row">
-          <textarea id="inputText" placeholder="Napiš zprávu…" rows="2"></textarea>
+          <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="2"></textarea>
           <button class="send-btn" id="sendBtn">
             <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
           </button>
@@ -344,6 +395,10 @@
     <div class="dm-view" id="dmListView">
       <div class="dm-toolbar">
         <input id="dmSearchInput" placeholder="Najít uživatele (jméno nebo email)…" />
+        <div class="dm-people-wrap">
+          <button class="dm-people-btn" id="dmPeopleBtn" data-tooltip="Otevřu seznam lidí v tenantu" aria-label="Otevřu seznam lidí v tenantu">👥 Lidé</button>
+          <div class="dm-people-panel" id="dmPeoplePanel"></div>
+        </div>
       </div>
       <div class="dm-search-results" id="dmSearchResults"></div>
       <div class="dm-list" id="dmList">
@@ -354,7 +409,7 @@
     <!-- DM CONVERSATION VIEW -->
     <div class="dm-view" id="dmConvView">
       <div class="dm-conv-header">
-        <button class="dm-back-btn" id="dmBackBtn" data-tooltip="Zpět" aria-label="Zpět">←</button>
+        <button class="dm-back-btn" id="dmBackBtn" data-tooltip="Vrátím tě zpět" aria-label="Vrátím tě zpět">←</button>
         <div class="dm-avatar" id="dmConvAvatar">?</div>
         <div style="flex:1; min-width:0;">
           <div class="dm-conv-title" id="dmConvTitle">—</div>
@@ -383,6 +438,28 @@
       <div class="modal-actions">
         <button class="modal-btn modal-btn-secondary" id="confirmModalCancel">Zrušit</button>
         <button class="modal-btn modal-btn-primary" id="confirmModalOk">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Profil usera modal -->
+  <div class="modal-overlay" id="profileModal" style="display:none">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-title">MŮJ PROFIL</div>
+      <div class="profile-content" id="profileContent"></div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="profileModalClose">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Nastavení modal -->
+  <div class="modal-overlay" id="settingsModal" style="display:none">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-title">NASTAVENÍ</div>
+      <div class="profile-content" id="settingsContent"></div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="settingsModalClose">Zavřít</button>
       </div>
     </div>
   </div>
@@ -516,9 +593,21 @@
     document.getElementById('agentName').textContent = '—';
     // Hlavičková pilulka: "<display_name> - <tenant_name>"
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
+    updateBrowserTitle();
+    // Po každém loginu vždy začni v AI módu (chat) — neztrácíme se
+    // v Lidé view, kde uživatel skončil minule.
+    activeDmId = null;
+    setMode('ai');
     await loadLastConversation();
     await loadConversationList();      // sidebar
     inputEl.focus();
+  }
+
+  // Title v záložce prohlížeče: "STRATEGIE — Marti" (s display_name).
+  // Aktualizuje se při loginu, tenant switch, odhlášení.
+  function updateBrowserTitle() {
+    const name = currentUser ? (currentUser.display_name || currentUser.first_name || '') : '';
+    document.title = name ? `STRATEGIE - ${name}` : 'STRATEGIE';
   }
 
   // ── LAST CONVERSATION ──────────────────────────────────────────────────
@@ -546,6 +635,7 @@
     appScreen.classList.remove('show');
     appScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
+    updateBrowserTitle();
     loginError.textContent = '';
     // předvyplň posledně použitý email (pohodlí)
     try {
@@ -655,7 +745,7 @@
       titleEl.textContent = 'Můj archiv';
       footerBtn.textContent = '← Zpět na konverzace';
       footerBtn.classList.add('archive-mode');
-      footerBtn.dataset.tooltip = 'Zpět na aktivní konverzace';
+      footerBtn.dataset.tooltip = 'Vrátím tě k aktivním konverzacím';
       listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
       try {
         const res = await fetch('/api/v1/conversation/list-archived', { credentials: 'include' });
@@ -672,7 +762,7 @@
       titleEl.textContent = 'Konverzace';
       footerBtn.textContent = '📦 Můj archív konverzací';
       footerBtn.classList.remove('archive-mode');
-      footerBtn.dataset.tooltip = 'Otevři archiv konverzací';
+      footerBtn.dataset.tooltip = 'Otevřu tvůj archiv';
       // Znovu načti aktivní konverzace
       loadConversationList();
     }
@@ -711,8 +801,8 @@
     const viewBtn = document.createElement('button');
     viewBtn.className = 'conv-action-btn';
     viewBtn.textContent = '👁';
-    viewBtn.dataset.tooltip = 'Prohlédnout';
-    viewBtn.setAttribute('aria-label', 'Prohlédnout');
+    viewBtn.dataset.tooltip = 'Prohlédnu';
+    viewBtn.setAttribute('aria-label', 'Prohlédnu');
     viewBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       _leaveArchiveAndOpen(it.id);
@@ -721,8 +811,8 @@
     const unarchiveBtn = document.createElement('button');
     unarchiveBtn.className = 'conv-action-btn';
     unarchiveBtn.textContent = '↩';
-    unarchiveBtn.dataset.tooltip = 'Vrátit zpět';
-    unarchiveBtn.setAttribute('aria-label', 'Vrátit zpět');
+    unarchiveBtn.dataset.tooltip = 'Vrátím z archivu';
+    unarchiveBtn.setAttribute('aria-label', 'Vrátím z archivu');
     unarchiveBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       await unarchiveConversationFromUI(it.id, it.title || `#${it.id}`);
@@ -731,8 +821,8 @@
     const delBtn = document.createElement('button');
     delBtn.className = 'conv-action-btn danger';
     delBtn.textContent = '🗑';
-    delBtn.dataset.tooltip = 'Smazat';
-    delBtn.setAttribute('aria-label', 'Smazat');
+    delBtn.dataset.tooltip = 'Smažu';
+    delBtn.setAttribute('aria-label', 'Smažu');
     delBtn.addEventListener('click', async (ev) => {
       ev.stopPropagation();
       await deleteConversationFromArchive(it.id, it.title || `#${it.id}`);
@@ -789,8 +879,8 @@
     const renameBtn = document.createElement('button');
     renameBtn.className = 'conv-action-btn';
     renameBtn.textContent = '✎';
-    renameBtn.dataset.tooltip = 'Přejmenovat';
-    renameBtn.setAttribute('aria-label', 'Přejmenovat');
+    renameBtn.dataset.tooltip = 'Přejmenuji';
+    renameBtn.setAttribute('aria-label', 'Přejmenuji');
     renameBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       renameConversationFromUI(it.id, it.title || `#${it.id}`);
@@ -799,8 +889,8 @@
     const archiveBtn = document.createElement('button');
     archiveBtn.className = 'conv-action-btn';
     archiveBtn.textContent = '📦';
-    archiveBtn.dataset.tooltip = 'Archivovat';
-    archiveBtn.setAttribute('aria-label', 'Archivovat');
+    archiveBtn.dataset.tooltip = 'Archivuji';
+    archiveBtn.setAttribute('aria-label', 'Archivuji');
     archiveBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       archiveConversationFromUI(it.id, it.title || `#${it.id}`);
@@ -809,8 +899,8 @@
     const delBtn = document.createElement('button');
     delBtn.className = 'conv-action-btn danger';
     delBtn.textContent = '🗑';
-    delBtn.dataset.tooltip = 'Smazat';
-    delBtn.setAttribute('aria-label', 'Smazat');
+    delBtn.dataset.tooltip = 'Smažu';
+    delBtn.setAttribute('aria-label', 'Smažu');
     delBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
       deleteConversationFromUI(it.id, it.title || `#${it.id}`);
@@ -829,6 +919,125 @@
     });
     return item;
   }
+
+  // ── PROFILE / SETTINGS MODAL (read-only mockup pro MVP) ─────────────
+  function openProfileModal() {
+    const overlay = document.getElementById('profileModal');
+    const content = document.getElementById('profileContent');
+    if (!currentUser) {
+      alert('Nejsi přihlášen.');
+      return;
+    }
+    const u = currentUser;
+    const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+    const tenants = u.available_tenants || [];
+    const aliases = u.aliases || [];
+    const currentTenantId = u.tenant_id;
+
+    const _row = (label, value, muted = false) =>
+      `<div class="profile-row"><div class="profile-row-label">${label}</div>` +
+      `<div class="profile-row-value ${muted ? 'muted' : ''}">${value || '—'}</div></div>`;
+
+    let tenantsHtml = '';
+    if (tenants.length) {
+      tenantsHtml = '<div class="profile-chips">' + tenants.map(t => {
+        const active = t.tenant_id === currentTenantId ? ' accent' : '';
+        const code = t.tenant_code ? ` (${t.tenant_code})` : '';
+        return `<span class="profile-chip${active}">${t.tenant_name}${code}</span>`;
+      }).join('') + '</div>';
+    } else {
+      tenantsHtml = '<div class="profile-row-value muted">Nepatříš do žádného tenantu.</div>';
+    }
+
+    let aliasesHtml = aliases.length
+      ? '<div class="profile-chips">' + aliases.map(a => `<span class="profile-chip">${a}</span>`).join('') + '</div>'
+      : '<div class="profile-row-value muted">Žádné aliasy.</div>';
+
+    content.innerHTML = `
+      <div class="profile-section">
+        <div class="profile-section-title">Identita</div>
+        ${_row('Jméno', fullName)}
+        ${_row('Oslovuji tě', u.display_name || u.first_name || '—')}
+        ${_row('User ID', '#' + u.user_id, true)}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">Kontakt</div>
+        ${_row('Primární email', u.email)}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">Globální aliasy</div>
+        ${aliasesHtml}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">Členství v tenantech</div>
+        ${tenantsHtml}
+        <div class="profile-row" style="margin-top:6px;">
+          <div class="profile-row-label">Aktivní</div>
+          <div class="profile-row-value">${u.tenant_name || '—'}${u.tenant_code ? ` (${u.tenant_code})` : ''}</div>
+        </div>
+      </div>
+      <div class="profile-note">Editace profilu (jméno, kontakty, aliasy, gender) přijde v další iteraci.</div>
+    `;
+    overlay.style.display = 'flex';
+  }
+
+  function openSettingsModal() {
+    const overlay = document.getElementById('settingsModal');
+    const content = document.getElementById('settingsContent');
+    if (!currentUser) {
+      alert('Nejsi přihlášen.');
+      return;
+    }
+    const u = currentUser;
+    const _row = (label, value, muted = false) =>
+      `<div class="profile-row"><div class="profile-row-label">${label}</div>` +
+      `<div class="profile-row-value ${muted ? 'muted' : ''}">${value || '—'}</div></div>`;
+
+    content.innerHTML = `
+      <div class="profile-section">
+        <div class="profile-section-title">Aktivní kontext</div>
+        ${_row('Profil (tenant)', (u.tenant_name || '—') + (u.tenant_code ? ` (${u.tenant_code})` : ''))}
+        ${_row('Oslovení', u.display_name || u.first_name || '—')}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">Vzhled</div>
+        ${_row('Téma', 'Tmavé (jediné dostupné)', true)}
+        ${_row('Logo font', 'Galano Grotesque (fallback Montserrat)', true)}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">Notifikace</div>
+        ${_row('In-app', 'Zapnuto', true)}
+        ${_row('Email', 'Připraveno (zatím nepoužíváno)', true)}
+        ${_row('SMS', 'Připraveno (zatím nepoužíváno)', true)}
+      </div>
+      <div class="profile-section">
+        <div class="profile-section-title">AI chování</div>
+        ${_row('Default persona', 'Marti-AI (z DB)', true)}
+        ${_row('Summary konverzací', 'Auto po 10 zprávách', true)}
+        ${_row('Markdown v odpovědích', 'Vypnut (zákaz v persona promptu)', true)}
+      </div>
+      <div class="profile-note">Editace nastavení (volba notifikačních kanálů, prahů, persony) přijde v další iteraci.</div>
+    `;
+    overlay.style.display = 'flex';
+  }
+
+  // Zavírání obou — tlačítko, klik mimo, Esc
+  ['profileModal', 'settingsModal'].forEach(id => {
+    const m = document.getElementById(id);
+    const closeBtn = document.getElementById(id + 'Close');
+    if (closeBtn) closeBtn.addEventListener('click', () => m.style.display = 'none');
+    m.addEventListener('click', (ev) => {
+      if (ev.target === m) m.style.display = 'none';
+    });
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      ['profileModal', 'settingsModal'].forEach(id => {
+        const m = document.getElementById(id);
+        if (m && m.style.display !== 'none') m.style.display = 'none';
+      });
+    }
+  });
 
   // Univerzální modal — confirm i prompt v jednom.
   // Použití confirm:  const ok = await customConfirm({title, text, confirmLabel, danger});
@@ -1101,8 +1310,11 @@
       }
       data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type));
       messagesEl.scrollTop = messagesEl.scrollHeight;
-      // Update aktivní položky v sidebaru
-      document.querySelectorAll('.sidebar-item').forEach(el => {
+      // Update aktivní položky v sidebaru I v dropdownu hlavičky
+      // (dropdown se neredendruje při openConversation, takže by jinak
+      // zůstával podbarvený předchozí výběr).
+      document.querySelectorAll('.sidebar-item, .conv-dd-item').forEach(el => {
+        if (!el.dataset.convId) return;     // přeskoč archive opener (nemá convId)
         el.classList.toggle('active', Number(el.dataset.convId) === convId);
       });
       inputEl.focus();
@@ -1154,18 +1366,95 @@
       return;
     }
     pill.innerHTML = '';
-    const mkSpan = (cls, text) => {
-      const s = document.createElement('span');
-      s.className = cls;
-      s.textContent = text;
-      pill.appendChild(s);
-    };
-    mkSpan('tenant-pill-name', displayName || '—');
+    // 2 klikabilní zóny: jméno (profil) + tenant (přepínač).
+    const nameSpan = document.createElement('span');
+    nameSpan.className = 'tenant-pill-name';
+    nameSpan.textContent = displayName || '—';
+    nameSpan.dataset.tooltip = 'Otevřu tvůj profil';
+    nameSpan.setAttribute('aria-label', 'Otevřu tvůj profil');
+    nameSpan.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      _toggleProfileDropdown();
+    });
+    pill.appendChild(nameSpan);
+
     if (tenantName) {
-      mkSpan('tenant-pill-sep', ' - ');
-      mkSpan('tenant-pill-tenant', tenantName);
+      const sep = document.createElement('span');
+      sep.className = 'tenant-pill-sep';
+      sep.textContent = ' - ';
+      pill.appendChild(sep);
+
+      const tenantSpan = document.createElement('span');
+      tenantSpan.className = 'tenant-pill-tenant';
+      tenantSpan.textContent = tenantName;
+      tenantSpan.dataset.tooltip = 'Přepnu tě na jiný profil';
+      tenantSpan.setAttribute('aria-label', 'Přepnu tě na jiný profil');
+      tenantSpan.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _toggleTenantDropdown();
+      });
+      // Klik na separator = stejná akce jako tenant
+      sep.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        _toggleTenantDropdown();
+      });
+      pill.appendChild(tenantSpan);
     }
     pill.style.display = 'inline-flex';
+  }
+
+  function _toggleTenantDropdown() {
+    const td = document.getElementById('tenantDropdown');
+    const pd = document.getElementById('profileDropdown');
+    const tenants = (currentUser && currentUser.available_tenants) || [];
+    if (tenants.length <= 1) return;          // jeden tenant = nic na výběr
+    if (pd) pd.classList.remove('open');       // zavři druhý dropdown
+    if (td.classList.contains('open')) {
+      td.classList.remove('open');
+    } else {
+      _renderTenantDropdown();
+      td.classList.add('open');
+    }
+  }
+
+  function _toggleProfileDropdown() {
+    const pd = document.getElementById('profileDropdown');
+    const td = document.getElementById('tenantDropdown');
+    if (td) td.classList.remove('open');
+    if (pd.classList.contains('open')) {
+      pd.classList.remove('open');
+    } else {
+      _renderProfileDropdown();
+      pd.classList.add('open');
+    }
+  }
+
+  function _renderProfileDropdown() {
+    const pd = document.getElementById('profileDropdown');
+    pd.innerHTML = '';
+    const items = [
+      { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
+      { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
+      { divider: true },
+      { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
+    ];
+    items.forEach(it => {
+      if (it.divider) {
+        const d = document.createElement('div');
+        d.className = 'profile-dd-divider';
+        pd.appendChild(d);
+        return;
+      }
+      const el = document.createElement('div');
+      el.className = 'profile-dd-item' + (it.danger ? ' danger' : '');
+      el.innerHTML = `<span style="font-size:14px;">${it.icon}</span><span>${it.label}</span>`;
+      el.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        pd.classList.remove('open');
+        it.action();
+      });
+      pd.appendChild(el);
+    });
   }
 
   function _renderTenantDropdown() {
@@ -1224,6 +1513,7 @@
       // Updatuj currentUser a hlavičkovou pilulku
       currentUser = data;
       setTenantPill(currentUser.display_name, currentUser.tenant_name);
+      updateBrowserTitle();
       // Backend vrátil přesné znění marker textu, který vložil do DB.
       // Vykreslíme ho jako persistentní systémovou zprávu (label STRATEGIE,
       // left-aligned). Po F5 reloadu se zobrazí stejně, protože /last
@@ -1240,24 +1530,15 @@
     }
   }
 
-  // Pilulka — toggle dropdown při kliknutí
-  document.getElementById('tenantPill').addEventListener('click', (ev) => {
-    ev.stopPropagation();
-    const dd = document.getElementById('tenantDropdown');
-    const tenants = (currentUser && currentUser.available_tenants) || [];
-    if (tenants.length <= 1) return;   // jeden tenant = dropdown zbytečný
-    if (dd.classList.contains('open')) {
-      dd.classList.remove('open');
-    } else {
-      _renderTenantDropdown();
-      dd.classList.add('open');
-    }
-  });
+  // Pilulka má per-zóna handlery v setTenantPill() — žádný globální
+  // click handler na celé pilulce už není potřeba.
 
-  // Klik mimo dropdown ho zavře (tenant pilulka I konverzační dropdown)
+  // Klik mimo dropdown ho zavře (tenant pilulka, profile, konverzační dropdown)
   document.addEventListener('click', () => {
     const td = document.getElementById('tenantDropdown');
     if (td && td.classList.contains('open')) td.classList.remove('open');
+    const pd = document.getElementById('profileDropdown');
+    if (pd && pd.classList.contains('open')) pd.classList.remove('open');
     const cd = document.getElementById('convDdPanel');
     if (cd && cd.classList.contains('open')) cd.classList.remove('open');
   });
@@ -1568,6 +1849,62 @@
       }
     }
     dmSearchResults.style.display = 'block';
+  }
+
+  // ── DM PEOPLE DROPDOWN ──────────────────────────────────────────────
+  const dmPeopleBtn   = document.getElementById('dmPeopleBtn');
+  const dmPeoplePanel = document.getElementById('dmPeoplePanel');
+
+  if (dmPeopleBtn) {
+    dmPeopleBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      if (dmPeoplePanel.classList.contains('open')) {
+        dmPeoplePanel.classList.remove('open');
+        return;
+      }
+      dmPeoplePanel.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+      dmPeoplePanel.classList.add('open');
+      try {
+        const res = await fetch('/api/v1/dm/_users/list', { credentials: 'include' });
+        if (!res.ok) {
+          dmPeoplePanel.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
+          return;
+        }
+        const data = await res.json();
+        const users = data.results || [];
+        if (users.length === 0) {
+          dmPeoplePanel.innerHTML = '<div class="sidebar-empty">V tomto profilu nikdo další není.</div>';
+          return;
+        }
+        dmPeoplePanel.innerHTML = '';
+        users.forEach(u => {
+          const item = document.createElement('div');
+          item.className = 'dm-people-item';
+          const name = document.createElement('div');
+          name.className = 'dm-people-item-name';
+          name.textContent = [u.first_name, u.last_name].filter(Boolean).join(' ') || `User #${u.user_id}`;
+          const email = document.createElement('div');
+          email.className = 'dm-people-item-email';
+          email.textContent = u.email || '';
+          item.appendChild(name);
+          if (u.email) item.appendChild(email);
+          item.addEventListener('click', () => {
+            dmPeoplePanel.classList.remove('open');
+            startDmWith(u);
+          });
+          dmPeoplePanel.appendChild(item);
+        });
+      } catch (e) {
+        dmPeoplePanel.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+      }
+    });
+
+    // Klik mimo panel → zavři
+    document.addEventListener('click', (ev) => {
+      if (dmPeoplePanel.classList.contains('open') && !dmPeoplePanel.contains(ev.target) && ev.target !== dmPeopleBtn) {
+        dmPeoplePanel.classList.remove('open');
+      }
+    });
   }
 
   async function startDmWith(user) {

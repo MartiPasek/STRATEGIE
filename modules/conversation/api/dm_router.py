@@ -172,3 +172,14 @@ def search_users_endpoint(
     me = _require_user_id(req)
     results = dm_service.search_users_for_dm(me, q)
     return UserSearchResponse(results=[UserLite(**u) for u in results])
+
+
+@router.get("/_users/list", response_model=UserSearchResponse)
+def list_tenant_users_endpoint(req: Request) -> UserSearchResponse:
+    """
+    Seznam VŠECH aktivních uživatelů v aktuálním tenantu (bez fulltextu).
+    Pro UI dropdown 'dostupní lidé' v DM toolbaru.
+    """
+    me = _require_user_id(req)
+    results = dm_service.list_users_for_dm(me)
+    return UserSearchResponse(results=[UserLite(**u) for u in results])

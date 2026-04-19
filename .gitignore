@@ -38,3 +38,13 @@ dist/
 # Logs
 *.log
 logs/
+
+# Jednorazove commit / push helpery (nejsou soucasti produkcniho kodu,
+# vyrabeny ad-hoc pri vyvoji a zahazovany po pouziti). Soubory dev.ps1,
+# test_phase11.ps1 a _check_db.py v gitu zustavaji — to jsou znovu
+# pouzitelne dev nastroje.
+scripts/commit_*.ps1
+scripts/push_phase*.ps1
+
+# Commit message drafts (pouzivany v commit scripts pres Set-Content)
+.git_commit_msg*.txt

@@ -206,6 +206,28 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
                     "Aliasy: " + ", ".join(a.alias_value for a in global_alias_rows) + "."
                 )
 
+        # Aktivní projekt (uvnitř current tenantu) — informace pro AI o tom,
+        # v jakém pracovním kontextu uživatel právě je. Ochrana: archivovaný
+        # nebo cizí-tenantový projekt ignorujeme (vyrenderujeme "bez projektu").
+        from modules.core.infrastructure.models_core import Project as _Project
+        u_for_proj = session.query(User).filter_by(id=user_id).first()
+        proj_pid = u_for_proj.last_active_project_id if u_for_proj else None
+        if proj_pid:
+            project = (
+                session.query(_Project)
+                .filter_by(id=proj_pid, is_active=True)
+                .first()
+            )
+            if project and (tenant_id is None or project.tenant_id == tenant_id):
+                parts.append(
+                    f"Pracuje v rámci projektu '{project.name}'. "
+                    f"Tenhle projektový kontext ber v úvahu při odpovědích a doporučeních."
+                )
+            else:
+                parts.append("Aktuálně pracuje bez projektu (volné konverzace v tenantu).")
+        else:
+            parts.append("Aktuálně pracuje bez projektu (volné konverzace v tenantu).")
+
         return " ".join(parts)
     except Exception as e:
         logger.error(f"COMPOSER | user_context_block failed | user_id={user_id} | {e}")

@@ -139,6 +139,102 @@ def rename_project(*, user_id: int, project_id: int, new_name: str) -> bool:
     return repo.rename_project(project_id, new_name)
 
 
+def switch_project_by_query(user_id: int, query: str) -> dict:
+    """
+    Najde projekt v aktualnim tenantu usera podle jmena (substring,
+    case + accent insensitive) a prepne user.last_active_project_id.
+
+    Vraci dict:
+      {
+        "found": bool,
+        "already_active": bool,           # pokud byl uz aktivni
+        "project_id": int | None,
+        "project_name": str | None,
+        "ambiguous": bool,
+        "candidates": [{"id": int, "name": str}, ...],   # pri ambiguous
+        "no_projects": bool,              # tenant nema zadne aktivni projekty
+      }
+
+    Zaclujeme se jen na aktivni projekty v current tenantu.
+    """
+    import unicodedata
+
+    def _normalize(s: str) -> str:
+        if s is None:
+            return ""
+        n = unicodedata.normalize("NFKD", s.strip().lower())
+        return "".join(c for c in n if unicodedata.category(c) != "Mn")
+
+    needle = _normalize(query)
+    if not needle:
+        return {"found": False, "ambiguous": False, "candidates": [],
+                "no_projects": False, "already_active": False,
+                "project_id": None, "project_name": None}
+
+    projects = list_projects_for_user(user_id)
+    if not projects:
+        return {"found": False, "ambiguous": False, "candidates": [],
+                "no_projects": True, "already_active": False,
+                "project_id": None, "project_name": None}
+
+    # Hledame substring match v normalizovanem jmene
+    matches = [p for p in projects if needle in _normalize(p["name"])]
+
+    if not matches:
+        return {"found": False, "ambiguous": False, "candidates": [],
+                "no_projects": False, "already_active": False,
+                "project_id": None, "project_name": None}
+
+    if len(matches) > 1:
+        # Pokud je presny match jednoznacny, pouzijeme ho
+        exact = [p for p in matches if _normalize(p["name"]) == needle]
+        if len(exact) == 1:
+            matches = exact
+        else:
+            return {
+                "found": False, "ambiguous": True,
+                "candidates": [{"id": p["id"], "name": p["name"]} for p in matches[:5]],
+                "no_projects": False, "already_active": False,
+                "project_id": None, "project_name": None,
+            }
+
+    target = matches[0]
+    # Uz aktivni?
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        already = (u is not None and u.last_active_project_id == target["id"])
+    finally:
+        cs.close()
+    if already:
+        return {
+            "found": True, "already_active": True,
+            "project_id": target["id"], "project_name": target["name"],
+            "ambiguous": False, "candidates": [], "no_projects": False,
+        }
+
+    repo.set_user_last_active_project(user_id, target["id"])
+    return {
+        "found": True, "already_active": False,
+        "project_id": target["id"], "project_name": target["name"],
+        "ambiguous": False, "candidates": [], "no_projects": False,
+    }
+
+
+def clear_project_for_user(user_id: int) -> dict:
+    """Odhlaseni projektu — nastav last_active_project_id na NULL."""
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        already_none = (u is not None and u.last_active_project_id is None)
+    finally:
+        cs.close()
+    if already_none:
+        return {"already_clear": True}
+    repo.set_user_last_active_project(user_id, None)
+    return {"already_clear": False}
+
+
 def archive_project(*, user_id: int, project_id: int) -> bool:
     """
     Archivuj projekt. Opravneni: project owner nebo tenant owner.

@@ -5,6 +5,8 @@ Vrátí kompletní obraz o uživateli + jeho aktuálním tenantovém kontextu.
 Pokud něco chybí (např. user_tenant_profile nebo tenant), použije se
 fallback (first_name, "—", apod.).
 """
+from sqlalchemy.orm import Session
+
 from core.database_core import get_core_session
 from core.logging import get_logger
 from modules.core.infrastructure.models_core import (
@@ -100,6 +102,9 @@ def get_user_context(user_id: int) -> dict | None:
         )
         aliases = [a.alias_value for a in aliases_rows]
 
+        # Všechny aktivní tenanty, jichž je user členem — pro dropdown
+        available_tenants = _list_user_tenants(session, user_id)
+
         return {
             "user_id": user.id,
             "first_name": user.first_name,
@@ -110,6 +115,31 @@ def get_user_context(user_id: int) -> dict | None:
             "tenant_name": tenant_name,
             "tenant_code": tenant_code,
             "aliases": aliases,
+            "available_tenants": available_tenants,
         }
     finally:
         session.close()
+
+
+def _list_user_tenants(session: Session, user_id: int) -> list[dict]:
+    """Vrátí všechny aktivní tenanty usera, abecedně podle tenant_name."""
+    rows = (
+        session.query(Tenant)
+        .join(UserTenant, UserTenant.tenant_id == Tenant.id)
+        .filter(
+            UserTenant.user_id == user_id,
+            UserTenant.membership_status == "active",
+            Tenant.status == "active",
+        )
+        .order_by(Tenant.tenant_name.asc())
+        .all()
+    )
+    return [
+        {
+            "tenant_id": t.id,
+            "tenant_name": t.tenant_name,
+            "tenant_code": t.tenant_code,
+            "tenant_type": t.tenant_type,
+        }
+        for t in rows
+    ]

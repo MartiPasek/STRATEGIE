@@ -14,6 +14,7 @@ from modules.conversation.application.tools import (
     TOOLS, format_email_preview, find_user_in_system,
     invite_user_to_strategie, switch_persona_for_user,
     get_user_default_persona_name, switch_tenant_for_user,
+    get_user_default_tenant_id,
 )
 from modules.conversation.infrastructure.repository import (
     create_conversation,
@@ -469,6 +470,25 @@ def chat(
 
     if user_id and _detect_persona_reset(user_message):
         logger.info(f"PERSONA | reset_intent detected | user={user_id} | conv={conversation_id}")
+
+        # „Přepni zpět" = vrať VŠE k defaultu — personu i tenant.
+        # Tenant: zpátky na personal tenant uživatele.
+        default_tenant_id = get_user_default_tenant_id(user_id)
+        if default_tenant_id is not None:
+            from core.database_core import get_core_session as _gcs
+            from modules.core.infrastructure.models_core import User as _User
+            _s = _gcs()
+            try:
+                _u = _s.query(_User).filter_by(id=user_id).first()
+                if _u and _u.last_active_tenant_id != default_tenant_id:
+                    _u.last_active_tenant_id = default_tenant_id
+                    _s.commit()
+                    logger.info(
+                        f"TENANT | reset to default | user={user_id} | tenant={default_tenant_id}"
+                    )
+            finally:
+                _s.close()
+
         default_name = get_user_default_persona_name(user_id)
         if default_name:
             switch_target = default_name

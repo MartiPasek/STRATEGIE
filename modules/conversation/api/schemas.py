@@ -14,6 +14,14 @@ class ChatResponse(BaseModel):
     # Když se v tomto cyklu vytvořilo nové summary, frontend tuto hlášku zobrazí
     # jako banner (např. „⏳ Shrnul jsem 10 starších zpráv"). Jinak None.
     summary_notice: str | None = None
+    # Aktuální tenant kontext — frontend tím aktualizuje UI hlavičku.
+    # Zachycuje i tenant switch provedený přes chat („přepni do EUROSOFTu").
+    tenant_id: int | None = None
+    tenant_name: str | None = None
+    tenant_code: str | None = None
+    # Display jméno usera v aktuálním tenantu (z user_tenant_profiles).
+    # Frontend ho používá pro „Marti - EUROSOFT" hlavičkovou pilulku.
+    display_name: str | None = None
 
 
 class HistoryMessage(BaseModel):

@@ -39,8 +39,22 @@
     .new-chat-btn:hover { border-color: var(--accent); color: var(--text); }
     .logout-btn { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 5px 8px; }
     .logout-btn:hover { color: var(--error); }
-    .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; }
+    .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
+    .tenant-pill-wrap { position: relative; display: inline-block; }
+    .tenant-pill { display: inline-flex; align-items: center; padding: 3px 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; white-space: pre; cursor: pointer; transition: border-color .15s, background .15s; user-select: none; }
+    .tenant-pill:hover { border-color: var(--accent); }
+    .tenant-pill-name { color: var(--accent); font-weight: 500; }
+    .tenant-pill-sep { color: var(--muted); }
+    .tenant-pill-tenant { color: var(--text); }
+    .tenant-pill-caret { color: var(--muted); margin-left: 6px; font-size: 10px; }
+    .tenant-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 180px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
+    .tenant-dropdown.open { display: block; }
+    .tenant-dropdown-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: column; gap: 2px; transition: background .12s; }
+    .tenant-dropdown-item:hover { background: var(--bg); }
+    .tenant-dropdown-item.active { background: #1a1f2e; }
+    .tenant-dropdown-name { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+    .tenant-dropdown-meta { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; }
     .messages { flex: 1; overflow-y: auto; padding: 12px 0; display: flex; flex-direction: column; gap: 8px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     .msg { display: flex; flex-direction: column; gap: 2px; animation: fadeIn .25s ease; }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
@@ -146,7 +160,6 @@
           <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
           <button class="mode-btn" id="modeDmBtn" data-mode="dm">Lidé</button>
         </div>
-        <div class="user-pill" id="userPill"></div>
         <div class="conv-id" id="convIdLabel"></div>
         <button class="new-chat-btn" id="newChatBtn">+ Nová</button>
         <button class="logout-btn" id="logoutBtn">Odhlásit</button>
@@ -155,7 +168,13 @@
 
     <!-- AI VIEW -->
     <div id="aiView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
-      <div class="agent-bar">Mluvíš s: <span id="agentName">Marti-AI</span></div>
+      <div class="agent-bar">
+        <div>Mluvíš s: <span id="agentName">Marti-AI</span></div>
+        <div class="tenant-pill-wrap">
+          <div class="tenant-pill" id="tenantPill" style="display:none" title="Klikni pro výběr tenantu"></div>
+          <div class="tenant-dropdown" id="tenantDropdown"></div>
+        </div>
+      </div>
       <div class="messages" id="messages">
         <div class="empty" id="emptyState">
           <div class="empty-icon">◈</div>
@@ -215,7 +234,6 @@
   const loginEmail   = document.getElementById('loginEmail');
   const loginBtn     = document.getElementById('loginBtn');
   const loginError   = document.getElementById('loginError');
-  const userPill     = document.getElementById('userPill');
   const convIdLabel  = document.getElementById('convIdLabel');
   const newChatBtn   = document.getElementById('newChatBtn');
   const logoutBtn    = document.getElementById('logoutBtn');
@@ -310,11 +328,11 @@
   async function showApp() {
     loginScreen.style.display = 'none';
     appScreen.style.display = 'flex';
-    const name = [currentUser.first_name, currentUser.last_name].filter(Boolean).join(' ') || currentUser.email;
-    userPill.textContent = name;
     // Reset jména persony — ať nezůstane "Marti-AI" z HTML defaultu,
     // když se přihlásí jiný user. Server ho doplní v /last nebo v první odpovědi.
     document.getElementById('agentName').textContent = '—';
+    // Hlavičková pilulka: "<display_name> - <tenant_name>"
+    setTenantPill(currentUser.display_name, currentUser.tenant_name);
     await loadLastConversation();
     inputEl.focus();
   }
@@ -392,6 +410,118 @@
     const el = document.getElementById('agentName');
     return (el && el.textContent && el.textContent.trim()) || 'AI';
   }
+
+  function setTenantPill(displayName, tenantName) {
+    // Pilulka v hlavičce: "<display_name> - <tenant_name>"
+    // Klikem otevře dropdown se seznamem tenantů (pokud má user 2+).
+    // Caret šipka odstraněna na žádost — že je pilulka klikatelná
+    // signalizuje cursor:pointer + hover obrys.
+    const pill = document.getElementById('tenantPill');
+    if (!displayName && !tenantName) {
+      pill.style.display = 'none';
+      return;
+    }
+    pill.innerHTML = '';
+    const mkSpan = (cls, text) => {
+      const s = document.createElement('span');
+      s.className = cls;
+      s.textContent = text;
+      pill.appendChild(s);
+    };
+    mkSpan('tenant-pill-name', displayName || '—');
+    if (tenantName) {
+      mkSpan('tenant-pill-sep', ' - ');
+      mkSpan('tenant-pill-tenant', tenantName);
+    }
+    pill.style.display = 'inline-flex';
+  }
+
+  function _renderTenantDropdown() {
+    const dd = document.getElementById('tenantDropdown');
+    dd.innerHTML = '';
+    const tenants = (currentUser && currentUser.available_tenants) || [];
+    const currentId = currentUser && currentUser.tenant_id;
+    if (tenants.length <= 1) {
+      dd.classList.remove('open');
+      return;
+    }
+    tenants.forEach(t => {
+      const item = document.createElement('div');
+      item.className = 'tenant-dropdown-item' + (t.tenant_id === currentId ? ' active' : '');
+      const nameEl = document.createElement('div');
+      nameEl.className = 'tenant-dropdown-name';
+      nameEl.textContent = t.tenant_name;
+      const metaEl = document.createElement('div');
+      metaEl.className = 'tenant-dropdown-meta';
+      const metaParts = [t.tenant_code, t.tenant_type].filter(Boolean);
+      metaEl.textContent = metaParts.join(' · ');
+      item.appendChild(nameEl);
+      if (metaParts.length > 0) item.appendChild(metaEl);
+      item.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (t.tenant_id === currentId) {
+          dd.classList.remove('open');
+          return;
+        }
+        await switchTenant(t.tenant_id);
+        dd.classList.remove('open');
+      });
+      dd.appendChild(item);
+    });
+  }
+
+  async function switchTenant(tenantId) {
+    try {
+      const body = { tenant_id: tenantId };
+      // Pokud máme aktivní AI konverzaci, předej její ID — backend tam vloží
+      // system zprávu o přepnutí, aby AI v historii vidělo změnu kontextu.
+      if (conversationId) body.conversation_id = conversationId;
+
+      const res = await fetch('/api/v1/auth/switch_tenant', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || `Přepnutí selhalo (${res.status}).`);
+        return;
+      }
+      const data = await res.json();
+      // Updatuj currentUser a hlavičkovou pilulku
+      currentUser = data;
+      setTenantPill(currentUser.display_name, currentUser.tenant_name);
+      // UI banner v chatu — viditelné potvrzení přepnutí pro uživatele
+      if (conversationId && data.tenant_name) {
+        showSummaryBanner(`🔄 Přepnuto do tenantu ${data.tenant_name}`);
+      }
+    } catch (e) {
+      alert('Chyba spojení při přepínání tenantu.');
+    }
+  }
+
+  // Pilulka — toggle dropdown při kliknutí
+  document.getElementById('tenantPill').addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    const dd = document.getElementById('tenantDropdown');
+    const tenants = (currentUser && currentUser.available_tenants) || [];
+    if (tenants.length <= 1) return;   // jeden tenant = dropdown zbytečný
+    if (dd.classList.contains('open')) {
+      dd.classList.remove('open');
+    } else {
+      _renderTenantDropdown();
+      dd.classList.add('open');
+    }
+  });
+
+  // Klik mimo dropdown ho zavře
+  document.addEventListener('click', () => {
+    const dd = document.getElementById('tenantDropdown');
+    if (dd && dd.classList.contains('open')) {
+      dd.classList.remove('open');
+    }
+  });
 
   function currentUserLabel() {
     // Preferuj display_name (z user_tenant_profiles aktuálního tenantu),
@@ -496,6 +626,17 @@
         // ať má popisek zprávy správnou identitu (např. Klára-AI vs Marti-AI)
         if (data.active_persona) {
           document.getElementById('agentName').textContent = data.active_persona;
+        }
+        // Aktualizuj tenant pilulku — zachycuje i tenant switch přes chat
+        // („přepni do EUROSOFTu") + udržuje pilulku v synchronizaci s backendem.
+        if (data.tenant_name !== undefined || data.display_name !== undefined) {
+          if (currentUser) {
+            currentUser.tenant_code = data.tenant_code;
+            currentUser.tenant_name = data.tenant_name;
+            currentUser.tenant_id = data.tenant_id;
+            if (data.display_name) currentUser.display_name = data.display_name;
+          }
+          setTenantPill(data.display_name, data.tenant_name);
         }
         addMessage('assistant', data.reply);
         // Banner pokud backend shrnul starší historii v tomto cyklu

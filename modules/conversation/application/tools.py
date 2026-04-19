@@ -603,3 +603,37 @@ def _tenant_switch_apply(session, user_id: int, tenant) -> dict:
         "tenant_code": tenant.tenant_code,
         "already_active": already_active,
     }
+
+
+def get_user_default_tenant_id(user_id: int) -> int | None:
+    """
+    Najde uživatelův výchozí (personal) tenant — preferuje:
+      1. tenant_type='personal' kde je user owner
+      2. první aktivní user_tenants záznam (fallback)
+
+    Vrací tenant_id nebo None.
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Tenant, UserTenant
+
+    session = get_core_session()
+    try:
+        # Preferuj personal tenant kde je user owner
+        personal = (
+            session.query(Tenant)
+            .filter_by(tenant_type="personal", owner_user_id=user_id, status="active")
+            .first()
+        )
+        if personal:
+            return personal.id
+
+        # Fallback: první aktivní membership
+        ut = (
+            session.query(UserTenant)
+            .filter_by(user_id=user_id, membership_status="active")
+            .order_by(UserTenant.id.asc())
+            .first()
+        )
+        return ut.tenant_id if ut else None
+    finally:
+        session.close()

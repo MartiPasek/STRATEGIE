@@ -435,7 +435,8 @@ def chat(
         pending = _get_pending_action(conversation_id)
         if pending:
             # Skutečná pending akce existuje — vykonej a potvrď.
-            save_message(conversation_id, role="user", content=user_message)
+            save_message(conversation_id, role="user", content=user_message,
+                         author_type="human", author_user_id=user_id)
             result = _execute_pending_action(conversation_id, user_id=user_id)
             if result:
                 save_message(conversation_id, role="assistant", content=result)
@@ -446,7 +447,8 @@ def chat(
             # jen napsal, tool nezavolal). Nesmíme pustit Claude na tuhle
             # větev — napsal by „✅ Email odeslán" jako text a uživatel by
             # byl přesvědčen, že email odešel. Reálně by se neodeslalo nic.
-            save_message(conversation_id, role="user", content=user_message)
+            save_message(conversation_id, role="user", content=user_message,
+                         author_type="human", author_user_id=user_id)
             reply = (
                 "❌ Žádný email nebyl systémově připraven k odeslání.\n\n"
                 "Napiš znovu explicitně, co mám poslat, např.:\n"
@@ -457,7 +459,8 @@ def chat(
         # Jinak (ano bez pendingu a bez email kontextu) = běžné potvrzení,
         # nechej to dojít k Claude standardní cestou.
 
-    save_message(conversation_id, role="user", content=user_message)
+    save_message(conversation_id, role="user", content=user_message,
+                 author_type="human", author_user_id=user_id)
 
     # ── Explicitní TENANT switch ───────────────────────────────────────
     # „přepni do EUROSOFTu", „chci do DOMA", „switch to EUR".
@@ -496,7 +499,9 @@ def chat(
                     f"❌ Tenant '{tenant_target}' nenalezen "
                     f"(nebo nemáš ke kterému členství)."
                 )
-            save_message(conversation_id, role="assistant", content=reply)
+            # Tenant switch je systémové oznámení, ne AI text.
+            save_message(conversation_id, role="assistant", content=reply,
+                         message_type="system")
             return conversation_id, reply, None
 
     # ── Explicitní persona switch ───────────────────────────────────────
@@ -576,7 +581,9 @@ def chat(
                     f"❌ Nenašel/a jsem '{switch_target}' — ani jako personu, ani jako tenant.\n\n"
                     f"Zkus přesnější jméno."
                 )
-        save_message(conversation_id, role="assistant", content=reply)
+        # Persona switch (nebo tenant fallback) je systémové oznámení, ne AI text.
+        save_message(conversation_id, role="assistant", content=reply,
+                     message_type="system")
         return conversation_id, reply, None
 
     system_prompt, messages = build_prompt(conversation_id)

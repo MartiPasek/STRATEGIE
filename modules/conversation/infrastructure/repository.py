@@ -68,20 +68,28 @@ def save_message(
     session = get_data_session()
     try:
         now = _now_utc()
+
+        # Denormalizace pro rychlý listing + auto-fill agent_id.
+        # Pokud volající neurčil agent_id a zpráva je od AI, použij aktivní
+        # agent konverzace — ať se dá zpětně rekonstruovat, která persona
+        # danou repliku dala (důležité pro multi-agent flow a audit).
+        conversation = session.query(Conversation).filter_by(id=conversation_id).first()
+        effective_agent_id = agent_id
+        if effective_agent_id is None and author_type == "ai" and conversation is not None:
+            effective_agent_id = conversation.active_agent_id
+
         message = Message(
             conversation_id=conversation_id,
             role=role,
             content=content,
             author_type=author_type,
             author_user_id=author_user_id,
-            agent_id=agent_id,
+            agent_id=effective_agent_id,
             message_type=message_type,
         )
         session.add(message)
         session.flush()   # získá id před commitem
 
-        # Denormalizace pro rychlý listing
-        conversation = session.query(Conversation).filter_by(id=conversation_id).first()
         if conversation is not None:
             conversation.last_message_id = message.id
             conversation.last_message_at = now

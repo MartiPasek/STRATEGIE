@@ -36,3 +36,16 @@ class LastConversationResponse(BaseModel):
     conversation_id: int
     messages: list[HistoryMessage]
     active_persona: str | None = None
+    # Frontend potřebuje vědět, jestli konverzace je archivovaná —
+    # pokud ano, před odesláním nové zprávy se uživatele zeptá,
+    # jestli má konverzaci nejdřív vrátit z archivu.
+    is_archived: bool = False
+
+
+class ConversationListItem(BaseModel):
+    """Jedna položka v sidebaru se seznamem konverzací."""
+    id: int
+    title: str
+    tenant_id: int | None = None
+    last_message_at: str | None = None  # ISO 8601 string
+    message_count: int

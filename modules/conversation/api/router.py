@@ -1,9 +1,16 @@
 from fastapi import APIRouter, HTTPException, Request
 
 from core.logging import get_logger
-from modules.conversation.api.schemas import ChatRequest, ChatResponse, LastConversationResponse
+from modules.conversation.api.schemas import (
+    ChatRequest, ChatResponse, LastConversationResponse, ConversationListItem,
+)
 from modules.conversation.application.service import chat
-from modules.conversation.infrastructure.repository import get_last_conversation, get_active_persona_name
+from modules.conversation.infrastructure.repository import (
+    get_last_conversation, get_active_persona_name,
+    list_conversations, load_conversation, set_conversation_flag,
+    rename_conversation, list_archived_conversations,
+)
+from pydantic import BaseModel
 from core.database_core import get_core_session
 from modules.core.infrastructure.models_core import User, Tenant
 
@@ -105,4 +112,146 @@ def get_last(req: Request):
         conversation_id=result["conversation_id"],
         messages=result["messages"],
         active_persona=persona_name,
+        is_archived=result.get("is_archived", False),
+    )
+
+
+@router.get("/list", response_model=list[ConversationListItem])
+def list_user_conversations(req: Request):
+    """
+    Vrátí seznam AI konverzací usera pro UI sidebar (nejnovější první).
+    Filtrováno podle aktivního tenantu (user.last_active_tenant_id) —
+    Marti v Osobním vidí jen osobní konverzace, v EUROSOFTu jen firemní.
+    Bez auth (cookie user_id) -> 401.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    # Aktivní tenant z DB (single source of truth, ne cookie — cookie
+    # je optional a může být zastaralý po tenant switche).
+    active_tenant_id: int | None = None
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if u:
+            active_tenant_id = u.last_active_tenant_id
+    finally:
+        cs.close()
+
+    items = list_conversations(user_id, tenant_id=active_tenant_id)
+    return [ConversationListItem(**i) for i in items]
+
+
+def _get_user_id_from_cookie(req: Request) -> int:
+    """Extrahuje a validuje user_id z cookie. Vyhodí 401 pokud chybí/neplatný."""
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        return int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+
+class RenameRequest(BaseModel):
+    title: str
+
+
+@router.patch("/{conversation_id}/rename")
+def rename_user_conversation(conversation_id: int, body: RenameRequest, req: Request) -> dict:
+    """
+    Přejmenuje konverzaci. Prázdný title → vrátí se k auto-titlu z první zprávy.
+    """
+    user_id = _get_user_id_from_cookie(req)
+    logger.info(f"RENAME | user={user_id} | conv={conversation_id} | new_title={body.title!r}")
+    ok = rename_conversation(user_id, conversation_id, body.title)
+    if not ok:
+        logger.warning(f"RENAME | 404 | user={user_id} | conv={conversation_id} | (not owner / not found)")
+        raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+    logger.info(f"RENAME | OK | user={user_id} | conv={conversation_id}")
+    return {"status": "renamed", "conversation_id": conversation_id, "title": (body.title or "").strip() or None}
+
+
+@router.delete("/{conversation_id}")
+def delete_user_conversation(conversation_id: int, req: Request) -> dict:
+    """
+    Soft-delete konverzace (set is_deleted=true). Konverzace zmizí ze
+    sidebaru/dropdownu i z archivu, ale fyzicky zůstává v DB pro audit.
+    """
+    user_id = _get_user_id_from_cookie(req)
+    ok = set_conversation_flag(user_id, conversation_id, is_deleted=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+    return {"status": "deleted", "conversation_id": conversation_id}
+
+
+@router.post("/{conversation_id}/archive")
+def archive_user_conversation(conversation_id: int, req: Request) -> dict:
+    """
+    Archivace konverzace (set is_archived=true). Zmizí ze sidebaru,
+    zůstane dostupná přes 'Můj archiv konverzací'.
+    """
+    user_id = _get_user_id_from_cookie(req)
+    ok = set_conversation_flag(user_id, conversation_id, is_archived=True)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+    return {"status": "archived", "conversation_id": conversation_id}
+
+
+@router.post("/{conversation_id}/unarchive")
+def unarchive_user_conversation(conversation_id: int, req: Request) -> dict:
+    """Vrátí konverzaci z archivu zpět do hlavního sidebaru/dropdownu."""
+    user_id = _get_user_id_from_cookie(req)
+    ok = set_conversation_flag(user_id, conversation_id, is_archived=False)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+    return {"status": "unarchived", "conversation_id": conversation_id}
+
+
+@router.get("/list-archived", response_model=list[ConversationListItem])
+def list_user_archived(req: Request):
+    """
+    Vrátí archivované AI konverzace usera (filtr podle aktivního tenantu),
+    pro modal 'Můj archiv konverzací'.
+    """
+    user_id = _get_user_id_from_cookie(req)
+    active_tenant_id: int | None = None
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if u:
+            active_tenant_id = u.last_active_tenant_id
+    finally:
+        cs.close()
+    items = list_archived_conversations(user_id, tenant_id=active_tenant_id)
+    return [ConversationListItem(**i) for i in items]
+
+
+@router.get("/load/{conversation_id}", response_model=LastConversationResponse | None)
+def load_user_conversation(conversation_id: int, req: Request):
+    """
+    Načte konkrétní konverzaci pro UI (klik v sidebaru).
+    Vlastnictví ověřuje repository — 404 pokud user není vlastník.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+    result = load_conversation(user_id, conversation_id)
+    if not result:
+        raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
+    persona_name = get_active_persona_name(result["conversation_id"])
+    return LastConversationResponse(
+        conversation_id=result["conversation_id"],
+        messages=result["messages"],
+        active_persona=persona_name,
+        is_archived=result.get("is_archived", False),
     )

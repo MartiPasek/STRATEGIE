@@ -391,7 +391,21 @@ def chat(
     """
 
     if conversation_id is None:
-        conversation_id = create_conversation(user_id=user_id)
+        # Načti aktivní tenant uživatele, ať se konverzace správně přiřadí
+        # k tenantu (Marti přepnut v EUROSOFTu -> nová konverzace patří
+        # do EUROSOFTu, ne do Osobní).
+        active_tenant_id: int | None = None
+        if user_id:
+            from modules.core.infrastructure.models_core import User
+            from core.database_core import get_core_session
+            cs = get_core_session()
+            try:
+                u = cs.query(User).filter_by(id=user_id).first()
+                if u:
+                    active_tenant_id = u.last_active_tenant_id
+            finally:
+                cs.close()
+        conversation_id = create_conversation(user_id=user_id, tenant_id=active_tenant_id)
 
     if _is_confirmation(user_message):
         pending = _get_pending_action(conversation_id)

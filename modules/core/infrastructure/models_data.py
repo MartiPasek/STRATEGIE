@@ -39,6 +39,9 @@ class Conversation(BaseData):
     last_message_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_deleted: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Archivace: konverzace zmizí ze sidebaru/dropdownu, ale zůstává v DB.
+    # Přístup k archivním konverzacím bude přes samostatný 'archiv' (TBD).
+    is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Message(BaseData):

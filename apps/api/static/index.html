@@ -4,7 +4,23 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>STRATEGIE</title>
-  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
+  <!-- Logo font: Galano Grotesque (commercial — bude doplněno přes @font-face,
+       až bude k dispozici licence). Do té doby fallback na Montserrat (geometric
+       sans, vizuálně nejbližší). Když se Galano přidá, font-family ho převezme
+       automaticky díky pořadí v 'Galano Grotesque', 'Montserrat', sans-serif. -->
+  <!--
+  <style>
+    @font-face {
+      font-family: 'Galano Grotesque';
+      src: url('/static/fonts/GalanoGrotesque-Bold.woff2') format('woff2');
+      font-weight: 700;
+      font-style: normal;
+      font-display: swap;
+    }
+  </style>
+  -->
+
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
     :root {
@@ -17,7 +33,10 @@
     /* ── SHARED BOX ── */
     .centered { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
     .box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 380px; display: flex; flex-direction: column; gap: 20px; }
-    .box-logo { font-family: 'DM Mono', monospace; font-size: 14px; font-weight: 500; letter-spacing: 0.18em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
+    /* Logo font: 'Galano Grotesque' (až bude licence aktivovaná přes @font-face nahoře),
+       fallback na Montserrat (Google Fonts, geometrický sans nejbližší Galano).
+       Tracking 0.10em — Galano/Montserrat snese těsnější než DM Mono. */
+    .box-logo { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 18px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; text-align: center; }
     .box-title { font-size: 20px; font-weight: 500; text-align: center; }
     .box-sub { font-size: 13px; color: var(--muted); text-align: center; line-height: 1.6; }
     .box-input { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; outline: none; width: 100%; transition: border-color .2s; }
@@ -29,9 +48,112 @@
     .box-success { font-size: 13px; color: #34d399; text-align: center; }
 
     /* ── APP ── */
-    .app { display: none; flex-direction: column; height: 100vh; max-width: 820px; margin: 0 auto; padding: 0 16px; }
+    /* App layout: sidebar přilepen na levý okraj okna (žádné max-width
+       na .app), hlavní obsah (chat) má vlastní max-width 900px a centruje
+       se uvnitř svého grid sloupce (margin: 0 auto). Tím chat zůstane
+       čitelný i na 1920+ monitorech a sidebar nezačne plavat doprava. */
+    .app { display: none; height: 100vh; width: 100%; padding: 0; grid-template-columns: 260px 1fr; gap: 0; }
+    .app.show { display: grid; }
+    .app-main { display: flex; flex-direction: column; min-height: 0; padding: 0 16px; max-width: 900px; width: 100%; margin: 0 auto; }
+    /* SIDEBAR — seznam AI konverzací */
+    .sidebar { background: #0c0d10; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; padding: 14px 10px; gap: 6px; overflow: hidden; }
+    .sidebar-title { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 4px 8px 8px; }
+    .sidebar-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    /* Sidebar/dropdown item layout: text vlevo (flex 1), akce vpravo. */
+    .sidebar-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
+    .sidebar-item:hover { background: #14161a; }
+    .sidebar-item.active { background: #1a1f2e; border-color: #2a3350; }
+    .conv-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .sidebar-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .sidebar-item-meta { font-size: 10px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+    .sidebar-empty { font-size: 12px; color: var(--muted); padding: 12px; text-align: center; font-style: italic; }
+    /* Sidebar footer — pinned dolů, oddělený border-top, obsahuje toggle archivu */
+    .sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+    .sidebar-footer-btn { width: 100%; background: transparent; border: 1px solid transparent; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; padding: 8px 10px; border-radius: 8px; cursor: pointer; text-align: left; transition: background .12s, color .12s, border-color .12s; }
+    .sidebar-footer-btn:hover { background: #14161a; color: var(--text); border-color: var(--border); }
+    .sidebar-footer-btn.archive-mode { color: var(--accent); border-color: var(--border); background: #14161a; }
+    /* Akční ikony — viditelné na hover/active, vpravo vedle textu.
+       Jen ikona, popisek přes title (tooltip). Větší pro lepší zacílení. */
+    .conv-item-actions { display: flex; gap: 2px; opacity: 0; transition: opacity .15s; flex-shrink: 0; }
+    .sidebar-item:hover .conv-item-actions, .conv-dd-item:hover .conv-item-actions, .sidebar-item.active .conv-item-actions, .conv-dd-item.active .conv-item-actions { opacity: 1; }
+    .conv-action-btn { background: transparent; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; padding: 4px 6px; font-size: 16px; line-height: 1; transition: background .12s, color .12s; position: relative; }
+    .conv-action-btn:hover { color: var(--text); background: rgba(255,255,255,0.06); }
+    .conv-action-btn.danger:hover { color: var(--error); background: rgba(248,113,113,0.10); }
+    /* Custom dark tooltip přes data-tooltip="..." na libovolném elementu.
+       Nahrazuje nativní title (světlé OS bubble). */
+    [data-tooltip] { position: relative; }
+    [data-tooltip]::after {
+      content: attr(data-tooltip);
+      position: absolute;
+      top: calc(100% + 6px);          /* pod elementem, nad kurzorem */
+      left: 50%;
+      transform: translateX(-50%);
+      background: #1a1d22;
+      color: var(--text);
+      border: 1px solid var(--border);
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      white-space: nowrap;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity .15s ease .25s;   /* lehký delay jako u nativního */
+      z-index: 200;
+      box-shadow: 0 4px 12px rgba(0,0,0,.4);
+    }
+    [data-tooltip]:hover::after { opacity: 1; }
+    /* Custom confirm modal (sladěn s dark themou — nahrazuje nativní confirm()).
+       Title je stylizován jako logo STRATEGIE (gradient text). */
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; z-index: 1000; animation: fadeIn .15s ease; }
+    .modal-box { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; min-width: 280px; max-width: 380px; box-shadow: 0 20px 60px rgba(0,0,0,.5); animation: slideUp .2s ease; }
+    .modal-box-wide { max-width: 560px; min-width: 360px; }
+    .archive-list { max-height: 50vh; overflow-y: auto; margin-bottom: 16px; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .archive-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
+    .archive-item:hover { background: var(--bg); border-color: var(--border); }
+    .archive-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .archive-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .archive-item-meta { font-size: 10px; color: var(--muted); }
+    @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+    .modal-title { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+    .modal-text { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 16px; }
+    .modal-input { width: 100%; padding: 8px 10px; font-size: 13px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; margin-bottom: 16px; outline: none; transition: border-color .12s; }
+    .modal-input:focus { border-color: var(--accent); }
+    .modal-actions { display: flex; gap: 6px; justify-content: flex-end; }
+    .modal-btn { padding: 6px 14px; font-size: 12px; border-radius: 6px; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: background .12s, border-color .12s, color .12s; }
+    .modal-btn-secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .modal-btn-secondary:hover { color: var(--text); border-color: var(--text); }
+    .modal-btn-primary { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: 1px solid transparent; color: #fff; font-weight: 500; }
+    .modal-btn-primary:hover { filter: brightness(1.1); }
+    .modal-btn-primary.danger { background: var(--error); }
+    .modal-btn-primary.danger:hover { background: #ef4444; filter: none; }
+    /* CONVERSATIONS DROPDOWN v hlavičce — alternativa k sidebaru
+       pro úzká okna. Default skrytý, zobrazí se v media query níže. */
+    .conv-dd-wrap { position: relative; display: none; }
+    /* Trigger sjednocen s .new-chat-btn a .mode-btn — stejná výška,
+       padding, border-radius, font, ať vizuálně sedí do hlavičky. */
+    .conv-dd-trigger { background: var(--surface); border: 1px solid var(--border); color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; padding: 6px 12px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; gap: 6px; transition: border-color .2s, color .2s; }
+    .conv-dd-trigger:hover { border-color: var(--accent); color: var(--text); }
+    .conv-dd-panel { position: absolute; top: calc(100% + 4px); left: 0; min-width: 260px; max-width: 320px; max-height: 60vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .conv-dd-panel.open { display: block; }
+    .conv-dd-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
+    .conv-dd-item:hover { background: var(--bg); }
+    .conv-dd-item.active { background: #1a1f2e; border-color: #2a3350; }
+    .conv-dd-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .conv-dd-item-meta { font-size: 10px; color: var(--muted); }
+
+    /* Responzivní: pod 960px se sidebar schová a místo něj se v hlavičce
+       zobrazí dropdown (.conv-dd-wrap). Threshold posunut z 640 na 960 —
+       Marti používá zúžená okna i na desktopu, sidebar by zabíral hodně
+       místa pro chat. Media query MUSÍ být ZA hlavními .sidebar a .app
+       pravidly (CSS cascade). */
+    @media (max-width: 960px) {
+      .app, .app.show { grid-template-columns: 1fr; }
+      .sidebar { display: none; }
+      .conv-dd-wrap { display: block; }
+    }
     .header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
-    .logo { font-family: 'DM Mono', monospace; font-size: 22px; font-weight: 600; letter-spacing: 0.22em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    .logo { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .conv-id { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
@@ -163,9 +285,26 @@
 
   <!-- APP -->
   <div class="app" id="appScreen">
+    <!-- SIDEBAR (seznam AI konverzací + pinned footer s archivem) -->
+    <aside class="sidebar" id="sidebar">
+      <div class="sidebar-title" id="sidebarTitle">Konverzace</div>
+      <div class="sidebar-list" id="sidebarList">
+        <div class="sidebar-empty">Načítám…</div>
+      </div>
+      <div class="sidebar-footer" id="sidebarFooter">
+        <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevři archiv konverzací">📦 Můj archív konverzací</button>
+      </div>
+    </aside>
+
+    <!-- HLAVNÍ OBSAH (header + AI view + DM views) -->
+    <div class="app-main">
     <header class="header">
       <div class="logo">Strategie</div>
       <div class="header-right">
+        <div class="conv-dd-wrap" id="convDdWrap">
+          <button class="conv-dd-trigger" id="convDdTrigger" data-tooltip="Otevři seznam konverzací" aria-label="Otevři seznam konverzací">☰ Konverzace</button>
+          <div class="conv-dd-panel" id="convDdPanel"></div>
+        </div>
         <div class="mode-switch">
           <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
           <button class="mode-btn" id="modeDmBtn" data-mode="dm">Lidé</button>
@@ -181,7 +320,7 @@
       <div class="agent-bar">
         <div>Mluvíš s: <span id="agentName">Marti-AI</span></div>
         <div class="tenant-pill-wrap">
-          <div class="tenant-pill" id="tenantPill" style="display:none" title="Klikni pro výběr tenantu"></div>
+          <div class="tenant-pill" id="tenantPill" style="display:none" data-tooltip="Klikni pro výběr tenantu" aria-label="Klikni pro výběr tenantu"></div>
           <div class="tenant-dropdown" id="tenantDropdown"></div>
         </div>
       </div>
@@ -215,7 +354,7 @@
     <!-- DM CONVERSATION VIEW -->
     <div class="dm-view" id="dmConvView">
       <div class="dm-conv-header">
-        <button class="dm-back-btn" id="dmBackBtn" title="Zpět">←</button>
+        <button class="dm-back-btn" id="dmBackBtn" data-tooltip="Zpět" aria-label="Zpět">←</button>
         <div class="dm-avatar" id="dmConvAvatar">?</div>
         <div style="flex:1; min-width:0;">
           <div class="dm-conv-title" id="dmConvTitle">—</div>
@@ -232,11 +371,44 @@
         </div>
       </div>
     </div>
+    </div><!-- /.app-main -->
+  </div>
+
+  <!-- Custom confirm modal — sladěn s dark themou -->
+  <div class="modal-overlay" id="confirmModal" style="display:none">
+    <div class="modal-box">
+      <div class="modal-title" id="confirmModalTitle">Potvrzení</div>
+      <div class="modal-text" id="confirmModalText"></div>
+      <input class="modal-input" id="confirmModalInput" type="text" style="display:none" />
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="confirmModalCancel">Zrušit</button>
+        <button class="modal-btn modal-btn-primary" id="confirmModalOk">OK</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Archiv konverzací modal -->
+  <div class="modal-overlay" id="archiveModal" style="display:none">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-title">MŮJ ARCHIV KONVERZACÍ</div>
+      <div class="modal-text" id="archiveModalSub">Klikem na konverzaci ji otevřeš. Vrátit zpět z archivu nebo definitivně smazat ji můžeš ikonami vpravo.</div>
+      <div class="archive-list" id="archiveList">
+        <div class="sidebar-empty">Načítám…</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="archiveModalClose">Zavřít</button>
+      </div>
+    </div>
   </div>
 
 <script>
   let currentUser = null;
   let conversationId = null;
+  // Pamatuje si, jestli aktuálně otevřená konverzace je archivovaná.
+  // Pokud ano, před odesláním nové zprávy se uživatel zeptá, jestli má
+  // konverzaci nejdřív vrátit z archivu (jinak by zpráva přibyla do
+  // archivované konverzace, což je matoucí).
+  let conversationIsArchived = false;
 
   const inviteScreen = document.getElementById('inviteScreen');
   const loginScreen  = document.getElementById('loginScreen');
@@ -337,13 +509,15 @@
 
   async function showApp() {
     loginScreen.style.display = 'none';
-    appScreen.style.display = 'flex';
+    appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
+    appScreen.classList.add('show');
     // Reset jména persony — ať nezůstane "Marti-AI" z HTML defaultu,
     // když se přihlásí jiný user. Server ho doplní v /last nebo v první odpovědi.
     document.getElementById('agentName').textContent = '—';
     // Hlavičková pilulka: "<display_name> - <tenant_name>"
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
     await loadLastConversation();
+    await loadConversationList();      // sidebar
     inputEl.focus();
   }
 
@@ -355,6 +529,7 @@
       const data = await res.json();
       if (!data || !data.messages || data.messages.length === 0) return;
       conversationId = data.conversation_id;
+      conversationIsArchived = !!data.is_archived;
       convIdLabel.textContent = `#${conversationId}`;
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
@@ -368,6 +543,7 @@
   logoutBtn.addEventListener('click', async () => {
     await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' });
     currentUser = null; conversationId = null;
+    appScreen.classList.remove('show');
     appScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
     loginError.textContent = '';
@@ -383,11 +559,557 @@
 
   // ── CHAT ───────────────────────────────────────────────────────────────
   newChatBtn.addEventListener('click', () => {
-    conversationId = null; convIdLabel.textContent = '';
+    conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
+    // Odznač aktivní položku v sidebaru — žádná konverzace není načtena.
+    document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
   });
+
+  // ── SIDEBAR — seznam AI konverzací ─────────────────────────────────────
+  async function loadConversationList() {
+    const listEl = document.getElementById('sidebarList');
+    if (!listEl) return;
+    try {
+      const res = await fetch('/api/v1/conversation/list', { credentials: 'include' });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        console.warn(`[sidebar] /list failed: ${res.status}`, txt);
+        listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).<br>Restartuj server?</div>`;
+        return;
+      }
+      const items = await res.json();
+      renderConversationList(items);
+    } catch (e) {
+      console.warn('[sidebar] /list exception:', e);
+      listEl.innerHTML = '<div class="sidebar-empty">Nelze načíst (network).</div>';
+    }
+  }
+
+  // Sidebar má dva módy: 'active' (default — aktivní konverzace) a 'archive'.
+  // Přepíná se klikem na sidebar-footer button.
+  let sidebarMode = 'active';
+
+  function renderConversationList(items) {
+    // Voláno pro AKTIVNÍ konverzace. V archive módu data plníme přes
+    // renderArchiveInSidebar() a tahle funkce vykreslí prázdný stav.
+    const listEl = document.getElementById('sidebarList');
+    const ddPanel = document.getElementById('convDdPanel');
+    const empty = !items || items.length === 0;
+
+    // Sidebar (široké okno) — jen když je v active módu
+    if (listEl && sidebarMode === 'active') {
+      listEl.innerHTML = '';
+      if (empty) {
+        listEl.innerHTML = '<div class="sidebar-empty">Žádné konverzace zatím.<br>Začni psát ↘</div>';
+      } else {
+        items.forEach(it => listEl.appendChild(_buildConvListItem(it, 'sidebar-item')));
+      }
+    }
+    // Dropdown panel v hlavičce (úzké okno) — vždy aktivní konverzace + dole archiv
+    if (ddPanel) {
+      ddPanel.innerHTML = '';
+      if (empty) {
+        ddPanel.innerHTML = '<div class="sidebar-empty">Žádné konverzace zatím.</div>';
+      } else {
+        items.forEach(it => ddPanel.appendChild(_buildConvListItem(it, 'conv-dd-item')));
+      }
+      ddPanel.appendChild(_buildArchiveOpenerForDropdown());
+    }
+  }
+
+  function _buildArchiveOpenerForDropdown() {
+    const item = document.createElement('div');
+    item.className = 'conv-dd-item';
+    item.style.marginTop = '6px';
+    item.style.borderTop = '1px solid var(--border)';
+    item.style.paddingTop = '10px';
+    item.style.opacity = '0.85';
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'conv-item-text';
+    const title = document.createElement('div');
+    title.className = 'conv-dd-item-title';
+    title.textContent = '📦 Můj archív konverzací';
+    textWrap.appendChild(title);
+    item.appendChild(textWrap);
+
+    item.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const dd = document.getElementById('convDdPanel');
+      if (dd) dd.classList.remove('open');
+      openArchiveModal();
+    });
+    return item;
+  }
+
+  // ── SIDEBAR ARCHIVE MODE ──────────────────────────────────────────────
+  async function setSidebarMode(mode) {
+    sidebarMode = mode;
+    const titleEl = document.getElementById('sidebarTitle');
+    const listEl = document.getElementById('sidebarList');
+    const footerBtn = document.getElementById('sidebarArchiveToggle');
+
+    if (mode === 'archive') {
+      titleEl.textContent = 'Můj archiv';
+      footerBtn.textContent = '← Zpět na konverzace';
+      footerBtn.classList.add('archive-mode');
+      footerBtn.dataset.tooltip = 'Zpět na aktivní konverzace';
+      listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+      try {
+        const res = await fetch('/api/v1/conversation/list-archived', { credentials: 'include' });
+        if (!res.ok) {
+          listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
+          return;
+        }
+        const items = await res.json();
+        _renderArchiveInSidebar(items);
+      } catch (e) {
+        listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+      }
+    } else {
+      titleEl.textContent = 'Konverzace';
+      footerBtn.textContent = '📦 Můj archív konverzací';
+      footerBtn.classList.remove('archive-mode');
+      footerBtn.dataset.tooltip = 'Otevři archiv konverzací';
+      // Znovu načti aktivní konverzace
+      loadConversationList();
+    }
+  }
+
+  function _renderArchiveInSidebar(items) {
+    const listEl = document.getElementById('sidebarList');
+    listEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '<div class="sidebar-empty">Archiv je prázdný.</div>';
+      return;
+    }
+    items.forEach(it => listEl.appendChild(_buildArchiveItem(it, 'sidebar-item')));
+  }
+
+  // Sdílený renderer pro archive item — používá se v sidebaru i v modalu (úzké okno)
+  function _buildArchiveItem(it, baseClass) {
+    const row = document.createElement('div');
+    row.className = baseClass;
+
+    const textWrap = document.createElement('div');
+    textWrap.className = 'conv-item-text';
+    const title = document.createElement('div');
+    title.className = baseClass + '-title';
+    title.textContent = it.title || `Konverzace #${it.id}`;
+    const meta = document.createElement('div');
+    meta.className = baseClass + '-meta';
+    meta.textContent = `${it.message_count} zpráv` + (it.last_message_at ? ' · ' + _formatRelative(it.last_message_at) : '');
+    textWrap.appendChild(title); textWrap.appendChild(meta);
+    row.appendChild(textWrap);
+
+    const actions = document.createElement('div');
+    actions.className = 'conv-item-actions';
+    actions.style.opacity = '1';
+
+    const viewBtn = document.createElement('button');
+    viewBtn.className = 'conv-action-btn';
+    viewBtn.textContent = '👁';
+    viewBtn.dataset.tooltip = 'Prohlédnout';
+    viewBtn.setAttribute('aria-label', 'Prohlédnout');
+    viewBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      _leaveArchiveAndOpen(it.id);
+    });
+
+    const unarchiveBtn = document.createElement('button');
+    unarchiveBtn.className = 'conv-action-btn';
+    unarchiveBtn.textContent = '↩';
+    unarchiveBtn.dataset.tooltip = 'Vrátit zpět';
+    unarchiveBtn.setAttribute('aria-label', 'Vrátit zpět');
+    unarchiveBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      await unarchiveConversationFromUI(it.id, it.title || `#${it.id}`);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'conv-action-btn danger';
+    delBtn.textContent = '🗑';
+    delBtn.dataset.tooltip = 'Smazat';
+    delBtn.setAttribute('aria-label', 'Smazat');
+    delBtn.addEventListener('click', async (ev) => {
+      ev.stopPropagation();
+      await deleteConversationFromArchive(it.id, it.title || `#${it.id}`);
+    });
+
+    actions.appendChild(viewBtn);
+    actions.appendChild(unarchiveBtn);
+    actions.appendChild(delBtn);
+    row.appendChild(actions);
+
+    row.addEventListener('click', () => _leaveArchiveAndOpen(it.id));
+    return row;
+  }
+
+  // Zavře modal archivu (úzké okno) + přepne sidebar z archive módu zpět
+  // (široké okno), pak otevře konverzaci v hlavním chatu.
+  // POŘADÍ: nejdřív openConversation (await), pak setSidebarMode — jinak by
+  // setSidebarMode mohl race-overwrite hovor, který načte is_archived flag.
+  async function _leaveArchiveAndOpen(convId) {
+    const modal = document.getElementById('archiveModal');
+    if (modal && modal.style.display !== 'none') modal.style.display = 'none';
+    await openConversation(convId);   // čekej na načtení + nastavení flagu
+    if (sidebarMode === 'archive') {
+      setSidebarMode('active');
+    }
+  }
+
+  // Toggle button v sidebar footeru
+  document.getElementById('sidebarArchiveToggle').addEventListener('click', () => {
+    setSidebarMode(sidebarMode === 'active' ? 'archive' : 'active');
+  });
+
+  function _buildConvListItem(it, baseClass) {
+    const item = document.createElement('div');
+    item.className = baseClass + (it.id === conversationId ? ' active' : '');
+    item.dataset.convId = String(it.id);
+
+    // Text wrapper (vlevo, flex 1) — title + meta pod sebou
+    const textWrap = document.createElement('div');
+    textWrap.className = 'conv-item-text';
+    const title = document.createElement('div');
+    title.className = baseClass + '-title';
+    title.textContent = it.title || `Konverzace #${it.id}`;
+    const meta = document.createElement('div');
+    meta.className = baseClass + '-meta';
+    meta.textContent = `${it.message_count} zpráv` + (it.last_message_at ? ' · ' + _formatRelative(it.last_message_at) : '');
+    textWrap.appendChild(title); textWrap.appendChild(meta);
+    item.appendChild(textWrap);
+
+    // Akční ikony (vpravo, jen ikona, popisek přes title=tooltip)
+    const actions = document.createElement('div');
+    actions.className = 'conv-item-actions';
+
+    const renameBtn = document.createElement('button');
+    renameBtn.className = 'conv-action-btn';
+    renameBtn.textContent = '✎';
+    renameBtn.dataset.tooltip = 'Přejmenovat';
+    renameBtn.setAttribute('aria-label', 'Přejmenovat');
+    renameBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      renameConversationFromUI(it.id, it.title || `#${it.id}`);
+    });
+
+    const archiveBtn = document.createElement('button');
+    archiveBtn.className = 'conv-action-btn';
+    archiveBtn.textContent = '📦';
+    archiveBtn.dataset.tooltip = 'Archivovat';
+    archiveBtn.setAttribute('aria-label', 'Archivovat');
+    archiveBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      archiveConversationFromUI(it.id, it.title || `#${it.id}`);
+    });
+
+    const delBtn = document.createElement('button');
+    delBtn.className = 'conv-action-btn danger';
+    delBtn.textContent = '🗑';
+    delBtn.dataset.tooltip = 'Smazat';
+    delBtn.setAttribute('aria-label', 'Smazat');
+    delBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      deleteConversationFromUI(it.id, it.title || `#${it.id}`);
+    });
+
+    actions.appendChild(renameBtn);
+    actions.appendChild(archiveBtn);
+    actions.appendChild(delBtn);
+    item.appendChild(actions);
+
+    // Klik na položku (mimo tlačítka) → otevři konverzaci
+    item.addEventListener('click', () => {
+      openConversation(it.id);
+      const dd = document.getElementById('convDdPanel');
+      if (dd) dd.classList.remove('open');
+    });
+    return item;
+  }
+
+  // Univerzální modal — confirm i prompt v jednom.
+  // Použití confirm:  const ok = await customConfirm({title, text, confirmLabel, danger});
+  // Použití prompt:   const val = await customConfirm({title, text, input: true, defaultValue, ...}); // vrátí string nebo null
+  function customConfirm({ title = 'Potvrzení', text = '', confirmLabel = 'OK', cancelLabel = 'Zrušit', danger = false, input = false, defaultValue = '', placeholder = '' } = {}) {
+    return new Promise((resolve) => {
+      const overlay = document.getElementById('confirmModal');
+      const titleEl = document.getElementById('confirmModalTitle');
+      const textEl = document.getElementById('confirmModalText');
+      const inputEl = document.getElementById('confirmModalInput');
+      const okBtn = document.getElementById('confirmModalOk');
+      const cancelBtn = document.getElementById('confirmModalCancel');
+
+      titleEl.textContent = title;
+      textEl.textContent = text;
+      okBtn.textContent = confirmLabel;
+      cancelBtn.textContent = cancelLabel;
+      okBtn.classList.toggle('danger', !!danger);
+      // Input mode (prompt)
+      if (input) {
+        inputEl.style.display = '';
+        inputEl.value = defaultValue || '';
+        inputEl.placeholder = placeholder || '';
+      } else {
+        inputEl.style.display = 'none';
+      }
+      overlay.style.display = 'flex';
+
+      const cleanup = (result) => {
+        overlay.style.display = 'none';
+        okBtn.removeEventListener('click', onOk);
+        cancelBtn.removeEventListener('click', onCancel);
+        overlay.removeEventListener('click', onOverlay);
+        document.removeEventListener('keydown', onKey);
+        resolve(result);
+      };
+      const onOk = () => cleanup(input ? (inputEl.value ?? '') : true);
+      const onCancel = () => cleanup(input ? null : false);
+      const onOverlay = (ev) => { if (ev.target === overlay) onCancel(); };
+      const onKey = (ev) => {
+        if (ev.key === 'Escape') onCancel();
+        if (ev.key === 'Enter' && (!input || ev.target === inputEl)) onOk();
+      };
+      okBtn.addEventListener('click', onOk);
+      cancelBtn.addEventListener('click', onCancel);
+      overlay.addEventListener('click', onOverlay);
+      document.addEventListener('keydown', onKey);
+      // Default focus: input pokud prompt, jinak cancel (bezpečnější u destruktivních akcí)
+      setTimeout(() => {
+        if (input) { inputEl.focus(); inputEl.select(); }
+        else { cancelBtn.focus(); }
+      }, 0);
+    });
+  }
+
+  // Vrátí osobní oslovení uživatele (z display_name v aktuálním tenantu,
+  // fallback na first_name, poslední fallback prázdný řetězec).
+  function _userDisplay() {
+    if (!currentUser) return '';
+    return currentUser.display_name || currentUser.first_name || '';
+  }
+
+  // ── ARCHIV KONVERZACÍ ──────────────────────────────────────────────────
+  async function openArchiveModal() {
+    const overlay = document.getElementById('archiveModal');
+    const listEl = document.getElementById('archiveList');
+    overlay.style.display = 'flex';
+    listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+    try {
+      const res = await fetch('/api/v1/conversation/list-archived', { credentials: 'include' });
+      if (!res.ok) {
+        listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
+        return;
+      }
+      const items = await res.json();
+      _renderArchiveList(items);
+    } catch (e) {
+      listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+    }
+  }
+
+  function _renderArchiveList(items) {
+    // Modal verze (úzké okno) — sdílí renderer s _renderArchiveInSidebar
+    const listEl = document.getElementById('archiveList');
+    listEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '<div class="sidebar-empty">Archiv je prázdný.</div>';
+      return;
+    }
+    items.forEach(it => listEl.appendChild(_buildArchiveItem(it, 'archive-item')));
+  }
+
+  async function _refreshArchiveAfterAction() {
+    // Po unarchive/delete v archivu — refresh: sidebar (pokud archive mode)
+    // i otevřený modal (pokud je viditelný). Plus loadConversationList()
+    // pro aktuální view aktivních konverzací.
+    try {
+      const res = await fetch('/api/v1/conversation/list-archived', { credentials: 'include' });
+      if (res.ok) {
+        const items = await res.json();
+        // Sidebar v archive módu
+        if (sidebarMode === 'archive') _renderArchiveInSidebar(items);
+        // Modal (úzké okno)
+        const modal = document.getElementById('archiveModal');
+        if (modal && modal.style.display !== 'none') _renderArchiveList(items);
+      }
+    } catch (e) {}
+    loadConversationList();   // aktuální seznam (pro případ unarchive)
+  }
+
+  async function unarchiveConversationFromUI(convId, label) {
+    const name = _userDisplay();
+    const greeting = name ? `${name}, ` : '';
+    const ok = await customConfirm({
+      title: 'STRATEGIE',
+      text: `${greeting}vrátit konverzaci „${label}" zpět z archivu?`,
+      confirmLabel: 'Vrátit zpět',
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/v1/conversation/${convId}/unarchive`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!res.ok) { alert(`Vrácení selhalo (${res.status}).`); return; }
+      _refreshArchiveAfterAction();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  async function deleteConversationFromArchive(convId, label) {
+    const name = _userDisplay();
+    const greeting = name ? `${name}, ` : '';
+    const ok = await customConfirm({
+      title: 'STRATEGIE',
+      text: `${greeting}jsi si fakt jistý, že chceš smazat konverzaci „${label}"?`,
+      confirmLabel: 'Smazat',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/v1/conversation/${convId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+      if (!res.ok) { alert(`Mazání selhalo (${res.status}).`); return; }
+      _refreshArchiveAfterAction();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  // Zavření modal — tlačítko + klik mimo + Esc
+  document.getElementById('archiveModalClose').addEventListener('click', () => {
+    document.getElementById('archiveModal').style.display = 'none';
+  });
+  document.getElementById('archiveModal').addEventListener('click', (ev) => {
+    if (ev.target.id === 'archiveModal') {
+      document.getElementById('archiveModal').style.display = 'none';
+    }
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      const m = document.getElementById('archiveModal');
+      if (m && m.style.display !== 'none') m.style.display = 'none';
+    }
+  });
+
+  async function renameConversationFromUI(convId, currentLabel) {
+    const name = _userDisplay();
+    const greeting = name ? `${name}, ` : '';
+    const newTitle = await customConfirm({
+      title: 'STRATEGIE',
+      text: `${greeting}jak chceš tuhle konverzaci pojmenovat?`,
+      input: true,
+      defaultValue: currentLabel || '',
+      placeholder: 'Nový název konverzace',
+      confirmLabel: 'Uložit',
+    });
+    if (newTitle === null) return;          // zrušeno (Esc / Zrušit)
+    if (newTitle === currentLabel) return;  // beze změny
+    try {
+      const res = await fetch(`/api/v1/conversation/${convId}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: newTitle }),
+        credentials: 'include',
+      });
+      if (!res.ok) { alert(`Přejmenování selhalo (${res.status}).`); return; }
+      loadConversationList();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  async function archiveConversationFromUI(convId, label) {
+    const name = _userDisplay();
+    const greeting = name ? `${name}, ` : '';
+    const ok = await customConfirm({
+      title: 'STRATEGIE',
+      text: `${greeting}jsi si fakt jistý, že chceš archivovat konverzaci „${label}"?`,
+      confirmLabel: 'Archivovat',
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/v1/conversation/${convId}/archive`, {
+        method: 'POST', credentials: 'include',
+      });
+      if (!res.ok) { alert(`Archivace selhala (${res.status}).`); return; }
+      _afterConvRemoved(convId);
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  async function deleteConversationFromUI(convId, label) {
+    const name = _userDisplay();
+    const greeting = name ? `${name}, ` : '';
+    const ok = await customConfirm({
+      title: 'STRATEGIE',
+      text: `${greeting}jsi si fakt jistý, že chceš smazat konverzaci „${label}"?`,
+      confirmLabel: 'Smazat',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const res = await fetch(`/api/v1/conversation/${convId}`, {
+        method: 'DELETE', credentials: 'include',
+      });
+      if (!res.ok) { alert(`Mazání selhalo (${res.status}).`); return; }
+      _afterConvRemoved(convId);
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  function _afterConvRemoved(removedConvId) {
+    // Pokud byla smazaná/archivovaná aktuálně otevřená konverzace,
+    // vyčisti hlavní chat a vrátit do "+ Nová" stavu.
+    if (conversationId === removedConvId) {
+      conversationId = null;
+      convIdLabel.textContent = '';
+      messagesEl.innerHTML = '';
+      messagesEl.appendChild(emptyState);
+      emptyState.style.display = '';
+    }
+    loadConversationList();
+  }
+
+  function _formatRelative(isoStr) {
+    try {
+      const d = new Date(isoStr);
+      const now = new Date();
+      const diffMs = now - d;
+      const min = Math.floor(diffMs / 60000);
+      if (min < 1) return 'právě teď';
+      if (min < 60) return `${min} min`;
+      const hr = Math.floor(min / 60);
+      if (hr < 24) return `${hr} h`;
+      const days = Math.floor(hr / 24);
+      if (days < 7) return `${days} d`;
+      return d.toLocaleDateString('cs-CZ');
+    } catch (e) { return ''; }
+  }
+
+  async function openConversation(convId) {
+    try {
+      const res = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
+      if (!res.ok) {
+        alert('Konverzaci nelze načíst.');
+        return;
+      }
+      const data = await res.json();
+      conversationId = data.conversation_id;
+      conversationIsArchived = !!data.is_archived;
+      convIdLabel.textContent = `#${conversationId}`;
+      messagesEl.innerHTML = '';
+      emptyState.style.display = 'none';
+      if (data.active_persona) {
+        document.getElementById('agentName').textContent = data.active_persona;
+      }
+      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type));
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      // Update aktivní položky v sidebaru
+      document.querySelectorAll('.sidebar-item').forEach(el => {
+        el.classList.toggle('active', Number(el.dataset.convId) === convId);
+      });
+      inputEl.focus();
+    } catch (e) {
+      alert('Chyba spojení při načítání konverzace.');
+    }
+  }
 
   inputEl.addEventListener('input', () => {
     inputEl.style.height = 'auto';
@@ -510,6 +1232,9 @@
         renderMessage('user', data.tenant_switch_marker, 'system');
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
+      // Refresh sidebar/dropdown — list konverzací je filtrován podle
+      // aktivního tenantu, takže po switchi musíme načíst znova.
+      loadConversationList();
     } catch (e) {
       alert('Chyba spojení při přepínání tenantu.');
     }
@@ -529,13 +1254,23 @@
     }
   });
 
-  // Klik mimo dropdown ho zavře
+  // Klik mimo dropdown ho zavře (tenant pilulka I konverzační dropdown)
   document.addEventListener('click', () => {
-    const dd = document.getElementById('tenantDropdown');
-    if (dd && dd.classList.contains('open')) {
-      dd.classList.remove('open');
-    }
+    const td = document.getElementById('tenantDropdown');
+    if (td && td.classList.contains('open')) td.classList.remove('open');
+    const cd = document.getElementById('convDdPanel');
+    if (cd && cd.classList.contains('open')) cd.classList.remove('open');
   });
+
+  // Konverzační dropdown — toggle při kliknutí na trigger
+  const convDdTrigger = document.getElementById('convDdTrigger');
+  if (convDdTrigger) {
+    convDdTrigger.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const panel = document.getElementById('convDdPanel');
+      panel.classList.toggle('open');
+    });
+  }
 
   function currentUserLabel() {
     // Preferuj display_name (z user_tenant_profiles aktuálního tenantu),
@@ -628,6 +1363,37 @@
   async function send() {
     const text = inputEl.value.trim();
     if (!text) return;
+
+    // Intercept — pokud aktuální konverzace je archivovaná, zeptej se
+    // uživatele jestli ji má vrátit z archivu. Bez unarchive se zpráva
+    // neposílá (jinak by skončila v archivované konverzaci).
+    if (conversationId && conversationIsArchived) {
+      const name = _userDisplay();
+      const greeting = name ? `${name}, ` : '';
+      const ok = await customConfirm({
+        title: 'STRATEGIE',
+        text: `${greeting}pokud chceš psát do archivované konverzace, musím ji nejdříve z archivu přesunout. Mám to udělat?`,
+        confirmLabel: 'Vrátit a poslat',
+      });
+      if (!ok) {
+        return;   // user zrušil — zpráva se neposílá, text zůstává v inputu
+      }
+      try {
+        const r = await fetch(`/api/v1/conversation/${conversationId}/unarchive`, {
+          method: 'POST', credentials: 'include',
+        });
+        if (!r.ok) {
+          alert(`Vrácení z archivu selhalo (${r.status}). Zpráva nebyla odeslána.`);
+          return;
+        }
+        conversationIsArchived = false;
+        loadConversationList();   // refresh sidebaru
+      } catch (e) {
+        alert('Chyba spojení při vracení z archivu.');
+        return;
+      }
+    }
+
     sendBtn.disabled = true;
     inputEl.value = ''; inputEl.style.height = 'auto';
     addMessage('user', text);
@@ -668,6 +1434,9 @@
         if (data.summary_notice) {
           showSummaryBanner(data.summary_notice);
         }
+        // Aktualizuj sidebar — buď nová konverzace přibyla na vrchol,
+        // nebo se aktualizoval title/last_message_at u existující.
+        loadConversationList();
       }
     } catch (e) {
       loadingMsg.remove();

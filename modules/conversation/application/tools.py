@@ -134,66 +134,210 @@ def format_email_preview(to: str, subject: str, body: str) -> str:
     )
 
 
-def find_user_in_system(query: str) -> dict:
+FIND_USER_MAX_CANDIDATES = 5
+
+
+def find_user_in_system(query: str, requester_user_id: int | None = None) -> dict:
     """
-    Pozn.: Toto je „minimum-viable" verze pro Fázi 1 — najde prvního usera podle
-    emailu nebo jména. Ve Fázi 5 se rozšíří o aliasy, multi-source search,
-    list kandidátů a disambiguation.
+    Multi-source search uživatele v aktuálním tenantu requestera.
+
+    Hledá napříč:
+      - users.first_name / last_name / short_name / legal_name
+      - user_aliases (globální přezdívky)
+      - user_tenant_aliases (jen v aktuálním tenantu requestera)
+      - user_contacts (email / phone)
+
+    Search: tokenizovaný, case + accent insensitive substring.
+    Každý token musí matchnout ALESPOŇ jedno pole některé entity daného usera.
+
+    Scope: jen aktivní členové aktuálního tenantu requestera.
+    Pokud requester nemá tenant, vrací prázdný list.
+
+    Vrací:
+      {
+        "found": bool,
+        "candidates": [
+          {
+            "user_id": int,
+            "full_name": str,
+            "display_name": str | None,    # z user_tenant_profiles aktuálního tenantu
+            "role_label": str | None,      # job role v aktuálním tenantu
+            "preferred_email": str | None,
+            "matched_via": str             # debug — jak jsme ho našli
+          }, ...
+        ],
+        "total_matches": int,              # může být > len(candidates) když has_more
+        "has_more": bool,                  # True pokud existují další za limitem
+        "query": str,
+      }
     """
     from core.database_core import get_core_session
-    from modules.core.infrastructure.models_core import User, UserContact
-    from sqlalchemy import or_
+    from modules.core.infrastructure.models_core import (
+        User, UserAlias, UserContact, UserTenant,
+        UserTenantProfile, UserTenantAlias,
+    )
+
+    query_clean = (query or "").strip()
+    if not query_clean:
+        return {"found": False, "candidates": [], "total_matches": 0, "has_more": False, "query": query}
+
+    tokens = [t for t in query_clean.split() if t]
+    if not tokens:
+        return {"found": False, "candidates": [], "total_matches": 0, "has_more": False, "query": query}
+    tokens_bare = [_strip_diacritics(t) for t in tokens]
 
     session = get_core_session()
     try:
-        query_lower = query.strip().lower()
+        # Zjisti tenant requestera
+        tenant_id: int | None = None
+        if requester_user_id:
+            req_user = session.query(User).filter_by(id=requester_user_id).first()
+            if req_user:
+                tenant_id = req_user.last_active_tenant_id
+                if tenant_id is None:
+                    ut = (
+                        session.query(UserTenant)
+                        .filter_by(user_id=requester_user_id, membership_status="active")
+                        .order_by(UserTenant.id.asc())
+                        .first()
+                    )
+                    if ut:
+                        tenant_id = ut.tenant_id
 
-        contact = (
-            session.query(UserContact)
-            .filter(
-                UserContact.contact_type == "email",
-                UserContact.contact_value.ilike(f"%{query_lower}%"),
-                UserContact.status == "active",
-            )
-            .first()
-        )
-
-        if contact:
-            user = session.query(User).filter_by(id=contact.user_id).first()
-            if user:
-                name = " ".join(filter(None, [user.first_name, user.last_name]))
-                return {
-                    "found": True,
-                    "user_id": user.id,
-                    "name": name or contact.contact_value,
-                    "email": contact.contact_value,
-                    "status": user.status,
-                }
-
-        users = session.query(User).filter(
-            or_(
-                User.first_name.ilike(f"%{query_lower}%"),
-                User.last_name.ilike(f"%{query_lower}%"),
-            )
-        ).all()
-
-        if users:
-            user = users[0]
-            primary_contact = (
-                session.query(UserContact)
-                .filter_by(user_id=user.id, contact_type="email", is_primary=True, status="active")
-                .first()
-            )
-            name = " ".join(filter(None, [user.first_name, user.last_name]))
+        if tenant_id is None:
             return {
-                "found": True,
-                "user_id": user.id,
-                "name": name,
-                "email": primary_contact.contact_value if primary_contact else "",
-                "status": user.status,
+                "found": False, "candidates": [], "total_matches": 0,
+                "has_more": False, "query": query,
             }
 
-        return {"found": False, "query": query}
+        # Aktivní členové tenantu (vč. requestera; on sebe může vyloučit ve volajícím)
+        tenant_user_rows = (
+            session.query(UserTenant)
+            .filter_by(tenant_id=tenant_id, membership_status="active")
+            .all()
+        )
+        tenant_user_ids = [ut.user_id for ut in tenant_user_rows]
+        if not tenant_user_ids:
+            return {
+                "found": False, "candidates": [], "total_matches": 0,
+                "has_more": False, "query": query,
+            }
+        # Mapa user_id → user_tenant_id (pro profil/aliasy)
+        ut_by_user = {ut.user_id: ut.id for ut in tenant_user_rows}
+
+        # Načti usery (jen active/pending — disabled je archiv)
+        users = (
+            session.query(User)
+            .filter(User.id.in_(tenant_user_ids), User.status.in_(("active", "pending")))
+            .all()
+        )
+
+        # Načti všechny vyhledávací pole pro daný set userů
+        global_aliases = (
+            session.query(UserAlias)
+            .filter(UserAlias.user_id.in_(tenant_user_ids), UserAlias.status == "active")
+            .all()
+        )
+        global_aliases_by_user: dict[int, list[str]] = {}
+        for a in global_aliases:
+            global_aliases_by_user.setdefault(a.user_id, []).append(a.alias_value)
+
+        ut_ids = list(ut_by_user.values())
+        tenant_aliases = (
+            session.query(UserTenantAlias)
+            .filter(UserTenantAlias.user_tenant_id.in_(ut_ids), UserTenantAlias.status == "active")
+            .all()
+            if ut_ids else []
+        )
+        tenant_aliases_by_ut: dict[int, list[str]] = {}
+        for a in tenant_aliases:
+            tenant_aliases_by_ut.setdefault(a.user_tenant_id, []).append(a.alias_value)
+
+        contacts = (
+            session.query(UserContact)
+            .filter(UserContact.user_id.in_(tenant_user_ids), UserContact.status == "active")
+            .all()
+        )
+        emails_by_user: dict[int, str] = {}
+        all_contact_values_by_user: dict[int, list[str]] = {}
+        for c in contacts:
+            all_contact_values_by_user.setdefault(c.user_id, []).append(c.contact_value)
+            if c.contact_type == "email":
+                if c.is_primary or c.user_id not in emails_by_user:
+                    emails_by_user[c.user_id] = c.contact_value
+
+        # Profile (display_name, role_label) pro tenant
+        profiles = (
+            session.query(UserTenantProfile)
+            .filter(UserTenantProfile.user_tenant_id.in_(ut_ids))
+            .all()
+            if ut_ids else []
+        )
+        profile_by_ut = {p.user_tenant_id: p for p in profiles}
+
+        # Postupně skóruj všechny usery
+        matches: list[dict] = []
+        for user in users:
+            ut_id = ut_by_user.get(user.id)
+            profile = profile_by_ut.get(ut_id) if ut_id else None
+            display_name = profile.display_name if profile else None
+
+            # Sber všechna search-pole
+            name_fields = [
+                user.first_name, user.last_name, user.short_name, user.legal_name,
+                display_name,
+            ]
+            name_fields = [f for f in name_fields if f]
+            g_aliases = global_aliases_by_user.get(user.id, [])
+            t_aliases = tenant_aliases_by_ut.get(ut_id, []) if ut_id else []
+            user_contact_values = all_contact_values_by_user.get(user.id, [])
+
+            all_searchable = name_fields + g_aliases + t_aliases + user_contact_values
+            all_bare = [_strip_diacritics(s) for s in all_searchable]
+
+            # Každý token musí matchnout aspoň jedno pole
+            def _matches() -> tuple[bool, str]:
+                hit_field = ""
+                for tok_bare in tokens_bare:
+                    found_in = None
+                    for orig, bare in zip(all_searchable, all_bare):
+                        if tok_bare in bare:
+                            found_in = orig
+                            break
+                    if found_in is None:
+                        return False, ""
+                    if not hit_field:
+                        hit_field = found_in
+                return True, hit_field
+
+            ok, matched_field = _matches()
+            if not ok:
+                continue
+
+            # Sestav výsledek
+            full_name = " ".join(filter(None, [user.first_name, user.last_name])).strip() or user.legal_name or f"User #{user.id}"
+            matches.append({
+                "user_id": user.id,
+                "full_name": full_name,
+                "display_name": display_name,
+                "role_label": profile.role_label if profile else None,
+                "preferred_email": emails_by_user.get(user.id),
+                "matched_via": matched_field,
+            })
+
+        total_matches = len(matches)
+        # Lehké preferovat ty, jejichž jméno/alias matchnul (ne email)
+        # Ale pro MVP nech řazení podle ID (deterministicky).
+        candidates = matches[:FIND_USER_MAX_CANDIDATES]
+        has_more = total_matches > FIND_USER_MAX_CANDIDATES
+
+        return {
+            "found": total_matches > 0,
+            "candidates": candidates,
+            "total_matches": total_matches,
+            "has_more": has_more,
+            "query": query,
+        }
     finally:
         session.close()
 

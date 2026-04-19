@@ -311,15 +311,44 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
 
     if tool_name == "find_user":
-        result = find_user_in_system(tool_input.get("query", ""))
-        if result["found"]:
-            name = result["name"]
-            status = result["status"]
-            if status == "active":
-                return f"✅ {name} je v systému STRATEGIE.\n\nChceš:\n- Poslat email?\n- Přepnout na {name}-AI?"
-            else:
-                return f"⏳ {name} má pozvánku ale ještě se nepřihlásil/a."
-        return f"❌ '{tool_input.get('query', '')}' není v systému.\n\nChceš ho/ji pozvat?"
+        query = tool_input.get("query", "")
+        result = find_user_in_system(query=query, requester_user_id=user_id)
+        candidates = result.get("candidates", [])
+        total = result.get("total_matches", 0)
+
+        # 0 výsledků
+        if not candidates:
+            return (
+                f"❌ '{query}' není v aktuálním tenantu.\n\n"
+                f"Chceš ho/ji pozvat? (pokud znáš email)"
+            )
+
+        # 1 výsledek — přímá odpověď
+        if len(candidates) == 1:
+            c = candidates[0]
+            name = c.get("display_name") or c.get("full_name") or "—"
+            email = c.get("preferred_email") or "(bez emailu)"
+            role = c.get("role_label")
+            role_part = f", {role}" if role else ""
+            return (
+                f"✅ {name}{role_part} je v aktuálním tenantu.\n"
+                f"Email: {email}\n\n"
+                f"Chceš poslat email nebo přepnout na {name}-AI?"
+            )
+
+        # 2+ výsledků — disambiguation
+        lines = [f"Našel/a jsem {total} kandidátů odpovídajících '{query}':"]
+        for i, c in enumerate(candidates, 1):
+            name = c.get("display_name") or c.get("full_name") or "—"
+            email = c.get("preferred_email") or "(bez emailu)"
+            role = c.get("role_label")
+            role_part = f" — {role}" if role else ""
+            lines.append(f"  {i}. {name}{role_part} ({email})")
+        if result.get("has_more"):
+            extra = total - len(candidates)
+            lines.append(f"  ... a dalších {extra}. Zúpresni jméno.")
+        lines.append("\nKterého máš na mysli?")
+        return "\n".join(lines)
 
     if tool_name == "invite_user":
         email = tool_input.get("email", "")

@@ -46,6 +46,10 @@ class User(BaseCore):
     )
     invited_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_active_tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Poslední aktivní projekt uvnitř last_active_tenant_id. NULL = "bez projektu"
+    # (volné konverzace v tenantu bez project scope). Bez FK constraint — projekt
+    # je měkký reference, jeho archivace / smazání nesmí shodit user record.
+    last_active_project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

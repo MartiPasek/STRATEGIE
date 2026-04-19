@@ -73,16 +73,58 @@
     .app.show { display: grid; }
     .app-main { display: flex; flex-direction: column; min-height: 0; padding: 0 16px; max-width: 900px; width: 100%; margin: 0 auto; }
     /* SIDEBAR — seznam AI konverzací */
-    .sidebar { background: #0c0d10; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; padding: 14px 10px; gap: 6px; overflow: hidden; }
-    .sidebar-title { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--muted); padding: 4px 8px 8px; }
+    .sidebar { background: #0c0d10; border-right: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; padding: 14px 10px; gap: 0; overflow: hidden; }
+    /* Sidebar split — nahore konverzace (flex-grow:1), dole projekty
+       (fixed max-height + vlastni scroll). Mezi nimi tenky divider. */
+    .sidebar-section { display: flex; flex-direction: column; min-height: 0; }
+    .sidebar-conversations { flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
+    .sidebar-projects { flex: 0 0 auto; max-height: 38%; min-height: 120px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
+    .sidebar-project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .sidebar-project-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
+    .sidebar-project-item:hover { background: #14161a; }
+    .sidebar-project-item.active { background: #1a1f2e; border-color: #2a3350; }
+    .sidebar-project-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+    .sidebar-project-item-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; }
+    .sidebar-project-item-special { font-style: italic; color: var(--muted); }
+    .sidebar-project-item-cta { color: var(--accent); font-weight: 500; }
+    /* Tritieckove menu na polozkach (projekty + konverzace, sidebar + dropdown).
+       Tlacitko viditelne na hover. Klik otevre kontextove menu. */
+    .actions-btn { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 16px; line-height: 1; opacity: 0; transition: opacity .12s, background .12s; flex-shrink: 0; }
+    .sidebar-project-item:hover .actions-btn,
+    .conv-dd-item:hover .actions-btn,
+    .sidebar-item:hover .actions-btn,
+    .archive-item:hover .actions-btn,
+    .sidebar-project-item.active .actions-btn,
+    .conv-dd-item.active .actions-btn,
+    .sidebar-item.active .actions-btn,
+    .actions-btn.open { opacity: 1; }
+    .actions-btn:hover { background: var(--bg); color: var(--text); }
+    /* Sjednocene kontextove menu — pouziva se pro projekty i konverzace. */
+    .ctx-menu { position: fixed; min-width: 170px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 4px; z-index: 250; box-shadow: 0 8px 20px rgba(0,0,0,.4); display: none; }
+    .ctx-menu.open { display: block; }
+    .ctx-menu-item { padding: 7px 10px; font-size: 12px; color: var(--text); cursor: pointer; border-radius: 5px; display: flex; align-items: center; gap: 8px; transition: background .12s; }
+    .ctx-menu-item:hover { background: var(--bg); }
+    .ctx-menu-item.danger { color: var(--error); }
+    .ctx-menu-item.disabled { color: var(--muted); cursor: default; opacity: 0.6; }
+    .ctx-menu-item.disabled:hover { background: transparent; }
+    .ctx-menu-divider { height: 1px; background: var(--border); margin: 4px 0; }
+    .ctx-menu-icon { display: inline-block; width: 16px; text-align: center; flex-shrink: 0; }
+    /* Rename icon (tuzka) — pootoceni o 30° downward, aby pusobila jako
+       prirozene drzena tuzka pri psani (default ✏ je polohorizontalni). */
+    .ctx-menu-icon-rename { display: inline-block; transform: rotate(30deg); }
+    .sidebar-title { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); padding: 4px 8px 8px; }
     .sidebar-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     /* Sidebar/dropdown item layout: text vlevo (flex 1), akce vpravo. */
     .sidebar-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
     .sidebar-item:hover { background: #14161a; }
     .sidebar-item.active { background: #1a1f2e; border-color: #2a3350; }
-    .conv-item-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
-    .sidebar-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .sidebar-item-meta { font-size: 10px; color: var(--muted); display: flex; gap: 6px; align-items: center; }
+    /* Sjednoceno s projekty — single line: title vlevo (flex 1 s ellipsis),
+       meta vpravo (flex-shrink 0). Drive bylo vice-radkove (column, gap 2px). */
+    .conv-item-text { flex: 1; min-width: 0; display: flex; flex-direction: row; align-items: center; gap: 8px; }
+    .sidebar-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+    .sidebar-item-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; margin-left: auto; }
+    .archive-item-title { font-size: 13px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+    .archive-item-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; margin-left: auto; }
     .sidebar-empty { font-size: 12px; color: var(--muted); padding: 12px; text-align: center; font-style: italic; }
     /* Sidebar footer — pinned dolů, oddělený border-top, obsahuje toggle archivu */
     .sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
@@ -190,8 +232,8 @@
     .conv-dd-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
     .conv-dd-item:hover { background: var(--bg); }
     .conv-dd-item.active { background: #1a1f2e; border-color: #2a3350; }
-    .conv-dd-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .conv-dd-item-meta { font-size: 10px; color: var(--muted); }
+    .conv-dd-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; min-width: 0; }
+    .conv-dd-item-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; margin-left: auto; }
 
     /* Responzivní: pod 960px se sidebar schová a místo něj se v hlavičce
        zobrazí dropdown (.conv-dd-wrap). Threshold posunut z 640 na 960 —
@@ -217,6 +259,41 @@
     .logout-btn:hover { color: var(--error); }
     .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Projekt v agent baru — rozdeleny do 2 castí (label muted, nazev accent),
+       stejny pattern jako "Mluvis s: Marti-AI" nalevo. Cela skupina je klikatelna
+       (otevira dropdown projektu).
+       POZOR specifita: .agent-bar span { color: accent } se na wrapper aplikuje
+       (0.1.1), takze pro override pouzivame dvojity selector .agent-bar X (0.2.0). */
+    .agent-bar-sep { color: var(--muted); font-family: 'DM Sans', sans-serif; padding: 0 4px; }
+    .agent-bar .agent-bar-project { color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background .12s; }
+    .agent-bar .agent-bar-project:hover { background: var(--bg); }
+    .agent-bar .agent-bar-project-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
+    .agent-bar .agent-bar-project-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Project dropdown items mají variantu pro speciální položky */
+    .conv-dd-item-special { font-style: italic; color: var(--muted); }
+    .conv-dd-item-cta { color: var(--accent); font-weight: 500; }
+    .conv-dd-section-divider { height: 1px; background: var(--border); margin: 4px 0; }
+    .conv-dd-meta-relative { font-size: 10px; color: var(--muted); margin-left: auto; padding-left: 8px; flex-shrink: 0; }
+    /* Inline new-project input v dropdownu */
+    .conv-dd-new-input-wrap { padding: 6px 10px; display: flex; gap: 4px; }
+    .conv-dd-new-input-wrap input { flex: 1; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 8px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 12px; outline: none; }
+    .conv-dd-new-input-wrap input:focus { border-color: var(--accent); }
+    .conv-dd-new-input-wrap button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
+    .conv-dd-new-input-wrap button:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* New-conversation confirmation modal — overlay + center box */
+    .new-conv-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 200; }
+    .new-conv-modal-bg.open { display: flex; }
+    .new-conv-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; width: 360px; max-width: 92vw; box-shadow: 0 12px 36px rgba(0,0,0,.5); }
+    .new-conv-modal h3 { margin: 0 0 12px; font-size: 14px; color: var(--text); font-weight: 500; }
+    .new-conv-modal p { margin: 0 0 16px; font-size: 12px; color: var(--muted); }
+    .new-conv-modal select { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; margin-bottom: 16px; }
+    .new-conv-modal select:focus { border-color: var(--accent); }
+    .new-conv-modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .new-conv-modal-btn { padding: 8px 16px; font-size: 12px; border-radius: 6px; cursor: pointer; font-family: 'DM Sans', sans-serif; }
+    .new-conv-modal-btn.secondary { background: transparent; border: 1px solid var(--border); color: var(--muted); }
+    .new-conv-modal-btn.secondary:hover { color: var(--text); border-color: var(--accent); }
+    .new-conv-modal-btn.primary { background: var(--accent); color: #fff; border: none; }
+    .new-conv-modal-btn.primary:hover { filter: brightness(1.1); }
     .tenant-pill-wrap { position: relative; display: inline-block; }
     /* Pilulka má 2 klikabilní zóny:
        - .tenant-pill-name (jméno) → otevře profil dropdown
@@ -405,14 +482,26 @@
 
   <!-- APP -->
   <div class="app" id="appScreen">
-    <!-- SIDEBAR (seznam AI konverzací + pinned footer s archivem) -->
+    <!-- SIDEBAR — split: nahoře konverzace + archív footer, dole projekty.
+         Na uzkych oknech (max-width: 960px) se cely sidebar skryva a misto
+         nej se v hlavicce zobrazi dropdowny (.conv-dd-wrap, .project-dd-wrap). -->
     <aside class="sidebar" id="sidebar">
-      <div class="sidebar-title" id="sidebarTitle">Konverzace</div>
-      <div class="sidebar-list" id="sidebarList">
-        <div class="sidebar-empty">Načítám…</div>
+      <!-- TOP: KONVERZACE — flex grow 1 (vetsi prostor) -->
+      <div class="sidebar-section sidebar-conversations">
+        <div class="sidebar-title" id="sidebarTitle">Konverzace</div>
+        <div class="sidebar-list" id="sidebarList">
+          <div class="sidebar-empty">Načítám…</div>
+        </div>
+        <div class="sidebar-footer" id="sidebarFooter">
+          <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
+        </div>
       </div>
-      <div class="sidebar-footer" id="sidebarFooter">
-        <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
+      <!-- BOTTOM: PROJEKTY — fixed max-height, vlastni scroll, oddeleno divider -->
+      <div class="sidebar-section sidebar-projects">
+        <div class="sidebar-title">Projekty</div>
+        <div class="sidebar-project-list" id="sidebarProjectList">
+          <div class="sidebar-empty">Načítám…</div>
+        </div>
       </div>
     </aside>
 
@@ -422,6 +511,13 @@
       <div class="logo">Strategie</div>
       <div class="header-right">
         <div class="conv-group">
+          <!-- Projekty dropdown — VLEVO od Konverzace. Symetrický design.
+               Zobrazí se v úzkých oknech (paralelně s konverzacemi); v širokých
+               půjdou projekty do sidebaru (Fáze 3b). -->
+          <div class="conv-dd-wrap" id="projectDdWrap">
+            <button class="conv-dd-trigger" id="projectDdTrigger" data-tooltip="Přepínání mezi projekty v aktuálním tenantu" aria-label="Projekty">● Projekty</button>
+            <div class="conv-dd-panel" id="projectDdPanel"></div>
+          </div>
           <div class="conv-dd-wrap" id="convDdWrap">
             <button class="conv-dd-trigger" id="convDdTrigger" data-tooltip="Otevřu seznam tvých konverzací" aria-label="Otevřu seznam tvých konverzací">☰ Konverzace</button>
             <div class="conv-dd-panel" id="convDdPanel"></div>
@@ -451,7 +547,16 @@
     <!-- AI VIEW -->
     <div id="aiView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
       <div class="agent-bar">
-        <div>Mluvíš s: <span id="agentName">Marti-AI</span></div>
+        <div>
+          Mluvíš s: <span id="agentName">Marti-AI</span>
+          <!-- Projekt indikátor — klikatelný, otevírá project dropdown.
+               Viditelný vždy: 'Projekt: <name>' když je projekt aktivní,
+               'Projekt: bez projektu' když ne. Stejny pattern jako "Mluvis s:
+               Marti-AI" — label muted, nazev accent. -->
+          <span class="agent-bar-sep" id="projectBarSep"> · </span>
+          <span class="agent-bar-project" id="projectBarLabel" data-tooltip="Otevřu seznam projektů"
+            ><span class="agent-bar-project-label">Projekt: </span><span class="agent-bar-project-name" id="projectBarName">bez projektu</span></span>
+        </div>
       </div>
       <div class="messages" id="messages">
         <div class="empty" id="emptyState">
@@ -555,6 +660,35 @@
       </div>
     </div>
   </div>
+
+<!-- MODALY / MENU — MUSI byt PRED <script> tagem, jinak je JS nevidi v DOM. -->
+
+<!-- Kontextove menu pro projekt (3 tecky). Singleton — pozice se nastavi
+     dynamicky pri otevreni. data-project-id na elementu drzi cilovy projekt. -->
+<div class="ctx-menu" id="projectContextMenu">
+  <div class="ctx-menu-item" data-action="rename"><span class="ctx-menu-icon ctx-menu-icon-rename">✏</span>Přejmenovat</div>
+  <div class="ctx-menu-item disabled" data-action="share"><span class="ctx-menu-icon">👥</span>Sdílet (brzy)</div>
+  <div class="ctx-menu-item disabled" data-action="files"><span class="ctx-menu-icon">📁</span>Soubory (brzy)</div>
+  <div class="ctx-menu-divider"></div>
+  <div class="ctx-menu-item danger" data-action="archive"><span class="ctx-menu-icon">🗑</span>Smazat</div>
+</div>
+
+<!-- Kontextove menu pro konverzaci. Polozky menime dynamicky podle toho,
+     zda je konverzace aktivni nebo archivovana. -->
+<div class="ctx-menu" id="convContextMenu"></div>
+
+<!-- New conversation modal — potvrzení do jakého projektu založit. -->
+<div class="new-conv-modal-bg" id="newConvModalBg">
+  <div class="new-conv-modal">
+    <h3>Nová konverzace</h3>
+    <p>Do kterého projektu ji chceš založit?</p>
+    <select id="newConvProjectSelect"></select>
+    <div class="new-conv-modal-actions">
+      <button class="new-conv-modal-btn secondary" id="newConvCancel">Zrušit</button>
+      <button class="new-conv-modal-btn primary" id="newConvConfirm">Vytvořit</button>
+    </div>
+  </div>
+</div>
 
 <script>
   let currentUser = null;
@@ -758,8 +892,10 @@
     // v Lidé view, kde uživatel skončil minule.
     activeDmId = null;
     setMode('ai');
+    updateProjectIndicator();          // agent-bar "Projekt: …" dle currentUser
     await loadLastConversation();
     await loadConversationList();      // sidebar
+    await loadProjectsList();          // dropdown s projekty
     inputEl.focus();
   }
 
@@ -810,23 +946,12 @@
   });
 
   // ── CHAT ───────────────────────────────────────────────────────────────
+  // "+ Nová" — otevře modal s project pickerem (defenzivní UX, ať user
+  // nevytvoří konverzaci v nesprávném projektu). Funkce openNewConvModal
+  // je definována níže v PROJECTS sekci — JS hoisting pro funkce funguje,
+  // takže na pořadí tady nezáleží (addEventListener se spouští až na klik).
   newChatBtn.addEventListener('click', () => {
-    // "+ Nová" je sémanticky AI akce — když jsme zrovna v Lidé módu,
-    // nejdřív se přepneme zpět na AI, pak založíme prázdnou konverzaci.
-    // (Jinak by klik vypadal jako nefunkční — uživatel by zůstal v DM view.)
-    if (typeof currentMode !== 'undefined' && currentMode !== 'ai') {
-      setMode('ai');
-    }
-    conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
-    messagesEl.innerHTML = '';
-    messagesEl.appendChild(emptyState);
-    emptyState.style.display = '';
-    // Odznač aktivní položku v sidebaru — žádná konverzace není načtena.
-    document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
-    // Nová konverzace pojede s default personou — ukaž ji v hlavičce hned,
-    // ne až po první odpovědi (aby user věděl s kým bude mluvit).
-    document.getElementById('agentName').textContent =
-      (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+    openNewConvModal();
   });
 
   // ── SIDEBAR — seznam AI konverzací ─────────────────────────────────────
@@ -962,50 +1087,29 @@
     title.textContent = it.title || `Konverzace #${it.id}`;
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
-    meta.textContent = `${it.message_count} zpráv` + (it.last_message_at ? ' · ' + _formatRelative(it.last_message_at) : '');
+    // Sjednoceno s projekty: jen relativni cas (bez "X zprav"). Tooltip
+    // drzi pocet pro pripad ze ho user chce videt.
+    meta.textContent = it.last_message_at ? _formatRelative(it.last_message_at) : '';
+    meta.title = `${it.message_count} zpráv`;
     textWrap.appendChild(title); textWrap.appendChild(meta);
     row.appendChild(textWrap);
 
-    const actions = document.createElement('div');
-    actions.className = 'conv-item-actions';
-    actions.style.opacity = '1';
-
-    const viewBtn = document.createElement('button');
-    viewBtn.className = 'conv-action-btn';
-    viewBtn.textContent = '👁';
-    viewBtn.dataset.tooltip = 'Prohlédnu';
-    viewBtn.setAttribute('aria-label', 'Prohlédnu');
-    viewBtn.addEventListener('click', (ev) => {
+    // Tritieckove akce — jednotne s aktivnimi konverzacemi a projekty.
+    // V archive modu jsou polozky: Prohlednout / Vratit z archivu / Smazat.
+    const actionsBtn = document.createElement('button');
+    actionsBtn.className = 'actions-btn';
+    actionsBtn.textContent = '⋯';
+    actionsBtn.setAttribute('aria-label', 'Akce konverzace');
+    actionsBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
+      openConvContextMenu(actionsBtn, it, 'archive');
+    });
+    row.appendChild(actionsBtn);
+
+    row.addEventListener('click', (ev) => {
+      if (ev.target.closest('.actions-btn')) return;
       _leaveArchiveAndOpen(it.id);
     });
-
-    const unarchiveBtn = document.createElement('button');
-    unarchiveBtn.className = 'conv-action-btn';
-    unarchiveBtn.textContent = '↩';
-    unarchiveBtn.dataset.tooltip = 'Vrátím z archivu';
-    unarchiveBtn.setAttribute('aria-label', 'Vrátím z archivu');
-    unarchiveBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      await unarchiveConversationFromUI(it.id, it.title || `#${it.id}`);
-    });
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'conv-action-btn danger';
-    delBtn.textContent = '🗑';
-    delBtn.dataset.tooltip = 'Smažu';
-    delBtn.setAttribute('aria-label', 'Smažu');
-    delBtn.addEventListener('click', async (ev) => {
-      ev.stopPropagation();
-      await deleteConversationFromArchive(it.id, it.title || `#${it.id}`);
-    });
-
-    actions.appendChild(viewBtn);
-    actions.appendChild(unarchiveBtn);
-    actions.appendChild(delBtn);
-    row.appendChild(actions);
-
-    row.addEventListener('click', () => _leaveArchiveAndOpen(it.id));
     return row;
   }
 
@@ -1040,51 +1144,28 @@
     title.textContent = it.title || `Konverzace #${it.id}`;
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
-    meta.textContent = `${it.message_count} zpráv` + (it.last_message_at ? ' · ' + _formatRelative(it.last_message_at) : '');
+    // Sjednoceno s projekty: jen relativni cas (bez "X zprav"). Tooltip
+    // drzi pocet pro pripad ze ho user chce videt.
+    meta.textContent = it.last_message_at ? _formatRelative(it.last_message_at) : '';
+    meta.title = `${it.message_count} zpráv`;
     textWrap.appendChild(title); textWrap.appendChild(meta);
     item.appendChild(textWrap);
 
-    // Akční ikony (vpravo, jen ikona, popisek přes title=tooltip)
-    const actions = document.createElement('div');
-    actions.className = 'conv-item-actions';
-
-    const renameBtn = document.createElement('button');
-    renameBtn.className = 'conv-action-btn';
-    renameBtn.textContent = '✎';
-    renameBtn.dataset.tooltip = 'Přejmenuji';
-    renameBtn.setAttribute('aria-label', 'Přejmenuji');
-    renameBtn.addEventListener('click', (ev) => {
+    // Tritieckove akce — jednotne s projekty. Klik otevre kontextove menu
+    // s polozkami Prejmenovat / Archivovat / Smazat.
+    const actionsBtn = document.createElement('button');
+    actionsBtn.className = 'actions-btn';
+    actionsBtn.textContent = '⋯';
+    actionsBtn.setAttribute('aria-label', 'Akce konverzace');
+    actionsBtn.addEventListener('click', (ev) => {
       ev.stopPropagation();
-      renameConversationFromUI(it.id, it.title || `#${it.id}`);
+      openConvContextMenu(actionsBtn, it, 'active');
     });
+    item.appendChild(actionsBtn);
 
-    const archiveBtn = document.createElement('button');
-    archiveBtn.className = 'conv-action-btn';
-    archiveBtn.textContent = '📦';
-    archiveBtn.dataset.tooltip = 'Archivuji';
-    archiveBtn.setAttribute('aria-label', 'Archivuji');
-    archiveBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      archiveConversationFromUI(it.id, it.title || `#${it.id}`);
-    });
-
-    const delBtn = document.createElement('button');
-    delBtn.className = 'conv-action-btn danger';
-    delBtn.textContent = '🗑';
-    delBtn.dataset.tooltip = 'Smažu';
-    delBtn.setAttribute('aria-label', 'Smažu');
-    delBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      deleteConversationFromUI(it.id, it.title || `#${it.id}`);
-    });
-
-    actions.appendChild(renameBtn);
-    actions.appendChild(archiveBtn);
-    actions.appendChild(delBtn);
-    item.appendChild(actions);
-
-    // Klik na položku (mimo tlačítka) → otevři konverzaci
-    item.addEventListener('click', () => {
+    // Klik na položku (mimo tlačítko) → otevři konverzaci
+    item.addEventListener('click', (ev) => {
+      if (ev.target.closest('.actions-btn')) return;
       openConversation(it.id);
       const dd = document.getElementById('convDdPanel');
       if (dd) dd.classList.remove('open');
@@ -2009,6 +2090,595 @@
     });
   }
 
+  // ── PROJECTS ──────────────────────────────────────────────────────────
+  // Stav cache — poslední načtený seznam projektů (pro modal picker).
+  let projectsCache = [];
+
+  /** Naformátuj "před X min / hodinou / včera..." pro list položky. */
+  function formatRelative(dateStr) {
+    if (!dateStr) return '—';
+    const d = new Date(dateStr);
+    if (isNaN(d.getTime())) return '—';
+    const diffMs = Date.now() - d.getTime();
+    const mins = Math.floor(diffMs / 60000);
+    if (mins < 1) return 'právě teď';
+    if (mins < 60) return `před ${mins} min`;
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) return `před ${hours} h`;
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'včera';
+    if (days < 30) return `před ${days} dny`;
+    const months = Math.floor(days / 30);
+    if (months < 12) return `před ${months} měs.`;
+    return d.toLocaleDateString('cs-CZ');
+  }
+
+  /** Načti seznam projektů a překresli dropdown + sidebar. */
+  async function loadProjectsList() {
+    try {
+      const res = await fetch('/api/v1/projects/list', { credentials: 'include' });
+      if (!res.ok) { projectsCache = []; renderProjectDropdown(); renderProjectSidebar(); return; }
+      projectsCache = await res.json();
+    } catch (e) { projectsCache = []; }
+    renderProjectDropdown();
+    renderProjectSidebar();
+  }
+
+  /** Vykresli projekty do sidebar sekce (vlastní list, click handlers symmetrické s dropdown). */
+  function renderProjectSidebar() {
+    const listEl = document.getElementById('sidebarProjectList');
+    if (!listEl) return;
+
+    const currentPid = currentUser && currentUser.project_id;
+
+    let html = '';
+    // "Bez projektu" — vždy nahoře
+    const noneActive = (currentPid === null || currentPid === undefined) ? 'active' : '';
+    html += `<div class="sidebar-project-item sidebar-project-item-special ${noneActive}" data-project-id="" role="button">
+      <div class="sidebar-project-item-title">Bez projektu</div>
+    </div>`;
+    // CTA: + Nový projekt
+    html += `<div class="sidebar-project-item sidebar-project-item-cta" id="sidebarProjectNewBtn" role="button">
+      <div class="sidebar-project-item-title">+ Nový projekt</div>
+    </div>`;
+
+    if (projectsCache && projectsCache.length > 0) {
+      for (const p of projectsCache) {
+        const activeCls = (p.id === currentPid) ? 'active' : '';
+        const activityLabel = p.last_activity_at
+          ? formatRelative(p.last_activity_at)
+          : formatRelative(p.created_at);
+        html += `<div class="sidebar-project-item ${activeCls}" data-project-id="${p.id}" role="button">
+          <div class="sidebar-project-item-title">${escapeHtml(p.name)}</div>
+          <div class="sidebar-project-item-meta">${escapeHtml(activityLabel)}</div>
+          <button class="actions-btn" data-actions-for="${p.id}" data-actions-name="${escapeHtml(p.name)}" aria-label="Akce projektu">⋯</button>
+        </div>`;
+      }
+    }
+
+    listEl.innerHTML = html;
+
+    // Click handlery — switch na projekt (s ignorem akce-tlacitka)
+    listEl.querySelectorAll('[data-project-id]').forEach(el => {
+      el.addEventListener('click', async (ev) => {
+        if (ev.target.closest('.actions-btn')) return;
+        ev.stopPropagation();
+        const pid = el.getAttribute('data-project-id');
+        await switchProject(pid === '' ? null : parseInt(pid, 10));
+      });
+    });
+    listEl.querySelectorAll('.actions-btn').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(btn.getAttribute('data-actions-for'), 10);
+        const name = btn.getAttribute('data-actions-name') || '';
+        openProjectContextMenu(btn, pid, name);
+      });
+    });
+    // Inline new — sidebar verze (open input v sidebaru)
+    const sbNewBtn = document.getElementById('sidebarProjectNewBtn');
+    if (sbNewBtn) {
+      sbNewBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        showProjectInlineInputSidebar();
+      });
+    }
+  }
+
+  /** Inline input pro nový projekt přímo v sidebaru (nahradí CTA tlačítko). */
+  function showProjectInlineInputSidebar() {
+    const ctaBtn = document.getElementById('sidebarProjectNewBtn');
+    if (!ctaBtn) return;
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-dd-new-input-wrap';
+    wrap.innerHTML = `
+      <input type="text" id="sidebarProjectNewInput" placeholder="Jméno projektu…" maxlength="100" />
+      <button id="sidebarProjectNewSave">OK</button>
+    `;
+    ctaBtn.replaceWith(wrap);
+    const input = document.getElementById('sidebarProjectNewInput');
+    const saveBtn = document.getElementById('sidebarProjectNewSave');
+    input.focus();
+    const submit = async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/projects/create', {
+          method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(()=> '');
+          alert('Nešlo založit projekt: ' + (txt || res.status));
+          saveBtn.disabled = false;
+          return;
+        }
+        const data = await res.json();
+        await switchProject(data.id);
+        await loadProjectsList();
+      } catch (e) {
+        alert('Chyba spojení při zakládání projektu.');
+        saveBtn.disabled = false;
+      }
+    };
+    saveBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+      if (e.key === 'Escape') renderProjectSidebar();
+    });
+  }
+
+  /** Překresli project dropdown panel. */
+  function renderProjectDropdown() {
+    const panel = document.getElementById('projectDdPanel');
+    if (!panel) return;
+
+    const currentPid = currentUser && currentUser.project_id;
+
+    // Postav HTML řetězec — 3 sekce: "Bez projektu", "+ Nový projekt", list
+    let html = '';
+
+    // 1) "Bez projektu" — vždy nahoře, active pokud currentPid === null
+    const noneActive = (currentPid === null || currentPid === undefined) ? 'active' : '';
+    html += `<div class="conv-dd-item conv-dd-item-special ${noneActive}" data-project-id="" role="button">
+      <div class="conv-dd-item-title">Bez projektu</div>
+    </div>`;
+
+    // 2) "+ Nový projekt" — CTA; klik otevře inline input
+    html += `<div class="conv-dd-item conv-dd-item-cta" id="projectNewBtn" role="button">
+      <div class="conv-dd-item-title">+ Nový projekt</div>
+    </div>`;
+
+    // 3) Divider + seznam projektů
+    if (projectsCache && projectsCache.length > 0) {
+      html += `<div class="conv-dd-section-divider"></div>`;
+      for (const p of projectsCache) {
+        const activeCls = (p.id === currentPid) ? 'active' : '';
+        const activityLabel = p.last_activity_at
+          ? formatRelative(p.last_activity_at)
+          : formatRelative(p.created_at);
+        html += `<div class="conv-dd-item ${activeCls}" data-project-id="${p.id}" role="button">
+          <div class="conv-dd-item-title">${escapeHtml(p.name)}</div>
+          <div class="conv-dd-meta-relative">${escapeHtml(activityLabel)}</div>
+          <button class="actions-btn" data-actions-for="${p.id}" data-actions-name="${escapeHtml(p.name)}" aria-label="Akce projektu">⋯</button>
+        </div>`;
+      }
+    }
+
+    panel.innerHTML = html;
+
+    // Wire up clicks na samotne polozky (switch projekt). Akce-tlacitko
+    // ma vlastni handler nize a stopPropagation, aby switch nespustil.
+    panel.querySelectorAll('[data-project-id]').forEach(el => {
+      el.addEventListener('click', async (ev) => {
+        // Ignoruj klik pokud byl na akce-tlacitko (to ma vlastni handler)
+        if (ev.target.closest('.actions-btn')) return;
+        ev.stopPropagation();
+        const pid = el.getAttribute('data-project-id');
+        await switchProject(pid === '' ? null : parseInt(pid, 10));
+        panel.classList.remove('open');
+      });
+    });
+    panel.querySelectorAll('.actions-btn').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(btn.getAttribute('data-actions-for'), 10);
+        const name = btn.getAttribute('data-actions-name') || '';
+        openProjectContextMenu(btn, pid, name);
+      });
+    });
+    const newBtn = document.getElementById('projectNewBtn');
+    if (newBtn) {
+      newBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        showProjectInlineInput();
+      });
+    }
+  }
+
+  /** Zobraz inline input pro jméno nového projektu. */
+  function showProjectInlineInput() {
+    const panel = document.getElementById('projectDdPanel');
+    const wrap = document.createElement('div');
+    wrap.className = 'conv-dd-new-input-wrap';
+    wrap.innerHTML = `
+      <input type="text" id="projectNewInput" placeholder="Jméno projektu…" maxlength="100" />
+      <button id="projectNewSave">OK</button>
+    `;
+    // Vlož pod "+ Nový projekt" (nahradíme jeho místo)
+    const ctaBtn = document.getElementById('projectNewBtn');
+    if (ctaBtn) ctaBtn.replaceWith(wrap);
+    const input = document.getElementById('projectNewInput');
+    const saveBtn = document.getElementById('projectNewSave');
+    input.focus();
+    const submit = async () => {
+      const name = input.value.trim();
+      if (!name) { input.focus(); return; }
+      saveBtn.disabled = true;
+      try {
+        const res = await fetch('/api/v1/projects/create', {
+          method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name }),
+        });
+        if (!res.ok) {
+          const txt = await res.text().catch(()=> '');
+          alert('Nešlo založit projekt: ' + (txt || res.status));
+          saveBtn.disabled = false;
+          return;
+        }
+        const data = await res.json();
+        // Po vytvoření hned přepni na něj
+        await switchProject(data.id);
+        panel.classList.remove('open');
+        await loadProjectsList();
+      } catch (e) {
+        alert('Chyba spojení při zakládání projektu.');
+        saveBtn.disabled = false;
+      }
+    };
+    saveBtn.addEventListener('click', submit);
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') submit();
+      if (e.key === 'Escape') renderProjectDropdown();
+    });
+  }
+
+  // ── PROJECT CONTEXT MENU (... tlacitko na kazde polozce) ──────────────
+  // Singleton menu, drzim si aktualni projekt v datasetu menu.
+  // Poziciovani reseno v positionContextMenu (sdileno s conv menu).
+  function openProjectContextMenu(anchorBtn, projectId, projectName) {
+    const menu = document.getElementById('projectContextMenu');
+    if (!menu) return;
+    menu.classList.remove('open');
+    closeConvContextMenu();
+    document.querySelectorAll('.actions-btn.open').forEach(b => b.classList.remove('open'));
+
+    menu.dataset.projectId = String(projectId);
+    menu.dataset.projectName = projectName;
+    positionContextMenu(menu, anchorBtn);
+    anchorBtn.classList.add('open');
+  }
+
+  function closeProjectContextMenu() {
+    const menu = document.getElementById('projectContextMenu');
+    if (menu) menu.classList.remove('open');
+    document.querySelectorAll('.actions-btn.open').forEach(b => b.classList.remove('open'));
+  }
+
+  // ── CONVERSATION CONTEXT MENU ─────────────────────────────────────────
+  // Build & open kontextoveho menu pro konverzaci. mode = 'active' | 'archive'.
+  // Polozky stavime dynamicky, sdilime poziciovani s project menu (helper nize).
+  function openConvContextMenu(anchorBtn, conv, mode) {
+    const menu = document.getElementById('convContextMenu');
+    if (!menu) return;
+    closeProjectContextMenu();
+    closeConvContextMenu();
+
+    // Sestav polozky podle modu
+    let html = '';
+    if (mode === 'active') {
+      html += `<div class="ctx-menu-item" data-action="rename"><span class="ctx-menu-icon ctx-menu-icon-rename">✏</span>Přejmenovat</div>`;
+      html += `<div class="ctx-menu-item" data-action="archive"><span class="ctx-menu-icon">📦</span>Archivovat</div>`;
+      html += `<div class="ctx-menu-divider"></div>`;
+      html += `<div class="ctx-menu-item danger" data-action="delete"><span class="ctx-menu-icon">🗑</span>Smazat</div>`;
+    } else {
+      html += `<div class="ctx-menu-item" data-action="view"><span class="ctx-menu-icon">👁</span>Otevřít</div>`;
+      html += `<div class="ctx-menu-item" data-action="unarchive"><span class="ctx-menu-icon">↩</span>Vrátit z archivu</div>`;
+      html += `<div class="ctx-menu-divider"></div>`;
+      html += `<div class="ctx-menu-item danger" data-action="delete"><span class="ctx-menu-icon">🗑</span>Smazat</div>`;
+    }
+    menu.innerHTML = html;
+    menu.dataset.convId = String(conv.id);
+    menu.dataset.convTitle = conv.title || `#${conv.id}`;
+
+    // Wire up
+    menu.querySelectorAll('[data-action]').forEach(item => {
+      item.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const action = item.getAttribute('data-action');
+        const cid = parseInt(menu.dataset.convId, 10);
+        const title = menu.dataset.convTitle;
+        closeConvContextMenu();
+        if (action === 'rename') {
+          renameConversationFromUI(cid, title);
+        } else if (action === 'archive') {
+          archiveConversationFromUI(cid, title);
+        } else if (action === 'view') {
+          _leaveArchiveAndOpen(cid);
+        } else if (action === 'unarchive') {
+          unarchiveConversationFromUI(cid, title);
+        } else if (action === 'delete') {
+          if (mode === 'active') {
+            deleteConversationFromUI(cid, title);
+          } else {
+            deleteConversationFromArchive(cid, title);
+          }
+        }
+      });
+    });
+
+    positionContextMenu(menu, anchorBtn);
+    anchorBtn.classList.add('open');
+  }
+
+  function closeConvContextMenu() {
+    const menu = document.getElementById('convContextMenu');
+    if (menu) menu.classList.remove('open');
+  }
+
+  // Sdilena pozicni logika pro kontextova menu — fixed pozice u anchoru,
+  // s overflow protection (vpravo→vlevo, dolu→shift up).
+  function positionContextMenu(menu, anchorBtn) {
+    menu.style.left = '-9999px';
+    menu.style.top = '-9999px';
+    menu.classList.add('open');
+    const menuRect = menu.getBoundingClientRect();
+    const anchorRect = anchorBtn.getBoundingClientRect();
+    const margin = 8;
+    let left = anchorRect.right + 4;
+    if (left + menuRect.width > window.innerWidth - margin) {
+      left = anchorRect.left - menuRect.width - 4;
+    }
+    if (left < margin) left = margin;
+    let top = anchorRect.top;
+    if (top + menuRect.height > window.innerHeight - margin) {
+      top = window.innerHeight - menuRect.height - margin;
+    }
+    if (top < margin) top = margin;
+    menu.style.left = `${left}px`;
+    menu.style.top = `${top}px`;
+  }
+
+  // Outside click + Escape pro conv context menu (paralelne s project menu)
+  document.addEventListener('click', (ev) => {
+    const menu = document.getElementById('convContextMenu');
+    if (!menu || !menu.classList.contains('open')) return;
+    if (menu.contains(ev.target)) return;
+    if (ev.target.closest('.actions-btn')) return;
+    closeConvContextMenu();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeConvContextMenu();
+  });
+
+  // Wire up akce v kontextovem menu
+  (function wireProjectContextMenu() {
+    const menu = document.getElementById('projectContextMenu');
+    if (!menu) return;
+    menu.querySelectorAll('[data-action]').forEach(item => {
+      item.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        if (item.classList.contains('disabled')) {
+          alert('Tahle funkce bude v příští fázi.');
+          return;
+        }
+        const action = item.getAttribute('data-action');
+        const pid = parseInt(menu.dataset.projectId, 10);
+        const name = menu.dataset.projectName || '';
+        closeProjectContextMenu();
+        if (action === 'rename') {
+          // Pouzijeme stejny customConfirm modal jako prejmenovani konverzaci
+          // — sjednocena UX, hezci nez native prompt().
+          const userName = (typeof _userDisplay === 'function') ? _userDisplay() : '';
+          const greeting = userName ? `${userName}, ` : '';
+          const newName = await customConfirm({
+            title: 'STRATEGIE',
+            text: `${greeting}jak chceš tenhle projekt pojmenovat?`,
+            input: true,
+            defaultValue: name,
+            placeholder: 'Nový název projektu',
+            confirmLabel: 'Uložit',
+          });
+          if (newName === null) return;
+          const trimmed = newName.trim();
+          if (!trimmed || trimmed === name) return;
+          try {
+            const res = await fetch(`/api/v1/projects/${pid}/rename`, {
+              method: 'PATCH', credentials: 'include',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ name: trimmed }),
+            });
+            if (!res.ok) {
+              const txt = await res.text().catch(()=> '');
+              alert('Přejmenování selhalo: ' + (txt || res.status));
+              return;
+            }
+            // Pokud byl prejmenovan AKTUALNI projekt usera, refresh /me
+            if (currentUser && currentUser.project_id === pid) {
+              const meRes = await fetch('/api/v1/auth/me', { credentials: 'include' });
+              if (meRes.ok) currentUser = await meRes.json();
+              updateProjectIndicator();
+            }
+            await loadProjectsList();
+          } catch (e) { alert('Chyba spojení při přejmenování.'); }
+        } else if (action === 'archive') {
+          const userName = (typeof _userDisplay === 'function') ? _userDisplay() : '';
+          const greeting = userName ? `${userName}, ` : '';
+          const ok = await customConfirm({
+            title: 'STRATEGIE',
+            text: `${greeting}jsi si fakt jistý, že chceš smazat projekt „${name}"?\n\nKonverzace v něm zůstanou, projekt jen nebude vidět v seznamu.`,
+            confirmLabel: 'Smazat',
+          });
+          if (!ok) return;
+          try {
+            const res = await fetch(`/api/v1/projects/${pid}/archive`, {
+              method: 'POST', credentials: 'include',
+            });
+            if (!res.ok) {
+              const txt = await res.text().catch(()=> '');
+              alert('Smazání selhalo: ' + (txt || res.status));
+              return;
+            }
+            // Pokud byl to aktuálni projekt usera, backend ho vyresetoval na null
+            if (currentUser && currentUser.project_id === pid) {
+              const meRes = await fetch('/api/v1/auth/me', { credentials: 'include' });
+              if (meRes.ok) currentUser = await meRes.json();
+              updateProjectIndicator();
+            }
+            await loadProjectsList();
+          } catch (e) { alert('Chyba spojení při mazání.'); }
+        }
+      });
+    });
+  })();
+
+  // Close kontextove menu na outside click / Escape
+  document.addEventListener('click', (ev) => {
+    const menu = document.getElementById('projectContextMenu');
+    if (!menu || !menu.classList.contains('open')) return;
+    if (menu.contains(ev.target)) return;
+    if (ev.target.closest('.actions-btn')) return;
+    closeProjectContextMenu();
+  });
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') closeProjectContextMenu();
+  });
+
+  /** Přepni na projekt (nebo null = bez projektu) a refresh /me. */
+  async function switchProject(projectId) {
+    try {
+      const res = await fetch('/api/v1/projects/switch', {
+        method: 'POST', credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ project_id: projectId }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(()=> '');
+        alert('Nešlo přepnout projekt: ' + (txt || res.status));
+        return;
+      }
+      // Refresh currentUser z /me (ať má správný project_id / project_name)
+      const meRes = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      if (meRes.ok) currentUser = await meRes.json();
+      updateProjectIndicator();
+      renderProjectDropdown();   // překresli s novým active stavem
+      renderProjectSidebar();    // i sidebar verze
+    } catch (e) {
+      alert('Chyba spojení při přepínání projektu.');
+    }
+  }
+
+  /** Aktualizuj jen jméno projektu v agent baru. Prefix "Projekt:" je staticky
+      v HTML jako muted label, my menime jen vlastni nazev (accent). */
+  function updateProjectIndicator() {
+    const nameEl = document.getElementById('projectBarName');
+    if (!nameEl || !currentUser) return;
+    nameEl.textContent = currentUser.project_name || 'bez projektu';
+  }
+
+  // Project dropdown trigger — toggle
+  const projectDdTrigger = document.getElementById('projectDdTrigger');
+  if (projectDdTrigger) {
+    projectDdTrigger.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      if (typeof currentMode !== 'undefined' && currentMode !== 'ai') {
+        setMode('ai');
+      }
+      const panel = document.getElementById('projectDdPanel');
+      panel.classList.toggle('open');
+    });
+  }
+
+  // Klik na "Projekt: …" v agent baru — otevře dropdown
+  const projectBarLabel = document.getElementById('projectBarLabel');
+  if (projectBarLabel) {
+    projectBarLabel.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const panel = document.getElementById('projectDdPanel');
+      if (panel) panel.classList.add('open');
+    });
+  }
+
+  // Close project dropdown on outside click (symmetric to conv-dd)
+  document.addEventListener('click', (ev) => {
+    const panel = document.getElementById('projectDdPanel');
+    const trigger = document.getElementById('projectDdTrigger');
+    if (!panel || !panel.classList.contains('open')) return;
+    if (panel.contains(ev.target)) return;
+    if (trigger && trigger.contains(ev.target)) return;
+    panel.classList.remove('open');
+  });
+
+  // HTML escape pro user-provided project name
+  function escapeHtml(s) {
+    if (s === null || s === undefined) return '';
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    }[c]));
+  }
+
+  // ── NEW CONVERSATION MODAL ─────────────────────────────────────────────
+  // "+ Nová" nově otevře modal s project pickerem (pre-selected current)
+  // a "Vytvořit" potvrdí. Tohle je obrana před nechtěným vytvořením
+  // konverzace v jiném projektu než user očekává.
+  const newConvModalBg = document.getElementById('newConvModalBg');
+  const newConvSelect = document.getElementById('newConvProjectSelect');
+  const newConvCancel = document.getElementById('newConvCancel');
+  const newConvConfirm = document.getElementById('newConvConfirm');
+
+  function openNewConvModal() {
+    if (typeof currentMode !== 'undefined' && currentMode !== 'ai') setMode('ai');
+    // Naplň select: "Bez projektu" + aktivní projekty
+    const currentPid = (currentUser && currentUser.project_id) || null;
+    let html = `<option value="">Bez projektu</option>`;
+    for (const p of (projectsCache || [])) {
+      const sel = (p.id === currentPid) ? 'selected' : '';
+      html += `<option value="${p.id}" ${sel}>${escapeHtml(p.name)}</option>`;
+    }
+    newConvSelect.innerHTML = html;
+    // Pokud není "selected" nastavený (currentPid null), vyber "Bez projektu"
+    if (currentPid === null) newConvSelect.value = '';
+    newConvModalBg.classList.add('open');
+  }
+  function closeNewConvModal() { newConvModalBg.classList.remove('open'); }
+
+  if (newConvCancel) newConvCancel.addEventListener('click', closeNewConvModal);
+  if (newConvModalBg) newConvModalBg.addEventListener('click', (ev) => {
+    if (ev.target === newConvModalBg) closeNewConvModal();
+  });
+  if (newConvConfirm) newConvConfirm.addEventListener('click', async () => {
+    const val = newConvSelect.value;
+    const targetProjectId = val === '' ? null : parseInt(val, 10);
+    // Pokud se user rozhodl pro jiný projekt než má aktivní, nejdřív přepni
+    const curPid = (currentUser && currentUser.project_id) || null;
+    if (targetProjectId !== curPid) {
+      await switchProject(targetProjectId);
+    }
+    // Připrav čistý chat — podobně jako původní newChatBtn
+    conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
+    messagesEl.innerHTML = '';
+    messagesEl.appendChild(emptyState);
+    emptyState.style.display = '';
+    document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
+    document.getElementById('agentName').textContent =
+      (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+    closeNewConvModal();
+    inputEl.focus();
+  });
+
   function currentUserLabel() {
     // Preferuj display_name (z user_tenant_profiles aktuálního tenantu),
     // jinak hlavní globální alias, jinak first_name, jinak fallback "Ty".
@@ -2600,5 +3270,6 @@
     loginEmail.focus();
   })();
 </script>
+
 </body>
 </html>

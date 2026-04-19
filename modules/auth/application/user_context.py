@@ -12,7 +12,7 @@ from core.logging import get_logger
 from modules.core.infrastructure.models_core import (
     User, UserContact, UserAlias,
     Tenant, UserTenant, UserTenantProfile,
-    Persona,
+    Persona, Project,
 )
 
 logger = get_logger("auth.user_context")
@@ -114,6 +114,27 @@ def get_user_context(user_id: int) -> dict | None:
         )
         default_persona_name = default_persona.name if default_persona else "Marti-AI"
 
+        # Aktivní projekt usera (uvnitř current tenantu) — last_active_project_id.
+        # Pokud je projekt archivovaný / mimo tenant / user bez pristupu,
+        # spadneme na None ("bez projektu"). Tu projmeme přes Project query,
+        # ne přes složitější membership check, a v jiném místě (project switch)
+        # hlídáme oprávnění při aktivním přepínání.
+        project_id = user.last_active_project_id
+        project_name: str | None = None
+        if project_id:
+            project = session.query(Project).filter_by(id=project_id).first()
+            if (
+                project is None
+                or not project.is_active
+                or project.tenant_id != tenant_id
+            ):
+                # Nekonzistentní stav — vyčisti, aby UI ukázalo "bez projektu".
+                user.last_active_project_id = None
+                session.commit()
+                project_id = None
+            else:
+                project_name = project.name
+
         return {
             "user_id": user.id,
             "first_name": user.first_name,
@@ -128,6 +149,8 @@ def get_user_context(user_id: int) -> dict | None:
             "aliases": aliases,
             "available_tenants": available_tenants,
             "default_persona_name": default_persona_name,
+            "project_id": project_id,
+            "project_name": project_name,
         }
     finally:
         session.close()

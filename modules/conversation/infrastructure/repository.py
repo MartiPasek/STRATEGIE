@@ -29,20 +29,32 @@ def get_system_prompt() -> str | None:
         session.close()
 
 
-def create_conversation(user_id: int | None = None, tenant_id: int | None = None) -> int:
+def create_conversation(
+    user_id: int | None = None,
+    tenant_id: int | None = None,
+    project_id: int | None = None,
+) -> int:
     """
-    Vytvoří novou AI konverzaci. Tenant_id se ukládá, aby se konverzace
-    daly filtrovat podle aktuálního tenantu uživatele (sidebar/dropdown
-    musí ukazovat jen konverzace patřící k danému tenantu — Osobní vs.
-    EUROSOFT vs. DOMA atd.).
+    Vytvoří novou AI konverzaci. Tenant_id + project_id se ukládají, aby se
+    konverzace daly filtrovat podle aktuálního kontextu (sidebar musí ukazovat
+    jen konverzace patřící k danému tenantu, a uvnitř tenantu se dají grupovat
+    podle projektu). project_id=None znamená "bez projektu" — konverzace žije
+    v tenantu mimo jakýkoli project scope.
     """
     session = get_data_session()
     try:
-        conversation = Conversation(user_id=user_id, tenant_id=tenant_id)
+        conversation = Conversation(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            project_id=project_id,
+        )
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
-        logger.info(f"CONVERSATION | created | id={conversation.id} | user_id={user_id} | tenant_id={tenant_id}")
+        logger.info(
+            f"CONVERSATION | created | id={conversation.id} | "
+            f"user_id={user_id} | tenant_id={tenant_id} | project_id={project_id}"
+        )
         return conversation.id
     finally:
         session.close()

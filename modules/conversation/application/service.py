@@ -415,10 +415,11 @@ def chat(
     """
 
     if conversation_id is None:
-        # Načti aktivní tenant uživatele, ať se konverzace správně přiřadí
-        # k tenantu (Marti přepnut v EUROSOFTu -> nová konverzace patří
-        # do EUROSOFTu, ne do Osobní).
+        # Načti aktivní tenant + projekt uživatele, ať se konverzace správně
+        # přiřadí (Marti přepnut v EUROSOFTu, projekt Škoda -> nová konverzace
+        # patří do EUROSOFT/Škoda, ne do Osobní/bez projektu).
         active_tenant_id: int | None = None
+        active_project_id: int | None = None
         if user_id:
             from modules.core.infrastructure.models_core import User
             from core.database_core import get_core_session
@@ -427,9 +428,17 @@ def chat(
                 u = cs.query(User).filter_by(id=user_id).first()
                 if u:
                     active_tenant_id = u.last_active_tenant_id
+                    active_project_id = u.last_active_project_id
             finally:
                 cs.close()
-        conversation_id = create_conversation(user_id=user_id, tenant_id=active_tenant_id)
+        # project_id parametr funkce má prioritu (explicitní volba klienta),
+        # jinak fallback na user.last_active_project_id.
+        effective_project_id = project_id if project_id is not None else active_project_id
+        conversation_id = create_conversation(
+            user_id=user_id,
+            tenant_id=active_tenant_id,
+            project_id=effective_project_id,
+        )
 
     if _is_confirmation(user_message):
         pending = _get_pending_action(conversation_id)

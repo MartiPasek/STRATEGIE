@@ -42,6 +42,10 @@ class LoginResponse(BaseModel):
     # "Mluvíš s: …" hned po loginu / nové konverzaci, aby user věděl s kým
     # mluví ještě před první zprávou.
     default_persona_name: str | None = None
+    # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
+    # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
+    project_id: int | None = None
+    project_name: str | None = None
     # Všechny aktivní tenanty, jichž je user členem — pro UI tenant dropdown.
     available_tenants: list[TenantInfo] = []
     # Pokud /switch_tenant vložil do konverzace systémový marker, vrátí se tu

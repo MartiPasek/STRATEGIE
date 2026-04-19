@@ -8,6 +8,7 @@ from modules.conversation.api.router import router as conversation_router
 from modules.conversation.api.dm_router import router as dm_router
 from modules.auth.api.router import router as auth_router
 from modules.memory.api.router import router as memory_router
+from modules.projects.api.router import router as projects_router
 
 setup_logging()
 
@@ -22,6 +23,7 @@ app.include_router(conversation_router)
 app.include_router(dm_router)
 app.include_router(auth_router)
 app.include_router(memory_router)
+app.include_router(projects_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

@@ -16,11 +16,13 @@ def main() -> None:
     try:
         print("== USERS (css_db) ==")
         rows = cs.execute(text(
-            "SELECT id, first_name, last_name, status, last_active_tenant_id FROM users ORDER BY id"
+            "SELECT id, first_name, last_name, status, last_active_tenant_id, "
+            "last_active_project_id FROM users ORDER BY id"
         )).fetchall()
         for r in rows:
             print(f"  user_id={r[0]:<3} first={r[1]!s:<12} last={r[2]!s:<15} "
-                  f"status={r[3]!s:<10} last_active_tenant={r[4]}")
+                  f"status={r[3]!s:<10} last_active_tenant={r[4]!s:<5} "
+                  f"last_active_project={r[5]}")
 
         print("\n== TENANTS (css_db) ==")
         rows = cs.execute(text(
@@ -43,6 +45,33 @@ def main() -> None:
         for r in rows:
             print(f"  user_id={r[0]:<3} tenant_id={r[1]:<3} tenant={r[2]!s:<15} "
                   f"type={r[3]!s:<10} role={r[4]!s:<8} membership={r[5]}")
+
+        print("\n== PROJECTS (css_db) ==")
+        rows = cs.execute(text(
+            "SELECT p.id, p.tenant_id, t.tenant_name, p.name, p.owner_user_id, "
+            "p.is_active, p.created_at "
+            "FROM projects p "
+            "LEFT JOIN tenants t ON t.id = p.tenant_id "
+            "ORDER BY p.tenant_id, p.id"
+        )).fetchall()
+        if not rows:
+            print("  (zadne)")
+        for r in rows:
+            print(f"  proj_id={r[0]:<3} tenant_id={r[1]!s:<3} tenant={r[2]!s:<15} "
+                  f"name={r[3]!s:<25} owner={r[4]!s:<5} active={r[5]!s:<5} "
+                  f"created={r[6]}")
+
+        print("\n== USER_PROJECTS (css_db) ==")
+        rows = cs.execute(text(
+            "SELECT up.user_id, up.project_id, p.name, up.role "
+            "FROM user_projects up "
+            "LEFT JOIN projects p ON p.id = up.project_id "
+            "ORDER BY up.user_id, up.project_id"
+        )).fetchall()
+        if not rows:
+            print("  (zadne)")
+        for r in rows:
+            print(f"  user_id={r[0]:<3} proj_id={r[1]:<3} name={r[2]!s:<25} role={r[3]}")
     finally:
         cs.close()
 

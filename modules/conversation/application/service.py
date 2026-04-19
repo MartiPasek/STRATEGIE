@@ -158,6 +158,61 @@ _TENANT_SWITCH_PATTERNS = [
 ]
 
 
+# ── PROJECT SWITCH — SERVER-SIDE INTENT DETECTION ─────────────────────────
+# „přepni do projektu Skoda", „jdi na projekt Reorg Q2", „switch to project X"
+# Klicovy rozdil od tenant switche: MUSI obsahovat slovo "projekt" / "project".
+# Detekce projektu MA prednost pred tenant switchem — slovo "projekt" je
+# specificke (kdyby bylo jen "do EUROSOFTu", padlo by to do tenant detekce).
+
+_PROJECT_SWITCH_PATTERNS = [
+    re.compile(r"^\s*p[rř]epni\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?(?:do|na|k)\s+projektu?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*p[rř]epnout\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?(?:do|na|k)\s+projektu?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*jdi\s+(?:do|na|k)\s+projektu?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*chci\s+(?:do|na|k)\s+projektu?\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*otev[rř]i\s+projekt\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*switch\s+to\s+project\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*go\s+to\s+project\s+(.+?)\s*[.!?]?\s*$", re.IGNORECASE),
+]
+
+# Vycisti aktualni projekt (vrat na "bez projektu") — vselijake formulace
+_PROJECT_CLEAR_PATTERNS = [
+    re.compile(r"^\s*p[rř]epni\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?bez\s+projektu\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*p[rř]epni\s+(?:(?:m[eě]|mi|mne|si|se)\s+)?(?:do|na)\s+(?:[zž][aá]dn[ée]ho?|nic)\s*(?:projektu)?\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*vy[cč]isti\s+projekt\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*opus[tť]\s+projekt\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*[zž][aá]dn[ýíé]\s+projekt\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*bez\s+projektu\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*clear\s+project\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*no\s+project\s*[.!?]?\s*$", re.IGNORECASE),
+    re.compile(r"^\s*leave\s+project\s*[.!?]?\s*$", re.IGNORECASE),
+]
+
+
+def _detect_project_switch(text: str) -> str | None:
+    """Vrati extrahovany cilovy projekt, nebo None."""
+    if not text:
+        return None
+    if len(text.strip().split()) > 8:
+        return None
+    for pat in _PROJECT_SWITCH_PATTERNS:
+        m = pat.match(text)
+        if m:
+            return m.group(1).strip() or None
+    return None
+
+
+def _detect_project_clear(text: str) -> bool:
+    """True, pokud user chce z projektu odejit (bez projektu)."""
+    if not text:
+        return False
+    if len(text.strip().split()) > 5:
+        return False
+    for pat in _PROJECT_CLEAR_PATTERNS:
+        if pat.match(text):
+            return True
+    return False
+
+
 def _detect_tenant_switch(text: str) -> str | None:
     """
     Vrátí target tenant string, nebo None.
@@ -310,6 +365,171 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             subject=tool_input.get("subject", ""),
             body=tool_input.get("body", ""),
         )
+
+    if tool_name == "list_conversations":
+        from modules.conversation.infrastructure.repository import list_conversations as _list_conv
+        from modules.core.infrastructure.models_core import User as _UserModel
+        from core.database_core import get_core_session as _get_cs
+        from datetime import datetime, timezone
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+        # Active tenant z DB (single source of truth)
+        cs = _get_cs()
+        try:
+            u = cs.query(_UserModel).filter_by(id=user_id).first()
+            active_tenant_id = u.last_active_tenant_id if u else None
+        finally:
+            cs.close()
+        items = _list_conv(user_id=user_id, tenant_id=active_tenant_id, limit=20)
+        if not items:
+            return (
+                'V tomto tenantu zatím nemáš žádné aktivní konverzace.\n\n'
+                'Nahoře v menu „+ Nová" můžeš začít první.'
+            )
+
+        def _rel(dt_str):
+            if dt_str is None:
+                return "bez aktivity"
+            try:
+                from datetime import datetime as _dt
+                dt = _dt.fromisoformat(dt_str.replace("Z", "+00:00"))
+                diff = datetime.now(timezone.utc) - dt
+                mins = int(diff.total_seconds() // 60)
+                if mins < 1: return "právě teď"
+                if mins < 60: return f"před {mins} min"
+                hours = mins // 60
+                if hours < 24: return f"před {hours} h"
+                days = hours // 24
+                if days == 1: return "včera"
+                if days < 30: return f"před {days} dny"
+                return dt.strftime("%d.%m.%Y")
+            except Exception:
+                return "—"
+
+        lines = [f"V tomto tenantu máš {len(items)} aktivních konverzací:"]
+        selection_items = []
+        for idx, it in enumerate(items, 1):
+            title = it.get("title") or f"Konverzace #{it['id']}"
+            activity = _rel(it.get("last_message_at"))
+            mark = " ← právě otevřená" if it["id"] == conversation_id else ""
+            lines.append(f"  **{idx}.** {title} ({activity}){mark}")
+            selection_items.append({
+                "index": idx,
+                "conversation_id": it["id"],
+                "title": title,
+            })
+        _save_pending_action(conversation_id, "select_from_list_conversations", {
+            "items": selection_items,
+        })
+        lines.append(
+            '\nNapiš mi jen **číslo** (např. "2") a otevřu ti tu konverzaci.'
+        )
+        return "\n".join(lines)
+
+    if tool_name == "list_users":
+        from modules.conversation.application.tools import list_users_in_tenant
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj tenant kontext."
+        result = list_users_in_tenant(requester_user_id=user_id)
+        if not result.get("found"):
+            return "❌ Nemáš aktivní tenant — nemůžu vypsat lidi."
+        users = result.get("users", [])
+        if not users:
+            return f"V tenantu **{result.get('tenant_name') or '—'}** nikdo aktivní není."
+        tname = result.get("tenant_name") or "—"
+        lines = [f"V tenantu **{tname}** je {result.get('total', len(users))} aktivních lidí:"]
+        # Ulož seznam do pending_actions pro cislovanou selekci.
+        # User pak muze odpovedet jen cislem (napr. "3") a my vime, koho myslel.
+        selection_items = []
+        for idx, u in enumerate(users, 1):
+            name = u.get("display_name") or u.get("full_name") or "—"
+            role = u.get("role") or "member"
+            role_label = u.get("role_label")
+            email = u.get("preferred_email") or "(bez emailu)"
+            self_mark = " ← to jsi ty" if u.get("is_requester") else ""
+            label_part = f", {role_label}" if role_label else ""
+            lines.append(f"  **{idx}.** {name} ({role}{label_part}) — {email}{self_mark}")
+            selection_items.append({
+                "index": idx,
+                "user_id": u.get("user_id"),
+                "name": name,
+                "email": email,
+            })
+        _save_pending_action(conversation_id, "select_from_list_users", {
+            "items": selection_items,
+        })
+        if result.get("has_more"):
+            lines.append(f"\n(zobrazeno prvních {len(users)}, celkem {result['total']})")
+        lines.append(
+            '\nNapiš mi jen **číslo** (např. "3") a řeknu ti o tom člověku víc — '
+            'nebo mě rovnou popros "pošli email Ondrovi".'
+        )
+        return "\n".join(lines)
+
+    if tool_name == "list_projects":
+        from modules.projects.application.service import list_projects_for_user
+        from datetime import datetime, timezone
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj tenant kontext."
+        items = list_projects_for_user(user_id)
+        if not items:
+            return (
+                'V tomto tenantu zatím nejsou žádné aktivní projekty.\n\n'
+                'Můžeš si nějaký vytvořit nahoře v menu "● Projekty → + Nový projekt".'
+            )
+
+        def _rel(dt):
+            if dt is None:
+                return "bez aktivity"
+            try:
+                if isinstance(dt, str):
+                    from datetime import datetime as _dt
+                    dt = _dt.fromisoformat(dt.replace("Z", "+00:00"))
+                diff = datetime.now(timezone.utc) - dt
+                mins = int(diff.total_seconds() // 60)
+                if mins < 1: return "právě teď"
+                if mins < 60: return f"před {mins} min"
+                hours = mins // 60
+                if hours < 24: return f"před {hours} h"
+                days = hours // 24
+                if days == 1: return "včera"
+                if days < 30: return f"před {days} dny"
+                return dt.strftime("%d.%m.%Y")
+            except Exception:
+                return "—"
+
+        # Najdi aktualni projekt usera, abychom ho v seznamu zvyraznili
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User as _User
+        cs = get_core_session()
+        try:
+            u = cs.query(_User).filter_by(id=user_id).first()
+            current_pid = u.last_active_project_id if u else None
+        finally:
+            cs.close()
+
+        lines = [f"V tomto tenantu máš {len(items)} aktivních projektů:"]
+        # Ulož pro cislovanou selekci (user odpovi jen "3", my vime na ktery projekt).
+        selection_items = []
+        for idx, p in enumerate(items, 1):
+            mark = " ← právě v něm" if p["id"] == current_pid else ""
+            activity = p.get("last_activity_at") or p.get("created_at")
+            lines.append(f"  **{idx}.** {p['name']} ({_rel(activity)}){mark}")
+            selection_items.append({
+                "index": idx,
+                "project_id": p["id"],
+                "name": p["name"],
+            })
+        _save_pending_action(conversation_id, "select_from_list_projects", {
+            "items": selection_items,
+        })
+        if current_pid is None:
+            lines.append("\nMomentálně pracuješ **bez projektu**.")
+        lines.append(
+            '\nNapiš mi jen **číslo** (např. "2") a přepnu tě tam — '
+            'nebo řekni "přepni do projektu <jméno>".'
+        )
+        return "\n".join(lines)
 
     if tool_name == "find_user":
         query = tool_input.get("query", "")
@@ -471,6 +691,184 @@ def chat(
     save_message(conversation_id, role="user", content=user_message,
                  author_type="human", author_user_id=user_id)
 
+    # ── ČÍSLOVANÁ SELEKCE z předchozího seznamu ───────────────────────
+    # Pokud je user_message jen číslo (případně s tečkou) a v pending_actions
+    # je uložen "select_from_list_*", provedeme akci podle indexu.
+    # Patternu odpovídá: "3", "3.", " 2 ", "č. 1" atp.
+    _selection_match = re.match(r"^\s*(?:č\.\s*)?(\d{1,3})\.?\s*$", user_message, re.IGNORECASE)
+    if _selection_match:
+        pending = _get_pending_action(conversation_id)
+        if pending and pending.get("type") in (
+            "select_from_list_projects",
+            "select_from_list_users",
+            "select_from_list_conversations",
+            "select_user_action",
+        ):
+            try:
+                wanted = int(_selection_match.group(1))
+            except ValueError:
+                wanted = None
+            # select_user_action uklada volby pod klicem "actions", ostatni pod "items"
+            items = pending.get("items") if pending.get("type") != "select_user_action" else pending.get("actions", [])
+            picked = next((it for it in items if it.get("index") == wanted), None)
+            if picked is None:
+                reply = (
+                    f"❌ Číslo {wanted} mimo rozsah seznamu (mám {len(items)} položek). "
+                    f"Zkus znovu."
+                )
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, None
+
+            if pending["type"] == "select_from_list_projects":
+                from modules.projects.application.service import switch_project_by_query, switch_project_for_user
+                project_id = picked["project_id"]
+                # Pouzijeme switch_project_for_user (validuje membership) primo na ID
+                try:
+                    result = switch_project_for_user(user_id=user_id, project_id=project_id)
+                    name = result.get("project_name") or picked["name"]
+                    reply = (
+                        f"✅ Přepnuto do projektu {name}.\n\n"
+                        f"Od této zprávy s tebou pracuju v tomto projektovém kontextu."
+                    )
+                except Exception as e:
+                    reply = f"❌ Nelze přepnout: {e}"
+                _delete_pending_action(conversation_id)
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, None
+
+            if pending["type"] == "select_from_list_users":
+                name = picked["name"]
+                email = picked["email"]
+                target_uid = picked["user_id"]
+                # Uloz pending pro nasledujici cislovanou akci nad timto userem.
+                _save_pending_action(conversation_id, "select_user_action", {
+                    "user_id": target_uid,
+                    "name": name,
+                    "email": email,
+                    "actions": [
+                        {"index": 1, "key": "email"},
+                        {"index": 2, "key": "dm"},
+                        {"index": 3, "key": "free"},
+                    ],
+                })
+                reply = (
+                    f'Vybral jsi **{name}** — {email}.\n\n'
+                    f'Co chceš dál?\n'
+                    f'  **1.** Pošli email\n'
+                    f'  **2.** Otevři DM (přepne do záložky "Lidé")\n'
+                    f'  **3.** Něco jiného (řekni co)\n\n'
+                    f'Napiš jen číslo nebo přímo co potřebuješ.'
+                )
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, None
+
+            if pending["type"] == "select_from_list_conversations":
+                target_cid = picked["conversation_id"]
+                title = picked["title"]
+                _delete_pending_action(conversation_id)
+                # Pro otevreni konverzace nic neukladame (user ji fyzicky otevre
+                # ve frontu). Vratime specialni dict v extras slotu — router
+                # z neho vycte switch_to_conversation_id a preda do response.
+                reply = f"Otevírám konverzaci: **{title}**."
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, {"switch_to_conversation_id": target_cid}
+
+            if pending["type"] == "select_user_action":
+                # User vybral 1/2/3 po selekci z list_users.
+                action_key = picked.get("key")
+                target_uid = pending.get("user_id")
+                target_name = pending.get("name") or "—"
+                target_email = pending.get("email") or "(bez emailu)"
+                _delete_pending_action(conversation_id)
+
+                if action_key == "email":
+                    # Nech Claude pokracovat v emailu — ulozime kontext jako
+                    # system zpravu do historie, aby si Claude zapamatoval cil.
+                    reply = (
+                        f'OK, napíšu email **{target_name}** ({target_email}).\n\n'
+                        f'Co má být předmětem a co chceš do těla napsat?'
+                    )
+                    save_message(conversation_id, role="assistant", content=reply,
+                                 message_type="system")
+                    # Hint pro Claude na dalsi turn — system-role v user zprave
+                    # (stejny pattern jako tenant switch marker): user-role, ai type.
+                    marker = (
+                        f'[KONTEXT] Píšeš email pro: {target_name}, adresa: {target_email}. '
+                        f'V dalším tahu user dodá obsah — zavolej send_email s touhle adresou.'
+                    )
+                    save_message(conversation_id, role="user", content=marker,
+                                 author_type="ai", message_type="system")
+                    return conversation_id, reply, None
+                if action_key == "dm":
+                    reply = f"Otevírám DM s **{target_name}**."
+                    save_message(conversation_id, role="assistant", content=reply,
+                                 message_type="system")
+                    return conversation_id, reply, {"switch_to_dm_user_id": target_uid}
+                # "free" = pust mu neco uzivatelsky, ale bez kontextu
+                reply = (
+                    f'OK, {target_name} je vybraný/á. Řekni co potřebuješ '
+                    f'(zeptat se na něj, poslat email, apod.).'
+                )
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, None
+
+    # ── Explicitní PROJECT switch ──────────────────────────────────────
+    # „přepni do projektu Skoda", „bez projektu", „opust projekt".
+    # MUSI byt PRED tenant switchem — slovo "projekt" je specificke.
+    # Bez nej by „přepni do EUROSOFTu" padlo do tenant detekce.
+    if user_id:
+        if _detect_project_clear(user_message):
+            from modules.projects.application.service import clear_project_for_user
+            result = clear_project_for_user(user_id)
+            if result.get("already_clear"):
+                reply = "✅ Už jsi bez projektu."
+            else:
+                reply = "✅ Opustil jsi projekt. Pracuješ teď bez projektu."
+            save_message(conversation_id, role="assistant", content=reply,
+                         message_type="system")
+            return conversation_id, reply, None
+
+        project_target = _detect_project_switch(user_message)
+        if project_target:
+            from modules.projects.application.service import switch_project_by_query
+            logger.info(
+                f"PROJECT | switch_intent | user={user_id} | target={project_target!r}"
+            )
+            result = switch_project_by_query(user_id=user_id, query=project_target)
+            if result.get("found"):
+                name = result["project_name"]
+                if result.get("already_active"):
+                    reply = f"✅ Už jsi v projektu {name}."
+                else:
+                    reply = (
+                        f"✅ Přepnuto do projektu {name}.\n\n"
+                        f"Od této zprávy s tebou pracuju v tomto projektovém kontextu."
+                    )
+            elif result.get("ambiguous"):
+                lines = ["Mám víc projektů odpovídajících tvému zadání:"]
+                for i, c in enumerate(result["candidates"], 1):
+                    lines.append(f"  {i}. {c['name']}")
+                lines.append("\nUveď přesnější jméno.")
+                reply = "\n".join(lines)
+            elif result.get("no_projects"):
+                reply = (
+                    '❌ V tomto tenantu zatím nejsou žádné aktivní projekty.\n\n'
+                    'Vlevo nahoře v "● Projekty" si můžeš nějaký vytvořit.'
+                )
+            else:
+                reply = (
+                    f'❌ Projekt "{project_target}" jsem nenašel/a v tomto tenantu.\n\n'
+                    f'Klikni na "● Projekty" v hlavičce a uvidíš seznam dostupných.'
+                )
+            save_message(conversation_id, role="assistant", content=reply,
+                         message_type="system")
+            return conversation_id, reply, None
+
     # ── Explicitní TENANT switch ───────────────────────────────────────
     # „přepni do EUROSOFTu", „chci do DOMA", „switch to EUR".
     # Předložka 'do' (tenant) vs. 'na' (persona) — patterny se nekříží.
@@ -562,9 +960,10 @@ def chat(
             name = result["persona_name"]
             reply = f"✅ Přepnuto na {name}.\n\nNyní mluvíš s {name}. Jak ti mohu pomoci?"
         else:
-            # Fallback — uživatel mohl říct „přepni na EUROSOFT" pro tenant
-            # (intuitivní — předložka 'na' obvykle pro persony, ale lidé to
-            # mixují). Zkus tedy tenant switch se stejným query.
+            # Fallback chain: persona ne → tenant → projekt. Důvod: lidi mixují
+            # předložky („přepni na EUROSOFT", „přepni na TISAX") a nemusí
+            # vědět, jestli mluví o personu, tenantu nebo projektu. Zkusíme
+            # všechny tři škatulky, ať se chování chová "smart".
             tenant_fallback = None
             if user_id:
                 tenant_fallback = switch_tenant_for_user(user_id=user_id, query=switch_target)
@@ -586,11 +985,33 @@ def chat(
                 lines.append("\nUveď přesnější jméno nebo kód.")
                 reply = "\n".join(lines)
             else:
-                reply = (
-                    f"❌ Nenašel/a jsem '{switch_target}' — ani jako personu, ani jako tenant.\n\n"
-                    f"Zkus přesnější jméno."
-                )
-        # Persona switch (nebo tenant fallback) je systémové oznámení, ne AI text.
+                # Poslední fallback: zkus projekt v aktuálním tenantu.
+                project_fallback = None
+                if user_id:
+                    from modules.projects.application.service import switch_project_by_query
+                    project_fallback = switch_project_by_query(user_id=user_id, query=switch_target)
+                if project_fallback and project_fallback.get("found"):
+                    pname = project_fallback["project_name"]
+                    if project_fallback.get("already_active"):
+                        reply = f"✅ Už jsi v projektu {pname}."
+                    else:
+                        reply = (
+                            f"✅ Přepnuto do projektu {pname}.\n\n"
+                            f"Od této zprávy s tebou pracuju v tomto projektovém kontextu."
+                        )
+                elif project_fallback and project_fallback.get("ambiguous"):
+                    lines = ["Mám víc projektů odpovídajících tvému zadání:"]
+                    for i, c in enumerate(project_fallback["candidates"], 1):
+                        lines.append(f"  {i}. {c['name']}")
+                    lines.append("\nUveď přesnější jméno.")
+                    reply = "\n".join(lines)
+                else:
+                    reply = (
+                        f"❌ Nenašel/a jsem '{switch_target}' — ani jako personu, "
+                        f"ani jako tenant, ani jako projekt.\n\n"
+                        f"Zkus přesnější jméno."
+                    )
+        # Persona / tenant / project switch je systémové oznámení, ne AI text.
         save_message(conversation_id, role="assistant", content=reply,
                      message_type="system")
         return conversation_id, reply, None

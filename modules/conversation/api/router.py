@@ -60,6 +60,31 @@ def _get_current_tenant_for_user(
         session.close()
 
 
+def _get_current_project_for_user(
+    user_id: int | None,
+) -> tuple[int | None, str | None]:
+    """
+    Vrátí (project_id, project_name) aktuálního projektu usera.
+    None/None pokud user nemá projekt (last_active_project_id = NULL),
+    pokud projekt už neexistuje nebo je archivovaný.
+    """
+    if not user_id:
+        return None, None
+    from modules.core.infrastructure.models_core import Project
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or not user.last_active_project_id:
+            return None, None
+        project = session.query(Project).filter_by(id=user.last_active_project_id).first()
+        if not project or not project.is_active:
+            return None, None
+        return project.id, project.name
+    finally:
+        session.close()
+
+
 @router.post("/chat", response_model=ChatResponse)
 def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
     try:
@@ -75,22 +100,37 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         persona_name = get_active_persona_name(conversation_id)
 
         summary_notice: str | None = None
+        switch_to_cid: int | None = None
+        switch_to_dm_uid: int | None = None
         if summary_info:
-            cnt = summary_info.get("message_count", 0)
-            summary_notice = f"⏳ Shrnul jsem {cnt} starších zpráv do historie."
+            # summary_info je polyvalentni dict: ma message_count (summary),
+            # switch_to_conversation_id (selekce z list_conversations), nebo
+            # switch_to_dm_user_id (volba "Otevri DM" po list_users).
+            cnt = summary_info.get("message_count")
+            if cnt:
+                summary_notice = f"⏳ Shrnul jsem {cnt} starších zpráv do historie."
+            switch_to_cid = summary_info.get("switch_to_conversation_id")
+            switch_to_dm_uid = summary_info.get("switch_to_dm_user_id")
 
         # Aktuální tenant po této zprávě (zachycuje i tenant switch v chatu)
         tenant_id, tenant_name, tenant_code, display_name = _get_current_tenant_for_user(user_id)
+
+        # Aktuální projekt po této zprávě (zachycuje i project switch v chatu)
+        project_id, project_name = _get_current_project_for_user(user_id)
 
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
             active_persona=persona_name,
             summary_notice=summary_notice,
+            switch_to_conversation_id=switch_to_cid,
+            switch_to_dm_user_id=switch_to_dm_uid,
             tenant_id=tenant_id,
             tenant_name=tenant_name,
             tenant_code=tenant_code,
             display_name=display_name,
+            project_id=project_id,
+            project_name=project_name,
         )
     except Exception as e:
         logger.exception(f"Chat failed: {e}")

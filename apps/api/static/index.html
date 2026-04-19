@@ -2901,10 +2901,31 @@
           }
           setTenantPill(data.display_name, data.tenant_name);
         }
+        // Aktualizuj projekt indikátor — zachycuje chat-driven project switch
+        // („přepni do projektu Škoda" / „bez projektu"). Refreshujeme taky
+        // seznam projektů (pro správný active stav v dropdownu/sidebaru).
+        if (currentUser && (data.project_id !== currentUser.project_id)) {
+          currentUser.project_id = data.project_id;
+          currentUser.project_name = data.project_name;
+          updateProjectIndicator();
+          renderProjectDropdown();
+          renderProjectSidebar();
+        }
         addMessage('assistant', data.reply);
         // Banner pokud backend shrnul starší historii v tomto cyklu
         if (data.summary_notice) {
           showSummaryBanner(data.summary_notice);
+        }
+        // Backend signalizuje "otevri tuto konverzaci" (selekce z list_conversations).
+        // Po krátké pauze (ať user uvidí "Otevírám…") načteme cílovou konverzaci.
+        if (data.switch_to_conversation_id && data.switch_to_conversation_id !== conversationId) {
+          const targetCid = data.switch_to_conversation_id;
+          setTimeout(() => { openConversation(targetCid); }, 500);
+        }
+        // Backend signalizuje "otevri DM s tímto uživatelem" (volba "2" po list_users).
+        if (data.switch_to_dm_user_id) {
+          const targetUid = data.switch_to_dm_user_id;
+          setTimeout(() => { startDmWith({ user_id: targetUid }); }, 500);
         }
         // Aktualizuj sidebar — buď nová konverzace přibyla na vrchol,
         // nebo se aktualizoval title/last_message_at u existující.

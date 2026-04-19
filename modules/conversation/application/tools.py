@@ -78,6 +78,56 @@ TOOLS = [
         },
     },
     {
+        "name": "list_conversations",
+        "description": (
+            "VŽDY zavolej tento nástroj kdykoli uživatel chce přehled svých AI konverzací. "
+            "NIKDY nesměř po paměti z předchozí konverzace — data se mění (nové konverzace, "
+            "mazání, přejmenování), musíš mít čerstvé. Spouštěče: 'jaké mám konverzace', "
+            "'co jsem dělal', 'jaké konverzace jsou moje', 'ukaž mi historii', 'seznam chatů'. "
+            "Nástroj sám vrátí číslovaný seznam s pokyny pro výběr — ZOBRAZ jeho výstup "
+            "uživateli BEZ ÚPRAV (číslování je důležité pro následnou selekci). "
+            "Parametr nepotřebuje."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_users",
+        "description": (
+            "VŽDY zavolej tento nástroj kdykoli uživatel chce přehled lidí v aktuálním tenantu. "
+            "NIKDY nesměř po paměti — composition týmu se mění (nové pozvánky, archivace), "
+            "musíš mít čerstvé data. Spouštěče: 'jaké lidi tu mám', 'kdo je tu', 's kým můžu mluvit', "
+            "'koho tu máme', 'seznam lidí', 'a lidi?', 'a co lidi'. "
+            "Liší se od find_user tím, že find_user hledá podle dotazu (jména/emailu), "
+            "tohle vypíše VŠECHNY aktivní členy s rolemi a emaily. "
+            "Nástroj sám vrátí číslovaný seznam — ZOBRAZ jeho výstup uživateli BEZ ÚPRAV. "
+            "Parametr nepotřebuje."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_projects",
+        "description": (
+            "VŽDY zavolej tento nástroj kdykoli uživatel chce vědět jaké projekty má. "
+            "NIKDY nesměř po paměti z předchozí konverzace — projekty se mění (nové, "
+            "archivace, přejmenování, aktivita), musíš mít čerstvé data. Spouštěče: "
+            "'jaké mám projekty', 'co je v práci', 'ukaž mi projekty', 'co mam za projekty', "
+            "'a projekty?', 'a co projekty'. "
+            "Nástroj sám vrátí číslovaný seznam s pokyny pro výběr — ZOBRAZ jeho výstup "
+            "uživateli BEZ ÚPRAV (číslování je důležité, user pak může napsat jen číslo "
+            "pro přepnutí). Parametr nepotřebuje."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
         "name": "switch_persona",
         "description": (
             "Tento nástroj MUSÍŠ použít VŽDY, když uživatel chce přepnout na jinou osobu / personu / agenta. "
@@ -151,6 +201,149 @@ def format_email_preview(to: str, subject: str, body: str) -> str:
 
 
 FIND_USER_MAX_CANDIDATES = 5
+LIST_USERS_MAX = 30  # soft limit na vypsani vsech userov v tenantu
+
+
+def list_users_in_tenant(requester_user_id: int | None) -> dict:
+    """
+    Vrati aktivni cleny aktualniho tenantu requestera (vcetne nej sameho).
+    Urceno pro AI tool list_users.
+
+    Vraci:
+      {
+        "found": bool,
+        "tenant_id": int | None,
+        "tenant_name": str | None,
+        "users": [{
+            "user_id": int, "full_name": str, "display_name": str | None,
+            "role": str,                # z user_tenants: owner | admin | member
+            "role_label": str | None,   # z user_tenant_profiles (pozice)
+            "preferred_email": str | None,
+            "is_requester": bool,
+        }, ...],
+        "total": int,        # celkovy pocet (i kdyz limit orizne)
+        "has_more": bool,
+      }
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import (
+        User, UserContact, Tenant, UserTenant, UserTenantProfile,
+    )
+
+    if not requester_user_id:
+        return {"found": False, "tenant_id": None, "tenant_name": None,
+                "users": [], "total": 0, "has_more": False}
+
+    session = get_core_session()
+    try:
+        req_user = session.query(User).filter_by(id=requester_user_id).first()
+        if req_user is None:
+            return {"found": False, "tenant_id": None, "tenant_name": None,
+                    "users": [], "total": 0, "has_more": False}
+        tenant_id = req_user.last_active_tenant_id
+        if tenant_id is None:
+            # Fallback: libovolny aktivni membership
+            ut = (
+                session.query(UserTenant)
+                .filter_by(user_id=requester_user_id, membership_status="active")
+                .first()
+            )
+            if ut:
+                tenant_id = ut.tenant_id
+        if tenant_id is None:
+            return {"found": False, "tenant_id": None, "tenant_name": None,
+                    "users": [], "total": 0, "has_more": False}
+
+        tenant = session.query(Tenant).filter_by(id=tenant_id).first()
+
+        tenant_user_rows = (
+            session.query(UserTenant)
+            .filter_by(tenant_id=tenant_id, membership_status="active")
+            .all()
+        )
+        total = len(tenant_user_rows)
+        # Soft limit
+        if total > LIST_USERS_MAX:
+            tenant_user_rows = tenant_user_rows[:LIST_USERS_MAX]
+        has_more = total > len(tenant_user_rows)
+
+        user_ids = [ut.user_id for ut in tenant_user_rows]
+        if not user_ids:
+            return {"found": True, "tenant_id": tenant_id,
+                    "tenant_name": (tenant.tenant_name if tenant else None),
+                    "users": [], "total": 0, "has_more": False}
+
+        users_rows = (
+            session.query(User)
+            .filter(User.id.in_(user_ids), User.status.in_(("active", "pending")))
+            .all()
+        )
+        users_by_id = {u.id: u for u in users_rows}
+
+        # Profiles (pro display_name + role_label)
+        profile_rows = (
+            session.query(UserTenantProfile)
+            .filter(UserTenantProfile.user_tenant_id.in_([ut.id for ut in tenant_user_rows]))
+            .all()
+        )
+        profile_by_ut = {p.user_tenant_id: p for p in profile_rows}
+
+        # Preferred kontakty (email)
+        contact_ids = [p.preferred_contact_id for p in profile_rows if p.preferred_contact_id]
+        preferred_contacts: dict[int, str] = {}
+        if contact_ids:
+            cc = session.query(UserContact).filter(UserContact.id.in_(contact_ids)).all()
+            preferred_contacts = {c.id: c.contact_value for c in cc if c.contact_type == "email"}
+
+        # Fallback primary emails
+        primary_emails: dict[int, str] = {}
+        primary_rows = (
+            session.query(UserContact)
+            .filter(
+                UserContact.user_id.in_(user_ids),
+                UserContact.contact_type == "email",
+                UserContact.status == "active",
+                UserContact.is_primary.is_(True),
+            )
+            .all()
+        )
+        for c in primary_rows:
+            primary_emails[c.user_id] = c.contact_value
+
+        users_out: list[dict] = []
+        for ut in tenant_user_rows:
+            u = users_by_id.get(ut.user_id)
+            if u is None:
+                continue
+            profile = profile_by_ut.get(ut.id)
+            display_name = profile.display_name if profile else None
+            role_label = profile.role_label if profile else None
+            email = None
+            if profile and profile.preferred_contact_id:
+                email = preferred_contacts.get(profile.preferred_contact_id)
+            if not email:
+                email = primary_emails.get(u.id)
+            full_name = " ".join(filter(None, [u.first_name, u.last_name])).strip() or (u.short_name or "—")
+            users_out.append({
+                "user_id": u.id,
+                "full_name": full_name,
+                "display_name": display_name,
+                "role": ut.role,
+                "role_label": role_label,
+                "preferred_email": email,
+                "is_requester": (u.id == requester_user_id),
+            })
+
+        return {
+            "found": True,
+            "tenant_id": tenant_id,
+            "tenant_name": (tenant.tenant_name if tenant else None),
+            "users": users_out,
+            "total": total,
+            "has_more": has_more,
+        }
+    finally:
+        session.close()
 
 
 def find_user_in_system(query: str, requester_user_id: int | None = None) -> dict:

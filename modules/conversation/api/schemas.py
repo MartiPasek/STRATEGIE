@@ -11,6 +11,9 @@ class ChatResponse(BaseModel):
     reply: str
     active_persona: str | None = None
     switch_to_conversation_id: int | None = None
+    # Když user vybere "Otevři DM" v selekci po list_users, backend vrátí
+    # cíl user_id — frontend přepne do DM módu a otevře vlákno s tím userem.
+    switch_to_dm_user_id: int | None = None
     # Když se v tomto cyklu vytvořilo nové summary, frontend tuto hlášku zobrazí
     # jako banner (např. „⏳ Shrnul jsem 10 starších zpráv"). Jinak None.
     summary_notice: str | None = None
@@ -22,6 +25,11 @@ class ChatResponse(BaseModel):
     # Display jméno usera v aktuálním tenantu (z user_tenant_profiles).
     # Frontend ho používá pro „Marti - EUROSOFT" hlavičkovou pilulku.
     display_name: str | None = None
+    # Aktuální projekt po této zprávě (zachycuje i project switch v chatu
+    # přes „přepni do projektu X" / „bez projektu"). Frontend porovná s
+    # currentUser.project_id a pokud se liší, refreshne /me.
+    project_id: int | None = None
+    project_name: str | None = None
 
 
 class HistoryMessage(BaseModel):

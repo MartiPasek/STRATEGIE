@@ -111,6 +111,8 @@ def get_user_context(user_id: int) -> dict | None:
             "last_name": user.last_name,
             "email": email_value,
             "tenant_id": tenant_id,
+            "gender": user.gender,
+            "short_name": user.short_name,
             "display_name": display_name or user.first_name,    # fallback
             "tenant_name": tenant_name,
             "tenant_code": tenant_code,

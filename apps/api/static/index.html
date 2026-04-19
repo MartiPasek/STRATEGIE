@@ -133,6 +133,24 @@
     .profile-chip { padding: 3px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; color: var(--text); }
     .profile-chip.accent { color: var(--accent); border-color: var(--accent); }
     .profile-note { font-size: 11px; color: var(--muted); font-style: italic; padding: 8px 10px; background: var(--bg); border-radius: 6px; border-left: 2px solid var(--accent); }
+    /* Edit form fields v profilu */
+    .profile-input { width: 100%; padding: 6px 10px; font-size: 13px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: 'DM Sans', sans-serif; outline: none; transition: border-color .12s; }
+    .profile-input:focus { border-color: var(--accent); }
+    .profile-input:read-only { opacity: 0.6; cursor: not-allowed; }
+    .profile-row.edit { align-items: center; }
+    .profile-row.edit .profile-row-value { flex: 1; }
+    .profile-radio-group { display: flex; gap: 8px; flex-wrap: wrap; }
+    .profile-radio { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; cursor: pointer; transition: border-color .12s, color .12s; }
+    .profile-radio:hover { border-color: var(--accent); }
+    .profile-radio input { margin: 0; cursor: pointer; }
+    .profile-radio.selected { border-color: var(--accent); color: var(--accent); }
+    /* Alias rows — list aliasů v profile edit módu */
+    .profile-alias-row { display: flex; align-items: center; justify-content: space-between; padding: 6px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 4px; }
+    .profile-alias-label { font-size: 13px; color: var(--text); }
+    .profile-alias-actions { display: flex; gap: 4px; }
+    /* Add alias input row — input + tlačítko vedle sebe */
+    .profile-section .profile-row.edit input.profile-input { flex: 1; }
+    .profile-section .profile-row.edit { gap: 6px; }
     @keyframes slideUp { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
     .modal-title { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 14px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
     .modal-text { font-size: 13px; color: var(--text); line-height: 1.5; margin-bottom: 16px; }
@@ -228,6 +246,14 @@
     .msg-role { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .08em; color: var(--muted); padding: 0 2px; }
     .msg-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
     .msg.user .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
+    /* Markdown rendering uvnitř AI bublin (parsováno z **bold**, *italic*, lists, code, links). */
+    .msg-bubble strong { font-weight: 600; color: var(--text); }
+    .msg-bubble em { font-style: italic; }
+    .msg-bubble code.md-code { background: rgba(255,255,255,0.06); padding: 1px 5px; border-radius: 3px; font-family: 'DM Mono', monospace; font-size: 0.9em; color: var(--accent); }
+    .msg-bubble a { color: var(--accent); text-decoration: underline; }
+    .msg-bubble a:hover { color: var(--accent2); }
+    .msg-bubble ul.md-list, .msg-bubble ol.md-list { padding-left: 20px; margin: 4px 0; }
+    .msg-bubble ul.md-list li, .msg-bubble ol.md-list li { margin: 2px 0; }
     .msg.loading .msg-bubble { display: flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; }
     .dots { display: flex; gap: 4px; }
     .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: bounce .9s infinite; }
@@ -447,8 +473,8 @@
     <div class="modal-box modal-box-wide">
       <div class="modal-title">MŮJ PROFIL</div>
       <div class="profile-content" id="profileContent"></div>
-      <div class="modal-actions">
-        <button class="modal-btn modal-btn-secondary" id="profileModalClose">Zavřít</button>
+      <div class="modal-actions" id="profileModalActions">
+        <!-- Akce se renderují podle módu (view / edit) v JS. -->
       </div>
     </div>
   </div>
@@ -920,65 +946,323 @@
     return item;
   }
 
-  // ── PROFILE / SETTINGS MODAL (read-only mockup pro MVP) ─────────────
+  // ── PROFILE / SETTINGS MODAL ────────────────────────────────────────
+  let profileEditMode = false;
+
   function openProfileModal() {
-    const overlay = document.getElementById('profileModal');
+    profileEditMode = false;     // vždy zacni ve view módu
+    _renderProfileModal();
+    document.getElementById('profileModal').style.display = 'flex';
+  }
+
+  function _renderProfileModal() {
     const content = document.getElementById('profileContent');
+    const actions = document.getElementById('profileModalActions');
     if (!currentUser) {
       alert('Nejsi přihlášen.');
       return;
     }
     const u = currentUser;
-    const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
     const tenants = u.available_tenants || [];
     const aliases = u.aliases || [];
     const currentTenantId = u.tenant_id;
+    const _esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 
     const _row = (label, value, muted = false) =>
       `<div class="profile-row"><div class="profile-row-label">${label}</div>` +
-      `<div class="profile-row-value ${muted ? 'muted' : ''}">${value || '—'}</div></div>`;
+      `<div class="profile-row-value ${muted ? 'muted' : ''}">${_esc(value) || '—'}</div></div>`;
 
     let tenantsHtml = '';
     if (tenants.length) {
       tenantsHtml = '<div class="profile-chips">' + tenants.map(t => {
         const active = t.tenant_id === currentTenantId ? ' accent' : '';
-        const code = t.tenant_code ? ` (${t.tenant_code})` : '';
-        return `<span class="profile-chip${active}">${t.tenant_name}${code}</span>`;
+        const code = t.tenant_code ? ` (${_esc(t.tenant_code)})` : '';
+        return `<span class="profile-chip${active}">${_esc(t.tenant_name)}${code}</span>`;
       }).join('') + '</div>';
     } else {
       tenantsHtml = '<div class="profile-row-value muted">Nepatříš do žádného tenantu.</div>';
     }
-
     let aliasesHtml = aliases.length
-      ? '<div class="profile-chips">' + aliases.map(a => `<span class="profile-chip">${a}</span>`).join('') + '</div>'
+      ? '<div class="profile-chips">' + aliases.map(a => `<span class="profile-chip">${_esc(a)}</span>`).join('') + '</div>'
       : '<div class="profile-row-value muted">Žádné aliasy.</div>';
 
-    content.innerHTML = `
-      <div class="profile-section">
-        <div class="profile-section-title">Identita</div>
-        ${_row('Jméno', fullName)}
-        ${_row('Oslovuji tě', u.display_name || u.first_name || '—')}
-        ${_row('User ID', '#' + u.user_id, true)}
-      </div>
-      <div class="profile-section">
-        <div class="profile-section-title">Kontakt</div>
-        ${_row('Primární email', u.email)}
-      </div>
-      <div class="profile-section">
-        <div class="profile-section-title">Globální aliasy</div>
-        ${aliasesHtml}
-      </div>
-      <div class="profile-section">
-        <div class="profile-section-title">Členství v tenantech</div>
-        ${tenantsHtml}
-        <div class="profile-row" style="margin-top:6px;">
-          <div class="profile-row-label">Aktivní</div>
-          <div class="profile-row-value">${u.tenant_name || '—'}${u.tenant_code ? ` (${u.tenant_code})` : ''}</div>
+    if (!profileEditMode) {
+      // VIEW mód
+      const fullName = [u.first_name, u.last_name].filter(Boolean).join(' ') || '—';
+      const genderLabel = { male: 'Muž', female: 'Žena', other: 'Jiné / neuvedeno' }[u.gender] || 'Neuvedeno';
+      content.innerHTML = `
+        <div class="profile-section">
+          <div class="profile-section-title">Identita</div>
+          ${_row('Jméno', fullName)}
+          ${_row('Krátké jméno', u.short_name)}
+          ${_row('Oslovuji tě', u.display_name || u.first_name)}
+          ${_row('Rod', genderLabel)}
+          ${_row('User ID', '#' + u.user_id, true)}
         </div>
-      </div>
-      <div class="profile-note">Editace profilu (jméno, kontakty, aliasy, gender) přijde v další iteraci.</div>
-    `;
-    overlay.style.display = 'flex';
+        <div class="profile-section">
+          <div class="profile-section-title">Kontakt</div>
+          ${_row('Primární email', u.email)}
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Globální aliasy</div>
+          ${aliasesHtml}
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Členství v tenantech</div>
+          ${tenantsHtml}
+          ${_row('Aktivní', (u.tenant_name || '—') + (u.tenant_code ? ` (${u.tenant_code})` : ''))}
+        </div>
+      `;
+      actions.innerHTML = `
+        <button class="modal-btn modal-btn-secondary" id="profileModalClose">Zavřít</button>
+        <button class="modal-btn modal-btn-primary" id="profileEditBtn">Upravit</button>
+      `;
+      document.getElementById('profileModalClose').addEventListener('click', () => {
+        document.getElementById('profileModal').style.display = 'none';
+      });
+      document.getElementById('profileEditBtn').addEventListener('click', () => {
+        profileEditMode = true;
+        _renderProfileModal();
+      });
+    } else {
+      // EDIT mód
+      const genderOptions = [
+        { value: 'male',   label: 'Muž' },
+        { value: 'female', label: 'Žena' },
+        { value: 'other',  label: 'Jiné / neuvedeno' },
+      ];
+      const genderHtml = '<div class="profile-radio-group">' + genderOptions.map(g => {
+        const sel = (u.gender === g.value) ? ' selected' : '';
+        const checked = (u.gender === g.value) ? 'checked' : '';
+        return `<label class="profile-radio${sel}">
+          <input type="radio" name="profileGender" value="${g.value}" ${checked} />
+          ${g.label}
+        </label>`;
+      }).join('') + '</div>';
+
+      // Aliasy edit — render existujících + input pro přidání
+      const aliasesEditHtml = (u.aliases || []).map((a, i) => `
+        <div class="profile-alias-row" data-alias-value="${_esc(a)}">
+          <span class="profile-alias-label">${i === 0 ? '⭐ ' : ''}${_esc(a)}</span>
+          <div class="profile-alias-actions">
+            ${i !== 0 ? `<button class="conv-action-btn" data-tooltip="Označím jako primární" data-alias-action="primary">⭐</button>` : ''}
+            <button class="conv-action-btn danger" data-tooltip="Smažu" data-alias-action="delete">🗑</button>
+          </div>
+        </div>
+      `).join('') || '<div class="profile-row-value muted">Žádné aliasy.</div>';
+
+      content.innerHTML = `
+        <div class="profile-section">
+          <div class="profile-section-title">Identita (editace)</div>
+          <div class="profile-row edit"><div class="profile-row-label">Křestní jméno</div>
+            <input class="profile-input" id="editFirstName" value="${_esc(u.first_name)}" /></div>
+          <div class="profile-row edit"><div class="profile-row-label">Příjmení</div>
+            <input class="profile-input" id="editLastName" value="${_esc(u.last_name)}" /></div>
+          <div class="profile-row edit"><div class="profile-row-label">Krátké jméno</div>
+            <input class="profile-input" id="editShortName" value="${_esc(u.short_name)}" placeholder="Marti, Tati, Maminka..." /></div>
+          <div class="profile-row edit"><div class="profile-row-label">Rod</div>
+            <div class="profile-row-value">${genderHtml}</div></div>
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Oslovení v aktuálním profilu (${_esc(u.tenant_name || 'tenant')})</div>
+          <div class="profile-row edit"><div class="profile-row-label">Oslovuj mě</div>
+            <input class="profile-input" id="editTenantDisplay" value="${_esc(u.display_name)}" placeholder="Marti, Tati, Maminka, Šéfe..." />
+            <button class="modal-btn modal-btn-primary" id="saveTenantDisplayBtn" style="flex-shrink:0;">Uložit oslovení</button></div>
+          <div class="profile-note">Tohle je <strong>jak se zobrazuješ v UI</strong> v aktuálním profilu „${_esc(u.tenant_name || '')}". V jiných profilech (např. doma) můžeš mít jiné. Ukládá se zvlášť — klikni „Uložit oslovení".</div>
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Globální aliasy</div>
+          <div id="aliasesList">${aliasesEditHtml}</div>
+          <div class="profile-row edit" style="margin-top:6px;">
+            <input class="profile-input" id="newAliasInput" placeholder="Nový alias (např. Marťa, Pašek...)" />
+            <button class="modal-btn modal-btn-primary" id="addAliasBtn" style="flex-shrink:0;">+ Přidat</button>
+          </div>
+          <div class="profile-note">Aliasy slouží <strong>k vyhledání tebe v systému</strong> (najde tě AI při „pošli email Marťovi"). <strong>Nemění tvé zobrazované jméno</strong> — to je výše „Oslovuj mě".</div>
+        </div>
+        <div class="profile-section">
+          <div class="profile-section-title">Read-only</div>
+          ${_row('Email', u.email, true)}
+          <div class="profile-note">Editace emailů a členství v tenantech přijde v další iteraci.</div>
+        </div>
+      `;
+      _wireAliasesEditing();
+      _wireTenantDisplaySave();
+      // Radio click → toggle visual selected
+      content.querySelectorAll('.profile-radio input[type=radio]').forEach(r => {
+        r.addEventListener('change', () => {
+          content.querySelectorAll('.profile-radio').forEach(el => el.classList.remove('selected'));
+          r.closest('.profile-radio').classList.add('selected');
+        });
+      });
+      actions.innerHTML = `
+        <button class="modal-btn modal-btn-secondary" id="profileCancelBtn">Zrušit</button>
+        <button class="modal-btn modal-btn-primary" id="profileSaveBtn">Uložit</button>
+      `;
+      document.getElementById('profileCancelBtn').addEventListener('click', () => {
+        profileEditMode = false;
+        _renderProfileModal();
+      });
+      document.getElementById('profileSaveBtn').addEventListener('click', _saveProfile);
+    }
+  }
+
+  // ── Display name v aktuálním tenantu (per-tenant 'Oslovuj mě') ─────
+  function _wireTenantDisplaySave() {
+    const btn = document.getElementById('saveTenantDisplayBtn');
+    const input = document.getElementById('editTenantDisplay');
+    if (!btn || !input) return;
+    const handler = async () => {
+      const val = (input.value || '').trim();
+      if (!val) { alert('Oslovení nemůže být prázdné.'); return; }
+      try {
+        const res = await fetch('/api/v1/auth/me/tenant-display', {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ display_name: val }),
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          alert(err.detail || `Uložení selhalo (${res.status}).`);
+          return;
+        }
+        const data = await res.json();
+        currentUser = data;
+        setTenantPill(currentUser.display_name, currentUser.tenant_name);
+        updateBrowserTitle();
+        _renderProfileModal();
+      } catch (e) { alert('Chyba spojení.'); }
+    };
+    btn.addEventListener('click', handler);
+    input.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') { ev.preventDefault(); handler(); }
+    });
+  }
+
+  // ── Aliasy editace ───────────────────────────────────────────────
+  function _wireAliasesEditing() {
+    const list = document.getElementById('aliasesList');
+    const input = document.getElementById('newAliasInput');
+    const addBtn = document.getElementById('addAliasBtn');
+    if (!list) return;
+
+    // Per-alias akce (primary / delete)
+    list.querySelectorAll('.profile-alias-row').forEach(row => {
+      const aliasValue = row.dataset.aliasValue;
+      row.querySelectorAll('button[data-alias-action]').forEach(btn => {
+        btn.addEventListener('click', async () => {
+          const action = btn.dataset.aliasAction;
+          // Backend pracuje s alias_id, ale UI má jen value. Přemapujeme přes /me reload
+          // — pro MVP použijeme list call /me a najdeme ID. Jednodušší: přidáme do
+          // currentUser.aliases jen value, ale pro action potřebujeme ID. Doplníme
+          // helper, který načte aliasy s ID samostatně. Pro teď: refresh currentUser
+          // přes /me a najdeme přes value v plné struktuře.
+          await _aliasAction(aliasValue, action);
+        });
+      });
+    });
+
+    // Add alias
+    if (addBtn) {
+      addBtn.addEventListener('click', async () => {
+        const val = (input.value || '').trim();
+        if (!val) return;
+        try {
+          const res = await fetch('/api/v1/auth/me/aliases', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ alias_value: val, is_primary: false }),
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert(err.detail || `Přidání selhalo (${res.status}).`);
+            return;
+          }
+          input.value = '';
+          await _refreshCurrentUserAndProfile();
+        } catch (e) { alert('Chyba spojení.'); }
+      });
+      input.addEventListener('keydown', (ev) => {
+        if (ev.key === 'Enter') { ev.preventDefault(); addBtn.click(); }
+      });
+    }
+  }
+
+  async function _aliasAction(aliasValue, action) {
+    // Backend potřebuje alias_id — currentUser.aliases je jen pole stringů.
+    // Pro mapping value→id provedeme dotaz na /me s rozšířenou response.
+    // Quick fix MVP: zavoláme dedikovaný endpoint co najde ID podle value
+    // (ne, raději přes /me reload aliasů s ID — udělám novou helper route).
+    // Pragmatic shortcut: použijeme separátní GET /me/aliases který vrátí
+    // [{id, alias_value, is_primary}]. Implementace je v repozitáři, tady
+    // přepoužijeme jen to, co je v currentUser — ale tam nejsou ID.
+    //
+    // → Pro MVP elegance: získáme ID přes čerstvý fetch /me/aliases-detail.
+    try {
+      const r = await fetch('/api/v1/auth/me/aliases-detail', { credentials: 'include' });
+      if (!r.ok) { alert(`Načtení aliasů selhalo (${r.status}).`); return; }
+      const items = await r.json();
+      const target = items.find(x => x.alias_value === aliasValue);
+      if (!target) { alert('Alias nenalezen.'); return; }
+
+      let url, method;
+      if (action === 'primary') {
+        url = `/api/v1/auth/me/aliases/${target.id}/primary`; method = 'PATCH';
+      } else if (action === 'delete') {
+        url = `/api/v1/auth/me/aliases/${target.id}`; method = 'DELETE';
+      } else return;
+
+      const res = await fetch(url, { method, credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || `Akce selhala (${res.status}).`);
+        return;
+      }
+      await _refreshCurrentUserAndProfile();
+    } catch (e) { alert('Chyba spojení.'); }
+  }
+
+  async function _refreshCurrentUserAndProfile() {
+    try {
+      const res = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      if (res.ok) {
+        currentUser = await res.json();
+        setTenantPill(currentUser.display_name, currentUser.tenant_name);
+        updateBrowserTitle();
+        _renderProfileModal();   // re-render edit mode s aktuálními daty
+      }
+    } catch (e) {}
+  }
+
+  async function _saveProfile() {
+    const body = {
+      first_name: document.getElementById('editFirstName').value,
+      last_name:  document.getElementById('editLastName').value,
+      short_name: document.getElementById('editShortName').value,
+      gender: (document.querySelector('input[name=profileGender]:checked') || {}).value || null,
+    };
+    try {
+      const res = await fetch('/api/v1/auth/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert(err.detail || `Uložení selhalo (${res.status}).`);
+        return;
+      }
+      const data = await res.json();
+      currentUser = data;       // refresh local state
+      setTenantPill(currentUser.display_name, currentUser.tenant_name);
+      updateBrowserTitle();
+      profileEditMode = false;
+      _renderProfileModal();    // přerender ve view módu
+    } catch (e) {
+      alert('Chyba spojení při ukládání.');
+    }
   }
 
   function openSettingsModal() {
@@ -1588,6 +1872,68 @@
     msgEl.appendChild(sep);
   }
 
+  // ── MARKDOWN RENDERER ───────────────────────────────────────────────
+  // Lightweight parser: bold, italic, inline code, links, bullet+numbered lists.
+  // Vstup je nejprve HTML-escaped (XSS prevention), pak nahrazen za HTML tagy.
+  // Použije se jen pro AI odpovědi (assistant). User text + system markery
+  // zůstávají jako plain text (textContent).
+  function formatMarkdown(text) {
+    if (!text) return '';
+    // 1. Escape HTML
+    let s = String(text)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+    // 2. Inline code (single backtick) — PRVNÍ aby vnitřek nezůstal modifikovaný
+    s = s.replace(/`([^`\n]+)`/g, '<code class="md-code">$1</code>');
+    // 3. Bold (** or __)
+    s = s.replace(/\*\*([^*\n]+?)\*\*/g, '<strong>$1</strong>');
+    s = s.replace(/__([^_\n]+?)__/g, '<strong>$1</strong>');
+    // 4. Italic (* or _) — single, mimo bold (musí jít po bold)
+    s = s.replace(/(?<![\w*])\*([^*\n]+?)\*(?![\w*])/g, '<em>$1</em>');
+    s = s.replace(/(?<![\w_])_([^_\n]+?)_(?![\w_])/g, '<em>$1</em>');
+    // 5. Links [text](url)
+    s = s.replace(/\[([^\]]+)\]\(([^)]+)\)/g,
+      '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+    // 6. Lists — process line by line, group consecutive li.
+    // Toleruje prázdné/whitespace řádky uvnitř listu (Marti-AI je tam často
+    // generuje pro vizuální oddělení) — neukončí <ul>, jen je přeskočí.
+    const lines = s.split('\n');
+    const out = [];
+    let listType = null;     // 'ul' | 'ol' | null
+    for (const line of lines) {
+      const ulMatch = line.match(/^[\s]*[-*+] (.+)$/);
+      const olMatch = line.match(/^[\s]*\d+[.)]\s+(.+)$/);
+      const isBlank = /^\s*$/.test(line);
+      if (ulMatch) {
+        if (listType !== 'ul') { if (listType) out.push(`</${listType}>`); out.push('<ul class="md-list">'); listType = 'ul'; }
+        out.push(`<li>${ulMatch[1]}</li>`);
+      } else if (olMatch) {
+        if (listType !== 'ol') { if (listType) out.push(`</${listType}>`); out.push('<ol class="md-list">'); listType = 'ol'; }
+        out.push(`<li>${olMatch[1]}</li>`);
+      } else if (isBlank && listType) {
+        // prázdný řádek UVNITŘ listu — zachovej list otevřený, řádek zahoď
+        continue;
+      } else {
+        if (listType) { out.push(`</${listType}>`); listType = null; }
+        out.push(line);
+      }
+    }
+    if (listType) out.push(`</${listType}>`);
+    return out.join('\n');
+  }
+
+  // Helper — bezpečně nastaví obsah bubliny: AI odpovědi přes markdown,
+  // user/system jako plain text. (Konfiguruje se rolí.)
+  function setBubbleContent(bubble, content, role) {
+    if (role === 'assistant') {
+      bubble.innerHTML = formatMarkdown(content);
+    } else {
+      bubble.textContent = content;
+    }
+  }
+
   function renderMessage(role, content, messageType) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
@@ -1608,7 +1954,9 @@
     }
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
-    bubble.textContent = content;
+    // System markery jako plain text (mají vlastní `🔄` apod.); jinak dle role.
+    if (messageType === 'system') bubble.textContent = content;
+    else setBubbleContent(bubble, content, role);
     msg.appendChild(roleEl); msg.appendChild(bubble);
     _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
@@ -1632,7 +1980,8 @@
     } else if (type === 'error') {
       msg.classList.add('error'); bubble.textContent = content;
     } else {
-      bubble.textContent = content;
+      // AI odpovědi přes markdown, user/loading jako plain text.
+      setBubbleContent(bubble, content, role);
     }
     msg.appendChild(roleEl); msg.appendChild(bubble);
     if (type !== 'loading') _attachCopySpacer(msg);

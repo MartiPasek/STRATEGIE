@@ -27,6 +27,9 @@ class LoginResponse(BaseModel):
     last_name: str | None
     email: str
     tenant_id: int | None
+    # Gender — pro UI editor v profilu (volitelné).
+    gender: str | None = None
+    short_name: str | None = None
 
     # Identity refactor v2 — rozšíření o tenantový kontext.
     # Frontend tyto fieldy zobrazuje v UI hlavičce a používá je jako

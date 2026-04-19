@@ -6,6 +6,7 @@ from core.logging import get_logger
 from modules.auth.api.schemas import LoginRequest, LoginResponse
 from modules.auth.application.service import login_by_email, AmbiguousEmailError
 from modules.auth.application.invitation_service import create_invitation, accept_invitation
+from modules.auth.application.user_context import get_user_context
 from modules.notifications.application.email_service import send_invitation_email
 from modules.core.infrastructure.models_core import User, UserContact
 
@@ -53,25 +54,10 @@ def me(req: Request) -> LoginResponse:
     except ValueError:
         raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
 
-    session = get_core_session()
-    try:
-        user = session.query(User).filter_by(id=user_id).first()
-        if not user or user.status != "active":
-            raise HTTPException(status_code=401, detail="Účet není aktivní.")
-        primary = (
-            session.query(UserContact)
-            .filter_by(user_id=user_id, contact_type="email", is_primary=True, status="active")
-            .first()
-        )
-        return LoginResponse(
-            user_id=user.id,
-            first_name=user.first_name,
-            last_name=user.last_name,
-            email=primary.contact_value if primary else "",
-            tenant_id=user.last_active_tenant_id,
-        )
-    finally:
-        session.close()
+    ctx = get_user_context(user_id)
+    if ctx is None:
+        raise HTTPException(status_code=401, detail="Účet není aktivní.")
+    return LoginResponse(**ctx)
 
 
 # ── INVITATIONS ────────────────────────────────────────────────────────────

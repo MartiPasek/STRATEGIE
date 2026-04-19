@@ -11,6 +11,7 @@ Login flow:
 """
 from core.database_core import get_core_session
 from core.logging import get_logger
+from modules.auth.application.user_context import get_user_context
 from modules.core.infrastructure.models_core import User, UserContact, UserTenant
 
 logger = get_logger("auth")
@@ -58,28 +59,16 @@ def login_by_email(email: str) -> dict | None:
             logger.warning(f"AUTH | user inactive | email={email}")
             return None
 
-        # Fallback pro tenant_id: pokud user nemá last_active_tenant_id,
-        # vezmi první aktivní member ship.
-        tenant_id = user.last_active_tenant_id
-        if tenant_id is None:
-            ut = (
-                session.query(UserTenant)
-                .filter_by(user_id=user.id, membership_status="active")
-                .order_by(UserTenant.id.asc())
-                .first()
-            )
-            if ut:
-                tenant_id = ut.tenant_id
-                user.last_active_tenant_id = tenant_id
-                session.commit()
-
-        logger.info(f"AUTH | login success | user_id={user.id} | tenant_id={tenant_id}")
-        return {
-            "user_id": user.id,
-            "first_name": user.first_name,
-            "last_name": user.last_name,
-            "email": contact.contact_value,
-            "tenant_id": tenant_id,
-        }
+        user_id = user.id
     finally:
         session.close()
+
+    # Po login úspěchu vrátíme PLNÝ kontext (display_name, tenant_code, aliases…)
+    # přes shared helper. Tím se /login a /me chovají symetricky.
+    ctx = get_user_context(user_id)
+    if ctx is None:
+        return None
+    logger.info(
+        f"AUTH | login success | user_id={ctx['user_id']} | tenant_id={ctx['tenant_id']}"
+    )
+    return ctx

@@ -406,6 +406,7 @@ def invite_user_to_strategie(
             invited_by=inviter_name,
             token=token,
             invitee_first_name=first_name,
+            invitee_gender=g,
         )
         return {
             "success": True,

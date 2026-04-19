@@ -65,21 +65,25 @@ def send_invitation_email(
     invited_by: str,
     token: str,
     invitee_first_name: str | None = None,
+    invitee_gender: str | None = None,
 ) -> bool:
     """
     Odešle pozvánkový email do STRATEGIE.
     Base URL z env var APP_BASE_URL (fallback localhost:8002 — dev port).
     Pro production deploy nastavit env na public hostname.
 
-    Pokud známe křestní jméno pozvaného (invitee_first_name), použij ho v oslovení —
-    pozvaný tak hned vidí, že ho systém zná.
+    Pokud známe křestní jméno pozvaného (invitee_first_name), použij ho v oslovení
+    ve vokativu podle rodu — pozvaný tak hned vidí, že ho systém zná a oslovuje
+    ho česky správně ("Ahoj Kláro," místo "Ahoj Klára,").
     """
     import os
+    from shared.czech import to_vocative
+
     base_url = os.environ.get("APP_BASE_URL", "http://localhost:8002")
     link = f"{base_url}/invite/{token}"
 
-    greeting_name = (invitee_first_name or "").strip()
-    greeting = f"Ahoj {greeting_name}," if greeting_name else "Ahoj,"
+    vocative = to_vocative(invitee_first_name, invitee_gender).strip()
+    greeting = f"Ahoj {vocative}," if vocative else "Ahoj,"
 
     subject = f"{invited_by} tě pozval do STRATEGIE"
     body = f"""{greeting}

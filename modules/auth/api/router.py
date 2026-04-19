@@ -422,6 +422,7 @@ def invite(request: InviteRequest, req: Request) -> dict:
         invited_by=inviter_name,
         token=token,
         invitee_first_name=request.first_name,
+        invitee_gender=request.gender,
     )
 
     return {

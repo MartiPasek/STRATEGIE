@@ -574,6 +574,39 @@
   const sendBtn      = document.getElementById('sendBtn');
   const emptyState   = document.getElementById('emptyState');
 
+  // ── CZECH VOCATIVE ─────────────────────────────────────────────────────
+  // Pro správné oslovení ("Ahoj Kláro!" místo "Ahoj Klára!").
+  // Paralelní implementace s shared/czech.py — pokud se mění logika, uprav
+  // obě! Konzervativní: neznámé nechává v nominativu.
+  const _VOCATIVE_SPECIAL = {
+    petr: 'Petře', karel: 'Karle', pavel: 'Pavle',
+    'aleš': 'Aleši', ales: 'Aleši', josef: 'Josefe', david: 'Davide',
+    marek: 'Marku', jakub: 'Jakube', 'lukáš': 'Lukáši',
+    'tomáš': 'Tomáši', 'matěj': 'Matěji', 'ondřej': 'Ondřeji',
+  };
+  function toVocative(name, gender) {
+    if (!name) return '';
+    const n = String(name).trim();
+    if (!n) return '';
+    const key = n.toLowerCase();
+    if (_VOCATIVE_SPECIAL[key]) return _VOCATIVE_SPECIAL[key];
+    const last = n.slice(-1).toLowerCase();
+    const last2 = n.slice(-2).toLowerCase();
+    if (gender === 'female') {
+      if (last === 'a') return n.slice(0, -1) + 'o';
+      return n;  // Marie, Alice
+    }
+    if (gender === 'male') {
+      if (last === 'a') return n.slice(0, -1) + 'o';          // Honza -> Honzo
+      if (['i','y','o','u'].includes(last)) return n;          // Marti, Tony, Ivo
+      if (['k','g','h'].includes(last) || last2 === 'ch') return n + 'u';  // Marek -> Marku
+      if (['c','j','s','z'].includes(last) || last2 === 'st' || last2 === 'sc') return n + 'i';
+      if (['š','ž','č','ř','ď','ť','ň'].includes(last)) return n + 'i';
+      return n + 'e';                                          // Martin -> Martine
+    }
+    return n;  // gender neznamy -> nominativ
+  }
+
   // ── INVITE FLOW ────────────────────────────────────────────────────────
   async function checkInviteToken() {
     const path = window.location.pathname;
@@ -603,8 +636,13 @@
       const greetingNow = hasName
         ? (currentUser.display_name || currentUser.first_name || currentUser.email)
         : 'nový uživateli';
+      // Pro "Vítej, X!" potřebujeme vokativ (Klára -> Kláro).
+      // Po "jako X" zůstává nominativ ("jako Klára").
+      const greetingVoc = hasName
+        ? toVocative(currentUser.first_name || greetingNow, currentUser.gender)
+        : greetingNow;
       document.getElementById('inviteTitle').textContent = hasName
-        ? `Vítej, ${greetingNow}!`
+        ? `Vítej, ${greetingVoc}!`
         : 'Vítej v STRATEGIE!';
       document.getElementById('inviteSub').textContent = hasName
         ? 'Tvůj účet je připraven. Než vstoupíš, podívej se co tě čeká:'

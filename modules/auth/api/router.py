@@ -379,16 +379,26 @@ def _get_uid(req: Request) -> int:
 
 class InviteRequest(BaseModel):
     email: str
+    first_name: str | None = None
+    last_name: str | None = None
+    gender: str | None = None        # 'male' | 'female' | 'other' | null
 
 
 @router.post("/invite")
 def invite(request: InviteRequest, req: Request) -> dict:
-    """Pozve nového uživatele emailem."""
+    """
+    Pozve nového uživatele emailem. first_name + last_name + gender jsou
+    volitelné, ale pokud zadáno, uloží se na user record při vytváření —
+    pozvaný pak v welcome screen vidí svoje jméno a vidí, že ho známe.
+    """
     user_id_str = req.cookies.get("user_id")
     if not user_id_str:
         raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
 
     invited_by_user_id = int(user_id_str)
+
+    if request.gender is not None and request.gender not in ALLOWED_GENDERS:
+        raise HTTPException(status_code=400, detail=f"Neplatný gender: {request.gender}")
 
     session = get_core_session()
     try:
@@ -402,12 +412,16 @@ def invite(request: InviteRequest, req: Request) -> dict:
         email=request.email,
         invited_by_user_id=invited_by_user_id,
         tenant_id=tenant_id or 1,
+        first_name=request.first_name,
+        last_name=request.last_name,
+        gender=request.gender,
     )
 
     sent = send_invitation_email(
         to=request.email,
         invited_by=inviter_name,
         token=token,
+        invitee_first_name=request.first_name,
     )
 
     return {

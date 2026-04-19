@@ -60,14 +60,29 @@ def send_email(to: str, subject: str, body: str) -> bool:
         return False
 
 
-def send_invitation_email(to: str, invited_by: str, token: str) -> bool:
+def send_invitation_email(
+    to: str,
+    invited_by: str,
+    token: str,
+    invitee_first_name: str | None = None,
+) -> bool:
     """
     Odešle pozvánkový email do STRATEGIE.
+    Base URL z env var APP_BASE_URL (fallback localhost:8002 — dev port).
+    Pro production deploy nastavit env na public hostname.
+
+    Pokud známe křestní jméno pozvaného (invitee_first_name), použij ho v oslovení —
+    pozvaný tak hned vidí, že ho systém zná.
     """
-    link = f"http://localhost:8001/invite/{token}"
+    import os
+    base_url = os.environ.get("APP_BASE_URL", "http://localhost:8002")
+    link = f"{base_url}/invite/{token}"
+
+    greeting_name = (invitee_first_name or "").strip()
+    greeting = f"Ahoj {greeting_name}," if greeting_name else "Ahoj,"
 
     subject = f"{invited_by} tě pozval do STRATEGIE"
-    body = f"""Ahoj,
+    body = f"""{greeting}
 
 {invited_by} tě pozval do systému STRATEGIE.
 

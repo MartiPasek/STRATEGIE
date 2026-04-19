@@ -36,6 +36,20 @@
     /* ── SHARED BOX ── */
     .centered { display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; }
     .box { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 40px 36px; width: 380px; display: flex; flex-direction: column; gap: 20px; }
+    /* Invite landing — širší box pro uvítací text + CTA */
+    .invite-box { width: 480px; max-width: 92vw; max-height: 90vh; overflow-y: auto; }
+    .invite-intro { font-size: 13px; color: var(--text); line-height: 1.6; text-align: left; }
+    .invite-intro p { margin: 8px 0; }
+    .invite-intro ul { margin: 8px 0 8px 18px; padding: 0; }
+    .invite-intro li { margin: 6px 0; color: var(--text); }
+    .invite-intro li strong { color: var(--accent); }
+    .invite-philosophy { font-size: 12px; color: var(--muted); font-style: italic; padding: 10px 12px; background: var(--bg); border-radius: 8px; border-left: 2px solid var(--accent); margin-top: 12px; }
+    .invite-form { display: flex; flex-direction: column; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
+    .invite-form-row { display: flex; flex-direction: column; gap: 4px; }
+    .invite-form-row label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
+    .invite-form-row input[type=text] { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; transition: border-color .12s; }
+    .invite-form-row input[type=text]:focus { border-color: var(--accent); }
+    .invite-gender-group { display: flex; gap: 6px; flex-wrap: wrap; }
     /* Logo font: 'Galano Grotesque' (až bude licence aktivovaná přes @font-face nahoře),
        fallback na Montserrat (Google Fonts, geometrický sans nejbližší Galano).
        Tracking 0.10em — Galano/Montserrat snese těsnější než DM Mono. */
@@ -334,10 +348,40 @@
 
   <!-- INVITE ACCEPT -->
   <div class="centered" id="inviteScreen" style="display:none">
-    <div class="box">
+    <div class="box invite-box">
       <div class="box-logo">Strategie</div>
-      <div class="box-title">Vítej v STRATEGIE</div>
+      <div class="box-title" id="inviteTitle">Vítej v STRATEGIE</div>
       <div class="box-sub" id="inviteSub">Přijímám pozvánku…</div>
+      <div class="invite-intro" id="inviteIntro" style="display:none">
+        <p>STRATEGIE je <strong>AI platforma pro práci, komunikaci a rozhodování</strong>.</p>
+        <p>Co tě tu čeká:</p>
+        <ul>
+          <li><strong>Marti-AI</strong> — tvá osobní AI asistentka. Pomůže s rozhodováním, napíše email, najde lidi v systému.</li>
+          <li><strong>Profily</strong> (osobní, firemní, rodinný) — oddělené kontexty, AI ti rozumí podle toho, kde právě jsi.</li>
+          <li><strong>Konverzace</strong> — historie všeho, archiv, přejmenování, hledání.</li>
+          <li><strong>Lidé</strong> — píšeš si přímo s ostatními uživateli systému.</li>
+        </ul>
+        <p class="invite-philosophy">AI nikdy nevidí víc než ty. Co jí řekneš, zůstává tvoje. Vše je dohledatelné a transparentní.</p>
+      </div>
+      <div class="invite-form" id="inviteForm" style="display:none">
+        <div class="invite-form-row">
+          <label for="inviteFirstName">Křestní jméno</label>
+          <input type="text" id="inviteFirstName" placeholder="Klárka, Marti, Honza..." />
+        </div>
+        <div class="invite-form-row">
+          <label for="inviteLastName">Příjmení</label>
+          <input type="text" id="inviteLastName" placeholder="Pašková, Novák..." />
+        </div>
+        <div class="invite-form-row">
+          <label>Rod</label>
+          <div class="invite-gender-group">
+            <label class="profile-radio"><input type="radio" name="inviteGender" value="male" /> Muž</label>
+            <label class="profile-radio"><input type="radio" name="inviteGender" value="female" /> Žena</label>
+            <label class="profile-radio"><input type="radio" name="inviteGender" value="other" /> Jiné</label>
+          </div>
+        </div>
+      </div>
+      <button class="box-btn" id="inviteEnterBtn" style="display:none">Vstoupit do STRATEGIE</button>
       <div class="box-error" id="inviteError"></div>
     </div>
   </div>
@@ -384,6 +428,14 @@
           <button class="mode-btn" id="modeDmBtn" data-mode="dm">Lidé</button>
         </div>
         <div class="conv-id" id="convIdLabel" style="display:none"></div>
+        <!-- Tenant pilulka (user menu) — VŽDY viditelná v hlavičce pro
+             každého přihlášeného uživatele. Klik na jméno otevře profil
+             (vč. Odhlásit), klik na tenant otevře přepínač tenantů. -->
+        <div class="tenant-pill-wrap" id="tenantPillWrap" style="display:none">
+          <div class="tenant-pill" id="tenantPill"></div>
+          <div class="tenant-dropdown" id="tenantDropdown"></div>
+          <div class="profile-dropdown" id="profileDropdown"></div>
+        </div>
         <!-- Logout button skrytý — duplikuje akci v profil dropdownu.
              Element zůstává v DOM jako proxy pro JS handler (profil dropdown
              ho 'klikne' programaticky). -->
@@ -395,11 +447,6 @@
     <div id="aiView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
       <div class="agent-bar">
         <div>Mluvíš s: <span id="agentName">Marti-AI</span></div>
-        <div class="tenant-pill-wrap">
-          <div class="tenant-pill" id="tenantPill" style="display:none"></div>
-          <div class="tenant-dropdown" id="tenantDropdown"></div>
-          <div class="profile-dropdown" id="profileDropdown"></div>
-        </div>
       </div>
       <div class="messages" id="messages">
         <div class="empty" id="emptyState">
@@ -550,15 +597,48 @@
       }
 
       currentUser = await res.json();
-      document.getElementById('inviteSub').textContent =
-        `Vítej, ${currentUser.first_name || currentUser.email}! Přihlašuji tě…`;
-
-      // Přesměruj na root po 1.5s
-      setTimeout(() => {
+      // Pokud nový user ještě nemá jméno (typicky po prvním invitation accept),
+      // ukaž form 'Křestní/Příjmení/Rod' a Vstoupit nejdřív uloží přes PATCH /me.
+      const hasName = !!(currentUser.first_name || currentUser.last_name);
+      const greetingNow = hasName
+        ? (currentUser.display_name || currentUser.first_name || currentUser.email)
+        : 'nový uživateli';
+      document.getElementById('inviteTitle').textContent = hasName
+        ? `Vítej, ${greetingNow}!`
+        : 'Vítej v STRATEGIE!';
+      document.getElementById('inviteSub').textContent = hasName
+        ? 'Tvůj účet je připraven. Než vstoupíš, podívej se co tě čeká:'
+        : 'Tvůj účet je připraven. Vyplň pár základních údajů a pojď dovnitř.';
+      document.getElementById('inviteIntro').style.display = 'block';
+      if (!hasName) {
+        document.getElementById('inviteForm').style.display = 'flex';
+      }
+      const enterBtn = document.getElementById('inviteEnterBtn');
+      enterBtn.style.display = '';
+      enterBtn.textContent = hasName
+        ? `Vstoupit do STRATEGIE jako ${greetingNow}`
+        : 'Vstoupit do STRATEGIE';
+      enterBtn.addEventListener('click', async () => {
+        if (!hasName) {
+          // Ulož jméno + gender PŘED vstupem
+          const fn = document.getElementById('inviteFirstName').value.trim();
+          const ln = document.getElementById('inviteLastName').value.trim();
+          const gen = (document.querySelector('input[name=inviteGender]:checked') || {}).value || null;
+          if (!fn) { alert('Zadej alespoň křestní jméno.'); return; }
+          try {
+            const r = await fetch('/api/v1/auth/me', {
+              method: 'PATCH',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ first_name: fn, last_name: ln, gender: gen }),
+              credentials: 'include',
+            });
+            if (r.ok) currentUser = await r.json();
+          } catch (e) { /* nech to být — vstoupí i tak */ }
+        }
         window.history.replaceState({}, '', '/');
         inviteScreen.style.display = 'none';
         showApp();
-      }, 1500);
+      }, { once: true });
 
     } catch (e) {
       document.getElementById('inviteError').textContent = 'Chyba spojení.';
@@ -661,6 +741,8 @@
     appScreen.classList.remove('show');
     appScreen.style.display = 'none';
     loginScreen.style.display = 'flex';
+    // Schovej tenant pilulku — setTenantPill čte currentUser a tak ji sám skryje.
+    setTenantPill('', '');
     updateBrowserTitle();
     loginError.textContent = '';
     // předvyplň posledně použitý email (pohodlí)
@@ -1640,20 +1722,36 @@
   }
 
   function setTenantPill(displayName, tenantName) {
-    // Pilulka v hlavičce: "<display_name> - <tenant_name>"
-    // Klikem otevře dropdown se seznamem tenantů (pokud má user 2+).
-    // Caret šipka odstraněna na žádost — že je pilulka klikatelná
-    // signalizuje cursor:pointer + hover obrys.
+    // Pilulka v hlavičce: "<name> - <tenant_name>"
+    // VŽDY viditelná pro přihlášeného uživatele — zajišťuje přístup k profilu
+    // a odhlášení i když chybí display_name nebo tenant (např. pending user,
+    // user bez aktivního tenantu). Fallback chain:
+    //   display_name → first_name → short_name → email → "Ty"
+    const wrap = document.getElementById('tenantPillWrap');
     const pill = document.getElementById('tenantPill');
-    if (!displayName && !tenantName) {
-      pill.style.display = 'none';
+    if (!wrap || !pill) return;
+
+    // Když není přihlášený user, pilulku schovej a konec.
+    if (!currentUser) {
+      wrap.style.display = 'none';
       return;
     }
+
+    // Robustní fallback na jméno — nikdy prázdné.
+    const nameText = (
+      displayName
+      || currentUser.display_name
+      || currentUser.first_name
+      || currentUser.short_name
+      || currentUser.email
+      || 'Ty'
+    );
+
     pill.innerHTML = '';
     // 2 klikabilní zóny: jméno (profil) + tenant (přepínač).
     const nameSpan = document.createElement('span');
     nameSpan.className = 'tenant-pill-name';
-    nameSpan.textContent = displayName || '—';
+    nameSpan.textContent = nameText;
     nameSpan.dataset.tooltip = 'Otevřu tvůj profil';
     nameSpan.setAttribute('aria-label', 'Otevřu tvůj profil');
     nameSpan.addEventListener('click', (ev) => {
@@ -1684,7 +1782,9 @@
       });
       pill.appendChild(tenantSpan);
     }
+    // VŽDY viditelná pilulka (wrap + inner) pokud je user přihlášen.
     pill.style.display = 'inline-flex';
+    wrap.style.display = 'inline-block';
   }
 
   function _toggleTenantDropdown() {

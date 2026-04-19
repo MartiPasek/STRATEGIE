@@ -353,10 +353,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
     if tool_name == "invite_user":
         email = tool_input.get("email", "")
-        result = invite_user_to_strategie(email=email, name=tool_input.get("name", ""), invited_by_user_id=user_id or 1)
+        first_name = tool_input.get("first_name") or None
+        last_name = tool_input.get("last_name") or None
+        gender = tool_input.get("gender") or None
+        # legacy fallback, pokud Claude pošle stary "name"
+        legacy_name = tool_input.get("name") or None
+        result = invite_user_to_strategie(
+            email=email,
+            invited_by_user_id=user_id or 1,
+            first_name=first_name,
+            last_name=last_name,
+            gender=gender,
+            name=legacy_name,
+        )
+        # Jméno pro zobrazení bez české deklinace (nominativ) — Marti-AI
+        # pak může odpověď uživateli zformulovat gramaticky správně sama.
+        full_name = " ".join(filter(None, [first_name, last_name])).strip()
+        display = full_name or first_name or email
         if result["success"] and result["email_sent"]:
-            return f"✅ Pozvánka odeslána na {email}."
-        return f"⚠️ Pozvánka vytvořena ale email se nepodařilo odeslat na {email}."
+            return (
+                f"✅ Pozvánka odeslána.\n"
+                f"Jméno: {display}\n"
+                f"Email: {email}"
+            )
+        return (
+            f"⚠️ Pozvánka vytvořena, ale email se nepodařilo odeslat.\n"
+            f"Jméno: {display}\n"
+            f"Email: {email}"
+        )
 
     if tool_name == "switch_persona":
         query = tool_input.get("query", "")

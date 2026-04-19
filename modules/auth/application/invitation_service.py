@@ -25,11 +25,18 @@ def create_invitation(
     invited_by_user_id: int,
     tenant_id: int,
     role: str = "member",
+    first_name: str | None = None,
+    last_name: str | None = None,
+    gender: str | None = None,
 ) -> str:
     """
     Vytvoří pozvánku pro nového uživatele.
     Pokud uživatel se zadaným emailem už existuje, jen vytvoří invitation token.
     Pokud ne, vytvoří pending usera + email kontakt.
+
+    first_name/last_name/gender — pokud zadáno, uloží se na user record při
+    vytváření. Pozvaný pak v welcome screen vidí svoje jméno (poznán) místo
+    prázdného formuláře.
     """
     needle = email.strip().lower()
     session = get_core_session()
@@ -47,9 +54,21 @@ def create_invitation(
         if existing_contact:
             user_id = existing_contact.user_id
             logger.info(f"INVITATION | existing user | user_id={user_id}")
+            # Pokud existující user nemá jméno a my ho teď známe, doplň ho.
+            existing_user = session.query(User).filter_by(id=user_id).first()
+            if existing_user:
+                if first_name and not existing_user.first_name:
+                    existing_user.first_name = first_name.strip()
+                if last_name and not existing_user.last_name:
+                    existing_user.last_name = last_name.strip()
+                if gender and not existing_user.gender:
+                    existing_user.gender = gender
         else:
             user = User(
                 status="pending",
+                first_name=(first_name or "").strip() or None,
+                last_name=(last_name or "").strip() or None,
+                gender=gender,
                 invited_by_user_id=invited_by_user_id,
                 invited_at=datetime.now(timezone.utc),
                 created_at=datetime.now(timezone.utc),

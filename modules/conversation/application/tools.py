@@ -50,15 +50,31 @@ TOOLS = [
         "name": "invite_user",
         "description": (
             "Použij tento nástroj když uživatel chce pozvat někoho do systému STRATEGIE. "
-            "Pošle pozvánkový email s odkazem pro vstup do systému."
+            "Pošle pozvánkový email s odkazem pro vstup do systému.\n\n"
+            "DŮLEŽITÉ — musíš znát jméno pozvaného PŘED voláním nástroje:\n"
+            "- Pokud uživatel řekne jen email bez jména (např. 'pozvi klara@eurosoft.cz'), "
+            "  NEJPRV se zeptej na křestní jméno a příjmení — neposílej pozvánku naslepo. "
+            "  Pozvaný uvidí v emailu i welcome screenu, že ho systém zná, a to je důležité "
+            "  pro důvěru.\n"
+            "- Pokud uživatel řekne jméno bez emailu, zeptej se na email.\n"
+            "- Pokud je rod (muž/žena) zřejmý z křestního jména, můžeš ho nastavit rovnou; "
+            "  v případě pochybnosti se zeptej, abychom Marti-AI (a budoucí asistentky) "
+            "  oslovovali správným rodem.\n"
+            "- Jakmile máš všechny údaje, zavolej nástroj s first_name, last_name a ideálně gender."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "email": {"type": "string", "description": "Email adresa pozvaného"},
-                "name": {"type": "string", "description": "Jméno pozvaného (volitelné)"},
+                "first_name": {"type": "string", "description": "Křestní jméno pozvaného"},
+                "last_name": {"type": "string", "description": "Příjmení pozvaného"},
+                "gender": {
+                    "type": "string",
+                    "description": "Rod pozvaného: 'male' nebo 'female' (volitelné)",
+                    "enum": ["male", "female"],
+                },
             },
-            "required": ["email"],
+            "required": ["email", "first_name"],
         },
     },
     {
@@ -342,11 +358,31 @@ def find_user_in_system(query: str, requester_user_id: int | None = None) -> dic
         session.close()
 
 
-def invite_user_to_strategie(email: str, name: str | None, invited_by_user_id: int) -> dict:
+def invite_user_to_strategie(
+    email: str,
+    invited_by_user_id: int,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    gender: str | None = None,
+    name: str | None = None,  # legacy, zachováno kvůli starým voláním
+) -> dict:
     from modules.auth.application.invitation_service import create_invitation
     from modules.notifications.application.email_service import send_invitation_email
     from core.database_core import get_core_session
     from modules.core.infrastructure.models_core import User
+
+    # Legacy: pokud přišlo jen `name` a nemáme first_name, zkus to rozparsovat.
+    if not first_name and name:
+        parts = [p for p in name.strip().split() if p]
+        if parts:
+            first_name = parts[0]
+            if len(parts) > 1 and not last_name:
+                last_name = " ".join(parts[1:])
+
+    # Normalizace genderu
+    g = (gender or "").strip().lower() or None
+    if g not in ("male", "female", None):
+        g = None
 
     session = get_core_session()
     try:
@@ -357,9 +393,27 @@ def invite_user_to_strategie(email: str, name: str | None, invited_by_user_id: i
         session.close()
 
     try:
-        token = create_invitation(email=email.strip().lower(), invited_by_user_id=invited_by_user_id, tenant_id=tenant_id or 1)
-        sent = send_invitation_email(to=email, invited_by=inviter_name, token=token)
-        return {"success": True, "email": email, "email_sent": sent}
+        token = create_invitation(
+            email=email.strip().lower(),
+            invited_by_user_id=invited_by_user_id,
+            tenant_id=tenant_id or 1,
+            first_name=first_name,
+            last_name=last_name,
+            gender=g,
+        )
+        sent = send_invitation_email(
+            to=email,
+            invited_by=inviter_name,
+            token=token,
+            invitee_first_name=first_name,
+        )
+        return {
+            "success": True,
+            "email": email,
+            "email_sent": sent,
+            "first_name": first_name,
+            "last_name": last_name,
+        }
     except Exception as e:
         return {"success": False, "email": email, "error": str(e)}
 

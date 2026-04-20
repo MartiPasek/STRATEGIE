@@ -16,6 +16,7 @@ from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
     Integer, String, Text,
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database_core import BaseCore
@@ -344,17 +345,30 @@ class AuditLog(BaseCore):
     """
     Systémový audit log — každá důležitá akce v systému.
     Patří do css_db — je to systémová pravda, ne provozní data.
+
+    Pouziva se pro:
+      - AI duration tracking (analyse_text, chat) -- puvodni use case
+      - Security audit (login_success, login_failed, password_changed, ...)
+      - Operation audit (document_uploaded, invite_sent, ...)
+
+    entity_type kategorizuje skupinu akci:
+      'analysis' | 'conversation' | 'action' | 'auth' | 'rag' | 'invite'
     """
     __tablename__ = "audit_log"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    entity_type: Mapped[str] = mapped_column(String(50))    # "analysis" | "conversation" | "action"
-    action: Mapped[str] = mapped_column(String(50))         # "analyse_text" | "chat" | "send_email"
-    status: Mapped[str] = mapped_column(String(20))         # "success" | "error"
+    entity_type: Mapped[str] = mapped_column(String(50))    # "analysis" | "conversation" | "action" | "auth" | "rag" | "invite"
+    action: Mapped[str] = mapped_column(String(50))         # "analyse_text" | "chat" | "send_email" | "login_success" | "login_failed" | ...
+    status: Mapped[str] = mapped_column(String(20))         # "success" | "error" | "denied"
     model: Mapped[str | None] = mapped_column(String(100), nullable=True)
     duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
     input_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Security/operation audit rozsireni
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    entity_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)   # cilova entita (doc_id, invitee_user_id, ...)
+    extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # event-specific data
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

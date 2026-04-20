@@ -149,16 +149,64 @@ def get_active_persona_name(conversation_id: int) -> str:
         core_session.close()
 
 
+def _resolve_persona_names(agent_ids: set[int]) -> dict[int, str]:
+    """Bulk lookup persona ID -> name. Funguje napric data_db / css_db hranici
+    (Persona zije v css_db). Vraci pouze ID ktere existuji a jsou aktivni."""
+    if not agent_ids:
+        return {}
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Persona
+    cs = get_core_session()
+    try:
+        rows = cs.query(Persona).filter(Persona.id.in_(agent_ids)).all()
+        return {p.id: p.name for p in rows}
+    finally:
+        cs.close()
+
+
+def _serialize_messages(messages: list[Message]) -> list[dict]:
+    """Serializace listu Message ORM -> dict pro API. Pridava persona_name
+    pres bulk JOIN s personas tabulkou (1 query pro N zprav)."""
+    agent_ids = {m.agent_id for m in messages if m.agent_id}
+    persona_names = _resolve_persona_names(agent_ids)
+    return [
+        {
+            "role": m.role,
+            "content": m.content,
+            "message_type": m.message_type,
+            "agent_id": m.agent_id,
+            "persona_name": persona_names.get(m.agent_id) if m.agent_id else None,
+        }
+        for m in messages
+    ]
+
+
 def get_last_conversation(user_id: int) -> dict | None:
     from modules.core.infrastructure.models_data import ConversationShare
+    from sqlalchemy import or_
+
+    # Tenant scope: bereme jen konverzace v aktualnim tenantu (last_active_tenant_id)
+    # + legacy konverzace bez tenant_id (NULL). Bez tohoto by switch tenantu
+    # neukoncil aktualne otevrenou konverzaci -- user by pokracoval v psani
+    # do konverzace ze stareho tenantu, aniz by to vedel.
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import User
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        active_tenant_id = u.last_active_tenant_id if u else None
+    finally:
+        cs.close()
+
     session = get_data_session()
     try:
-        conversation = (
-            session.query(Conversation)
-            .filter_by(user_id=user_id, is_deleted=False)
-            .order_by(Conversation.id.desc())
-            .first()
-        )
+        q = session.query(Conversation).filter_by(user_id=user_id, is_deleted=False)
+        if active_tenant_id is not None:
+            q = q.filter(or_(
+                Conversation.tenant_id == active_tenant_id,
+                Conversation.tenant_id.is_(None),   # legacy bez tenantu
+            ))
+        conversation = q.order_by(Conversation.id.desc()).first()
         if not conversation:
             return None
 
@@ -173,15 +221,17 @@ def get_last_conversation(user_id: int) -> dict | None:
             .filter_by(conversation_id=conversation.id)
             .count()
         )
-        return {
-            "conversation_id": conversation.id,
-            "is_archived": bool(conversation.is_archived),
-            "my_role": "owner",    # /last vraci vzdy moji konverzaci
-            "shares_count": shares_count,
-            "messages": [{"role": m.role, "content": m.content, "message_type": m.message_type} for m in messages],
-        }
+        msg_rows = _serialize_messages(messages)
     finally:
         session.close()
+
+    return {
+        "conversation_id": conversation.id,
+        "is_archived": bool(conversation.is_archived),
+        "my_role": "owner",    # /last vraci vzdy moji konverzaci
+        "shares_count": shares_count,
+        "messages": msg_rows,
+    }
 
 
 def _conversation_title(session, conversation: Conversation) -> str:
@@ -407,10 +457,7 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         conv_id_val = conversation.id
         conv_is_archived = bool(conversation.is_archived)
         conv_owner_id = conversation.user_id
-        msg_rows = [
-            {"role": m.role, "content": m.content, "message_type": m.message_type}
-            for m in messages
-        ]
+        msg_rows = _serialize_messages(messages)
     finally:
         session.close()
 

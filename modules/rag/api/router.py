@@ -75,6 +75,10 @@ async def upload_endpoint(
             detail=f"Soubor je větší než {MAX_UPLOAD_MB} MB.",
         )
 
+    from modules.audit.application.service import log_event
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+
     try:
         document_id = rag_service.upload_document(
             file_bytes=content,
@@ -85,12 +89,27 @@ async def upload_endpoint(
             display_name=display_name,
         )
     except RuntimeError as e:
-        # Configuration / dependency error (napr. chybi VOYAGE_API_KEY)
         logger.error(f"RAG upload failed (config): {e}")
+        log_event(action="document_uploaded", status="error",
+                  user_id=user_id, tenant_id=tenant_id,
+                  error=str(e)[:200], ip_address=ip, user_agent=ua,
+                  extra_metadata={"filename": file.filename, "size": len(content)})
         raise HTTPException(status_code=500, detail=str(e))
     except Exception as e:
         logger.exception(f"RAG upload failed: {e}")
+        log_event(action="document_uploaded", status="error",
+                  user_id=user_id, tenant_id=tenant_id,
+                  error=str(e)[:200], ip_address=ip, user_agent=ua,
+                  extra_metadata={"filename": file.filename, "size": len(content)})
         raise HTTPException(status_code=500, detail=f"Upload selhal: {e}")
+
+    log_event(action="document_uploaded", status="success",
+              user_id=user_id, tenant_id=tenant_id, entity_id=document_id,
+              ip_address=ip, user_agent=ua,
+              extra_metadata={
+                  "filename": file.filename, "size": len(content),
+                  "project_id": project_id,
+              })
 
     return {"document_id": document_id, "status": "uploaded"}
 
@@ -114,10 +133,20 @@ def list_endpoint(req: Request, project_id: int | None = None) -> dict:
 @router.delete("/{document_id}")
 def delete_endpoint(document_id: int, req: Request) -> dict:
     """Smaze dokument (+ fyzicky soubor). Tenant check uvnitr service."""
+    from modules.audit.application.service import log_event
     user_id, tenant_id = _get_user_context(req)
     ok = rag_service.delete_document(document_id=document_id, tenant_id=tenant_id)
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
     if not ok:
+        log_event(action="document_deleted", status="error",
+                  user_id=user_id, tenant_id=tenant_id, entity_id=document_id,
+                  error="not_found_or_wrong_tenant",
+                  ip_address=ip, user_agent=ua)
         raise HTTPException(status_code=404, detail="Dokument neexistuje nebo patří jinému tenantu.")
+    log_event(action="document_deleted", status="success",
+              user_id=user_id, tenant_id=tenant_id, entity_id=document_id,
+              ip_address=ip, user_agent=ua)
     return {"status": "deleted", "document_id": document_id}
 
 

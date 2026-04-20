@@ -1423,15 +1423,67 @@ def chat(
         tools=effective_tools,
     )
 
-    assistant_reply = ""
+    # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
+    # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou
+    # uvedene nize -- pro ne udelame druhy Claude call s tool_result a Claude
+    # slozi konecnou odpoved. Ostatni tooly (list_users, send_email preview, ...)
+    # vraceji pre-formatovany text primo pouzitelny jako reply (jedno-pruchodove).
+    SYNTHESIS_TOOLS = {"search_documents"}
+
+    preamble_text = ""
+    tool_invocations: list[tuple] = []   # list of (block, tool_result_str)
     for block in response.content:
         logger.info(f"BLOCK | type={block.type}")
         if block.type == "text":
-            assistant_reply += block.text
+            preamble_text += block.text
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
             tool_result = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
-            assistant_reply += tool_result
+            tool_invocations.append((block, tool_result))
+
+    needs_synthesis = any(b.name in SYNTHESIS_TOOLS for b, _ in tool_invocations)
+
+    if needs_synthesis:
+        # Druhy pruchod -- pošli tool_result zpět Claude, at si slozí odpoved vlastnimi slovy.
+        # Bez tohoto by AI jen prepustila raw chunky do UI (staré chování).
+        assistant_content_blocks = []
+        for block in response.content:
+            if block.type == "text":
+                assistant_content_blocks.append({"type": "text", "text": block.text})
+            elif block.type == "tool_use":
+                assistant_content_blocks.append({
+                    "type": "tool_use",
+                    "id": block.id,
+                    "name": block.name,
+                    "input": block.input,
+                })
+        tool_result_blocks = [
+            {"type": "tool_result", "tool_use_id": b.id, "content": tresult}
+            for b, tresult in tool_invocations
+        ]
+        follow_up_messages = messages + [
+            {"role": "assistant", "content": assistant_content_blocks},
+            {"role": "user", "content": tool_result_blocks},
+        ]
+        logger.info(f"TOOL_LOOP | synthesis call | tools={[b.name for b,_ in tool_invocations]}")
+        synthesis_response = client.messages.create(
+            model=MODEL,
+            max_tokens=1024,
+            system=system_prompt,
+            messages=follow_up_messages,
+            tools=effective_tools,
+        )
+        assistant_reply = ""
+        for block in synthesis_response.content:
+            if block.type == "text":
+                assistant_reply += block.text
+        # Preamble (napr. "Zavolam si runbook...") zahazujeme -- synthesis je
+        # ten pravy finalni output, preamble byl jen Claude's "okamzity think".
+    else:
+        # Stare chovani: text preamble + tool result jako finalni odpoved.
+        assistant_reply = preamble_text
+        for _, tresult in tool_invocations:
+            assistant_reply += tresult
 
     if not assistant_reply:
         assistant_reply = "Promiň, něco se pokazilo. Zkus to znovu."

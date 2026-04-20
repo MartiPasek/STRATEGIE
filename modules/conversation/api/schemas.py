@@ -42,6 +42,12 @@ class HistoryMessage(BaseModel):
     # message_type: 'text' (běžné) | 'system' (systémové markery jako tenant switch).
     # Frontend podle toho rozhodne renderování (left-aligned, label 'STRATEGIE').
     message_type: str = "text"
+    # Persona, ktera zpravu autorsky napsala. Pro role=assistant uzitecne
+    # pro zobrazeni jmena persony v bublino ('Marti-AI' / 'Honza-AI') --
+    # zejmena pri multi-persona konverzaci, kde aktualni persona nemusi
+    # souhlasit s autorem historicke zpravy.
+    agent_id: int | None = None
+    persona_name: str | None = None
 
 
 class LastConversationResponse(BaseModel):

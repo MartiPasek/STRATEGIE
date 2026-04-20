@@ -79,7 +79,7 @@
     /* Sidebar split — nahore konverzace (flex-grow:1), dole projekty
        (fixed max-height + vlastni scroll). Mezi nimi tenky divider. */
     .sidebar-section { display: flex; flex-direction: column; min-height: 0; }
-    .sidebar-conversations { flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
+    .sidebar-conversations { flex: 0 1 auto; min-height: 0; padding-bottom: 8px; display: flex; flex-direction: column; }
     .sidebar-projects { flex: 0 0 auto; max-height: 30%; min-height: 100px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
     .sidebar-shared { flex: 0 0 auto; max-height: 25%; min-height: 80px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
     .sidebar-project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -116,7 +116,7 @@
        prirozene drzena tuzka pri psani (default ✏ je polohorizontalni). */
     .ctx-menu-icon-rename { display: inline-block; transform: rotate(30deg); }
     .sidebar-title { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); padding: 4px 8px 8px; }
-    .sidebar-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .sidebar-list { flex: 0 1 auto; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; max-height: 50vh; }
     /* Sidebar/dropdown item layout: text vlevo (flex 1), akce vpravo. */
     .sidebar-item { padding: 8px 10px; border-radius: 8px; cursor: pointer; display: flex; flex-direction: row; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
     .sidebar-item:hover { background: #14161a; }
@@ -130,7 +130,7 @@
     .archive-item-meta { font-size: 10px; color: var(--muted); flex-shrink: 0; margin-left: auto; }
     .sidebar-empty { font-size: 12px; color: var(--muted); padding: 12px; text-align: center; font-style: italic; }
     /* Sidebar footer — pinned dolů, oddělený border-top, obsahuje toggle archivu */
-    .sidebar-footer { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); flex-shrink: 0; }
+    .sidebar-footer { margin-top: 2px; padding-top: 0; border-top: none; flex-shrink: 0; }
     .sidebar-footer-btn { width: 100%; background: transparent; border: 1px solid transparent; color: var(--muted); font-size: 12px; font-family: 'DM Sans', sans-serif; padding: 8px 10px; border-radius: 8px; cursor: pointer; text-align: left; transition: background .12s, color .12s, border-color .12s; }
     .sidebar-footer-btn:hover { background: #14161a; color: var(--text); border-color: var(--border); }
     .sidebar-footer-btn.archive-mode { color: var(--accent); border-color: var(--border); background: #14161a; }
@@ -640,14 +640,14 @@
                Zobrazí se v úzkých oknech (paralelně s konverzacemi); v širokých
                půjdou projekty do sidebaru (Fáze 3b). -->
           <div class="conv-dd-wrap" id="projectDdWrap">
-            <button class="conv-dd-trigger" id="projectDdTrigger" data-tooltip="Přepínání mezi projekty v aktuálním tenantu" aria-label="Projekty">● Projekty</button>
+            <button class="conv-dd-trigger" id="projectDdTrigger" aria-label="Projekty">● Projekty</button>
             <div class="conv-dd-panel" id="projectDdPanel"></div>
           </div>
           <div class="conv-dd-wrap" id="convDdWrap">
-            <button class="conv-dd-trigger" id="convDdTrigger" data-tooltip="Otevřu seznam tvých konverzací" aria-label="Otevřu seznam tvých konverzací">☰ Konverzace</button>
+            <button class="conv-dd-trigger" id="convDdTrigger" aria-label="Otevřu seznam tvých konverzací">☰ Konverzace</button>
             <div class="conv-dd-panel" id="convDdPanel"></div>
           </div>
-          <button class="new-chat-btn" id="newChatBtn" data-tooltip="Zahájím novou konverzaci" aria-label="Zahájím novou konverzaci">+ Nová</button>
+          <button class="new-chat-btn" id="newChatBtn" aria-label="Zahájím novou konverzaci">+ Nová</button>
         </div>
         <div class="mode-switch">
           <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
@@ -1631,7 +1631,7 @@
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
-      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type));
+      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
   }
@@ -2864,7 +2864,7 @@
         document.getElementById('agentName').textContent = data.active_persona;
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
-      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type));
+      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
@@ -2983,10 +2983,10 @@
     const pd = document.getElementById('profileDropdown');
     const tenants = (currentUser && currentUser.available_tenants) || [];
     if (tenants.length <= 1) return;          // jeden tenant = nic na výběr
-    if (pd) pd.classList.remove('open');       // zavři druhý dropdown
     if (td.classList.contains('open')) {
       td.classList.remove('open');
     } else {
+      window._closeAllDropdownsExcept('tenantDropdown');
       _renderTenantDropdown();
       td.classList.add('open');
     }
@@ -2994,11 +2994,10 @@
 
   function _toggleProfileDropdown() {
     const pd = document.getElementById('profileDropdown');
-    const td = document.getElementById('tenantDropdown');
-    if (td) td.classList.remove('open');
     if (pd.classList.contains('open')) {
       pd.classList.remove('open');
     } else {
+      window._closeAllDropdownsExcept('profileDropdown');
       _renderProfileDropdown();
       pd.classList.add('open');
     }
@@ -3098,9 +3097,27 @@
         renderMessage('user', data.tenant_switch_marker, 'system');
         messagesEl.scrollTop = messagesEl.scrollHeight;
       }
-      // Refresh sidebar/dropdown — list konverzací je filtrován podle
-      // aktivního tenantu, takže po switchi musíme načíst znova.
-      loadConversationList();
+      // Refresh VSECH tenant-scoped seznamu -- konverzace, projekty, persony,
+      // sdilene konverzace -- plus agent-bar "Projekt:" indikator. Drive se
+      // volal jen loadConversationList() a zbytek se nacetl az po F5.
+      updateProjectIndicator();
+      await Promise.all([
+        loadConversationList(),
+        loadProjectsList(),
+        loadPersonasList(),
+        loadSharedWithMeList(),
+      ]);
+
+      // Pokud aktualne otevrena konverzace patri do JINEHO tenantu, prepneme
+      // chat na posledni konverzaci v novem tenantu (nebo empty state pokud
+      // zadna neni). Bez tohoto by user pokracoval v psani do "stare" konverzace
+      // ze stareho tenantu, ackoli UI ukazuje novy tenant -- a vznikla by
+      // schizofrenni konverzace napul firemni napul soukroma.
+      conversationId = null;
+      messagesEl.innerHTML = '';
+      messagesEl.appendChild(emptyState);
+      emptyState.style.display = '';
+      await loadLastConversation();   // nacte posledni konverzaci v novem tenantu (pokud je)
     } catch (e) {
       alert('Chyba spojení při přepínání tenantu.');
     }
@@ -3109,14 +3126,30 @@
   // Pilulka má per-zóna handlery v setTenantPill() — žádný globální
   // click handler na celé pilulce už není potřeba.
 
-  // Klik mimo dropdown ho zavře (tenant pilulka, profile, konverzační dropdown)
+  // Vsechny dropdowny v UI -- jeden zdroj pravdy pro globalni close + cross-close.
+  const ALL_DROPDOWN_IDS = [
+    'tenantDropdown',    // Prepinac tenantu (pilulka vpravo nahore)
+    'profileDropdown',   // Profile menu (Muj profil / Dokumenty / ...)
+    'convDdPanel',       // Seznam konverzaci (uzka obrazovka)
+    'projectDdPanel',    // Seznam projektu (uzka obrazovka)
+    'personaDdPanel',    // Persona picker v agent baru
+  ];
+
+  /** Zavre vsechny dropdowny krome jednoho (typicky ten, ktery se prave otevira).
+   *  Volat z toggle/open funkci dropdownu, aby se neotevirali soucasne. */
+  window._closeAllDropdownsExcept = function(keepId) {
+    ALL_DROPDOWN_IDS.forEach(id => {
+      if (id === keepId) return;
+      const el = document.getElementById(id);
+      if (el && el.classList.contains('open')) el.classList.remove('open');
+    });
+  };
+
+  // Klik mimo dropdown ho zavre (vsechny dropdowny najednou, at neni UI zanicene).
+  // Jednotlive triggery volaji event.stopPropagation() aby se zavreni neprovedlo
+  // pri kliku na samotny trigger/dropdown item.
   document.addEventListener('click', () => {
-    const td = document.getElementById('tenantDropdown');
-    if (td && td.classList.contains('open')) td.classList.remove('open');
-    const pd = document.getElementById('profileDropdown');
-    if (pd && pd.classList.contains('open')) pd.classList.remove('open');
-    const cd = document.getElementById('convDdPanel');
-    if (cd && cd.classList.contains('open')) cd.classList.remove('open');
+    window._closeAllDropdownsExcept(null);
   });
 
   // Konverzační dropdown — toggle při kliknutí na trigger.
@@ -3130,9 +3163,12 @@
       const panel = document.getElementById('convDdPanel');
       if (typeof currentMode !== 'undefined' && currentMode !== 'ai') {
         setMode('ai');
+        window._closeAllDropdownsExcept('convDdPanel');
         panel.classList.add('open');
         return;
       }
+      const willOpen = !panel.classList.contains('open');
+      if (willOpen) window._closeAllDropdownsExcept('convDdPanel');
       panel.classList.toggle('open');
     });
   }
@@ -4204,6 +4240,8 @@
       ev.stopPropagation();
       const panel = document.getElementById('personaDdPanel');
       if (!panel) return;
+      const willOpen = !panel.classList.contains('open');
+      if (willOpen) window._closeAllDropdownsExcept('personaDdPanel');
       panel.classList.toggle('open');
     });
   }
@@ -4226,6 +4264,8 @@
         setMode('ai');
       }
       const panel = document.getElementById('projectDdPanel');
+      const willOpen = !panel.classList.contains('open');
+      if (willOpen) window._closeAllDropdownsExcept('projectDdPanel');
       panel.classList.toggle('open');
     });
   }
@@ -4236,7 +4276,10 @@
     projectBarLabel.addEventListener('click', (ev) => {
       ev.stopPropagation();
       const panel = document.getElementById('projectDdPanel');
-      if (panel) panel.classList.add('open');
+      if (panel) {
+        window._closeAllDropdownsExcept('projectDdPanel');
+        panel.classList.add('open');
+      }
     });
   }
 
@@ -4422,7 +4465,7 @@
     }
   }
 
-  function renderMessage(role, content, messageType) {
+  function renderMessage(role, content, messageType, personaName) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Systémové markery (např. tenant switch) renderujeme s vlastní třídou
@@ -4437,8 +4480,13 @@
     roleEl.className = 'msg-role';
     if (messageType === 'system') {
       roleEl.textContent = 'STRATEGIE';
+    } else if (role === 'user') {
+      roleEl.textContent = currentUserLabel();
     } else {
-      roleEl.textContent = role === 'user' ? currentUserLabel() : currentAgentLabel();
+      // AI zprava -- preferuj predanou persona_name (historicky autor),
+      // fallback na aktualni personu konverzace. Tim se v historii
+      // multi-persona konverzace ukazuje kdo co napsal, ne jen aktualni.
+      roleEl.textContent = personaName || currentAgentLabel();
     }
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
@@ -4569,7 +4617,12 @@
         }
         // Aktualizuj tenant pilulku — zachycuje i tenant switch přes chat
         // („přepni do EUROSOFTu") + udržuje pilulku v synchronizaci s backendem.
+        // Detekujeme SKUTECNOU zmenu tenantu (tenant_id se zmenilo) a pak
+        // refreshujeme vsechny tenant-scoped seznamy -- jinak by uzivatel
+        // videl stary sidebar az do F5.
         if (data.tenant_name !== undefined || data.display_name !== undefined) {
+          const prevTenantId = currentUser ? currentUser.tenant_id : null;
+          const tenantChanged = (data.tenant_id !== undefined && data.tenant_id !== prevTenantId);
           if (currentUser) {
             currentUser.tenant_code = data.tenant_code;
             currentUser.tenant_name = data.tenant_name;
@@ -4577,6 +4630,29 @@
             if (data.display_name) currentUser.display_name = data.display_name;
           }
           setTenantPill(data.display_name, data.tenant_name);
+          if (tenantChanged) {
+            // Refresh vsechny tenant-scoped seznamy (konverzace, projekty,
+            // persony, sdilene konverzace). Paralelne, neblokuje chat render.
+            Promise.all([
+              loadConversationList(),
+              loadProjectsList(),
+              loadPersonasList(),
+              loadSharedWithMeList(),
+            ]).catch(() => { /* silent -- non-critical */ });
+
+            // Aktualni konverzace patri do stareho tenantu -- po dorenderovani
+            // AI reply (uz se vykreslil marker + reply) prepneme chat na
+            // posledni konverzaci v novem tenantu. Bez tohoto by user
+            // pokracoval v psani do hybridni konverzace ze stareho tenantu.
+            // Krátké zpoždění aby user stihl vidět tenant_switch_marker.
+            setTimeout(async () => {
+              conversationId = null;
+              messagesEl.innerHTML = '';
+              messagesEl.appendChild(emptyState);
+              emptyState.style.display = '';
+              await loadLastConversation();
+            }, 1500);
+          }
         }
         // Aktualizuj projekt indikátor — zachycuje chat-driven project switch
         // („přepni do projektu Škoda" / „bez projektu"). Refreshujeme taky

@@ -44,31 +44,49 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 # ── LOGIN ──────────────────────────────────────────────────────────────────
 
 @router.post("/login", response_model=LoginResponse)
-def login(request: LoginRequest, response: Response) -> LoginResponse:
+def login(request: LoginRequest, response: Response, req: Request) -> LoginResponse:
     """Login přes email + heslo (bcrypt). User bez nastaveného hesla
     je odmítnut s instrukcí kontaktovat admina (set-password flow přes
     scripts/set_initial_passwords.py v MVP)."""
+    from modules.audit.application.service import log_event
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+
     try:
         result = login_by_email(request.email, request.password)
     except AmbiguousEmailError as e:
+        log_event(action="login_failed", status="error",
+                  error="ambiguous_email", ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": request.email})
         raise HTTPException(status_code=401, detail=str(e))
     except PasswordNotSet as e:
-        # 403 Forbidden -- distinct od 401 (špatné credentials), aby UI
-        # mohlo zobrazit odlišnou hlášku ("kontaktuj admina") místo
-        # generického "neplatné přihlašovací údaje".
+        log_event(action="login_failed", status="error",
+                  error="no_password_set", ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": request.email})
         raise HTTPException(status_code=403, detail=str(e))
     if not result:
-        # Generická hláška -- nesděluje útočníkovi, jestli neexistuje email
-        # nebo jen sedlo špatné heslo (account enumeration prevention).
+        log_event(action="login_failed", status="error",
+                  error="bad_credentials", ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": request.email})
         raise HTTPException(status_code=401, detail="Neplatný email nebo heslo.")
 
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
+
+    log_event(action="login_success", user_id=result["user_id"],
+              tenant_id=result.get("tenant_id"), ip_address=ip, user_agent=ua)
 
     return LoginResponse(**result)
 
 
 @router.post("/logout")
-def logout(response: Response) -> dict:
+def logout(response: Response, req: Request) -> dict:
+    from modules.audit.application.service import log_event
+    uid_str = req.cookies.get("user_id")
+    user_id = int(uid_str) if uid_str and uid_str.isdigit() else None
+    log_event(action="logout", user_id=user_id,
+              ip_address=req.client.host if req.client else None,
+              user_agent=req.headers.get("user-agent"))
     response.delete_cookie("user_id")
     response.delete_cookie("tenant_id")
     return {"status": "logged out"}
@@ -267,7 +285,7 @@ class ResetPasswordRequest(BaseModel):
 
 
 @router.post("/forgot-password")
-def forgot_password(body: ForgotPasswordRequest) -> dict:
+def forgot_password(body: ForgotPasswordRequest, req: Request) -> dict:
     """
     Zadost o reset hesla. VZDY vraci 200 OK, aby utocnik nemohl zjistit,
     zda email v systemu existuje nebo ne (account enumeration prevention).
@@ -275,28 +293,36 @@ def forgot_password(body: ForgotPasswordRequest) -> dict:
     Pokud neexistuje, jen logujeme a mlcime.
     """
     from modules.notifications.application.email_service import send_password_reset_email
+    from modules.audit.application.service import log_event
 
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
     email = (body.email or "").strip()
     if not email or "@" not in email:
-        # Validace formatu -- pri zcela zjevne nevalidnim emailu vratime 400,
-        # neni to security leak (kazdy validator by to vratil stejne).
         raise HTTPException(status_code=400, detail="Neplatný formát emailu.")
 
     result = create_reset_token(email)
     if result is None:
-        # No enumeration -- vracime 200 i kdyz user neexistuje
         logger.info(f"AUTH | forgot-password (no user) | email={email}")
+        log_event(action="forgot_password_no_user", status="success",
+                  ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": email})
         return {"status": "ok", "message": "Pokud je email v systému, poslali jsme ti link pro obnovu hesla."}
 
     token, user_id, first_name = result
 
-    # Poslat email. Kdyby EWS selhal, logujeme a vracime 200 -- security
-    # failure nebudeme ukazovat uzivateli (muze byt docasny problem s mailem).
+    email_sent = False
     try:
-        send_password_reset_email(to=email, token=token, first_name=first_name)
+        email_sent = bool(send_password_reset_email(to=email, token=token, first_name=first_name))
         logger.info(f"AUTH | forgot-password email sent | user_id={user_id} | email={email}")
     except Exception as e:
         logger.error(f"AUTH | forgot-password email failed | user_id={user_id} | error={e}")
+
+    log_event(action="forgot_password_requested",
+              status="success" if email_sent else "error",
+              user_id=user_id, ip_address=ip, user_agent=ua,
+              error=None if email_sent else "email_send_failed",
+              extra_metadata={"email": email})
 
     return {"status": "ok", "message": "Pokud je email v systému, poslali jsme ti link pro obnovu hesla."}
 
@@ -312,7 +338,7 @@ def reset_info_endpoint(token: str) -> dict:
 
 
 @router.post("/reset-password")
-def reset_password(body: ResetPasswordRequest, response: Response) -> dict:
+def reset_password(body: ResetPasswordRequest, response: Response, req: Request) -> dict:
     """
     Spotrebuje reset token, nastavi nove heslo, oznaci token jako pouzity.
     PO uspechu setne auth cookies -- user je rovnou prihlaseny, nemusi
@@ -320,13 +346,22 @@ def reset_password(body: ResetPasswordRequest, response: Response) -> dict:
     """
     from modules.auth.application.password import PasswordTooShort
     from modules.auth.application.user_context import get_user_context
+    from modules.audit.application.service import log_event
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
 
     try:
         result = consume_reset_token(body.token, body.new_password)
     except PasswordTooShort as e:
+        log_event(action="password_reset", status="error", error="too_short",
+                  ip_address=ip, user_agent=ua)
         raise HTTPException(status_code=400, detail=str(e))
 
     if not result:
+        log_event(action="password_reset", status="error",
+                  error="invalid_or_expired_token",
+                  ip_address=ip, user_agent=ua)
         raise HTTPException(status_code=404, detail="Odkaz není platný nebo vypršel.")
 
     # Po uspesnem resetu usera rovnou prihlasime (smooth UX -- po submitu
@@ -334,6 +369,9 @@ def reset_password(body: ResetPasswordRequest, response: Response) -> dict:
     ctx = get_user_context(result["user_id"])
     if ctx is not None:
         _set_auth_cookies(response, ctx["user_id"], ctx.get("tenant_id"))
+
+    log_event(action="password_reset", status="success",
+              user_id=result["user_id"], ip_address=ip, user_agent=ua)
 
     return {"status": "password_reset", "email": result["email"]}
 
@@ -395,6 +433,11 @@ def change_password(body: ChangePasswordRequest, req: Request) -> dict:
         logger.info(f"AUTH | password changed | user_id={user_id}")
     finally:
         session.close()
+
+    from modules.audit.application.service import log_event
+    log_event(action="password_changed", user_id=user_id,
+              ip_address=req.client.host if req.client else None,
+              user_agent=req.headers.get("user-agent"))
 
     return {"status": "password_changed"}
 
@@ -626,6 +669,18 @@ def invite(request: InviteRequest, req: Request) -> dict:
         invitee_gender=request.gender,
     )
 
+    from modules.audit.application.service import log_event
+    log_event(action="invite_sent",
+              status="success" if sent else "error",
+              user_id=invited_by_user_id, tenant_id=tenant_id,
+              ip_address=req.client.host if req.client else None,
+              user_agent=req.headers.get("user-agent"),
+              error=None if sent else "email_send_failed",
+              extra_metadata={
+                  "invitee_email": request.email,
+                  "invitee_first_name": request.first_name,
+              })
+
     return {
         "token": token,
         "email": request.email,
@@ -652,11 +707,15 @@ def invitation_info_endpoint(token: str) -> dict:
 
 
 @router.post("/accept/{token}")
-def accept(token: str, body: AcceptInvitationRequest, response: Response) -> dict:
+def accept(token: str, body: AcceptInvitationRequest, response: Response, req: Request) -> dict:
     """Přijme pozvánku: aktivuje usera, uloží heslo + doplní profil, přihlásí
     přes cookies. Povinné: password (min. 8 znaků). Volitelně jméno/gender
     (pokud v DB chybí, doplní se)."""
     from modules.auth.application.password import PasswordTooShort
+    from modules.audit.application.service import log_event
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
 
     if body.gender is not None and body.gender not in ALLOWED_GENDERS:
         raise HTTPException(status_code=400, detail=f"Neplatný gender: {body.gender}")
@@ -670,10 +729,19 @@ def accept(token: str, body: AcceptInvitationRequest, response: Response) -> dic
             gender=body.gender,
         )
     except PasswordTooShort as e:
+        log_event(action="accept_invitation", status="error",
+                  error="password_too_short", ip_address=ip, user_agent=ua)
         raise HTTPException(status_code=400, detail=str(e))
 
     if not result:
+        log_event(action="accept_invitation", status="error",
+                  error="invalid_or_expired_token",
+                  ip_address=ip, user_agent=ua)
         raise HTTPException(status_code=404, detail="Pozvánka není platná nebo vypršela.")
+
+    log_event(action="accept_invitation", status="success",
+              user_id=result["user_id"], tenant_id=result.get("tenant_id"),
+              ip_address=ip, user_agent=ua)
 
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
     return result

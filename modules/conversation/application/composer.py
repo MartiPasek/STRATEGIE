@@ -273,6 +273,39 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
         if not project_rendered:
             parts.append("Aktuálně pracuje bez projektu (volné konverzace v tenantu).")
 
+        # DOSTUPNE DOKUMENTY -- AI ma vedet ze existuji nahrane dokumenty v
+        # aktualnim scope (tenant + project). Bez toho nevi ze existuji a
+        # zapomina na ne zavolat search_documents tool. Ten signal je silny
+        # nudge: "uzivatel ma pristup k X dokumentum, pokud se pta na neco
+        # co muze byt v nich, pouzij search_documents".
+        try:
+            from modules.rag.application.service import list_documents as rag_list_documents
+            project_id_for_docs = user.last_active_project_id
+            docs = rag_list_documents(
+                tenant_id=tenant_id,
+                project_id=project_id_for_docs,
+            )
+            # Filtruj jen zpracovane (is_processed=True) -- v rozpracovanych
+            # se nemuze hledat, mateni AI.
+            ready_docs = [d for d in docs if d.get("is_processed")]
+            if ready_docs:
+                doc_names = ", ".join(
+                    (d.get("original_filename") or d.get("name") or f"doc#{d['id']}")
+                    for d in ready_docs[:10]   # limit na 10 pro rozumnou delku kontextu
+                )
+                extra = f" a dalsich {len(ready_docs) - 10}" if len(ready_docs) > 10 else ""
+                parts.append(
+                    f"K dispozici ma v aktualnim scope {len(ready_docs)} nahranych dokumentu "
+                    f"({doc_names}{extra}). POKUD SE PTA NA NECO CO MUZE BYT V NICH "
+                    f"(smlouvy, manualy, reporty, runbooky, jakykoli firemni dokument) -- "
+                    f"VOLEJ nastroj search_documents s jeho dotazem jako query, ne odpovidej "
+                    f"z hlavy. Vzdy uved zdroj v odpovedi ('podle dokumentu X...')."
+                )
+        except Exception as doc_e:
+            # RAG moze byt dole (chybejici VOYAGE_API_KEY, DB neni ready) -- to neshazuje
+            # user context. Tise logujeme a jdeme dal.
+            logger.warning(f"COMPOSER | documents fetch failed | {doc_e}")
+
         return " ".join(parts)
     except Exception as e:
         logger.error(f"COMPOSER | user_context_block failed | user_id={user_id} | {e}")

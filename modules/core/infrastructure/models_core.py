@@ -195,6 +195,9 @@ class Persona(BaseCore):
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     name: Mapped[str] = mapped_column(String(255))
+    # Krátký jednořádkový popis role pro UI listy (např. "Specialista na
+    # české právo"). System_prompt je pro AI a v UI vypadá zmateně.
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
     system_prompt: Mapped[str] = mapped_column(Text)
     tenant_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True

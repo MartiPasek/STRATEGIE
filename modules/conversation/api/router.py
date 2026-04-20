@@ -95,6 +95,7 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             conversation_id=request.conversation_id,
             user_message=request.text,
             user_id=user_id,
+            preferred_persona_id=request.preferred_persona_id,
         )
 
         persona_name = get_active_persona_name(conversation_id)

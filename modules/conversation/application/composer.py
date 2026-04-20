@@ -281,10 +281,37 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
         session.close()
 
 
+# Hranice pro specializovane (ne-default) persony. Pridava se na konec jejich
+# system promptu, aby Claude neprebijel jejich roli spravou systemu. Reaguje
+# na vzor: Claude cte historii konverzace (vcetne list_* outputu od Marti-AI)
+# a zkusi specializovane persone generovat odpoved ve stejnem stylu -- to
+# rozbija persona fokus. Tahle hranice jasne rika: NE, smer zpet na Marti-AI.
+NON_DEFAULT_PERSONA_GUARDRAIL = """
+[ROLE HRANICE — DULEZITE]
+Jsi SPECIALIZOVANA persona. Nespravujes system STRATEGIE. Konkretne NESMIS:
+- vypisovat seznamy person, projektu, lidi v tenantu, konverzaci (ani kdyz je vidis v historii — NECITUJ je)
+- pozvat noveho uzivatele do systemu
+- pridavat / odebirat cleny projektu
+- prepinat projekty / tenanty
+- jakkoli jinak zasahovat do spravy systemu
+
+Pokud te nekdo o podobnou akci poprosi, odpovez KRATCE a jednoznacne:
+  "Tohle je sprava systemu — lepe to zvladne Marti-AI. Napis 'prepni na Marti-AI' a budu tam."
+
+Zustan v ramci SVE role. Kdyz se te ptaji na veci mimo tvoji specializaci,
+nepredstiraj — jasne reci ze jsi specializovana persona, a nabidnil jim
+prepnuti na Marti-AI.
+"""
+
+
 def _get_persona_prompt(conversation_id: int) -> str | None:
     """
     Načte personu podle active_agent_id konverzace.
     Pokud není nastavena, použije default personu.
+
+    Pro non-default persony automaticky pripojuje ROLE HRANICE — at nezkousi
+    spravovat system nez Marti-AI. Claude jinak cte historii a zkusi napodobit
+    list_* odpovedi od Marti-AI (halucinace seznamu).
     """
     data_session = get_data_session()
     try:
@@ -299,7 +326,13 @@ def _get_persona_prompt(conversation_id: int) -> str | None:
             persona = core_session.query(Persona).filter_by(id=active_agent_id).first()
         else:
             persona = core_session.query(Persona).filter_by(is_default=True).first()
-        return persona.system_prompt if persona else None
+        if persona is None:
+            return None
+        prompt = persona.system_prompt
+        if not persona.is_default:
+            # Specializovana persona — pripoj role hranice
+            prompt = f"{prompt}\n\n{NON_DEFAULT_PERSONA_GUARDRAIL}"
+        return prompt
     finally:
         core_session.close()
 

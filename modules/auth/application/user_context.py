@@ -135,6 +135,10 @@ def get_user_context(user_id: int) -> dict | None:
             else:
                 project_name = project.name
 
+        # Superadmin flag — centralne v personas service (single source of truth).
+        from modules.personas.application.service import _is_superadmin
+        is_superadmin = _is_superadmin(user.id)
+
         return {
             "user_id": user.id,
             "first_name": user.first_name,
@@ -151,6 +155,7 @@ def get_user_context(user_id: int) -> dict | None:
             "default_persona_name": default_persona_name,
             "project_id": project_id,
             "project_name": project_name,
+            "is_superadmin": is_superadmin,
         }
     finally:
         session.close()

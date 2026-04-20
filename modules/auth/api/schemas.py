@@ -42,6 +42,9 @@ class LoginResponse(BaseModel):
     # "Mluvíš s: …" hned po loginu / nové konverzaci, aby user věděl s kým
     # mluví ještě před první zprávou.
     default_persona_name: str | None = None
+    # Superadmin flag — pro UI skrýva/odhaluje admin akce (např. "+ Nová persona").
+    # Definováno centrálně v modules/personas/application/service._is_superadmin.
+    is_superadmin: bool = False
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

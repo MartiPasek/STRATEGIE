@@ -605,6 +605,44 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
         return "\n".join(lines)
 
+    if tool_name == "list_personas":
+        from modules.personas.application.service import list_personas_for_user
+        if not user_id:
+            return "❌ Nejsi přihlášen."
+        items = list_personas_for_user(user_id)
+        if not items:
+            return "V tomto tenantu nejsou dostupné žádné persony (divné — chyba v DB)."
+
+        # Aktualni persona konverzace (pro zvyrazneni)
+        from core.database_data import get_data_session
+        from modules.core.infrastructure.models_data import Conversation
+        ds = get_data_session()
+        try:
+            conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+            active_pid = conv.active_agent_id if conv else None
+        finally:
+            ds.close()
+
+        lines = [f"Dostupné persony ({len(items)}):"]
+        selection_items = []
+        for idx, p in enumerate(items, 1):
+            mark = " ← právě s ní mluvíš" if p["id"] == active_pid else ""
+            desc = p.get("description") or ""
+            desc_part = f" — {desc}" if desc else ""
+            lines.append(f"  **{idx}.** {p['name']}{desc_part}{mark}")
+            selection_items.append({
+                "index": idx,
+                "persona_id": p["id"],
+                "name": p["name"],
+            })
+        _save_pending_action(conversation_id, "select_from_list_personas", {
+            "items": selection_items,
+        })
+        lines.append(
+            '\nNapiš jen **číslo** a přepnu tě na tu personu.'
+        )
+        return "\n".join(lines)
+
     if tool_name == "list_users":
         from modules.conversation.application.tools import list_users_in_tenant
         if not user_id:
@@ -825,6 +863,7 @@ def chat(
     user_id: int | None = None,
     tenant_id: int | None = None,
     project_id: int | None = None,
+    preferred_persona_id: int | None = None,
 ) -> tuple[int, str, dict | None]:
     """
     Vrátí (conversation_id, reply, summary_info).
@@ -857,6 +896,27 @@ def chat(
             tenant_id=active_tenant_id,
             project_id=effective_project_id,
         )
+        # Pokud user vybral personu PRED vznikem konverzace (empty chat stav),
+        # aplikujeme ji hned po create. Bez toho by konverzace startovala s
+        # default personou a user by musel znovu prepinat.
+        if preferred_persona_id:
+            try:
+                from core.database_data import get_data_session as _gds_p
+                from modules.core.infrastructure.models_data import Conversation as _ConvP
+                _d = _gds_p()
+                try:
+                    _c = _d.query(_ConvP).filter_by(id=conversation_id).first()
+                    if _c is not None:
+                        _c.active_agent_id = preferred_persona_id
+                        _d.commit()
+                        logger.info(
+                            f"CONVERSATION | preferred persona applied | "
+                            f"conv={conversation_id} | persona_id={preferred_persona_id}"
+                        )
+                finally:
+                    _d.close()
+            except Exception as e:
+                logger.error(f"CONVERSATION | preferred_persona apply failed: {e}")
 
     if _is_confirmation(user_message):
         pending = _get_pending_action(conversation_id)
@@ -900,6 +960,7 @@ def chat(
             "select_from_list_projects",
             "select_from_list_users",
             "select_from_list_conversations",
+            "select_from_list_personas",
             "select_user_action",
         ):
             try:
@@ -959,6 +1020,31 @@ def chat(
                     f'  **3.** Něco jiného (řekni co)\n\n'
                     f'Napiš jen číslo nebo přímo co potřebuješ.'
                 )
+                save_message(conversation_id, role="assistant", content=reply,
+                             message_type="system")
+                return conversation_id, reply, None
+
+            if pending["type"] == "select_from_list_personas":
+                from modules.personas.application.service import switch_persona_direct, PersonaError
+                target_pid = picked["persona_id"]
+                target_name = picked.get("name") or f"#{target_pid}"
+                _delete_pending_action(conversation_id)
+                try:
+                    result = switch_persona_direct(
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                        persona_id=target_pid,
+                    )
+                    name = result.get("persona_name") or target_name
+                    if result.get("already_active"):
+                        reply = f"✅ Už mluvíš s {name}."
+                    else:
+                        reply = (
+                            f"✅ Přepnuto na {name}.\n\n"
+                            f"Nyní mluvíš s {name}. Jak ti mohu pomoci?"
+                        )
+                except PersonaError as e:
+                    reply = f"❌ Nelze přepnout: {e}"
                 save_message(conversation_id, role="assistant", content=reply,
                              message_type="system")
                 return conversation_id, reply, None
@@ -1216,13 +1302,43 @@ def chat(
 
     system_prompt, messages = build_prompt(conversation_id)
 
+    # Efektivni sada nastroju podle aktivni persony -- default persona (Marti-AI)
+    # dostava vsechno, specializovane persony jen CORE (send_email, find_user,
+    # switch_persona). Tim padem napr. Honza-AI nevidi list_personas / list_projects
+    # a zustava soustredeny na svou psycho roli.
+    from modules.conversation.application.tools import get_effective_tools
+    from core.database_core import get_core_session as _gcs_tools
+    from modules.core.infrastructure.models_core import Persona as _Pers
+    from core.database_data import get_data_session as _gds_tools
+    from modules.core.infrastructure.models_data import Conversation as _Conv
+
+    _is_default = True   # fallback -- pokud konverzace nema persona set, pouzij default
+    _ds = _gds_tools()
+    try:
+        _conv = _ds.query(_Conv).filter_by(id=conversation_id).first()
+        _active_pid = _conv.active_agent_id if _conv else None
+    finally:
+        _ds.close()
+    if _active_pid:
+        _cs = _gcs_tools()
+        try:
+            _persona = _cs.query(_Pers).filter_by(id=_active_pid).first()
+            _is_default = bool(_persona and _persona.is_default)
+        finally:
+            _cs.close()
+    effective_tools = get_effective_tools(_is_default)
+    logger.info(
+        f"TOOLS FILTER | conv={conversation_id} | active_pid={_active_pid} | "
+        f"is_default={_is_default} | n_tools={len(effective_tools)}"
+    )
+
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=MODEL,
         max_tokens=1024,
         system=system_prompt,
         messages=messages,
-        tools=TOOLS,
+        tools=effective_tools,
     )
 
     assistant_reply = ""

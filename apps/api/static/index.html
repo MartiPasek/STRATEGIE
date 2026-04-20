@@ -269,6 +269,40 @@
     .agent-bar .agent-bar-project:hover { background: var(--bg); }
     .agent-bar .agent-bar-project-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
     .agent-bar .agent-bar-project-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Persona v agent baru — stejny pattern jako projekt. */
+    .agent-bar .agent-bar-persona-wrap { color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background .12s; position: relative; }
+    .agent-bar .agent-bar-persona-wrap:hover { background: var(--bg); }
+    .agent-bar .agent-bar-persona-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
+    .agent-bar .agent-bar-persona-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Persona dropdown panel — podobne jako conv-dd-panel, ale absolutni k
+       persona-wrap span. Radi se pod "Mluvis s:" label. */
+    .agent-bar-persona-panel { position: absolute; top: 40px; left: 0; min-width: 260px; max-width: 360px; max-height: 50vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 150; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .agent-bar-persona-panel.open { display: block; }
+    .persona-dd-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; transition: background .12s; border: 1px solid transparent; }
+    .persona-dd-item:hover { background: var(--bg); }
+    .persona-dd-item.active { background: #1a1f2e; border-color: #2a3350; }
+    .persona-dd-item-name { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+    .persona-dd-item-default { font-size: 9px; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; font-family: 'DM Mono', monospace; }
+    .persona-dd-item-global { font-size: 9px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; font-family: 'DM Mono', monospace; }
+    .persona-dd-item-preview { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
+    .persona-dd-item-cta { color: var(--accent); font-weight: 500; font-style: italic; }
+    /* Edit tlacitko na persona polozce — viditelne na hover. Sjednoceno
+       vizualne s .actions-btn v seznamech projektu/konverzaci, ale pouziva
+       ikonu tuzky (rotate 30deg) pro jednoznacny signal "upravit". */
+    .persona-edit-btn { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 14px; line-height: 1; opacity: 0; transition: opacity .12s, background .12s, color .12s; display: inline-block; transform: rotate(30deg); }
+    .persona-dd-item:hover .persona-edit-btn { opacity: 1; }
+    .persona-edit-btn:hover { background: var(--bg); color: var(--text); }
+    /* Persona create modal */
+    .persona-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 220; }
+    .persona-modal-bg.open { display: flex; }
+    .persona-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; width: 520px; max-width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 12px 36px rgba(0,0,0,.5); }
+    .persona-modal h3 { margin: 0 0 6px; font-size: 14px; color: var(--text); font-weight: 500; }
+    .persona-modal p { margin: 0 0 16px; font-size: 12px; color: var(--muted); }
+    .persona-modal label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; display: block; margin-bottom: 4px; margin-top: 10px; }
+    .persona-modal input[type=text], .persona-modal textarea { width: 100%; background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 10px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; box-sizing: border-box; }
+    .persona-modal textarea { min-height: 140px; font-family: 'DM Mono', monospace; resize: vertical; }
+    .persona-modal input[type=text]:focus, .persona-modal textarea:focus { border-color: var(--accent); }
+    .persona-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
     /* Project dropdown items mají variantu pro speciální položky */
     .conv-dd-item-special { font-style: italic; color: var(--muted); }
     .conv-dd-item-cta { color: var(--accent); font-weight: 500; }
@@ -566,7 +600,12 @@
     <div id="aiView" style="display:flex; flex-direction:column; flex:1; min-height:0;">
       <div class="agent-bar">
         <div>
-          Mluvíš s: <span id="agentName">Marti-AI</span>
+          <!-- Persona indikátor — klikatelný, otevírá persona dropdown.
+               Label "Mluvíš s:" muted, název persony accent (jako u tenant
+               pilulky). Klik -> #personaDdPanel s dostupnými personas. -->
+          <span class="agent-bar-persona-wrap" id="personaBarWrap" data-tooltip="Otevřu seznam dostupných person"
+            ><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span></span>
+          <span class="agent-bar-persona-panel" id="personaDdPanel"></span>
           <!-- Projekt indikátor — klikatelný, otevírá project dropdown.
                Viditelný vždy: 'Projekt: <name>' když je projekt aktivní,
                'Projekt: bez projektu' když ne. Stejny pattern jako "Mluvis s:
@@ -680,6 +719,24 @@
   </div>
 
 <!-- MODALY / MENU — MUSI byt PRED <script> tagem, jinak je JS nevidi v DOM. -->
+
+<!-- Persona create modal — jmeno + system prompt pro novou personu. -->
+<div class="persona-modal-bg" id="personaCreateModalBg">
+  <div class="persona-modal">
+    <h3>Nová persona</h3>
+    <p>Persona je AI asistent s vlastní identitou a system promptem. Bude dostupná v tvém aktuálním tenantu.</p>
+    <label for="personaNewName">Jméno persony</label>
+    <input type="text" id="personaNewName" placeholder="např. Audit AI, Koučink AI, Účetní…" maxlength="255" />
+    <label for="personaNewDescription">Krátký popis (pro UI, volitelné)</label>
+    <input type="text" id="personaNewDescription" placeholder="např. Specialista na české právo" maxlength="200" />
+    <label for="personaNewPrompt">System prompt</label>
+    <textarea id="personaNewPrompt" placeholder="Jak se má persona chovat? (např. 'Jsi ...')"></textarea>
+    <div class="persona-modal-actions">
+      <button class="new-conv-modal-btn secondary" id="personaCreateCancel">Zrušit</button>
+      <button class="new-conv-modal-btn primary" id="personaCreateConfirm">Vytvořit</button>
+    </div>
+  </div>
+</div>
 
 <!-- Project members modal — seznam clenov + picker pro pridani z tenantu. -->
 <div class="members-modal-bg" id="membersModalBg">
@@ -936,6 +993,7 @@
     await loadLastConversation();
     await loadConversationList();      // sidebar
     await loadProjectsList();          // dropdown s projekty
+    await loadPersonasList();          // persona picker v agent baru
     inputEl.focus();
   }
 
@@ -2754,6 +2812,264 @@
     nameEl.textContent = currentUser.project_name || 'bez projektu';
   }
 
+  // ── PERSONAS ──────────────────────────────────────────────────────────
+  let personasCache = [];
+
+  async function loadPersonasList() {
+    try {
+      const res = await fetch('/api/v1/personas/list', { credentials: 'include' });
+      if (!res.ok) { personasCache = []; renderPersonaDropdown(); return; }
+      personasCache = await res.json();
+    } catch (e) { personasCache = []; }
+    renderPersonaDropdown();
+  }
+
+  function renderPersonaDropdown() {
+    const panel = document.getElementById('personaDdPanel');
+    if (!panel) return;
+    const activeName = (document.getElementById('agentName').textContent || '').trim();
+
+    let html = '';
+    const isAdmin = !!(currentUser && currentUser.is_superadmin);
+    if (personasCache && personasCache.length > 0) {
+      for (const p of personasCache) {
+        const activeCls = (p.name === activeName) ? 'active' : '';
+        const defaultBadge = p.is_default ? '<span class="persona-dd-item-default">default</span>' : '';
+        const globalBadge = p.is_global ? '<span class="persona-dd-item-global">globální</span>' : '';
+        const preview = p.description
+          ? `<div class="persona-dd-item-preview">${escapeHtml(p.description)}</div>`
+          : '';
+        // Edit tlacitko jen pro superadmina + jen pro non-global persony
+        // (globalni Marti-AI nelze editovat pres UI -- ochrana v backendu).
+        const editBtn = (isAdmin && !p.is_global)
+          ? `<button class="persona-edit-btn" data-edit-persona-id="${p.id}" data-edit-persona-name="${escapeHtml(p.name)}" aria-label="Upravit personu">✎</button>`
+          : '';
+        html += `<div class="persona-dd-item ${activeCls}" data-persona-id="${p.id}" role="button">
+          <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
+            <div><span class="persona-dd-item-name">${escapeHtml(p.name)}</span>${defaultBadge}${globalBadge}</div>
+            ${editBtn}
+          </div>
+          ${preview}
+        </div>`;
+      }
+    }
+    // CTA "+ Nová persona" se zobrazuje JEN superadminovi — persony jsou
+    // citlivejsi nez projekty (obsahuji system prompty AI, meni chovani pro
+    // vsechny v tenantu), takze vytvareni je admin-only.
+    if (currentUser && currentUser.is_superadmin) {
+      html += `<div class="persona-dd-item persona-dd-item-cta" id="personaNewBtn" role="button">
+        <div class="persona-dd-item-name">+ Nová persona</div>
+      </div>`;
+    } else if (!personasCache || personasCache.length === 0) {
+      html += '<div class="conv-dd-item" style="color:var(--muted);font-style:italic;padding:8px 10px">Žádné persony dostupné.</div>';
+    }
+    panel.innerHTML = html;
+
+    panel.querySelectorAll('[data-persona-id]').forEach(el => {
+      el.addEventListener('click', async (ev) => {
+        // Ignoruj click pokud byl na edit tlacitko (to ma vlastni handler)
+        if (ev.target.closest('.persona-edit-btn')) return;
+        ev.stopPropagation();
+        const pid = parseInt(el.getAttribute('data-persona-id'), 10);
+        await switchPersonaDirectly(pid);
+        panel.classList.remove('open');
+      });
+    });
+    // Edit tlacitka — otevre modal v edit modu
+    panel.querySelectorAll('.persona-edit-btn').forEach(btn => {
+      btn.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(btn.getAttribute('data-edit-persona-id'), 10);
+        panel.classList.remove('open');
+        await openPersonaEditModal(pid);
+      });
+    });
+    const newBtn = document.getElementById('personaNewBtn');
+    if (newBtn) {
+      newBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        panel.classList.remove('open');
+        openPersonaCreateModal();
+      });
+    }
+  }
+
+  // ── PERSONA CREATE / EDIT MODAL ───────────────────────────────────────
+  // Sdileny modal pro oba scenare. Rezim se prepinat pres personaModalMode.
+  const personaCreateModalBg = document.getElementById('personaCreateModalBg');
+  const personaNewName = document.getElementById('personaNewName');
+  const personaNewDescription = document.getElementById('personaNewDescription');
+  const personaNewPrompt = document.getElementById('personaNewPrompt');
+  const personaCreateCancel = document.getElementById('personaCreateCancel');
+  const personaCreateConfirm = document.getElementById('personaCreateConfirm');
+  let personaModalMode = 'create';   // 'create' | 'edit'
+  let personaModalEditId = null;     // pro edit: persona_id
+
+  function _setPersonaModalUi(mode) {
+    const modal = personaCreateModalBg.querySelector('.persona-modal');
+    const title = modal.querySelector('h3');
+    const sub = modal.querySelector('p');
+    if (mode === 'edit') {
+      title.textContent = 'Upravit personu';
+      sub.textContent = 'Můžeš upravit jméno nebo system prompt. Změny se projeví v dalších odpovědích této persony.';
+      personaCreateConfirm.textContent = 'Uložit';
+    } else {
+      title.textContent = 'Nová persona';
+      sub.textContent = 'Persona je AI asistent s vlastní identitou a system promptem. Bude dostupná v tvém aktuálním tenantu.';
+      personaCreateConfirm.textContent = 'Vytvořit';
+    }
+  }
+
+  function openPersonaCreateModal() {
+    if (!personaCreateModalBg) return;
+    personaModalMode = 'create';
+    personaModalEditId = null;
+    personaNewName.value = '';
+    personaNewDescription.value = '';
+    personaNewPrompt.value = '';
+    _setPersonaModalUi('create');
+    personaCreateModalBg.classList.add('open');
+    setTimeout(() => personaNewName.focus(), 50);
+  }
+
+  let personaModalOldName = null;  // pro detekci zda byla aktivni a treba updatovat hlavicku
+
+  async function openPersonaEditModal(personaId) {
+    if (!personaCreateModalBg) return;
+    personaModalMode = 'edit';
+    personaModalEditId = personaId;
+    personaModalOldName = null;
+    // Nacteme detail (vc. system_prompt) pres GET /api/v1/personas/{id}
+    try {
+      const res = await fetch(`/api/v1/personas/${personaId}`, { credentials: 'include' });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert('Nelze načíst personu: ' + (err.detail || res.status));
+        return;
+      }
+      const data = await res.json();
+      personaModalOldName = data.name || null;
+      personaNewName.value = data.name || '';
+      personaNewDescription.value = data.description || '';
+      personaNewPrompt.value = data.system_prompt || '';
+      _setPersonaModalUi('edit');
+      personaCreateModalBg.classList.add('open');
+      setTimeout(() => personaNewName.focus(), 50);
+    } catch (e) {
+      alert('Chyba spojení.');
+    }
+  }
+
+  function closePersonaCreateModal() {
+    if (personaCreateModalBg) personaCreateModalBg.classList.remove('open');
+    personaModalEditId = null;
+    personaModalMode = 'create';
+  }
+  if (personaCreateCancel) personaCreateCancel.addEventListener('click', closePersonaCreateModal);
+  if (personaCreateModalBg) personaCreateModalBg.addEventListener('click', (ev) => {
+    if (ev.target === personaCreateModalBg) closePersonaCreateModal();
+  });
+  if (personaCreateConfirm) personaCreateConfirm.addEventListener('click', async () => {
+    const name = (personaNewName.value || '').trim();
+    const description = (personaNewDescription.value || '').trim();
+    const prompt = (personaNewPrompt.value || '').trim();
+    if (!name) { alert('Zadej jméno persony.'); personaNewName.focus(); return; }
+    if (!prompt) { alert('Zadej system prompt.'); personaNewPrompt.focus(); return; }
+    personaCreateConfirm.disabled = true;
+    try {
+      let res;
+      if (personaModalMode === 'edit' && personaModalEditId) {
+        res = await fetch(`/api/v1/personas/${personaModalEditId}`, {
+          method: 'PATCH', credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name, description, system_prompt: prompt }),
+        });
+      } else {
+        res = await fetch('/api/v1/personas/create', {
+          method: 'POST', credentials: 'include',
+          headers: {'Content-Type': 'application/json'},
+          body: JSON.stringify({ name, description, system_prompt: prompt }),
+        });
+      }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        alert((personaModalMode === 'edit' ? 'Nelze uložit: ' : 'Nelze vytvořit: ') + (err.detail || res.status));
+        return;
+      }
+      const data = await res.json();
+      // Refresh cache + přepneme na (novou / updatovanou) personu
+      await loadPersonasList();
+      if (personaModalMode === 'create' && conversationId) {
+        await switchPersonaDirectly(data.id);
+      } else if (personaModalMode === 'edit') {
+        // Pokud upravena persona je aktivne v hlavicce (jmeno odpovida tomu,
+        // co bylo ulozene PRED save), updatuj hlavicku na nove jmeno.
+        const el = document.getElementById('agentName');
+        if (el && personaModalOldName && el.textContent.trim() === personaModalOldName.trim()) {
+          el.textContent = data.name;
+        }
+      }
+      closePersonaCreateModal();
+    } catch (e) { alert('Chyba spojení.'); }
+    finally { personaCreateConfirm.disabled = false; }
+  });
+
+  // Pamatuje si personu vybranou PŘED vznikem konverzace (empty chat stav).
+  // Pri odeslani prvni zpravy se posila jako preferred_persona_id do chat()
+  // endpointu a backend ji aplikuje pri tvorbe konverzace.
+  let pendingPersonaId = null;
+
+  async function switchPersonaDirectly(personaId) {
+    if (!conversationId) {
+      // Empty chat stav -- ulozime personu jako "pending" a updatujeme UI
+      // optimisticky. Backend ji aplikuje pri odeslani prvni zpravy.
+      pendingPersonaId = personaId;
+      const persona = (personasCache || []).find(p => p.id === personaId);
+      if (persona) {
+        document.getElementById('agentName').textContent = persona.name;
+      }
+      renderPersonaDropdown();  // active state based on agentName match
+      return;
+    }
+    try {
+      const res = await fetch('/api/v1/personas/switch', {
+        method: 'POST', credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ conversation_id: conversationId, persona_id: personaId }),
+      });
+      if (!res.ok) {
+        const txt = await res.text().catch(() => '');
+        alert('Nešlo přepnout personu: ' + (txt || res.status));
+        return;
+      }
+      const data = await res.json();
+      document.getElementById('agentName').textContent = data.persona_name;
+      renderPersonaDropdown();  // překresli active state
+    } catch (e) {
+      alert('Chyba spojení při přepínání persony.');
+    }
+  }
+
+  // Trigger — klik na "Mluvíš s: X" wrapper otevře dropdown
+  const personaBarWrap = document.getElementById('personaBarWrap');
+  if (personaBarWrap) {
+    personaBarWrap.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      const panel = document.getElementById('personaDdPanel');
+      if (!panel) return;
+      panel.classList.toggle('open');
+    });
+  }
+
+  // Outside click close
+  document.addEventListener('click', (ev) => {
+    const panel = document.getElementById('personaDdPanel');
+    if (!panel || !panel.classList.contains('open')) return;
+    if (panel.contains(ev.target)) return;
+    if (ev.target.closest('#personaBarWrap')) return;
+    panel.classList.remove('open');
+  });
+
   // Project dropdown trigger — toggle
   const projectDdTrigger = document.getElementById('projectDdTrigger');
   if (projectDdTrigger) {
@@ -2834,6 +3150,7 @@
     }
     // Připrav čistý chat — podobně jako původní newChatBtn
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
+    pendingPersonaId = null;  // reset: novy chat zacina s default personou
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
@@ -3036,10 +3353,16 @@
     addMessage('user', text);
     const loadingMsg = addMessage('loading', '', 'loading');
     try {
+      // Pokud mame "pending" personu z UI (user ji vybral pred vznikem
+      // konverzace), posleme ji do backendu. Po odpovedi vycistime.
+      const reqBody = { text, conversation_id: conversationId };
+      if (!conversationId && pendingPersonaId) {
+        reqBody.preferred_persona_id = pendingPersonaId;
+      }
       const res = await fetch('/api/v1/conversation/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ text, conversation_id: conversationId }),
+        body: JSON.stringify(reqBody),
         credentials: 'include',
       });
       loadingMsg.remove();
@@ -3049,6 +3372,7 @@
       } else {
         const data = await res.json();
         conversationId = data.conversation_id;
+        pendingPersonaId = null;   // uz aplikovano backendem pri create
         convIdLabel.textContent = `#${conversationId}`;
         // aktualizuj jméno persony DŘÍVE než vykreslíme bubble,
         // ať má popisek zprávy správnou identitu (např. Klára-AI vs Marti-AI)

@@ -4,6 +4,10 @@ from pydantic import BaseModel
 class ChatRequest(BaseModel):
     text: str
     conversation_id: int | None = None
+    # Pokud user v UI vybral personu PŘED vznikem konverzace (empty chat stav),
+    # frontend ji pošle sem. Backend ji použije jako active_agent_id nově
+    # vytvořené konverzace (přepíše default persona fallback).
+    preferred_persona_id: int | None = None
 
 
 class ChatResponse(BaseModel):

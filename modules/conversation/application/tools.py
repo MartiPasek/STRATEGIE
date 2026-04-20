@@ -1,7 +1,39 @@
 """
 Execution layer — nástroje dostupné pro AI asistenta.
 Každý uživatel má svůj vlastní chat. Žádné sdílené konverzace.
+
+ROZDELENI NASTROJU PODLE PERSONY:
+- CORE: vsechny persony je maji (posila email, najdi cloveka, vrat se na Marti)
+- MANAGEMENT: jen DEFAULT persona (Marti-AI) — navigace po systemu, pozvanky,
+  pridavani do projektu. Specializovane persony (Pravnik-AI, Honza-AI apod.)
+  zustavaji focused na svou roli a NEMAJI management pristup.
 """
+
+# Management nastroje — pristup jen z default persony (Marti-AI).
+# Ostatni persony je neuvidi v tool schematu pri LLM volani.
+MANAGEMENT_TOOL_NAMES = {
+    "invite_user",
+    "list_projects",
+    "list_project_members",
+    "add_project_member",
+    "remove_project_member",
+    "list_users",
+    "list_conversations",
+    "list_personas",
+}
+
+
+def get_effective_tools(is_default_persona: bool) -> list[dict]:
+    """
+    Vrati seznam nastroju, ktere je treba prokazat aktivni persone.
+    Default persona (Marti-AI) vidi vse. Specializovane persony (Pravnik,
+    Honza apod.) vidi jen CORE -- at zustavaji soustredene na svou roli
+    a neplavou do spravy systemu.
+    """
+    if is_default_persona:
+        return TOOLS
+    return [t for t in TOOLS if t["name"] not in MANAGEMENT_TOOL_NAMES]
+
 
 TOOLS = [
     {
@@ -165,6 +197,22 @@ TOOLS = [
             "Nástroj sám vrátí číslovaný seznam s pokyny pro výběr — ZOBRAZ jeho výstup "
             "uživateli BEZ ÚPRAV (číslování je důležité pro následnou selekci). "
             "Parametr nepotřebuje."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "list_personas",
+        "description": (
+            "VŽDY zavolej tento nástroj kdykoli uživatel chce přehled dostupných AI "
+            "person ('jaké máš persony', 'jaké AI tu jsou', 'seznam asistentů', "
+            "'koho můžu zavolat', 'co umíš'). NIKDY nesměř po paměti — persony se "
+            "mění (admin přidává nové, edituje existující). "
+            "Nástroj vrátí číslovaný seznam — user může napsat číslo pro přepnutí "
+            "na danou personu. ZOBRAZ výstup BEZ ÚPRAV (číslování je důležité). "
+            "Parametr není potřeba — scope je automaticky podle tenantu usera."
         ),
         "input_schema": {
             "type": "object",

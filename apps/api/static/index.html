@@ -270,6 +270,10 @@
     .agent-bar .agent-bar-project:hover { background: var(--bg); }
     .agent-bar .agent-bar-project-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
     .agent-bar .agent-bar-project-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Offline indikator -- vyrazne cervene upozorneni v agent baru kdyz neni
+       sit / internet. Klikatelny -> zkusi reconnect (volanim /health). */
+    .offline-indicator { display: none; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; margin-left: 10px; background: rgba(239, 68, 68, 0.15); color: #ef4444; border: 1px solid rgba(239, 68, 68, 0.5); cursor: default; }
+    .offline-indicator.show { display: inline-flex; }
     /* Share indikator v agent baru — viditelne upozorneni ze konverzace je
        sdilena (bud ji sdilim ja s nekym, nebo jsem shared viewer).
        ORANZOVA barva -- vyrazne upozorneni "vidi to i nekdo jiny" (alert semantika,
@@ -642,6 +646,8 @@
             ><span class="agent-bar-project-label">Projekt: </span><span class="agent-bar-project-name" id="projectBarName">bez projektu</span></span>
           <!-- Share indikator — skryty dokud neni relevantni (viewer / owner sdileny) -->
           <span class="agent-bar-share" id="agentBarShare" style="display:none">🔗</span>
+          <!-- Offline indikator — vybarveny cerveny kdyz user offline -->
+          <span class="offline-indicator" id="offlineIndicator">🔌 Offline</span>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -1036,6 +1042,29 @@
 
   // Inicializace BroadcastChannel (lazy, ale kanal musime otevrit)
   _getAuthChannel();
+
+  // ── OFFLINE / ONLINE DETEKCE ──────────────────────────────────────────
+  // Browser poskytuje navigator.onLine (true/false) + online/offline eventy.
+  // Pri offline zobrazime vyrazny cerveny badge v agent baru. Pri send zpravy
+  // nejdriv kontrolujeme online stav -- pokud offline, vratime zpravu do
+  // inputu a hlaskou vysvetlime.
+  function _updateOnlineIndicator() {
+    const el = document.getElementById('offlineIndicator');
+    if (!el) return;
+    const online = (typeof navigator !== 'undefined') ? navigator.onLine : true;
+    el.classList.toggle('show', !online);
+  }
+  window.addEventListener('online', () => {
+    _updateOnlineIndicator();
+    // Dal jsem info jen do konzole — UI banner pro "came back online"
+    // by byl moc intruzivni kdyz zpravy jdou uz normalne
+    console.log('[STRATEGIE] Back online.');
+  });
+  window.addEventListener('offline', () => {
+    _updateOnlineIndicator();
+    console.log('[STRATEGIE] Went offline.');
+  });
+  _updateOnlineIndicator();  // initial
 
   let conversationId = null;
   // Pamatuje si, jestli aktuálně otevřená konverzace je archivovaná.
@@ -3944,6 +3973,17 @@
       }
     }
 
+    // Offline preventivni check -- pokud user neni online, nezkousime ani volat
+    if (typeof navigator !== 'undefined' && navigator.onLine === false) {
+      addMessage('error',
+        '🔌 Jsi offline — Marti-AI potřebuje připojení k internetu pro volání AI. ' +
+        'Připoj se k síti a zkus znovu.',
+        'error');
+      sendBtn.disabled = false;
+      inputEl.value = text;  // navrat zpravu, at neni ztracena
+      return;
+    }
+
     sendBtn.disabled = true;
     inputEl.value = ''; inputEl.style.height = 'auto';
     addMessage('user', text);
@@ -3964,7 +4004,20 @@
       loadingMsg.remove();
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        addMessage('error', err.detail || `Chyba ${res.status}`, 'error');
+        // Backend vraci strukturovany error: { detail: { code, message, error_type } }
+        // nebo plain string. Zobrazime user-friendly hlasku.
+        let userMsg = `Chyba ${res.status}`;
+        if (err && err.detail) {
+          if (typeof err.detail === 'object' && err.detail.message) {
+            const icon = (err.detail.code === 'no_internet' || err.detail.code === 'timeout') ? '🔌 ' : '❌ ';
+            userMsg = icon + err.detail.message;
+          } else if (typeof err.detail === 'string') {
+            userMsg = err.detail;
+          }
+        }
+        addMessage('error', userMsg, 'error');
+        // Vrat zpravu do inputu, at ji muze user poslat znovu
+        inputEl.value = text;
       } else {
         const data = await res.json();
         conversationId = data.conversation_id;

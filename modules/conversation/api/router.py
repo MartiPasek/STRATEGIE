@@ -134,9 +134,68 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             project_id=project_id,
             project_name=project_name,
         )
+    except HTTPException:
+        # Propusť HTTPException rovnou (vlastní raise z vnitřku).
+        raise
     except Exception as e:
+        # Kategorizace typu chyby -- at frontend muze vratit user-friendly
+        # hlasku misto genericke "Chat service unavailable".
         logger.exception(f"Chat failed: {e}")
-        raise HTTPException(status_code=503, detail="Chat service unavailable.")
+        error_type = type(e).__name__
+        error_msg = str(e)
+
+        # Anthropic-specific + httpx-level connection errors (no internet, DNS,
+        # firewall, Anthropic API down atd.)
+        import anthropic as _anth
+        try:
+            import httpx as _httpx
+        except ImportError:
+            _httpx = None
+
+        code = "unknown"
+        user_message = (
+            "Něco se pokazilo na straně serveru. Zkus to prosím znovu za chvíli."
+        )
+
+        if isinstance(e, _anth.APIConnectionError) or (
+            _httpx and isinstance(e, (_httpx.ConnectError, _httpx.ConnectTimeout, _httpx.ReadTimeout))
+        ):
+            code = "no_internet"
+            user_message = (
+                "Marti-AI se nemůže spojit se svým mozkem (Anthropic API). "
+                "Zkontroluj, jestli jsi připojen/á k internetu, a zkus to znovu. "
+                "Pokud jsi online, může být výpadek Anthropic služby — počkej pár minut."
+            )
+        elif isinstance(e, _anth.APITimeoutError):
+            code = "timeout"
+            user_message = (
+                "Odpověď Marti-AI trvá dlouho — timeout. Zkus to znovu, možná byl dočasný "
+                "výpadek spojení."
+            )
+        elif isinstance(e, _anth.RateLimitError):
+            code = "rate_limit"
+            user_message = (
+                "Překročil/a jsi rychlostní limit Anthropic API. Počkej chvíli (1–2 min) a zkus znovu."
+            )
+        elif isinstance(e, _anth.AuthenticationError):
+            code = "auth"
+            user_message = (
+                "Anthropic API klíč není validní. Zkontroluj nastavení serveru (ANTHROPIC_API_KEY)."
+            )
+        elif "sqlalchemy" in error_type.lower() or "database" in error_type.lower() or "psycopg" in error_msg.lower():
+            code = "db_error"
+            user_message = (
+                "Databáze neodpovídá. Zkontroluj, jestli běží Postgres a zkus znovu."
+            )
+
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": code,
+                "message": user_message,
+                "error_type": error_type,
+            },
+        )
 
 
 @router.get("/last", response_model=LastConversationResponse | None)

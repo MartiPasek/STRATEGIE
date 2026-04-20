@@ -547,8 +547,9 @@
     <div class="box">
       <div class="box-logo">Strategie</div>
       <div class="box-title">Vítej zpět</div>
-      <div class="box-sub">Zadej svůj email pro přihlášení</div>
-      <input class="box-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" />
+      <div class="box-sub">Přihlas se emailem a heslem</div>
+      <input class="box-input" type="email" id="loginEmail" placeholder="tvuj@email.cz" autocomplete="username" />
+      <input class="box-input" type="password" id="loginPassword" placeholder="Heslo" autocomplete="current-password" style="margin-top:8px" />
       <button class="box-btn" id="loginBtn">Přihlásit se</button>
       <div class="box-error" id="loginError"></div>
     </div>
@@ -954,27 +955,17 @@
     });
     _authModalOpen = false;
     if (ok) {
-      // Re-login zpet jako puvodni user -- vola /api/v1/auth/login s jeho
-      // emailem (MVP: passwordless). Po uspechu cookie prepne zpet, reload.
-      if (canRelogin) {
-        try {
-          const r = await fetch('/api/v1/auth/login', {
-            method: 'POST', credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ email: wasInfo.email }),
-          });
-          if (r.ok) {
-            // Setttime marker -- cookie je zpatky na wasInfo user, sessionStorage
-            // drzi stejny marker (neprepsal se).
-            window.location.reload();
-            return;
-          }
-          // Pokud login selhal (ucet zneplatnen, email zmenen), fallback: logout + login screen
-        } catch (_) {}
-      }
-      // Bez emailu nebo selhal auto-login -> normalni logout + login screen
+      // Re-login flow: po prechodu na password auth uz neumime auto-prihlasit
+      // bez hesla. Misto toho odhlasime + prepneme na login screen a pre-fillneme
+      // email (kdyz ho mame), aby user jen zadal heslo.
       try { await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
       clearAuthMarker();
+      if (canRelogin) {
+        // Po reloadu tryAutoLogin failne (cookies pryc) -> zobrazi se loginScreen.
+        // Email si predhodime pres localStorage (uz tam je z normalniho loginu),
+        // takze input bude prefill. User jen dopise heslo.
+        try { localStorage.setItem('last_email', wasInfo.email); } catch(_){}
+      }
       window.location.reload();
     } else {
       // Odhlaseni
@@ -1080,6 +1071,7 @@
   const loginScreen  = document.getElementById('loginScreen');
   const appScreen    = document.getElementById('appScreen');
   const loginEmail   = document.getElementById('loginEmail');
+  const loginPassword= document.getElementById('loginPassword');
   const loginBtn     = document.getElementById('loginBtn');
   const loginError   = document.getElementById('loginError');
   const convIdLabel  = document.getElementById('convIdLabel');
@@ -1214,27 +1206,35 @@
 
   // ── LOGIN ──────────────────────────────────────────────────────────────
   loginBtn.addEventListener('click', doLogin);
-  loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+  loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') loginPassword.focus(); });
+  loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
   async function doLogin() {
     const email = loginEmail.value.trim();
+    const password = loginPassword.value;
     if (!email) { loginError.textContent = 'Zadej email.'; return; }
+    if (!password) { loginError.textContent = 'Zadej heslo.'; return; }
     loginBtn.disabled = true;
     loginError.textContent = '';
     try {
       const res = await fetch('/api/v1/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email }),
+        body: JSON.stringify({ email, password }),
         credentials: 'include',
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
+        // 403 = PasswordNotSet (kontaktuj admina). 401 = generic bad creds.
         loginError.textContent = err.detail || 'Přihlášení selhalo.';
+        // Heslo z paměti pryč po failu (input pole)
+        loginPassword.value = '';
         return;
       }
       currentUser = await res.json();
       try { localStorage.setItem('last_email', email); } catch (_) {}
+      // Heslo z DOM pryč po úspěchu
+      loginPassword.value = '';
       // Auth sync: ulozime marker (per-tab sessionStorage) + broadcast do ostatnich tabu
       setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
       await showApp();
@@ -1371,11 +1371,17 @@
     setTenantPill('', '');
     updateBrowserTitle();
     loginError.textContent = '';
-    // předvyplň posledně použitý email (pohodlí)
+    // předvyplň posledně použitý email (pohodlí), password input clear
     try {
       const last = localStorage.getItem('last_email');
       loginEmail.value = last || '';
     } catch (_) { loginEmail.value = ''; }
+    loginPassword.value = '';
+    // Focus na heslo pokud email uz je predvyplneny, jinak na email
+    setTimeout(() => {
+      if (loginEmail.value) loginPassword.focus();
+      else loginEmail.focus();
+    }, 100);
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';

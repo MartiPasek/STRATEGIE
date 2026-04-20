@@ -24,7 +24,7 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
 from modules.auth.api.schemas import LoginRequest, LoginResponse, SwitchTenantRequest
-from modules.auth.application.service import login_by_email, AmbiguousEmailError
+from modules.auth.application.service import login_by_email, AmbiguousEmailError, PasswordNotSet
 from modules.auth.application.invitation_service import (
     create_invitation, accept_invitation,
     UserAlreadyActive, UserDisabled,
@@ -42,13 +42,22 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 @router.post("/login", response_model=LoginResponse)
 def login(request: LoginRequest, response: Response) -> LoginResponse:
-    """Jednoduchý login přes email. MVP: bez hesla."""
+    """Login přes email + heslo (bcrypt). User bez nastaveného hesla
+    je odmítnut s instrukcí kontaktovat admina (set-password flow přes
+    scripts/set_initial_passwords.py v MVP)."""
     try:
-        result = login_by_email(request.email)
+        result = login_by_email(request.email, request.password)
     except AmbiguousEmailError as e:
         raise HTTPException(status_code=401, detail=str(e))
+    except PasswordNotSet as e:
+        # 403 Forbidden -- distinct od 401 (špatné credentials), aby UI
+        # mohlo zobrazit odlišnou hlášku ("kontaktuj admina") místo
+        # generického "neplatné přihlašovací údaje".
+        raise HTTPException(status_code=403, detail=str(e))
     if not result:
-        raise HTTPException(status_code=401, detail="Email nenalezen nebo účet není aktivní.")
+        # Generická hláška -- nesděluje útočníkovi, jestli neexistuje email
+        # nebo jen sedlo špatné heslo (account enumeration prevention).
+        raise HTTPException(status_code=401, detail="Neplatný email nebo heslo.")
 
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
 

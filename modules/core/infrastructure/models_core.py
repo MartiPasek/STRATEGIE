@@ -50,6 +50,11 @@ class User(BaseCore):
     # (volné konverzace v tenantu bez project scope). Bez FK constraint — projekt
     # je měkký reference, jeho archivace / smazání nesmí shodit user record.
     last_active_project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Bcrypt hash hesla. NULL = uživatel ještě heslo nenastavil (pozvánka přijata
+    # ale set-password flow neproběhl; nebo legacy účet z MVP fáze před hesly).
+    # Login bez nastaveného hesla je odmítnut s instrukcí kontaktovat admina.
+    password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

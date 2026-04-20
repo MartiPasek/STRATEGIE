@@ -1,5 +1,5 @@
 """
-Auth service po identity refaktoru v2.
+Auth service po identity refaktoru v2 + heslové přihlášení.
 
 Login flow:
   1. Najdi user_contacts WHERE contact_type='email' AND contact_value=:email
@@ -7,10 +7,14 @@ Login flow:
   2. 0 výsledků → None (UI vrátí 401 'Email nenalezen')
   3. 2+ výsledků → AmbiguousEmail exception (router vrátí 401 s jasnou zprávou)
   4. SELECT users WHERE id=:user_id AND status='active'
-  5. Pokud users.last_active_tenant_id NULL → vezmi první aktivní user_tenants
+  5. Pokud users.password_hash IS NULL → PasswordNotSet (musí kontaktovat admina /
+     projít set-password flow)
+  6. bcrypt verify_password(plain, hash). Fail → None (401 "neplatné heslo")
+  7. Pokud users.last_active_tenant_id NULL → vezmi první aktivní user_tenants
 """
 from core.database_core import get_core_session
 from core.logging import get_logger
+from modules.auth.application.password import verify_password
 from modules.auth.application.user_context import get_user_context
 from modules.core.infrastructure.models_core import User, UserContact, UserTenant
 
@@ -21,11 +25,21 @@ class AmbiguousEmailError(Exception):
     """Email odpovídá víc než jednomu aktivnímu uživateli — kontaktuj admina."""
 
 
-def login_by_email(email: str) -> dict | None:
+class PasswordNotSet(Exception):
+    """User existuje a je aktivní, ale ještě nemá nastavené heslo. Musí projít
+    set-password flow (admin script v MVP, později self-service přes mail)."""
+
+
+def login_by_email(email: str, password: str) -> dict | None:
     """
-    Jednoduchý login přes email. MVP: bez hesla.
-    Vrátí user data nebo None pokud uživatel neexistuje / není aktivní.
-    Při ambiguous match vyhodí AmbiguousEmailError.
+    Login přes email + heslo s bcrypt verify.
+
+    Returns:
+        user context dict (z get_user_context) při úspěchu
+        None pokud email neexistuje, user není aktivní, nebo heslo nesedí
+    Raises:
+        AmbiguousEmailError: víc aktivních userů má stejný email
+        PasswordNotSet: user existuje, ale nemá nastavené heslo
     """
     needle = email.strip().lower()
     session = get_core_session()
@@ -57,6 +71,21 @@ def login_by_email(email: str) -> dict | None:
         user = session.query(User).filter_by(id=contact.user_id).first()
         if not user or user.status != "active":
             logger.warning(f"AUTH | user inactive | email={email}")
+            return None
+
+        # Bezpečnostní brána: účet bez nastaveného hesla nemůže být přihlášen.
+        # Předtím v MVP fázi šlo přihlásit jen emailem (bez hesla) — to je teď
+        # natvrdo zakázáno. Useři bez password_hash musí dostat heslo přes
+        # admin script (scripts/set_initial_passwords.py).
+        if not user.password_hash:
+            logger.warning(f"AUTH | password not set | user_id={user.id} | email={email}")
+            raise PasswordNotSet(
+                "Účet ještě nemá nastavené heslo. Kontaktuj admina."
+            )
+
+        # bcrypt verify -- timing-safe.
+        if not verify_password(password, user.password_hash):
+            logger.warning(f"AUTH | bad password | user_id={user.id} | email={email}")
             return None
 
         user_id = user.id

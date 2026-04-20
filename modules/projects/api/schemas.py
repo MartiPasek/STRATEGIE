@@ -10,6 +10,7 @@ class ProjectInfo(BaseModel):
     created_at: datetime
     last_activity_at: datetime | None = None
     my_role: str | None = None      # owner | admin | member | owner_tenant | None
+    default_persona_id: int | None = None
 
 
 class CreateProjectRequest(BaseModel):
@@ -46,3 +47,14 @@ class ProjectMemberInfo(BaseModel):
 class AddMemberRequest(BaseModel):
     user_id: int
     role: str = "member"
+
+
+class SetDefaultPersonaRequest(BaseModel):
+    """persona_id=None znamena vycisteni overridu (globalni default)."""
+    persona_id: int | None = None
+
+
+class SetDefaultPersonaResponse(BaseModel):
+    project_id: int
+    default_persona_id: int | None
+    default_persona_name: str | None

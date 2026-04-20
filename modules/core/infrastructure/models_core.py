@@ -167,6 +167,10 @@ class Project(BaseCore):
     owner_user_id: Mapped[int | None] = mapped_column(
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    # Default persona pro tento projekt. NULL = používá se globální default
+    # (Marti-AI). Soft reference bez FK — archivace persony nesmí shodit
+    # projekt. Konzumuje se v chat() při vzniku nové konverzace.
+    default_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

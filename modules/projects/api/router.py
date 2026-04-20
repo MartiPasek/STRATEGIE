@@ -13,6 +13,7 @@ from modules.projects.api.schemas import (
     ProjectInfo, CreateProjectRequest, CreateProjectResponse,
     SwitchProjectRequest, SwitchProjectResponse, RenameProjectRequest,
     ProjectMemberInfo, AddMemberRequest,
+    SetDefaultPersonaRequest, SetDefaultPersonaResponse,
 )
 
 logger = get_logger("projects.api")
@@ -123,6 +124,23 @@ def add_member(project_id: int, body: AddMemberRequest, req: Request):
     except ProjectError as e:
         raise HTTPException(status_code=400, detail=str(e))
     return result
+
+
+@router.patch("/{project_id}/default-persona", response_model=SetDefaultPersonaResponse)
+def set_default_persona(project_id: int, body: SetDefaultPersonaRequest, req: Request):
+    """
+    Nastavi default personu pro projekt. persona_id=None znamena vycisteni
+    (projekt bude používat globální default = Marti-AI). Opravnění:
+    project owner / tenant owner.
+    """
+    user_id = _get_uid(req)
+    try:
+        result = project_service.set_project_default_persona(
+            user_id=user_id, project_id=project_id, persona_id=body.persona_id,
+        )
+    except ProjectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return SetDefaultPersonaResponse(**result)
 
 
 @router.delete("/{project_id}/members/{target_user_id}")

@@ -341,6 +341,60 @@ def remove_project_member(*, user_id: int, project_id: int, target_user_id: int)
     return {"removed": removed, "user_id": target_user_id}
 
 
+def set_project_default_persona(
+    *, user_id: int, project_id: int, persona_id: int | None,
+) -> dict:
+    """
+    Nastavi default personu pro projekt. Opravneni: project owner / tenant
+    owner. persona_id=None znamena zruseni overridu (projekt bude pouzivat
+    globalni default -- Marti-AI).
+
+    Validace:
+      - Persona musi existovat.
+      - Persona musi byt v scope usera (globalni nebo stejny tenant jako projekt).
+    """
+    project = repo.get_project(project_id)
+    if project is None:
+        raise ProjectError("Projekt neexistuje.")
+
+    # Oprávnění: project owner / tenant owner
+    from modules.core.infrastructure.models_core import Tenant, Persona
+    cs = get_core_session()
+    try:
+        tenant = cs.query(Tenant).filter_by(id=project.tenant_id).first()
+    finally:
+        cs.close()
+    is_project_owner = project.owner_user_id == user_id
+    is_tenant_owner = tenant is not None and tenant.owner_user_id == user_id
+    if not (is_project_owner or is_tenant_owner):
+        raise ProjectError("Nemas opravneni menit default personu projektu.")
+
+    # Validace persony
+    persona_name = None
+    if persona_id is not None:
+        cs = get_core_session()
+        try:
+            persona = cs.query(Persona).filter_by(id=persona_id).first()
+            if persona is None:
+                raise ProjectError("Persona neexistuje.")
+            # Global persona OK, nebo persona ze stejneho tenantu jako projekt
+            if persona.tenant_id is not None and persona.tenant_id != project.tenant_id:
+                raise ProjectError(
+                    "Persona je z jineho tenantu nez projekt. Pouzij globalni "
+                    "personu nebo personu z tohoto tenantu."
+                )
+            persona_name = persona.name
+        finally:
+            cs.close()
+
+    repo.set_project_default_persona(project_id, persona_id)
+    return {
+        "project_id": project_id,
+        "default_persona_id": persona_id,
+        "default_persona_name": persona_name,
+    }
+
+
 def archive_project(*, user_id: int, project_id: int) -> bool:
     """
     Archivuj projekt. Opravneni: project owner nebo tenant owner.

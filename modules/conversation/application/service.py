@@ -896,27 +896,47 @@ def chat(
             tenant_id=active_tenant_id,
             project_id=effective_project_id,
         )
-        # Pokud user vybral personu PRED vznikem konverzace (empty chat stav),
-        # aplikujeme ji hned po create. Bez toho by konverzace startovala s
-        # default personou a user by musel znovu prepinat.
-        if preferred_persona_id:
+        # Priorita pro pocatecni personu nove konverzace:
+        #   1. preferred_persona_id  (user vybral v UI pred prvni zpravou)
+        #   2. project.default_persona_id  (projektovy override)
+        #   3. NULL -> composer pouzije globalni default (Marti-AI)
+        effective_persona_id = preferred_persona_id
+        if effective_persona_id is None and effective_project_id:
+            try:
+                from core.database_core import get_core_session as _gcs_pp
+                from modules.core.infrastructure.models_core import Project as _ProjP
+                _c = _gcs_pp()
+                try:
+                    _proj = _c.query(_ProjP).filter_by(id=effective_project_id).first()
+                    if _proj and _proj.default_persona_id:
+                        effective_persona_id = _proj.default_persona_id
+                        logger.info(
+                            f"CONVERSATION | project default persona | "
+                            f"proj={effective_project_id} | persona_id={effective_persona_id}"
+                        )
+                finally:
+                    _c.close()
+            except Exception as e:
+                logger.error(f"CONVERSATION | project default persona lookup failed: {e}")
+
+        if effective_persona_id:
             try:
                 from core.database_data import get_data_session as _gds_p
                 from modules.core.infrastructure.models_data import Conversation as _ConvP
                 _d = _gds_p()
                 try:
-                    _c = _d.query(_ConvP).filter_by(id=conversation_id).first()
-                    if _c is not None:
-                        _c.active_agent_id = preferred_persona_id
+                    _cc = _d.query(_ConvP).filter_by(id=conversation_id).first()
+                    if _cc is not None:
+                        _cc.active_agent_id = effective_persona_id
                         _d.commit()
                         logger.info(
-                            f"CONVERSATION | preferred persona applied | "
-                            f"conv={conversation_id} | persona_id={preferred_persona_id}"
+                            f"CONVERSATION | initial persona applied | "
+                            f"conv={conversation_id} | persona_id={effective_persona_id}"
                         )
                 finally:
                     _d.close()
             except Exception as e:
-                logger.error(f"CONVERSATION | preferred_persona apply failed: {e}")
+                logger.error(f"CONVERSATION | initial persona apply failed: {e}")
 
     if _is_confirmation(user_message):
         pending = _get_pending_action(conversation_id)

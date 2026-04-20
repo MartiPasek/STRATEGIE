@@ -85,6 +85,7 @@ def list_active_projects_for_user(user_id: int, tenant_id: int) -> list[dict]:
                 "owner_user_id": p.owner_user_id,
                 "created_at": p.created_at,
                 "my_role": my_roles.get(p.id) or ("owner_tenant" if tenant_owner and p.id not in my_roles else None),
+                "default_persona_id": p.default_persona_id,
             }
             for p in projects
         ]
@@ -203,6 +204,26 @@ def rename_project(project_id: int, new_name: str) -> bool:
         project.name = new_name.strip()
         cs.commit()
         logger.info(f"PROJECT | renamed | id={project_id} | new_name={new_name!r}")
+        return True
+    finally:
+        cs.close()
+
+
+def set_project_default_persona(project_id: int, persona_id: int | None) -> bool:
+    """
+    Nastavi project.default_persona_id. NULL = vyčisteni (zpět na globální).
+    Vraci True pokud nalezen.
+    """
+    cs = get_core_session()
+    try:
+        project = cs.query(Project).filter_by(id=project_id).first()
+        if project is None:
+            return False
+        project.default_persona_id = persona_id
+        cs.commit()
+        logger.info(
+            f"PROJECT | default_persona set | id={project_id} | persona_id={persona_id}"
+        )
         return True
     finally:
         cs.close()

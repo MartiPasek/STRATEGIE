@@ -738,7 +738,8 @@
   </div>
 </div>
 
-<!-- Project members modal — seznam clenov + picker pro pridani z tenantu. -->
+<!-- Project members modal — seznam clenov + picker pro pridani z tenantu +
+     nastaveni default persony projektu. -->
 <div class="members-modal-bg" id="membersModalBg">
   <div class="members-modal">
     <h3 id="membersModalTitle">Členové projektu</h3>
@@ -753,6 +754,12 @@
     <div class="members-picker" id="membersPicker">
       <div class="members-picker-empty">Načítám…</div>
     </div>
+
+    <div class="members-section-title">Default persona</div>
+    <p class="members-modal-sub" style="margin-top:-4px">Nové konverzace v tomto projektu budou automaticky startovat s vybranou personou. Globální default (Marti-AI) se použije, když vybereš „(žádná — globální default)".</p>
+    <select id="projectDefaultPersonaSelect" style="width:100%;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:8px 10px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:13px;outline:none;">
+      <option value="">(žádná — globální default)</option>
+    </select>
 
     <div class="members-modal-actions">
       <button class="new-conv-modal-btn secondary" id="membersClose">Zavřít</button>
@@ -2659,7 +2666,9 @@
     if (ev.key === 'Escape') closeProjectContextMenu();
   });
 
-  /** Přepni na projekt (nebo null = bez projektu) a refresh /me. */
+  /** Přepni na projekt (nebo null = bez projektu) a refresh /me.
+      Pokud je aktuálně prázdný chat (conversationId null) a projekt má
+      default personu, aplikujeme ji optimisticky v hlavičce jako pendingPersonaId. */
   async function switchProject(projectId) {
     try {
       const res = await fetch('/api/v1/projects/switch', {
@@ -2678,6 +2687,25 @@
       updateProjectIndicator();
       renderProjectDropdown();   // překresli s novým active stavem
       renderProjectSidebar();    // i sidebar verze
+      // Pokud je prazdny chat A cilovy projekt ma default personu, aplikuj
+      // ji optimisticky v hlavicce -- at user vidi koho ma, ne vychozi Marti-AI.
+      if (!conversationId && projectId) {
+        const proj = (projectsCache || []).find(p => p.id === projectId);
+        if (proj && proj.default_persona_id) {
+          const persona = (personasCache || []).find(p => p.id === proj.default_persona_id);
+          if (persona) {
+            pendingPersonaId = persona.id;
+            document.getElementById('agentName').textContent = persona.name;
+            renderPersonaDropdown();
+          }
+        } else {
+          // Projekt bez defaultu (nebo "bez projektu") -- vrat se na global default
+          pendingPersonaId = null;
+          document.getElementById('agentName').textContent =
+            (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+          renderPersonaDropdown();
+        }
+      }
     } catch (e) {
       alert('Chyba spojení při přepínání projektu.');
     }
@@ -2796,6 +2824,42 @@
         });
         membersPicker.appendChild(row);
       }
+    }
+
+    // 3) Default persona picker — naplnime z personasCache + aktualni hodnota.
+    const sel = document.getElementById('projectDefaultPersonaSelect');
+    const proj = (projectsCache || []).find(p => p.id === pid);
+    const currentDefaultPid = proj ? (proj.default_persona_id || null) : null;
+    if (sel) {
+      let html = '<option value="">(žádná — globální default)</option>';
+      for (const p of (personasCache || [])) {
+        const isDefault = (p.id === currentDefaultPid) ? 'selected' : '';
+        const globalBadge = p.is_global ? ' [globální]' : '';
+        html += `<option value="${p.id}" ${isDefault}>${escapeHtml(p.name)}${globalBadge}</option>`;
+      }
+      sel.innerHTML = html;
+      // Onchange: posle PATCH okamzite (UX — ne save tlacitko, rovnou apply).
+      sel.onchange = async () => {
+        const val = sel.value;
+        const targetPid = val === '' ? null : parseInt(val, 10);
+        try {
+          const r = await fetch(`/api/v1/projects/${pid}/default-persona`, {
+            method: 'PATCH', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ persona_id: targetPid }),
+          });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            alert('Nelze nastavit: ' + (err.detail || r.status));
+            // Revert select
+            await loadProjectsList();
+            await refreshMembersModal();
+            return;
+          }
+          // Aktualizuj cache aby dropdown ve zbytku UI videl novou hodnotu
+          await loadProjectsList();
+        } catch (e) { alert('Chyba spojení.'); }
+      };
     }
   }
 
@@ -3155,8 +3219,22 @@
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';
     document.querySelectorAll('.sidebar-item.active').forEach(el => el.classList.remove('active'));
-    document.getElementById('agentName').textContent =
-      (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+
+    // Zjisti personu pro hlavicku: pokud cilovy projekt ma default personu,
+    // pouzij ji (pending), jinak globalni default.
+    let initialPersonaName = (currentUser && currentUser.default_persona_name) || 'Marti-AI';
+    if (targetProjectId) {
+      const proj = (projectsCache || []).find(p => p.id === targetProjectId);
+      if (proj && proj.default_persona_id) {
+        const persona = (personasCache || []).find(p => p.id === proj.default_persona_id);
+        if (persona) {
+          pendingPersonaId = persona.id;
+          initialPersonaName = persona.name;
+        }
+      }
+    }
+    document.getElementById('agentName').textContent = initialPersonaName;
+    renderPersonaDropdown();
     closeNewConvModal();
     inputEl.focus();
   });

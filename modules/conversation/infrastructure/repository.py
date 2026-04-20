@@ -150,6 +150,7 @@ def get_active_persona_name(conversation_id: int) -> str:
 
 
 def get_last_conversation(user_id: int) -> dict | None:
+    from modules.core.infrastructure.models_data import ConversationShare
     session = get_data_session()
     try:
         conversation = (
@@ -167,9 +168,16 @@ def get_last_conversation(user_id: int) -> dict | None:
             .order_by(Message.id)
             .all()
         )
+        shares_count = (
+            session.query(ConversationShare)
+            .filter_by(conversation_id=conversation.id)
+            .count()
+        )
         return {
             "conversation_id": conversation.id,
             "is_archived": bool(conversation.is_archived),
+            "my_role": "owner",    # /last vraci vzdy moji konverzaci
+            "shares_count": shares_count,
             "messages": [{"role": m.role, "content": m.content, "message_type": m.message_type} for m in messages],
         }
     finally:
@@ -233,10 +241,16 @@ def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 
             .limit(limit)
             .all()
         )
+        from modules.core.infrastructure.models_data import ConversationShare
         out: list[dict] = []
         for c in rows:
             msg_count = (
                 session.query(Message)
+                .filter_by(conversation_id=c.id)
+                .count()
+            )
+            shares_count = (
+                session.query(ConversationShare)
                 .filter_by(conversation_id=c.id)
                 .count()
             )
@@ -246,6 +260,7 @@ def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 
                 "tenant_id": c.tenant_id,
                 "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
                 "message_count": msg_count,
+                "shares_count": shares_count,
             })
         return out
     finally:
@@ -345,9 +360,12 @@ def set_conversation_flag(
 def load_conversation(user_id: int, conversation_id: int) -> dict | None:
     """
     Načte konkrétní konverzaci pro UI (po kliknutí v sidebaru).
-    Ověří vlastnictví (user_id) — pokud nesedí, vrátí None (frontend
-    interpretuje jako 404 a nezobrazí cizí obsah).
+    Přístup: vlastník (Conversation.user_id == user_id) NEBO sdílený user
+    (ConversationShare záznam). Shared readonly -> frontend disable send.
+
+    Vrací None pokud user nemá žádný přístup (frontend interpretuje jako 404).
     """
+    from modules.core.infrastructure.models_data import ConversationShare
     session = get_data_session()
     try:
         conversation = (
@@ -355,7 +373,22 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
             .filter_by(id=conversation_id, is_deleted=False)
             .first()
         )
-        if not conversation or conversation.user_id != user_id:
+        if not conversation:
+            return None
+
+        # Oprávnění: vlastník nebo shared
+        my_role: str | None = None
+        if conversation.user_id == user_id:
+            my_role = "owner"
+        else:
+            share = (
+                session.query(ConversationShare)
+                .filter_by(conversation_id=conversation.id, shared_with_user_id=user_id)
+                .first()
+            )
+            if share:
+                my_role = f"shared_{share.access_level}"
+        if my_role is None:
             return None
 
         messages = (
@@ -364,13 +397,41 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
             .order_by(Message.id)
             .all()
         )
-        return {
-            "conversation_id": conversation.id,
-            "is_archived": bool(conversation.is_archived),
-            "messages": [
-                {"role": m.role, "content": m.content, "message_type": m.message_type}
-                for m in messages
-            ],
-        }
+        # Kolik user pushe tuhle konverzaci sdileno (pro owner banner)
+        shares_count = (
+            session.query(ConversationShare)
+            .filter_by(conversation_id=conversation.id)
+            .count()
+        )
+        # Zachyt atributy pred close (DetachedInstanceError prevention)
+        conv_id_val = conversation.id
+        conv_is_archived = bool(conversation.is_archived)
+        conv_owner_id = conversation.user_id
+        msg_rows = [
+            {"role": m.role, "content": m.content, "message_type": m.message_type}
+            for m in messages
+        ]
     finally:
         session.close()
+
+    # Owner jmeno (pro shared viewer -- "Sdileno od X")
+    owner_name: str | None = None
+    if my_role != "owner":
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            owner = cs.query(User).filter_by(id=conv_owner_id).first()
+            if owner:
+                owner_name = " ".join(filter(None, [owner.first_name, owner.last_name])).strip() or (owner.short_name or f"#{owner.id}")
+        finally:
+            cs.close()
+
+    return {
+        "conversation_id": conv_id_val,
+        "is_archived": conv_is_archived,
+        "my_role": my_role,
+        "owner_name": owner_name,
+        "shares_count": shares_count,
+        "messages": msg_rows,
+    }

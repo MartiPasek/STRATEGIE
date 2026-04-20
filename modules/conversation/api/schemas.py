@@ -52,6 +52,16 @@ class LastConversationResponse(BaseModel):
     # pokud ano, před odesláním nové zprávy se uživatele zeptá,
     # jestli má konverzaci nejdřív vrátit z archivu.
     is_archived: bool = False
+    # Role aktuálního usera v této konverzaci (z pohledu přístupu):
+    #   owner        — vlastník, může vše
+    #   shared_read  — sdílené, jen čtení (frontend disable send)
+    #   shared_write — sdílené, může psát (zatím neimplementováno)
+    my_role: str | None = None
+    # Pokud je user shared viewer (ne owner), tady je jméno vlastníka — pro
+    # banner "Sdíleno od X". Null pokud own.
+    owner_name: str | None = None
+    # Počet sdílení této konverzace (pro owner banner "Sdíleno s 2 lidmi").
+    shares_count: int = 0
 
 
 class ConversationListItem(BaseModel):
@@ -61,3 +71,29 @@ class ConversationListItem(BaseModel):
     tenant_id: int | None = None
     last_message_at: str | None = None  # ISO 8601 string
     message_count: int
+    shares_count: int = 0   # >0 = moje, ale sdileno s nekym (ikonka v listu)
+
+
+class ShareInfo(BaseModel):
+    id: int
+    conversation_id: int
+    shared_with_user_id: int
+    shared_with_name: str
+    access_level: str
+    created_at: str
+
+
+class AddShareRequest(BaseModel):
+    user_id: int
+    access_level: str = "read"   # MVP: jen read
+
+
+class SharedWithMeItem(BaseModel):
+    share_id: int
+    conversation_id: int
+    title: str
+    owner_user_id: int
+    owner_name: str
+    access_level: str
+    shared_at: str
+    last_message_at: str | None = None

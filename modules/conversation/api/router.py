@@ -3,6 +3,7 @@ from fastapi import APIRouter, HTTPException, Request
 from core.logging import get_logger
 from modules.conversation.api.schemas import (
     ChatRequest, ChatResponse, LastConversationResponse, ConversationListItem,
+    ShareInfo, AddShareRequest, SharedWithMeItem,
 )
 from modules.conversation.application.service import chat
 from modules.conversation.infrastructure.repository import (
@@ -154,6 +155,9 @@ def get_last(req: Request):
         messages=result["messages"],
         active_persona=persona_name,
         is_archived=result.get("is_archived", False),
+        my_role=result.get("my_role"),
+        owner_name=result.get("owner_name"),
+        shares_count=result.get("shares_count", 0),
     )
 
 
@@ -295,4 +299,103 @@ def load_user_conversation(conversation_id: int, req: Request):
         messages=result["messages"],
         active_persona=persona_name,
         is_archived=result.get("is_archived", False),
+        my_role=result.get("my_role"),
     )
+
+
+# ── SHARING ───────────────────────────────────────────────────────────────
+
+@router.get("/shared-with-me", response_model=list[SharedWithMeItem])
+def shared_with_me(req: Request):
+    """Konverzace sdilene S timto uzivatelem od jinych vlastniku."""
+    from modules.conversation.application.share_service import list_shared_with_me
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
+    items = list_shared_with_me(user_id=user_id)
+    return [
+        SharedWithMeItem(
+            share_id=it["share_id"],
+            conversation_id=it["conversation_id"],
+            title=it["title"],
+            owner_user_id=it["owner_user_id"],
+            owner_name=it.get("owner_name") or f"#{it['owner_user_id']}",
+            access_level=it["access_level"],
+            shared_at=it["shared_at"].isoformat() if it["shared_at"] else "",
+            last_message_at=it["last_message_at"].isoformat() if it.get("last_message_at") else None,
+        )
+        for it in items
+    ]
+
+
+@router.get("/{conversation_id}/shares", response_model=list[ShareInfo])
+def list_conversation_shares(conversation_id: int, req: Request):
+    """Seznam sdileni pro danou konverzaci (jen owner)."""
+    from modules.conversation.application.share_service import list_shares, ShareError
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    user_id = int(user_id_str)
+    try:
+        items = list_shares(user_id=user_id, conversation_id=conversation_id)
+    except ShareError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return [
+        ShareInfo(
+            id=it["id"],
+            conversation_id=it["conversation_id"],
+            shared_with_user_id=it["shared_with_user_id"],
+            shared_with_name=it["shared_with_name"],
+            access_level=it["access_level"],
+            created_at=it["created_at"].isoformat() if it["created_at"] else "",
+        )
+        for it in items
+    ]
+
+
+@router.post("/{conversation_id}/shares", response_model=ShareInfo)
+def add_conversation_share(conversation_id: int, body: AddShareRequest, req: Request):
+    """Prida sdileni konverzace s uzivatelem."""
+    from modules.conversation.application.share_service import add_share, ShareError
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    user_id = int(user_id_str)
+    try:
+        result = add_share(
+            user_id=user_id,
+            conversation_id=conversation_id,
+            target_user_id=body.user_id,
+            access_level=body.access_level,
+        )
+    except ShareError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return ShareInfo(
+        id=result["id"],
+        conversation_id=result["conversation_id"],
+        shared_with_user_id=result["shared_with_user_id"],
+        shared_with_name=result["shared_with_name"],
+        access_level=result["access_level"],
+        created_at=result["created_at"].isoformat() if result["created_at"] else "",
+    )
+
+
+@router.delete("/{conversation_id}/shares/{share_id}")
+def remove_conversation_share(conversation_id: int, share_id: int, req: Request):
+    """Odebere sdileni."""
+    from modules.conversation.application.share_service import remove_share, ShareError
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    user_id = int(user_id_str)
+    try:
+        ok = remove_share(
+            user_id=user_id, conversation_id=conversation_id, share_id=share_id,
+        )
+    except ShareError as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    return {"success": ok}

@@ -78,7 +78,8 @@
        (fixed max-height + vlastni scroll). Mezi nimi tenky divider. */
     .sidebar-section { display: flex; flex-direction: column; min-height: 0; }
     .sidebar-conversations { flex: 1 1 auto; min-height: 0; padding-bottom: 8px; }
-    .sidebar-projects { flex: 0 0 auto; max-height: 38%; min-height: 120px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
+    .sidebar-projects { flex: 0 0 auto; max-height: 30%; min-height: 100px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
+    .sidebar-shared { flex: 0 0 auto; max-height: 25%; min-height: 80px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
     .sidebar-project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     .sidebar-project-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
     .sidebar-project-item:hover { background: #14161a; }
@@ -269,6 +270,23 @@
     .agent-bar .agent-bar-project:hover { background: var(--bg); }
     .agent-bar .agent-bar-project-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
     .agent-bar .agent-bar-project-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Share indikator v agent baru — viditelne upozorneni ze konverzace je
+       sdilena (bud ji sdilim ja s nekym, nebo jsem shared viewer).
+       ORANZOVA barva -- vyrazne upozorneni "vidi to i nekdo jiny" (alert semantika,
+       ne neutralni info). */
+    .agent-bar-share { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; margin-left: 10px; background: rgba(249, 115, 22, 0.12); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.45); transition: background .12s, border-color .12s; }
+    .agent-bar-share.clickable { cursor: pointer; }
+    .agent-bar-share.clickable:hover { background: rgba(249, 115, 22, 0.22); border-color: rgba(249, 115, 22, 0.7); }
+    /* Share ikonka v listech konverzaci (sidebar + dropdown) — oranzova
+       pilulka, vyrazne odlisena aby user primo v seznamu videl ktere
+       konverzace sdili s nekym. */
+    .conv-share-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .05em; color: #f97316; background: rgba(249, 115, 22, 0.18); border: 1px solid rgba(249, 115, 22, 0.5); border-radius: 3px; padding: 1px 5px; margin-left: 6px; line-height: 1.3; flex-shrink: 0; }
+    /* Sekce "Sdilene se mnou" v sidebaru - oranzovy nadpis */
+    .sidebar-shared .sidebar-title { color: #f97316; }
+    /* Shared-with-me polozky v sidebaru maji oranzovy vlevo border
+       pro dalsi podpora visualu "vidi to i nekdo jiny". */
+    .sidebar-shared .sidebar-project-item { border-left: 3px solid rgba(249, 115, 22, 0.5); padding-left: 7px; }
+    .sidebar-shared .sidebar-project-item.active { border-left-color: #f97316; }
     /* Persona v agent baru — stejny pattern jako projekt. */
     .agent-bar .agent-bar-persona-wrap { color: var(--muted); cursor: pointer; padding: 2px 4px; border-radius: 4px; transition: background .12s; position: relative; }
     .agent-bar .agent-bar-persona-wrap:hover { background: var(--bg); }
@@ -548,11 +566,20 @@
           <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
         </div>
       </div>
-      <!-- BOTTOM: PROJEKTY — fixed max-height, vlastni scroll, oddeleno divider -->
+      <!-- MIDDLE: PROJEKTY — fixed max-height, vlastni scroll, oddeleno divider -->
       <div class="sidebar-section sidebar-projects">
         <div class="sidebar-title">Projekty</div>
         <div class="sidebar-project-list" id="sidebarProjectList">
           <div class="sidebar-empty">Načítám…</div>
+        </div>
+      </div>
+      <!-- BOTTOM: Sdilene se mnou -- konverzace od jinych userov na ktere mam
+           pristup. Zobrazeno jen pokud nejaka jsou (refreshSharedWithMeSection
+           JS funkce resi visibility). -->
+      <div class="sidebar-section sidebar-shared" id="sidebarSharedWrap" style="display:none;">
+        <div class="sidebar-title">Sdílené se mnou</div>
+        <div class="sidebar-project-list" id="sidebarSharedList">
+          <div class="sidebar-empty">Nic sdíleného.</div>
         </div>
       </div>
     </aside>
@@ -613,6 +640,8 @@
           <span class="agent-bar-sep" id="projectBarSep"> · </span>
           <span class="agent-bar-project" id="projectBarLabel" data-tooltip="Otevřu seznam projektů"
             ><span class="agent-bar-project-label">Projekt: </span><span class="agent-bar-project-name" id="projectBarName">bez projektu</span></span>
+          <!-- Share indikator — skryty dokud neni relevantni (viewer / owner sdileny) -->
+          <span class="agent-bar-share" id="agentBarShare" style="display:none">🔗</span>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -738,6 +767,29 @@
   </div>
 </div>
 
+<!-- Conversation share modal — list aktualnich sdileni + picker pro pridani.
+     Reuse members-modal stylu (stejny vizualni vzor). -->
+<div class="members-modal-bg" id="convShareModalBg">
+  <div class="members-modal">
+    <h3 id="convShareModalTitle">Sdílet konverzaci</h3>
+    <p class="members-modal-sub" id="convShareModalSub">Vybraní uživatelé budou moci číst historii této konverzace.</p>
+
+    <div class="members-section-title">Aktuálně sdíleno s</div>
+    <div class="members-list" id="convShareList">
+      <div class="members-picker-empty">Načítám…</div>
+    </div>
+
+    <div class="members-section-title">Sdílet s dalším uživatelem</div>
+    <div class="members-picker" id="convSharePicker">
+      <div class="members-picker-empty">Načítám…</div>
+    </div>
+
+    <div class="members-modal-actions">
+      <button class="new-conv-modal-btn secondary" id="convShareClose">Zavřít</button>
+    </div>
+  </div>
+</div>
+
 <!-- Project members modal — seznam clenov + picker pro pridani z tenantu +
      nastaveni default persony projektu. -->
 <div class="members-modal-bg" id="membersModalBg">
@@ -802,6 +854,9 @@
   // konverzaci nejdřív vrátit z archivu (jinak by zpráva přibyla do
   // archivované konverzace, což je matoucí).
   let conversationIsArchived = false;
+  // 'owner' | 'shared_read' | 'shared_write' — ovlivnuje zda muzu psat
+  // do konverzace. MVP: shared_read -> readonly (disable send).
+  let currentConvRole = 'owner';
 
   const inviteScreen = document.getElementById('inviteScreen');
   const loginScreen  = document.getElementById('loginScreen');
@@ -1001,7 +1056,52 @@
     await loadConversationList();      // sidebar
     await loadProjectsList();          // dropdown s projekty
     await loadPersonasList();          // persona picker v agent baru
+    await loadSharedWithMeList();      // sidebar sekce "Sdilene se mnou"
     inputEl.focus();
+  }
+
+  // ── SHARED WITH ME — konverzace sdilene S timto userem od jinych
+  let sharedWithMeCache = [];
+
+  async function loadSharedWithMeList() {
+    try {
+      const res = await fetch('/api/v1/conversation/shared-with-me', { credentials: 'include' });
+      if (!res.ok) { sharedWithMeCache = []; renderSharedWithMeSection(); return; }
+      sharedWithMeCache = await res.json();
+    } catch (e) { sharedWithMeCache = []; }
+    renderSharedWithMeSection();
+  }
+
+  function renderSharedWithMeSection() {
+    const wrap = document.getElementById('sidebarSharedWrap');
+    const listEl = document.getElementById('sidebarSharedList');
+    if (!wrap || !listEl) return;
+    // Pokud nic sdileno, skryjeme celou sekci -- zbytecny empty state.
+    if (!sharedWithMeCache || sharedWithMeCache.length === 0) {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = '';
+
+    let html = '';
+    for (const it of sharedWithMeCache) {
+      const activeCls = (it.conversation_id === conversationId) ? 'active' : '';
+      const activity = it.last_message_at ? formatRelative(it.last_message_at) : formatRelative(it.shared_at);
+      const ownerPart = it.owner_name ? ` · od ${escapeHtml(it.owner_name)}` : '';
+      html += `<div class="sidebar-project-item ${activeCls}" data-shared-conv-id="${it.conversation_id}" role="button" title="${escapeHtml(it.title)} — sdíleno od ${escapeHtml(it.owner_name || '?')}">
+        <div class="sidebar-project-item-title">🔗 ${escapeHtml(it.title)}${ownerPart}</div>
+        <div class="sidebar-project-item-meta">${escapeHtml(activity)}</div>
+      </div>`;
+    }
+    listEl.innerHTML = html;
+
+    listEl.querySelectorAll('[data-shared-conv-id]').forEach(el => {
+      el.addEventListener('click', async (ev) => {
+        ev.stopPropagation();
+        const cid = parseInt(el.getAttribute('data-shared-conv-id'), 10);
+        await openConversation(cid);
+      });
+    });
   }
 
   // Title v záložce prohlížeče: "STRATEGIE — Marti" (s display_name).
@@ -1020,10 +1120,13 @@
       if (!data || !data.messages || data.messages.length === 0) return;
       conversationId = data.conversation_id;
       conversationIsArchived = !!data.is_archived;
+      currentConvRole = data.my_role || 'owner';
       convIdLabel.textContent = `#${conversationId}`;
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
       }
+      updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
+      applyReadonlyMode();
       data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
@@ -1246,7 +1349,17 @@
     textWrap.className = 'conv-item-text';
     const title = document.createElement('div');
     title.className = baseClass + '-title';
-    title.textContent = it.title || `Konverzace #${it.id}`;
+    // Share ikonka vedle title kdyz user sdili konverzaci s nekym
+    if (it.shares_count && it.shares_count > 0) {
+      const shareIcon = document.createElement('span');
+      shareIcon.className = 'conv-share-icon';
+      shareIcon.textContent = `SDÍL ${it.shares_count}`;
+      shareIcon.title = `Sdíleno s ${it.shares_count} ${it.shares_count === 1 ? 'osobou' : 'osobami'}`;
+      title.textContent = it.title || `Konverzace #${it.id}`;
+      title.appendChild(shareIcon);
+    } else {
+      title.textContent = it.title || `Konverzace #${it.id}`;
+    }
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
     // Sjednoceno s projekty: jen relativni cas (bez "X zprav"). Tooltip
@@ -1908,6 +2021,55 @@
     } catch (e) { return ''; }
   }
 
+  /** Aktualizuje share indikator v agent baru na zaklade aktualni role
+      a shares_count. Skryva se jinak.
+      Owner badge (vlastnim konverzaci co sdilim) je klikatelny -> otevre
+      share modal pro spravu. Viewer badge (sdilene od nekoho jineho) je
+      informativni, neklikatelny. */
+  function updateShareBadge(myRole, ownerName, sharesCount) {
+    const el = document.getElementById('agentBarShare');
+    if (!el) return;
+    if (myRole === 'shared_read' || myRole === 'shared_write') {
+      const mode = myRole === 'shared_write' ? 'read/write' : 'jen čtení';
+      el.className = 'agent-bar-share';
+      el.textContent = `🔗 Sdíleno od ${ownerName || '?'} · ${mode}`;
+      el.title = 'Tuto konverzaci ti někdo sdílí.';
+      el.onclick = null;
+      el.style.display = '';
+    } else if (myRole === 'owner' && sharesCount > 0) {
+      el.className = 'agent-bar-share clickable';
+      const peopleWord = (sharesCount === 1) ? 'osobou' : 'osobami';
+      el.textContent = `🔗 Sdíleno s ${sharesCount} ${peopleWord}`;
+      el.title = 'Klikni pro správu sdílení.';
+      el.onclick = () => {
+        // Otevre share modal pro aktualni konverzaci
+        if (!conversationId) return;
+        openConvShareModal(conversationId, `Konverzace #${conversationId}`);
+      };
+      el.style.display = '';
+    } else {
+      el.onclick = null;
+      el.style.display = 'none';
+    }
+  }
+
+  /** Pokud otevřena konverzace je sdílená readonly, zakážeme vstup + send.
+      Owner a shared_write (zatím neimplementováno) mají plný přístup. */
+  function applyReadonlyMode() {
+    const readonly = (currentConvRole === 'shared_read');
+    if (readonly) {
+      inputEl.setAttribute('readonly', 'readonly');
+      inputEl.setAttribute('placeholder', 'Readonly — konverzace ti byla sdílená pro čtení');
+      sendBtn.disabled = true;
+      sendBtn.style.opacity = '0.4';
+    } else {
+      inputEl.removeAttribute('readonly');
+      inputEl.setAttribute('placeholder', 'Jsem tu, tak povídej…');
+      sendBtn.disabled = false;
+      sendBtn.style.opacity = '';
+    }
+  }
+
   async function openConversation(convId) {
     try {
       const res = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
@@ -1918,12 +2080,14 @@
       const data = await res.json();
       conversationId = data.conversation_id;
       conversationIsArchived = !!data.is_archived;
+      currentConvRole = data.my_role || 'owner';
       convIdLabel.textContent = `#${conversationId}`;
       messagesEl.innerHTML = '';
       emptyState.style.display = 'none';
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
       }
+      updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
@@ -1933,6 +2097,7 @@
         if (!el.dataset.convId) return;     // přeskoč archive opener (nemá convId)
         el.classList.toggle('active', Number(el.dataset.convId) === convId);
       });
+      applyReadonlyMode();
       inputEl.focus();
     } catch (e) {
       alert('Chyba spojení při načítání konverzace.');
@@ -2486,6 +2651,7 @@
     let html = '';
     if (mode === 'active') {
       html += `<div class="ctx-menu-item" data-action="rename"><span class="ctx-menu-icon ctx-menu-icon-rename">✏</span>Přejmenovat</div>`;
+      html += `<div class="ctx-menu-item" data-action="share"><span class="ctx-menu-icon">👥</span>Sdílet</div>`;
       html += `<div class="ctx-menu-item" data-action="archive"><span class="ctx-menu-icon">📦</span>Archivovat</div>`;
       html += `<div class="ctx-menu-divider"></div>`;
       html += `<div class="ctx-menu-item danger" data-action="delete"><span class="ctx-menu-icon">🗑</span>Smazat</div>`;
@@ -2509,6 +2675,8 @@
         closeConvContextMenu();
         if (action === 'rename') {
           renameConversationFromUI(cid, title);
+        } else if (action === 'share') {
+          openConvShareModal(cid, title);
         } else if (action === 'archive') {
           archiveConversationFromUI(cid, title);
         } else if (action === 'view') {
@@ -2767,7 +2935,14 @@
           removeBtn.className = 'members-row-btn';
           removeBtn.textContent = '× odebrat';
           removeBtn.addEventListener('click', async () => {
-            if (!confirm(`Odebrat ${m.full_name} z projektu?`)) return;
+            const userName = (typeof _userDisplay === 'function') ? _userDisplay() : '';
+            const greeting = userName ? `${userName}, ` : '';
+            const ok = await customConfirm({
+              title: 'STRATEGIE',
+              text: `${greeting}opravdu odebrat ${m.full_name} z projektu?`,
+              confirmLabel: 'Odebrat',
+            });
+            if (!ok) return;
             try {
               const r = await fetch(`/api/v1/projects/${pid}/members/${m.user_id}`, {
                 method: 'DELETE', credentials: 'include',
@@ -2866,6 +3041,137 @@
   if (membersClose) membersClose.addEventListener('click', closeMembersModal);
   if (membersModalBg) membersModalBg.addEventListener('click', (ev) => {
     if (ev.target === membersModalBg) closeMembersModal();
+  });
+
+  // ── CONVERSATION SHARE MODAL ──────────────────────────────────────────
+  const convShareModalBg = document.getElementById('convShareModalBg');
+  const convShareList = document.getElementById('convShareList');
+  const convSharePicker = document.getElementById('convSharePicker');
+  const convShareClose = document.getElementById('convShareClose');
+  const convShareTitle = document.getElementById('convShareModalTitle');
+
+  async function openConvShareModal(conversationId, conversationTitle) {
+    if (!convShareModalBg) return;
+    convShareModalBg.dataset.conversationId = String(conversationId);
+    convShareTitle.textContent = `Sdílet: ${conversationTitle}`;
+    convShareList.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
+    convSharePicker.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
+    convShareModalBg.classList.add('open');
+    await refreshConvShareModal();
+  }
+
+  function closeConvShareModal() {
+    if (convShareModalBg) convShareModalBg.classList.remove('open');
+  }
+
+  async function refreshConvShareModal() {
+    const cid = parseInt(convShareModalBg.dataset.conversationId, 10);
+    if (!cid) return;
+
+    // 1) Aktualni sdileni
+    let shares = [];
+    try {
+      const res = await fetch(`/api/v1/conversation/${cid}/shares`, { credentials: 'include' });
+      if (res.ok) shares = await res.json();
+    } catch (e) { /* */ }
+
+    // Pokud upravujeme share stav PRAVE OTEVRENE konverzace, updatujeme
+    // agent bar badge okamzite (bez cekani na reload/F5). Take refreshujeme
+    // conversation list v sidebaru (aby 🔗 ikonka sedela).
+    if (cid === conversationId) {
+      updateShareBadge('owner', null, shares.length);
+    }
+    loadConversationList();
+
+    if (!shares || shares.length === 0) {
+      convShareList.innerHTML = '<div class="members-picker-empty">Zatím s nikým nesdíleno.</div>';
+    } else {
+      convShareList.innerHTML = '';
+      for (const s of shares) {
+        const row = document.createElement('div');
+        row.className = 'members-row';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'members-row-name';
+        nameEl.textContent = s.shared_with_name;
+        const roleEl = document.createElement('div');
+        roleEl.className = 'members-row-role';
+        roleEl.textContent = s.access_level;
+        const removeBtn = document.createElement('button');
+        removeBtn.className = 'members-row-btn';
+        removeBtn.textContent = '× odebrat';
+        removeBtn.addEventListener('click', async () => {
+          const userName = (typeof _userDisplay === 'function') ? _userDisplay() : '';
+          const greeting = userName ? `${userName}, ` : '';
+          const ok = await customConfirm({
+            title: 'STRATEGIE',
+            text: `${greeting}opravdu přestat sdílet s ${s.shared_with_name}?`,
+            confirmLabel: 'Přestat sdílet',
+          });
+          if (!ok) return;
+          try {
+            const r = await fetch(`/api/v1/conversation/${cid}/shares/${s.id}`, {
+              method: 'DELETE', credentials: 'include',
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              alert('Nelze odebrat: ' + (err.detail || r.status));
+              return;
+            }
+            await refreshConvShareModal();
+          } catch (e) { alert('Chyba spojení.'); }
+        });
+        row.appendChild(nameEl);
+        row.appendChild(roleEl);
+        row.appendChild(removeBtn);
+        convShareList.appendChild(row);
+      }
+    }
+
+    // 2) Picker — tenant members co jeste neni shared + neni to ja
+    let tenantUsers = [];
+    try {
+      const res = await fetch('/api/v1/dm/_users/list', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        tenantUsers = data.results || [];
+      }
+    } catch (e) { /* */ }
+    const sharedIds = new Set(shares.map(s => s.shared_with_user_id));
+    const myId = currentUser && currentUser.user_id;
+    const candidates = (tenantUsers || []).filter(u => !sharedIds.has(u.user_id) && u.user_id !== myId);
+
+    if (candidates.length === 0) {
+      convSharePicker.innerHTML = '<div class="members-picker-empty">Všichni z tenantu už mají přístup (nebo tenant nemá další členy).</div>';
+    } else {
+      convSharePicker.innerHTML = '';
+      for (const u of candidates) {
+        const row = document.createElement('div');
+        row.className = 'members-picker-row';
+        const fullName = (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '');
+        row.textContent = `+ ${fullName.trim() || u.short_name || `#${u.user_id}`}`;
+        row.addEventListener('click', async () => {
+          try {
+            const r = await fetch(`/api/v1/conversation/${cid}/shares`, {
+              method: 'POST', credentials: 'include',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ user_id: u.user_id, access_level: 'read' }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              alert('Nelze sdílet: ' + (err.detail || r.status));
+              return;
+            }
+            await refreshConvShareModal();
+          } catch (e) { alert('Chyba spojení.'); }
+        });
+        convSharePicker.appendChild(row);
+      }
+    }
+  }
+
+  if (convShareClose) convShareClose.addEventListener('click', closeConvShareModal);
+  if (convShareModalBg) convShareModalBg.addEventListener('click', (ev) => {
+    if (ev.target === convShareModalBg) closeConvShareModal();
   });
 
   /** Aktualizuj jen jméno projektu v agent baru. Prefix "Projekt:" je staticky
@@ -3214,7 +3520,10 @@
     }
     // Připrav čistý chat — podobně jako původní newChatBtn
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
+    currentConvRole = 'owner';   // nova konverzace je moje
     pendingPersonaId = null;  // reset: novy chat zacina s default personou
+    applyReadonlyMode();
+    updateShareBadge('owner', null, 0);  // schova share badge pro empty chat
     messagesEl.innerHTML = '';
     messagesEl.appendChild(emptyState);
     emptyState.style.display = '';

@@ -854,13 +854,14 @@
   // se v tabu A uzivatel odhlasi a prihlasi jako nekdo jiny, tab B jeste
   // zobrazuje puvodniho usera -- az do F5 a v tu chvili se mu zmeni identita
   // pod rukama. Reseni:
-  //   1) localStorage marker `last_known_user_id` -- pri kazdem loginu/logoutu
-  //      ulozit. Pri F5 porovnat s currentUser.user_id z /me. Pri nesouladu
-  //      upozornit a dat volbu.
-  //   2) BroadcastChannel -- live sync. Kdyz tab A broadcast "login X",
-  //      tab B v realnem case detekuje zmenu bez F5.
+  //   1) sessionStorage marker -- PER-TAB (ne napric, jako localStorage).
+  //      Kazdy tab si pamatuje svou identitu nezavisle. Pri F5 porovna s
+  //      /me a pri nesouladu zobrazi modal. sessionStorage preziva F5
+  //      ale ne close tabu -- to je presne co chceme.
+  //   2) BroadcastChannel -- live sync. Tab A posle "login X", tab B
+  //      v realnem case detekuje zmenu bez F5.
 
-  const AUTH_STORAGE_KEY = 'strategie_last_user_id';
+  const AUTH_SESSION_KEY = 'strategie_tab_user';
   let _authChannel = null;
 
   function _getAuthChannel() {
@@ -874,32 +875,50 @@
     return _authChannel;
   }
 
-  function setAuthMarker(userId) {
-    try { localStorage.setItem(AUTH_STORAGE_KEY, String(userId)); } catch (_) {}
+  /** Ulozi per-tab identity marker + broadcast do ostatnich tabu.
+      email se pouzije pri re-loginu v auth-mismatch modalu. */
+  function setAuthMarker(userId, email, firstName, lastName) {
+    try {
+      sessionStorage.setItem(AUTH_SESSION_KEY, JSON.stringify({
+        user_id: userId,
+        email: email || '',
+        first_name: firstName || '',
+        last_name: lastName || '',
+      }));
+    } catch (_) {}
     const ch = _getAuthChannel();
     if (ch) { try { ch.postMessage({ type: 'login', user_id: userId, at: Date.now() }); } catch(_){} }
   }
 
   function clearAuthMarker() {
-    try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (_) {}
+    try { sessionStorage.removeItem(AUTH_SESSION_KEY); } catch (_) {}
     const ch = _getAuthChannel();
     if (ch) { try { ch.postMessage({ type: 'logout', at: Date.now() }); } catch(_){} }
   }
 
   function getAuthMarker() {
     try {
-      const v = localStorage.getItem(AUTH_STORAGE_KEY);
-      return v ? parseInt(v, 10) : null;
+      const raw = sessionStorage.getItem(AUTH_SESSION_KEY);
+      if (!raw) return null;
+      return JSON.parse(raw);
     } catch (_) { return null; }
   }
 
   /** Zobraz modal "cookie zmenila usera".
-      nowUserId = kdo je ted v cookie, wasUserName = koho tenhle tab vedel (optional, muze chybet). */
+      Logika z pohledu user-experience: user SEDI u tohoto tabu, ocekaval
+      svoji puvodni identitu (wasInfo). V jinem tabu nekdo jiny (nowUserName)
+      zmenil cookies pod nohama. User chce bud:
+        1) Pokracovat jako SVOJE puvodni identita (wasInfo) -- re-login
+        2) Odhlasit a zacit znovu
+
+      "Pokracovat jako [ten druhy]" nenabizime -- user v tomto tabu toho
+      druheho nechtel, byl to jiny tab/user. */
   let _authModalOpen = false;  // prevence dvojitemu zobrazeni
-  async function _showAuthMismatchModal(nowUserId, wasUserName) {
+  async function _showAuthMismatchModal(nowUserId, wasInfo) {
     if (_authModalOpen) return;
     _authModalOpen = true;
-    // Jmeno NOW usera vytahnout z /me (cookie ted ukazuje tam)
+    // Jmeno NOW usera vytahnout z /me (cookie ted ukazuje tam) -- pro info
+    // v popisu.
     let nowUserName = `uživatel #${nowUserId}`;
     try {
       const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
@@ -909,23 +928,50 @@
       }
     } catch (_) {}
 
-    const wasLabel = wasUserName || 'jiný uživatel';
+    const wasName = wasInfo && (wasInfo.first_name || wasInfo.last_name)
+      ? `${wasInfo.first_name || ''} ${wasInfo.last_name || ''}`.trim()
+      : (wasInfo && wasInfo.email) ? wasInfo.email : 'ty (původní identita)';
+    const canRelogin = wasInfo && wasInfo.email;
 
     const ok = await customConfirm({
       title: 'STRATEGIE — změna přihlášení',
       text: (
         `V jiném tabu prohlížeče se přihlásil **${nowUserName}**. ` +
-        `Tento tab byl přihlášený jako **${wasLabel}**.\n\n` +
-        `Cookies jsou sdílené napříč taby, takže původní identita už nefunguje. ` +
-        `Chceš pokračovat jako **${nowUserName}**, nebo se odhlásit a přihlásit znovu?`
+        `Tento tab byl přihlášený jako **${wasName}**.\n\n` +
+        `Cookies jsou sdílené napříč taby, takže tvoje původní identita už nefunguje. ` +
+        (canRelogin
+          ? `Chceš se znovu přihlásit jako **${wasName}** (obnoví tvoji session), nebo se odhlásit?`
+          : `Nemám uložený tvůj email — zvol "Přihlásit znovu" (tvoje email si napíšeš sám) nebo "Odhlásit".`)
       ),
-      confirmLabel: `Pokračovat jako ${nowUserName}`,
+      confirmLabel: canRelogin ? `Přihlásit zpět jako ${wasName}` : 'Přihlásit znovu',
       cancelLabel: 'Odhlásit',
     });
     _authModalOpen = false;
     if (ok) {
+      // Re-login zpet jako puvodni user -- vola /api/v1/auth/login s jeho
+      // emailem (MVP: passwordless). Po uspechu cookie prepne zpet, reload.
+      if (canRelogin) {
+        try {
+          const r = await fetch('/api/v1/auth/login', {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ email: wasInfo.email }),
+          });
+          if (r.ok) {
+            // Setttime marker -- cookie je zpatky na wasInfo user, sessionStorage
+            // drzi stejny marker (neprepsal se).
+            window.location.reload();
+            return;
+          }
+          // Pokud login selhal (ucet zneplatnen, email zmenen), fallback: logout + login screen
+        } catch (_) {}
+      }
+      // Bez emailu nebo selhal auto-login -> normalni logout + login screen
+      try { await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
+      clearAuthMarker();
       window.location.reload();
     } else {
+      // Odhlaseni
       try { await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
       clearAuthMarker();
       window.location.reload();
@@ -939,8 +985,13 @@
     if (!myId) return;  // tenhle tab nic nezobrazuje, nerusime
     if (data.type === 'login' && data.user_id !== myId) {
       // V jinem tabu se prihlasil nekdo jiny -- cookie ted ukazuje tam.
-      const wasName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() || null;
-      _showAuthMismatchModal(data.user_id, wasName);
+      const wasInfo = {
+        user_id: currentUser.user_id,
+        email: currentUser.email || '',
+        first_name: currentUser.first_name || '',
+        last_name: currentUser.last_name || '',
+      };
+      _showAuthMismatchModal(data.user_id, wasInfo);
     } else if (data.type === 'logout') {
       // V jinem tabu se nekdo odhlasil. Overime nasi session.
       _checkAuthStillValid();
@@ -957,23 +1008,29 @@
       }
       const d = await r.json();
       if (currentUser && d.user_id !== currentUser.user_id) {
-        const wasName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() || null;
-        _showAuthMismatchModal(d.user_id, wasName);
+        const wasInfo = {
+          user_id: currentUser.user_id,
+          email: currentUser.email || '',
+          first_name: currentUser.first_name || '',
+          last_name: currentUser.last_name || '',
+        };
+        _showAuthMismatchModal(d.user_id, wasInfo);
       }
     } catch (_) {}
   }
 
-  /** Volano po showApp/tryAutoLogin -- overuje localStorage marker vs currentUser.
+  /** Volano po showApp/tryAutoLogin -- overuje sessionStorage marker vs currentUser.
       Pokud marker ukazuje na jineho usera nez /me prave vratilo, zobrazime modal. */
   function _checkAuthMarkerConsistency() {
     if (!currentUser) return;
-    const markerId = getAuthMarker();
-    if (markerId !== null && markerId !== currentUser.user_id) {
-      // localStorage si pamatuje puvodniho usera, ale cookie uz je nekdo jiny.
-      // wasUserName neznama (mame jen ID) -- modal ji zobrazi jako "jiny uzivatel".
-      _showAuthMismatchModal(currentUser.user_id, `uživatel #${markerId}`);
-    } else if (markerId === null) {
-      setAuthMarker(currentUser.user_id);
+    const marker = getAuthMarker();
+    if (marker && marker.user_id !== currentUser.user_id) {
+      // sessionStorage si pamatuje puvodniho usera tabu (+ email pro re-login).
+      // Cookie uz je nekdo jiny (v jinem tabu).
+      _showAuthMismatchModal(currentUser.user_id, marker);
+    } else if (!marker) {
+      // Nove zaznamename current user-a do sessionStorage
+      setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
     }
   }
 
@@ -1062,7 +1119,7 @@
       currentUser = await res.json();
       // Auth sync: accept-invite prave prihlasil usera (cookie je nastavena).
       // Ulozime marker + broadcast ostatnim tabum.
-      setAuthMarker(currentUser.user_id);
+      setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
       // Pokud nový user ještě nemá jméno (typicky po prvním invitation accept),
       // ukaž form 'Křestní/Příjmení/Rod' a Vstoupit nejdřív uloží přes PATCH /me.
       const hasName = !!(currentUser.first_name || currentUser.last_name);
@@ -1149,8 +1206,8 @@
       }
       currentUser = await res.json();
       try { localStorage.setItem('last_email', email); } catch (_) {}
-      // Auth sync: ulozime marker + broadcast do ostatnich tabu
-      setAuthMarker(currentUser.user_id);
+      // Auth sync: ulozime marker (per-tab sessionStorage) + broadcast do ostatnich tabu
+      setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
       await showApp();
     } catch (e) {
       loginError.textContent = 'Chyba spojení.';

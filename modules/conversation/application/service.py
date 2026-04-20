@@ -775,6 +775,25 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 f"Jméno: {display}\n"
                 f"Email: {email}"
             )
+        # Specialni pripady selhani — vrat AI strukturovanou hlasku, at muze
+        # nabidnout dalsi krok (pridani do projektu, info userovi).
+        reason = result.get("reason")
+        if reason == "already_active":
+            existing_name = result.get("existing_full_name") or "(bez jména)"
+            return (
+                f'⚠️ Email **{email}** už patří aktivnímu uživateli **{existing_name}**.\n\n'
+                f'Místo nové pozvánky můžeš:\n'
+                f'  • **Přidat ho do projektu** — řekni „přidej {existing_name} do projektu X"\n'
+                f'  • **Najít víc info** — find_user podle jména\n'
+                f'  • **Pozvat na jiný email** — pokud má víc adres'
+            )
+        if reason == "disabled":
+            return (
+                f"⚠️ Email **{email}** patří uživateli ve stavu '{result.get('existing_status')}'. "
+                f"Nejdřív ho admin musí znovu aktivovat, pak můžeš pozvat."
+            )
+        if not result["success"]:
+            return f"❌ Pozvánka selhala: {result.get('error', 'neznámá chyba')}"
         return (
             f"⚠️ Pozvánka vytvořena, ale email se nepodařilo odeslat.\n"
             f"Jméno: {display}\n"

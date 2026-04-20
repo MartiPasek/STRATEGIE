@@ -687,6 +687,30 @@ def invite_user_to_strategie(
             "last_name": last_name,
         }
     except Exception as e:
+        # Specialni typove vyjimky z invitation_service vraci se pekne strukturou,
+        # aby AI mohla zformulovat smysluplnou odpoved (napr. nabidnout pridani
+        # do projektu misto pozvani).
+        from modules.auth.application.invitation_service import (
+            UserAlreadyActive, UserDisabled,
+        )
+        if isinstance(e, UserAlreadyActive):
+            return {
+                "success": False,
+                "email": email,
+                "error": str(e),
+                "reason": "already_active",
+                "existing_user_id": e.user_id,
+                "existing_full_name": e.full_name,
+            }
+        if isinstance(e, UserDisabled):
+            return {
+                "success": False,
+                "email": email,
+                "error": str(e),
+                "reason": "disabled",
+                "existing_user_id": e.user_id,
+                "existing_status": e.status,
+            }
         return {"success": False, "email": email, "error": str(e)}
 
 

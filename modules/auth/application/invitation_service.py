@@ -20,6 +20,26 @@ logger = get_logger("auth.invitation")
 TOKEN_EXPIRY_HOURS = 48
 
 
+class UserAlreadyActive(Exception):
+    """Pokus o pozvani usera, ktery uz je v systemu jako active.
+
+    Atributy pro vyssi vrstvy (api / chat tools), aby mohly poskladat
+    informativni hlasku — jmeno usera, jeho tenanty apod.
+    """
+    def __init__(self, message: str, *, user_id: int, full_name: str | None = None):
+        super().__init__(message)
+        self.user_id = user_id
+        self.full_name = full_name
+
+
+class UserDisabled(Exception):
+    """Pokus o pozvani usera ve stavu 'disabled' / 'archived'."""
+    def __init__(self, message: str, *, user_id: int, status: str):
+        super().__init__(message)
+        self.user_id = user_id
+        self.status = status
+
+
 def create_invitation(
     email: str,
     invited_by_user_id: int,
@@ -53,9 +73,43 @@ def create_invitation(
 
         if existing_contact:
             user_id = existing_contact.user_id
-            logger.info(f"INVITATION | existing user | user_id={user_id}")
-            # Pokud existující user nemá jméno a my ho teď známe, doplň ho.
             existing_user = session.query(User).filter_by(id=user_id).first()
+            existing_status = existing_user.status if existing_user else None
+
+            # Active user — odmitnout pozvanku. Silent reuse je zmatecny: invitor
+            # si mysli ze pozvani noveho cloveka, ale v DB se jen vygeneruje token
+            # pro existujiciho usera. Lepsi je hned hlasit "tenhle uz je v systemu".
+            if existing_status == "active":
+                full = ""
+                if existing_user:
+                    full = " ".join(filter(None, [existing_user.first_name, existing_user.last_name])).strip()
+                logger.info(
+                    f"INVITATION | rejected (already active) | user_id={user_id} | email={needle}"
+                )
+                raise UserAlreadyActive(
+                    f"Uzivatel s emailem {email} uz je v systemu jako aktivni"
+                    f"{f' ({full})' if full else ''}. Pokud ho chces pridat do projektu nebo"
+                    f" tenantu, pouzij pro to specialni tooly (find_user + add_project_member"
+                    f" / pripadne pozvi do dalsiho tenantu pres jiny postup).",
+                    user_id=user_id,
+                    full_name=full or None,
+                )
+
+            # Disabled / archived user — taky odmitnout, ale s jinou hlaskou.
+            if existing_status in ("disabled", "archived"):
+                logger.info(
+                    f"INVITATION | rejected ({existing_status}) | user_id={user_id} | email={needle}"
+                )
+                raise UserDisabled(
+                    f"Uzivatel s emailem {email} je v systemu, ale ve stavu '{existing_status}'."
+                    f" Nejdriv ho znovu aktivuj (admin akce), pak pozvi.",
+                    user_id=user_id,
+                    status=existing_status,
+                )
+
+            # Pending user (typicky: nedokoncena predchozi pozvanka). Re-invitation
+            # flow — doplnime jmeno/gender pokud chybi, novy token vytvorime nize.
+            logger.info(f"INVITATION | re-invite (pending) | user_id={user_id}")
             if existing_user:
                 if first_name and not existing_user.first_name:
                     existing_user.first_name = first_name.strip()

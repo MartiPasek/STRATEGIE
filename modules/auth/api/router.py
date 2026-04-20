@@ -5,7 +5,10 @@ from core.database_core import get_core_session
 from core.logging import get_logger
 from modules.auth.api.schemas import LoginRequest, LoginResponse, SwitchTenantRequest
 from modules.auth.application.service import login_by_email, AmbiguousEmailError
-from modules.auth.application.invitation_service import create_invitation, accept_invitation
+from modules.auth.application.invitation_service import (
+    create_invitation, accept_invitation,
+    UserAlreadyActive, UserDisabled,
+)
 from modules.auth.application.user_context import get_user_context
 from modules.notifications.application.email_service import send_invitation_email
 from modules.core.infrastructure.models_core import User, UserContact, UserTenant
@@ -408,14 +411,37 @@ def invite(request: InviteRequest, req: Request) -> dict:
     finally:
         session.close()
 
-    token = create_invitation(
-        email=request.email,
-        invited_by_user_id=invited_by_user_id,
-        tenant_id=tenant_id or 1,
-        first_name=request.first_name,
-        last_name=request.last_name,
-        gender=request.gender,
-    )
+    try:
+        token = create_invitation(
+            email=request.email,
+            invited_by_user_id=invited_by_user_id,
+            tenant_id=tenant_id or 1,
+            first_name=request.first_name,
+            last_name=request.last_name,
+            gender=request.gender,
+        )
+    except UserAlreadyActive as e:
+        # 409 Conflict — konkretnejsi nez 400. Frontend muze zobrazit hlasku
+        # a nabidnout "pridat do projektu" jako alternativu.
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "reason": "already_active",
+                "existing_user_id": e.user_id,
+                "existing_full_name": e.full_name,
+            },
+        )
+    except UserDisabled as e:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "message": str(e),
+                "reason": "disabled",
+                "existing_user_id": e.user_id,
+                "existing_status": e.status,
+            },
+        )
 
     sent = send_invitation_email(
         to=request.email,

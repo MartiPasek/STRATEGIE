@@ -9,6 +9,13 @@ class Settings(BaseSettings):
     # Anthropic
     anthropic_api_key: str = ""
 
+    # Voyage AI -- embedding provider pro RAG. voyage-3 = 1024 dim, multilingual.
+    voyage_api_key: str = ""
+
+    # RAG -- adresar na disku kam se ukladaji nahrane dokumenty (PDF, DOCX, ...).
+    # Per-tenant subfolder: {DOCUMENTS_STORAGE_DIR}/{tenant_id}/{document_id}.{ext}
+    documents_storage_dir: str = "D:/Data/STRATEGIE/Dokumenty"
+
     # Databases
     database_url: str = ""
     database_core_url: str = ""

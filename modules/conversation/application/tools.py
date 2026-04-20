@@ -272,6 +272,47 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "search_documents",
+        "description": (
+            "Vyhleda v nahranych dokumentech tenantu/projektu pomoci semantickeho "
+            "vyhledavani (RAG -- pgvector + Voyage embeddings). Pouzij KDYKOLI "
+            "uzivatel pta na neco co MUZE byt v jeho nahranych dokumentech: "
+            "smlouvy, manualy, reporty, prezentace, faktury, interni dokumenty firmy, "
+            "PDF/DOCX/XLSX soubory, atd."
+            "\n\nKDY VOLAT:"
+            "\n- 'Co rika ta smlouva o ...' → search_documents('smlouva [tema]')"
+            "\n- 'Najdi v dokumentaci ...' → search_documents('[topic]')"
+            "\n- 'Co je v tom PDF o ...' → search_documents('[obsah]')"
+            "\n- 'V manualu pro ... bylo ze ...' → search_documents('[téma]')"
+            "\n- Cokoli o firemnich proceesech, smluvach, technicke dokumentaci"
+            "\n\nKDY NEvolat:"
+            "\n- Otazky o uzivatelich systemu STRATEGIE → find_user / list_users"
+            "\n- Otazky o projektech v systemu → list_projects / list_project_members"
+            "\n- Obecne znalosti (matematika, programovani, jazyky) → odpovez sam"
+            "\n\nVYSTUP: Top-k chunky s metadata (document_name, content, similarity 0..1). "
+            "Pouzij content jako kontext pro odpoved a v odpovedi REFERUJ na document_name "
+            "('Podle dokumentu \"Smlouva 2026.pdf\" plati ze ...'). Bez reference uzivatel nezna zdroj."
+            "\n\nSCOPE: Tool automaticky filtruje podle aktivniho tenant + project. "
+            "Pokud uzivatel ma vybrany projekt, vraceji se chunky z dokumentu projektu "
+            "+ tenant-globalni dokumenty. Bez projektu jen tenant-globalni."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Vyhledavaci dotaz. Stejny jazyk jako dokumenty (typicky cesky). Voyage zvlada multilingual, ale pro lepsi recall pis v jazyce dokumentu.",
+                },
+                "k": {
+                    "type": "integer",
+                    "description": "Pocet vraceneho top-k chunku. Default 5, max 20. Vetsi k = vetsi kontext ale vetsi token spotreba odpovedi.",
+                    "default": 5,
+                },
+            },
+            "required": ["query"],
+        },
+    },
 ]
 
 

@@ -10,6 +10,13 @@ from sqlalchemy import (
 from sqlalchemy.orm import Mapped, mapped_column
 from core.database_data import BaseData
 
+# pgvector integrace do SQLAlchemy. Import je hned vedle ostatnich typu,
+# aby Vector typ byl dostupny v model definici (DocumentVector.embedding).
+from pgvector.sqlalchemy import Vector
+
+# Voyage voyage-3 produces 1024-dim embeddings.
+EMBEDDING_DIM = 1024
+
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
@@ -121,32 +128,60 @@ class Memory(BaseData):
 # ── DOKUMENTY / RAG ────────────────────────────────────────────────────────
 
 class Document(BaseData):
+    """
+    RAG dokument -- jeden uploadovany soubor (PDF, DOCX, MD, ...).
+    Scope: tenant_id povinny, project_id volitelny (NULL = tenantovy obecny dokument).
+    user_id = uploader (pro audit + budouci access control).
+
+    Lifecycle:
+      is_processed=False, processing_error=NULL  -> upload prosel, ceka na chunking
+      is_processed=False, processing_error=NOT NULL -> chunking failed (viz error)
+      is_processed=True                          -> chunky + embeddings hotove, RAG ready
+    """
     __tablename__ = "documents"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    name: Mapped[str] = mapped_column(String(255))
+    name: Mapped[str] = mapped_column(String(255))                       # human-readable display name
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)   # pdf, docx, md, txt, ...
+    file_size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    storage_path: Mapped[str | None] = mapped_column(String(500), nullable=True)  # absolutni cesta na disku
+    extracted_text_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
 class DocumentChunk(BaseData):
+    """
+    Chunk = ~500 token vyrez z dokumentu. Drzi original text + pozici v
+    extrahovanem textu pro zpetne dohledani (highlight v UI atp.).
+    """
     __tablename__ = "document_chunks"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     document_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("documents.id", ondelete="CASCADE"))
     content: Mapped[str] = mapped_column(Text)
     chunk_index: Mapped[int] = mapped_column(Integer)
+    token_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    char_start: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    char_end: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class DocumentVector(BaseData):
+    """
+    Voyage voyage-3 embedding pro chunk. 1024 dimensions, cosine distance.
+    HNSW index (vector_cosine_ops) -- viz migrace c9e5d7f1a8b3.
+    """
     __tablename__ = "document_vectors"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     chunk_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("document_chunks.id", ondelete="CASCADE"))
-    # embedding: zatím bez pgvector — přidá se až bude extension dostupná
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    model: Mapped[str | None] = mapped_column(String(50), nullable=True)   # "voyage-3", pro budouci reingesting
 
 
 # ── AUDIT AKCÍ ─────────────────────────────────────────────────────────────

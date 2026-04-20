@@ -854,6 +854,68 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 f"Chceš pokračovat s výchozí personou?"
             )
 
+    if tool_name == "search_documents":
+        # RAG retrieval -- semanticke vyhledavani v nahranych dokumentech.
+        # Scope: aktuální tenant usera + pripadne aktivni projekt.
+        from modules.rag.application import service as rag_service
+
+        query = (tool_input.get("query") or "").strip()
+        k = int(tool_input.get("k") or 5)
+        k = max(1, min(k, 20))
+
+        if not query:
+            return "❌ Prázdný dotaz — nic jsem nehledal/a."
+
+        # Nacti user context pro tenant + project scope
+        if not user_id:
+            return "❌ Chybí user context pro RAG search."
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=user_id).first()
+            if not u or not u.last_active_tenant_id:
+                return "❌ Nemáš aktivní tenant."
+            tenant_id_scope = u.last_active_tenant_id
+            project_id_scope = u.last_active_project_id
+        finally:
+            cs.close()
+
+        try:
+            results = rag_service.search_documents(
+                query=query,
+                tenant_id=tenant_id_scope,
+                project_id=project_id_scope,
+                k=k,
+            )
+        except RuntimeError as e:
+            # Typicky chybi VOYAGE_API_KEY
+            return f"❌ RAG není připraven: {e}"
+        except Exception as e:
+            logger.exception(f"RAG search failed: {e}")
+            return f"❌ Vyhledávání selhalo: {e}"
+
+        if not results:
+            return "SEARCH_RESULTS: [] (zadne relevantni dokumenty)"
+
+        # Vratime RAW search results bez prozaicke obalky -- AI MUSI synthesizovat
+        # odpoved, ne prepouset blob chunku. Format je 'TOOL DATA', ne 'prose answer'.
+        # Claude pak vidi: "OK, toto je syrovy vysledek vyhledavani, musim ho
+        # zpracovat a odpovedet uzivateli vlastnimi slovy s odkazem na zdroj."
+        lines = ["SEARCH_RESULTS (raw chunks from RAG, synthesize answer below):"]
+        for i, r in enumerate(results, start=1):
+            src = r.get("original_filename") or r.get("document_name") or f"doc#{r['document_id']}"
+            sim = r["similarity"]
+            lines.append(f"\n[chunk #{i}] source={src} relevance={sim:.2f}")
+            lines.append(f"content:\n{r['content']}")
+        lines.append(
+            "\n---\nINSTRUKCE PRO AI: Na zaklade techto chunku odpovez uzivateli "
+            "VLASTNIMI SLOVY, strucne a k veci. Pri kazdem tvrzeni ktere pochazi "
+            "z dokumentu uved zdroj ve formatu '(z \"nazev_souboru.pdf\")'. "
+            "NEVRACEJ cely raw kontext uzivateli -- shrn."
+        )
+        return "\n".join(lines)
+
     return ""
 
 

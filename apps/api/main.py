@@ -12,6 +12,7 @@ from modules.auth.api.router import router as auth_router
 from modules.memory.api.router import router as memory_router
 from modules.projects.api.router import router as projects_router
 from modules.personas.api.router import router as personas_router
+from modules.rag.api.router import router as rag_router
 
 setup_logging()
 
@@ -36,6 +37,7 @@ app.include_router(auth_router)
 app.include_router(memory_router)
 app.include_router(projects_router)
 app.include_router(personas_router)
+app.include_router(rag_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

@@ -781,6 +781,27 @@
     </div>
   </div>
 
+  <!-- Dokumenty (RAG) modal -->
+  <div class="modal-overlay" id="documentsModal" style="display:none">
+    <div class="modal-box modal-box-wide">
+      <div class="modal-title">DOKUMENTY</div>
+      <div class="modal-text" id="documentsModalSub">
+        Nahraj PDF, DOCX, XLSX nebo text. AI je pak umí prohledat. Scope: aktuální tenant (a projekt, pokud ho máš zvolený).
+      </div>
+      <div style="display:flex;gap:8px;align-items:center;margin:12px 0;flex-wrap:wrap">
+        <input type="file" id="documentsFileInput" style="flex:1;min-width:200px" />
+        <button class="modal-btn modal-btn-primary" id="documentsUploadBtn" style="font-size:12px">Nahrát</button>
+      </div>
+      <div id="documentsUploadMsg" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
+      <div class="archive-list" id="documentsList">
+        <div class="sidebar-empty">Načítám…</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="documentsModalClose">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Archiv konverzací modal -->
   <div class="modal-overlay" id="archiveModal" style="display:none">
     <div class="modal-box modal-box-wide">
@@ -2442,6 +2463,149 @@
   }
 
   // ── ARCHIV KONVERZACÍ ──────────────────────────────────────────────────
+  // ── DOKUMENTY (RAG) MODAL ─────────────────────────────────────────────
+  function openDocumentsModal() {
+    const overlay = document.getElementById('documentsModal');
+    overlay.style.display = 'flex';
+    document.getElementById('documentsUploadMsg').textContent = '';
+    document.getElementById('documentsFileInput').value = '';
+    _refreshDocumentsList();
+    _wireDocumentsModalOnce();
+  }
+
+  let _documentsWired = false;
+  function _wireDocumentsModalOnce() {
+    if (_documentsWired) return;
+    _documentsWired = true;
+    document.getElementById('documentsModalClose').addEventListener('click', () => {
+      document.getElementById('documentsModal').style.display = 'none';
+    });
+    document.getElementById('documentsUploadBtn').addEventListener('click', _uploadDocument);
+  }
+
+  async function _refreshDocumentsList() {
+    const listEl = document.getElementById('documentsList');
+    listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+    // Project scope: pokud má user aktivní projekt, posli ho v query stringu
+    let url = '/api/v1/documents';
+    if (currentUser && currentUser.project_id) {
+      url += `?project_id=${currentUser.project_id}`;
+    }
+    try {
+      const r = await fetch(url, { credentials: 'include' });
+      if (!r.ok) {
+        listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${r.status}).</div>`;
+        return;
+      }
+      const data = await r.json();
+      _renderDocumentsList(data.documents || []);
+    } catch (e) {
+      listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+    }
+  }
+
+  function _renderDocumentsList(docs) {
+    const listEl = document.getElementById('documentsList');
+    listEl.innerHTML = '';
+    if (!docs || docs.length === 0) {
+      listEl.innerHTML = '<div class="sidebar-empty">Zatím nemáš žádné dokumenty.</div>';
+      return;
+    }
+    const _esc = (s) => String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+    const _humanSize = (b) => {
+      if (!b) return '—';
+      if (b < 1024) return `${b} B`;
+      if (b < 1024 * 1024) return `${(b / 1024).toFixed(1)} kB`;
+      return `${(b / 1024 / 1024).toFixed(1)} MB`;
+    };
+    const _statusBadge = (status, error) => {
+      if (status === 'ready') return '<span style="color:#7cd99e;font-size:11px">✓ připraven</span>';
+      if (status === 'error') return `<span style="color:#e07070;font-size:11px;cursor:help" title="${_esc(error || 'unknown error')}">✗ chyba</span>`;
+      return '<span style="color:#f0c050;font-size:11px">⏳ zpracovávám…</span>';
+    };
+    docs.forEach(d => {
+      const row = document.createElement('div');
+      row.className = 'archive-item';
+      row.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--border)';
+      row.innerHTML = `
+        <div style="flex:1;min-width:0">
+          <div style="font-size:13px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">
+            ${_esc(d.original_filename || d.name)}
+          </div>
+          <div style="font-size:10px;color:var(--muted);margin-top:2px">
+            ${_esc(d.file_type || '?')} · ${_humanSize(d.file_size_bytes)} · ${_statusBadge(d.status, d.processing_error)}
+            ${d.project_id ? ' · projekt' : ' · tenant-globální'}
+          </div>
+        </div>
+        <button class="conv-action-btn danger" data-doc-id="${d.id}" data-tooltip="Smazat" style="margin-left:8px">🗑</button>
+      `;
+      const delBtn = row.querySelector('button[data-doc-id]');
+      delBtn.addEventListener('click', async () => {
+        const ok = await customConfirm({
+          title: 'STRATEGIE',
+          text: `Smazat dokument „${d.original_filename || d.name}"? Akce je nevratná.`,
+          confirmLabel: 'Smazat',
+        });
+        if (!ok) return;
+        try {
+          const r = await fetch(`/api/v1/documents/${d.id}`, { method: 'DELETE', credentials: 'include' });
+          if (!r.ok) {
+            const err = await r.json().catch(() => ({}));
+            alert(err.detail || `Chyba ${r.status}`);
+            return;
+          }
+          _refreshDocumentsList();
+        } catch (e) {
+          alert('Chyba spojení.');
+        }
+      });
+      listEl.appendChild(row);
+    });
+  }
+
+  async function _uploadDocument() {
+    const fileInput = document.getElementById('documentsFileInput');
+    const msg = document.getElementById('documentsUploadMsg');
+    const btn = document.getElementById('documentsUploadBtn');
+    msg.style.color = ''; msg.textContent = '';
+
+    const file = fileInput.files && fileInput.files[0];
+    if (!file) { msg.style.color = '#e07070'; msg.textContent = 'Vyber soubor.'; return; }
+    if (file.size > 50 * 1024 * 1024) { msg.style.color = '#e07070'; msg.textContent = 'Soubor je větší než 50 MB.'; return; }
+
+    btn.disabled = true;
+    msg.style.color = 'var(--muted)';
+    msg.textContent = `Nahrávám „${file.name}" (${(file.size / 1024).toFixed(0)} kB)… může to chvilku trvat (extrakce + embeddings).`;
+
+    const fd = new FormData();
+    fd.append('file', file);
+    if (currentUser && currentUser.project_id) {
+      fd.append('project_id', String(currentUser.project_id));
+    }
+    try {
+      const r = await fetch('/api/v1/documents/upload', {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+      });
+      const d = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        msg.style.color = '#e07070';
+        msg.textContent = d.detail || `Chyba ${r.status}`;
+        return;
+      }
+      msg.style.color = '#7cd99e';
+      msg.textContent = `✓ Nahráno (id ${d.document_id}). Zpracovávám…`;
+      fileInput.value = '';
+      _refreshDocumentsList();
+    } catch (e) {
+      msg.style.color = '#e07070';
+      msg.textContent = 'Chyba spojení nebo serveru.';
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
   async function openArchiveModal() {
     const overlay = document.getElementById('archiveModal');
     const listEl = document.getElementById('archiveList');
@@ -2845,6 +3009,7 @@
     pd.innerHTML = '';
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
+      { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },

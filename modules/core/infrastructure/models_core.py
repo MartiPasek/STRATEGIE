@@ -241,6 +241,37 @@ class Invitation(BaseCore):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 
+class PasswordResetToken(BaseCore):
+    """
+    Jednorazovy token pro forgot-password flow.
+
+    Pouziti:
+      1. User klikne 'Zapomnel jsem heslo' + zada email -> create_reset_token()
+         - najde aktivniho usera, vygeneruje token, posle email s linkem.
+      2. Klik na link -> GET /reset-info/{token} (peek) -> frontend zobrazi form.
+      3. Submit new password -> consume_reset_token(): validuje expires_at a
+         used_at, hashuje nove heslo, ulozi, oznaci token jako pouzity.
+
+    Security:
+      - Token platny 60 minut (dost na prepnuti z gmail do prohlizece i
+        kdyby uzivatel zpozdil, ne dost na dlouhy leak)
+      - Jednorazovy (used_at) -- druhe pouziti selhava
+      - Pri vice zadostech invalidujeme stare tokeny (jen posledni funguje)
+    """
+    __tablename__ = "password_reset_tokens"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(BigInteger, ForeignKey("users.id", ondelete="CASCADE"))
+    token: Mapped[str] = mapped_column(String(255), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # Email na ktery byl token poslan -- pro audit + kontrolu ze user stale
+    # ma ten email jako aktivni kontakt (kdyby ho mezitim zmenil, token
+    # zneplatnime).
+    sent_to_email: Mapped[str] = mapped_column(String(255))
+
+
 class OnboardingSession(BaseCore):
     __tablename__ = "onboarding_sessions"
 

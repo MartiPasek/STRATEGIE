@@ -47,8 +47,10 @@
     .invite-form { display: flex; flex-direction: column; gap: 12px; padding: 14px 0; border-top: 1px solid var(--border); }
     .invite-form-row { display: flex; flex-direction: column; gap: 4px; }
     .invite-form-row label { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; letter-spacing: .06em; text-transform: uppercase; }
-    .invite-form-row input[type=text] { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; transition: border-color .12s; }
-    .invite-form-row input[type=text]:focus { border-color: var(--accent); }
+    .invite-form-row input[type=text],
+    .invite-form-row input[type=password] { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; transition: border-color .12s; }
+    .invite-form-row input[type=text]:focus,
+    .invite-form-row input[type=password]:focus { border-color: var(--accent); }
     .invite-gender-group { display: flex; gap: 6px; flex-wrap: wrap; }
     /* Logo font: 'Galano Grotesque' (až bude licence aktivovaná přes @font-face nahoře),
        fallback na Montserrat (Google Fonts, geometrický sans nejbližší Galano).
@@ -520,21 +522,29 @@
         <p class="invite-philosophy">AI nikdy nevidí víc než ty. Co jí řekneš, zůstává tvoje. Vše je dohledatelné a transparentní.</p>
       </div>
       <div class="invite-form" id="inviteForm" style="display:none">
-        <div class="invite-form-row">
+        <div class="invite-form-row" id="inviteFirstNameRow">
           <label for="inviteFirstName">Křestní jméno</label>
           <input type="text" id="inviteFirstName" placeholder="Klárka, Marti, Honza..." />
         </div>
-        <div class="invite-form-row">
+        <div class="invite-form-row" id="inviteLastNameRow">
           <label for="inviteLastName">Příjmení</label>
           <input type="text" id="inviteLastName" placeholder="Pašková, Novák..." />
         </div>
-        <div class="invite-form-row">
+        <div class="invite-form-row" id="inviteGenderRow">
           <label>Rod</label>
           <div class="invite-gender-group">
             <label class="profile-radio"><input type="radio" name="inviteGender" value="male" /> Muž</label>
             <label class="profile-radio"><input type="radio" name="inviteGender" value="female" /> Žena</label>
             <label class="profile-radio"><input type="radio" name="inviteGender" value="other" /> Jiné</label>
           </div>
+        </div>
+        <div class="invite-form-row">
+          <label for="invitePassword">Heslo (min. 8 znaků)</label>
+          <input type="password" id="invitePassword" placeholder="Zvol si heslo, kterým se budeš přihlašovat" autocomplete="new-password" />
+        </div>
+        <div class="invite-form-row">
+          <label for="invitePasswordConfirm">Heslo znovu</label>
+          <input type="password" id="invitePasswordConfirm" placeholder="Pro jistotu ještě jednou" autocomplete="new-password" />
         </div>
       </div>
       <button class="box-btn" id="inviteEnterBtn" style="display:none">Vstoupit do STRATEGIE</button>
@@ -552,6 +562,37 @@
       <input class="box-input" type="password" id="loginPassword" placeholder="Heslo" autocomplete="current-password" style="margin-top:8px" />
       <button class="box-btn" id="loginBtn">Přihlásit se</button>
       <div class="box-error" id="loginError"></div>
+      <div style="margin-top:14px;text-align:center;font-size:11px">
+        <a href="#" id="forgotPasswordLink" style="color:var(--muted);text-decoration:none">Zapomněl/a jsem heslo</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- FORGOT PASSWORD (zadost o reset email) -->
+  <div class="centered" id="forgotScreen" style="display:none">
+    <div class="box">
+      <div class="box-logo">Strategie</div>
+      <div class="box-title">Obnova hesla</div>
+      <div class="box-sub">Zadej email, na který je tvůj účet. Pošleme ti link na nastavení nového hesla.</div>
+      <input class="box-input" type="email" id="forgotEmail" placeholder="tvuj@email.cz" autocomplete="username" />
+      <button class="box-btn" id="forgotBtn">Poslat odkaz</button>
+      <div class="box-error" id="forgotMsg"></div>
+      <div style="margin-top:14px;text-align:center;font-size:11px">
+        <a href="#" id="forgotBackLink" style="color:var(--muted);text-decoration:none">← Zpět na přihlášení</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- RESET PASSWORD (set new password z linku) -->
+  <div class="centered" id="resetScreen" style="display:none">
+    <div class="box">
+      <div class="box-logo">Strategie</div>
+      <div class="box-title" id="resetTitle">Nové heslo</div>
+      <div class="box-sub" id="resetSub">Zvol si nové heslo pro svůj účet.</div>
+      <input class="box-input" type="password" id="resetPassword" placeholder="Nové heslo (min. 8 znaků)" autocomplete="new-password" />
+      <input class="box-input" type="password" id="resetPasswordConfirm" placeholder="Heslo znovu" autocomplete="new-password" style="margin-top:8px" />
+      <button class="box-btn" id="resetBtn">Nastavit heslo a přihlásit</button>
+      <div class="box-error" id="resetMsg"></div>
     </div>
   </div>
 
@@ -1115,7 +1156,181 @@
     return n;  // gender neznamy -> nominativ
   }
 
+  // ── FORGOT PASSWORD FLOW ───────────────────────────────────────────────
+  // 1. Klik "Zapomněl jsem heslo" -> zobrazi forgotScreen
+  // 2. Zadani emailu + submit -> POST /forgot-password (vzdy 200, no enumeration)
+  //    -> hlaska "Pokud je email v systemu, posloali jsme link"
+  // 3. (User klika na link v emailu, /reset/{token} se otevre) -- handle: checkResetToken
+  (function wireForgotPassword() {
+    const fLink = document.getElementById('forgotPasswordLink');
+    const fBack = document.getElementById('forgotBackLink');
+    const fBtn  = document.getElementById('forgotBtn');
+    const fEmail = document.getElementById('forgotEmail');
+    const fMsg  = document.getElementById('forgotMsg');
+    const fScr  = document.getElementById('forgotScreen');
+    if (!fLink || !fBtn) return;   // defensiva -- elementy musi existovat
+
+    fLink.addEventListener('click', (e) => {
+      e.preventDefault();
+      fEmail.value = (loginEmail && loginEmail.value) || '';
+      fMsg.textContent = '';
+      fMsg.style.color = '';
+      loginScreen.style.display = 'none';
+      fScr.style.display = 'flex';
+      setTimeout(() => fEmail.focus(), 50);
+    });
+    fBack.addEventListener('click', (e) => {
+      e.preventDefault();
+      fScr.style.display = 'none';
+      loginScreen.style.display = 'flex';
+    });
+    fEmail.addEventListener('keydown', e => { if (e.key === 'Enter') doForgot(); });
+    fBtn.addEventListener('click', doForgot);
+
+    async function doForgot() {
+      const email = fEmail.value.trim();
+      if (!email) { fMsg.style.color = '#e07070'; fMsg.textContent = 'Zadej email.'; return; }
+      fBtn.disabled = true;
+      fMsg.style.color = '';
+      fMsg.textContent = 'Odesílám…';
+      try {
+        const r = await fetch('/api/v1/auth/forgot-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (r.ok) {
+          fMsg.style.color = '#7cd99e';
+          fMsg.textContent = d.message || 'Pokud je email v systému, poslali jsme link.';
+        } else {
+          fMsg.style.color = '#e07070';
+          fMsg.textContent = d.detail || `Chyba ${r.status}`;
+        }
+      } catch (e) {
+        fMsg.style.color = '#e07070';
+        fMsg.textContent = 'Chyba spojení.';
+      } finally {
+        fBtn.disabled = false;
+      }
+    }
+  })();
+
+  // Detekce /reset/{token} URL -- zobrazi resetScreen, otestuje token,
+  // umozni nastavit nove heslo. Po uspechu auto-redirect do app.
+  async function checkResetToken() {
+    const path = window.location.pathname;
+    const match = path.match(/^\/reset\/(.+)$/);
+    if (!match) return false;
+
+    const token = match[1];
+    const lScr = document.getElementById('loginScreen');
+    const rScr = document.getElementById('resetScreen');
+    const rTitle = document.getElementById('resetTitle');
+    const rSub = document.getElementById('resetSub');
+    const rPw = document.getElementById('resetPassword');
+    const rPwc = document.getElementById('resetPasswordConfirm');
+    const rBtn = document.getElementById('resetBtn');
+    const rMsg = document.getElementById('resetMsg');
+
+    lScr.style.display = 'none';
+    rScr.style.display = 'flex';
+    rMsg.textContent = ''; rMsg.style.color = '';
+    rSub.textContent = 'Ověřuji odkaz…';
+
+    let info;
+    try {
+      const r = await fetch(`/api/v1/auth/reset-info/${token}`);
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        rTitle.textContent = 'Odkaz nefunguje';
+        rSub.textContent = d.detail || 'Odkaz není platný nebo vypršel. Požádej o nový.';
+        rPw.style.display = 'none';
+        rPwc.style.display = 'none';
+        rBtn.style.display = 'none';
+        return true;
+      }
+      info = await r.json();
+    } catch (e) {
+      rSub.textContent = 'Chyba spojení.';
+      return true;
+    }
+
+    // Validni token -> rozsvit form
+    const greetName = info.first_name || '';
+    rTitle.textContent = greetName ? `Ahoj ${greetName}` : 'Nové heslo';
+    rSub.textContent = `Nastavíš heslo pro účet ${info.email_masked}.`;
+    setTimeout(() => rPw.focus(), 80);
+
+    rPwc.addEventListener('keydown', e => { if (e.key === 'Enter') doReset(); });
+    rBtn.addEventListener('click', doReset);
+
+    async function doReset() {
+      const pw = rPw.value;
+      const pwc = rPwc.value;
+      rMsg.style.color = ''; rMsg.textContent = '';
+      if (!pw || pw.length < 8) {
+        rMsg.style.color = '#e07070';
+        rMsg.textContent = 'Heslo musí mít alespoň 8 znaků.';
+        return;
+      }
+      if (pw !== pwc) {
+        rMsg.style.color = '#e07070';
+        rMsg.textContent = 'Hesla se neshodují.';
+        return;
+      }
+      rBtn.disabled = true;
+      rMsg.textContent = 'Nastavuji…';
+      try {
+        const r = await fetch('/api/v1/auth/reset-password', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ token, new_password: pw }),
+        });
+        const d = await r.json().catch(() => ({}));
+        if (!r.ok) {
+          rMsg.style.color = '#e07070';
+          rMsg.textContent = d.detail || `Chyba ${r.status}`;
+          rBtn.disabled = false;
+          return;
+        }
+        // Po uspechu -- backend setnul cookies, refresh /me a do app
+        rMsg.style.color = '#7cd99e';
+        rMsg.textContent = '✓ Heslo nastaveno. Přihlašuji…';
+        rPw.value = ''; rPwc.value = '';
+        try {
+          const me = await fetch('/api/v1/auth/me', { credentials: 'include' });
+          if (me.ok) currentUser = await me.json();
+        } catch (_) {}
+        setTimeout(() => {
+          window.history.replaceState({}, '', '/');
+          rScr.style.display = 'none';
+          if (currentUser) {
+            setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
+            showApp();
+          } else {
+            // Fallback -- backend ackoli nastavil cookies, /me selhalo. Vrat na login.
+            lScr.style.display = 'flex';
+          }
+        }, 800);
+      } catch (e) {
+        rMsg.style.color = '#e07070';
+        rMsg.textContent = 'Chyba spojení.';
+        rBtn.disabled = false;
+      }
+    }
+    return true;
+  }
+
   // ── INVITE FLOW ────────────────────────────────────────────────────────
+  // Nova architektura (po pridani hesel):
+  //   1. PEEK GET /invitation-info/{token} -- info o pozvance bez aktivace
+  //   2. Render welcome screen + form s heslem (vzdy) a jmenem/genderem
+  //      (jen kdyz v DB chybi)
+  //   3. ACCEPT POST /accept/{token} s body {password, first_name?, ...}
+  //      -- aktivuje usera, ulozi heslo, setne cookies
+  //   4. Refresh /me -> showApp
   async function checkInviteToken() {
     const path = window.location.pathname;
     const match = path.match(/^\/invite\/(.+)$/);
@@ -1124,83 +1339,125 @@
     const token = match[1];
     loginScreen.style.display = 'none';
     inviteScreen.style.display = 'flex';
-    document.getElementById('inviteSub').textContent = 'Přijímám pozvánku…';
+    document.getElementById('inviteSub').textContent = 'Načítám pozvánku…';
 
+    let info;
     try {
-      const res = await fetch(`/api/v1/auth/accept/${token}`, {
+      const res = await fetch(`/api/v1/auth/invitation-info/${token}`, {
         credentials: 'include',
       });
-
       if (!res.ok) {
         document.getElementById('inviteSub').textContent = '';
         document.getElementById('inviteError').textContent = 'Pozvánka není platná nebo vypršela.';
         return true;
       }
+      info = await res.json();
+    } catch (e) {
+      document.getElementById('inviteError').textContent = 'Chyba spojení.';
+      return true;
+    }
 
-      currentUser = await res.json();
-      // Auth sync: accept-invite prave prihlasil usera (cookie je nastavena).
-      // Ulozime marker + broadcast ostatnim tabum.
-      setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
-      // Pokud nový user ještě nemá jméno (typicky po prvním invitation accept),
-      // ukaž form 'Křestní/Příjmení/Rod' a Vstoupit nejdřív uloží přes PATCH /me.
-      const hasName = !!(currentUser.first_name || currentUser.last_name);
-      const greetingNow = hasName
-        ? (currentUser.display_name || currentUser.first_name || currentUser.email)
-        : 'nový uživateli';
-      // Pro "Vítej, X!" potřebujeme vokativ (Klára -> Kláro).
-      // Po "jako X" zůstává nominativ ("jako Klára").
-      const greetingVoc = hasName
-        ? toVocative(currentUser.first_name || greetingNow, currentUser.gender)
-        : greetingNow;
-      document.getElementById('inviteTitle').textContent = hasName
-        ? `Vítej, ${greetingVoc}!`
-        : 'Vítej v STRATEGIE!';
-      document.getElementById('inviteSub').textContent = hasName
-        ? 'Tvůj účet je připraven. Než vstoupíš, podívej se co tě čeká:'
-        : 'Tvůj účet je připraven. Vyplň pár základních údajů a pojď dovnitř.';
-      document.getElementById('inviteIntro').style.display = 'block';
-      if (!hasName) {
-        document.getElementById('inviteForm').style.display = 'flex';
-      }
-      const enterBtn = document.getElementById('inviteEnterBtn');
-      enterBtn.style.display = '';
-      enterBtn.textContent = hasName
-        ? `Vstoupit do STRATEGIE jako ${greetingNow}`
-        : 'Vstoupit do STRATEGIE';
-      enterBtn.addEventListener('click', async () => {
-        if (!hasName) {
-          // Ulož jméno + gender PŘED vstupem
-          const fn = document.getElementById('inviteFirstName').value.trim();
-          const ln = document.getElementById('inviteLastName').value.trim();
-          const gen = (document.querySelector('input[name=inviteGender]:checked') || {}).value || null;
-          if (!fn) { alert('Zadej alespoň křestní jméno.'); return; }
-          try {
-            const r = await fetch('/api/v1/auth/me', {
-              method: 'PATCH',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ first_name: fn, last_name: ln, gender: gen }),
-              credentials: 'include',
-            });
-            if (r.ok) currentUser = await r.json();
-          } catch (e) { /* nech to být — vstoupí i tak */ }
-        } else {
-          // hasName=true: accept-invite vrátilo jen základ (user_id, first_name,
-          // email, tenant_id). Refreshneme přes /me, ať máme plný kontext pro
-          // hlavičku (display_name, tenant_name, aliases) — bez toho by tenant
-          // pilulka ukazovala jen fallback jméno bez názvu tenantu.
-          try {
-            const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
-            if (r.ok) currentUser = await r.json();
-          } catch (e) { /* fallback zvládne showApp */ }
+    // Predvyplneni z info (jmeno/gender mohli byt nastaveny pri create_invitation)
+    const hasName = !!(info.first_name || info.last_name);
+    const greetingName = info.first_name || info.email || 'nový uživateli';
+    const greetingVoc = hasName ? toVocative(info.first_name, info.gender) : greetingName;
+
+    document.getElementById('inviteTitle').textContent = hasName
+      ? `Vítej, ${greetingVoc}!`
+      : 'Vítej v STRATEGIE!';
+    document.getElementById('inviteSub').textContent = hasName
+      ? 'Tvůj účet je připraven. Zvol si heslo a pojď dovnitř.'
+      : 'Tvůj účet je připraven. Vyplň pár údajů a pojď dovnitř.';
+    document.getElementById('inviteIntro').style.display = 'block';
+    document.getElementById('inviteForm').style.display = 'flex';
+
+    // Schovej rows ktere uz mame z DB (jmeno/gender). Heslove pole je vzdy.
+    const fnRow = document.getElementById('inviteFirstNameRow');
+    const lnRow = document.getElementById('inviteLastNameRow');
+    const genRow = document.getElementById('inviteGenderRow');
+    if (info.first_name) { fnRow.style.display = 'none'; }
+    if (info.last_name)  { lnRow.style.display = 'none'; }
+    if (info.gender)     { genRow.style.display = 'none'; }
+
+    // Predvyplnit, kdyby user chtel jeste editovat (rows jsou skryte ale value drzi)
+    document.getElementById('inviteFirstName').value = info.first_name || '';
+    document.getElementById('inviteLastName').value  = info.last_name  || '';
+    if (info.gender) {
+      const r = document.querySelector(`input[name=inviteGender][value="${info.gender}"]`);
+      if (r) r.checked = true;
+    }
+
+    const enterBtn = document.getElementById('inviteEnterBtn');
+    enterBtn.style.display = '';
+    enterBtn.textContent = hasName
+      ? `Vstoupit do STRATEGIE jako ${greetingName}`
+      : 'Vstoupit do STRATEGIE';
+
+    // Focus na prvni prazdne pole
+    setTimeout(() => {
+      if (!info.first_name) document.getElementById('inviteFirstName').focus();
+      else document.getElementById('invitePassword').focus();
+    }, 80);
+
+    enterBtn.addEventListener('click', async () => {
+      const fn = document.getElementById('inviteFirstName').value.trim();
+      const ln = document.getElementById('inviteLastName').value.trim();
+      const gen = (document.querySelector('input[name=inviteGender]:checked') || {}).value || null;
+      const pw = document.getElementById('invitePassword').value;
+      const pwc = document.getElementById('invitePasswordConfirm').value;
+
+      const errBox = document.getElementById('inviteError');
+      errBox.textContent = '';
+
+      if (!fn && !info.first_name) { errBox.textContent = 'Zadej křestní jméno.'; return; }
+      if (!pw || pw.length < 8) { errBox.textContent = 'Heslo musí mít alespoň 8 znaků.'; return; }
+      if (pw !== pwc) { errBox.textContent = 'Hesla se neshodují.'; return; }
+
+      enterBtn.disabled = true;
+      enterBtn.textContent = 'Aktivuji účet…';
+
+      try {
+        const r = await fetch(`/api/v1/auth/accept/${token}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({
+            password: pw,
+            first_name: fn || null,
+            last_name: ln || null,
+            gender: gen,
+          }),
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          errBox.textContent = err.detail || `Chyba ${r.status}`;
+          enterBtn.disabled = false;
+          enterBtn.textContent = 'Vstoupit do STRATEGIE';
+          return;
         }
+        currentUser = await r.json();
+        setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
+
+        // Refresh /me ať máme plný kontext (display_name, tenant_name, aliases)
+        try {
+          const me = await fetch('/api/v1/auth/me', { credentials: 'include' });
+          if (me.ok) currentUser = await me.json();
+        } catch (_) { /* fallback zvládne showApp */ }
+
+        // Vycisti hesla z DOM
+        document.getElementById('invitePassword').value = '';
+        document.getElementById('invitePasswordConfirm').value = '';
+
         window.history.replaceState({}, '', '/');
         inviteScreen.style.display = 'none';
         showApp();
-      }, { once: true });
+      } catch (e) {
+        errBox.textContent = 'Chyba spojení.';
+        enterBtn.disabled = false;
+        enterBtn.textContent = 'Vstoupit do STRATEGIE';
+      }
+    }, { once: false });   // necháme klik opakovaně dostupný (kdyby po erroru chtěl znovu)
 
-    } catch (e) {
-      document.getElementById('inviteError').textContent = 'Chyba spojení.';
-    }
     return true;
   }
 
@@ -1683,6 +1940,17 @@
           ${_row('Primární email', u.email)}
         </div>
         <div class="profile-section">
+          <div class="profile-section-title">Heslo</div>
+          <div id="passwordChangeArea">
+            <div class="profile-row">
+              <div class="profile-row-label">Heslo</div>
+              <div class="profile-row-value">
+                <button class="modal-btn modal-btn-secondary" id="passwordChangeBtn" style="font-size:11px;padding:4px 12px">Změnit heslo</button>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="profile-section">
           <div class="profile-section-title">Globální aliasy</div>
           ${aliasesHtml}
         </div>
@@ -1703,6 +1971,11 @@
         profileEditMode = true;
         _renderProfileModal();
       });
+      // Heslo -- otevre inline formular se 3 poli (current/new/confirm)
+      const pwBtn = document.getElementById('passwordChangeBtn');
+      if (pwBtn) {
+        pwBtn.addEventListener('click', () => _renderPasswordChangeForm());
+      }
     } else {
       // EDIT mód
       const genderOptions = [
@@ -1783,6 +2056,101 @@
       });
       document.getElementById('profileSaveBtn').addEventListener('click', _saveProfile);
     }
+  }
+
+  // ── Inline change-password form (uvnitr profilu, sekce "Heslo") ────
+  function _renderPasswordChangeForm() {
+    const area = document.getElementById('passwordChangeArea');
+    if (!area) return;
+    area.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <input type="password" class="profile-input" id="pwCurrent"
+               placeholder="Současné heslo" autocomplete="current-password" />
+        <input type="password" class="profile-input" id="pwNew"
+               placeholder="Nové heslo (min. 8 znaků)" autocomplete="new-password" />
+        <input type="password" class="profile-input" id="pwConfirm"
+               placeholder="Nové heslo znovu" autocomplete="new-password" />
+        <div id="pwMsg" style="font-size:11px;min-height:14px"></div>
+        <div style="display:flex;gap:8px;justify-content:flex-end">
+          <button class="modal-btn modal-btn-secondary" id="pwCancelBtn"
+                  style="font-size:11px;padding:4px 12px">Zrušit</button>
+          <button class="modal-btn modal-btn-primary" id="pwSaveBtn"
+                  style="font-size:11px;padding:4px 12px">Uložit</button>
+        </div>
+      </div>`;
+    const cur = document.getElementById('pwCurrent');
+    const ne  = document.getElementById('pwNew');
+    const co  = document.getElementById('pwConfirm');
+    const msg = document.getElementById('pwMsg');
+    const btnSave = document.getElementById('pwSaveBtn');
+    const btnCancel = document.getElementById('pwCancelBtn');
+
+    setTimeout(() => cur.focus(), 50);
+
+    btnCancel.addEventListener('click', () => {
+      // Re-render cele view sekce (vrati button "Zmenit heslo")
+      _renderProfileModal();
+    });
+
+    const submit = async () => {
+      msg.style.color = 'var(--muted)';
+      msg.textContent = '';
+
+      if (!cur.value || !ne.value || !co.value) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Vyplň všechna tři pole.';
+        return;
+      }
+      if (ne.value.length < 8) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Nové heslo musí mít aspoň 8 znaků.';
+        return;
+      }
+      if (ne.value !== co.value) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Nová hesla se neshodují.';
+        return;
+      }
+      if (ne.value === cur.value) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Nové heslo musí být jiné než současné.';
+        return;
+      }
+
+      btnSave.disabled = true;
+      msg.textContent = 'Ukládám…';
+      try {
+        const res = await fetch('/api/v1/auth/me/change-password', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json'},
+          credentials: 'include',
+          body: JSON.stringify({
+            current_password: cur.value,
+            new_password: ne.value,
+          }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          msg.style.color = '#e07070';
+          msg.textContent = err.detail || `Chyba ${res.status}`;
+          // Pri spatnem soucasnem hesle vyclear current pole + focus
+          if (res.status === 401) { cur.value = ''; cur.focus(); }
+          return;
+        }
+        // Success: clear pole, hlaska, vrat se po 1.5s do view modu
+        cur.value = ''; ne.value = ''; co.value = '';
+        msg.style.color = '#7cd99e';
+        msg.textContent = '✓ Heslo změněno.';
+        setTimeout(() => { _renderProfileModal(); }, 1500);
+      } catch (e) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Chyba spojení.';
+      } finally {
+        btnSave.disabled = false;
+      }
+    };
+    btnSave.addEventListener('click', submit);
+    co.addEventListener('keydown', (e) => { if (e.key === 'Enter') submit(); });
   }
 
   // ── Display name v aktuálním tenantu (per-tenant 'Oslovuj mě') ─────
@@ -4419,6 +4787,10 @@
 
   // ── INIT ───────────────────────────────────────────────────────────────
   (async () => {
+    // /reset/{token} ma prednost pred /invite/{token} pred auto-loginem
+    const resetHandled = await checkResetToken();
+    if (resetHandled) return;
+
     const handled = await checkInviteToken();
     if (handled) return;
 

@@ -212,8 +212,61 @@ def create_invitation(
         session.close()
 
 
-def accept_invitation(token: str) -> dict | None:
-    """Přijme pozvánku a aktivuje uživatele."""
+def get_invitation_info(token: str) -> dict | None:
+    """Peek na pozvánku BEZ aktivace usera. Frontend si tím tahá info pro
+    welcome screen (email, předvyplněné jméno z create_invitation, gender),
+    aby uživatel viděl co o něm víme, než se aktivně přihlásí.
+    Vrací None pokud token neexistuje nebo expiroval."""
+    session = get_core_session()
+    try:
+        invitation = session.query(Invitation).filter_by(token=token).first()
+        if not invitation:
+            return None
+        if invitation.expires_at < datetime.now(timezone.utc):
+            return None
+        user = session.query(User).filter_by(id=invitation.user_id).first()
+        if not user:
+            return None
+        return {
+            "email": invitation.email,
+            "first_name": user.first_name,
+            "last_name": user.last_name,
+            "gender": user.gender,
+            "has_password": user.password_hash is not None,
+            "user_status": user.status,
+        }
+    finally:
+        session.close()
+
+
+def accept_invitation(
+    token: str,
+    *,
+    password: str | None = None,
+    first_name: str | None = None,
+    last_name: str | None = None,
+    gender: str | None = None,
+) -> dict | None:
+    """Přijme pozvánku a aktivuje uživatele.
+
+    Args:
+        password: pokud zadané, uloží se bcrypt hash + password_set_at.
+                  Volá hash_password (raise PasswordTooShort při < 8 znaků).
+                  None ponechává password_hash beze změny (legacy / re-accept).
+        first_name/last_name/gender: pokud zadané, doplní se na user record.
+                  Nepřepisuje existující hodnoty -- jen vyplní chybějící.
+
+    Raises:
+        PasswordTooShort: nové heslo je kratší než MIN_PASSWORD_LENGTH.
+    """
+    from modules.auth.application.password import hash_password
+
+    # Validate + hash heslo PŘED DB transakcí, aby PasswordTooShort vyhodilo
+    # bez side-effectů. Když je hash hotový, sahneme do DB jen pro update.
+    new_password_hash: str | None = None
+    if password:
+        new_password_hash = hash_password(password)  # raises PasswordTooShort
+
     session = get_core_session()
     try:
         invitation = session.query(Invitation).filter_by(token=token).first()
@@ -228,6 +281,23 @@ def accept_invitation(token: str) -> dict | None:
         user = session.query(User).filter_by(id=invitation.user_id).first()
         if not user:
             return None
+
+        # Doplň jméno/gender pokud uživatel je ještě nemá. Nepřepisuje
+        # existující -- create_invitation už mohl něco přednastavit přes
+        # invitor (find_user "Klára Vlková" + invite gender=female).
+        if first_name and not user.first_name:
+            user.first_name = first_name.strip() or None
+        if last_name and not user.last_name:
+            user.last_name = last_name.strip() or None
+        if gender and not user.gender:
+            user.gender = gender
+
+        # Heslo nastav VŽDY pokud bylo zadáno -- self-service set/reset přes
+        # accept-invite link je legitimní use-case (např. forgot-password
+        # flow může později reusenout stejnou tabulku invitations).
+        if new_password_hash is not None:
+            user.password_hash = new_password_hash
+            user.password_set_at = datetime.now(timezone.utc)
 
         user.status = "active"
 

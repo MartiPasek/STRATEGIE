@@ -69,17 +69,17 @@ def send_invitation_email(
 ) -> bool:
     """
     Odešle pozvánkový email do STRATEGIE.
-    Base URL z env var APP_BASE_URL (fallback localhost:8002 — dev port).
-    Pro production deploy nastavit env na public hostname.
+    Base URL ze settings.app_base_url (nactene z .env pres pydantic-settings).
+    Pro production deploy nastavit APP_BASE_URL=https://app.strategie-system.com.
 
     Pokud známe křestní jméno pozvaného (invitee_first_name), použij ho v oslovení
     ve vokativu podle rodu — pozvaný tak hned vidí, že ho systém zná a oslovuje
     ho česky správně ("Ahoj Kláro," místo "Ahoj Klára,").
     """
-    import os
     from shared.czech import to_vocative
+    from core.config import settings
 
-    base_url = os.environ.get("APP_BASE_URL", "http://localhost:8002")
+    base_url = settings.app_base_url.rstrip("/")
     link = f"{base_url}/invite/{token}"
 
     vocative = to_vocative(invitee_first_name, invitee_gender).strip()
@@ -96,6 +96,44 @@ Pro vstup klikni na tento odkaz:
 {link}
 
 Odkaz je platný 48 hodin.
+
+S pozdravem,
+Tým STRATEGIE
+"""
+    return send_email(to=to, subject=subject, body=body)
+
+
+def send_password_reset_email(
+    to: str,
+    token: str,
+    first_name: str | None = None,
+    gender: str | None = None,
+) -> bool:
+    """
+    Odesle email s linkem pro obnovu hesla. Link je platny 60 minut,
+    jednorazovy. Pokud uzivatel o reset nezadal, nemusi delat nic --
+    token si sam vyprsi a lze ho rovnou ignorovat.
+    """
+    from shared.czech import to_vocative
+    from core.config import settings
+
+    base_url = settings.app_base_url.rstrip("/")
+    link = f"{base_url}/reset/{token}"
+
+    vocative = to_vocative(first_name, gender).strip() if first_name else ""
+    greeting = f"Ahoj {vocative}," if vocative else "Ahoj,"
+
+    subject = "Obnovení hesla — STRATEGIE"
+    body = f"""{greeting}
+
+někdo (pravděpodobně ty) požádal o obnovu hesla k tvému účtu v systému STRATEGIE.
+
+Klikni na tento odkaz pro nastavení nového hesla:
+{link}
+
+Odkaz je platný 60 minut a dá se použít jen jednou.
+
+Pokud jsi o reset nežádal, ignoruj tento email. Tvoje současné heslo zůstává v platnosti, nikdo se k tvému účtu nedostal.
 
 S pozdravem,
 Tým STRATEGIE

@@ -26,8 +26,11 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
 from modules.auth.api.schemas import LoginRequest, LoginResponse, SwitchTenantRequest
 from modules.auth.application.service import login_by_email, AmbiguousEmailError, PasswordNotSet
 from modules.auth.application.invitation_service import (
-    create_invitation, accept_invitation,
+    create_invitation, accept_invitation, get_invitation_info,
     UserAlreadyActive, UserDisabled,
+)
+from modules.auth.application.password_reset_service import (
+    create_reset_token, get_reset_info, consume_reset_token,
 )
 from modules.auth.application.user_context import get_user_context
 from modules.notifications.application.email_service import send_invitation_email
@@ -250,6 +253,150 @@ def update_profile(body: UpdateProfileRequest, req: Request) -> LoginResponse:
     if ctx is None:
         raise HTTPException(status_code=401, detail="Účet není aktivní.")
     return LoginResponse(**ctx)
+
+
+# ── FORGOT / RESET PASSWORD ──────────────────────────────────────────────
+
+class ForgotPasswordRequest(BaseModel):
+    email: str
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    new_password: str
+
+
+@router.post("/forgot-password")
+def forgot_password(body: ForgotPasswordRequest) -> dict:
+    """
+    Zadost o reset hesla. VZDY vraci 200 OK, aby utocnik nemohl zjistit,
+    zda email v systemu existuje nebo ne (account enumeration prevention).
+    Pokud email existuje a ma aktivniho usera, posle se mail s linkem.
+    Pokud neexistuje, jen logujeme a mlcime.
+    """
+    from modules.notifications.application.email_service import send_password_reset_email
+
+    email = (body.email or "").strip()
+    if not email or "@" not in email:
+        # Validace formatu -- pri zcela zjevne nevalidnim emailu vratime 400,
+        # neni to security leak (kazdy validator by to vratil stejne).
+        raise HTTPException(status_code=400, detail="Neplatný formát emailu.")
+
+    result = create_reset_token(email)
+    if result is None:
+        # No enumeration -- vracime 200 i kdyz user neexistuje
+        logger.info(f"AUTH | forgot-password (no user) | email={email}")
+        return {"status": "ok", "message": "Pokud je email v systému, poslali jsme ti link pro obnovu hesla."}
+
+    token, user_id, first_name = result
+
+    # Poslat email. Kdyby EWS selhal, logujeme a vracime 200 -- security
+    # failure nebudeme ukazovat uzivateli (muze byt docasny problem s mailem).
+    try:
+        send_password_reset_email(to=email, token=token, first_name=first_name)
+        logger.info(f"AUTH | forgot-password email sent | user_id={user_id} | email={email}")
+    except Exception as e:
+        logger.error(f"AUTH | forgot-password email failed | user_id={user_id} | error={e}")
+
+    return {"status": "ok", "message": "Pokud je email v systému, poslali jsme ti link pro obnovu hesla."}
+
+
+@router.get("/reset-info/{token}")
+def reset_info_endpoint(token: str) -> dict:
+    """Peek na reset token. Frontend si tahne masked email + first_name
+    pro vykresleni 'Zmenit heslo pro m***@gmail.com' stitku pred formem."""
+    info = get_reset_info(token)
+    if not info:
+        raise HTTPException(status_code=404, detail="Odkaz není platný nebo vypršel.")
+    return info
+
+
+@router.post("/reset-password")
+def reset_password(body: ResetPasswordRequest, response: Response) -> dict:
+    """
+    Spotrebuje reset token, nastavi nove heslo, oznaci token jako pouzity.
+    PO uspechu setne auth cookies -- user je rovnou prihlaseny, nemusi
+    znovu zadavat heslo co si prave nastavil.
+    """
+    from modules.auth.application.password import PasswordTooShort
+    from modules.auth.application.user_context import get_user_context
+
+    try:
+        result = consume_reset_token(body.token, body.new_password)
+    except PasswordTooShort as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    if not result:
+        raise HTTPException(status_code=404, detail="Odkaz není platný nebo vypršel.")
+
+    # Po uspesnem resetu usera rovnou prihlasime (smooth UX -- po submitu
+    # hesla se rovnou ocita v app, nemusi opisovat znovu email+heslo).
+    ctx = get_user_context(result["user_id"])
+    if ctx is not None:
+        _set_auth_cookies(response, ctx["user_id"], ctx.get("tenant_id"))
+
+    return {"status": "password_reset", "email": result["email"]}
+
+
+# ── CHANGE PASSWORD ──────────────────────────────────────────────────────
+
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+@router.post("/me/change-password")
+def change_password(body: ChangePasswordRequest, req: Request) -> dict:
+    """
+    Self-service změna hesla. User musí znát současné heslo (defense
+    in-depth pro ukradenou session) + nové vyhovuje min. délce. Hash
+    se ihned přepíše bcrypt(new) + password_set_at.
+    """
+    from datetime import datetime, timezone
+    from modules.auth.application.password import (
+        hash_password, verify_password, PasswordTooShort, MIN_PASSWORD_LENGTH,
+    )
+
+    user_id = _get_uid(req)
+
+    if not body.current_password or not body.new_password:
+        raise HTTPException(status_code=400, detail="Chybí současné nebo nové heslo.")
+    if body.current_password == body.new_password:
+        raise HTTPException(status_code=400, detail="Nové heslo musí být jiné než současné.")
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Účet není aktivní.")
+
+        # Verify currentpassword (timing-safe). Pokud user nemá heslo (legacy),
+        # change-password není správný flow -- musí přes admin / set-password.
+        if not user.password_hash:
+            raise HTTPException(
+                status_code=403,
+                detail="Heslo nelze změnit, protože ještě není nastavené. Kontaktuj admina.",
+            )
+        if not verify_password(body.current_password, user.password_hash):
+            logger.warning(f"AUTH | change-password bad current | user_id={user_id}")
+            raise HTTPException(status_code=401, detail="Současné heslo není správné.")
+
+        # Hash + save
+        try:
+            new_hash = hash_password(body.new_password)
+        except PasswordTooShort:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Nové heslo musí mít alespoň {MIN_PASSWORD_LENGTH} znaků.",
+            )
+        user.password_hash = new_hash
+        user.password_set_at = datetime.now(timezone.utc)
+        session.commit()
+        logger.info(f"AUTH | password changed | user_id={user_id}")
+    finally:
+        session.close()
+
+    return {"status": "password_changed"}
 
 
 # ── DISPLAY NAME v aktuálním tenantu ──────────────────────────────────────
@@ -486,13 +633,47 @@ def invite(request: InviteRequest, req: Request) -> dict:
     }
 
 
-@router.get("/accept/{token}")
-def accept(token: str, response: Response) -> dict:
-    """Přijme pozvánku a přihlásí uživatele."""
-    result = accept_invitation(token)
+class AcceptInvitationRequest(BaseModel):
+    password: str
+    first_name: str | None = None
+    last_name: str | None = None
+    gender: str | None = None
+
+
+@router.get("/invitation-info/{token}")
+def invitation_info_endpoint(token: str) -> dict:
+    """Peek -- vrátí info o pozvánce (email, předvyplněné jméno, gender)
+    BEZ aktivace usera. Frontend tím naplní welcome screen ještě předtím,
+    než uživatel odsouhlasí + nastaví heslo."""
+    info = get_invitation_info(token)
+    if not info:
+        raise HTTPException(status_code=404, detail="Pozvánka není platná nebo vypršela.")
+    return info
+
+
+@router.post("/accept/{token}")
+def accept(token: str, body: AcceptInvitationRequest, response: Response) -> dict:
+    """Přijme pozvánku: aktivuje usera, uloží heslo + doplní profil, přihlásí
+    přes cookies. Povinné: password (min. 8 znaků). Volitelně jméno/gender
+    (pokud v DB chybí, doplní se)."""
+    from modules.auth.application.password import PasswordTooShort
+
+    if body.gender is not None and body.gender not in ALLOWED_GENDERS:
+        raise HTTPException(status_code=400, detail=f"Neplatný gender: {body.gender}")
+
+    try:
+        result = accept_invitation(
+            token,
+            password=body.password,
+            first_name=body.first_name,
+            last_name=body.last_name,
+            gender=body.gender,
+        )
+    except PasswordTooShort as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
     if not result:
         raise HTTPException(status_code=404, detail="Pozvánka není platná nebo vypršela.")
 
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
-
     return result

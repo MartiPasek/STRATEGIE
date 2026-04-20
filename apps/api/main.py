@@ -53,6 +53,12 @@ def invite_page(token: str):
     return FileResponse(INDEX)
 
 
+@app.get("/reset/{token}")
+def reset_page(token: str):
+    """Password reset link — vrátí index.html, JS si token z URL vezme sám."""
+    return FileResponse(INDEX)
+
+
 @app.get("/health")
 def health() -> dict:
     return {"status": "ok", "version": "0.1.0"}

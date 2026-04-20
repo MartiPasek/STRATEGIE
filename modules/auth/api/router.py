@@ -1,8 +1,28 @@
 from fastapi import APIRouter, HTTPException, Request, Response
 from pydantic import BaseModel
 
+from core.config import settings
 from core.database_core import get_core_session
 from core.logging import get_logger
+
+
+def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -> None:
+    """
+    Helper pro nastaveni auth cookies (user_id + tenant_id) s production-safe
+    flagy. V development cookie_secure=False (HTTP localhost), v production
+    cookie_secure=True (jen HTTPS). samesite=lax aby fungoval cross-origin
+    top-level GET (napr. invitation link).
+    """
+    response.set_cookie(
+        key="user_id", value=str(user_id),
+        httponly=True, max_age=60*60*24*30,
+        secure=settings.cookie_secure, samesite=settings.cookie_samesite,
+    )
+    response.set_cookie(
+        key="tenant_id", value=str(tenant_id or ""),
+        httponly=True, max_age=60*60*24*30,
+        secure=settings.cookie_secure, samesite=settings.cookie_samesite,
+    )
 from modules.auth.api.schemas import LoginRequest, LoginResponse, SwitchTenantRequest
 from modules.auth.application.service import login_by_email, AmbiguousEmailError
 from modules.auth.application.invitation_service import (
@@ -30,8 +50,7 @@ def login(request: LoginRequest, response: Response) -> LoginResponse:
     if not result:
         raise HTTPException(status_code=401, detail="Email nenalezen nebo účet není aktivní.")
 
-    response.set_cookie(key="user_id", value=str(result["user_id"]), httponly=True, max_age=60*60*24*30)
-    response.set_cookie(key="tenant_id", value=str(result["tenant_id"] or ""), httponly=True, max_age=60*60*24*30)
+    _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
 
     return LoginResponse(**result)
 
@@ -465,7 +484,6 @@ def accept(token: str, response: Response) -> dict:
     if not result:
         raise HTTPException(status_code=404, detail="Pozvánka není platná nebo vypršela.")
 
-    response.set_cookie(key="user_id", value=str(result["user_id"]), httponly=True, max_age=60*60*24*30)
-    response.set_cookie(key="tenant_id", value=str(result["tenant_id"] or ""), httponly=True, max_age=60*60*24*30)
+    _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
 
     return result

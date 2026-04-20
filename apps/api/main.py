@@ -1,7 +1,9 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 import os
 
+from core.config import settings
 from core.logging import setup_logging
 from modules.ai_processing.api.router import router as ai_processing_router
 from modules.conversation.api.router import router as conversation_router
@@ -17,6 +19,14 @@ app = FastAPI(
     title="STRATEGIE API",
     description="Modular enterprise AI platform",
     version="0.1.0",
+)
+
+# Trusted hosts -- ochrana proti Host header attack. V production tam musi
+# byt jen app.strategie-system.com. V dev puštíme localhost varianty.
+# Hodnoty z env var APP_TRUSTED_HOSTS (comma-separated).
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=settings.trusted_hosts_list,
 )
 
 app.include_router(ai_processing_router)

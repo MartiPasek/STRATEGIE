@@ -848,6 +848,138 @@
 
 <script>
   let currentUser = null;
+
+  // ── AUTH SYNC MEZI TABY ───────────────────────────────────────────────
+  // Problem: HTTP cookies jsou sdilene napric taby stejneho originu. Kdyz
+  // se v tabu A uzivatel odhlasi a prihlasi jako nekdo jiny, tab B jeste
+  // zobrazuje puvodniho usera -- az do F5 a v tu chvili se mu zmeni identita
+  // pod rukama. Reseni:
+  //   1) localStorage marker `last_known_user_id` -- pri kazdem loginu/logoutu
+  //      ulozit. Pri F5 porovnat s currentUser.user_id z /me. Pri nesouladu
+  //      upozornit a dat volbu.
+  //   2) BroadcastChannel -- live sync. Kdyz tab A broadcast "login X",
+  //      tab B v realnem case detekuje zmenu bez F5.
+
+  const AUTH_STORAGE_KEY = 'strategie_last_user_id';
+  let _authChannel = null;
+
+  function _getAuthChannel() {
+    if (_authChannel) return _authChannel;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        _authChannel = new BroadcastChannel('strategie_auth');
+        _authChannel.onmessage = _onAuthBroadcast;
+      }
+    } catch (e) { _authChannel = null; }
+    return _authChannel;
+  }
+
+  function setAuthMarker(userId) {
+    try { localStorage.setItem(AUTH_STORAGE_KEY, String(userId)); } catch (_) {}
+    const ch = _getAuthChannel();
+    if (ch) { try { ch.postMessage({ type: 'login', user_id: userId, at: Date.now() }); } catch(_){} }
+  }
+
+  function clearAuthMarker() {
+    try { localStorage.removeItem(AUTH_STORAGE_KEY); } catch (_) {}
+    const ch = _getAuthChannel();
+    if (ch) { try { ch.postMessage({ type: 'logout', at: Date.now() }); } catch(_){} }
+  }
+
+  function getAuthMarker() {
+    try {
+      const v = localStorage.getItem(AUTH_STORAGE_KEY);
+      return v ? parseInt(v, 10) : null;
+    } catch (_) { return null; }
+  }
+
+  /** Zobraz modal "cookie zmenila usera".
+      nowUserId = kdo je ted v cookie, wasUserName = koho tenhle tab vedel (optional, muze chybet). */
+  let _authModalOpen = false;  // prevence dvojitemu zobrazeni
+  async function _showAuthMismatchModal(nowUserId, wasUserName) {
+    if (_authModalOpen) return;
+    _authModalOpen = true;
+    // Jmeno NOW usera vytahnout z /me (cookie ted ukazuje tam)
+    let nowUserName = `uživatel #${nowUserId}`;
+    try {
+      const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      if (r.ok) {
+        const d = await r.json();
+        nowUserName = (d.first_name ? `${d.first_name} ${d.last_name || ''}`.trim() : nowUserName);
+      }
+    } catch (_) {}
+
+    const wasLabel = wasUserName || 'jiný uživatel';
+
+    const ok = await customConfirm({
+      title: 'STRATEGIE — změna přihlášení',
+      text: (
+        `V jiném tabu prohlížeče se přihlásil **${nowUserName}**. ` +
+        `Tento tab byl přihlášený jako **${wasLabel}**.\n\n` +
+        `Cookies jsou sdílené napříč taby, takže původní identita už nefunguje. ` +
+        `Chceš pokračovat jako **${nowUserName}**, nebo se odhlásit a přihlásit znovu?`
+      ),
+      confirmLabel: `Pokračovat jako ${nowUserName}`,
+      cancelLabel: 'Odhlásit',
+    });
+    _authModalOpen = false;
+    if (ok) {
+      window.location.reload();
+    } else {
+      try { await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' }); } catch (_) {}
+      clearAuthMarker();
+      window.location.reload();
+    }
+  }
+
+  /** Handler pro broadcast message z jinych tabu. */
+  function _onAuthBroadcast(ev) {
+    const data = ev.data || {};
+    const myId = currentUser && currentUser.user_id;
+    if (!myId) return;  // tenhle tab nic nezobrazuje, nerusime
+    if (data.type === 'login' && data.user_id !== myId) {
+      // V jinem tabu se prihlasil nekdo jiny -- cookie ted ukazuje tam.
+      const wasName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() || null;
+      _showAuthMismatchModal(data.user_id, wasName);
+    } else if (data.type === 'logout') {
+      // V jinem tabu se nekdo odhlasil. Overime nasi session.
+      _checkAuthStillValid();
+    }
+  }
+
+  /** Pri broadcast "logout" ze jineho tabu overime, zda nase session jeste plati. */
+  async function _checkAuthStillValid() {
+    try {
+      const r = await fetch('/api/v1/auth/me', { credentials: 'include' });
+      if (!r.ok) {
+        window.location.reload();
+        return;
+      }
+      const d = await r.json();
+      if (currentUser && d.user_id !== currentUser.user_id) {
+        const wasName = `${currentUser.first_name || ''} ${currentUser.last_name || ''}`.trim() || null;
+        _showAuthMismatchModal(d.user_id, wasName);
+      }
+    } catch (_) {}
+  }
+
+  /** Volano po showApp/tryAutoLogin -- overuje localStorage marker vs currentUser.
+      Pokud marker ukazuje na jineho usera nez /me prave vratilo, zobrazime modal. */
+  function _checkAuthMarkerConsistency() {
+    if (!currentUser) return;
+    const markerId = getAuthMarker();
+    if (markerId !== null && markerId !== currentUser.user_id) {
+      // localStorage si pamatuje puvodniho usera, ale cookie uz je nekdo jiny.
+      // wasUserName neznama (mame jen ID) -- modal ji zobrazi jako "jiny uzivatel".
+      _showAuthMismatchModal(currentUser.user_id, `uživatel #${markerId}`);
+    } else if (markerId === null) {
+      setAuthMarker(currentUser.user_id);
+    }
+  }
+
+  // Inicializace BroadcastChannel (lazy, ale kanal musime otevrit)
+  _getAuthChannel();
+
   let conversationId = null;
   // Pamatuje si, jestli aktuálně otevřená konverzace je archivovaná.
   // Pokud ano, před odesláním nové zprávy se uživatel zeptá, jestli má
@@ -928,6 +1060,9 @@
       }
 
       currentUser = await res.json();
+      // Auth sync: accept-invite prave prihlasil usera (cookie je nastavena).
+      // Ulozime marker + broadcast ostatnim tabum.
+      setAuthMarker(currentUser.user_id);
       // Pokud nový user ještě nemá jméno (typicky po prvním invitation accept),
       // ukaž form 'Křestní/Příjmení/Rod' a Vstoupit nejdřív uloží přes PATCH /me.
       const hasName = !!(currentUser.first_name || currentUser.last_name);
@@ -1014,6 +1149,8 @@
       }
       currentUser = await res.json();
       try { localStorage.setItem('last_email', email); } catch (_) {}
+      // Auth sync: ulozime marker + broadcast do ostatnich tabu
+      setAuthMarker(currentUser.user_id);
       await showApp();
     } catch (e) {
       loginError.textContent = 'Chyba spojení.';
@@ -1028,6 +1165,9 @@
       const res = await fetch('/api/v1/auth/me', { credentials: 'include' });
       if (!res.ok) return false;
       currentUser = await res.json();
+      // Auth sync: porovna localStorage marker s current user. Pokud se lisi,
+      // modal rozhodne (reload / logout). Pokud marker chybi, nastavi ho.
+      _checkAuthMarkerConsistency();
       await showApp();
       return true;
     } catch (e) {
@@ -1135,6 +1275,8 @@
   // ── LOGOUT ─────────────────────────────────────────────────────────────
   logoutBtn.addEventListener('click', async () => {
     await fetch('/api/v1/auth/logout', { method: 'POST', credentials: 'include' });
+    // Auth sync: vycisti localStorage marker + broadcast ostatnim tabum
+    clearAuthMarker();
     currentUser = null; conversationId = null;
     appScreen.classList.remove('show');
     appScreen.style.display = 'none';
@@ -1781,7 +1923,17 @@
       const cancelBtn = document.getElementById('confirmModalCancel');
 
       titleEl.textContent = title;
-      textEl.textContent = text;
+      // Podpora jednoducheho markdownu -- **bold** a zachovani \n (line break).
+      // HTML escape NEJDRIV, teprve pak markdown -- bezpecne proti injection.
+      const escaped = String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+      const withBold = escaped.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+      const withBreaks = withBold.replace(/\n/g, '<br>');
+      textEl.innerHTML = withBreaks;
       okBtn.textContent = confirmLabel;
       cancelBtn.textContent = cancelLabel;
       okBtn.classList.toggle('danger', !!danger);

@@ -280,6 +280,24 @@
     .conv-dd-new-input-wrap input:focus { border-color: var(--accent); }
     .conv-dd-new-input-wrap button { background: var(--accent); color: #fff; border: none; border-radius: 6px; padding: 5px 10px; font-size: 12px; cursor: pointer; }
     .conv-dd-new-input-wrap button:disabled { opacity: 0.5; cursor: not-allowed; }
+    /* Project members modal — seznam current + picker na nove (z tenantu). */
+    .members-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 200; }
+    .members-modal-bg.open { display: flex; }
+    .members-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 22px 24px; width: 460px; max-width: 92vw; max-height: 80vh; overflow-y: auto; box-shadow: 0 12px 36px rgba(0,0,0,.5); }
+    .members-modal h3 { margin: 0 0 6px; font-size: 14px; color: var(--text); font-weight: 500; }
+    .members-modal-sub { margin: 0 0 16px; font-size: 12px; color: var(--muted); }
+    .members-section-title { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--accent); margin: 14px 0 6px; }
+    .members-list { display: flex; flex-direction: column; gap: 4px; margin-bottom: 10px; }
+    .members-row { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-radius: 6px; background: var(--bg); }
+    .members-row-name { flex: 1; font-size: 13px; color: var(--text); min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .members-row-role { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; text-transform: uppercase; letter-spacing: .08em; flex-shrink: 0; }
+    .members-row-btn { background: transparent; border: 1px solid transparent; color: var(--muted); cursor: pointer; padding: 4px 8px; border-radius: 4px; font-size: 12px; transition: color .12s, border-color .12s; }
+    .members-row-btn:hover { color: var(--error); border-color: var(--error); }
+    .members-picker { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 4px; display: flex; flex-direction: column; gap: 2px; max-height: 200px; overflow-y: auto; }
+    .members-picker-row { padding: 7px 10px; border-radius: 4px; cursor: pointer; font-size: 13px; color: var(--text); transition: background .12s; display: flex; align-items: center; gap: 8px; }
+    .members-picker-row:hover { background: var(--surface); }
+    .members-picker-empty { font-size: 12px; color: var(--muted); padding: 10px; text-align: center; font-style: italic; }
+    .members-modal-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 18px; }
     /* New-conversation confirmation modal — overlay + center box */
     .new-conv-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 200; }
     .new-conv-modal-bg.open { display: flex; }
@@ -663,11 +681,33 @@
 
 <!-- MODALY / MENU — MUSI byt PRED <script> tagem, jinak je JS nevidi v DOM. -->
 
+<!-- Project members modal — seznam clenov + picker pro pridani z tenantu. -->
+<div class="members-modal-bg" id="membersModalBg">
+  <div class="members-modal">
+    <h3 id="membersModalTitle">Členové projektu</h3>
+    <p class="members-modal-sub" id="membersModalSub">Kdo pracuje na tomhle projektu.</p>
+
+    <div class="members-section-title">Aktuální členové</div>
+    <div class="members-list" id="membersList">
+      <div class="members-picker-empty">Načítám…</div>
+    </div>
+
+    <div class="members-section-title">Přidat člena z tenantu</div>
+    <div class="members-picker" id="membersPicker">
+      <div class="members-picker-empty">Načítám…</div>
+    </div>
+
+    <div class="members-modal-actions">
+      <button class="new-conv-modal-btn secondary" id="membersClose">Zavřít</button>
+    </div>
+  </div>
+</div>
+
 <!-- Kontextove menu pro projekt (3 tecky). Singleton — pozice se nastavi
      dynamicky pri otevreni. data-project-id na elementu drzi cilovy projekt. -->
 <div class="ctx-menu" id="projectContextMenu">
   <div class="ctx-menu-item" data-action="rename"><span class="ctx-menu-icon ctx-menu-icon-rename">✏</span>Přejmenovat</div>
-  <div class="ctx-menu-item disabled" data-action="share"><span class="ctx-menu-icon">👥</span>Sdílet (brzy)</div>
+  <div class="ctx-menu-item" data-action="share"><span class="ctx-menu-icon">👥</span>Sdílet</div>
   <div class="ctx-menu-item disabled" data-action="files"><span class="ctx-menu-icon">📁</span>Soubory (brzy)</div>
   <div class="ctx-menu-divider"></div>
   <div class="ctx-menu-item danger" data-action="archive"><span class="ctx-menu-icon">🗑</span>Smazat</div>
@@ -2479,6 +2519,10 @@
         const pid = parseInt(menu.dataset.projectId, 10);
         const name = menu.dataset.projectName || '';
         closeProjectContextMenu();
+        if (action === 'share') {
+          openMembersModal(pid, name);
+          return;
+        }
         if (action === 'rename') {
           // Pouzijeme stejny customConfirm modal jako prejmenovani konverzaci
           // — sjednocena UX, hezci nez native prompt().
@@ -2580,6 +2624,127 @@
       alert('Chyba spojení při přepínání projektu.');
     }
   }
+
+  // ── PROJECT MEMBERS MODAL ─────────────────────────────────────────────
+  // Otevre modal, nacte aktualni cleny + lidi z tenantu k pridani.
+  // Singleton stav: modal si pamatuje aktivni projekt v dataset attributu.
+  const membersModalBg = document.getElementById('membersModalBg');
+  const membersList    = document.getElementById('membersList');
+  const membersPicker  = document.getElementById('membersPicker');
+  const membersClose   = document.getElementById('membersClose');
+  const membersTitle   = document.getElementById('membersModalTitle');
+  const membersSub     = document.getElementById('membersModalSub');
+
+  async function openMembersModal(projectId, projectName) {
+    if (!membersModalBg) return;
+    membersModalBg.dataset.projectId = String(projectId);
+    membersTitle.textContent = `Členové: ${projectName}`;
+    membersSub.textContent = 'Spravuj lidi v projektu (přidat z tenantu, odebrat).';
+    membersList.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
+    membersPicker.innerHTML = '<div class="members-picker-empty">Načítám…</div>';
+    membersModalBg.classList.add('open');
+    await refreshMembersModal();
+  }
+
+  function closeMembersModal() {
+    if (membersModalBg) membersModalBg.classList.remove('open');
+  }
+
+  async function refreshMembersModal() {
+    const pid = parseInt(membersModalBg.dataset.projectId, 10);
+    if (!pid) return;
+    // 1) Aktualni clenove
+    let current = [];
+    try {
+      const res = await fetch(`/api/v1/projects/${pid}/members`, { credentials: 'include' });
+      if (res.ok) current = await res.json();
+    } catch (e) { /* pokracujeme s prazdnym */ }
+
+    if (!current || current.length === 0) {
+      membersList.innerHTML = '<div class="members-picker-empty">Zatím nikdo (kromě ownera).</div>';
+    } else {
+      membersList.innerHTML = '';
+      for (const m of current) {
+        const row = document.createElement('div');
+        row.className = 'members-row';
+        const nameEl = document.createElement('div');
+        nameEl.className = 'members-row-name';
+        nameEl.textContent = m.full_name;
+        const roleEl = document.createElement('div');
+        roleEl.className = 'members-row-role';
+        roleEl.textContent = m.role;
+        row.appendChild(nameEl);
+        row.appendChild(roleEl);
+        // Odebrat tlacitko (× ikona). Owner nemuze byt odebran (backend to odmitne).
+        if (m.role !== 'owner') {
+          const removeBtn = document.createElement('button');
+          removeBtn.className = 'members-row-btn';
+          removeBtn.textContent = '× odebrat';
+          removeBtn.addEventListener('click', async () => {
+            if (!confirm(`Odebrat ${m.full_name} z projektu?`)) return;
+            try {
+              const r = await fetch(`/api/v1/projects/${pid}/members/${m.user_id}`, {
+                method: 'DELETE', credentials: 'include',
+              });
+              if (!r.ok) {
+                const err = await r.json().catch(() => ({}));
+                alert('Nelze odebrat: ' + (err.detail || r.status));
+                return;
+              }
+              await refreshMembersModal();
+            } catch (e) { alert('Chyba spojení.'); }
+          });
+          row.appendChild(removeBtn);
+        }
+        membersList.appendChild(row);
+      }
+    }
+
+    // 2) Picker — lide v tenantu, kteri JESTE NEJSOU cleny
+    let tenantUsers = [];
+    try {
+      const res = await fetch('/api/v1/dm/_users/list', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        tenantUsers = data.results || [];
+      }
+    } catch (e) { /* */ }
+    const currentIds = new Set(current.map(m => m.user_id));
+    const candidates = (tenantUsers || []).filter(u => !currentIds.has(u.user_id));
+
+    if (candidates.length === 0) {
+      membersPicker.innerHTML = '<div class="members-picker-empty">Všichni z tenantu už jsou v projektu (nebo tenant nemá další členy).</div>';
+    } else {
+      membersPicker.innerHTML = '';
+      for (const u of candidates) {
+        const row = document.createElement('div');
+        row.className = 'members-picker-row';
+        const fullName = (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '');
+        row.textContent = `+ ${fullName.trim() || u.short_name || `#${u.user_id}`}`;
+        row.addEventListener('click', async () => {
+          try {
+            const r = await fetch(`/api/v1/projects/${pid}/members`, {
+              method: 'POST', credentials: 'include',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ user_id: u.user_id, role: 'member' }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              alert('Nelze přidat: ' + (err.detail || r.status));
+              return;
+            }
+            await refreshMembersModal();
+          } catch (e) { alert('Chyba spojení.'); }
+        });
+        membersPicker.appendChild(row);
+      }
+    }
+  }
+
+  if (membersClose) membersClose.addEventListener('click', closeMembersModal);
+  if (membersModalBg) membersModalBg.addEventListener('click', (ev) => {
+    if (ev.target === membersModalBg) closeMembersModal();
+  });
 
   /** Aktualizuj jen jméno projektu v agent baru. Prefix "Projekt:" je staticky
       v HTML jako muted label, my menime jen vlastni nazev (accent). */

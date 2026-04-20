@@ -78,6 +78,84 @@ TOOLS = [
         },
     },
     {
+        "name": "list_project_members",
+        "description": (
+            "Použij když uživatel chce vědět, kdo pracuje na KONKRÉTNÍM PROJEKTU "
+            "('kdo na tomto projektu pracuje', 'kdo je v TISAX', 'členové projektu'). "
+            "\n\n"
+            "Liší se od list_users takto:\n"
+            "- list_users = všichni lidé v TENANTU (firma)\n"
+            "- list_project_members = jen lidé v daném PROJEKTU\n"
+            "\n"
+            "Pokud user řekne jméno projektu, předej ho v project_name (fuzzy match). "
+            "Pokud nic neřekne ('tento projekt', 'aktuální projekt'), nech project_id "
+            "i project_name prázdné — backend použije aktuální projekt uživatele.\n"
+            "\n"
+            "Tool vrátí číslovaný seznam — user pak může napsat jen číslo pro akci "
+            "s tím člověkem."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer", "description": "ID projektu (přímé)."},
+                "project_name": {"type": "string", "description": "Jméno projektu (fuzzy, má přednost před project_id)."},
+            },
+        },
+    },
+    {
+        "name": "add_project_member",
+        "description": (
+            "Použij když uživatel chce přidat někoho do projektu "
+            "('přidej Kláru do projektu', 'pridej ji do TISAX', 'pozvi Honzu do mého projektu'). "
+            "\n\n"
+            "POSTUP (MUSÍŠ DODRŽET):\n"
+            "1) Pokud neznáš target_user_id — zavolej find_user / list_users (NIKDY nezadávej falešné ID).\n"
+            "2) IDENTIFIKUJ PROJEKT z uživatelova textu:\n"
+            "   - Když user řekne jméno projektu ('do TISAX', 'do Skoda', 'do Reorg'), "
+            "     PŘEDEJ ho v parametru project_name — backend ho fuzzy-matchne.\n"
+            "   - Když user NEŘEKNE žádný projekt, nech project_id i project_name prázdné — "
+            "     backend použije aktuální projekt uživatele (z USER_CONTEXT).\n"
+            "   - POZOR: nehádej — když si nejsi jistý jaký projekt user myslel, ZEPTEJ SE "
+            "     nebo zavolej list_projects.\n"
+            "3) Role default = 'member'.\n"
+            "\n"
+            "Opravnění: tenant owner / project owner mohou přidávat členy; ostatní dostanou 403."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_user_id": {"type": "integer", "description": "ID uživatele co se má přidat (z find_user/list_users)"},
+                "project_id": {"type": "integer", "description": "ID projektu (přímé). Použij pokud přesně víš ID."},
+                "project_name": {"type": "string", "description": "Jméno projektu — backend ho fuzzy-matchne proti projektům usera. Použij když user řekl jméno ('TISAX', 'Skoda'). Má přednost před project_id pokud jsou obě zadané."},
+                "role": {
+                    "type": "string",
+                    "description": "Role v projektu: 'member' (default) | 'admin' | 'owner'.",
+                    "enum": ["member", "admin", "owner"],
+                },
+            },
+            "required": ["target_user_id"],
+        },
+    },
+    {
+        "name": "remove_project_member",
+        "description": (
+            "Použij když uživatel chce odebrat někoho z projektu "
+            "('odeber Kláru z projektu', 'smaz ji z TISAX'). Symetrické s add_project_member: "
+            "podporuje project_id nebo project_name (fuzzy). "
+            "User se může odebrat i sám sebe (opustit projekt) — to pak stačí jakékoli "
+            "jeho členství. Owner projektu nelze odebrat (nejdříve převést vlastnictví)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "target_user_id": {"type": "integer", "description": "ID uživatele k odebrání"},
+                "project_id": {"type": "integer", "description": "ID projektu"},
+                "project_name": {"type": "string", "description": "Jméno projektu (fuzzy, má přednost před project_id)"},
+            },
+            "required": ["target_user_id"],
+        },
+    },
+    {
         "name": "list_conversations",
         "description": (
             "VŽDY zavolej tento nástroj kdykoli uživatel chce přehled svých AI konverzací. "

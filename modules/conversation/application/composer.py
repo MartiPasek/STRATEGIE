@@ -207,11 +207,15 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
                 )
 
         # Aktivní projekt (uvnitř current tenantu) — informace pro AI o tom,
-        # v jakém pracovním kontextu uživatel právě je. Ochrana: archivovaný
-        # nebo cizí-tenantový projekt ignorujeme (vyrenderujeme "bez projektu").
-        from modules.core.infrastructure.models_core import Project as _Project
+        # v jakém pracovním kontextu uživatel právě je. Obohaceno o ownera,
+        # členy a stáří projektu. Ochrana: archivovaný / cizí-tenantový projekt
+        # ignorujeme (vyrenderujeme "bez projektu").
+        from modules.core.infrastructure.models_core import (
+            Project as _Project, UserProject as _UserProject,
+        )
         u_for_proj = session.query(User).filter_by(id=user_id).first()
         proj_pid = u_for_proj.last_active_project_id if u_for_proj else None
+        project_rendered = False
         if proj_pid:
             project = (
                 session.query(_Project)
@@ -219,13 +223,54 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
                 .first()
             )
             if project and (tenant_id is None or project.tenant_id == tenant_id):
+                project_rendered = True
+                # Členové — join UserProject s User, max 10 (limit aby prompt
+                # nevybuchl). Sestavujeme čitelný výpis "Jméno (role)".
+                member_rows = (
+                    session.query(_UserProject, User)
+                    .join(User, User.id == _UserProject.user_id)
+                    .filter(_UserProject.project_id == project.id)
+                    .order_by(_UserProject.id.asc())
+                    .limit(10)
+                    .all()
+                )
+                member_labels = []
+                owner_name = None
+                for up_row, m in member_rows:
+                    full = " ".join(filter(None, [m.first_name, m.last_name])).strip()
+                    label = full or m.short_name or f"#{m.id}"
+                    member_labels.append(f"{label} ({up_row.role})")
+                    if up_row.role == "owner":
+                        owner_name = label
+                # Stáří projektu
+                from datetime import datetime as _dt, timezone as _tz
+                age_part = ""
+                if project.created_at:
+                    try:
+                        created_at = project.created_at
+                        if created_at.tzinfo is None:
+                            created_at = created_at.replace(tzinfo=_tz.utc)
+                        days = max(0, (_dt.now(_tz.utc) - created_at).days)
+                        if days == 0:
+                            age_part = " Založen dnes."
+                        elif days == 1:
+                            age_part = " Založen včera."
+                        elif days < 30:
+                            age_part = f" Založen před {days} dny."
+                        else:
+                            months = days // 30
+                            age_part = f" Založen před {months} měs."
+                    except Exception:
+                        age_part = ""
+                members_part = ""
+                if member_labels:
+                    members_part = " Členové: " + ", ".join(member_labels) + "."
                 parts.append(
-                    f"Pracuje v rámci projektu '{project.name}'. "
+                    f"Pracuje v rámci projektu '{project.name}'.{age_part}"
+                    f"{members_part} "
                     f"Tenhle projektový kontext ber v úvahu při odpovědích a doporučeních."
                 )
-            else:
-                parts.append("Aktuálně pracuje bez projektu (volné konverzace v tenantu).")
-        else:
+        if not project_rendered:
             parts.append("Aktuálně pracuje bez projektu (volné konverzace v tenantu).")
 
         return " ".join(parts)

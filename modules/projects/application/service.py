@@ -235,6 +235,112 @@ def clear_project_for_user(user_id: int) -> dict:
     return {"already_clear": False}
 
 
+def _can_manage_project_members(user_id: int, project_id: int) -> tuple[bool, str | None]:
+    """
+    Vrati (can_manage, reason_if_not). Prava pro add/remove clenov:
+      - project owner (UserProject.role == 'owner' pro tento user_id)
+      - tenant owner (Tenant.owner_user_id == user_id)
+    """
+    project = repo.get_project(project_id)
+    if project is None:
+        return False, "Projekt neexistuje."
+
+    cs = get_core_session()
+    try:
+        from modules.core.infrastructure.models_core import UserProject
+        # Tenant owner check
+        tenant = cs.query(Tenant).filter_by(id=project.tenant_id).first()
+        if tenant is not None and tenant.owner_user_id == user_id:
+            return True, None
+        # Project owner check
+        up = (
+            cs.query(UserProject)
+            .filter_by(user_id=user_id, project_id=project_id, role="owner")
+            .first()
+        )
+        if up is not None:
+            return True, None
+        return False, "Nemas opravneni spravovat cleny tohoto projektu."
+    finally:
+        cs.close()
+
+
+def list_project_members(*, user_id: int, project_id: int) -> list[dict]:
+    """Seznam clenov projektu. Vidi je kazdy clen projektu / tenant owner."""
+    if not repo.is_user_member_or_owner(user_id=user_id, project_id=project_id):
+        raise NotProjectMember("Nemas pristup k tomuto projektu.")
+    return repo.list_project_members(project_id)
+
+
+def add_project_member(*, user_id: int, project_id: int, target_user_id: int, role: str = "member") -> dict:
+    """
+    Prida targeted user jako clena projektu.
+    Opravneni: project owner / tenant owner.
+    Guard: target musi byt aktivni clen STEJNEHO tenantu jako projekt.
+    """
+    can, reason = _can_manage_project_members(user_id, project_id)
+    if not can:
+        raise ProjectError(reason or "Nemas opravneni.")
+
+    project = repo.get_project(project_id)
+    if project is None:
+        raise ProjectError("Projekt neexistuje.")
+
+    # Target user musi byt aktivni clen tenantu projektu
+    from modules.core.infrastructure.models_core import UserTenant, User as _User
+    cs = get_core_session()
+    try:
+        target = cs.query(_User).filter_by(id=target_user_id, status="active").first()
+        if target is None:
+            raise ProjectError("Cilovy uzivatel neexistuje nebo neni aktivni.")
+        membership = (
+            cs.query(UserTenant)
+            .filter_by(
+                user_id=target_user_id,
+                tenant_id=project.tenant_id,
+                membership_status="active",
+            )
+            .first()
+        )
+        if membership is None:
+            raise ProjectError(
+                "Cilovy uzivatel neni aktivnim clenem tenantu tohoto projektu. "
+                "Nejdriv ho pozvi do tenantu."
+            )
+    finally:
+        cs.close()
+
+    added = repo.add_project_member(project_id=project_id, user_id=target_user_id, role=role)
+    return {"added": added, "user_id": target_user_id}
+
+
+def remove_project_member(*, user_id: int, project_id: int, target_user_id: int) -> dict:
+    """
+    Odebere usera z projektu.
+    Opravneni: project owner / tenant owner. User muze odebrat i sam sebe
+    (opustit projekt) — tj. target_user_id == user_id je povoleno vzdy.
+    """
+    is_self_leave = (target_user_id == user_id)
+    if not is_self_leave:
+        can, reason = _can_manage_project_members(user_id, project_id)
+        if not can:
+            raise ProjectError(reason or "Nemas opravneni.")
+    else:
+        # Self-leave: staci byt clenem projektu
+        if not repo.is_user_member_or_owner(user_id=user_id, project_id=project_id):
+            raise NotProjectMember("Nemas pristup k tomuto projektu.")
+
+    # Pojistka: owner projektu se nesmi odebrat (nechceme projekty bez ownera)
+    project = repo.get_project(project_id)
+    if project and project.owner_user_id == target_user_id:
+        raise ProjectError(
+            "Owner projektu nemuze byt odebran. Nejdriv prevyd vlastnictvi nebo projekt archivuj."
+        )
+
+    removed = repo.remove_project_member(project_id=project_id, user_id=target_user_id)
+    return {"removed": removed, "user_id": target_user_id}
+
+
 def archive_project(*, user_id: int, project_id: int) -> bool:
     """
     Archivuj projekt. Opravneni: project owner nebo tenant owner.

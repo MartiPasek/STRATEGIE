@@ -33,3 +33,16 @@ class SwitchProjectResponse(BaseModel):
 
 class RenameProjectRequest(BaseModel):
     name: str
+
+
+class ProjectMemberInfo(BaseModel):
+    user_id: int
+    full_name: str
+    role: str                        # owner | admin | member
+    added_at: datetime
+    email: str = ""                  # primarni email (nebo prazdny string)
+
+
+class AddMemberRequest(BaseModel):
+    user_id: int
+    role: str = "member"

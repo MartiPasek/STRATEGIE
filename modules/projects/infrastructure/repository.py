@@ -244,3 +244,131 @@ def is_user_member_or_owner(user_id: int, project_id: int) -> bool:
         return up is not None
     finally:
         cs.close()
+
+
+def list_project_members(project_id: int) -> list[dict]:
+    """
+    Vrati clenove projektu (z user_projects) obohacene o info z User table
+    + primarni email z UserContact (pro email tooly a UI).
+
+    Pole per item: user_id, full_name, role, added_at, email.
+    """
+    from modules.core.infrastructure.models_core import User, UserContact
+
+    cs = get_core_session()
+    try:
+        rows = (
+            cs.query(UserProject, User)
+            .join(User, User.id == UserProject.user_id)
+            .filter(UserProject.project_id == project_id)
+            .order_by(UserProject.id.asc())
+            .all()
+        )
+        user_ids = [u.id for _, u in rows]
+        # Nacti primarni emaily jednou (ne per-user query)
+        primary_emails: dict[int, str] = {}
+        if user_ids:
+            primary_rows = (
+                cs.query(UserContact)
+                .filter(
+                    UserContact.user_id.in_(user_ids),
+                    UserContact.contact_type == "email",
+                    UserContact.status == "active",
+                    UserContact.is_primary.is_(True),
+                )
+                .all()
+            )
+            for c in primary_rows:
+                primary_emails[c.user_id] = c.contact_value
+            # Fallback: jakykoli aktivni email
+            missing = [uid for uid in user_ids if uid not in primary_emails]
+            if missing:
+                fb = (
+                    cs.query(UserContact)
+                    .filter(
+                        UserContact.user_id.in_(missing),
+                        UserContact.contact_type == "email",
+                        UserContact.status == "active",
+                    )
+                    .all()
+                )
+                for c in fb:
+                    primary_emails.setdefault(c.user_id, c.contact_value)
+
+        return [
+            {
+                "user_id": u.id,
+                "full_name": " ".join(filter(None, [u.first_name, u.last_name])).strip()
+                             or (u.short_name or "—"),
+                "role": up.role,
+                "added_at": up.created_at,
+                "email": primary_emails.get(u.id) or "",
+            }
+            for up, u in rows
+        ]
+    finally:
+        cs.close()
+
+
+def add_project_member(project_id: int, user_id: int, role: str = "member") -> bool:
+    """
+    Prida usera jako clena projektu. Idempotentni: pokud uz je clenem,
+    vrati False (nic se nedeje, ale neni to error).
+    """
+    cs = get_core_session()
+    try:
+        existing = (
+            cs.query(UserProject)
+            .filter_by(user_id=user_id, project_id=project_id)
+            .first()
+        )
+        if existing is not None:
+            return False  # uz je clenem
+        membership = UserProject(
+            user_id=user_id,
+            project_id=project_id,
+            role=role,
+            created_at=datetime.now(timezone.utc),
+        )
+        cs.add(membership)
+        cs.commit()
+        logger.info(
+            f"PROJECT | member added | project_id={project_id} | "
+            f"user_id={user_id} | role={role}"
+        )
+        return True
+    finally:
+        cs.close()
+
+
+def remove_project_member(project_id: int, user_id: int) -> bool:
+    """
+    Odebere user z user_projects. Vraci True pokud byl odebran, False
+    pokud tam ani nebyl. Pokud user mel projekt jako last_active_project_id,
+    vyresetujeme ho na NULL (bezpecnost — uz tam nesmi byt).
+    """
+    from modules.core.infrastructure.models_core import User
+
+    cs = get_core_session()
+    try:
+        existing = (
+            cs.query(UserProject)
+            .filter_by(user_id=user_id, project_id=project_id)
+            .first()
+        )
+        if existing is None:
+            return False
+        cs.delete(existing)
+
+        # Bezpecnost: pokud user mel projekt jako aktivni, uvolnime
+        u = cs.query(User).filter_by(id=user_id).first()
+        if u is not None and u.last_active_project_id == project_id:
+            u.last_active_project_id = None
+
+        cs.commit()
+        logger.info(
+            f"PROJECT | member removed | project_id={project_id} | user_id={user_id}"
+        )
+        return True
+    finally:
+        cs.close()

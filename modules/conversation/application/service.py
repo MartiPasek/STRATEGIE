@@ -366,6 +366,185 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             body=tool_input.get("body", ""),
         )
 
+    if tool_name == "list_project_members":
+        from modules.projects.application.service import (
+            list_projects_for_user as _list_projs2,
+            list_project_members as _list_pm,
+            NotProjectMember,
+        )
+        from modules.core.infrastructure.models_core import User as _UMa, Project as _Prja
+        from core.database_core import get_core_session as _gcsa
+        import unicodedata as _uda
+
+        if not user_id:
+            return "❌ Nejsi přihlášen."
+
+        project_id = tool_input.get("project_id")
+        project_name = tool_input.get("project_name")
+
+        def _n(s):
+            if not s: return ""
+            nn = _uda.normalize("NFKD", s.strip().lower())
+            return "".join(c for c in nn if _uda.category(c) != "Mn")
+
+        if project_name:
+            needle = _n(project_name)
+            user_projects = _list_projs2(user_id)
+            matches = [p for p in user_projects if needle in _n(p["name"])]
+            if not matches:
+                return f'❌ Projekt obsahující "{project_name}" nenalezen.'
+            if len(matches) > 1:
+                exact = [p for p in matches if _n(p["name"]) == needle]
+                matches = exact if len(exact) == 1 else matches
+                if len(matches) > 1:
+                    names = ", ".join(p["name"] for p in matches[:5])
+                    return f'❌ "{project_name}" je ambiguous: {names}. Upřesni.'
+            project_id = matches[0]["id"]
+        elif not project_id:
+            csa = _gcsa()
+            try:
+                u = csa.query(_UMa).filter_by(id=user_id).first()
+                project_id = u.last_active_project_id if u else None
+            finally:
+                csa.close()
+            if not project_id:
+                return (
+                    "❌ Nemáš aktivní projekt a nezadal/a jsi konkrétní. "
+                    "Zavolej list_projects a zeptej se uživatele, který projekt myslel."
+                )
+
+        # Jmeno projektu pro header
+        csb = _gcsa()
+        try:
+            proj = csb.query(_Prja).filter_by(id=project_id).first()
+            proj_name = proj.name if proj else f"#{project_id}"
+        finally:
+            csb.close()
+
+        try:
+            members = _list_pm(user_id=user_id, project_id=project_id)
+        except NotProjectMember as e:
+            return f"❌ {e}"
+
+        if not members:
+            return f'V projektu **{proj_name}** zatím nikdo není (ani owner? divné — zkontroluj DB).'
+
+        lines = [f"V projektu **{proj_name}** je {len(members)} členů:"]
+        selection_items = []
+        for idx, m in enumerate(members, 1):
+            is_self = (m.get("user_id") == user_id)
+            self_mark = " ← to jsi ty" if is_self else ""
+            email_part = f" — {m['email']}" if m.get("email") else ""
+            lines.append(f"  **{idx}.** {m['full_name']} ({m['role']}){email_part}{self_mark}")
+            selection_items.append({
+                "index": idx,
+                "user_id": m["user_id"],
+                "name": m["full_name"],
+                "email": m.get("email") or "",
+            })
+        _save_pending_action(conversation_id, "select_from_list_users", {
+            "items": selection_items,
+        })
+        lines.append(
+            '\nNapiš jen **číslo** a řeknu ti o tom členovi víc — '
+            'nebo mě popros "odeber ho z projektu".'
+        )
+        return "\n".join(lines)
+
+    if tool_name in ("add_project_member", "remove_project_member"):
+        from modules.projects.application.service import (
+            add_project_member as _add_member,
+            remove_project_member as _rm_member,
+            list_projects_for_user as _list_projs,
+            ProjectError, NotProjectMember,
+        )
+        from modules.core.infrastructure.models_core import User as _UM, Project as _Proj
+        from core.database_core import get_core_session as _gcs2
+        import unicodedata as _ud
+
+        def _norm(s):
+            if not s: return ""
+            n = _ud.normalize("NFKD", s.strip().lower())
+            return "".join(c for c in n if _ud.category(c) != "Mn")
+
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+
+        target_uid = tool_input.get("target_user_id")
+        project_id = tool_input.get("project_id")
+        project_name = tool_input.get("project_name")
+        role = tool_input.get("role") or "member"
+
+        # Resolve project — project_name (fuzzy) MA prednost pred project_id;
+        # pokud nic, fallback na user.last_active_project_id
+        if project_name:
+            needle = _norm(project_name)
+            user_projects = _list_projs(user_id)
+            matches = [p for p in user_projects if needle in _norm(p["name"])]
+            if not matches:
+                return (
+                    f"❌ Projekt obsahující \"{project_name}\" jsem v tvém tenantu nenašel/a. "
+                    f"Zavolej list_projects a vyber si jméno z dostupných."
+                )
+            if len(matches) > 1:
+                # Zkus presny match
+                exact = [p for p in matches if _norm(p["name"]) == needle]
+                if len(exact) == 1:
+                    matches = exact
+                else:
+                    names = ", ".join(p["name"] for p in matches[:5])
+                    return (
+                        f"❌ \"{project_name}\" odpovídá víc projektům: {names}. "
+                        f"Upřesni jméno (přesněji)."
+                    )
+            project_id = matches[0]["id"]
+        elif not project_id:
+            cs2 = _gcs2()
+            try:
+                u = cs2.query(_UM).filter_by(id=user_id).first()
+                project_id = u.last_active_project_id if u else None
+            finally:
+                cs2.close()
+            if not project_id:
+                return (
+                    "❌ Neřekl/a jsi do kterého projektu a ani nemáš aktivní. "
+                    "Zavolej list_projects a zeptej se uživatele kam."
+                )
+
+        # Najdi jmeno projektu + target user pro pekny vystup
+        cs3 = _gcs2()
+        try:
+            proj = cs3.query(_Proj).filter_by(id=project_id).first()
+            proj_name = proj.name if proj else f"#{project_id}"
+            target_user = cs3.query(_UM).filter_by(id=target_uid).first()
+            target_name = " ".join(filter(None, [target_user.first_name, target_user.last_name])).strip() if target_user else f"#{target_uid}"
+        finally:
+            cs3.close()
+
+        try:
+            if tool_name == "add_project_member":
+                result = _add_member(
+                    user_id=user_id, project_id=project_id,
+                    target_user_id=target_uid, role=role,
+                )
+                if result.get("added"):
+                    return f"✅ Přidal/a jsem **{target_name}** do projektu **{proj_name}** ({role})."
+                return f"ℹ️ **{target_name}** už členem projektu **{proj_name}** je."
+            else:
+                result = _rm_member(
+                    user_id=user_id, project_id=project_id,
+                    target_user_id=target_uid,
+                )
+                if result.get("removed"):
+                    return f"✅ Odebral/a jsem **{target_name}** z projektu **{proj_name}**."
+                return f"ℹ️ **{target_name}** v projektu **{proj_name}** ani nebyl/a."
+        except NotProjectMember as e:
+            return f"❌ {e}"
+        except ProjectError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            return f"❌ Operace selhala: {e}"
+
     if tool_name == "list_conversations":
         from modules.conversation.infrastructure.repository import list_conversations as _list_conv
         from modules.core.infrastructure.models_core import User as _UserModel

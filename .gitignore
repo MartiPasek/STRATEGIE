@@ -39,12 +39,18 @@ dist/
 *.log
 logs/
 
-# Jednorazove commit / push helpery (nejsou soucasti produkcniho kodu,
-# vyrabeny ad-hoc pri vyvoji a zahazovany po pouziti). Soubory dev.ps1,
-# test_phase11.ps1 a _check_db.py v gitu zustavaji — to jsou znovu
-# pouzitelne dev nastroje.
+# Jednorazove dev / commit / push helpery (nejsou soucasti produkcniho
+# kodu, vyrabeny ad-hoc pri vyvoji a zahazovany po pouziti).
+# Soubor dev.ps1 v gitu ZUSTAVA -- to je hlavni dev launcher.
 scripts/commit_*.ps1
 scripts/push_phase*.ps1
+scripts/test_*.ps1
+scripts/cleanup_*.ps1
+scripts/_*.py
 
 # Commit message drafts (pouzivany v commit scripts pres Set-Content)
 .git_commit_msg*.txt
+
+# Generovane dokumenty (PDF runbooky, schemata) -- generuji se ad-hoc,
+# verzuji se zdrojovem skriptem (make_runbook.py) ne vystupem.
+*.pdf

@@ -457,6 +457,79 @@ def _log_sms_action(
         session.close()
 
 
+# Regex pro detekci halucinovaneho switch_persona v Claude reply.
+# Zachycuje:
+#   "✅ Přepnuto na Marti-AI."   (klasicky Claude vzor s emoji)
+#   "Přepnuto na PrávníkCZ-AI"   (bez emoji, bez tecky)
+#   "Nyní mluvíš s XXX-AI"       (druhou casti v reply se potvrzuje uspesne prepnuti)
+# Podporuje diakritiku v nazvu persony (napr. PrávníkCZ-AI), cisla, pomlcky.
+import re as _re_persona_switch
+_HALLUCINATED_SWITCH_RE = _re_persona_switch.compile(
+    r"(?:✅\s*)?P[rř]epnuto\s+na\s+([A-Za-zÀ-žá-ž0-9][A-Za-zÀ-žá-ž0-9\-]{1,64}?)(?=[\s.,!?\n]|$)",
+    flags=_re_persona_switch.IGNORECASE,
+)
+
+
+def _maybe_enforce_hallucinated_switch(conversation_id: int, reply: str) -> None:
+    """
+    Pokud Claude v replice napsal "Přepnuto na X" jako text (bez volani tool
+    switch_persona), pokusime se X rozpoznat a vynutit switch v DB.
+
+    Idempotentni: pokud conversation.active_agent_id uz odpovida te personu,
+    neuderime nic. Pokud neni match (persona nenalezena), jen logneme a
+    pokracujeme -- reply jde do DB i tak, user uvidi halucinaci, ale
+    system stav se nerozsypal.
+    """
+    if not reply:
+        return
+    m = _HALLUCINATED_SWITCH_RE.search(reply)
+    if not m:
+        return
+    target_name = m.group(1).strip()
+    if not target_name:
+        return
+    # Uz ma active_agent_id tu personu? Idempotence -- zbytecny DB update preskocime.
+    from modules.core.infrastructure.models_core import Persona as _Persona
+    cs = get_core_session()
+    try:
+        target = cs.query(_Persona).filter(_Persona.name.ilike(target_name)).first()
+        if target is None:
+            logger.info(
+                f"PERSONA | hallucinated switch detected but persona not found | "
+                f"conv={conversation_id} | target={target_name!r}"
+            )
+            return
+        target_id = target.id
+        target_name_canonical = target.name
+    finally:
+        cs.close()
+
+    # Over aktualni state -- pokud uz je switchnuto, nic nedelame.
+    current_id = _active_persona_id_for_conversation(conversation_id)
+    if current_id == target_id:
+        return
+
+    # Vynutime switch. Pouzijeme existujici switch_persona_for_user (stejny
+    # code path jako Claude tool call) -- zajisti DB update + audit.
+    try:
+        result = switch_persona_for_user(query=target_name_canonical, conversation_id=conversation_id)
+        if result.get("found"):
+            logger.warning(
+                f"PERSONA | enforced hallucinated switch | conv={conversation_id} | "
+                f"from={current_id} -> to={target_id} ({target_name_canonical})"
+            )
+        else:
+            logger.info(
+                f"PERSONA | hallucinated switch regex matched but switch_persona_for_user "
+                f"failed | conv={conversation_id} | target={target_name_canonical!r}"
+            )
+    except Exception as e:
+        logger.error(
+            f"PERSONA | enforce hallucinated switch raised | conv={conversation_id} | "
+            f"error={e!r}"
+        )
+
+
 def _active_persona_id_for_conversation(conversation_id: int) -> int | None:
     """
     Vrati persona_id aktivni v dane konverzaci (conversations.active_agent_id).
@@ -1884,6 +1957,15 @@ def chat(
 
     if not assistant_reply:
         assistant_reply = "Promiň, něco se pokazilo. Zkus to znovu."
+
+    # ── Guard proti halucinovanemu switch_persona ──────────────────────────
+    # Claude obcas napise "✅ Prepnuto na <persona>" jako text, aniz by zavolal
+    # tool switch_persona. Tim zustane conversation.active_agent_id beze zmeny
+    # a vsechny nasledujici assistant zpravy se labeluji jako puvodni persona,
+    # ackoli Claude pokracuje v roli nove persony. Detekujeme vzor a vynutime
+    # skutecny switch retrospektivne -- tim si zajistime, ze save_message nize
+    # vezme spravne active_agent_id.
+    _maybe_enforce_hallucinated_switch(conversation_id, assistant_reply)
 
     save_message(conversation_id, role="assistant", content=assistant_reply)
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")

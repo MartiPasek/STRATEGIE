@@ -11,7 +11,7 @@ from core.database_data import get_data_session
 from core.logging import get_logger
 from modules.conversation.application.composer import build_prompt
 from modules.conversation.application.tools import (
-    TOOLS, format_email_preview, find_user_in_system,
+    TOOLS, format_email_preview, format_sms_preview, find_user_in_system,
     invite_user_to_strategie, switch_persona_for_user,
     get_user_default_persona_name, switch_tenant_for_user,
     get_user_default_tenant_id,
@@ -147,6 +147,38 @@ def _last_assistant_message_looks_like_email_preview(conversation_id: int) -> bo
         if not last:
             return False
         return _looks_like_email_preview(last.content)
+    finally:
+        session.close()
+
+
+def _looks_like_sms_preview(text: str) -> bool:
+    """
+    Heuristika: rozpozná text, který vypadá jako SMS preview (ať už z
+    format_sms_preview, nebo Claudeho mimikry bez volání toolu).
+    """
+    if not text:
+        return False
+    low = text.lower()
+    if "mohu sms odeslat" in low or "mám sms odeslat" in low or "mám ji odeslat" in low:
+        return True
+    if "📱" in text and "návrh sms" in low:
+        return True
+    return False
+
+
+def _last_assistant_message_looks_like_sms_preview(conversation_id: int) -> bool:
+    """Stejny princip jako pro email -- zabezpeceni ze se nic neodesle bez pending."""
+    session = get_data_session()
+    try:
+        last = (
+            session.query(Message)
+            .filter_by(conversation_id=conversation_id, role="assistant")
+            .order_by(Message.id.desc())
+            .first()
+        )
+        if not last:
+            return False
+        return _looks_like_sms_preview(last.content)
     finally:
         session.close()
 
@@ -383,6 +415,57 @@ def _build_email_sent_message(to: str, body: str) -> str:
     return "✅ Email odeslán"
 
 
+def _log_sms_action(
+    to: str,
+    body: str,
+    status: str,
+    user_id: int | None,
+    conversation_id: int,
+    outbox_id: int | None = None,
+    error: str | None = None,
+) -> None:
+    """
+    Zaloguje obsah odeslaneho (nebo selhaneho) SMS do action_logs.
+    Kriticke pro audit -- musi byt mozne zpetne overit, co presne odeslelo.
+    """
+    session = get_data_session()
+    try:
+        out = f"to={to} | chars={len(body)}"
+        if outbox_id:
+            out += f" | outbox_id={outbox_id}"
+        if error:
+            out += f" | error={error}"
+        log = ActionLog(
+            user_id=user_id,
+            action_type="confirm",
+            tool_name="send_sms",
+            input=json.dumps(
+                {"to": to, "body": body, "conversation_id": conversation_id},
+                ensure_ascii=False,
+            ),
+            output=out,
+            status=status,
+            error_message=error,
+            approval_required=True,
+            approved_by=user_id,
+        )
+        session.add(log)
+        session.commit()
+    except Exception as e:
+        logger.error(f"AUDIT | action_log failed (sms): {e}")
+    finally:
+        session.close()
+
+
+def _build_sms_sent_message(to: str, outbox_id: int | None) -> str:
+    """
+    Potvrzovaci text pro UI. SMS se ve skutecnosti odesila az pres Android
+    gateway (telefon pulluje outbox), takze z pohledu systemu je "zarazena".
+    User uvidi v UI, jakmile telefon potvrdi doruceni (action_log update).
+    """
+    return "📱 SMS zařazena k odeslání"
+
+
 def _execute_pending_action(conversation_id: int, user_id: int | None = None) -> str | None:
     action = _get_pending_action(conversation_id)
     if not action:
@@ -403,6 +486,61 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             return _build_email_sent_message(to, body)
         _log_email_action(to, subject, body, "error", user_id, conversation_id, error="send_email returned False")
         return "❌ Email se nepodařilo odeslat."
+
+    if action["type"] == "send_sms":
+        from modules.notifications.application.sms_service import (
+            queue_sms, SmsRateLimitError, SmsValidationError, SmsError,
+        )
+        to = action["to"]
+        body = action["body"]
+
+        # Tenant do outboxu pro audit -- nacist z usera
+        tenant_id = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_sms
+            from modules.core.infrastructure.models_core import User as _U_sms
+            _cs = _gcs_sms()
+            try:
+                _u = _cs.query(_U_sms).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        try:
+            result = queue_sms(
+                to=to,
+                body=body,
+                purpose="user_request",
+                user_id=user_id,
+                tenant_id=tenant_id,
+            )
+        except SmsRateLimitError as e:
+            _log_sms_action(to, body, "error", user_id, conversation_id, error=f"rate_limit: {e}")
+            return (
+                "❌ SMS rate limit — poslal jsi příliš mnoho SMS za poslední hodinu. "
+                "Zkus to za chvíli, nebo uprav limit v konfiguraci."
+            )
+        except SmsValidationError as e:
+            _log_sms_action(to, body, "error", user_id, conversation_id, error=f"validation: {e}")
+            return f"❌ SMS neodeslána — neplatný vstup: {e}"
+        except SmsError as e:
+            _log_sms_action(to, body, "error", user_id, conversation_id, error=str(e))
+            return "❌ SMS se nepodařilo zařadit k odeslání."
+        except Exception as e:
+            _log_sms_action(to, body, "error", user_id, conversation_id, error=str(e))
+            return "❌ SMS se nepodařilo zařadit k odeslání."
+
+        # queue_sms vrati dict. Pokud SMS_ENABLED=false -> status='disabled'.
+        status = result.get("status")
+        if status == "disabled":
+            _log_sms_action(to, body, "skipped", user_id, conversation_id,
+                            error="SMS_ENABLED=false")
+            return "⚠️ SMS gateway je vypnutá (SMS_ENABLED=false). SMS neodeslána."
+
+        outbox_id = result.get("id")
+        _log_sms_action(to, body, "success", user_id, conversation_id, outbox_id=outbox_id)
+        return _build_sms_sent_message(result.get("to_phone") or to, outbox_id)
     return None
 
 
@@ -418,6 +556,16 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         return format_email_preview(
             to=tool_input.get("to", ""),
             subject=tool_input.get("subject", ""),
+            body=tool_input.get("body", ""),
+        )
+
+    if tool_name == "send_sms":
+        _save_pending_action(conversation_id, "send_sms", {
+            "to": tool_input.get("to", ""),
+            "body": tool_input.get("body", ""),
+        })
+        return format_sms_preview(
+            to=tool_input.get("to", ""),
             body=tool_input.get("body", ""),
         )
 
@@ -1088,6 +1236,18 @@ def chat(
                 "❌ Žádný email nebyl systémově připraven k odeslání.\n\n"
                 "Napiš znovu explicitně, co mám poslat, např.:\n"
                 "„pošli email m.pasek@eurosoft.com — Ahoj Marti, …"
+            )
+            save_message(conversation_id, role="assistant", content=reply)
+            return conversation_id, reply, None
+        elif _last_assistant_message_looks_like_sms_preview(conversation_id):
+            # Stejna bezpecnostni stopka pro SMS -- Claude nesmi tvrdit,
+            # ze SMS odeslal bez realneho pending_action v DB.
+            save_message(conversation_id, role="user", content=user_message,
+                         author_type="human", author_user_id=user_id)
+            reply = (
+                "❌ Žádná SMS nebyla systémově připravena k odeslání.\n\n"
+                "Napiš znovu explicitně, co mám poslat, např.:\n"
+                "„pošli SMS na 777180511 — Ahoj, schůzka se ruší."
             )
             save_message(conversation_id, role="assistant", content=reply)
             return conversation_id, reply, None

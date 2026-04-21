@@ -65,6 +65,47 @@ TOOLS = [
         },
     },
     {
+        "name": "send_sms",
+        "description": (
+            "Tento nástroj MUSÍŠ použít vždy, když uživatel chce poslat SMS. "
+            "NIKDY neodpovídej jen textem — vždy zavolej tento nástroj. "
+            "Nástroj SMS NEPOŠLE — nejprve ukáže návrh uživateli a počká na potvrzení "
+            "('ano' / 'pošli'). Chování je analogické k send_email.\n\n"
+            "ÚPRAVY SMS: Pokud uživatel chce SMS upravit, změnit, zkrátit apod., "
+            "MUSÍŠ tento nástroj zavolat ZNOVU s kompletním novým body. "
+            "NIKDY nepiš upravený návrh SMS jen jako text — systém si ukládá jen obsah "
+            "z volání nástroje a bez nového zavolání by se odeslala stará verze.\n\n"
+            "ČÍSLO PŘÍJEMCE: NIKDY si nevymýšlej telefonní číslo. Pokud uživatel uvede "
+            "jen jméno osoby, NEJDŘÍV zavolej `find_user` — vrací `preferred_phone`. "
+            "Pokud najdeš usera, ale nemá `preferred_phone`, zeptej se uživatele: "
+            "'X nemá v systému uložené telefonní číslo, jaké je?' — nevymýšlej ho. "
+            "Pokud uživatel uvede číslo přímo, použij ho. Akceptované formáty: "
+            "+420XXXXXXXXX, 00420 XXX XXX XXX, nebo 9 číslic začínajících 6 či 7 "
+            "(např. 777180511). Backend normalizuje na E.164.\n\n"
+            "DÉLKA: SMS nad 160 znaků se fakturuje jako více segmentů (160/segment). "
+            "Piš stručně a česky bez diakritiky jen když to má důvod — backend diakritiku "
+            "zvládne, ale s diakritikou je limit jen ~70 znaků/segment. Při delších textech "
+            "upozorni uživatele na počet segmentů."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Telefonní číslo příjemce. +420XXXXXXXXX, 00420..., "
+                        "nebo jen 9 číslic pro CZ."
+                    ),
+                },
+                "body": {
+                    "type": "string",
+                    "description": "Obsah SMS (text).",
+                },
+            },
+            "required": ["to", "body"],
+        },
+    },
+    {
         "name": "find_user",
         "description": (
             "Použij tento nástroj když uživatel chce kontaktovat nebo se spojit s jiným člověkem. "
@@ -375,6 +416,24 @@ def _is_email_in_system(email: str) -> bool:
         session.close()
 
 
+def format_sms_preview(to: str, body: str) -> str:
+    """
+    Nahled odchozi SMS. Krátké, bez balastu — SMS jsou mnohem užší
+    kanál než email (neposílá se titulek, délka omezena).
+    """
+    length = len(body or "")
+    segments = max(1, (length + 159) // 160) if length else 1   # ~160 znaku/segment
+    seg_note = "" if segments == 1 else f"  ({segments} segmenty)"
+    return (
+        f"📱 Návrh SMS\n\n"
+        f"Komu: {to}\n"
+        f"Délka: {length} znaků{seg_note}\n\n"
+        f"{body}\n\n"
+        f"---\n"
+        f"Mohu SMS odeslat?"
+    )
+
+
 def format_email_preview(to: str, subject: str, body: str) -> str:
     # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
     # typická známka halucinace nebo překlepu.
@@ -567,6 +626,7 @@ def find_user_in_system(query: str, requester_user_id: int | None = None) -> dic
             "display_name": str | None,    # z user_tenant_profiles aktuálního tenantu
             "role_label": str | None,      # job role v aktuálním tenantu
             "preferred_email": str | None,
+            "preferred_phone": str | None, # primary phone z user_contacts, pro send_sms
             "matched_via": str             # debug — jak jsme ho našli
           }, ...
         ],
@@ -663,12 +723,16 @@ def find_user_in_system(query: str, requester_user_id: int | None = None) -> dic
             .all()
         )
         emails_by_user: dict[int, str] = {}
+        phones_by_user: dict[int, str] = {}
         all_contact_values_by_user: dict[int, list[str]] = {}
         for c in contacts:
             all_contact_values_by_user.setdefault(c.user_id, []).append(c.contact_value)
             if c.contact_type == "email":
                 if c.is_primary or c.user_id not in emails_by_user:
                     emails_by_user[c.user_id] = c.contact_value
+            elif c.contact_type == "phone":
+                if c.is_primary or c.user_id not in phones_by_user:
+                    phones_by_user[c.user_id] = c.contact_value
 
         # Profile (display_name, role_label) pro tenant
         profiles = (
@@ -726,6 +790,7 @@ def find_user_in_system(query: str, requester_user_id: int | None = None) -> dic
                 "display_name": display_name,
                 "role_label": profile.role_label if profile else None,
                 "preferred_email": emails_by_user.get(user.id),
+                "preferred_phone": phones_by_user.get(user.id),
                 "matched_via": matched_field,
             })
 

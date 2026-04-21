@@ -15,6 +15,7 @@ from modules.personas.api.router import router as personas_router
 from modules.rag.api.router import router as rag_router
 from modules.audit.api.router import router as audit_router
 from modules.notifications.api.sms_gateway_router import router as sms_gateway_router
+from modules.tasks.api.router import router as tasks_router
 
 setup_logging()
 
@@ -42,6 +43,7 @@ app.include_router(personas_router)
 app.include_router(rag_router)
 app.include_router(audit_router)
 app.include_router(sms_gateway_router)
+app.include_router(tasks_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

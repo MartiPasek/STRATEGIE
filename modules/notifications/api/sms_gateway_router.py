@@ -235,3 +235,141 @@ def post_call(
     except SmsValidationError as e:
         raise HTTPException(400, f"validation: {e}")
     return {"ok": True, **result}
+
+
+# ── sms-gate.app webhook adapter ───────────────────────────────────────────
+# capcom6 cloud posila prichozi SMS v jinem payloadu nez nase interni
+# /inbox endpointu. Tenhle endpoint prijme jejich format a prelozi ho.
+# Konfigurace v sms-gate.app dashboardu:
+#   URL     : https://app.strategie-system.com/api/v1/sms/gateway/inbox-webhook
+#   Method  : POST
+#   Headers : X-Gateway-Key: <nas SMS_GATEWAY_KEY>
+#   Events  : sms:received   (optional: sms:delivered / sms:sent / sms:failed)
+
+def _resolve_gateway_key(
+    req: Request,
+    x_gateway_key: str | None,
+    query_key: str | None,
+) -> None:
+    """
+    Overuje gateway key z X-Gateway-Key headeru NEBO `?key=` query param.
+    Pouzite pro webhooky ze sluzeb co neumi custom headers (sms-gate.app).
+    """
+    if x_gateway_key:
+        _require_gateway_key(req, x_gateway_key)
+        return
+    if query_key:
+        _require_gateway_key(req, query_key)
+        return
+    # Neither provided
+    _require_gateway_key(req, None)  # vyhodi 401
+
+
+@router.post("/inbox-webhook")
+async def post_inbox_webhook(
+    req: Request,
+    x_gateway_key: str | None = Header(default=None, alias="X-Gateway-Key"),
+    key: str | None = None,   # ?key=... query param -- fallback pro sms-gate.app
+) -> dict:
+    """
+    Webhook adapter pro sms-gate.app (capcom6 cloud).
+
+    Ocekava payload typu:
+      {
+        "event": "sms:received" | "sms:delivered" | "sms:sent" | "sms:failed",
+        "deviceId": "cdtGorl...",
+        "payload": {
+          "messageId": "...",
+          "phoneNumber": "+420...",
+          "simNumber": 1,
+          "message": "text SMS",
+          "receivedAt": "2026-04-21T14:30:00.000Z"
+        }
+      }
+
+    Podporovane eventy:
+      sms:received -- prichozi SMS, ulozi do sms_inbox
+      mms:received -- prichozi MMS (dnes v CR defaultni format, RCS fallback)
+      ostatni      -- jen logujeme pro delivery tracking v budoucnu
+
+    Auth: X-Gateway-Key header NEBO ?key=... query param (sms-gate.app neumi
+    custom headers). URL v sms-gate.app konfiguraci:
+        https://app.strategie-system.com/api/v1/sms/gateway/inbox-webhook?key=<SMS_GATEWAY_KEY>
+    """
+    _resolve_gateway_key(req, x_gateway_key, key)
+
+    try:
+        raw = await req.json()
+    except Exception as e:
+        raise HTTPException(400, f"bad json: {e}")
+
+    event = (raw.get("event") or "").lower()
+    payload = raw.get("payload") or {}
+
+    # Log CELY raw payload pro prvnich par zprav -- potrebujeme videt format MMS
+    # ktery se muze lisit od SMS. Jakmile format potvrdime, muzeme odstranit.
+    import json as _json
+    logger.info(
+        f"SMS | webhook | event={event} | raw_payload={_json.dumps(raw)[:1000]}"
+    )
+
+    if event in ("sms:received", "mms:received"):
+        from_phone = payload.get("phoneNumber") or ""
+        # MMS muze mit obsah v "message", "text", nebo i v "subject" / "parts"
+        # -- sbirame permisivne, prvni neprazdny text vyhrava.
+        message_text = (
+            payload.get("message")
+            or payload.get("text")
+            or payload.get("subject")
+            or ""
+        )
+        # Pro MMS mohou byt attachmenty -- zaznamename do meta, text vse co mame
+        attachments = payload.get("attachments") or []
+        if attachments and not message_text:
+            message_text = f"[MMS s {len(attachments)} priloh]"
+
+        received_at = _parse_iso(payload.get("receivedAt"))
+
+        if not from_phone or not message_text:
+            raise HTTPException(
+                400,
+                f"{event} requires phoneNumber and message/text/subject "
+                f"(got: from={from_phone!r}, text={message_text!r})",
+            )
+
+        # to_phone -- pro MVP bereme SMS_FROM_NUMBER (nase SIM), az bude dual-SIM
+        # musime resolvovat podle simNumber z payloadu.
+        from core.config import settings as _s
+        to_phone = _s.sms_from_number or None
+
+        meta = _json.dumps({
+            "event": event,
+            "device_id": raw.get("deviceId"),
+            "message_id": payload.get("messageId"),
+            "sim_number": payload.get("simNumber"),
+            "attachments_count": len(attachments) if attachments else 0,
+        })
+
+        try:
+            result = store_inbound_sms(
+                from_phone=from_phone,
+                body=message_text,
+                to_phone=to_phone,
+                received_at=received_at,
+                meta=meta,
+            )
+        except SmsValidationError as e:
+            raise HTTPException(400, f"validation: {e}")
+
+        logger.info(
+            f"SMS | webhook | stored | event={event} | inbox_id={result['id']} | "
+            f"from={from_phone} | len={len(message_text)}"
+        )
+        return {"ok": True, "stored": True, **result}
+
+    # Jine eventy jen logujeme (sms:delivered / sms:sent / sms:failed apod.)
+    logger.info(
+        f"SMS | webhook | other_event={event} | device={raw.get('deviceId')} | "
+        f"message_id={payload.get('messageId')}"
+    )
+    return {"ok": True, "stored": False, "event": event}

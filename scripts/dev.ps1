@@ -70,8 +70,10 @@ function Free-Port {
             Write-Host "Nepodařilo se ukončit PID=$procId ($_)" -ForegroundColor Red
         }
     }
-    # malá pauza, ať Windows uvolní socket
-    Start-Sleep -Milliseconds 300
+    # Pauza, ať Windows uvolní socket. 300ms se nekdy ukazalo jako malo --
+    # nasledny uvicorn bind pak padal s WinError 10048 (TIME_WAIT). 2s je
+    # bezpecnejsi kompromis.
+    Start-Sleep -Seconds 2
     Write-Host "Port $P uvolněn." -ForegroundColor Green
 }
 

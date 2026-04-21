@@ -677,6 +677,20 @@
     /* Prazdny stav tabu */
     .sms-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 48px 20px; font-style: italic; }
     .sms-loading { text-align: center; color: var(--muted); font-size: 11px; padding: 20px; font-family: 'DM Mono', monospace; }
+
+    /* Reply block (Commit 7) -- rozbaleny textarea + actions pod kartou */
+    .sms-reply-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); display: none; }
+    .sms-reply-block.open { display: block; }
+    .sms-reply-hint { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 4px; letter-spacing: .06em; text-transform: uppercase; }
+    .sms-reply-hint.has-draft { color: var(--accent); }
+    .sms-reply-textarea { width: 100%; min-height: 70px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; resize: vertical; box-sizing: border-box; }
+    .sms-reply-textarea:focus { border-color: var(--accent); }
+    .sms-reply-actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+    .sms-reply-btn-send { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+    .sms-reply-btn-send:hover:not(:disabled) { filter: brightness(1.15); }
+    .sms-reply-btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .sms-reply-btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    .sms-reply-btn-cancel:hover { color: var(--text); border-color: var(--text); }
   </style>
 </head>
 <body>
@@ -5865,7 +5879,8 @@
 
     // inbox (new nebo processed)
     const actionsBtn = tab === "new"
-      ? `<button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
+      ? `<button class="sms-card-btn" data-action="reply" data-sms-id="${item.id}">Odpovědět</button>
+         <button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
       : "";
     return `
       <div class="sms-card" data-sms-id="${item.id}">
@@ -5875,11 +5890,20 @@
         </div>
         <div class="sms-card-body">${_smsEscape(item.body)}</div>
         <div class="sms-card-actions">${actionsBtn}</div>
+        <div class="sms-reply-block" id="sms-reply-${item.id}">
+          <div class="sms-reply-hint" id="sms-reply-hint-${item.id}">Tvoje odpověď</div>
+          <textarea class="sms-reply-textarea" id="sms-reply-text-${item.id}" placeholder="Napiš odpověď…"></textarea>
+          <div class="sms-reply-actions">
+            <button class="sms-reply-btn-cancel" data-action="reply-cancel" data-sms-id="${item.id}">Zrušit</button>
+            <button class="sms-reply-btn-send" data-action="reply-send" data-sms-id="${item.id}">Odeslat</button>
+          </div>
+        </div>
       </div>
     `;
   }
 
   function _smsAttachCardHandlers() {
+    // Mark processed (manual override)
     document.querySelectorAll("#smsList [data-action='mark-processed']").forEach(btn => {
       btn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
@@ -5889,7 +5913,6 @@
         try {
           const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/mark-processed`, { method: "POST" });
           if (r.ok) {
-            // Refresh aktualniho tabu + badge (zprava zmizi ze seznamu Prichozich).
             await fetchAndRenderSmsTab(window._smsModal.activeTab);
             refreshSmsUnreadBadges();
           } else {
@@ -5901,6 +5924,96 @@
           btn.disabled = false;
           btn.textContent = "Označit zpracované";
           alert(`Chyba: ${e.message}`);
+        }
+      });
+    });
+
+    // Reply -- toggle reply block + fetch draft pro prefill
+    document.querySelectorAll("#smsList [data-action='reply']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const block = document.getElementById(`sms-reply-${smsId}`);
+        const textarea = document.getElementById(`sms-reply-text-${smsId}`);
+        const hint = document.getElementById(`sms-reply-hint-${smsId}`);
+        if (!block) return;
+        // Zavre ostatni otevrene reply bloky (jeden otevreny najednou)
+        document.querySelectorAll(".sms-reply-block.open").forEach(b => {
+          if (b !== block) b.classList.remove("open");
+        });
+        const willOpen = !block.classList.contains("open");
+        block.classList.toggle("open", willOpen);
+        if (!willOpen) return;
+        // Pokud je textarea prazdna, fetch draft z AI tasku
+        if (!textarea.value) {
+          hint.textContent = "Hledám návrh od AI…";
+          hint.classList.remove("has-draft");
+          try {
+            const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/draft`);
+            if (r.ok) {
+              const data = await r.json();
+              if (data.draft) {
+                textarea.value = data.draft;
+                hint.textContent = `Návrh od AI (task ${data.task_status || "?"}) — můžeš editovat`;
+                hint.classList.add("has-draft");
+              } else {
+                hint.textContent = "Tvoje odpověď";
+              }
+            } else {
+              hint.textContent = "Tvoje odpověď";
+            }
+          } catch (_) {
+            hint.textContent = "Tvoje odpověď";
+          }
+        }
+        textarea.focus();
+      });
+    });
+
+    // Reply -- cancel (zavre block, nesmazne text)
+    document.querySelectorAll("#smsList [data-action='reply-cancel']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const block = document.getElementById(`sms-reply-${smsId}`);
+        if (block) block.classList.remove("open");
+      });
+    });
+
+    // Reply -- odeslat
+    document.querySelectorAll("#smsList [data-action='reply-send']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const textarea = document.getElementById(`sms-reply-text-${smsId}`);
+        const body = (textarea.value || "").trim();
+        if (!body) {
+          alert("Napiš text odpovědi.");
+          return;
+        }
+        btn.disabled = true;
+        const origText = btn.textContent;
+        btn.textContent = "Odesílám…";
+        try {
+          const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/reply`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({body}),
+          });
+          if (r.ok) {
+            // Uspech: refresh tab (SMS zmizi ze seznamu Prichozich) + badges
+            await fetchAndRenderSmsTab(window._smsModal.activeTab);
+            refreshSmsUnreadBadges();
+          } else {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = origText;
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = origText;
         }
       });
     });

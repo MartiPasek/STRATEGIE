@@ -896,6 +896,141 @@ def mark_inbox_processed(inbox_id: int) -> dict | None:
         ds.close()
 
 
+def reply_to_inbox(
+    *,
+    inbox_id: int,
+    body: str,
+    user_id: int | None = None,
+    tenant_id: int | None = None,
+) -> dict:
+    """
+    Odpoved na prichozi SMS:
+      1. queue_sms() -- ulozi do outbox (Android gateway to pak odesle)
+      2. sms_inbox.processed_at = now (presun do 'Zpracovane' slozky)
+      3. cancel vsech open tasku nad touto SMS (uz je resena usrem, AI
+         nema duvod je spoustet)
+
+    In-progress tasky ponechame -- jejich executor uz claim ma a nejspis
+    uz dobehne. Done tasky jsou audit, zustavaji.
+
+    Vraci dict:
+      {
+        "sms_id": 123,
+        "outbox_id": 456,
+        "outbox_status": "pending" | "disabled" | "failed",
+        "processed_at": "2026-04-21T...",
+        "cancelled_tasks": 2,
+      }
+
+    Raises: SmsValidationError, SmsRateLimitError z queue_sms.
+    """
+    # Najdeme puvodni SMS ať vime, komu posilame.
+    ds = get_data_session()
+    try:
+        sms = ds.query(SmsInbox).filter(SmsInbox.id == inbox_id).first()
+        if sms is None:
+            raise SmsValidationError(f"SMS id={inbox_id} neexistuje")
+        to_phone = sms.from_phone
+        effective_tenant = tenant_id if tenant_id is not None else sms.tenant_id
+    finally:
+        ds.close()
+
+    # 1) Do outboxu. Chyba -> propagace vyjimky vola (endpoint ji prelozi na 400).
+    outbox = queue_sms(
+        to=to_phone,
+        body=body,
+        purpose="user_request",
+        user_id=user_id,
+        tenant_id=effective_tenant,
+    )
+
+    # 2) Mark processed + 3) cancel open tasky. V jedne session, ze tam je
+    # potreba commit obojiho najednou.
+    from modules.core.infrastructure.models_data import Task as _Task
+    now = datetime.now(timezone.utc)
+    cancelled = 0
+    ds = get_data_session()
+    try:
+        sms_row = ds.query(SmsInbox).filter(SmsInbox.id == inbox_id).first()
+        if sms_row is not None and sms_row.processed_at is None:
+            sms_row.processed_at = now
+            if sms_row.read_at is None:
+                sms_row.read_at = now
+
+        open_tasks = (
+            ds.query(_Task)
+            .filter(
+                _Task.source_type == "sms_inbox",
+                _Task.source_id == inbox_id,
+                _Task.status == "open",
+            )
+            .all()
+        )
+        for t in open_tasks:
+            t.status = "cancelled"
+            t.completed_at = now
+            t.result_summary = "[zruseno] user odpovedel primo z UI"
+            cancelled += 1
+
+        ds.commit()
+    finally:
+        ds.close()
+
+    logger.info(
+        f"SMS | inbox | reply sent | sms_id={inbox_id} | outbox_id={outbox['id']} | "
+        f"outbox_status={outbox['status']} | cancelled_tasks={cancelled}"
+    )
+
+    return {
+        "sms_id": inbox_id,
+        "outbox_id": outbox["id"],
+        "outbox_status": outbox["status"],
+        "processed_at": now.isoformat(),
+        "cancelled_tasks": cancelled,
+    }
+
+
+def get_draft_for_inbox(inbox_id: int) -> dict:
+    """
+    Vraci nejnovejsi non-empty result_summary z tasku nad danou SMS -- UI
+    to pouziva pro prefill reply textarea (AI uz napsala draft, user ho
+    muze editovat nebo poslat jak je).
+
+    Priorita: done > in_progress > failed (failed uz je fallback).
+    Pokud neni zadny task nebo zadny s result_summary, vraci None.
+
+    Return:
+      {"draft": str | None, "task_id": int | None, "task_status": str | None}
+    """
+    from modules.core.infrastructure.models_data import Task as _Task
+
+    ds = get_data_session()
+    try:
+        # Prednost done tasku (finalni), pak in_progress (pokud uz aspon
+        # castecne napsal), pak failed (fallback).
+        for preferred_status in ("done", "in_progress", "failed"):
+            t = (
+                ds.query(_Task)
+                .filter(
+                    _Task.source_type == "sms_inbox",
+                    _Task.source_id == inbox_id,
+                    _Task.status == preferred_status,
+                    _Task.result_summary.isnot(None),
+                )
+                .order_by(_Task.completed_at.desc().nulls_last(), _Task.id.desc())
+                .first()
+            )
+            if t is not None and t.result_summary:
+                return {
+                    "draft": t.result_summary,
+                    "task_id": t.id,
+                    "task_status": t.status,
+                }
+        return {"draft": None, "task_id": None, "task_status": None}
+    finally:
+        ds.close()
+
+
 def get_unread_counts_per_persona(tenant_id: int) -> dict[int, int]:
     """
     Vraci {persona_id: count_of_unprocessed_sms} pro vsechny persony tenantu.

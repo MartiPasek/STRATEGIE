@@ -9,12 +9,19 @@ webhooku. UI endpointy maji jiny scope:
   - razeni od nejnovejsich (ne FIFO pro dispatch)
 """
 from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
 
 from core.database_core import get_core_session
 from core.logging import get_logger
 from modules.core.infrastructure.models_core import User
 from modules.notifications.application import sms_service
-from modules.notifications.application.sms_service import SmsValidationError
+from modules.notifications.application.sms_service import (
+    SmsValidationError, SmsRateLimitError,
+)
+
+
+class _ReplyRequest(BaseModel):
+    body: str = Field(min_length=1, max_length=1600)
 
 logger = get_logger("sms_ui.api")
 
@@ -102,6 +109,42 @@ def mark_processed(sms_id: int, req: Request):
     result = sms_service.mark_inbox_processed(sms_id)
     if result is None:
         raise HTTPException(status_code=404, detail=f"SMS id={sms_id} neexistuje.")
+    return {"ok": True, **result}
+
+
+@router.get("/inbox/{sms_id}/draft")
+def get_draft(sms_id: int, req: Request):
+    """
+    Vraci AI-napsany draft odpovedi z tasku nad touto SMS (pokud existuje).
+    UI to volá pri klik 'Odpovedet' pro prefill textarea.
+    """
+    _get_uid(req)
+    return sms_service.get_draft_for_inbox(sms_id)
+
+
+@router.post("/inbox/{sms_id}/reply")
+def reply_to_sms(sms_id: int, body: _ReplyRequest, req: Request):
+    """
+    Odesle odpoved na prichozi SMS:
+      - body -> queue_sms() -> sms_outbox (Android gateway pote odesle)
+      - mark sms_inbox.processed_at (presun do 'Zpracovane')
+      - cancel vsech open tasku nad touto SMS (user vyresil primo)
+
+    Pri validacni chybe vraci 400. Pri rate limit 429.
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    try:
+        result = sms_service.reply_to_inbox(
+            inbox_id=sms_id,
+            body=body.body,
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+    except SmsValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except SmsRateLimitError as e:
+        raise HTTPException(status_code=429, detail=str(e))
     return {"ok": True, **result}
 
 

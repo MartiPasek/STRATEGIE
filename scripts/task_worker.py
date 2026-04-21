@@ -1,4 +1,4 @@
-"""
+r"""
 Task worker -- out-of-process runner pro AI task queue.
 
 Polluje data_db.tasks (WHERE status='open') v pravidelnem intervalu, kazdy

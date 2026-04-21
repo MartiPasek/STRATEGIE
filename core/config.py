@@ -37,6 +37,26 @@ class Settings(BaseSettings):
     # Logging
     log_level: str = "INFO"
 
+    # SMS notifikace -----------------------------------------------------------
+    # Pull model: aplikace zapisuje do sms_outbox, Android telefon s GSM SIMkou
+    # pulluje pending SMS pres GET /api/v1/sms/gateway/outbox. Doporucena
+    # appka: capcom6/android-sms-gateway (F-Droid, open source).
+    #
+    # SMS_ENABLED=false   -> queue_sms() se bezpecne no-opne (log warning).
+    #                        Pouzivej v dev kdyz nechces spam na realna cisla.
+    # SMS_PROVIDER        -> aktualne podporovany jen "android_gateway".
+    #                        Planovany: "smseagle", "twilio".
+    # SMS_GATEWAY_KEY     -> shared secret mezi appkou a serverem. Poshli ho
+    #                        pres X-Gateway-Key header. 32+ znaku, random.
+    # SMS_FROM_NUMBER     -> info pro audit/display -- skutecne odesilaci cislo
+    #                        je cislo SIM v telefonu, tohle je jen label.
+    # SMS_RATE_LIMIT_PER_USER_PER_HOUR -> brzda proti spamu AI toolem.
+    sms_enabled: bool = False
+    sms_provider: str = "android_gateway"
+    sms_gateway_key: str = ""
+    sms_from_number: str = "+420777180511"
+    sms_rate_limit_per_user_per_hour: int = 5
+
     # Production deployment ----------------------------------------------------
     # Public base URL aplikace (used in invitation email links + cookie domain).
     # V production nastav na https://app.strategie-system.com (přes APP_BASE_URL env).

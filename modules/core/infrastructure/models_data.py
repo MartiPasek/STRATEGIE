@@ -213,3 +213,37 @@ class PendingAction(BaseData):
     action_type: Mapped[str] = mapped_column(String(50))   # "send_email"
     payload: Mapped[str] = mapped_column(Text)             # JSON
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── SMS OUTBOX ─────────────────────────────────────────────────────────────
+
+class SmsOutbox(BaseData):
+    """
+    Outbox pro odchozi SMS -- write-only z aplikace, poll-read Android gateway.
+
+    Lifecycle:
+      pending   -> queue_sms() zapsal, ceka na telefon
+      sent      -> telefon potvrdil (POST /gateway/outbox/{id}/sent)
+      failed    -> telefon reportoval chybu / rate limit / provider error
+
+    purpose:
+      user_request  -- AI tool `send_sms` na zadost usera (s potvrzenim)
+      notification  -- automaticka notifikace (offline zpravy apod.)
+      system        -- alerting / audit / bezpecnost
+
+    to_phone format: E.164 (+420777180511), normalizovano v sms_service.
+    """
+    __tablename__ = "sms_outbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    to_phone: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(String(30), default="user_request")
+    status: Mapped[str] = mapped_column(String(20), default="pending")   # pending | sent | failed
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

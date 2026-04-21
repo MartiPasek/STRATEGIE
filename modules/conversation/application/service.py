@@ -457,6 +457,24 @@ def _log_sms_action(
         session.close()
 
 
+def _active_persona_id_for_conversation(conversation_id: int) -> int | None:
+    """
+    Vrati persona_id aktivni v dane konverzaci (conversations.active_agent_id).
+    Vyuziva se pro SMS inbox / call log tooly -- persona "vlastni" SIMku,
+    takze chceme filtrovat zaznamy per-persona, aby Marti-AI videla svoje,
+    Pravnik-AI neviděl nic (respektive svoje, kdyz dostane SIMku).
+    """
+    from modules.core.infrastructure.models_data import Conversation as _Conv
+    ds = get_data_session()
+    try:
+        c = ds.query(_Conv).filter_by(id=conversation_id).first()
+        if not c:
+            return None
+        return c.active_agent_id
+    finally:
+        ds.close()
+
+
 def _build_sms_sent_message(to: str, outbox_id: int | None) -> str:
     """
     Potvrzovaci text pro UI. SMS se ve skutecnosti odesila az pres Android
@@ -568,6 +586,62 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             to=tool_input.get("to", ""),
             body=tool_input.get("body", ""),
         )
+
+    if tool_name == "list_sms_inbox":
+        from modules.notifications.application.sms_service import list_inbox as _list_inbox
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        unread_only = bool(tool_input.get("unread_only") or False)
+        items = _list_inbox(persona_id=persona_id, limit=limit, unread_only=unread_only)
+        if not items:
+            return (
+                "📭 Schránka SMS je prázdná"
+                + (" (žádné nepřečtené)" if unread_only else "")
+                + "."
+            )
+        lines = ["📱 Přijaté SMS:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["received_at"] or ""
+            mark = "" if it["read"] else " ● "
+            body_preview = (it["body"] or "").strip().replace("\n", " ")
+            if len(body_preview) > 100:
+                body_preview = body_preview[:100] + "…"
+            lines.append(f"{i}. {mark}{it['from_phone']} — {body_preview}  ({ts})")
+        return "\n".join(lines)
+
+    if tool_name == "list_missed_calls":
+        from modules.notifications.application.sms_service import list_calls as _list_calls
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        items = _list_calls(
+            persona_id=persona_id, limit=limit, direction_filter="missed",
+        )
+        if not items:
+            return "✅ Žádné zmeškané hovory."
+        lines = ["📞 Zmeškané hovory:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["started_at"] or ""
+            mark = "" if it["seen"] else " ● "
+            lines.append(f"{i}. {mark}{it['peer_phone']}  ({ts})")
+        return "\n".join(lines)
+
+    if tool_name == "list_recent_calls":
+        from modules.notifications.application.sms_service import list_calls as _list_calls
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        items = _list_calls(persona_id=persona_id, limit=limit)
+        if not items:
+            return "📞 Žádné hovory nezaznamenány."
+        dir_icon = {"in": "⬇", "out": "⬆", "missed": "✗"}
+        lines = ["📞 Poslední hovory:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["started_at"] or ""
+            dur = f"{it['duration_s']}s" if it["duration_s"] is not None else "—"
+            icon = dir_icon.get(it["direction"], "?")
+            lines.append(
+                f"{i}. {icon} {it['peer_phone']}  trvání={dur}  ({ts})"
+            )
+        return "\n".join(lines)
 
     if tool_name == "list_project_members":
         from modules.projects.application.service import (

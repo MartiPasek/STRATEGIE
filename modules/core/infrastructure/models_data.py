@@ -247,3 +247,50 @@ class SmsOutbox(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── SMS INBOX ──────────────────────────────────────────────────────────────
+
+class SmsInbox(BaseData):
+    """
+    Prichozi SMS od Android gateway (capcom6 webhook).
+    persona_id = komu to prislo (majitel SIMky = persona s matching phone_number).
+    """
+    __tablename__ = "sms_inbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_phone: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # JSON metadata z gateway (SIM slot, delivery reports, ...) -- kdyby
+    # bylo treba debug.
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── PHONE CALLS ────────────────────────────────────────────────────────────
+
+class PhoneCall(BaseData):
+    """
+    Zaznam telefonniho hovoru z Android telefonu (Tasker push po skonceni / missed).
+
+    direction:
+      in      -- prichozi hovor prijat (duration_s > 0)
+      out     -- odchozi hovor uskutecneny (duration_s >= 0)
+      missed  -- prichozi hovor nezvednut (duration_s = NULL)
+    """
+    __tablename__ = "phone_calls"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    peer_phone: Mapped[str] = mapped_column(String(20))
+    direction: Mapped[str] = mapped_column(String(10))   # in | out | missed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)

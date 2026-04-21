@@ -217,6 +217,13 @@ class Persona(BaseCore):
     # pri uspesnem POST /api/v1/personas/{id}/avatar. NULL = fallback na
     # generovane iniciály v UI.
     avatar_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Telefonni cislo v E.164 formatu (+420XXXXXXXXX). MVP = flat field,
+    # budouci rozsireni na persona_channels pro multi-SIM per tenant.
+    # Naplnuje se pres persona profile editor; fallback = SMS_FROM_NUMBER v .env.
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Master switch per persona. Pokud False, send_sms se na tuhle personu
+    # nepripusti (vraci chybu do AI).
+    phone_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 class Agent(BaseCore):

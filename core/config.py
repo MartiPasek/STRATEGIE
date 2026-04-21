@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     sms_enabled: bool = False
     sms_provider: str = "android_gateway"
     sms_gateway_key: str = ""
-    sms_from_number: str = "+420777180511"
+    sms_from_number: str = "+420778117879"
     sms_rate_limit_per_user_per_hour: int = 5
 
     # Production deployment ----------------------------------------------------

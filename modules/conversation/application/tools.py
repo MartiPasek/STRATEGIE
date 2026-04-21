@@ -106,6 +106,67 @@ TOOLS = [
         },
     },
     {
+        "name": "list_sms_inbox",
+        "description": (
+            "Vrátí přijaté SMS aktivní persony (Marti-AI vlastní firemní SIM). "
+            "Použij když uživatel chce vědět, co Marti-AI přišlo za zprávy "
+            "(napr. 'co mi prislo', 'kdo mi napsal', 'ukaz mi prichozi SMS'). "
+            "unread_only=true vrátí jen nepřečtené. Vrací cislovany seznam — "
+            "uživatel pak může odpovědět číslem pro akci (zatim jen informacne)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet SMS (default 10, max 50).",
+                    "default": 10,
+                },
+                "unread_only": {
+                    "type": "boolean",
+                    "description": "Jen nepřečtené (default false).",
+                    "default": False,
+                },
+            },
+        },
+    },
+    {
+        "name": "list_missed_calls",
+        "description": (
+            "Vrátí zmeškané hovory aktivní persony (Marti-AI). Použij když "
+            "uživatel chce vědět, kdo volal a nikdo to nezvedl "
+            "('kdo mi volal', 'zmeskane hovory', 'nevzala jsem to')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet hovorů (default 10, max 50).",
+                    "default": 10,
+                },
+            },
+        },
+    },
+    {
+        "name": "list_recent_calls",
+        "description": (
+            "Vrátí poslední hovory aktivní persony (všechny směry: přijaté, "
+            "odchozí i zmeškané). Použij pro přehled všech hovorů za poslední "
+            "dobu ('vsechny hovory', 'log hovoru', 'kdo mi volal dnes')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet hovorů (default 10, max 50).",
+                    "default": 10,
+                },
+            },
+        },
+    },
+    {
         "name": "find_user",
         "description": (
             "Použij tento nástroj když uživatel chce kontaktovat nebo se spojit s jiným člověkem. "

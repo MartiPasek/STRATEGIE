@@ -31,7 +31,7 @@ from datetime import datetime, timedelta, timezone
 from core.config import settings
 from core.database_data import get_data_session
 from core.logging import get_logger
-from modules.core.infrastructure.models_data import SmsOutbox
+from modules.core.infrastructure.models_data import SmsOutbox, SmsInbox, PhoneCall
 
 logger = get_logger("notifications.sms")
 
@@ -335,6 +335,284 @@ def mark_claimed(outbox_ids: list[int]) -> int:
             ds.query(SmsOutbox)
             .filter(SmsOutbox.id.in_(outbox_ids))
             .update({"claimed_at": now}, synchronize_session=False)
+        )
+        ds.commit()
+        return updated
+    finally:
+        ds.close()
+
+
+# ── INBOX (prichozi SMS) ───────────────────────────────────────────────────
+
+def _resolve_persona_by_phone(to_phone: str) -> tuple[int | None, int | None]:
+    """
+    Zjisti, ktera persona "vlastni" toto cislo. Vrati (persona_id, tenant_id).
+    MVP: match presne podle `personas.phone_number` + `phone_enabled=true`.
+    Kdyz nikoho nenajde, vrati (None, None) -- inbox zaznam ulozi se bez vazby,
+    stale viditelny v globalnim inboxu.
+    """
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import Persona
+        cs = get_core_session()
+        try:
+            p = (
+                cs.query(Persona)
+                .filter_by(phone_number=to_phone, phone_enabled=True)
+                .first()
+            )
+            if not p:
+                return None, None
+            return p.id, p.tenant_id
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"SMS | inbox | persona resolve failed: {e}")
+        return None, None
+
+
+def store_inbound_sms(
+    from_phone: str,
+    body: str,
+    to_phone: str | None = None,
+    received_at: datetime | None = None,
+    meta: str | None = None,
+) -> dict:
+    """
+    Zapise prichozi SMS do sms_inbox. `to_phone` je cislo SIMky v telefonu
+    (nebo ho gateway nedoda); pokud ho mame, resolvujeme persona_id.
+
+    Returns:
+        {"id": int, "persona_id": int | None, "from_phone": str, "body": str,
+         "received_at": iso-str}
+    """
+    body = (body or "").strip()
+    if not body:
+        raise SmsValidationError("prazdny body")
+
+    try:
+        from_phone_norm = normalize_phone(from_phone)
+    except SmsValidationError:
+        # Neznamy format -- ulozime raw, at neztratime data (napr. SMS od
+        # mezinarodniho cisla, alfanumericky sender nebo shortcode).
+        from_phone_norm = (from_phone or "")[:20] or "unknown"
+
+    persona_id = None
+    tenant_id = None
+    if to_phone:
+        try:
+            to_phone_norm = normalize_phone(to_phone)
+            persona_id, tenant_id = _resolve_persona_by_phone(to_phone_norm)
+        except SmsValidationError:
+            logger.debug(f"SMS | inbox | to_phone not normalizable: {to_phone!r}")
+
+    if received_at is None:
+        received_at = datetime.now(timezone.utc)
+
+    ds = get_data_session()
+    try:
+        row = SmsInbox(
+            persona_id=persona_id,
+            tenant_id=tenant_id,
+            from_phone=from_phone_norm,
+            body=body,
+            received_at=received_at,
+            meta=meta,
+        )
+        ds.add(row)
+        ds.commit()
+        ds.refresh(row)
+        logger.info(
+            f"SMS | inbox | stored | id={row.id} | from={from_phone_norm} | "
+            f"persona_id={persona_id} | body_len={len(body)}"
+        )
+        return {
+            "id": row.id,
+            "persona_id": row.persona_id,
+            "from_phone": row.from_phone,
+            "body": row.body,
+            "received_at": row.received_at.isoformat() if row.received_at else None,
+        }
+    finally:
+        ds.close()
+
+
+def list_inbox(
+    persona_id: int | None = None,
+    limit: int = 10,
+    unread_only: bool = False,
+) -> list[dict]:
+    """
+    Vrati prichozi SMS serazene od nejnovejsich. Pokud persona_id == None,
+    vrati vsechno (admin view). Pro AI tool typicky passujeme persona_id
+    aktivni persony.
+    """
+    ds = get_data_session()
+    try:
+        q = ds.query(SmsInbox)
+        if persona_id is not None:
+            q = q.filter(SmsInbox.persona_id == persona_id)
+        if unread_only:
+            q = q.filter(SmsInbox.read_at.is_(None))
+        rows = (
+            q.order_by(SmsInbox.received_at.desc())
+            .limit(max(1, min(limit, 100)))
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "from_phone": r.from_phone,
+                "body": r.body,
+                "received_at": r.received_at.isoformat() if r.received_at else None,
+                "read": r.read_at is not None,
+            }
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def mark_inbox_read(inbox_id: int) -> bool:
+    ds = get_data_session()
+    try:
+        row = ds.query(SmsInbox).filter(SmsInbox.id == inbox_id).first()
+        if not row:
+            return False
+        if row.read_at is None:
+            row.read_at = datetime.now(timezone.utc)
+            ds.commit()
+        return True
+    finally:
+        ds.close()
+
+
+# ── CALL LOG ───────────────────────────────────────────────────────────────
+
+_VALID_DIRECTIONS = {"in", "out", "missed"}
+
+
+def store_phone_call(
+    peer_phone: str,
+    direction: str,
+    started_at: datetime | None = None,
+    duration_s: int | None = None,
+    to_phone: str | None = None,
+    meta: str | None = None,
+) -> dict:
+    """
+    Zapise phone_call zaznam (prichozi, odchozi, nebo zmeskany hovor).
+    direction musi byt 'in' | 'out' | 'missed'. Pro missed je duration_s = None.
+    """
+    direction = (direction or "").lower().strip()
+    if direction not in _VALID_DIRECTIONS:
+        raise SmsValidationError(
+            f"neplatny direction: {direction!r} (ocekavam: in | out | missed)"
+        )
+    if direction == "missed":
+        duration_s = None
+
+    try:
+        peer_norm = normalize_phone(peer_phone)
+    except SmsValidationError:
+        peer_norm = (peer_phone or "")[:20] or "unknown"
+
+    persona_id = None
+    tenant_id = None
+    if to_phone:
+        try:
+            to_norm = normalize_phone(to_phone)
+            persona_id, tenant_id = _resolve_persona_by_phone(to_norm)
+        except SmsValidationError:
+            pass
+
+    if started_at is None:
+        started_at = datetime.now(timezone.utc)
+
+    ds = get_data_session()
+    try:
+        row = PhoneCall(
+            persona_id=persona_id,
+            tenant_id=tenant_id,
+            peer_phone=peer_norm,
+            direction=direction,
+            started_at=started_at,
+            duration_s=duration_s,
+            meta=meta,
+        )
+        ds.add(row)
+        ds.commit()
+        ds.refresh(row)
+        logger.info(
+            f"CALL | stored | id={row.id} | {direction} | peer={peer_norm} | "
+            f"dur={duration_s}s | persona_id={persona_id}"
+        )
+        return {
+            "id": row.id,
+            "persona_id": row.persona_id,
+            "peer_phone": row.peer_phone,
+            "direction": row.direction,
+            "started_at": row.started_at.isoformat() if row.started_at else None,
+            "duration_s": row.duration_s,
+        }
+    finally:
+        ds.close()
+
+
+def list_calls(
+    persona_id: int | None = None,
+    limit: int = 10,
+    direction_filter: str | None = None,
+    only_unseen: bool = False,
+) -> list[dict]:
+    """
+    Vrati hovory serazene od nejnovejsich.
+
+    direction_filter:
+      None       -> vsechny
+      'missed'   -> jen zmeskane
+      'in'/'out' -> jen konkretni
+    """
+    ds = get_data_session()
+    try:
+        q = ds.query(PhoneCall)
+        if persona_id is not None:
+            q = q.filter(PhoneCall.persona_id == persona_id)
+        if direction_filter:
+            q = q.filter(PhoneCall.direction == direction_filter)
+        if only_unseen:
+            q = q.filter(PhoneCall.seen_at.is_(None))
+        rows = (
+            q.order_by(PhoneCall.started_at.desc())
+            .limit(max(1, min(limit, 100)))
+            .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "peer_phone": r.peer_phone,
+                "direction": r.direction,
+                "started_at": r.started_at.isoformat() if r.started_at else None,
+                "duration_s": r.duration_s,
+                "seen": r.seen_at is not None,
+            }
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def mark_calls_seen(call_ids: list[int]) -> int:
+    if not call_ids:
+        return 0
+    ds = get_data_session()
+    try:
+        now = datetime.now(timezone.utc)
+        updated = (
+            ds.query(PhoneCall)
+            .filter(PhoneCall.id.in_(call_ids))
+            .filter(PhoneCall.seen_at.is_(None))
+            .update({"seen_at": now}, synchronize_session=False)
         )
         ds.commit()
         return updated

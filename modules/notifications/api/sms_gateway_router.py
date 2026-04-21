@@ -17,6 +17,7 @@ Bezpecnost:
 """
 from __future__ import annotations
 import hmac
+from datetime import datetime, timezone
 from fastapi import APIRouter, HTTPException, Header, Request
 from pydantic import BaseModel, Field
 
@@ -27,6 +28,9 @@ from modules.notifications.application.sms_service import (
     mark_sent,
     mark_failed,
     mark_claimed,
+    store_inbound_sms,
+    store_phone_call,
+    SmsValidationError,
 )
 
 logger = get_logger("notifications.sms_gateway")
@@ -144,3 +148,90 @@ def post_failed(
     if not ok:
         raise HTTPException(404, f"sms_outbox id={outbox_id} not found")
     return {"ok": True, "id": outbox_id, "status": "failed"}
+
+
+# ── Inbound SMS ────────────────────────────────────────────────────────────
+
+class InboxItem(BaseModel):
+    from_phone: str = Field(..., description="Cislo odesilatele (ktery pisek nam)")
+    body: str = Field(..., max_length=3200, description="Text SMS")
+    # to_phone = na jakou SIMku to prislo; pro resolvovani persony. Volitelne
+    # -- kdyz gateway app neposila, mame NULL a zaznam jde do globalniho inboxu.
+    to_phone: str | None = Field(None, description="Nase SIMka (E.164)")
+    received_at: str | None = Field(
+        None,
+        description=(
+            "ISO 8601 timestamp kdy SMS prisla do telefonu. Pokud None, "
+            "pouzijeme server time (kdy jsme dostali POST)."
+        ),
+    )
+    meta: str | None = Field(None, description="Volitelny JSON / debug string")
+
+
+def _parse_iso(s: str | None) -> datetime | None:
+    if not s:
+        return None
+    try:
+        # fromisoformat umi i '+00:00' od Python 3.11+, tak jak S23/A3 posila
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return None
+
+
+@router.post("/inbox")
+def post_inbox(
+    req: Request,
+    body: InboxItem,
+    x_gateway_key: str | None = Header(default=None, alias="X-Gateway-Key"),
+) -> dict:
+    """
+    Telefon sem pushuje prichozi SMS (capcom6 webhook / Tasker).
+    Server ulozi do sms_inbox a resolvuje persona_id podle to_phone.
+    """
+    _require_gateway_key(req, x_gateway_key)
+    try:
+        result = store_inbound_sms(
+            from_phone=body.from_phone,
+            body=body.body,
+            to_phone=body.to_phone,
+            received_at=_parse_iso(body.received_at),
+            meta=body.meta,
+        )
+    except SmsValidationError as e:
+        raise HTTPException(400, f"validation: {e}")
+    return {"ok": True, **result}
+
+
+# ── Call log ───────────────────────────────────────────────────────────────
+
+class CallEvent(BaseModel):
+    peer_phone: str = Field(..., description="Druha strana hovoru (volajici nebo volany)")
+    direction: str = Field(..., description="in | out | missed")
+    started_at: str | None = Field(None, description="ISO 8601 kdy hovor zacal")
+    duration_s: int | None = Field(None, ge=0, description="Trvani v sekundach; NULL pro missed")
+    to_phone: str | None = Field(None, description="Nase SIMka, pro resolve persony")
+    meta: str | None = Field(None)
+
+
+@router.post("/calls")
+def post_call(
+    req: Request,
+    body: CallEvent,
+    x_gateway_key: str | None = Header(default=None, alias="X-Gateway-Key"),
+) -> dict:
+    """
+    Telefon (Tasker profil) sem pushuje zaznam hovoru. Server ulozi do phone_calls.
+    """
+    _require_gateway_key(req, x_gateway_key)
+    try:
+        result = store_phone_call(
+            peer_phone=body.peer_phone,
+            direction=body.direction,
+            started_at=_parse_iso(body.started_at),
+            duration_s=body.duration_s,
+            to_phone=body.to_phone,
+            meta=body.meta,
+        )
+    except SmsValidationError as e:
+        raise HTTPException(400, f"validation: {e}")
+    return {"ok": True, **result}

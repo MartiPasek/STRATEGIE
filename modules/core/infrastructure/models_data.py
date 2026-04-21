@@ -255,6 +255,14 @@ class SmsInbox(BaseData):
     """
     Prichozi SMS od Android gateway (capcom6 webhook).
     persona_id = komu to prislo (majitel SIMky = persona s matching phone_number).
+
+    Workflow pole:
+      read_at       -- kdy si user zpravu poprve zobrazil v UI (binarni stav
+                       "videna" vs "nova")
+      processed_at  -- kdy byly vsechny souvisejici tasky dokonceny (inbox ->
+                       processed). NULL = lezi ve slozce "Prichozi", NOT NULL
+                       = slozka "Zpracovane". Plni se z tasks.completed_at,
+                       kdyz posledni open task nad touhle SMS prejde do 'done'.
     """
     __tablename__ = "sms_inbox"
 
@@ -265,6 +273,7 @@ class SmsInbox(BaseData):
     body: Mapped[str] = mapped_column(Text)
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     # JSON metadata z gateway (SIM slot, delivery reports, ...) -- kdyby
     # bylo treba debug.
@@ -294,3 +303,68 @@ class PhoneCall(BaseData):
     seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── TASKS (AI agent task queue) ────────────────────────────────────────────
+
+class Task(BaseData):
+    """
+    Task jako first-class entita -- jednotka prace pro AI personu.
+
+    Vznika bud:
+      - automaticky pri prichozi zprave (source_type='sms_inbox' | 'email_inbox')
+      - manualne od usera v UI (source_type='manual')
+      - kdyz AI sama rozhodne ze neco potrebuje udelat (source_type='ai_generated')
+
+    Lifecycle:
+      open        -- prave vytvoreny, ceka na exekutora
+      in_progress -- worker ho prevzal, AI na nem pracuje
+      done        -- hotovo, result_summary obsahuje co se udelalo
+      cancelled   -- zrusil user pred dokoncenim
+      failed      -- exekuce selhala (error obsahuje detail), muze se retry-ovat
+
+    source_id je weak reference (bez FK constraintu) na sms_inbox.id / email_inbox.id
+    / manual=NULL. Takhle se vyhneme cross-table FK matici a zachovame flexibilitu.
+
+    execution_conversation_id odkazuje na skrytou conversation (conversation_type=
+    'task_execution'), kde probihal AI tool loop -- pro audit a pripadne UI
+    zobrazeni postupu AI.
+
+    priority je fixed string (misto int) kvuli citelnosti v SQL dotazech.
+    """
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    source_type: Mapped[str] = mapped_column(String(30))    # sms_inbox | email_inbox | manual | ai_generated
+    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), default="open")        # open | in_progress | done | cancelled | failed
+    priority: Mapped[str] = mapped_column(String(10), default="normal")    # high | normal | low
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Kdyz executor zalozi skrytou conversation, zapise sem jeji ID, aby UI
+    # mohlo nabidnout "Zobrazit postup AI" a audit videl cely prubeh.
+    execution_conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Co AI udelala (final message od AI pri done, nebo stripped error pri failed).
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Kdo task vytvoril:
+    #   NULL                 -- automaticky system (auto-create ze zpravy, AI)
+    #   user_id (BigInteger) -- manualne clovek z UI
+    created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Kolikrat worker tenhle task prevzal (retry counter). Zabrana nekonecnemu
+    # smyckovani kdyz AI opakovane selhava.
+    attempts: Mapped[int] = mapped_column(Integer, default=0)

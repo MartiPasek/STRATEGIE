@@ -46,7 +46,7 @@ alembic_data/               — migrace pro data_db
 ## Aktuální stav (duben 2026)
 
 **Identitní vrstva** ✅
-- Login přes email (bez hesla, MVP)
+- Login přes email + bcrypt heslo (viz **Auth** níže)
 - Identity refactor v2: users / user_contacts / user_aliases / tenants / user_tenants / user_tenant_profiles / user_tenant_aliases
 - Tenant switching (chat intent + UI pilulka)
 - Profil editor (jméno, gender, short_name, aliasy, display_name v tenantu)
@@ -87,6 +87,35 @@ alembic_data/               — migrace pro data_db
 - Číslované selekce (po list_* můžeš odpovědět jen číslem → akce)
 - Project members management (UI modal + AI tooly)
 - Composer USER_CONTEXT obohacený o projekt + členy + stáří
+- Default persona per projekt — override globálního defaultu (Marti-AI) pro nové konverzace v projektu
+
+**Personas & Multi-agent UI** ✅
+- `modules/personas/` modul (service + avatar_service + API)
+- CRUD person: list / create / edit / switch přes UI
+- Avatary s fallback na iniciály, storage v `Avatary/` (nastavitelné `AVATARS_STORAGE_DIR`)
+- Role isolation — persona má definovanou roli/kontext
+- AI tool `switch_persona(query)` pro přepínání v chatu
+
+**Conversation sharing** ✅
+- Model `ConversationShare` + `share_service.py`
+- API: `GET /shared-with-me`, `GET/POST/DELETE /{id}/shares`
+- Share modal (aktuální sdílení + picker nových userů)
+- Sidebar sekce „sdílené se mnou" (oranžový akcent)
+- Share ikona na konverzacích + agent bar indikátor (🔗)
+- Role `owner` / `shared_read` / `shared_write` (readonly viewer = disabled send)
+
+**RAG** ✅
+- `modules/rag/` — chunking + embeddings (Voyage) + extraction (markitdown) + storage
+- pgvector v `data_db`, tabulky `documents` / `document_chunks` / `document_vectors`
+- API pro upload + retrieval
+- AI tool loop — synthesis nad relevantními chunks, tenant-aware
+
+**Auth** ✅
+- Bcrypt password authentication (konec passwordless MVP)
+- Self-service password management (reset tokens, change password)
+- Rate limiting loginu (`rate_limiter.py`)
+- Cross-tab session sync + per-tab identity + re-login
+- Secure cookies, trusted hosts, env switching (production-ready config)
 
 **Audit & governance** ✅
 - Audit log v css_db (entity_type, action, status, model, duration, error)
@@ -96,13 +125,10 @@ alembic_data/               — migrace pro data_db
 **Repo hygiene** ✅
 - `__pycache__` / `*.pyc` v .gitignore (od commit 7c6322a)
 - `scripts/commit_*.ps1` a `scripts/push_phase*.ps1` taky gitignored (jednorázové helpery)
+- `.gitattributes` normalizuje line endings (CRLF/LF)
 
 **Připraveno v DB ale neimplementováno (⏳):**
-- **RAG** — modely hotové (documents, document_chunks, document_vectors), pgvector + chunking + retrieval chybí (čeká na DB přípravu)
 - **SMS notifikace** — UserNotificationSetting má `sms` kanál, provider integrace chybí
-- **ConversationShare** — model existuje, UI flow chybí
-- **Multi-agent UI** — backend funguje (`switch_persona`), UI přepínač person chybí
-- **Persona override pro projekt** — jeden projekt = jiná default persona
 
 ## Jak pracovat
 - Nejdřív navrhni, pak implementuj

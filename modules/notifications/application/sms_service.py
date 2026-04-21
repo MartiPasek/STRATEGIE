@@ -763,3 +763,159 @@ def mark_calls_seen(call_ids: list[int]) -> int:
         return updated
     finally:
         ds.close()
+
+
+# ── UI helpers (UI-facing list / mark operations) ──────────────────────────
+#
+# Tyto helpery slouzi pro sms_ui_router.py (frontend). Oddeleno od gateway
+# listu (ktery vraci pending SMS k odeslani pro Android telefon) -- jiny
+# scope, jiny sort.
+
+def list_inbox_for_ui(
+    *,
+    persona_id: int,
+    filter_mode: str = "new",    # 'new' | 'processed'
+    limit: int = 50,
+) -> list[dict]:
+    """
+    Seznam prichozich SMS pro UI tabs 'Prichozi' / 'Zpracovane'.
+    Razeno od nejnovejsich.
+
+    filter_mode:
+      'new'       -- jen SMS, kde processed_at IS NULL (slozka Prichozi)
+      'processed' -- jen SMS, kde processed_at IS NOT NULL (Zpracovane)
+    """
+    if filter_mode not in ("new", "processed"):
+        raise SmsValidationError(
+            f"neznamy filter_mode '{filter_mode}' (ocekavam 'new' nebo 'processed')"
+        )
+
+    ds = get_data_session()
+    try:
+        q = ds.query(SmsInbox).filter(SmsInbox.persona_id == persona_id)
+        if filter_mode == "new":
+            q = q.filter(SmsInbox.processed_at.is_(None))
+        else:
+            q = q.filter(SmsInbox.processed_at.isnot(None))
+        rows = (
+            q.order_by(SmsInbox.received_at.desc())
+             .limit(max(1, min(limit, 200)))
+             .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "from_phone": r.from_phone,
+                "body": r.body,
+                "received_at": r.received_at.isoformat() if r.received_at else None,
+                "read_at": r.read_at.isoformat() if r.read_at else None,
+                "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def list_outbox_for_ui(
+    *,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """
+    Seznam odchozich SMS pro UI tab 'Odeslane'. Razeno od nejnovejsich.
+
+    SmsOutbox nema persona_id (vlastnikem je user/system skrze user_id +
+    tenant_id), takze primary filter je tenant_id. persona_id je zatim
+    ignorovano (vsechny zpravy z tenantu jsou videt). Az pribude persona-
+    scope outbox (napr. per-persona SIMky s vlastni historii), zapocitame.
+    """
+    ds = get_data_session()
+    try:
+        q = ds.query(SmsOutbox)
+        if tenant_id is not None:
+            q = q.filter(SmsOutbox.tenant_id == tenant_id)
+        rows = (
+            q.order_by(SmsOutbox.created_at.desc())
+             .limit(max(1, min(limit, 200)))
+             .all()
+        )
+        return [
+            {
+                "id": r.id,
+                "to_phone": r.to_phone,
+                "body": r.body,
+                "status": r.status,         # pending | sent | failed
+                "purpose": r.purpose,       # user_request | notification | system
+                "attempts": r.attempts,
+                "last_error": r.last_error,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+            }
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def mark_inbox_processed(inbox_id: int) -> dict | None:
+    """
+    Manualni 'mark as processed' override z UI. Nastavi processed_at = now.
+    Pouziva se v pripade, kdy user chce pohnout SMS do Zpracovanych bez
+    ohledu na stav souvisejicich tasku (napr. reklama co nepotrebuje odpoved,
+    nebo automaticky task skoncil v stavu 'failed' a user to uklidi rucne).
+
+    Pro obvyklý 'reply' flow by se mark_inbox_processed volat nemel -- tam
+    AI task executor cascade-uje pres tasks.service.mark_task_done().
+
+    Vraci dict s updated daty, None pokud SMS neexistuje.
+    """
+    ds = get_data_session()
+    try:
+        row = ds.query(SmsInbox).filter(SmsInbox.id == inbox_id).first()
+        if row is None:
+            return None
+        if row.processed_at is None:
+            row.processed_at = datetime.now(timezone.utc)
+            # Pokud jeste nebyla oznacena jako 'read', udelame to taky --
+            # user ji evidentne videl, kdyz ji manualne zpracovava.
+            if row.read_at is None:
+                row.read_at = row.processed_at
+            ds.commit()
+            ds.refresh(row)
+            logger.info(
+                f"SMS | inbox | marked processed (manual) | id={inbox_id}"
+            )
+        return {
+            "id": row.id,
+            "processed_at": row.processed_at.isoformat(),
+            "read_at": row.read_at.isoformat() if row.read_at else None,
+        }
+    finally:
+        ds.close()
+
+
+def get_unread_counts_per_persona(tenant_id: int) -> dict[int, int]:
+    """
+    Vraci {persona_id: count_of_unprocessed_sms} pro vsechny persony tenantu.
+    Pouziva se pro UI badge pri polling -- jedne DB volanim dostanes counts
+    pro vsechny persony najednou (lepsi nez N+1 queries per persona).
+    """
+    from sqlalchemy import func
+
+    ds = get_data_session()
+    try:
+        rows = (
+            ds.query(SmsInbox.persona_id, func.count(SmsInbox.id))
+            .filter(
+                SmsInbox.tenant_id == tenant_id,
+                SmsInbox.persona_id.isnot(None),
+                SmsInbox.processed_at.is_(None),
+            )
+            .group_by(SmsInbox.persona_id)
+            .all()
+        )
+        return {pid: cnt for pid, cnt in rows}
+    finally:
+        ds.close()

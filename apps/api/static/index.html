@@ -629,6 +629,54 @@
     .dm-conv-title { font-size: 15px; font-weight: 500; }
     .dm-conv-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .msg.from-me .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
+
+    /* ── SMS MODAL + persona dropdown ikonka (Commit 6) ── */
+    /* Maly SMS button na radku persony v dropdownu. Viditelny jen kdyz
+       persona.phone_number existuje (render-side conditional). Hover
+       zrotaluje zlutym kruhem. */
+    .persona-sms-btn { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 14px; line-height: 1; opacity: 0.7; transition: opacity .12s, background .12s, color .12s; display: inline-flex; align-items: center; gap: 4px; position: relative; }
+    .persona-dd-item:hover .persona-sms-btn { opacity: 1; }
+    .persona-sms-btn:hover { background: var(--bg); color: var(--accent); }
+    /* Badge = male kulate cislo vpravo nahore ikonky, kdyz je unread>0. */
+    .persona-sms-badge { position: absolute; top: -4px; right: -6px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 8px; background: #c0392b; color: #fff; font-size: 9px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; line-height: 1; }
+
+    /* SMS modal -- stejny pattern jako persona-modal-bg, jen wider */
+    .sms-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 230; }
+    .sms-modal-bg.open { display: flex; }
+    .sms-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0; width: 680px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 12px 36px rgba(0,0,0,.5); overflow: hidden; }
+    .sms-modal-header { display: flex; align-items: center; gap: 12px; padding: 16px 22px 12px; border-bottom: 1px solid var(--border); }
+    .sms-modal-title { font-size: 14px; color: var(--text); font-weight: 500; flex: 1; }
+    .sms-modal-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .sms-modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; padding: 0 6px; }
+    .sms-modal-close:hover { color: var(--text); }
+
+    /* Taby -- Prichozi / Zpracovane / Odeslane */
+    .sms-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 22px; background: var(--bg); }
+    .sms-tab { background: none; border: none; color: var(--muted); cursor: pointer; padding: 10px 16px; font-size: 12px; font-family: 'DM Sans', sans-serif; border-bottom: 2px solid transparent; transition: color .12s, border-color .12s; position: relative; }
+    .sms-tab:hover { color: var(--text); }
+    .sms-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .sms-tab-badge { display: inline-block; margin-left: 6px; background: #c0392b; color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 8px; font-family: 'DM Mono', monospace; }
+
+    /* Karty zprav */
+    .sms-list { flex: 1; overflow-y: auto; padding: 12px 22px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .sms-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .12s; }
+    .sms-card:hover { border-color: #2a3350; }
+    .sms-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .sms-card-from { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+    .sms-card-time { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; flex-shrink: 0; }
+    .sms-card-body { font-size: 13px; color: var(--text); line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+    .sms-card-status { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; font-family: 'DM Mono', monospace; letter-spacing: .06em; }
+    .sms-card-status.pending { background: #3b2e10; color: #e8b347; }
+    .sms-card-status.sent { background: #1a3b26; color: #5ec78c; }
+    .sms-card-status.failed { background: #3b1a1a; color: #e8615c; }
+    /* Pomocny row s actions pod telem zpravy (napr. Oznacit zpracovane) */
+    .sms-card-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .sms-card-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 11px; transition: color .12s, border-color .12s; }
+    .sms-card-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Prazdny stav tabu */
+    .sms-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 48px 20px; font-style: italic; }
+    .sms-loading { text-align: center; color: var(--muted); font-size: 11px; padding: 20px; font-family: 'DM Mono', monospace; }
   </style>
 </head>
 <body>
@@ -1744,6 +1792,8 @@
     await loadProjectsList();          // dropdown s projekty
     await loadPersonasList();          // persona picker v agent baru
     await loadSharedWithMeList();      // sidebar sekce "Sdilene se mnou"
+    // SMS unread badges -- polling kazdych 30s (Commit 6)
+    if (typeof startSmsUnreadPoller === 'function') startSmsUnreadPoller();
     inputEl.focus();
   }
 
@@ -4429,6 +4479,15 @@
         const editBtn = isAdmin
           ? `<button class="persona-edit-btn" data-edit-persona-id="${p.id}" data-edit-persona-name="${escapeHtml(p.name)}" aria-label="Upravit personu">✎</button>`
           : '';
+        // SMS button -- viditelny jen kdyz persona ma phone_number (SIMku).
+        // Badge se objeví jen pokud unread count > 0 pro tuto personu.
+        const smsUnread = (window._smsUnreadCounts && window._smsUnreadCounts[p.id]) || 0;
+        const smsBadge = smsUnread > 0
+          ? `<span class="persona-sms-badge">${smsUnread > 99 ? '99+' : smsUnread}</span>`
+          : '';
+        const smsBtn = p.phone_number
+          ? `<button class="persona-sms-btn" data-sms-persona-id="${p.id}" data-sms-persona-name="${escapeHtml(p.name)}" aria-label="SMS pro ${escapeHtml(p.name)}" title="Otevřít SMS">📱${smsBadge}</button>`
+          : '';
         const av = _personaAvatar(p.name);
         // Pokud persona ma uploadovany avatar -> <img>, jinak fallback na iniciály
         const avatarHtml = p.has_avatar
@@ -4442,7 +4501,10 @@
                 <span class="persona-dd-item-name">${escapeHtml(p.name)}</span>
               </div>
             </div>
-            ${editBtn}
+            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+              ${smsBtn}
+              ${editBtn}
+            </div>
           </div>
           ${preview}
         </div>`;
@@ -4462,8 +4524,9 @@
 
     panel.querySelectorAll('[data-persona-id]').forEach(el => {
       el.addEventListener('click', async (ev) => {
-        // Ignoruj click pokud byl na edit tlacitko (to ma vlastni handler)
+        // Ignoruj click pokud byl na edit / sms tlacitko (maji vlastni handlery)
         if (ev.target.closest('.persona-edit-btn')) return;
+        if (ev.target.closest('.persona-sms-btn')) return;
         ev.stopPropagation();
         const pid = parseInt(el.getAttribute('data-persona-id'), 10);
         await switchPersonaDirectly(pid);
@@ -4477,6 +4540,16 @@
         const pid = parseInt(btn.getAttribute('data-edit-persona-id'), 10);
         panel.classList.remove('open');
         await openPersonaEditModal(pid);
+      });
+    });
+    // SMS tlacitka — otevre SMS modal pro danou personu (Commit 6)
+    panel.querySelectorAll('.persona-sms-btn').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(btn.getAttribute('data-sms-persona-id'), 10);
+        const pname = btn.getAttribute('data-sms-persona-name');
+        panel.classList.remove('open');
+        if (typeof openSmsModal === 'function') openSmsModal(pid, pname);
       });
     });
     const newBtn = document.getElementById('personaNewBtn');
@@ -5658,6 +5731,232 @@
     } catch (_) {}
     loginEmail.focus();
   })();
+</script>
+
+<!-- ── SMS MODAL (Commit 6) ────────────────────────────────────────────── -->
+<!-- Otevirany z persona dropdownu klikem na 📱 ikonku u persony s phone_number.
+     Zobrazi 3 taby (Prichozi/Zpracovane/Odeslane) se seznamem SMS karticek.
+     Reply + task confirm tlacitka priedou v Commitu 7. -->
+<div class="sms-modal-bg" id="smsModalBg">
+  <div class="sms-modal" role="dialog" aria-label="SMS" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="smsModalTitle">SMS</div>
+      <div class="sms-modal-sub" id="smsModalSub"></div>
+      <button class="sms-modal-close" id="smsModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="sms-tabs" id="smsTabs">
+      <button class="sms-tab active" data-tab="new">Příchozí<span class="sms-tab-badge" id="smsTabBadgeNew" style="display:none">0</span></button>
+      <button class="sms-tab" data-tab="processed">Zpracované</button>
+      <button class="sms-tab" data-tab="outbox">Odeslané</button>
+    </div>
+    <div class="sms-list" id="smsList">
+      <div class="sms-loading">Nacitam…</div>
+    </div>
+  </div>
+</div>
+<script>
+  // ── SMS modal state + renderer ──────────────────────────────────────────
+  // Global state pro otevrenou instanci modalu. Zavrenim (Esc / X / click-out)
+  // se resetne zpet na null, aby polling neaktualizoval prazdny list.
+  window._smsModal = { personaId: null, personaName: null, activeTab: "new" };
+
+  // Formatovani casu -- relativne pro dnesek, datum pro starsi. Minimalisticke,
+  // proto nepouzivame external lib.
+  function _smsFmtTime(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "teď";
+    if (diffMin < 60) return `před ${diffMin} min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `před ${diffH} h`;
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
+    return d.toLocaleDateString("cs-CZ") + " " + d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
+  }
+
+  function openSmsModal(personaId, personaName) {
+    window._smsModal.personaId = personaId;
+    window._smsModal.personaName = personaName;
+    window._smsModal.activeTab = "new";
+    document.getElementById("smsModalTitle").textContent = `SMS — ${personaName}`;
+    document.getElementById("smsModalSub").textContent = "";
+    // Reset tab active state na Prichozi.
+    document.querySelectorAll(".sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-tab") === "new");
+    });
+    document.getElementById("smsModalBg").classList.add("open");
+    fetchAndRenderSmsTab("new");
+  }
+
+  function closeSmsModal() {
+    document.getElementById("smsModalBg").classList.remove("open");
+    window._smsModal.personaId = null;
+  }
+
+  async function fetchAndRenderSmsTab(tab) {
+    const list = document.getElementById("smsList");
+    const pid = window._smsModal.personaId;
+    if (!pid) return;
+    window._smsModal.activeTab = tab;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+
+    let url;
+    if (tab === "new" || tab === "processed") {
+      url = `/api/v1/sms/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
+    } else {
+      // outbox -- persona_id je informativni, backend bere tenant-wide
+      url = `/api/v1/sms/ui/outbox?persona_id=${pid}&limit=50`;
+    }
+
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        const emptyMsg = tab === "new" ? "Žádné nové zprávy." :
+                         tab === "processed" ? "Žádné zpracované." :
+                         "Žádné odeslané zprávy.";
+        list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(it => _smsRenderCard(it, tab)).join("");
+      _smsAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _smsEscape(s) {
+    if (s == null) return "";
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    })[c]);
+  }
+
+  function _smsRenderCard(item, tab) {
+    if (tab === "outbox") {
+      const statusCls = item.status || "pending";
+      const statusLabel = item.status === "sent" ? "odesláno" :
+                          item.status === "failed" ? "chyba" : "čeká";
+      const errLine = item.last_error
+        ? `<div class="sms-card-body" style="color:var(--muted);font-style:italic;margin-top:4px">${_smsEscape(item.last_error)}</div>`
+        : "";
+      const sentTime = item.sent_at || item.created_at;
+      return `
+        <div class="sms-card" data-sms-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">→ ${_smsEscape(item.to_phone)}</span>
+            <span class="sms-card-time">${_smsFmtTime(sentTime)}</span>
+          </div>
+          <div class="sms-card-body">${_smsEscape(item.body)}</div>
+          <div class="sms-card-actions">
+            <span class="sms-card-status ${statusCls}">${statusLabel}</span>
+          </div>
+          ${errLine}
+        </div>
+      `;
+    }
+
+    // inbox (new nebo processed)
+    const actionsBtn = tab === "new"
+      ? `<button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
+      : "";
+    return `
+      <div class="sms-card" data-sms-id="${item.id}">
+        <div class="sms-card-row">
+          <span class="sms-card-from">← ${_smsEscape(item.from_phone)}</span>
+          <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
+        </div>
+        <div class="sms-card-body">${_smsEscape(item.body)}</div>
+        <div class="sms-card-actions">${actionsBtn}</div>
+      </div>
+    `;
+  }
+
+  function _smsAttachCardHandlers() {
+    document.querySelectorAll("#smsList [data-action='mark-processed']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        btn.disabled = true;
+        btn.textContent = "Ukládám…";
+        try {
+          const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/mark-processed`, { method: "POST" });
+          if (r.ok) {
+            // Refresh aktualniho tabu + badge (zprava zmizi ze seznamu Prichozich).
+            await fetchAndRenderSmsTab(window._smsModal.activeTab);
+            refreshSmsUnreadBadges();
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Označit zpracované";
+            alert(`Chyba: HTTP ${r.status}`);
+          }
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "Označit zpracované";
+          alert(`Chyba: ${e.message}`);
+        }
+      });
+    });
+  }
+
+  // Event delegation -- taby, close, click mimo modal
+  (function initSmsModalHandlers() {
+    document.getElementById("smsTabs").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-tab]");
+      if (!btn) return;
+      const tab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".sms-tab").forEach(t => {
+        t.classList.toggle("active", t.getAttribute("data-tab") === tab);
+      });
+      fetchAndRenderSmsTab(tab);
+    });
+    document.getElementById("smsModalClose").addEventListener("click", closeSmsModal);
+    document.getElementById("smsModalBg").addEventListener("click", (ev) => {
+      // Click mimo modal okno -> zavri
+      if (ev.target.id === "smsModalBg") closeSmsModal();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && document.getElementById("smsModalBg").classList.contains("open")) {
+        closeSmsModal();
+      }
+    });
+  })();
+
+  // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────
+  // Drzi {persona_id: count} cache. Volat refreshSmsUnreadBadges() po zmene.
+  window._smsUnreadCounts = {};
+
+  async function refreshSmsUnreadBadges() {
+    try {
+      const r = await fetch("/api/v1/sms/ui/unread-counts");
+      if (!r.ok) return;
+      const data = await r.json();
+      // Klice jsou string (JSON compat) -- prevedeme na int.
+      const counts = {};
+      for (const k in (data.counts || {})) counts[parseInt(k,10)] = data.counts[k];
+      window._smsUnreadCounts = counts;
+      // Refresh persona dropdownu pokud je otevreny (badge viditelny).
+      if (typeof renderPersonaDropdown === "function") {
+        renderPersonaDropdown();
+      }
+    } catch (_) { /* silent -- nechci spamit alerty kdyz backend padne */ }
+  }
+
+  // Spusti polling po loginu. Interval 30s -- misto WebSocket, pro MVP staci.
+  window._smsUnreadPollerStarted = false;
+  function startSmsUnreadPoller() {
+    if (window._smsUnreadPollerStarted) return;
+    window._smsUnreadPollerStarted = true;
+    refreshSmsUnreadBadges();   // prvni fetch hned
+    setInterval(refreshSmsUnreadBadges, 30000);
+  }
 </script>
 
 </body>

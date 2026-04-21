@@ -128,15 +128,67 @@ class SmsProvider(ABC):
 
 class AndroidGatewayProvider(SmsProvider):
     """
-    Android telefon pulluje pres /api/v1/sms/gateway/outbox. send() je no-op,
-    jen logne, ze zaznam ceka v outboxu.
+    Push SMS na sms-gate.app cloud relay (capcom6). Telefon je registrovany
+    v cloud modu appky a connectnuty pres websocket -- sms-gate.app pushne
+    command k telefonu a ten posle SMS pres GSM.
+
+    Autentizace: HTTP Basic Auth s SMS_GATE_USERNAME / SMS_GATE_PASSWORD
+    (dostanes je v appce po registraci).
+
+    send() aktivne POSTuje na /messages endpoint a podle HTTP odpovedi
+    oznaci outbox row jako sent / failed (nebo necha pending pri failure).
+
+    Pozn.: sms-gate.app "accepted" znamena, ze prijal message do fronty, ne
+    ze ji telefon fyzicky odeslal. Pro presnejsi tracking bude later treba
+    webhook na delivery status. MVP: mark sent na 202/200.
     """
 
     def send(self, outbox_id: int, to_phone: str, body: str) -> bool:
+        import requests
+
+        if not (settings.sms_gate_username and settings.sms_gate_password):
+            logger.error(
+                "SMS | gate | creds missing | nastav SMS_GATE_USERNAME a "
+                "SMS_GATE_PASSWORD v .env"
+            )
+            mark_failed(outbox_id, error="sms_gate creds missing in .env")
+            return False
+
+        url = settings.sms_gate_api_url.rstrip("/") + "/messages"
+        payload = {"message": body, "phoneNumbers": [to_phone]}
+
+        try:
+            resp = requests.post(
+                url,
+                json=payload,
+                auth=(settings.sms_gate_username, settings.sms_gate_password),
+                timeout=20,
+            )
+        except requests.RequestException as e:
+            logger.error(f"SMS | gate | network | outbox_id={outbox_id} | {e}")
+            mark_failed(outbox_id, error=f"network: {e}")
+            return False
+
+        if resp.status_code >= 400:
+            err = resp.text[:300]
+            logger.error(
+                f"SMS | gate | rejected | outbox_id={outbox_id} | "
+                f"status={resp.status_code} | body={err}"
+            )
+            mark_failed(outbox_id, error=f"{resp.status_code}: {err}")
+            return False
+
+        try:
+            data = resp.json()
+            gate_msg_id = data.get("id") or ""
+        except Exception:
+            gate_msg_id = ""
+
         logger.info(
-            f"SMS | queued | id={outbox_id} | to={to_phone} | "
-            f"body_len={len(body)} | awaits android gateway poll"
+            f"SMS | gate | accepted | outbox_id={outbox_id} | "
+            f"gate_msg_id={gate_msg_id} | to={to_phone}"
         )
+        mark_sent(outbox_id)
         return True
 
 
@@ -239,19 +291,41 @@ def queue_sms(
         ds.add(row)
         ds.commit()
         ds.refresh(row)
-
-        # Notify provider (android gateway = no-op log, ostatni = primy send)
-        provider = get_provider()
-        provider.send(row.id, to_phone, body)
-
-        return {
-            "id": row.id,
-            "to_phone": to_phone,
-            "status": "pending",
-            "message": f"SMS zaradena do outboxu (id={row.id})",
-        }
+        outbox_id = row.id
     finally:
         ds.close()
+
+    # Provider.send() muze outbox rovnou oznacit sent/failed (cloud push),
+    # nebo nechat pending (pull model). Volame ho mimo session, abychom
+    # se nedostali do dvou soubeznych spojeni k te same DB row.
+    provider = get_provider()
+    try:
+        provider.send(outbox_id, to_phone, body)
+    except Exception as e:
+        # Provider exception nebrani tomu, aby outbox row zustala v DB
+        # (uzivatel si ji muze v administraci zretransmitovat).
+        logger.error(f"SMS | provider raised | outbox_id={outbox_id} | {e}")
+
+    # Vratime aktualni status z DB (provider mohl rovnou oznacit sent/failed).
+    ds2 = get_data_session()
+    try:
+        row2 = ds2.query(SmsOutbox).filter(SmsOutbox.id == outbox_id).first()
+        final_status = row2.status if row2 else "unknown"
+    finally:
+        ds2.close()
+
+    status_msg = {
+        "pending": f"SMS zaradena do outboxu (id={outbox_id})",
+        "sent":    f"SMS odeslana do gateway (id={outbox_id})",
+        "failed":  f"SMS nelze odeslat (id={outbox_id})",
+    }.get(final_status, f"SMS outbox id={outbox_id} | status={final_status}")
+
+    return {
+        "id": outbox_id,
+        "to_phone": to_phone,
+        "status": final_status,
+        "message": status_msg,
+    }
 
 
 def list_pending(limit: int = 50) -> list[dict]:

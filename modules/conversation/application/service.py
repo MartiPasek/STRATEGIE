@@ -475,13 +475,18 @@ def _active_persona_id_for_conversation(conversation_id: int) -> int | None:
         ds.close()
 
 
-def _build_sms_sent_message(to: str, outbox_id: int | None) -> str:
+def _build_sms_sent_message(to: str, outbox_id: int | None, status: str = "pending") -> str:
     """
-    Potvrzovaci text pro UI. SMS se ve skutecnosti odesila az pres Android
-    gateway (telefon pulluje outbox), takze z pohledu systemu je "zarazena".
-    User uvidi v UI, jakmile telefon potvrdi doruceni (action_log update).
+    Potvrzovaci text pro UI, odlisujici realny stav po queue_sms:
+      - sent     -> cloud gateway akceptovala, za par vterin poslana pres GSM
+      - pending  -> ceka v outboxu (pull model nebo retry)
+      - failed   -> cloud gateway odmitla (duvod v outbox.last_error)
     """
-    return "📱 SMS zařazena k odeslání"
+    if status == "sent":
+        return f"✅ SMS odeslána ({to})"
+    if status == "failed":
+        return f"❌ SMS se nepodařilo odeslat ({to}). Detail v outboxu (id={outbox_id})."
+    return f"📱 SMS zařazena k odeslání ({to})"
 
 
 def _execute_pending_action(conversation_id: int, user_id: int | None = None) -> str | None:
@@ -605,8 +610,15 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             return "⚠️ SMS gateway je vypnutá (SMS_ENABLED=false). SMS neodeslána."
 
         outbox_id = result.get("id")
-        _log_sms_action(to, body, "success", user_id, conversation_id, outbox_id=outbox_id)
-        return _build_sms_sent_message(result.get("to_phone") or to, outbox_id)
+        log_status = "success" if status == "sent" else "error" if status == "failed" else "success"
+        _log_sms_action(
+            to, body, log_status, user_id, conversation_id,
+            outbox_id=outbox_id,
+            error=None if status in ("sent", "pending") else f"gateway_status={status}",
+        )
+        return _build_sms_sent_message(
+            result.get("to_phone") or to, outbox_id, status=status or "pending",
+        )
     return None
 
 

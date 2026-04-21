@@ -490,20 +490,53 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
         return None
     _delete_pending_action(conversation_id)
     if action["type"] == "send_email":
-        from modules.notifications.application.email_service import send_email
+        from modules.notifications.application.email_service import (
+            send_email_or_raise, EmailAuthError, EmailSendError,
+        )
         to = action["to"]
         subject = action["subject"]
         body = action["body"]
+
+        # Nova vrstva (Faze 5a): pouzit kanal aktivni persony. Pokud persona
+        # nema nakonfigurovany email kanal v persona_channels, send_email
+        # fallbackne na globalni .env (backward compat).
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        tenant_id = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_e
+            from modules.core.infrastructure.models_core import User as _U_e
+            _cs = _gcs_e()
+            try:
+                _u = _cs.query(_U_e).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
         try:
-            sent = send_email(to=to, subject=subject, body=body)
+            send_email_or_raise(
+                to=to, subject=subject, body=body,
+                persona_id=persona_id, tenant_id=tenant_id,
+            )
+        except EmailAuthError as e:
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"auth: {e}")
+            return (
+                "❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
+                "k emailovému serveru.\n\n"
+                "Zkontroluj heslo / adresu / server v nastavení persony. "
+                "Pokud má schránka zapnutou dvoufaktorovou autentizaci, "
+                "budeš potřebovat **application password** (ne běžné heslo)."
+            )
+        except EmailSendError as e:
+            _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
+            return f"❌ Email se nepodařilo odeslat — {e}"
         except Exception as e:
             _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
-            return "❌ Email se nepodařilo odeslat."
-        if sent:
-            _log_email_action(to, subject, body, "success", user_id, conversation_id)
-            return _build_email_sent_message(to, body)
-        _log_email_action(to, subject, body, "error", user_id, conversation_id, error="send_email returned False")
-        return "❌ Email se nepodařilo odeslat."
+            return "❌ Email se nepodařilo odeslat (neznámá chyba — detail v logu)."
+
+        _log_email_action(to, subject, body, "success", user_id, conversation_id)
+        return _build_email_sent_message(to, body)
 
     if action["type"] == "send_sms":
         from modules.notifications.application.sms_service import (

@@ -57,6 +57,14 @@ class Settings(BaseSettings):
     sms_from_number: str = "+420778117879"
     sms_rate_limit_per_user_per_hour: int = 5
 
+    # Šifrování kredencialů ----------------------------------------------------
+    # Fernet-kompatibilní klíč (32 bytů base64url). Sifrujeme s nim EWS hesla
+    # v `persona_channels.credentials_encrypted` a `user_channels...`.
+    # Generuj: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Klic nikdy neubrat z .env -- jinak ztratime pristup ke vsem ulozenym heslum.
+    # Rotace = reencrypt vsech radek novym klicem (TODO helper script).
+    encryption_key: str = ""
+
     # Production deployment ----------------------------------------------------
     # Public base URL aplikace (used in invitation email links + cookie domain).
     # V production nastav na https://app.strategie-system.com (přes APP_BASE_URL env).

@@ -1,32 +1,58 @@
 """
 Email service přes Exchange Web Services (EWS).
 Používá knihovnu exchangelib.
+
+Po fázi 5a (persona_channels) podporuje:
+  - send_email(to, subject, body, persona_id=None, tenant_id=None)
+      pouziva creds z persona_channels pokud persona_id. Pokud kanal
+      chybi, fallback na globalni .env EWS (backward compat).
+  - _get_account(email, password, server) prijma parametry, fallback
+    na settings.ews_* pokud None.
+
+Migrace existujicich pozvanek / password-reset emailu:
+  send_invitation_email / send_password_reset_email dnes volaji send_email
+  bez persona_id -> fallback na global -> funguje jak pred. Tyhle funkce
+  posilaji "systemove" emaily (ne jmenem persony), takze global is fine.
 """
+from __future__ import annotations
+
 from core.config import settings
 from core.logging import get_logger
 
 logger = get_logger("notifications.email")
 
 
-
-def _get_account():
-    """Vytvoří EWS připojení k Exchange serveru."""    
+def _get_account(email: str | None = None, password: str | None = None, server: str | None = None):
+    """
+    Vytvori EWS pripojeni. Pokud nejsou parametry predany, fallback na
+    settings.ews_* (backward compat pro pozvanky/password-reset).
+    """
     from exchangelib import Credentials, Account, Configuration, DELEGATE
     import urllib3
     urllib3.disable_warnings()
 
+    ews_email = email or settings.ews_email
+    ews_password = password or settings.ews_password
+    ews_server = server or settings.ews_server
+
+    if not ews_email or not ews_password or not ews_server:
+        raise RuntimeError(
+            "EWS credentials chybi. Bud nastavte v .env (EWS_EMAIL/EWS_PASSWORD/EWS_SERVER), "
+            "nebo predejte persona_id s nakonfigurovanym persona_channels kanalem."
+        )
+
     credentials = Credentials(
-        username=settings.ews_email,
-        password=settings.ews_password,
+        username=ews_email,
+        password=ews_password,
     )
 
     config = Configuration(
-        server=settings.ews_server.replace("https://", "").replace("http://", ""),
+        server=ews_server.replace("https://", "").replace("http://", ""),
         credentials=credentials,
     )
 
     account = Account(
-        primary_smtp_address=settings.ews_email,
+        primary_smtp_address=ews_email,
         config=config,
         autodiscover=False,
         access_type=DELEGATE,
@@ -34,15 +60,80 @@ def _get_account():
     return account
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
+def _resolve_email_creds(persona_id: int | None, tenant_id: int | None) -> dict[str, str] | None:
     """
-    Odešle email přes EWS.
-    Vrátí True při úspěchu, False při selhání.
+    Vrati dict {email, password, server} pokud persona_id ma kanal,
+    jinak None -> _get_account dela fallback na settings.
+    Oddelene aby bylo jednoduse testovat.
+    """
+    if not persona_id:
+        return None
+    try:
+        from modules.notifications.application.persona_channel_service import (
+            get_email_credentials,
+        )
+        return get_email_credentials(persona_id, tenant_id=tenant_id)
+    except Exception as e:
+        logger.error(
+            f"EMAIL | creds resolve failed | persona_id={persona_id} | error={e}"
+        )
+        return None
+
+
+# ── Specificke vyjimky pro jemnejsi error handling v callerech ────────────
+
+class EmailAuthError(RuntimeError):
+    """EWS server odmitl prihlasovaci udaje (spatny email/heslo/MFA chybi)."""
+
+
+class EmailSendError(RuntimeError):
+    """Obecna chyba pri odesilani emailu (connection, server-side, ...)."""
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """
+    Rozpozna, zda je exception od exchangelib auth selhani.
+    exchangelib.errors.UnauthorizedError je HTTP 401 pri EWS auth.
+    Nekdy taky chodi ServerBusyError / RateLimitError pri brute-force
+    ochranne; ty neblokujeme jako auth fail.
+    """
+    try:
+        from exchangelib.errors import UnauthorizedError
+        if isinstance(exc, UnauthorizedError):
+            return True
+    except ImportError:
+        pass
+    msg = str(exc).lower()
+    # Fallback textova detekce (pro pripad jinych verzi exchangelib)
+    return "invalid credentials" in msg or "unauthorized" in msg or "401" in msg
+
+
+def send_email_or_raise(
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+) -> None:
+    """
+    Odesle email. V pripade selhani hodi EmailAuthError (spatne udaje)
+    nebo EmailSendError (ostatni). Pri uspechu vraci None.
     """
     try:
         from exchangelib import Message, Mailbox
 
-        account = _get_account()
+        creds = _resolve_email_creds(persona_id, tenant_id)
+        if creds:
+            account = _get_account(
+                email=creds["email"],
+                password=creds["password"],
+                server=creds["server"],
+            )
+            sender = creds["email"]
+        else:
+            # Fallback: globalni .env. Pro pozvanky / password-reset / backward compat.
+            account = _get_account()
+            sender = settings.ews_email
 
         message = Message(
             account=account,
@@ -52,11 +143,36 @@ def send_email(to: str, subject: str, body: str) -> bool:
         )
         message.send()
 
-        logger.info(f"EMAIL | sent | to={to} | subject={subject}")
-        return True
-
+        logger.info(
+            f"EMAIL | sent | from={sender} | to={to} | subject={subject}"
+        )
     except Exception as e:
+        if _is_auth_error(e):
+            logger.error(f"EMAIL | auth-failed | to={to} | error={e}")
+            raise EmailAuthError(str(e)) from e
         logger.error(f"EMAIL | failed | to={to} | error={e}")
+        raise EmailSendError(str(e)) from e
+
+
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+) -> bool:
+    """
+    Backward-compat wrapper: vrati True pri uspechu, False pri selhani.
+    Chyba jde do logu. Pro jemnejsi error handling (auth vs. jine) pouzij
+    send_email_or_raise().
+    """
+    try:
+        send_email_or_raise(to, subject, body, persona_id=persona_id, tenant_id=tenant_id)
+        return True
+    except (EmailAuthError, EmailSendError):
+        return False
+    except Exception as e:
+        logger.error(f"EMAIL | unexpected | to={to} | error={e}")
         return False
 
 

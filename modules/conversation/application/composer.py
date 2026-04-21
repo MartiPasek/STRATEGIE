@@ -370,6 +370,73 @@ def _get_persona_prompt(conversation_id: int) -> str | None:
         core_session.close()
 
 
+def _get_active_persona_id(conversation_id: int) -> int | None:
+    """Vrati active_agent_id z konverzace. Sdileno mezi helpery."""
+    data_session = get_data_session()
+    try:
+        conversation = data_session.query(Conversation).filter_by(id=conversation_id).first()
+        return conversation.active_agent_id if conversation else None
+    finally:
+        data_session.close()
+
+
+def _build_persona_channels_block(
+    conversation_id: int, tenant_id: int | None,
+) -> str | None:
+    """
+    Sestavi blok [TVOJE KANÁLY] pro aktivni personu -- telefon, email z
+    persona_channels + personas.phone_number. Cilem je, aby persona vedela,
+    ze `marti-ai@eurosoft.com` a `+420778117879` jsou JEJI.
+
+    Vraci string vcetne header/footer, nebo None pokud nema zadny kanal.
+    """
+    active_agent_id = _get_active_persona_id(conversation_id)
+    if not active_agent_id:
+        return None
+
+    core_session = get_core_session()
+    try:
+        persona = core_session.query(Persona).filter_by(id=active_agent_id).first()
+        if not persona:
+            return None
+
+        persona_name = persona.name
+        phone_number = persona.phone_number if persona.phone_enabled else None
+
+        # Email kanal z persona_channels (lazy import pro prip. cyclu).
+        # Prezentujeme `display_identifier` (primary SMTP alias) pokud je, jinak
+        # fallback na `identifier` (login UPN).
+        from modules.notifications.application.persona_channel_service import get_channel
+        email_ch = get_channel(
+            persona_id=persona.id,
+            channel_type="email",
+            tenant_id=tenant_id,
+        )
+        email_identifier = None
+        if email_ch and email_ch.is_enabled:
+            email_identifier = email_ch.display_identifier or email_ch.identifier
+    finally:
+        core_session.close()
+
+    lines: list[str] = []
+    if email_identifier:
+        lines.append(f"- Email: {email_identifier} (pro odesílání / příjem přes Exchange)")
+    if phone_number:
+        lines.append(f"- Telefon: {phone_number} (SMS a hovory přes firemní Android bránu)")
+
+    if not lines:
+        return None
+
+    header = "Máš vlastní komunikační kanály (jsou JEDINE tvoje, ne uživatelovy):"
+    footer = (
+        "Když se tě někdo zeptá na tvůj email nebo telefonní číslo, odpověz "
+        "těmito hodnotami. Když máš poslat něco 'sobě' jako AI, myšleno je to "
+        "na tuhle vlastní adresu/číslo, ne na uživatele se kterým mluvíš. "
+        "Nepiš, že 'nemáš vlastní email/telefon' -- máš."
+    )
+    return "\n".join([header, *lines, "", footer])
+
+
 def _get_latest_summary(conversation_id: int) -> ConversationSummary | None:
     session = get_data_session()
     try:
@@ -460,6 +527,13 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     user_ctx = build_user_context_block(user_id, tenant_id)
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
+
+    # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
+    # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma
+    # nakonfigurovany v persona_channels.
+    channels_block = _build_persona_channels_block(conversation_id, tenant_id)
+    if channels_block:
+        system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

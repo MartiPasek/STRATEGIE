@@ -226,6 +226,40 @@ class Persona(BaseCore):
     phone_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
+class PersonaChannel(BaseCore):
+    """
+    Komunikacni kanal persony (email, phone).
+
+    Per-tenant: tenant_id NULL = globalni fallback.
+    credentials_encrypted pouzivame pro heslo (Fernet) u emailu. Pro phone
+    je NULL (SIMka neni password-protected z naseho uhlu pohledu).
+    server = URL EWS serveru u emailu, NULL u phone.
+    """
+    __tablename__ = "persona_channels"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("personas.id", ondelete="CASCADE")
+    )
+    tenant_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
+    )
+    channel_type: Mapped[str] = mapped_column(String(20))   # email | phone
+    # Login identifier (UPN pro Exchange, E.164 pro phone) -- to se pouziva
+    # pri autentizaci / zapisu do outbox.
+    identifier: Mapped[str] = mapped_column(String(255))
+    # Co se prezentuje navenek (uzivatelum / prijemcum). U emailu = primary
+    # SMTP alias (napr. marti-ai@eurosoft.com), i kdyz login je jiny UPN
+    # (marti-ai@eurosoft-control.cz). NULL = fallback na identifier.
+    display_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credentials_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
+
+
 class Agent(BaseCore):
     __tablename__ = "agents"
 

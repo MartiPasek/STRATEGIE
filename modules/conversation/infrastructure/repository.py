@@ -166,7 +166,8 @@ def _resolve_persona_names(agent_ids: set[int]) -> dict[int, str]:
 
 def _serialize_messages(messages: list[Message]) -> list[dict]:
     """Serializace listu Message ORM -> dict pro API. Pridava persona_name
-    pres bulk JOIN s personas tabulkou (1 query pro N zprav)."""
+    pres bulk JOIN s personas tabulkou (1 query pro N zprav) a created_at
+    ve formatu ISO 8601 (frontend si format upravuje sam)."""
     agent_ids = {m.agent_id for m in messages if m.agent_id}
     persona_names = _resolve_persona_names(agent_ids)
     return [
@@ -176,6 +177,7 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
             "message_type": m.message_type,
             "agent_id": m.agent_id,
             "persona_name": persona_names.get(m.agent_id) if m.agent_id else None,
+            "created_at": m.created_at.isoformat() if m.created_at else None,
         }
         for m in messages
     ]

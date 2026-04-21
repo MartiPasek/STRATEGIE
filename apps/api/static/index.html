@@ -71,7 +71,12 @@
        na .app), hlavní obsah (chat) má vlastní max-width 900px a centruje
        se uvnitř svého grid sloupce (margin: 0 auto). Tím chat zůstane
        čitelný i na 1920+ monitorech a sidebar nezačne plavat doprava. */
-    .app { display: none; height: 100vh; width: 100%; padding: 0; grid-template-columns: 260px 1fr; gap: 0; }
+    /* Sidebar se dynamicky rozsiri (260-380px) kdyz je okno dost siroke, ze
+       chat uz drzi max-width (.app-main max 900px). Do te doby sedi na 260px.
+       clamp(260, (100vw - 1000px), 380): pod 1260px = 260 min, nad 1380px = 380
+       max, mezi linearne roste. Tim se konverzace tituly casteji vejdou bez
+       "..." elipsy. */
+    .app { display: none; height: 100vh; width: 100%; padding: 0; grid-template-columns: clamp(260px, calc(100vw - 1000px), 380px) 1fr; gap: 0; }
     .app.show { display: grid; }
     .app-main { display: flex; flex-direction: column; min-height: 0; padding: 0 16px; max-width: 900px; width: 100%; margin: 0 auto; }
     /* SIDEBAR — seznam AI konverzací */
@@ -248,7 +253,9 @@
       .sidebar { display: none; }
       .conv-dd-wrap { display: block; }
     }
-    .header { display: flex; align-items: center; justify-content: space-between; padding: 18px 0 14px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    /* Header slouceny s agent-barem -- usetri ~35px vertikalniho mista.
+       Zadny vlastni border-bottom (ten ma az agent-bar pod sebou), zadny spacing zmezi. */
+    .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; border-bottom: none; flex-shrink: 0; }
     .logo { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
@@ -260,7 +267,10 @@
     .conv-group { display: flex; gap: 4px; align-items: center; }
     .logout-btn { background: none; border: none; color: var(--muted); font-size: 12px; cursor: pointer; padding: 5px 8px; }
     .logout-btn:hover { color: var(--error); }
-    .agent-bar { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 8px 14px; margin-top: 10px; font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    /* Agent-bar teď navazuje bezprostředně na header (bez bg/borderu/margin),
+       vizualne tvori s headerem jeden blok. Jediny viditelny separator od chatu
+       je border-bottom na agent-baru. Setri ~35px vertikalniho mista. */
+    .agent-bar { background: transparent; border: none; border-radius: 0; padding: 4px 0 8px; margin-top: 0; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
     /* Projekt v agent baru — rozdeleny do 2 castí (label muted, nazev accent),
        stejny pattern jako "Mluvis s: Marti-AI" nalevo. Cela skupina je klikatelna
@@ -409,13 +419,60 @@
        Popisek (.msg-role) je vždy zarovnán s tou stranou bubliny, kde je. */
     .msg { display: flex; flex-direction: column; gap: 2px; max-width: calc(100% - 2cm); align-self: flex-start; align-items: flex-start; animation: fadeIn .25s ease; }
     .msg.user, .msg.from-me { align-self: flex-end; align-items: flex-end; }
-    /* Systémové zprávy (tenant switch markery) — left-aligned jako AI,
-       ale mírně odlišný odstín bubliny aby byly opticky rozeznatelné. */
-    .msg.system { align-self: flex-start; align-items: flex-start; }
-    .msg.system .msg-role { color: var(--accent); font-weight: 600; }
-    .msg.system .msg-bubble { background: #1a2a1f; border-color: #2d4a37; color: #b8d4c4; font-style: italic; }
+    /* Systémové zprávy (tenant switch markery, project switch, ...) -- jemny
+       inline divider misto velke bubliny. Setri vertikalni misto a vizualne
+       odlisuje "system event" od "skutecna AI/user zprava". */
+    .msg.system {
+      align-self: stretch;
+      align-items: center;
+      flex-direction: row;
+      gap: 12px;
+      padding: 10px 0;
+      max-width: 100%;
+      animation: fadeIn .25s ease;
+    }
+    /* Jen prava cara -- marker je left-aligned, cara vypluje do prava */
+    .msg.system::after {
+      content: '';
+      flex: 1;
+      height: 1px;
+      background: var(--border);
+      opacity: .6;
+    }
+    .msg.system .msg-role { display: none; }   /* skryj 'STRATEGIE' label, neni potreba */
+    .msg.system .msg-bubble {
+      background: transparent;
+      border: none;
+      padding: 0 8px 0 0;
+      font-size: 11.5px;
+      font-style: italic;
+      color: var(--muted);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 70%;
+      flex-shrink: 0;
+    }
     @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
     .msg-role { font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .08em; color: var(--muted); padding: 0 2px; }
+    /* Diskretni timestamp pod bublinou. Drobny, jen pro orientaci v case. */
+    .msg-time { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); opacity: 0.5; padding: 0 4px; line-height: 1.2; }
+    .msg.user .msg-time, .msg.from-me .msg-time { align-self: flex-end; }
+    /* Collapsed = predchozi zprava ma stejneho odesilatele. Skryjeme label,
+       zhustime gap mezi sourozenci, aby clusters vypadaly jako "jeden myslenkovy
+       blok" (ne 5 nezavislych zprav s 5 ruznymi labely). */
+    .msg.collapsed { margin-top: -6px; }
+    .msg.collapsed > .msg-role { display: none; }
+    /* Alternujici senders -- user zprava (vpravo) naslednovana AI zpravou (vlevo)
+       nebo naopak -- se neprelevaji horizontalne, takze muzeme vertikalni gap
+       zhustit. Setri misto na obrazovce bez ztraty citelnosti.
+       gap 8px + margin -7px = efektivne 1px mezi stridajicimi senders (tesne). */
+    .msg.user + .msg:not(.user):not(.from-me):not(.system),
+    .msg.from-me + .msg:not(.user):not(.from-me):not(.system),
+    .msg:not(.user):not(.from-me):not(.system) + .msg.user,
+    .msg:not(.user):not(.from-me):not(.system) + .msg.from-me {
+      margin-top: -7px;
+    }
     .msg-bubble { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 14px; font-size: 14px; white-space: pre-wrap; word-break: break-word; line-height: 1.45; }
     .msg.user .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
     /* Markdown rendering uvnitř AI bublin (parsováno z **bold**, *italic*, lists, code, links). */
@@ -438,7 +495,7 @@
     .empty p { font-size: 14px; max-width: 280px; }
     .input-area { padding: 14px 0 20px; border-top: 1px solid var(--border); flex-shrink: 0; }
     .input-row { display: flex; gap: 10px; align-items: flex-end; }
-    textarea { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 48px; max-height: 160px; transition: border-color .2s; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    textarea { flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 10px 14px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 14px; line-height: 1.5; resize: none; outline: none; min-height: 42px; max-height: 160px; transition: border-color .2s, height .12s; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     textarea:focus { border-color: var(--accent); }
     textarea::placeholder { color: var(--muted); }
     textarea::-webkit-scrollbar { width: 6px; }
@@ -700,7 +757,7 @@
       </div>
       <div class="input-area">
         <div class="input-row">
-          <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="2"></textarea>
+          <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="1"></textarea>
           <button class="send-btn" id="sendBtn">
             <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
           </button>
@@ -1631,7 +1688,7 @@
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
-      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name));
+      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
   }
@@ -2864,7 +2921,7 @@
         document.getElementById('agentName').textContent = data.active_persona;
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
-      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name));
+      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
@@ -2885,23 +2942,53 @@
     inputEl.style.height = Math.min(inputEl.scrollHeight, 160) + 'px';
   });
 
-  // Enter = nový řádek (víceřádkový vstup).
-  // Ctrl+Enter (nebo Cmd+Enter) = odeslat (power-user shortcut).
-  // Trojí Enter za sebou = odeslat (intuitivní = "už jsem dopsal, pošli to").
+  // Enter flow -- tri zpusoby jak odeslat:
+  //   1. Ctrl+Enter / Cmd+Enter               -- power-user shortcut (okamzite)
+  //   2. Double-tap Enter (<=500ms mezi)      -- "jako mys double-click" (rychly)
+  //   3. Triple Enter (pomalu, s pauzou)      -- klasicke "dopsal jsem, pojdme"
+  // Mezi Enterami co maji delsi pauzu nez 500ms = novy radek, trigger pres 3.
+  let _lastEnterTime = 0;
+  const DOUBLE_ENTER_THRESHOLD_MS = 500;
+
   inputEl.addEventListener('keydown', e => {
     if (e.key !== 'Enter') return;
+    // Enter na uplne prazdny input = nic. Bez tohoto by se pridal newline,
+    // placeholder zmizel a textarea by se zacala roztahovat (rusive).
+    if (inputEl.value.length === 0) {
+      e.preventDefault();
+      return;
+    }
     if (e.ctrlKey || e.metaKey) {
       e.preventDefault();
+      _lastEnterTime = 0;
       send();
       return;
     }
-    // Detekce 3. consecutive Enteru: tělo už končí na "\n\n"
+    const now = Date.now();
+    const sinceLastEnter = now - _lastEnterTime;
+    const hasContent = inputEl.value.trim().length > 0;
+
+    // 2) Double-tap Enter (rychle po sobe) = poslat
+    if (hasContent && _lastEnterTime > 0 && sinceLastEnter <= DOUBLE_ENTER_THRESHOLD_MS) {
+      e.preventDefault();
+      inputEl.value = inputEl.value.replace(/\n+$/, '');
+      _lastEnterTime = 0;
+      send();
+      return;
+    }
+
+    // 3) Triple Enter (pomalu) -- tělo končí na "\n\n" = 3. Enter
     if (inputEl.value.endsWith('\n\n')) {
       e.preventDefault();
-      // Ořízni trailing newlines z toho, co jdeme poslat
       inputEl.value = inputEl.value.replace(/\n+$/, '');
+      _lastEnterTime = 0;
       send();
+      return;
     }
+
+    // Jinak: default textarea chovani (prida newline). Zapamatujeme si cas,
+    // aby dalsi Enter mohl porovnat na double-tap threshold.
+    _lastEnterTime = now;
   });
   sendBtn.addEventListener('click', send);
 
@@ -4465,9 +4552,48 @@
     }
   }
 
-  function renderMessage(role, content, messageType, personaName) {
+  // Vraci true pokud predchozi (skutecna) message ma STEJNEHO odesilatele.
+  // Skipne loading/error/system markery -- jsou to "transparentni" vlozky,
+  // ktere neporusuji semanticky cluster (napr. user posle 2 zpravy rychle za
+  // sebou pres loading mezi nima -- oba bubliny by mely klastrovat).
+  function _shouldCollapseLabel(role, personaName, messageType, createdAt) {
+    if (messageType === 'system') return false;
+    // Najdi posledni RELEVANTNI msg (preskoc loading/error/system/non-msg)
+    let prev = messagesEl.lastElementChild;
+    while (prev) {
+      if (prev.classList && prev.classList.contains('msg')
+          && !prev.classList.contains('loading')
+          && !prev.classList.contains('error')
+          && !prev.classList.contains('system')) {
+        break;   // nasli jsme regularni msg
+      }
+      prev = prev.previousElementSibling;
+    }
+    if (!prev) return false;
+    if (prev.dataset.msgRole !== role) return false;
+    // Pro AI: pripadne jine persony = dva ruzni autori = nekolabovat
+    if (role === 'assistant' || role === 'from-me') {
+      if ((prev.dataset.personaName || '') !== (personaName || '')) return false;
+    }
+    // Pokud je casovy gap > 5 min, zachovavame vizualni separaci (novy "nadech"
+    // konverzace po pauze by mel mit cely label + timestamp, ne jen tichy cluster)
+    if (createdAt && prev.dataset.createdAt) {
+      const gap = new Date(createdAt).getTime() - new Date(prev.dataset.createdAt).getTime();
+      if (gap > 5 * 60 * 1000) return false;
+    }
+    return true;
+  }
+
+  function renderMessage(role, content, messageType, personaName, createdAt) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
+    // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
+    const collapsed = _shouldCollapseLabel(role, personaName, messageType, createdAt);
+    if (collapsed) msg.classList.add('collapsed');
+    // Metadata pro budouci cluster-comparison
+    msg.dataset.msgRole = role;
+    msg.dataset.personaName = personaName || '';
+    if (createdAt) msg.dataset.createdAt = createdAt;
     // Systémové markery (např. tenant switch) renderujeme s vlastní třídou
     // .system — left-aligned, label 'STRATEGIE'. Ignorujeme původní role 'user'
     // (backend ji volí kvůli LLM kontextu, frontend ji nezobrazuje jako user).
@@ -4494,15 +4620,58 @@
     if (messageType === 'system') bubble.textContent = content;
     else setBubbleContent(bubble, content, role);
     msg.appendChild(roleEl); msg.appendChild(bubble);
+    // Diskretni timestamp pod bublinou (jen pro non-system, ty se renderuji
+    // jako event divider a cas neni potreba). Pokud createdAt chybi, skipne.
+    if (messageType !== 'system' && createdAt) {
+      const timeEl = document.createElement('div');
+      timeEl.className = 'msg-time';
+      timeEl.textContent = formatMessageTime(createdAt);
+      msg.appendChild(timeEl);
+    }
     _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     return msg;
+  }
+
+  // Format timestampu pro chat bubliny:
+  //   - Dnes:    'HH:MM'           (16:42)
+  //   - Vcera:   'včera HH:MM'     (včera 09:15)
+  //   - Starsi:  'D.M. HH:MM'      (18.4 14:32)
+  //   - Loni+:   'D.M.YYYY HH:MM'  (18.4.2025 14:32)
+  function formatMessageTime(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      if (isNaN(d.getTime())) return '';
+      const now = new Date();
+      const sameDay = d.toDateString() === now.toDateString();
+      const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
+      const isYesterday = d.toDateString() === yesterday.toDateString();
+      const sameYear = d.getFullYear() === now.getFullYear();
+      const hh = String(d.getHours()).padStart(2, '0');
+      const mm = String(d.getMinutes()).padStart(2, '0');
+      if (sameDay) return `${hh}:${mm}`;
+      if (isYesterday) return `včera ${hh}:${mm}`;
+      if (sameYear) return `${d.getDate()}.${d.getMonth() + 1}. ${hh}:${mm}`;
+      return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${hh}:${mm}`;
+    } catch (_) {
+      return '';
+    }
   }
 
   function addMessage(role, content, type = 'text') {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     msg.className = `msg ${role}`;
+    // Cluster collapse pro live zpravy (loading/error vyloucene)
+    const liveCreatedAt = new Date().toISOString();
+    if (type !== 'loading' && type !== 'error') {
+      const collapsed = _shouldCollapseLabel(role, currentAgentLabel(), 'text', liveCreatedAt);
+      if (collapsed) msg.classList.add('collapsed');
+      msg.dataset.msgRole = role;
+      msg.dataset.personaName = (role === 'assistant') ? currentAgentLabel() : '';
+      msg.dataset.createdAt = liveCreatedAt;
+    }
     const roleEl = document.createElement('div');
     roleEl.className = 'msg-role';
     roleEl.textContent = role === 'user'
@@ -4520,6 +4689,14 @@
       setBubbleContent(bubble, content, role);
     }
     msg.appendChild(roleEl); msg.appendChild(bubble);
+    // Timestamp pro non-loading/error live zpravy. liveCreatedAt jsme uz vytvorili
+    // pro cluster comparison (data attribute), recyklujeme.
+    if (type !== 'loading' && type !== 'error') {
+      const timeEl = document.createElement('div');
+      timeEl.className = 'msg-time';
+      timeEl.textContent = formatMessageTime(liveCreatedAt);
+      msg.appendChild(timeEl);
+    }
     if (type !== 'loading') _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     messagesEl.scrollTop = messagesEl.scrollHeight;

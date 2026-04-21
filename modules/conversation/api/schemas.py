@@ -48,6 +48,9 @@ class HistoryMessage(BaseModel):
     # souhlasit s autorem historicke zpravy.
     agent_id: int | None = None
     persona_name: str | None = None
+    # ISO 8601 timestamp kdy zprava vznikla. Frontend ho formatuje pro UI
+    # (HH:MM pro dnes, '20.4 14:32' pro starsi, pro rychly orientaci v case).
+    created_at: str | None = None
 
 
 class LastConversationResponse(BaseModel):

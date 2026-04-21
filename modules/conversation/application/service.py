@@ -1508,4 +1508,13 @@ def chat(
     except Exception as e:
         logger.error(f"SUMMARY | failed: {e}")
 
+    # Auto-generovany nazev konverzace (jednorazove, po 4+ zprave).
+    # Idempotentni -- po prvni generaci uz nic nedela. Pridává ~0.5-1s
+    # latenci na 4. zpravu, pak uz nic.
+    try:
+        from modules.conversation.application.title_service import maybe_generate_title
+        maybe_generate_title(conversation_id)
+    except Exception as e:
+        logger.error(f"TITLE | failed: {e}")
+
     return conversation_id, assistant_reply, summary_info

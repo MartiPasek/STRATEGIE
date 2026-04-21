@@ -1,0 +1,43 @@
+# Default: text files get LF v gitu (storage), pri checkout na Windows
+# git automaticky konvertuje na CRLF. Predejde "celej soubor zmenen"
+# diffu kdyz nekdo otevre soubor v editoru ktery ho prepise.
+* text=auto eol=lf
+
+# Python / config / SQL / shell -- vzdy LF (i na Windows checkout-u).
+# Tim padem nikdy nebude false-positive zmena.
+*.py        text eol=lf
+*.toml      text eol=lf
+*.lock      text eol=lf
+*.ini       text eol=lf
+*.yml       text eol=lf
+*.yaml      text eol=lf
+*.json      text eol=lf
+*.md        text eol=lf
+*.sql       text eol=lf
+*.sh        text eol=lf
+
+# PowerShell skripty -- CRLF (Windows native, jinak nektery PS hosti
+# lamentuji nad mixed line endings).
+*.ps1       text eol=crlf
+*.psm1      text eol=crlf
+*.psd1      text eol=crlf
+*.bat       text eol=crlf
+*.cmd       text eol=crlf
+
+# Frontend -- LF (vsechny moderni editory zvladnou, npm/build tools to ocekavaji).
+*.html      text eol=lf
+*.css       text eol=lf
+*.js        text eol=lf
+*.ts        text eol=lf
+
+# Binary -- nikdy nenormalizovat.
+*.png       binary
+*.jpg       binary
+*.jpeg      binary
+*.gif       binary
+*.ico       binary
+*.svg       text eol=lf
+*.woff      binary
+*.woff2     binary
+*.pdf       binary
+*.zip       binary

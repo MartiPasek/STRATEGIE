@@ -54,3 +54,9 @@ scripts/_*.py
 # Generovane dokumenty (PDF runbooky, schemata) -- generuji se ad-hoc,
 # verzuji se zdrojovem skriptem (make_runbook.py) ne vystupem.
 *.pdf
+
+# Storage adresare -- avatary person v projektu (default Avatary/), pripadne
+# i dokumenty pokud nekdo prepise DOCUMENTS_STORAGE_DIR na lokalni cestu.
+# Soubory jsou per-instance dat, do gitu nepatri.
+Avatary/
+Dokumenty/

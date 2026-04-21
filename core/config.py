@@ -14,11 +14,15 @@ class Settings(BaseSettings):
 
     # RAG -- adresar na disku kam se ukladaji nahrane dokumenty (PDF, DOCX, ...).
     # Per-tenant subfolder: {DOCUMENTS_STORAGE_DIR}/{tenant_id}/{document_id}.{ext}
+    # Default MIMO projekt -- dokumenty mohou rust do GB a zasirat git repo.
     documents_storage_dir: str = "D:/Data/STRATEGIE/Dokumenty"
 
     # Avatary person -- soubory persona_{id}.jpg (resize na 256x256, JPEG quality 85).
     # Servovany pres GET /api/v1/personas/{id}/avatar -> FileResponse.
-    avatars_storage_dir: str = "D:/Data/STRATEGIE/Avatary"
+    # Default UVNITR projektu (Avatary/ v rootu) -- male JPG (~30 KB/kus),
+    # pohodlne se to zalohuje spolu s kodem. Gitignored aby se soubory
+    # necommitovaly. Lze prepsat pres AVATARS_STORAGE_DIR env.
+    avatars_storage_dir: str = "Avatary"
 
     # Databases
     database_url: str = ""

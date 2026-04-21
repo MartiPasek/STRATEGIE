@@ -122,13 +122,20 @@ alembic_data/               — migrace pro data_db
 - Author tracking na zprávách
 - Pending actions přežijí restart
 
+**SMS notifikace** ✅ (Fáze 1 + 2)
+- `modules/notifications/application/sms_service.py` — provider-agnostic interface + `queue_sms()` + normalizace E.164 + rate limiting
+- `SmsProvider` abstract → aktuálně `AndroidGatewayProvider` (pull model přes telefon s capcom6/android-sms-gateway appkou); budoucí: `SmsEagleProvider`, `TwilioProvider`
+- Outbox tabulka `sms_outbox` (pending → sent/failed), purpose: `user_request` | `notification` | `system`
+- Gateway API `/api/v1/sms/gateway/outbox` (GET/POST) pro Android pull, auth přes `X-Gateway-Key` (constant-time compare)
+- AI tool `send_sms(to, body)` — preview → potvrzení → outbox (analogie `send_email`)
+- `find_user` rozšířen o `preferred_phone` pro resolve podle jména
+- Audit log `send_sms` v `action_logs`
+- Setup guide: `docs/sms_setup.md`
+
 **Repo hygiene** ✅
 - `__pycache__` / `*.pyc` v .gitignore (od commit 7c6322a)
 - `scripts/commit_*.ps1` a `scripts/push_phase*.ps1` taky gitignored (jednorázové helpery)
 - `.gitattributes` normalizuje line endings (CRLF/LF)
-
-**Připraveno v DB ale neimplementováno (⏳):**
-- **SMS notifikace** — UserNotificationSetting má `sms` kanál, provider integrace chybí
 
 ## Jak pracovat
 - Nejdřív navrhni, pak implementuj
@@ -143,9 +150,10 @@ alembic_data/               — migrace pro data_db
 ## Execution layer (AI tools)
 AI má k dispozici nástroje v `modules/conversation/application/tools.py`:
 
-**Email & lidé:**
+**Email, SMS & lidé:**
 - `send_email(to, subject, body)` — preview → potvrzení → EWS odeslání
-- `find_user(query)` — multi-source search v aktuálním tenantu
+- `send_sms(to, body)` — preview → potvrzení → outbox → Android gateway
+- `find_user(query)` — multi-source search v aktuálním tenantu (vrací i `preferred_phone`)
 - `list_users` — všichni aktivní v tenantu (číslovaný + selekce)
 - `invite_user(email, first_name, last_name?, gender?)` — pozvánka, odmítne aktivního
 - `switch_persona(query)` — přepnutí na jiný agent / personu

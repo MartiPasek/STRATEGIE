@@ -47,30 +47,58 @@ router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 def login(request: LoginRequest, response: Response, req: Request) -> LoginResponse:
     """Login přes email + heslo (bcrypt). User bez nastaveného hesla
     je odmítnut s instrukcí kontaktovat admina (set-password flow přes
-    scripts/set_initial_passwords.py v MVP)."""
+    scripts/set_initial_passwords.py v MVP).
+
+    Rate limiting: 5 failed pokusu / 15 min / IP. Pri prekroceni 429 + Retry-After.
+    """
     from modules.audit.application.service import log_event
+    from modules.auth.application.rate_limiter import login_rate_limiter, MAX_FAILED_ATTEMPTS
 
     ip = req.client.host if req.client else None
     ua = req.headers.get("user-agent")
 
+    # Rate limit check PRED auth -- ochrana proti bruteforce. Blocked IP
+    # dostane 429 s Retry-After headerem a user-friendly hlaskou.
+    limit = login_rate_limiter.check(ip)
+    if not limit.allowed:
+        log_event(action="login_failed", status="error",
+                  error="rate_limited", ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": request.email, "retry_after": limit.retry_after_seconds})
+        mins = (limit.retry_after_seconds + 59) // 60
+        response.headers["Retry-After"] = str(limit.retry_after_seconds)
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Příliš mnoho neúspěšných přihlášení z této IP adresy "
+                f"({limit.failed_attempts} pokusů). Zkus znovu za {mins} min."
+            ),
+        )
+
     try:
         result = login_by_email(request.email, request.password)
     except AmbiguousEmailError as e:
+        login_rate_limiter.record_failure(ip)
         log_event(action="login_failed", status="error",
                   error="ambiguous_email", ip_address=ip, user_agent=ua,
                   extra_metadata={"email": request.email})
         raise HTTPException(status_code=401, detail=str(e))
     except PasswordNotSet as e:
+        # Pozn.: no_password_set neni "bad credential" v klasickem smyslu,
+        # ale rate-limitujeme i tyhle (jinak by utocnik mohl enumerovat usery).
+        login_rate_limiter.record_failure(ip)
         log_event(action="login_failed", status="error",
                   error="no_password_set", ip_address=ip, user_agent=ua,
                   extra_metadata={"email": request.email})
         raise HTTPException(status_code=403, detail=str(e))
     if not result:
+        login_rate_limiter.record_failure(ip)
         log_event(action="login_failed", status="error",
                   error="bad_credentials", ip_address=ip, user_agent=ua,
                   extra_metadata={"email": request.email})
         raise HTTPException(status_code=401, detail="Neplatný email nebo heslo.")
 
+    # Uspech -- reset rate limiter counter (user je v poradku, ne utocnik)
+    login_rate_limiter.record_success(ip)
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
 
     log_event(action="login_success", user_id=result["user_id"],
@@ -294,12 +322,30 @@ def forgot_password(body: ForgotPasswordRequest, req: Request) -> dict:
     """
     from modules.notifications.application.email_service import send_password_reset_email
     from modules.audit.application.service import log_event
+    from modules.auth.application.rate_limiter import (
+        check_forgot_password_limit, record_forgot_password_request,
+    )
 
     ip = req.client.host if req.client else None
     ua = req.headers.get("user-agent")
     email = (body.email or "").strip()
     if not email or "@" not in email:
         raise HTTPException(status_code=400, detail="Neplatný formát emailu.")
+
+    # Rate limit: 10 zadosti / hodina / IP -- ochrana proti email-flood spamu.
+    # Vsechny zadosti se zaznamenavaji (uspech i fail), takze utocnik nemuze
+    # spamovat ani uplatnenim spravnych emailu.
+    flim = check_forgot_password_limit(ip)
+    if not flim.allowed:
+        log_event(action="forgot_password_rate_limited", status="error",
+                  error="rate_limited", ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": email, "retry_after": flim.retry_after_seconds})
+        mins = (flim.retry_after_seconds + 59) // 60
+        raise HTTPException(
+            status_code=429,
+            detail=f"Příliš mnoho žádostí o obnovu hesla z této IP. Zkus znovu za {mins} min.",
+        )
+    record_forgot_password_request(ip)
 
     result = create_reset_token(email)
     if result is None:

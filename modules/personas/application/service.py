@@ -60,6 +60,7 @@ def list_personas_for_user(user_id: int) -> list[dict]:
                     "is_default": p.is_default,
                     "tenant_id": p.tenant_id,
                     "is_global": p.tenant_id is None,
+                    "has_avatar": bool(p.avatar_path),
                 })
         return out
     finally:
@@ -144,12 +145,9 @@ def update_persona(
         persona = cs.query(Persona).filter_by(id=persona_id).first()
         if persona is None:
             raise PersonaError("Persona neexistuje.")
-        # Ochrana globalnich person — default Marti-AI nesmime omylem prepsat
-        if persona.tenant_id is None:
-            raise PersonaError(
-                "Globalni persony (vcetne default Marti-AI) nelze editovat pres API. "
-                "Pokud je to opravdu potreba, zmen je v DB primo."
-            )
+        # Pozn.: drivejsi verze zakazala edit globalnich person (tenant_id IS NULL)
+        # plosne. Ted povolujeme superadminovi -- je to jeho plnohodnotna akce
+        # (vcetne zmeny default Marti-AI, pripadne avatar fotky).
 
         changed = []
         if name is not None:

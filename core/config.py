@@ -16,6 +16,10 @@ class Settings(BaseSettings):
     # Per-tenant subfolder: {DOCUMENTS_STORAGE_DIR}/{tenant_id}/{document_id}.{ext}
     documents_storage_dir: str = "D:/Data/STRATEGIE/Dokumenty"
 
+    # Avatary person -- soubory persona_{id}.jpg (resize na 256x256, JPEG quality 85).
+    # Servovany pres GET /api/v1/personas/{id}/avatar -> FileResponse.
+    avatars_storage_dir: str = "D:/Data/STRATEGIE/Avatary"
+
     # Databases
     database_url: str = ""
     database_core_url: str = ""

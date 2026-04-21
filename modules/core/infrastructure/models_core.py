@@ -213,6 +213,10 @@ class Persona(BaseCore):
         BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
     )
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Cesta k uploadovane avatar fotce (resized 256x256 JPEG). Vyplnuje se
+    # pri uspesnem POST /api/v1/personas/{id}/avatar. NULL = fallback na
+    # generovane iniciály v UI.
+    avatar_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
 
 
 class Agent(BaseCore):

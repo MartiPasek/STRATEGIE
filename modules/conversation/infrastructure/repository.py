@@ -164,23 +164,55 @@ def _resolve_persona_names(agent_ids: set[int]) -> dict[int, str]:
         cs.close()
 
 
+def _default_persona_name() -> str:
+    """Jmeno globalni default persony (is_default=True). Fallback pokud
+    historicka zprava nema agent_id (tracking pridan pozdeji). Vraci
+    'Marti-AI' pokud default persona v DB nenajdeme -- bezpecny fallback."""
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Persona
+    cs = get_core_session()
+    try:
+        p = cs.query(Persona).filter_by(is_default=True).first()
+        return p.name if p else "Marti-AI"
+    finally:
+        cs.close()
+
+
 def _serialize_messages(messages: list[Message]) -> list[dict]:
     """Serializace listu Message ORM -> dict pro API. Pridava persona_name
     pres bulk JOIN s personas tabulkou (1 query pro N zprav) a created_at
-    ve formatu ISO 8601 (frontend si format upravuje sam)."""
+    ve formatu ISO 8601 (frontend si format upravuje sam).
+
+    Pro assistant zpravy bez agent_id (historicke, pred trackingem) pouziva
+    jmeno default persony -- tim se nesmazanemu labelu zabrani zobrazit
+    aktualni personu konverzace (CURRENT agent label), ktera nemusi odpovidat
+    puvodnimu autorovi.
+    """
     agent_ids = {m.agent_id for m in messages if m.agent_id}
     persona_names = _resolve_persona_names(agent_ids)
-    return [
-        {
+    # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
+    # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
+    default_name: str | None = None
+    out: list[dict] = []
+    for m in messages:
+        if m.agent_id:
+            pname = persona_names.get(m.agent_id)
+        elif m.role == "assistant" and m.message_type == "text":
+            # Historicke assistant zpravy bez agent_id -> default persona
+            if default_name is None:
+                default_name = _default_persona_name()
+            pname = default_name
+        else:
+            pname = None
+        out.append({
             "role": m.role,
             "content": m.content,
             "message_type": m.message_type,
             "agent_id": m.agent_id,
-            "persona_name": persona_names.get(m.agent_id) if m.agent_id else None,
+            "persona_name": pname,
             "created_at": m.created_at.isoformat() if m.created_at else None,
-        }
-        for m in messages
-    ]
+        })
+    return out
 
 
 def get_last_conversation(user_id: int) -> dict | None:

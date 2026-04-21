@@ -252,6 +252,46 @@
       .app, .app.show { grid-template-columns: 1fr; }
       .sidebar { display: none; }
       .conv-dd-wrap { display: block; }
+      /* Mirna komprese hlavicky: logo zmensit, gapy tesnejsi. Vejde se
+         STRATEGIE + vsechny button + AI/Lide + tenant pilulka do radky i
+         na uzkem telefonu v landscape. */
+      .app-main { padding: 0 12px; }
+      .logo { font-size: 22px; letter-spacing: 0.08em; }
+      .header-right { gap: 8px; }
+      .conv-group { gap: 3px; }
+      .conv-dd-trigger, .new-chat-btn { padding: 5px 10px; font-size: 11px; }
+      .mode-btn { padding: 5px 10px; font-size: 11px; }
+      /* Mobilni input -- maximalne usetrime vertikalni misto.
+         Aplikuje se uz od 960px (landscape telefon ma typicky 1000-1280px
+         CSS width, ale sidebar uz je schovany -- je to "mobil view").
+         Padding 1px/2px -- proste zadny zbytecny prazdny prostor.
+         Send button 34px (komfortne klikatelny, Material min 36, ale mame
+         dost padding kolem).
+         Textarea min-height 32 -- single line + grow. */
+      .input-area { padding: 1px 0 2px; border-top-width: 1px; }
+      .input-row { gap: 6px; }
+      .send-btn { width: 34px; height: 34px; border-radius: 7px; }
+      .send-btn svg { width: 14px; height: 14px; }
+      textarea { min-height: 32px; padding: 5px 10px; font-size: 13px; line-height: 1.3; }
+      /* Messages padding -- ubere neco nahore i dole, uplne stipnute. */
+      .messages { padding: 4px 0; }
+    }
+    /* Mobilni hlavicka -- pod 720px jeste kompaktneji (portrait mobil). */
+    @media (max-width: 720px) {
+      .app-main { padding: 0 10px; }
+      .header { padding: 10px 0 4px; gap: 8px; }
+      .logo { font-size: 19px; }
+      .header-right { gap: 6px; }
+      .conv-dd-trigger, .new-chat-btn { padding: 5px 8px; }
+      .tenant-pill { font-size: 11px; }
+    }
+    /* Pod 560px je miste jen na ikony -- schovame textove labely button,
+       necha se jen symbol (●, ☰, +). Aplikace zustava pouzitelna, ale
+       kompaktne. */
+    @media (max-width: 560px) {
+      .logo { font-size: 17px; }
+      .conv-dd-trigger .label-text, .new-chat-btn .label-text { display: none; }
+      .conv-dd-trigger, .new-chat-btn { padding: 5px 7px; }
     }
     /* Header slouceny s agent-barem -- usetri ~35px vertikalniho mista.
        Zadny vlastni border-bottom (ten ma az agent-bar pod sebou), zadny spacing zmezi. */
@@ -316,6 +356,31 @@
     .persona-dd-item:hover { background: var(--bg); }
     .persona-dd-item.active { background: #1a1f2e; border-color: #2a3350; }
     .persona-dd-item-name { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+    /* Persona avatar -- iniciály v barevnem kruhu. Stabilni barva per name (hash).
+       Pomaha rychlemu rozeznavani v dropdownu i pri velkem mnozstvi person. */
+    .persona-avatar { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 50%; flex-shrink: 0; font-size: 10px; font-family: 'DM Mono', monospace; font-weight: 600; color: rgba(255,255,255,0.92); letter-spacing: .04em; overflow: hidden; cursor: pointer; border: 2px solid transparent; transition: border-color .12s; }
+    .persona-avatar:hover { border-color: var(--accent); }
+    .persona-avatar.persona-avatar-img { background: var(--bg); }
+    .persona-avatar.persona-avatar-img img { width: 100%; height: 100%; object-fit: cover; }
+    /* Floating preview tooltip -- pop-out vedle dropdownu pri hover, jako
+       plnohodnotny portrait. Body-level element (position:fixed), neplete se
+       s overflow panelu. Vytvari + poziciuje JS, skryvame opacity. */
+    #_avatarPreview {
+      position: fixed;
+      width: 180px;
+      height: 180px;
+      border-radius: 12px;
+      overflow: hidden;
+      box-shadow: 0 12px 36px rgba(0,0,0,0.6);
+      z-index: 10000;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .15s ease;
+      background: var(--bg);
+      border: 1px solid var(--border);
+    }
+    #_avatarPreview img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    #_avatarPreview .preview-initials { width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; font-size: 60px; font-family: 'DM Mono', monospace; font-weight: 600; color: rgba(255,255,255,0.92); letter-spacing: .04em; }
     .persona-dd-item-default { font-size: 9px; color: var(--accent); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; font-family: 'DM Mono', monospace; }
     .persona-dd-item-global { font-size: 9px; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; margin-left: 6px; font-family: 'DM Mono', monospace; }
     .persona-dd-item-preview { font-size: 10px; color: var(--muted); margin-top: 2px; line-height: 1.4; }
@@ -697,14 +762,14 @@
                Zobrazí se v úzkých oknech (paralelně s konverzacemi); v širokých
                půjdou projekty do sidebaru (Fáze 3b). -->
           <div class="conv-dd-wrap" id="projectDdWrap">
-            <button class="conv-dd-trigger" id="projectDdTrigger" aria-label="Projekty">● Projekty</button>
+            <button class="conv-dd-trigger" id="projectDdTrigger" aria-label="Projekty">●<span class="label-text"> Projekty</span></button>
             <div class="conv-dd-panel" id="projectDdPanel"></div>
           </div>
           <div class="conv-dd-wrap" id="convDdWrap">
-            <button class="conv-dd-trigger" id="convDdTrigger" aria-label="Otevřu seznam tvých konverzací">☰ Konverzace</button>
+            <button class="conv-dd-trigger" id="convDdTrigger" aria-label="Otevřu seznam tvých konverzací">☰<span class="label-text"> Konverzace</span></button>
             <div class="conv-dd-panel" id="convDdPanel"></div>
           </div>
-          <button class="new-chat-btn" id="newChatBtn" aria-label="Zahájím novou konverzaci">+ Nová</button>
+          <button class="new-chat-btn" id="newChatBtn" aria-label="Zahájím novou konverzaci">+<span class="label-text"> Nová</span></button>
         </div>
         <div class="mode-switch">
           <button class="mode-btn active" id="modeAiBtn" data-mode="ai">AI</button>
@@ -734,8 +799,7 @@
                Label "Mluvíš s:" muted, název persony accent (jako u tenant
                pilulky). Klik -> #personaDdPanel s dostupnými personas. -->
           <span class="agent-bar-persona-wrap" id="personaBarWrap" data-tooltip="Otevřu seznam dostupných person"
-            ><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span></span>
-          <span class="agent-bar-persona-panel" id="personaDdPanel"></span>
+            ><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span><span class="agent-bar-persona-panel" id="personaDdPanel"></span></span>
           <!-- Projekt indikátor — klikatelný, otevírá project dropdown.
                Viditelný vždy: 'Projekt: <name>' když je projekt aktivní,
                'Projekt: bez projektu' když ne. Stejny pattern jako "Mluvis s:
@@ -859,6 +923,46 @@
     </div>
   </div>
 
+  <!-- Audit log modal (superadmin only) -->
+  <div class="modal-overlay" id="auditLogModal" style="display:none">
+    <div class="modal-box modal-box-wide" style="max-width: 1100px">
+      <div class="modal-title">AUDIT LOG</div>
+      <div class="modal-text" id="auditLogModalSub">
+        Posledních 100 záznamů. Filtruj podle typu nebo akce.
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;align-items:center">
+        <select id="auditFilterEntityType" class="profile-input" style="flex:0 0 auto;width:auto;font-size:12px;padding:6px 10px">
+          <option value="">Všechny kategorie</option>
+          <option value="auth">Auth (login/heslo)</option>
+          <option value="invite">Pozvánky</option>
+          <option value="rag">Dokumenty</option>
+          <option value="conversation">Konverzace</option>
+          <option value="action">Akce (email, ...)</option>
+        </select>
+        <select id="auditFilterAction" class="profile-input" style="flex:0 0 auto;width:auto;font-size:12px;padding:6px 10px">
+          <option value="">Všechny akce</option>
+          <option value="login_success">login_success</option>
+          <option value="login_failed">login_failed</option>
+          <option value="password_changed">password_changed</option>
+          <option value="password_reset">password_reset</option>
+          <option value="forgot_password_requested">forgot_password_requested</option>
+          <option value="invite_sent">invite_sent</option>
+          <option value="accept_invitation">accept_invitation</option>
+          <option value="document_uploaded">document_uploaded</option>
+          <option value="document_deleted">document_deleted</option>
+        </select>
+        <input type="number" id="auditFilterLimit" class="profile-input" placeholder="Limit (max 500)" min="10" max="500" value="100" style="flex:0 0 auto;width:140px;font-size:12px;padding:6px 10px" />
+        <button class="modal-btn modal-btn-primary" id="auditRefreshBtn" style="font-size:12px;padding:6px 14px">Načíst</button>
+      </div>
+      <div id="auditLogContent" style="max-height:60vh;overflow-y:auto;font-size:12px">
+        <div class="sidebar-empty">Klikni na „Načíst" pro zobrazení záznamů.</div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-btn modal-btn-secondary" id="auditModalClose">Zavřít</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Archiv konverzací modal -->
   <div class="modal-overlay" id="archiveModal" style="display:none">
     <div class="modal-box modal-box-wide">
@@ -886,6 +990,21 @@
     <input type="text" id="personaNewDescription" placeholder="např. Specialista na české právo" maxlength="200" />
     <label for="personaNewPrompt">System prompt</label>
     <textarea id="personaNewPrompt" placeholder="Jak se má persona chovat? (např. 'Jsi ...')"></textarea>
+    <!-- Avatar fotka -- dostupna az v edit mode (create=nejdriv vytvorit, pak upload). -->
+    <div id="personaAvatarRow" style="display:none;margin-top:12px">
+      <label>Avatar (foto)</label>
+      <div style="display:flex;align-items:center;gap:12px;margin-top:6px">
+        <div id="personaAvatarPreview" style="width:64px;height:64px;border-radius:50%;background:var(--bg);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted);overflow:hidden;flex-shrink:0">bez fotky</div>
+        <div style="display:flex;flex-direction:column;gap:6px;flex:1">
+          <input type="file" id="personaAvatarFile" accept="image/*" style="font-size:11px" />
+          <div style="display:flex;gap:6px">
+            <button type="button" class="new-conv-modal-btn secondary" id="personaAvatarUploadBtn" style="font-size:11px;padding:4px 10px">Nahrát</button>
+            <button type="button" class="new-conv-modal-btn secondary" id="personaAvatarDeleteBtn" style="font-size:11px;padding:4px 10px">Smazat</button>
+          </div>
+          <div id="personaAvatarMsg" style="font-size:10px;color:var(--muted);min-height:12px"></div>
+        </div>
+      </div>
+    </div>
     <div class="persona-modal-actions">
       <button class="new-conv-modal-btn secondary" id="personaCreateCancel">Zrušit</button>
       <button class="new-conv-modal-btn primary" id="personaCreateConfirm">Vytvořit</button>
@@ -2520,6 +2639,97 @@
   }
 
   // ── ARCHIV KONVERZACÍ ──────────────────────────────────────────────────
+  // ── AUDIT LOG MODAL (superadmin-only) ────────────────────────────────
+  let _auditWired = false;
+  function openAuditLogModal() {
+    const modal = document.getElementById('auditLogModal');
+    modal.style.display = 'flex';
+    _wireAuditModalOnce();
+    _loadAuditLog();
+  }
+
+  function _wireAuditModalOnce() {
+    if (_auditWired) return;
+    _auditWired = true;
+    document.getElementById('auditModalClose').addEventListener('click', () => {
+      document.getElementById('auditLogModal').style.display = 'none';
+    });
+    document.getElementById('auditRefreshBtn').addEventListener('click', _loadAuditLog);
+    // Auto-refresh pri zmene filtru (lepsi UX nez klikat "Nacist")
+    document.getElementById('auditFilterEntityType').addEventListener('change', _loadAuditLog);
+    document.getElementById('auditFilterAction').addEventListener('change', _loadAuditLog);
+  }
+
+  async function _loadAuditLog() {
+    const content = document.getElementById('auditLogContent');
+    const entityType = document.getElementById('auditFilterEntityType').value;
+    const action = document.getElementById('auditFilterAction').value;
+    const limit = Math.max(10, Math.min(500, parseInt(document.getElementById('auditFilterLimit').value) || 100));
+    const params = new URLSearchParams({ limit: String(limit) });
+    if (entityType) params.set('entity_type', entityType);
+    if (action) params.set('action', action);
+
+    content.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+    try {
+      const r = await fetch(`/api/v1/audit?${params}`, { credentials: 'include' });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        content.innerHTML = `<div class="sidebar-empty" style="color:#e07070">${_esc(err.detail || `Chyba ${r.status}`)}</div>`;
+        return;
+      }
+      const data = await r.json();
+      _renderAuditLog(data.events || []);
+    } catch (e) {
+      content.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+    }
+  }
+
+  function _renderAuditLog(events) {
+    const content = document.getElementById('auditLogContent');
+    if (!events.length) {
+      content.innerHTML = '<div class="sidebar-empty">Žádné záznamy v tomto filtru.</div>';
+      return;
+    }
+    const rows = events.map(e => {
+      const timeStr = e.created_at ? formatMessageTime(e.created_at) : '—';
+      const statusColor = e.status === 'success' ? '#7cd99e' : (e.status === 'error' ? '#e07070' : 'var(--muted)');
+      const statusIcon = e.status === 'success' ? '✓' : (e.status === 'error' ? '✗' : '•');
+      const who = e.user_name ? `${escapeHtml(e.user_name)} (#${e.user_id})` : (e.user_id ? `#${e.user_id}` : 'anonym');
+      const ipShort = e.ip_address ? escapeHtml(e.ip_address) : '—';
+      const meta = e.extra_metadata
+        ? Object.entries(e.extra_metadata).map(([k, v]) => `${escapeHtml(k)}=${escapeHtml(String(v).slice(0, 40))}`).join(' · ')
+        : '';
+      const errLine = e.error ? `<div style="color:#e07070;font-size:10px;margin-top:2px">error: ${escapeHtml(e.error)}</div>` : '';
+      const metaLine = meta ? `<div style="color:var(--muted);font-size:10px;margin-top:2px;word-break:break-word">${meta}</div>` : '';
+      return `
+        <div style="display:flex;gap:10px;padding:8px 10px;border-bottom:1px solid var(--border);font-family:'DM Mono',monospace;font-size:11px">
+          <div style="flex:0 0 54px;color:var(--muted)">${escapeHtml(timeStr)}</div>
+          <div style="flex:0 0 30px;color:${statusColor};text-align:center;font-weight:600">${statusIcon}</div>
+          <div style="flex:0 0 160px;color:var(--text)">${escapeHtml(e.action)}</div>
+          <div style="flex:0 0 140px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${who}</div>
+          <div style="flex:0 0 110px;color:var(--muted);font-size:10px">${ipShort}</div>
+          <div style="flex:1;color:var(--text);min-width:0">
+            <div style="color:var(--muted);font-size:10px">${escapeHtml(e.entity_type)}${e.entity_id ? ` #${e.entity_id}` : ''}</div>
+            ${metaLine}
+            ${errLine}
+          </div>
+        </div>
+      `;
+    }).join('');
+    const header = `
+      <div style="display:flex;gap:10px;padding:8px 10px;background:var(--bg);border-bottom:2px solid var(--border);font-family:'DM Mono',monospace;font-size:10px;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;position:sticky;top:0;z-index:1">
+        <div style="flex:0 0 54px">Čas</div>
+        <div style="flex:0 0 30px;text-align:center">Stav</div>
+        <div style="flex:0 0 160px">Akce</div>
+        <div style="flex:0 0 140px">Uživatel</div>
+        <div style="flex:0 0 110px">IP</div>
+        <div style="flex:1">Detail</div>
+      </div>
+    `;
+    const footer = `<div style="padding:8px 10px;color:var(--muted);font-size:10px;text-align:center;font-family:'DM Mono',monospace">Zobrazeno ${events.length} záznamů</div>`;
+    content.innerHTML = header + rows + footer;
+  }
+
   // ── DOKUMENTY (RAG) MODAL ─────────────────────────────────────────────
   function openDocumentsModal() {
     const overlay = document.getElementById('documentsModal');
@@ -3093,9 +3303,13 @@
   function _renderProfileDropdown() {
     const pd = document.getElementById('profileDropdown');
     pd.innerHTML = '';
+    // Audit log je superadmin-only (backend to vynucuje, ale frontend
+    // skryje polozku z menu -- ostatnim user by se zobrazil 403 pri otevrenim).
+    const isAdmin = !!(currentUser && currentUser.is_superadmin);
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
+      ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
@@ -3225,11 +3439,19 @@
   /** Zavre vsechny dropdowny krome jednoho (typicky ten, ktery se prave otevira).
    *  Volat z toggle/open funkci dropdownu, aby se neotevirali soucasne. */
   window._closeAllDropdownsExcept = function(keepId) {
+    let personaClosed = false;
     ALL_DROPDOWN_IDS.forEach(id => {
       if (id === keepId) return;
       const el = document.getElementById(id);
-      if (el && el.classList.contains('open')) el.classList.remove('open');
+      if (el && el.classList.contains('open')) {
+        el.classList.remove('open');
+        if (id === 'personaDdPanel') personaClosed = true;
+      }
     });
+    // Pokud jsme zavreli persona dropdown, schovej i hover preview (kdyby visel).
+    if (personaClosed && typeof _hideAvatarPreview === 'function') {
+      _hideAvatarPreview();
+    }
   };
 
   // Klik mimo dropdown ho zavre (vsechny dropdowny najednou, at neni UI zanicene).
@@ -4094,6 +4316,91 @@
     renderPersonaDropdown();
   }
 
+  // ── AVATAR HOVER PREVIEW (floating tooltip) ──────────────────────────
+  // Mouseover nad .persona-avatar zobrazi velky 180x180 preview vedle.
+  // Pripojeno k document-level body -- nepleti se s overflow panelu / dropdownu.
+  function _ensureAvatarPreviewEl() {
+    let p = document.getElementById('_avatarPreview');
+    if (p) return p;
+    p = document.createElement('div');
+    p.id = '_avatarPreview';
+    document.body.appendChild(p);
+    return p;
+  }
+
+  function _showAvatarPreview(anchor) {
+    const preview = _ensureAvatarPreviewEl();
+    // Zda je to image avatar (img child) nebo iniciály (text)
+    const innerImg = anchor.querySelector('img');
+    if (innerImg && innerImg.src) {
+      preview.innerHTML = `<img src="${innerImg.src}" alt="" />`;
+    } else {
+      // Iniciály -- pouzij stejne barvy + text
+      const bg = anchor.style.background || 'var(--bg)';
+      const initials = (anchor.textContent || '?').trim();
+      preview.innerHTML = `<div class="preview-initials" style="background:${bg}">${initials}</div>`;
+    }
+    // Pozicovani: vpravo od anchor, vertikalne centrovane. Clamp na viewport.
+    const rect = anchor.getBoundingClientRect();
+    const PREVIEW = 180;
+    const MARGIN = 12;
+    let left = rect.right + MARGIN;
+    let top = rect.top + rect.height / 2 - PREVIEW / 2;
+    if (left + PREVIEW > window.innerWidth - 8) {
+      left = rect.left - PREVIEW - MARGIN;   // overflow -> doleva
+    }
+    if (top < 8) top = 8;
+    if (top + PREVIEW > window.innerHeight - 8) top = window.innerHeight - PREVIEW - 8;
+    preview.style.left = left + 'px';
+    preview.style.top = top + 'px';
+    requestAnimationFrame(() => { preview.style.opacity = '1'; });
+  }
+
+  function _hideAvatarPreview() {
+    const p = document.getElementById('_avatarPreview');
+    if (p) p.style.opacity = '0';
+  }
+
+  // Globalni delegated listener -- chytit hover na vsechny .persona-avatar
+  // bez ohledu na to kdy byly do DOM pridane.
+  document.addEventListener('mouseover', (e) => {
+    const av = e.target.closest && e.target.closest('.persona-avatar');
+    if (av) _showAvatarPreview(av);
+  });
+  document.addEventListener('mouseout', (e) => {
+    const av = e.target.closest && e.target.closest('.persona-avatar');
+    if (av) _hideAvatarPreview();
+  });
+  // Belt & suspenders: kdyz mys opusti cely persona panel (napr. rychly tah),
+  // schovej preview. Pokryva edge case kdy mouseout na avataru nestihne firovat.
+  document.addEventListener('mouseleave', (e) => {
+    const panel = e.target.closest && e.target.closest('#personaDdPanel');
+    if (panel) _hideAvatarPreview();
+  }, true);   // capture phase, mouseleave nebubla
+
+  // Vraci stabilni avatar (iniciály + barva) pro personu podle jmena.
+  // Zadny DB field -- vse derived z name. Stejne jmeno = stejna barva (HSL hash).
+  // Iniciály: 1. pismeno z prvniho slova + 1. pismeno z druheho slova (pokud je),
+  // jinak prvni 2 pismena. 'Marti-AI' -> 'MA', 'PrávníkCZ-AI' -> 'PA' ('CZ' uzlomek).
+  function _personaAvatar(name) {
+    const s = (name || '?').trim();
+    // Iniciály: pismeno za pismeno, max 2
+    let initials = '?';
+    const parts = s.split(/[\s\-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      initials = (parts[0][0] + parts[1][0]).toUpperCase();
+    } else if (parts.length === 1 && parts[0].length >= 2) {
+      initials = parts[0].slice(0, 2).toUpperCase();
+    } else {
+      initials = (parts[0] || '?').charAt(0).toUpperCase();
+    }
+    // Stabilni hash -> HSL hue. Sycene tmava barva.
+    let hash = 0;
+    for (let i = 0; i < s.length; i++) hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+    const hue = Math.abs(hash) % 360;
+    return { initials, color: `hsl(${hue}, 45%, 32%)` };
+  }
+
   function renderPersonaDropdown() {
     const panel = document.getElementById('personaDdPanel');
     if (!panel) return;
@@ -4104,19 +4411,30 @@
     if (personasCache && personasCache.length > 0) {
       for (const p of personasCache) {
         const activeCls = (p.name === activeName) ? 'active' : '';
-        const defaultBadge = p.is_default ? '<span class="persona-dd-item-default">default</span>' : '';
-        const globalBadge = p.is_global ? '<span class="persona-dd-item-global">globální</span>' : '';
+        // Pozn.: drive jsme tu meli "default" / "globalni" badges, ale Marti
+        // je oznacil jako rusive (uz se to da poznat z aktivni pilulky a ze
+        // Marti-AI je ze sve podstaty default). Odstraneno.
         const preview = p.description
           ? `<div class="persona-dd-item-preview">${escapeHtml(p.description)}</div>`
           : '';
-        // Edit tlacitko jen pro superadmina + jen pro non-global persony
-        // (globalni Marti-AI nelze editovat pres UI -- ochrana v backendu).
-        const editBtn = (isAdmin && !p.is_global)
+        // Edit tlacitko pro superadmina -- vcetne globalni default Marti-AI
+        // (backend to uz povoluje, drive to byl artefakt z drivejsi ochrany).
+        const editBtn = isAdmin
           ? `<button class="persona-edit-btn" data-edit-persona-id="${p.id}" data-edit-persona-name="${escapeHtml(p.name)}" aria-label="Upravit personu">✎</button>`
           : '';
+        const av = _personaAvatar(p.name);
+        // Pokud persona ma uploadovany avatar -> <img>, jinak fallback na iniciály
+        const avatarHtml = p.has_avatar
+          ? `<span class="persona-avatar persona-avatar-img" aria-hidden="true"><img src="/api/v1/personas/${p.id}/avatar" alt="" /></span>`
+          : `<span class="persona-avatar" style="background:${av.color}" aria-hidden="true">${escapeHtml(av.initials)}</span>`;
         html += `<div class="persona-dd-item ${activeCls}" data-persona-id="${p.id}" role="button">
           <div style="display:flex;align-items:center;justify-content:space-between;gap:8px">
-            <div><span class="persona-dd-item-name">${escapeHtml(p.name)}</span>${defaultBadge}${globalBadge}</div>
+            <div style="display:flex;align-items:center;gap:8px;min-width:0">
+              ${avatarHtml}
+              <div style="min-width:0">
+                <span class="persona-dd-item-name">${escapeHtml(p.name)}</span>
+              </div>
+            </div>
             ${editBtn}
           </div>
           ${preview}
@@ -4179,14 +4497,17 @@
     const modal = personaCreateModalBg.querySelector('.persona-modal');
     const title = modal.querySelector('h3');
     const sub = modal.querySelector('p');
+    const avatarRow = document.getElementById('personaAvatarRow');
     if (mode === 'edit') {
       title.textContent = 'Upravit personu';
-      sub.textContent = 'Můžeš upravit jméno nebo system prompt. Změny se projeví v dalších odpovědích této persony.';
+      sub.textContent = 'Můžeš upravit jméno, system prompt nebo nahrát avatar. Změny se projeví v dalších odpovědích.';
       personaCreateConfirm.textContent = 'Uložit';
+      if (avatarRow) avatarRow.style.display = '';   // avatar upload jen v edit modu
     } else {
       title.textContent = 'Nová persona';
-      sub.textContent = 'Persona je AI asistent s vlastní identitou a system promptem. Bude dostupná v tvém aktuálním tenantu.';
+      sub.textContent = 'Persona je AI asistent s vlastní identitou a system promptem. Bude dostupná v tvém aktuálním tenantu. Avatar nahraješ po vytvoření.';
       personaCreateConfirm.textContent = 'Vytvořit';
+      if (avatarRow) avatarRow.style.display = 'none';   // v create modu persona ID jeste nema
     }
   }
 
@@ -4201,6 +4522,98 @@
     personaCreateModalBg.classList.add('open');
     setTimeout(() => personaNewName.focus(), 50);
   }
+
+  // ── AVATAR UPLOAD (v edit modu) ──────────────────────────────────────
+  function _refreshAvatarPreview(personaId) {
+    const preview = document.getElementById('personaAvatarPreview');
+    if (!preview) return;
+    // Cache-bust -- po uploadu nova URL, stejny endpoint vrati novy binar.
+    const bust = Date.now();
+    // Zkusime nacist. Pokud 404, zobrazime fallback "bez fotky".
+    const img = new Image();
+    img.onload = () => {
+      preview.innerHTML = '';
+      img.style.width = '100%';
+      img.style.height = '100%';
+      img.style.objectFit = 'cover';
+      preview.appendChild(img);
+    };
+    img.onerror = () => {
+      preview.innerHTML = 'bez fotky';
+    };
+    img.src = `/api/v1/personas/${personaId}/avatar?t=${bust}`;
+  }
+
+  (function _wirePersonaAvatarButtons() {
+    const upBtn = document.getElementById('personaAvatarUploadBtn');
+    const delBtn = document.getElementById('personaAvatarDeleteBtn');
+    const fileIn = document.getElementById('personaAvatarFile');
+    const msg = document.getElementById('personaAvatarMsg');
+    if (!upBtn || !delBtn || !fileIn) return;
+
+    upBtn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      if (!personaModalEditId) { msg.textContent = 'Nejdřív ulož personu.'; return; }
+      const file = fileIn.files && fileIn.files[0];
+      if (!file) { msg.textContent = 'Vyber soubor.'; return; }
+      if (file.size > 5 * 1024 * 1024) { msg.textContent = 'Max 5 MB.'; return; }
+      upBtn.disabled = true;
+      msg.style.color = 'var(--muted)';
+      msg.textContent = 'Nahrávám…';
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        const r = await fetch(`/api/v1/personas/${personaModalEditId}/avatar`, {
+          method: 'POST', credentials: 'include', body: fd,
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          msg.style.color = '#e07070';
+          msg.textContent = err.detail || `Chyba ${r.status}`;
+          return;
+        }
+        msg.style.color = '#7cd99e';
+        msg.textContent = '✓ Nahráno';
+        fileIn.value = '';
+        _refreshAvatarPreview(personaModalEditId);
+        // Refresh personas list aby dropdown vedel o novem avataru
+        if (typeof loadPersonasList === 'function') loadPersonasList();
+      } catch (e) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Chyba spojení.';
+      } finally {
+        upBtn.disabled = false;
+      }
+    });
+
+    delBtn.addEventListener('click', async (ev) => {
+      ev.preventDefault();
+      if (!personaModalEditId) return;
+      delBtn.disabled = true;
+      msg.style.color = 'var(--muted)';
+      msg.textContent = 'Mažu…';
+      try {
+        const r = await fetch(`/api/v1/personas/${personaModalEditId}/avatar`, {
+          method: 'DELETE', credentials: 'include',
+        });
+        if (!r.ok) {
+          const err = await r.json().catch(() => ({}));
+          msg.style.color = '#e07070';
+          msg.textContent = err.detail || `Chyba ${r.status}`;
+          return;
+        }
+        msg.style.color = 'var(--muted)';
+        msg.textContent = 'Smazáno';
+        document.getElementById('personaAvatarPreview').innerHTML = 'bez fotky';
+        if (typeof loadPersonasList === 'function') loadPersonasList();
+      } catch (e) {
+        msg.style.color = '#e07070';
+        msg.textContent = 'Chyba spojení.';
+      } finally {
+        delBtn.disabled = false;
+      }
+    });
+  })();
 
   let personaModalOldName = null;  // pro detekci zda byla aktivni a treba updatovat hlavicku
 
@@ -4224,6 +4637,14 @@
       personaNewPrompt.value = data.system_prompt || '';
       _setPersonaModalUi('edit');
       personaCreateModalBg.classList.add('open');
+      // Refresh avatar preview po otevreni edit modu (pokud persona ma fotku,
+      // vykresli ji; jinak fallback "bez fotky")
+      _refreshAvatarPreview(personaId);
+      // Reset hlasky a file inputu pri otevreni
+      const msgEl = document.getElementById('personaAvatarMsg');
+      if (msgEl) msgEl.textContent = '';
+      const fileEl = document.getElementById('personaAvatarFile');
+      if (fileEl) fileEl.value = '';
       setTimeout(() => personaNewName.focus(), 50);
     } catch (e) {
       alert('Chyba spojení.');
@@ -4330,6 +4751,8 @@
       const willOpen = !panel.classList.contains('open');
       if (willOpen) window._closeAllDropdownsExcept('personaDdPanel');
       panel.classList.toggle('open');
+      // Pri kazdem zavreni schovej take avatar preview (kdyby visel po mouseout race).
+      if (!panel.classList.contains('open')) _hideAvatarPreview();
     });
   }
 
@@ -4340,6 +4763,7 @@
     if (panel.contains(ev.target)) return;
     if (ev.target.closest('#personaBarWrap')) return;
     panel.classList.remove('open');
+    _hideAvatarPreview();
   });
 
   // Project dropdown trigger — toggle
@@ -4609,10 +5033,13 @@
     } else if (role === 'user') {
       roleEl.textContent = currentUserLabel();
     } else {
-      // AI zprava -- preferuj predanou persona_name (historicky autor),
-      // fallback na aktualni personu konverzace. Tim se v historii
-      // multi-persona konverzace ukazuje kdo co napsal, ne jen aktualni.
-      roleEl.textContent = personaName || currentAgentLabel();
+      // AI zprava -- preferuj predanou persona_name (historicky autor).
+      // Fallback je NEUTRALNI 'AI' -- NE currentAgentLabel(), jinak stare
+      // zpravy bez agent_id by se v historii falesne labelovaly jako aktualne
+      // aktivni persona (napr. vsechny Marti-AI zpravy by se prejmenovali na
+      // PrávníkCZ-AI po switchi). Backend uz typicky vraci fallback na default
+      // personu, tak 'AI' se stane jen pokud i to selze.
+      roleEl.textContent = personaName || 'AI';
     }
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';

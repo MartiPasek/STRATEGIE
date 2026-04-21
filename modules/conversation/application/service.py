@@ -48,6 +48,61 @@ CONFIRM_KEYWORDS = {
 }
 
 
+# TLD vrstva pro validaci emailovych adres pri invite_user.
+# Casta TLD pouzivana v CZ kontextu -- neoznackovava warning.
+# Vse ostatni = warn (uzivatel muze potvrdit).
+_KNOWN_SAFE_TLDS = {
+    # Czechia + sousedni
+    "cz", "sk", "de", "at", "pl", "hu", "ua",
+    # Bezne mezinarodni
+    "com", "org", "net", "eu", "io", "info", "biz", "edu", "gov",
+    # EU + UK + frequent partner countries
+    "uk", "fr", "it", "es", "nl", "be", "se", "fi", "no", "dk", "ie",
+    "ch", "ro", "bg", "gr", "pt", "lt", "lv", "ee", "si", "hr",
+    # Velka byznys / lokality
+    "ai", "co", "us", "ca", "au", "nz", "jp", "cn", "in", "br",
+    "me", "tv", "app", "dev", "tech", "online", "store",
+}
+
+# Mapovani podezrelych TLD na vysvetleni (pomaha AI zformulovat varovani)
+_SUSPICIOUS_TLD_HINTS = {
+    "cd": "Demokratická republika Kongo (možná překlep .cz?)",
+    "cm": "Kamerun (možná překlep .com?)",
+    "co": None,   # Kolumbie, ale i bezne (.co domeny) -- bez warningu
+    "cf": "Středoafrická republika (typicky free domain, podezrelé)",
+    "ga": "Gabon (typicky free domain, podezrelé)",
+    "ml": "Mali (typicky free domain, podezrelé)",
+    "tk": "Tokelau (typicky free domain, podezrelé)",
+    "ru": "Rusko (zvazuj zda je v poradku)",
+    "by": "Bělorusko (zvazuj zda je v poradku)",
+}
+
+
+def _check_email_tld(email: str) -> str | None:
+    """Vraci warning text pokud TLD emailu je neobvykla, jinak None.
+    Tool dispatcher si vrati string ktery AI uvidi a uzivatele se zepta."""
+    if not email or "@" not in email:
+        return None
+    domain = email.rsplit("@", 1)[1].strip().lower()
+    if "." not in domain:
+        return f"⚠️ Email '{email}' nema platnou domenu (chybi tecka). Zkontroluj prosim format."
+    tld = domain.rsplit(".", 1)[1]
+    if tld in _KNOWN_SAFE_TLDS:
+        return None
+    hint = _SUSPICIOUS_TLD_HINTS.get(tld)
+    if hint is None and tld in _SUSPICIOUS_TLD_HINTS:
+        # Explicit None -> tato TLD je OK i kdyz neni v safe (napr. .co)
+        return None
+    hint_text = f" ({hint})" if hint else ""
+    return (
+        f"⚠️ Email '{email}' konci TLD '.{tld}'{hint_text}. "
+        f"Tato koncovka neni mezi beznymi (cz/sk/com/org/...). "
+        f"\n\nZeptej se uzivatele zda je TLD spravna nebo to byl preklep "
+        f"(napr. '.cd' -> '.cz'). Az to potvrdi, zavolej invite_user ZNOVU se "
+        f"stejnymi argumenty + allow_unusual_tld=true."
+    )
+
+
 def _is_confirmation(text: str) -> bool:
     # Normalizace: malá písmena, bez okolních mezer a běžné interpunkce na konci.
     cleaned = text.strip().lower().rstrip(".!?,;:")
@@ -793,8 +848,19 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         first_name = tool_input.get("first_name") or None
         last_name = tool_input.get("last_name") or None
         gender = tool_input.get("gender") or None
+        allow_unusual_tld = bool(tool_input.get("allow_unusual_tld") or False)
         # legacy fallback, pokud Claude pošle stary "name"
         legacy_name = tool_input.get("name") or None
+
+        # TLD safety check -- pokud je TLD neobvykla a AI nepotvrdila ze
+        # uzivatel ji odsouhlasil (allow_unusual_tld=true), vratime warning.
+        # AI z toho pozna ze ma uzivatele zeptat a pri opakovanem volani
+        # po potvrzeni preda allow_unusual_tld=true.
+        if not allow_unusual_tld:
+            tld_warning = _check_email_tld(email)
+            if tld_warning:
+                return tld_warning
+
         result = invite_user_to_strategie(
             email=email,
             invited_by_user_id=user_id or 1,

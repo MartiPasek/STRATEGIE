@@ -8,6 +8,9 @@ class PersonaInfo(BaseModel):
     is_default: bool
     tenant_id: int | None = None
     is_global: bool
+    # True pokud persona ma uploadovany avatar -- frontend muze pak renderovat
+    # <img src="/api/v1/personas/{id}/avatar"> misto generovanych iniciál.
+    has_avatar: bool = False
 
 
 class SwitchPersonaRequest(BaseModel):

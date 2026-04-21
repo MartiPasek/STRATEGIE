@@ -60,6 +60,21 @@ TOOLS = [
                 "to": {"type": "string", "description": "Email adresa příjemce"},
                 "subject": {"type": "string", "description": "Předmět emailu"},
                 "body": {"type": "string", "description": "Tělo emailu"},
+                "from_identity": {
+                    "type": "string",
+                    "description": (
+                        "Z čí schránky email posíláš. DEFAULT je 'persona' "
+                        "(posílá aktivní persona, typicky Marti-AI). "
+                        "Nastav na 'user' když uživatel výslovně řekne, že má "
+                        "odejít **z jeho/její** schránky — běžné spouštěče: "
+                        "'pošli z mojí', 'pošli z mýho emailu', 'z mojí schránky', "
+                        "'z mého účtu', 'ze mě'. Když si nejsi jistý, ZEPTEJ SE "
+                        "uživatele, ze které schránky to má jít. "
+                        "Nikdy netipuj — výchozí chování je posílat z persony."
+                    ),
+                    "enum": ["persona", "user"],
+                    "default": "persona",
+                },
             },
             "required": ["to", "subject", "body"],
         },
@@ -448,18 +463,25 @@ TOOLS = [
 
 def _is_email_in_system(email: str) -> bool:
     """
-    True, pokud adresa patří aktivnímu uživateli systému (v user_contacts).
-    Kontrola proti halucinované adrese — uživatel je okamžitě varován
-    v preview, že AI mohla vymyslet cílovou adresu.
+    True, pokud je adresa "v systemu" -- patri aktivnimu uzivateli
+    (user_contacts) NEBO persone jako email kanal (persona_channels
+    identifier / display_identifier) NEBO je user's own EWS adresa
+    (users.ews_email / ews_display_email).
+
+    Cilem je ocistit preview od 'TATO ADRESA NENI V SYSTEMU' varovani
+    kdyz posilame na legit interni cil (napr. Marti-AI inbox).
     """
     from core.database_core import get_core_session
-    from modules.core.infrastructure.models_core import User, UserContact
+    from modules.core.infrastructure.models_core import (
+        User, UserContact, PersonaChannel,
+    )
 
     needle = (email or "").strip().lower()
     if not needle:
         return False
     session = get_core_session()
     try:
+        # 1) user_contacts
         contact = (
             session.query(UserContact)
             .filter(
@@ -469,10 +491,44 @@ def _is_email_in_system(email: str) -> bool:
             )
             .first()
         )
-        if not contact:
-            return False
-        user = session.query(User).filter_by(id=contact.user_id).first()
-        return bool(user and user.status in ("active", "pending"))
+        if contact:
+            user = session.query(User).filter_by(id=contact.user_id).first()
+            if user and user.status in ("active", "pending"):
+                return True
+
+        # 2) persona_channels (identifier NEBO display_identifier)
+        from sqlalchemy import or_
+        ch = (
+            session.query(PersonaChannel)
+            .filter(
+                PersonaChannel.channel_type == "email",
+                PersonaChannel.is_enabled == True,   # noqa: E712
+                or_(
+                    PersonaChannel.identifier.ilike(needle),
+                    PersonaChannel.display_identifier.ilike(needle),
+                ),
+            )
+            .first()
+        )
+        if ch:
+            return True
+
+        # 3) user's own EWS kanal (users.ews_email / ews_display_email)
+        u_ews = (
+            session.query(User)
+            .filter(
+                or_(
+                    User.ews_email.ilike(needle),
+                    User.ews_display_email.ilike(needle),
+                ),
+                User.status.in_(["active", "pending"]),
+            )
+            .first()
+        )
+        if u_ews:
+            return True
+
+        return False
     finally:
         session.close()
 
@@ -495,7 +551,10 @@ def format_sms_preview(to: str, body: str) -> str:
     )
 
 
-def format_email_preview(to: str, subject: str, body: str) -> str:
+def format_email_preview(
+    to: str, subject: str, body: str,
+    from_identity: str = "persona", sender_display: str | None = None,
+) -> str:
     # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
     # typická známka halucinace nebo překlepu.
     try:
@@ -505,14 +564,25 @@ def format_email_preview(to: str, subject: str, body: str) -> str:
     to_line = f"Komu: {to}"
     if not in_system:
         to_line += "   ⚠️ TATO ADRESA NENÍ V SYSTÉMU — OVĚŘ NEŽ POTVRDÍŠ"
-    return (
-        f"📧 Návrh emailu\n\n"
-        f"{to_line}\n"
-        f"Předmět: {subject}\n\n"
-        f"{body}\n\n"
-        f"---\n"
-        f"Mohu email odeslat?"
-    )
+
+    # Od: visibilni, aby user videl z ktere schranky to pujde (Marti-AI vs. moje)
+    if sender_display:
+        identity_label = "(tvoje schránka)" if from_identity == "user" else "(persona)"
+        from_line = f"Od: {sender_display} {identity_label}"
+    else:
+        from_line = None
+
+    lines = [f"📧 Návrh emailu", ""]
+    if from_line:
+        lines.append(from_line)
+    lines.append(to_line)
+    lines.append(f"Předmět: {subject}")
+    lines.append("")
+    lines.append(body)
+    lines.append("")
+    lines.append("---")
+    lines.append("Mohu email odeslat?")
+    return "\n".join(lines)
 
 
 FIND_USER_MAX_CANDIDATES = 5

@@ -56,6 +56,14 @@ class User(BaseCore):
     # Login bez nastaveného hesla je odmítnut s instrukcí kontaktovat admina.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Osobni EWS kanal -- pro "posli email z moji schranky" scenar. MVP = flat fields,
+    # jedna schranka per user. Pro multi-mailbox (pracovni + osobni) bude treba
+    # pozdeji refactor na user_channels tabulku.
+    ews_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ews_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ews_server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Primary SMTP alias pro prezentaci (From: header). NULL -> fallback na ews_email.
+    ews_display_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

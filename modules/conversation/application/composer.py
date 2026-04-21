@@ -306,6 +306,23 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
             # user context. Tise logujeme a jdeme dal.
             logger.warning(f"COMPOSER | documents fetch failed | {doc_e}")
 
+        # User's own EWS kanal -- aby AI vedela, ze uzivatel ma vlastni schranku
+        # a umela rozpoznat "posli z moji" intent.
+        try:
+            from modules.notifications.application.user_channel_service import (
+                get_user_display_email,
+            )
+            u_display = get_user_display_email(user_id)
+            if u_display:
+                parts.append(
+                    f"Uživatel má vlastní EWS schránku {u_display}. "
+                    f"Když řekne 'pošli z mojí schránky', 'z mýho emailu', "
+                    f"'ze mě' apod., volej send_email s from_identity='user' "
+                    f"(default je 'persona' = posílá Marti-AI)."
+                )
+        except Exception as e:
+            logger.warning(f"COMPOSER | user channel fetch failed | {e}")
+
         return " ".join(parts)
     except Exception as e:
         logger.error(f"COMPOSER | user_context_block failed | user_id={user_id} | {e}")

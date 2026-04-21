@@ -60,11 +60,12 @@ def _get_account(email: str | None = None, password: str | None = None, server: 
     return account
 
 
-def _resolve_email_creds(persona_id: int | None, tenant_id: int | None) -> dict[str, str] | None:
+def _resolve_persona_email_creds(
+    persona_id: int | None, tenant_id: int | None
+) -> dict[str, str] | None:
     """
-    Vrati dict {email, password, server} pokud persona_id ma kanal,
-    jinak None -> _get_account dela fallback na settings.
-    Oddelene aby bylo jednoduse testovat.
+    Vrati dict {email, display_email, password, server} pokud persona ma kanal,
+    jinak None -> fallback na .env v _get_account.
     """
     if not persona_id:
         return None
@@ -75,9 +76,34 @@ def _resolve_email_creds(persona_id: int | None, tenant_id: int | None) -> dict[
         return get_email_credentials(persona_id, tenant_id=tenant_id)
     except Exception as e:
         logger.error(
-            f"EMAIL | creds resolve failed | persona_id={persona_id} | error={e}"
+            f"EMAIL | persona creds resolve failed | persona_id={persona_id} | error={e}"
         )
         return None
+
+
+def _resolve_user_email_creds(user_id: int | None) -> dict[str, str] | None:
+    """
+    Vrati user's EWS creds (pro "posli z moji schranky"), nebo None
+    pokud user nema nakonfigurovano.
+    """
+    if not user_id:
+        return None
+    try:
+        from modules.notifications.application.user_channel_service import (
+            get_user_email_credentials,
+        )
+        return get_user_email_credentials(user_id)
+    except Exception as e:
+        logger.error(
+            f"EMAIL | user creds resolve failed | user_id={user_id} | error={e}"
+        )
+        return None
+
+
+# Sentinel -- pro signalizaci ze user chce posilat z vlastni schranky, ale
+# nema nastavene credentialy. send_email_or_raise hodi EmailNoUserChannelError.
+class EmailNoUserChannelError(RuntimeError):
+    """User pozadal o "posli z moji", ale nema nakonfigurovany EWS kanal."""
 
 
 # ── Specificke vyjimky pro jemnejsi error handling v callerech ────────────
@@ -114,24 +140,44 @@ def send_email_or_raise(
     body: str,
     persona_id: int | None = None,
     tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
 ) -> None:
     """
-    Odesle email. V pripade selhani hodi EmailAuthError (spatne udaje)
-    nebo EmailSendError (ostatni). Pri uspechu vraci None.
+    Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
+    EmailNoUserChannelError.
+
+    from_identity:
+      "persona"  (default) -- posila z persona_channels (Marti-AI),
+                              fallback na .env pokud persona nema kanal.
+      "user"               -- posila z user's EWS kanalu (users.ews_*).
+                              Pokud user kanal nema, hodi EmailNoUserChannelError.
     """
     try:
         from exchangelib import Message, Mailbox
 
-        creds = _resolve_email_creds(persona_id, tenant_id)
+        # Vyber credentialy podle from_identity
+        if from_identity == "user":
+            creds = _resolve_user_email_creds(user_id)
+            if not creds:
+                raise EmailNoUserChannelError(
+                    f"user_id={user_id} nema nakonfigurovany EWS kanal"
+                )
+        else:
+            # "persona" (default)
+            creds = _resolve_persona_email_creds(persona_id, tenant_id)
+
         if creds:
             account = _get_account(
                 email=creds["email"],
                 password=creds["password"],
                 server=creds["server"],
             )
-            sender = creds["email"]
+            # Sender v logu = display (pokud je set), jinak login
+            sender = creds.get("display_email") or creds["email"]
         else:
             # Fallback: globalni .env. Pro pozvanky / password-reset / backward compat.
+            # (Jen pro persona mode; user mode by uz byl rejected.)
             account = _get_account()
             sender = settings.ews_email
 
@@ -144,8 +190,10 @@ def send_email_or_raise(
         message.send()
 
         logger.info(
-            f"EMAIL | sent | from={sender} | to={to} | subject={subject}"
+            f"EMAIL | sent | identity={from_identity} | from={sender} | to={to} | subject={subject}"
         )
+    except EmailNoUserChannelError:
+        raise
     except Exception as e:
         if _is_auth_error(e):
             logger.error(f"EMAIL | auth-failed | to={to} | error={e}")
@@ -160,6 +208,8 @@ def send_email(
     body: str,
     persona_id: int | None = None,
     tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
 ) -> bool:
     """
     Backward-compat wrapper: vrati True pri uspechu, False pri selhani.
@@ -167,9 +217,13 @@ def send_email(
     send_email_or_raise().
     """
     try:
-        send_email_or_raise(to, subject, body, persona_id=persona_id, tenant_id=tenant_id)
+        send_email_or_raise(
+            to, subject, body,
+            persona_id=persona_id, tenant_id=tenant_id,
+            user_id=user_id, from_identity=from_identity,
+        )
         return True
-    except (EmailAuthError, EmailSendError):
+    except (EmailAuthError, EmailSendError, EmailNoUserChannelError):
         return False
     except Exception as e:
         logger.error(f"EMAIL | unexpected | to={to} | error={e}")

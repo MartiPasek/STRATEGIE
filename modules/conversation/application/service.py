@@ -492,10 +492,12 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
     if action["type"] == "send_email":
         from modules.notifications.application.email_service import (
             send_email_or_raise, EmailAuthError, EmailSendError,
+            EmailNoUserChannelError,
         )
         to = action["to"]
         subject = action["subject"]
         body = action["body"]
+        from_identity = action.get("from_identity") or "persona"
 
         # Nova vrstva (Faze 5a): pouzit kanal aktivni persony. Pokud persona
         # nema nakonfigurovany email kanal v persona_channels, send_email
@@ -517,14 +519,27 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             send_email_or_raise(
                 to=to, subject=subject, body=body,
                 persona_id=persona_id, tenant_id=tenant_id,
+                user_id=user_id, from_identity=from_identity,
+            )
+        except EmailNoUserChannelError as e:
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"no_user_channel: {e}")
+            return (
+                "❌ Email se nepodařilo odeslat — **nemáš nakonfigurovanou "
+                "vlastní emailovou schránku**.\n\n"
+                "Aby šlo posílat z tvé adresy, musí admin zaregistrovat "
+                "tvoje EWS credentialy v nastavení profilu (zatim přes "
+                "SQL / helper skript). Alternativně pošli z persony — "
+                "napiš znovu bez 'z mojí schránky'."
             )
         except EmailAuthError as e:
+            ident = "tvojí schránky" if from_identity == "user" else "persony"
             _log_email_action(to, subject, body, "error", user_id, conversation_id,
                               error=f"auth: {e}")
             return (
-                "❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
-                "k emailovému serveru.\n\n"
-                "Zkontroluj heslo / adresu / server v nastavení persony. "
+                f"❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
+                f"pro {ident}.\n\n"
+                "Zkontroluj heslo / adresu / server v nastavení. "
                 "Pokud má schránka zapnutou dvoufaktorovou autentizaci, "
                 "budeš potřebovat **application password** (ne běžné heslo)."
             )
@@ -599,15 +614,52 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     logger.info(f"TOOL | name={tool_name}")
 
     if tool_name == "send_email":
+        to = tool_input.get("to", "")
+        subject = tool_input.get("subject", "")
+        body = tool_input.get("body", "")
+        from_identity = (tool_input.get("from_identity") or "persona").lower()
+        if from_identity not in ("persona", "user"):
+            from_identity = "persona"
+
         _save_pending_action(conversation_id, "send_email", {
-            "to": tool_input.get("to", ""),
-            "subject": tool_input.get("subject", ""),
-            "body": tool_input.get("body", ""),
+            "to": to,
+            "subject": subject,
+            "body": body,
+            "from_identity": from_identity,
         })
+
+        # Resolve sender display pro preview.
+        sender_display = None
+        if from_identity == "user":
+            from modules.notifications.application.user_channel_service import get_user_display_email
+            sender_display = get_user_display_email(user_id) if user_id else None
+            if not sender_display:
+                # User nema kanal -- ukaz varovani v preview, neblokuj pending
+                # (caller eventualne vybere persona cestu; tady jen informujeme).
+                sender_display = "⚠️ (nemáš nakonfigurovanou vlastní schránku)"
+        else:
+            # Persona -- resolve display z persona_channels (nebo fallback na .env)
+            from modules.notifications.application.persona_channel_service import get_email_credentials as _gec
+            persona_id_p = _active_persona_id_for_conversation(conversation_id)
+            tenant_id_p = None
+            if user_id:
+                from core.database_core import get_core_session as _gcs_px
+                from modules.core.infrastructure.models_core import User as _Upx
+                _csx = _gcs_px()
+                try:
+                    _ux = _csx.query(_Upx).filter_by(id=user_id).first()
+                    if _ux:
+                        tenant_id_p = _ux.last_active_tenant_id
+                finally:
+                    _csx.close()
+            if persona_id_p:
+                creds_p = _gec(persona_id_p, tenant_id=tenant_id_p)
+                if creds_p:
+                    sender_display = creds_p.get("display_email") or creds_p.get("email")
+
         return format_email_preview(
-            to=tool_input.get("to", ""),
-            subject=tool_input.get("subject", ""),
-            body=tool_input.get("body", ""),
+            to=to, subject=subject, body=body,
+            from_identity=from_identity, sender_display=sender_display,
         )
 
     if tool_name == "send_sms":

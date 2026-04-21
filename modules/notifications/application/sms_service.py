@@ -500,15 +500,86 @@ def store_inbound_sms(
             f"SMS | inbox | stored | id={row.id} | from={from_phone_norm} | "
             f"persona_id={persona_id} | body_len={len(body)}"
         )
+
+        # Auto-create task pro task-driven workflow. Pouze pokud mame
+        # resolvovanou personu -- bez te nevime, komu ukol patri. Best-effort:
+        # selhani task_service nesmi shodit SMS ulozeni (SMS uz je v DB).
+        task_id = _maybe_create_task_from_inbound_sms(
+            sms_id=row.id,
+            from_phone=from_phone_norm,
+            body=body,
+            persona_id=persona_id,
+            tenant_id=tenant_id,
+        )
+
         return {
             "id": row.id,
             "persona_id": row.persona_id,
             "from_phone": row.from_phone,
             "body": row.body,
             "received_at": row.received_at.isoformat() if row.received_at else None,
+            "task_id": task_id,
         }
     finally:
         ds.close()
+
+
+def _maybe_create_task_from_inbound_sms(
+    *,
+    sms_id: int,
+    from_phone: str,
+    body: str,
+    persona_id: int | None,
+    tenant_id: int | None,
+) -> int | None:
+    """
+    Zalozi task ve fronte 'open' tasku pro personu. Worker (scripts/task_worker.py)
+    ho pak pobere a pusti executor.
+
+    Vraci task.id nebo None kdyz se task nepodarilo zalozit (chybejici persona
+    mapping, nebo vyjimka z task_service -- best effort).
+
+    Lazy import modulu `tasks` -- notifications nesmi mit staticky dependency
+    na tasks (tasks muze v budoucnu potrebovat notifications, zabranime cyklu).
+    """
+    if persona_id is None:
+        logger.info(
+            f"SMS | inbox | task skipped (no persona mapping) | sms_id={sms_id} | "
+            f"from={from_phone}"
+        )
+        return None
+
+    try:
+        from modules.tasks.application import service as task_service
+
+        # Title obsahuje preview tela SMS aby UI list bez otevirani karty
+        # dal aspon naznak o cem to je. 255 char limit je v DB.
+        preview = body[:180].replace("\n", " ").strip()
+        title = f"SMS od {from_phone}: {preview}"
+        if len(title) > 255:
+            title = title[:252] + "..."
+
+        task = task_service.create_task_from_source(
+            tenant_id=tenant_id,
+            persona_id=persona_id,
+            source_type="sms_inbox",
+            source_id=sms_id,
+            title=title,
+            description=body,   # plne telo pro executor, ktery postavi AI prompt
+            priority="normal",
+        )
+        logger.info(
+            f"SMS | inbox | task created | task_id={task['id']} | "
+            f"sms_id={sms_id} | persona={persona_id}"
+        )
+        return task["id"]
+
+    except Exception as e:
+        logger.error(
+            f"SMS | inbox | task create failed | sms_id={sms_id} | error={e!r}",
+            exc_info=True,
+        )
+        return None
 
 
 def list_inbox(

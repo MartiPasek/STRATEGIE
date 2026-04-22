@@ -572,18 +572,20 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
         return None
     _delete_pending_action(conversation_id)
     if action["type"] == "send_email":
+        # Od PR3.1: AI potvrzene emaily jdou pres email_outbox (audit + retry),
+        # ne primym send_email_or_raise. UX zachovan: queue_email + send_outbox_row_now
+        # = instant feedback jako drive, ale s auditem v DB.
         from modules.notifications.application.email_service import (
-            send_email_or_raise, EmailAuthError, EmailSendError,
-            EmailNoUserChannelError,
+            queue_email, send_outbox_row_now,
         )
         to = action["to"]
         subject = action["subject"]
         body = action["body"]
         from_identity = action.get("from_identity") or "persona"
 
-        # Nova vrstva (Faze 5a): pouzit kanal aktivni persony. Pokud persona
-        # nema nakonfigurovany email kanal v persona_channels, send_email
-        # fallbackne na globalni .env (backward compat).
+        # Kanal aktivni persony. Pokud persona nema nakonfigurovany email kanal
+        # v persona_channels, fallback na globalni .env resi az
+        # send_email_or_raise hluboko ve flush/_send_outbox_row.
         persona_id = _active_persona_id_for_conversation(conversation_id)
         tenant_id = None
         if user_id:
@@ -597,43 +599,89 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             finally:
                 _cs.close()
 
+        # 1) Zapis do outboxu (audit row vznika ihned, i kdyby inline send selhal)
         try:
-            send_email_or_raise(
+            outbox = queue_email(
                 to=to, subject=subject, body=body,
                 persona_id=persona_id, tenant_id=tenant_id,
                 user_id=user_id, from_identity=from_identity,
+                purpose="user_request",
+                conversation_id=conversation_id,
             )
-        except EmailNoUserChannelError as e:
-            _log_email_action(to, subject, body, "error", user_id, conversation_id,
-                              error=f"no_user_channel: {e}")
-            return (
-                "❌ Email se nepodařilo odeslat — **nemáš nakonfigurovanou "
-                "vlastní emailovou schránku**.\n\n"
-                "Aby šlo posílat z tvé adresy, musí admin zaregistrovat "
-                "tvoje EWS credentialy v nastavení profilu (zatim přes "
-                "SQL / helper skript). Alternativně pošli z persony — "
-                "napiš znovu bez 'z mojí schránky'."
-            )
-        except EmailAuthError as e:
-            ident = "tvojí schránky" if from_identity == "user" else "persony"
-            _log_email_action(to, subject, body, "error", user_id, conversation_id,
-                              error=f"auth: {e}")
-            return (
-                f"❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
-                f"pro {ident}.\n\n"
-                "Zkontroluj heslo / adresu / server v nastavení. "
-                "Pokud má schránka zapnutou dvoufaktorovou autentizaci, "
-                "budeš potřebovat **application password** (ne běžné heslo)."
-            )
-        except EmailSendError as e:
-            _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
-            return f"❌ Email se nepodařilo odeslat — {e}"
         except Exception as e:
-            _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
-            return "❌ Email se nepodařilo odeslat (neznámá chyba — detail v logu)."
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"queue: {e}")
+            return f"❌ Email se nepodařilo zařadit do outboxu — {e}"
 
-        _log_email_action(to, subject, body, "success", user_id, conversation_id)
-        return _build_email_sent_message(to, body)
+        outbox_id = outbox["id"]
+
+        # 2) Inline pokus o odeslani -- user ceka na odpoved, chceme okamzity feedback.
+        #    Race-safe: pokud by worker mezitim row pobral, send_outbox_row_now
+        #    vrati 'already_claimed' a volajici rozhodne.
+        result = send_outbox_row_now(outbox_id)
+        status = result.get("status")
+        error_kind = result.get("error_kind")
+        err = result.get("error") or ""
+
+        if status == "sent":
+            _log_email_action(to, subject, body, "success", user_id, conversation_id)
+            return _build_email_sent_message(to, body)
+
+        if status == "already_claimed":
+            # Extremne vzacne -- worker popadl row v milisekundovem okne po claim.
+            # User dostane info, at refreshne UI.
+            return (
+                f"⏳ Email zařazen do outboxu (id={outbox_id}) a právě odesílán. "
+                "Během chvíle se objeví v záložce Odeslané."
+            )
+
+        if status == "failed" or status == "pending":
+            # Zalogujeme s typem chyby pro audit.
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"{error_kind or 'unknown'}: {err}")
+
+            if error_kind == "no_user_channel":
+                return (
+                    "❌ Email se nepodařilo odeslat — **nemáš nakonfigurovanou "
+                    "vlastní emailovou schránku**.\n\n"
+                    "Aby šlo posílat z tvé adresy, musí admin zaregistrovat "
+                    "tvoje EWS credentialy v nastavení profilu (zatim přes "
+                    "SQL / helper skript). Alternativně pošli z persony — "
+                    "napiš znovu bez 'z mojí schránky'.\n"
+                    f"*(outbox id={outbox_id}, status=failed)*"
+                )
+            if error_kind == "auth":
+                ident = "tvojí schránky" if from_identity == "user" else "persony"
+                return (
+                    f"❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
+                    f"pro {ident}.\n\n"
+                    "Zkontroluj heslo / adresu / server v nastavení. "
+                    "Pokud má schránka zapnutou dvoufaktorovou autentizaci, "
+                    "budeš potřebovat **application password** (ne běžné heslo).\n"
+                    f"*(outbox id={outbox_id}, status=failed)*"
+                )
+            if status == "pending":
+                # Send error, ale pod limit attempts -- worker zkusí znovu.
+                return (
+                    f"⏳ Email zařazen do outboxu (id={outbox_id}), první pokus "
+                    f"o odeslání nedopadl:\n> {err}\n\n"
+                    "Worker ho zkusí znovu v dalším cyklu (do minuty). "
+                    "Pokud se opakovaně nepodaří, skončí ve stavu **failed** — "
+                    "uvidíš v záložce Odeslané."
+                )
+            # status == "failed", error_kind == "send" nebo unexpected
+            return (
+                f"❌ Email se nepodařilo odeslat — {err}\n"
+                f"*(outbox id={outbox_id}, status=failed)*"
+            )
+
+        # Defensive fallback: missing / unexpected status
+        _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                          error=f"outbox status={status}")
+        return (
+            f"❌ Email odeslání selhalo (outbox id={outbox_id}, status={status}). "
+            "Detail v logu."
+        )
 
     if action["type"] == "send_sms":
         from modules.notifications.application.sms_service import (

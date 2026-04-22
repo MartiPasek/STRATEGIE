@@ -136,6 +136,7 @@ alembic_data/               — migrace pro data_db
 **Email notifikace (inbound + outbound)** ✅ (PR2 + PR3 — duben 2026)
 - **Inbound (pull model)**: `scripts/email_fetcher.py` (polling worker, 60s default) → `ews_fetcher.fetch_all_active_personas()` → EWS INBOX unread → `email_inbox` tabulka → označí v Exchange jako read
 - **Outbound (queue)**: `email_service.queue_email()` → `email_outbox` (pending) → fetcher worker ve stejném cyklu dělá `flush_outbox_pending()` → EWS send → status sent/failed; `send_email_or_raise` zůstává pro invite/password-reset (synchronní, kritická cesta, bez worker dependency)
+- **AI tool `send_email` (od PR3.1)**: po user potvrzení v chatu volá `queue_email()` (audit row) + `send_outbox_row_now()` (inline atomický send) → user dostane okamžitý feedback jako dřív, ale s auditem. Retry se provádí automaticky v dalších worker cyklech, pokud první pokus vrátil status `pending` (send error). Auth / no_user_channel chyby jsou rovnou `failed` (retry by nepomohl).
 - **Dedup**: `email_inbox.message_id` UNIQUE per persona (RFC822 Message-ID) — restart fetcheru / overlap nezduplikuje
 - **Per-persona channel**: `persona_channels` (channel_type='email') drží login UPN (`identifier`) + SMTP alias (`display_identifier`) + Fernet-šifrované heslo + EWS server
 - **Security — login UPN je SECRET**: `identifier` se nikdy nesmí objevit v logu, v DB (`email_inbox.to_email`), v API response ani UI. Pro storage/logy se používá výhradně `display_identifier`. Fetcher personu se NULL `display_identifier` přeskočí s warningem.

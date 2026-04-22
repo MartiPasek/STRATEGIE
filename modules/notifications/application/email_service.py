@@ -421,7 +421,17 @@ def _send_outbox_row(outbox_id: int) -> dict:
     oznaci status='sent' + sent_at = now. Pri selhani status='failed' nebo
     (pokud attempts < MAX) zpet na 'pending' (retry v pristim pollu).
 
-    Vraci {"id": int, "status": "sent" | "failed" | "pending", "error": str | None}.
+    Vraci:
+      {
+        "id":         int,
+        "status":     "sent" | "failed" | "pending" | "missing",
+        "error":      str | None,      -- chybova zprava pro user-facing display
+        "error_kind": str | None,      -- "auth" | "no_user_channel" | "send" | None
+      }
+
+    error_kind se pouziva volajicim (confirm email flow v conversation/service.py)
+    pro dispatch na strukturovanou chybovou hlasku (rozdilna rada pro auth vs.
+    missing user channel vs. generic send error).
     """
     from datetime import datetime, timezone
     from core.database_data import get_data_session
@@ -431,11 +441,16 @@ def _send_outbox_row(outbox_id: int) -> dict:
     try:
         row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
         if row is None:
-            return {"id": outbox_id, "status": "missing", "error": "row gone"}
+            return {
+                "id": outbox_id, "status": "missing",
+                "error": "row gone", "error_kind": None,
+            }
     finally:
         ds.close()
 
-    # Pokus o odeslani -- vyhodi EmailAuthError / EmailSendError / EmailNoUserChannelError
+    # Pokus o odeslani -- rozdelene catche aby volajici videl typ selhani.
+    error_kind: str | None = None
+    err_msg: str | None = None
     try:
         send_email_or_raise(
             to=row.to_email,
@@ -446,7 +461,18 @@ def _send_outbox_row(outbox_id: int) -> dict:
             user_id=row.user_id,
             from_identity=row.from_identity,
         )
-        # Uspech -- oznacit sent_at a commit
+    except EmailAuthError as e:
+        error_kind = "auth"
+        err_msg = str(e)[:500]
+    except EmailNoUserChannelError as e:
+        error_kind = "no_user_channel"
+        err_msg = str(e)[:500]
+    except EmailSendError as e:
+        error_kind = "send"
+        err_msg = str(e)[:500]
+
+    # Success path (zadny exception nezachycen)
+    if error_kind is None:
         ds = get_data_session()
         try:
             row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
@@ -456,35 +482,50 @@ def _send_outbox_row(outbox_id: int) -> dict:
                 ds.commit()
         finally:
             ds.close()
-        return {"id": outbox_id, "status": "sent", "error": None}
+        return {"id": outbox_id, "status": "sent", "error": None, "error_kind": None}
 
-    except (EmailAuthError, EmailSendError, EmailNoUserChannelError) as e:
-        err_msg = str(e)[:500]
-        # Retry logika: kdyz jsme jeste pod limitem, vratit na pending aby
-        # worker zkusil pozdeji. Jinak oznacit failed terminalne.
-        ds = get_data_session()
-        try:
-            row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
-            if not row2:
-                return {"id": outbox_id, "status": "missing", "error": "row gone"}
-            if row2.attempts >= MAX_SEND_ATTEMPTS:
+    # Failure path -- retry logika
+    ds = get_data_session()
+    try:
+        row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+        if not row2:
+            return {
+                "id": outbox_id, "status": "missing",
+                "error": "row gone", "error_kind": error_kind,
+            }
+        if row2.attempts >= MAX_SEND_ATTEMPTS:
+            row2.status = "failed"
+            row2.last_error = err_msg
+            logger.error(
+                f"EMAIL | outbox | failed (max attempts) | id={outbox_id} | "
+                f"kind={error_kind} | {err_msg}"
+            )
+            new_status = "failed"
+        else:
+            # auth + no_user_channel = "konfiguracni" problem, retry nepomuze,
+            # rovnou failed (aby se to netlacilo do fronty dokola).
+            if error_kind in ("auth", "no_user_channel"):
                 row2.status = "failed"
-                row2.last_error = err_msg
-                logger.error(
-                    f"EMAIL | outbox | failed (max attempts) | id={outbox_id} | {err_msg}"
-                )
                 new_status = "failed"
+                logger.error(
+                    f"EMAIL | outbox | failed (config error) | id={outbox_id} | "
+                    f"kind={error_kind} | {err_msg}"
+                )
             else:
                 row2.status = "pending"
-                row2.last_error = err_msg
-                logger.warning(
-                    f"EMAIL | outbox | retry | id={outbox_id} | attempt={row2.attempts} | {err_msg}"
-                )
                 new_status = "pending"
-            ds.commit()
-            return {"id": outbox_id, "status": new_status, "error": err_msg}
-        finally:
-            ds.close()
+                logger.warning(
+                    f"EMAIL | outbox | retry | id={outbox_id} | "
+                    f"attempt={row2.attempts} | kind={error_kind} | {err_msg}"
+                )
+            row2.last_error = err_msg
+        ds.commit()
+        return {
+            "id": outbox_id, "status": new_status,
+            "error": err_msg, "error_kind": error_kind,
+        }
+    finally:
+        ds.close()
 
 
 def flush_outbox_pending(batch_size: int = 10) -> dict:
@@ -543,6 +584,117 @@ def flush_outbox_pending(batch_size: int = 10) -> dict:
         "failed": failed_count,
         "retry": retry_count,
     }
+
+
+def send_outbox_row_now(outbox_id: int) -> dict:
+    """
+    Atomicky claimne JEDEN konkretni outbox row (id=outbox_id) a pokusi se
+    ho odeslat inline. Pouziva se z AI confirm email flow -- uzivatel rekne
+    "ano", my zapiseme do outboxu a hned se pokusime poslat, aby user dostal
+    okamzity feedback ("✅ odeslano" vs. "❌ chyba") misto cekani az to
+    popadne pravidelny worker cycle.
+
+    Race-safe proti paralelne bezicimu workerovi:
+      - Pokud worker mezitim row claimnul (status != 'pending'), vracime
+        status='already_claimed' a volajici rozhodne co zobrazit.
+      - Pokud row uz prekrocila MAX_SEND_ATTEMPTS, nezcentlaimneme, vracime
+        aktualni (failed) stav.
+
+    Vraci dict ve stejnem tvaru jako _send_outbox_row:
+      {
+        "id":         int,
+        "status":     "sent" | "failed" | "pending" | "already_claimed" | "missing",
+        "error":      str | None,
+        "error_kind": str | None,
+      }
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    # Atomicky: UPDATE ... WHERE id=X AND status='pending' AND attempts<MAX
+    # RETURNING id. Kdyz 0 rows vraceno, row mezitim chytil nekdo jiny /
+    # prekrocila attempts / neexistuje.
+    ds = get_data_session()
+    try:
+        result = ds.execute(
+            text(
+                """
+                UPDATE email_outbox
+                   SET status = 'in_progress',
+                       claimed_at = :now,
+                       attempts = attempts + 1
+                 WHERE id = :id
+                   AND status = 'pending'
+                   AND attempts < :max_attempts
+                 RETURNING id
+                """
+            ),
+            {
+                "now": datetime.now(timezone.utc),
+                "id": outbox_id,
+                "max_attempts": MAX_SEND_ATTEMPTS,
+            },
+        )
+        claimed_row = result.fetchone()
+        ds.commit()
+    finally:
+        ds.close()
+
+    if claimed_row is None:
+        # Claim selhal -- row neni pending (uz poslany, failed, in_progress,
+        # nebo neexistuje). Vratime aktualni stav pro reporting volajicimu.
+        ds = get_data_session()
+        try:
+            row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row is None:
+                return {
+                    "id": outbox_id, "status": "missing",
+                    "error": "row gone", "error_kind": None,
+                }
+            # Pokud status byl uz 'in_progress', pravdepodobne ho drzi worker.
+            # Oznacme to jako 'already_claimed' aby UI zobrazila "worker pracuje".
+            if row.status == "in_progress":
+                return {
+                    "id": outbox_id, "status": "already_claimed",
+                    "error": None, "error_kind": None,
+                }
+            return {
+                "id": outbox_id, "status": row.status,
+                "error": row.last_error, "error_kind": None,
+            }
+        finally:
+            ds.close()
+
+    # Claim uspel -- mame exkluzivni pravo poslat. _send_outbox_row zvladne
+    # success/failure bookkeeping (row je nyni 'in_progress', on ji oznaci
+    # sent / pending / failed).
+    logger.info(f"EMAIL | outbox | send_now | claimed | id={outbox_id}")
+    try:
+        return _send_outbox_row(outbox_id)
+    except Exception as e:
+        # Defensive fallback -- neocekavana vyjimka mimo EmailError kategorie.
+        # Musime row vratit z 'in_progress' zpatky, aby se tam nezasekla.
+        logger.error(
+            f"EMAIL | outbox | send_now | unexpected | id={outbox_id} | {e}",
+            exc_info=True,
+        )
+        err_msg = f"unexpected: {e}"[:500]
+        ds = get_data_session()
+        try:
+            row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row:
+                row.status = "failed"
+                row.last_error = err_msg
+                ds.commit()
+        finally:
+            ds.close()
+        return {
+            "id": outbox_id, "status": "failed",
+            "error": err_msg, "error_kind": "unexpected",
+        }
 
 
 def send_password_reset_email(

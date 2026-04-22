@@ -173,8 +173,10 @@ def send_email_or_raise(
                 password=creds["password"],
                 server=creds["server"],
             )
-            # Sender v logu = display (pokud je set), jinak login
-            sender = creds.get("display_email") or creds["email"]
+            # Sender v logu = VYHRADNE display (SMTP alias). Login UPN je SECRET
+            # a nesmi se objevit nikde mimo _get_account / persona_channels.
+            # Kdyz display chybi, maskujeme sender abychom nepsali login.
+            sender = creds.get("display_email") or f"<persona_id={persona_id} display missing>"
         else:
             # Fallback: globalni .env. Pro pozvanky / password-reset / backward compat.
             # (Jen pro persona mode; user mode by uz byl rejected.)
@@ -271,6 +273,276 @@ S pozdravem,
 Tým STRATEGIE
 """
     return send_email(to=to, subject=subject, body=body)
+
+
+# ── OUTBOX: queue + flush worker ──────────────────────────────────────────
+
+# Maximalni pocet pokusu nez email oznacime jako trvale failed. Pri flush
+# workera se kazdy pokus inkrementuje attempts; po dosazeni limitu uz ho
+# worker nevezme. User muze v administraci manualne zretransmitovat.
+MAX_SEND_ATTEMPTS = 5
+
+
+def queue_email(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
+    purpose: str = "user_request",
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    conversation_id: int | None = None,
+) -> dict:
+    """
+    Zaradi email do email_outbox tabulky. Worker (flush_outbox_pending, volany
+    z email_fetcher.py) ho pozdeji odesle pres EWS.
+
+    Returns:
+        {"id": int, "to_email": str, "status": "pending"}
+
+    Pro synchronni odeslani (napr. invitation email) pouzij primo
+    send_email_or_raise(), ktery ceka na EWS. queue_email je lepsi pro
+    AI tool send_email -- user dostane okamzitou odpoved (task hotovo),
+    worker email casem posle.
+    """
+    import json
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    to_clean = (to or "").strip()
+    body_clean = (body or "").strip()
+    if not to_clean:
+        raise EmailSendError("prazdny to_email")
+    if not body_clean:
+        raise EmailSendError("prazdny body")
+    if "@" not in to_clean:
+        raise EmailSendError(f"neplatny email format: {to_clean!r}")
+
+    if purpose not in ("user_request", "notification", "system"):
+        raise EmailSendError(f"neznamy purpose: {purpose!r}")
+    if from_identity not in ("persona", "user", "system"):
+        raise EmailSendError(f"neznama from_identity: {from_identity!r}")
+
+    cc_json = json.dumps(cc, ensure_ascii=False) if cc else None
+    bcc_json = json.dumps(bcc, ensure_ascii=False) if bcc else None
+
+    ds = get_data_session()
+    try:
+        row = EmailOutbox(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            persona_id=persona_id,
+            to_email=to_clean.lower(),
+            cc=cc_json,
+            bcc=bcc_json,
+            subject=(subject or "").strip()[:998] or None,
+            body=body_clean,
+            purpose=purpose,
+            status="pending",
+            attempts=0,
+            conversation_id=conversation_id,
+            from_identity=from_identity,
+        )
+        ds.add(row)
+        ds.commit()
+        ds.refresh(row)
+        outbox_id = row.id
+    finally:
+        ds.close()
+
+    logger.info(
+        f"EMAIL | queued | id={outbox_id} | to={to_clean.lower()} | "
+        f"persona_id={persona_id} | from_identity={from_identity}"
+    )
+    return {
+        "id": outbox_id,
+        "to_email": to_clean.lower(),
+        "status": "pending",
+    }
+
+
+def _atomic_claim_outbox(batch_size: int = 10) -> list[int]:
+    """
+    Atomicky "zamkne" pending radky v email_outbox oznacenim status='in_progress'
+    + claimed_at = now. Vraci ID zavzatych radku. Skip radky ktere uz maji
+    max attempts.
+
+    Pouzita stejna "poll + UPDATE ... RETURNING" strategie jako tasks.executor
+    pro idempotenci -- dva soubezne workery nedostanou stejny row.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    from core.database_data import get_data_session
+
+    ds = get_data_session()
+    try:
+        # UPDATE ... SET ... WHERE id IN (SELECT id FROM ... LIMIT n FOR UPDATE SKIP LOCKED)
+        # PostgreSQL specificky. Vraci ID claimed radku.
+        result = ds.execute(
+            text(
+                """
+                UPDATE email_outbox
+                   SET status = 'in_progress',
+                       claimed_at = :now,
+                       attempts = attempts + 1
+                 WHERE id IN (
+                     SELECT id FROM email_outbox
+                      WHERE status = 'pending'
+                        AND attempts < :max_attempts
+                      ORDER BY created_at ASC
+                      LIMIT :batch_size
+                      FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id
+                """
+            ),
+            {
+                "now": datetime.now(timezone.utc),
+                "max_attempts": MAX_SEND_ATTEMPTS,
+                "batch_size": batch_size,
+            },
+        )
+        claimed_ids = [r[0] for r in result.fetchall()]
+        ds.commit()
+        return claimed_ids
+    finally:
+        ds.close()
+
+
+def _send_outbox_row(outbox_id: int) -> dict:
+    """
+    Pokusi se odeslat jeden outbox row pres EWS. Po uspesnem odeslani
+    oznaci status='sent' + sent_at = now. Pri selhani status='failed' nebo
+    (pokud attempts < MAX) zpet na 'pending' (retry v pristim pollu).
+
+    Vraci {"id": int, "status": "sent" | "failed" | "pending", "error": str | None}.
+    """
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+        if row is None:
+            return {"id": outbox_id, "status": "missing", "error": "row gone"}
+    finally:
+        ds.close()
+
+    # Pokus o odeslani -- vyhodi EmailAuthError / EmailSendError / EmailNoUserChannelError
+    try:
+        send_email_or_raise(
+            to=row.to_email,
+            subject=row.subject or "",
+            body=row.body,
+            persona_id=row.persona_id,
+            tenant_id=row.tenant_id,
+            user_id=row.user_id,
+            from_identity=row.from_identity,
+        )
+        # Uspech -- oznacit sent_at a commit
+        ds = get_data_session()
+        try:
+            row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row2:
+                row2.status = "sent"
+                row2.sent_at = datetime.now(timezone.utc)
+                ds.commit()
+        finally:
+            ds.close()
+        return {"id": outbox_id, "status": "sent", "error": None}
+
+    except (EmailAuthError, EmailSendError, EmailNoUserChannelError) as e:
+        err_msg = str(e)[:500]
+        # Retry logika: kdyz jsme jeste pod limitem, vratit na pending aby
+        # worker zkusil pozdeji. Jinak oznacit failed terminalne.
+        ds = get_data_session()
+        try:
+            row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if not row2:
+                return {"id": outbox_id, "status": "missing", "error": "row gone"}
+            if row2.attempts >= MAX_SEND_ATTEMPTS:
+                row2.status = "failed"
+                row2.last_error = err_msg
+                logger.error(
+                    f"EMAIL | outbox | failed (max attempts) | id={outbox_id} | {err_msg}"
+                )
+                new_status = "failed"
+            else:
+                row2.status = "pending"
+                row2.last_error = err_msg
+                logger.warning(
+                    f"EMAIL | outbox | retry | id={outbox_id} | attempt={row2.attempts} | {err_msg}"
+                )
+                new_status = "pending"
+            ds.commit()
+            return {"id": outbox_id, "status": new_status, "error": err_msg}
+        finally:
+            ds.close()
+
+
+def flush_outbox_pending(batch_size: int = 10) -> dict:
+    """
+    Worker tick -- claimne pending radky a pokusi se je odeslat. Vraci
+    souhrn pro logging workera:
+      {"claimed": N, "sent": N, "failed": N, "retry": N}
+
+    Volano z scripts/email_fetcher.py v kazdem poll cyklu (po fetch_all).
+    Muze bezet soubezne s inbound fetchem -- jsou to ruzne radky v jine
+    tabulce.
+    """
+    claimed = _atomic_claim_outbox(batch_size=batch_size)
+    if not claimed:
+        return {"claimed": 0, "sent": 0, "failed": 0, "retry": 0}
+
+    logger.info(f"EMAIL | outbox | flush | claimed={len(claimed)} | ids={claimed}")
+
+    sent_count = 0
+    failed_count = 0
+    retry_count = 0
+
+    for outbox_id in claimed:
+        try:
+            result = _send_outbox_row(outbox_id)
+            if result["status"] == "sent":
+                sent_count += 1
+            elif result["status"] == "failed":
+                failed_count += 1
+            else:
+                retry_count += 1
+        except Exception as e:
+            # Kdyby neco proteklo mimo EmailError kategorii -- oznacime failed
+            # aby neblokovalo dalsi cykly.
+            logger.error(
+                f"EMAIL | outbox | unexpected | id={outbox_id} | {e}",
+                exc_info=True,
+            )
+            from datetime import datetime, timezone
+            from core.database_data import get_data_session
+            from modules.core.infrastructure.models_data import EmailOutbox
+            ds = get_data_session()
+            try:
+                row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+                if row:
+                    row.status = "failed"
+                    row.last_error = f"unexpected: {e}"[:500]
+                    ds.commit()
+            finally:
+                ds.close()
+            failed_count += 1
+
+    return {
+        "claimed": len(claimed),
+        "sent": sent_count,
+        "failed": failed_count,
+        "retry": retry_count,
+    }
 
 
 def send_password_reset_email(

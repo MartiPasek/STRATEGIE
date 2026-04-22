@@ -146,6 +146,34 @@ TOOLS = [
         },
     },
     {
+        "name": "list_email_inbox",
+        "description": (
+            "Vrátí přijaté emaily aktivní persony (z její firemní schránky, napr. "
+            "marti-ai@eurosoft.com). Použij když uživatel chce vědět, co mu přišlo "
+            "za emaily ('co mam v mailu', 'ukaz mi emaily', 'prisel novy email od X'). "
+            "filter_mode='new' (default) vrátí jen nezpracované (slozka Prichozi), "
+            "'processed' vrátí jen zpracované, 'all' vrátí oboje. Vrací číslovaný "
+            "seznam s předmětem a odesilatelem — uživatel pak může odpovědět "
+            "číslem pro akci (info, otevreni detail, navrh odpovedi)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet emailů (default 10, max 50).",
+                    "default": 10,
+                },
+                "filter_mode": {
+                    "type": "string",
+                    "description": "'new' (nezpracované, default), 'processed', 'all'.",
+                    "enum": ["new", "processed", "all"],
+                    "default": "new",
+                },
+            },
+        },
+    },
+    {
         "name": "list_missed_calls",
         "description": (
             "Vrátí zmeškané hovory aktivní persony (Marti-AI). Použij když "

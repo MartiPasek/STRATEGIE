@@ -783,6 +783,44 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             lines.append(f"{i}. {mark}{it['from_phone']} — {body_preview}  ({ts})")
         return "\n".join(lines)
 
+    if tool_name == "list_email_inbox":
+        from modules.notifications.application.email_inbox_service import (
+            list_inbox_for_ui as _email_list,
+        )
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if persona_id is None:
+            return "❌ Nemůžu zjistit aktivní personu — nelze načíst emaily."
+        limit = int(tool_input.get("limit") or 10)
+        filter_mode = tool_input.get("filter_mode") or "new"
+        if filter_mode == "all":
+            items_new = _email_list(persona_id=persona_id, filter_mode="new", limit=limit)
+            items_proc = _email_list(persona_id=persona_id, filter_mode="processed", limit=limit)
+            items = (items_new + items_proc)[:limit]
+        else:
+            items = _email_list(persona_id=persona_id, filter_mode=filter_mode, limit=limit)
+        if not items:
+            empty_msg = {
+                "new":       "📭 Žádné nové emaily.",
+                "processed": "📭 Žádné zpracované emaily.",
+                "all":       "📭 Schránka je prázdná.",
+            }.get(filter_mode, "📭 Žádné emaily.")
+            return empty_msg
+        header = {
+            "new":       "📧 Příchozí emaily (nezpracované):",
+            "processed": "📧 Zpracované emaily:",
+            "all":       "📧 Emaily:",
+        }.get(filter_mode, "📧 Emaily:")
+        lines = [header, ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["received_at"] or ""
+            mark = "" if it.get("read_at") else " ● "
+            sender = it.get("from_name") or it.get("from_email") or "?"
+            subj = it.get("subject") or "(bez předmětu)"
+            if len(subj) > 80:
+                subj = subj[:80] + "…"
+            lines.append(f"{i}. {mark}{sender} — {subj}  ({ts})")
+        return "\n".join(lines)
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

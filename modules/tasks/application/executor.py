@@ -36,7 +36,9 @@ from sqlalchemy import update
 
 from core.database_data import get_data_session
 from core.logging import get_logger
-from modules.core.infrastructure.models_data import Task, Conversation, SmsInbox
+from modules.core.infrastructure.models_data import (
+    Task, Conversation, SmsInbox, EmailInbox,
+)
 from modules.tasks.application import service as task_service
 
 logger = get_logger("tasks.executor")
@@ -146,13 +148,49 @@ def _build_task_prompt(task: Task) -> str:
         finally:
             ds.close()
 
-    parts.append(
-        "\n---\n"
-        "Proveď potřebné kroky (použij dostupné nástroje). "
-        "Pokud navrhuješ odpověď, napiš ji v textu odpovědi — uživatel ji "
-        "uvidí v task kartě a může ji potvrdit k odeslání.\n\n"
-        "Na závěr stručně (1-2 věty) shrň, co jsi udělal."
-    )
+    # Pripojim original email pro kontext (email_inbox source).
+    # Formatujeme jako blockquote, aby byl zdroj jasne oddeleny od task
+    # instrukce a AI videla "tohle mi prislo, reaguj na to".
+    if task.source_type == "email_inbox" and task.source_id is not None:
+        ds = get_data_session()
+        try:
+            email = ds.query(EmailInbox).filter_by(id=task.source_id).first()
+            if email is not None:
+                sender = f"{email.from_name} <{email.from_email}>" if email.from_name else email.from_email
+                subj = email.subject or "(bez předmětu)"
+                body_preview = (email.body or "(prázdný body)").strip()
+                parts.append(
+                    f"\n### Zdrojový email\n"
+                    f"**Od:** {sender}\n"
+                    f"**Pro:** {email.to_email}\n"
+                    f"**Předmět:** {subj}\n\n"
+                    f"**Tělo:**\n"
+                    f"> " + body_preview.replace("\n", "\n> ")
+                )
+        finally:
+            ds.close()
+
+    # Instrukce na zaver -- rozlisit email vs. SMS/manual proto, ze u emailu
+    # typicky chceme draft odpovedi (ne akci "poslat odpoved hned") -- user
+    # ho potvrdi v UI.
+    if task.source_type == "email_inbox":
+        parts.append(
+            "\n---\n"
+            "Navrhni vhodnou odpověď na tento email. Piš přímo **tělo odpovědi** "
+            "bez hlaviček (To/Subject/From) a bez uvozovacích vět typu „Tady je návrh:\" "
+            "— co napíšeš, to user uvidí jako draft a může ho rovnou potvrdit k odeslání.\n\n"
+            "Pokud je potřeba něco dohledat (informace, kontakt), použij dostupné nástroje. "
+            "Pokud email nepotřebuje odpověď (reklama, info-only), napiš krátké shrnutí "
+            "a uveď, proč odpověď nedává smysl."
+        )
+    else:
+        parts.append(
+            "\n---\n"
+            "Proveď potřebné kroky (použij dostupné nástroje). "
+            "Pokud navrhuješ odpověď, napiš ji v textu odpovědi — uživatel ji "
+            "uvidí v task kartě a může ji potvrdit k odeslání.\n\n"
+            "Na závěr stručně (1-2 věty) shrň, co jsi udělal."
+        )
     return "\n".join(parts)
 
 

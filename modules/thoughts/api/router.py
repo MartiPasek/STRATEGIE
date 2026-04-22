@@ -131,6 +131,48 @@ def list_thoughts(
     }
 
 
+# ── POZOR na ordering: routes s literalnim path (napr. /_tree, /_meta/enums)
+#    MUSI byt registrovane PRED /{thought_id} routami. Jinak FastAPI
+#    matchne "_tree" jako thought_id (int), dostane string -> 422. ──
+
+@router.get("/_tree")
+def get_tree_overview(req: Request):
+    """
+    Stromovy prehled pro UI "Pamet Marti" modal. Vrati entity, kterych se
+    dotyka aspon jedna myslenka v aktualnim tenantu usera, spolu s pocty
+    note + knowledge. Frontend si doplni nazvy entit z vlastnich cache.
+
+    Response:
+      {
+        "items": [
+          {entity_type, entity_id, note_count, knowledge_count, total_count},
+          ...
+        ],
+        "tenant_id": int | None
+      }
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+
+    items = thoughts_service.tree_overview(tenant_scope=tenant_id)
+    return {"items": items, "tenant_id": tenant_id}
+
+
+# Metadata endpoint -- UI si natahne validni typy pro formular
+@router.get("/_meta/enums")
+def get_enums(req: Request):
+    """
+    Vrati validni hodnoty pro UI selectboxes (typy myslenek, typy entit,
+    statusy). Pro konzistenci frontendu se servicem.
+    """
+    _get_uid(req)
+    return {
+        "types": sorted(VALID_TYPES),
+        "entity_types": sorted(VALID_ENTITY_TYPES),
+        "statuses": sorted(VALID_STATUSES),
+    }
+
+
 @router.get("/{thought_id}")
 def get_thought_endpoint(thought_id: int, req: Request):
     """Detail jedne myslenky vcetne entity_links."""
@@ -242,16 +284,48 @@ def delete_thought_endpoint(thought_id: int, req: Request):
     return {"ok": True, "id": thought_id, "deleted": True}
 
 
-# Metadata endpoint -- UI si natahne validni typy pro formular
-@router.get("/_meta/enums")
-def get_enums(req: Request):
+@router.post("/{thought_id}/promote")
+def promote_thought_endpoint(thought_id: int, req: Request):
     """
-    Vrati validni hodnoty pro UI selectboxes (typy myslenek, typy entit,
-    statusy). Pro konzistenci frontendu se servicem.
+    Povysi myslenku z 'note' do 'knowledge'. Pouziva se v UI tlacitkem ↑
+    ve stromu myslenek a z AI toolu promote_thought. Tenant check stejny
+    jako u PUT/DELETE.
     """
-    _get_uid(req)
-    return {
-        "types": sorted(VALID_TYPES),
-        "entity_types": sorted(VALID_ENTITY_TYPES),
-        "statuses": sorted(VALID_STATUSES),
-    }
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+
+    existing = thoughts_service.get_thought(thought_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    scope = existing.get("tenant_scope")
+    if scope is not None and scope != tenant_id:
+        raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
+
+    result = thoughts_service.promote_thought(thought_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    return result
+
+
+@router.post("/{thought_id}/demote")
+def demote_thought_endpoint(thought_id: int, req: Request):
+    """
+    Degraduje myslenku z 'knowledge' zpet do 'note'. Pouziva se kdyz user
+    uzna, ze fakt uz neni spolehlivy a potrebuje dalsi overeni.
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+
+    existing = thoughts_service.get_thought(thought_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    scope = existing.get("tenant_scope")
+    if scope is not None and scope != tenant_id:
+        raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
+
+    result = thoughts_service.demote_thought(thought_id)
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    return result
+
+

@@ -959,6 +959,86 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"_Odkazy: {entity_descr}_"
         )
 
+    if tool_name == "promote_thought":
+        # Marti Memory -- Faze 2: manualni promoce note -> knowledge z chatu.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        thought_id = tool_input.get("thought_id")
+        query = (tool_input.get("query") or "").strip()
+
+        # Zjisti tenant scope usera pro tenant izolaci.
+        tenant_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_p
+            from modules.core.infrastructure.models_core import User as _U_p
+            _cs = _gcs_p()
+            try:
+                _u = _cs.query(_U_p).filter_by(id=user_id).first()
+                if _u:
+                    tenant_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        target_id: int | None = None
+        if thought_id:
+            try:
+                target_id = int(thought_id)
+            except (TypeError, ValueError):
+                return f"❌ Neplatné thought_id: {thought_id!r}"
+
+        elif query:
+            matches = _thoughts_service.find_thought_by_text(
+                query, tenant_scope=tenant_for_search, limit=5,
+            )
+            if not matches:
+                return f"❌ V paměti jsem nenašla nic s '{query}'. Zkus upřesnit."
+            if len(matches) > 1:
+                lines = [f"❓ Nalezeno víc kandidátů na '{query}':"]
+                for i, m in enumerate(matches, start=1):
+                    status_lbl = "ZNALOST" if m["status"] == "knowledge" else "POZNÁMKA"
+                    preview = (m["content"] or "")[:80]
+                    lines.append(f"  {i}. [{status_lbl}] id={m['id']}: {preview}")
+                lines.append("\nPovolej znovu s konkrétním `thought_id` z toho seznamu.")
+                return "\n".join(lines)
+            target_id = matches[0]["id"]
+        else:
+            return (
+                "❌ Musíš dodat buď `thought_id` nebo `query` — jinak nevím, "
+                "kterou myšlenku povyšovat."
+            )
+
+        # Proved promoce
+        try:
+            result = _thoughts_service.promote_thought(target_id)
+        except ThoughtValidationError as e:
+            return f"❌ Povýšení selhalo: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | promote_thought | error={e!r}", exc_info=True)
+            return "❌ Povýšení selhalo (chyba serveru — detail v logu)."
+
+        if result is None:
+            return f"❌ Myšlenka id={target_id} neexistuje (nebo už byla smazána)."
+
+        # Tenant check -- nesmime povysit myslenku z jineho tenantu
+        scope = result.get("tenant_scope")
+        if scope is not None and tenant_for_search is not None and scope != tenant_for_search:
+            # Technicky by sem nemelo dojit (query filtr tenant_scope), ale pojistka.
+            return (
+                f"❌ Myšlenka id={target_id} nepatří do tvého tenantu. "
+                "Nelze povýšit."
+            )
+
+        status_now = result.get("status", "unknown")
+        preview = (result.get("content") or "")[:80]
+        if status_now == "knowledge":
+            return (
+                f"⬆️ Povýšeno do znalostí (id={target_id}): \"{preview}"
+                f"{'…' if len(result.get('content', '')) > 80 else ''}\""
+            )
+        else:
+            return f"⚠️ Myšlenka id={target_id} má po operaci status='{status_now}'."
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

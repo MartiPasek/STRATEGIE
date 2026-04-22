@@ -350,6 +350,28 @@
     .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); }
     /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
     .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
+    /* Memory modal -- entity tiles (drill-down pohled pred zobrazenim myslenek) */
+    .memory-breadcrumb { display: flex; align-items: center; gap: 8px; padding: 8px 22px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .memory-breadcrumb button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; font-family: inherit; padding: 0; }
+    .memory-breadcrumb button:hover { text-decoration: underline; }
+    .memory-entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; padding: 12px 16px; }
+    .memory-entity-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color .12s, background .12s; background: var(--surface); }
+    .memory-entity-tile:hover { border-color: var(--accent); background: var(--bg); }
+    .memory-entity-type { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .memory-entity-name { font-size: 13px; color: var(--text); margin: 2px 0 6px; }
+    .memory-entity-counts { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; display: flex; gap: 10px; }
+    .memory-entity-counts .cnt-notes { color: #3b82f6; }
+    .memory-entity-counts .cnt-knowledge { color: #10b981; }
+    /* Thought detail -- rozbaleny panel uvnitr karty */
+    .thought-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: none; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .thought-detail.open { display: block; }
+    .thought-detail .row { display: flex; gap: 8px; margin: 3px 0; }
+    .thought-detail .row .lbl { min-width: 100px; color: var(--muted); }
+    .thought-detail .row .val { color: var(--text); word-break: break-word; }
+    .thought-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .thought-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 10px; font-size: 11px; font-family: 'DM Mono', monospace; border-radius: 4px; transition: all .12s; }
+    .thought-btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+    .thought-btn.danger:hover { border-color: #ef4444; color: #ef4444; }
     .inbox-badge-count { font-weight: 600; }
     .inbox-badge-breakdown { color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 10px; }
     .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
@@ -5804,15 +5826,24 @@
   </div>
 </div>
 
-<!-- Pamet Marti modal (Faze 1) -- zobrazuje myslenky zapsane o aktualnim
-     uzivateli. Otevira se z profile dropdown ("Pamet Marti"). Surovy
-     list bez stromu, bez editu -- jen read-only viewer pro testovani. -->
+<!-- Pamet Marti modal (Faze 1 + 2) -- drill-down view:
+     (a) entity tiles (tree overview, vsechny entity o kterych Marti neco vi)
+     (b) list myslenek per entita + 2 taby (Poznamky/Znalosti) + detail panel
+     Otevira se z profile dropdown ("Pamet Marti"). -->
 <div class="sms-modal-bg" id="memoryModalBg">
   <div class="sms-modal" role="dialog" aria-label="Pamet Marti" onclick="event.stopPropagation()">
     <div class="sms-modal-header">
-      <div class="sms-modal-title" id="memoryModalTitle">🧠 Paměť Marti — co o tobě vím</div>
+      <div class="sms-modal-title" id="memoryModalTitle">🧠 Paměť Marti</div>
       <div class="sms-modal-sub" id="memoryModalSub"></div>
       <button class="sms-modal-close" id="memoryModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="memory-breadcrumb" id="memoryBreadcrumb" style="display:none">
+      <button id="memoryBackBtn">← Zpět na přehled</button>
+      <span id="memoryBreadcrumbPath"></span>
+    </div>
+    <div class="sms-tabs" id="memoryTabs" style="display:none">
+      <button class="sms-tab active" data-memtab="note">Poznámky <span class="sms-tab-badge" id="memTabBadgeNote" style="display:none">0</span></button>
+      <button class="sms-tab" data-memtab="knowledge">Znalosti <span class="sms-tab-badge" id="memTabBadgeKnowledge" style="display:none">0</span></button>
     </div>
     <div class="sms-list" id="memoryList">
       <div class="sms-loading">Načítám…</div>
@@ -6424,11 +6455,20 @@
   })();
 
   // ══════════════════════════════════════════════════════════════════════
-  // MARTI MEMORY MODAL (Faze 1) -- read-only viewer myslenek o userovi
-  // Otevira se z profile dropdown ('Pamet Marti'). Zobrazuje list myslenek
-  // kde entity_links obsahuje (user, current_user.user_id).
-  // Pozdejsi faze: strom, edit, promoce, filtr podle typu.
+  // MARTI MEMORY MODAL (Faze 2) -- drill-down viewer myslenek
+  //   Mode 'tree':    entity tiles z /thoughts/_tree
+  //   Mode 'entity':  list myslenek pro vybranou entitu + 2 taby + detail
+  // Otevira se z profile dropdown ('Pamet Marti').
   // ══════════════════════════════════════════════════════════════════════
+
+  window._memoryModal = {
+    mode: "tree",          // 'tree' | 'entity'
+    entity_type: null,     // 'user' | 'persona' | 'tenant' | 'project'
+    entity_id: null,
+    entity_name: null,
+    activeTab: "note",     // 'note' | 'knowledge'
+    counts: { note: 0, knowledge: 0 },
+  };
 
   async function openMemoryModal() {
     if (!currentUser || !currentUser.user_id) {
@@ -6437,26 +6477,82 @@
     }
     document.getElementById("memoryModalBg").classList.add("open");
     document.getElementById("memoryModalSub").textContent = currentUser.display_name || "";
-    await _memoryLoadForCurrentUser();
+    _memorySwitchToTree();
+    await _memoryLoadTree();
   }
 
   function closeMemoryModal() {
     document.getElementById("memoryModalBg").classList.remove("open");
   }
 
-  async function _memoryLoadForCurrentUser() {
-    const list = document.getElementById("memoryList");
-    const uid = currentUser && currentUser.user_id;
-    if (!uid) {
-      list.innerHTML = '<div class="sms-empty">Chybi ID uzivatele.</div>';
-      return;
+  function _memorySwitchToTree() {
+    window._memoryModal.mode = "tree";
+    window._memoryModal.entity_type = null;
+    window._memoryModal.entity_id = null;
+    window._memoryModal.entity_name = null;
+    document.getElementById("memoryBreadcrumb").style.display = "none";
+    document.getElementById("memoryTabs").style.display = "none";
+    document.getElementById("memoryModalTitle").textContent = "🧠 Paměť Marti";
+  }
+
+  function _memorySwitchToEntity(entity_type, entity_id, entity_name) {
+    window._memoryModal.mode = "entity";
+    window._memoryModal.entity_type = entity_type;
+    window._memoryModal.entity_id = entity_id;
+    window._memoryModal.entity_name = entity_name;
+    window._memoryModal.activeTab = "note";
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent =
+      `/ ${entity_type}: ${entity_name}`;
+    document.getElementById("memoryTabs").style.display = "flex";
+    document.querySelectorAll("#memoryTabs .sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-memtab") === "note");
+    });
+    document.getElementById("memoryModalTitle").textContent =
+      `🧠 ${entity_name}`;
+  }
+
+  // ── Entity name resolution ───────────────────────────────────────────
+  // Frontend nema vsechny entity v cachi -- resolvujem co muzeme
+  // (current user + personasCache), jinak fallback na "type#id".
+
+  function _memoryResolveEntityName(entity_type, entity_id) {
+    if (entity_type === "user") {
+      if (currentUser && currentUser.user_id === entity_id) {
+        return currentUser.display_name || "Já";
+      }
+      return `Uživatel #${entity_id}`;
     }
+    if (entity_type === "persona") {
+      const p = (typeof personasCache !== "undefined" ? personasCache : [])
+        .find(x => x.id === entity_id);
+      return p ? p.name : `Persona #${entity_id}`;
+    }
+    if (entity_type === "tenant") {
+      if (currentUser && currentUser.tenant_id === entity_id) {
+        return currentUser.tenant_name || "Aktuální tenant";
+      }
+      return `Tenant #${entity_id}`;
+    }
+    if (entity_type === "project") {
+      return `Projekt #${entity_id}`;
+    }
+    return `${entity_type} #${entity_id}`;
+  }
+
+  function _memoryEntityIcon(entity_type) {
+    return {
+      "user": "👤", "persona": "🤖", "tenant": "🏢", "project": "📁",
+    }[entity_type] || "•";
+  }
+
+  // ── Tree mode: entity tiles ──────────────────────────────────────────
+
+  async function _memoryLoadTree() {
+    const list = document.getElementById("memoryList");
     list.innerHTML = '<div class="sms-loading">Načítám…</div>';
     try {
-      const r = await fetch(
-        `/api/v1/thoughts?about_type=user&about_id=${uid}&limit=100`,
-        { credentials: "include" }
-      );
+      const r = await fetch("/api/v1/thoughts/_tree", { credentials: "include" });
       if (!r.ok) {
         list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
         return;
@@ -6466,15 +6562,92 @@
       if (items.length === 0) {
         list.innerHTML = (
           '<div class="sms-empty">'
-          + 'Marti o tobě zatím nic nezapsala. Promluv s ní víc a uvidíš, '
-          + 'co si začne pamatovat.'
+          + 'Marti si zatím nic nepamatuje. Promluv s ní a řekni jí: '
+          + '"zapiš si, že…"'
           + '</div>'
         );
         return;
       }
-      list.innerHTML = items.map(_memoryRenderCard).join("");
+      const tiles = items.map(it => {
+        const name = _memoryResolveEntityName(it.entity_type, it.entity_id);
+        const icon = _memoryEntityIcon(it.entity_type);
+        return `
+          <div class="memory-entity-tile"
+               data-entity-type="${it.entity_type}"
+               data-entity-id="${it.entity_id}"
+               data-entity-name="${_smsEscape(name)}">
+            <div class="memory-entity-type">${icon} ${it.entity_type}</div>
+            <div class="memory-entity-name">${_smsEscape(name)}</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-notes">📝 ${it.note_count}</span>
+              <span class="cnt-knowledge">🧠 ${it.knowledge_count}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+      list.innerHTML = `<div class="memory-entity-grid">${tiles}</div>`;
+      // Click handlers
+      list.querySelectorAll(".memory-entity-tile").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const et = tile.getAttribute("data-entity-type");
+          const eid = parseInt(tile.getAttribute("data-entity-id"), 10);
+          const en = tile.getAttribute("data-entity-name");
+          _memorySwitchToEntity(et, eid, en);
+          _memoryLoadEntityThoughts();
+        });
+      });
     } catch (e) {
       list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  // ── Entity mode: list myslenek + detail ──────────────────────────────
+
+  async function _memoryLoadEntityThoughts() {
+    const list = document.getElementById("memoryList");
+    const m = window._memoryModal;
+    if (m.mode !== "entity" || !m.entity_type || !m.entity_id) return;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      // Fetchujem oba stavy paralelne aby jsme znali pocty pro badge
+      const [rNote, rKnow] = await Promise.all([
+        fetch(`/api/v1/thoughts?about_type=${m.entity_type}&about_id=${m.entity_id}&status=note&limit=200`, { credentials: "include" }),
+        fetch(`/api/v1/thoughts?about_type=${m.entity_type}&about_id=${m.entity_id}&status=knowledge&limit=200`, { credentials: "include" }),
+      ]);
+      const dataNote = rNote.ok ? await rNote.json() : { items: [] };
+      const dataKnow = rKnow.ok ? await rKnow.json() : { items: [] };
+      const notes = dataNote.items || [];
+      const knowledge = dataKnow.items || [];
+      m.counts = { note: notes.length, knowledge: knowledge.length };
+
+      // Update tab badges
+      _updateMemTabBadge("note", notes.length);
+      _updateMemTabBadge("knowledge", knowledge.length);
+
+      // Render podle aktivni taby
+      const items = m.activeTab === "note" ? notes : knowledge;
+      if (items.length === 0) {
+        const msg = m.activeTab === "note"
+          ? "Žádné poznámky o této entitě."
+          : "Žádné znalosti o této entitě.";
+        list.innerHTML = `<div class="sms-empty">${msg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(_memoryRenderCard).join("");
+      _memoryAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _updateMemTabBadge(tab, count) {
+    const el = document.getElementById(tab === "note" ? "memTabBadgeNote" : "memTabBadgeKnowledge");
+    if (!el) return;
+    if (count > 0) {
+      el.style.display = "inline-block";
+      el.textContent = String(count);
+    } else {
+      el.style.display = "none";
     }
   }
 
@@ -6492,9 +6665,27 @@
       return `${bar} ${pct}%`;
     })();
     const time = _smsFmtTime(t.created_at);
+
+    // Sestav detail panel (entity_links, provenance, type-specific, akce)
+    const linksStr = (t.entity_links || [])
+      .map(l => `${_memoryEntityIcon(l.entity_type)} ${_memoryResolveEntityName(l.entity_type, l.entity_id)}`)
+      .join(", ");
+    const sourceStr = t.source_event_type
+      ? `${t.source_event_type}${t.source_event_id ? "#" + t.source_event_id : ""}`
+      : "—";
+    const authorStr = t.author_persona_id
+      ? `persona#${t.author_persona_id}`
+      : (t.author_user_id ? `user#${t.author_user_id}` : "—");
+    const metaStr = t.meta ? JSON.stringify(t.meta) : "";
+
+    // Akce zavisi na status (promote/demote)
+    const statusActionBtn = t.status === "note"
+      ? `<button class="thought-btn" data-action="promote" data-thought-id="${t.id}">⬆ Do znalostí</button>`
+      : `<button class="thought-btn" data-action="demote" data-thought-id="${t.id}">⬇ Zpět do poznámek</button>`;
+
     return `
       <div class="sms-card" data-thought-id="${t.id}">
-        <div class="sms-card-row">
+        <div class="sms-card-row thought-card-header" style="cursor:pointer">
           <span class="sms-card-from">${typeIcon} ${esc(t.type.toUpperCase())} · ${statusLabel}</span>
           <span class="sms-card-time">${time}</span>
         </div>
@@ -6502,11 +6693,132 @@
         <div class="sms-card-body" style="color:var(--muted);font-size:10px;font-family:'DM Mono',monospace;margin-top:4px">
           Jistota: ${certaintyBar}
         </div>
+        <div class="thought-detail" id="thought-detail-${t.id}">
+          <div class="row"><span class="lbl">Autor:</span><span class="val">${esc(authorStr)}</span></div>
+          <div class="row"><span class="lbl">Zdroj:</span><span class="val">${esc(sourceStr)}</span></div>
+          <div class="row"><span class="lbl">Odkazy:</span><span class="val">${esc(linksStr) || "—"}</span></div>
+          ${t.modified_at ? `<div class="row"><span class="lbl">Změněno:</span><span class="val">${_smsFmtTime(t.modified_at)}</span></div>` : ""}
+          ${metaStr ? `<div class="row"><span class="lbl">Meta:</span><span class="val">${esc(metaStr)}</span></div>` : ""}
+          <div class="thought-actions">
+            ${statusActionBtn}
+            <button class="thought-btn" data-action="edit" data-thought-id="${t.id}">✎ Upravit</button>
+            <button class="thought-btn danger" data-action="delete" data-thought-id="${t.id}">🗑 Smazat</button>
+          </div>
+        </div>
       </div>
     `;
   }
 
-  // Bootstrap memory modal handlers
+  function _memoryAttachCardHandlers() {
+    const list = document.getElementById("memoryList");
+
+    // Toggle detail on header click
+    list.querySelectorAll(".thought-card-header").forEach(header => {
+      header.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const card = header.closest(".sms-card");
+        const id = card.getAttribute("data-thought-id");
+        const det = document.getElementById(`thought-detail-${id}`);
+        if (det) det.classList.toggle("open");
+      });
+    });
+
+    // Promote
+    list.querySelectorAll('[data-action="promote"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        btn.disabled = true; btn.textContent = "Povyšuji…";
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}/promote`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba promoce: HTTP ${r.status}`);
+            btn.disabled = false; btn.textContent = "⬆ Do znalostí";
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false; btn.textContent = "⬆ Do znalostí";
+        }
+      });
+    });
+
+    // Demote
+    list.querySelectorAll('[data-action="demote"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        btn.disabled = true; btn.textContent = "Degraduji…";
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}/demote`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba democe: HTTP ${r.status}`);
+            btn.disabled = false; btn.textContent = "⬇ Zpět do poznámek";
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false; btn.textContent = "⬇ Zpět do poznámek";
+        }
+      });
+    });
+
+    // Edit (simple prompt-based pro MVP)
+    list.querySelectorAll('[data-action="edit"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        const card = btn.closest(".sms-card");
+        const bodyEl = card.querySelector(".sms-card-body");
+        const currentContent = bodyEl ? bodyEl.textContent.trim() : "";
+        const newContent = prompt("Uprav text myšlenky:", currentContent);
+        if (newContent == null || newContent.trim() === "" || newContent.trim() === currentContent) {
+          return;
+        }
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ content: newContent.trim() }),
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba editu: HTTP ${r.status}`);
+          }
+        } catch (e) { alert(`Chyba: ${e.message}`); }
+      });
+    });
+
+    // Delete
+    list.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        if (!confirm("Opravdu smazat tuto myšlenku? (Bude soft-deleted, v DB zůstane pro audit.)")) return;
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}`, {
+            method: "DELETE", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba mazání: HTTP ${r.status}`);
+          }
+        } catch (e) { alert(`Chyba: ${e.message}`); }
+      });
+    });
+  }
+
+  // ── Bootstrap handlers ───────────────────────────────────────────────
+
   (function initMemoryModal() {
     const close = document.getElementById("memoryModalClose");
     if (close) close.addEventListener("click", closeMemoryModal);
@@ -6521,6 +6833,28 @@
         closeMemoryModal();
       }
     });
+    // Back button
+    const back = document.getElementById("memoryBackBtn");
+    if (back) {
+      back.addEventListener("click", async () => {
+        _memorySwitchToTree();
+        await _memoryLoadTree();
+      });
+    }
+    // Tab switching
+    const tabsEl = document.getElementById("memoryTabs");
+    if (tabsEl) {
+      tabsEl.addEventListener("click", async (ev) => {
+        const t = ev.target.closest(".sms-tab");
+        if (!t) return;
+        const tab = t.getAttribute("data-memtab");
+        window._memoryModal.activeTab = tab;
+        document.querySelectorAll("#memoryTabs .sms-tab").forEach(x => {
+          x.classList.toggle("active", x.getAttribute("data-memtab") === tab);
+        });
+        await _memoryLoadEntityThoughts();
+      });
+    }
   })();
 
   // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────

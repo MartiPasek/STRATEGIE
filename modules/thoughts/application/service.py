@@ -364,6 +364,215 @@ def update_thought(
         ds.close()
 
 
+def promote_thought(thought_id: int) -> dict[str, Any] | None:
+    """
+    Povysi myslenku ze stavu 'note' do 'knowledge'. Idempotentni -- kdyz
+    uz je knowledge, vrati aktualni data bez zmeny.
+
+    Returns: updated thought dict (stejny format jako update_thought),
+             None pokud myslenka neexistuje / je smazana.
+    """
+    ds = get_data_session()
+    try:
+        t = (
+            ds.query(Thought)
+            .filter(Thought.id == thought_id, Thought.deleted_at.is_(None))
+            .first()
+        )
+        if t is None:
+            return None
+        if t.status == "knowledge":
+            logger.info(f"THOUGHT | promote | id={thought_id} | uz bylo knowledge")
+        else:
+            t.status = "knowledge"
+            t.modified_at = datetime.now(timezone.utc)
+            ds.commit()
+            ds.refresh(t)
+            logger.info(f"THOUGHT | promoted | id={thought_id} | note -> knowledge")
+
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id == t.id)
+            .all()
+        )
+        return _thought_to_dict(t, entity_links=[
+            {"entity_type": l.entity_type, "entity_id": l.entity_id}
+            for l in links
+        ])
+    finally:
+        ds.close()
+
+
+def demote_thought(thought_id: int) -> dict[str, Any] | None:
+    """
+    Degraduje myslenku z 'knowledge' zpet do 'note'. Pouzije se napr. kdyz
+    se ukaze, ze fakt byl mylny nebo uz neplatí a chceme ho ponechat jako
+    poznamku k dalsimu overeni. Idempotentni.
+
+    Returns: updated thought dict, None pokud neexistuje / smazana.
+    """
+    ds = get_data_session()
+    try:
+        t = (
+            ds.query(Thought)
+            .filter(Thought.id == thought_id, Thought.deleted_at.is_(None))
+            .first()
+        )
+        if t is None:
+            return None
+        if t.status == "note":
+            logger.info(f"THOUGHT | demote | id={thought_id} | uz bylo note")
+        else:
+            t.status = "note"
+            t.modified_at = datetime.now(timezone.utc)
+            ds.commit()
+            ds.refresh(t)
+            logger.info(f"THOUGHT | demoted | id={thought_id} | knowledge -> note")
+
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id == t.id)
+            .all()
+        )
+        return _thought_to_dict(t, entity_links=[
+            {"entity_type": l.entity_type, "entity_id": l.entity_id}
+            for l in links
+        ])
+    finally:
+        ds.close()
+
+
+def find_thought_by_text(
+    query: str,
+    *,
+    tenant_scope: int | None = None,
+    limit: int = 5,
+) -> list[dict[str, Any]]:
+    """
+    Fulltext-podobne hledani myslenek podle substring matche v content.
+    Pouziva se AI toolem `promote_thought(query=...)` kdyz AI nezna id,
+    ale ma popis myslenky.
+
+    Case-insensitive substring match. Jednoduche -- bez relevance scoringu.
+    V Fazi 3+ muzeme nahradit embedding search.
+
+    tenant_scope pro tenant izolaci (zahrnuje i universal/NULL scope).
+    Filtruje deleted_at IS NULL.
+    """
+    query_clean = (query or "").strip()
+    if not query_clean:
+        return []
+
+    ds = get_data_session()
+    try:
+        q = ds.query(Thought).filter(
+            Thought.deleted_at.is_(None),
+            Thought.content.ilike(f"%{query_clean}%"),
+        )
+        if tenant_scope is not None:
+            q = q.filter(
+                or_(
+                    Thought.tenant_scope == tenant_scope,
+                    Thought.tenant_scope.is_(None),
+                )
+            )
+        rows = (
+            q.order_by(Thought.modified_at.desc().nulls_last(), Thought.created_at.desc())
+             .limit(max(1, min(limit, 20)))
+             .all()
+        )
+        if not rows:
+            return []
+
+        ids = [r.id for r in rows]
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id.in_(ids))
+            .all()
+        )
+        links_by_thought: dict[int, list[dict[str, Any]]] = {}
+        for l in links:
+            links_by_thought.setdefault(l.thought_id, []).append({
+                "entity_type": l.entity_type,
+                "entity_id": l.entity_id,
+            })
+
+        return [
+            _thought_to_dict(r, entity_links=links_by_thought.get(r.id, []))
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def tree_overview(
+    tenant_scope: int | None = None,
+    include_empty_entities: bool = False,
+) -> list[dict[str, Any]]:
+    """
+    Vrati strukturu pro UI strom v "Pamet Marti" modalu:
+      [
+        {
+          "entity_type": "user",
+          "entity_id": 1,
+          "note_count": 3,
+          "knowledge_count": 1,
+          "total_count": 4,
+        },
+        ...
+      ]
+
+    Razeno podle entity_type a total_count DESC (nejaktivnejsi entity prvni).
+    Filtr: jen entity, kterich se dotyka aspon jedna myslenka v aktualnim
+    tenant scope (nebo universal).
+
+    Pozn.: metoda vraci hrube ID; frontend si doplni jmeno entity z
+    existujicich caches (currentUser, personasCache, projectsCache, ...).
+    """
+    from sqlalchemy import case, func
+
+    ds = get_data_session()
+    try:
+        q = (
+            ds.query(
+                ThoughtEntityLink.entity_type,
+                ThoughtEntityLink.entity_id,
+                func.sum(case((Thought.status == "note", 1), else_=0)).label("note_count"),
+                func.sum(case((Thought.status == "knowledge", 1), else_=0)).label("knowledge_count"),
+                func.count(Thought.id).label("total_count"),
+            )
+            .join(Thought, Thought.id == ThoughtEntityLink.thought_id)
+            .filter(Thought.deleted_at.is_(None))
+        )
+        if tenant_scope is not None:
+            q = q.filter(
+                or_(
+                    Thought.tenant_scope == tenant_scope,
+                    Thought.tenant_scope.is_(None),
+                )
+            )
+        rows = (
+            q.group_by(ThoughtEntityLink.entity_type, ThoughtEntityLink.entity_id)
+             .order_by(
+                 ThoughtEntityLink.entity_type.asc(),
+                 func.count(Thought.id).desc(),
+             )
+             .all()
+        )
+        return [
+            {
+                "entity_type": r.entity_type,
+                "entity_id": r.entity_id,
+                "note_count": int(r.note_count or 0),
+                "knowledge_count": int(r.knowledge_count or 0),
+                "total_count": int(r.total_count or 0),
+            }
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
 def soft_delete_thought(thought_id: int) -> bool:
     """
     Oznaci myslenku jako smazanou (deleted_at = now). Entity links nemazeme

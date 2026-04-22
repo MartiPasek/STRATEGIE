@@ -165,8 +165,8 @@ Otevřené otázky:
 
 ## Sekvence fází (MVP plán, až rozhodneme otázky 1-5)
 
-1. **Fáze 1** (1-2 týdny): Datový model + per-user/persona poznámky. Marti zapisuje myšlenky, user čte v UI. Bez učení, bez promoce. — **CODE COMPLETE 2026-04-22**, čeká review + commit.
-2. **Fáze 2:** Dva zápisníky (poznámky + znalosti) + manuální promoce. UI strom s rozbalováním.
+1. **Fáze 1** (1-2 týdny): Datový model + per-user/persona poznámky. Marti zapisuje myšlenky, user čte v UI. Bez učení, bez promoce. — **CODE COMPLETE + COMMITNUTO 2026-04-22**.
+2. **Fáze 2:** Dva zápisníky (poznámky + znalosti) + manuální promoce. UI strom s rozbalováním. — **CODE COMPLETE 2026-04-22**, čeká review + commit.
 3. **Fáze 3:** Certainty scoring + auto-promoce nad threshold. User trust rating.
 4. **Fáze 4:** Aktivní učení (Marti se sama ptá).
 5. **Fáze 5:** Martiho private diary + meta reflexe.

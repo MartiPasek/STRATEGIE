@@ -34,7 +34,7 @@ modules/
   conversation/             — chat, composer, execution layer (tools), DM, summary
   identity/                 — správa uživatelů
   memory/                   — paměť konverzace → data_db
-  notifications/            — email (EWS Exchange)
+  notifications/            — email (EWS Exchange, inbound + outbound), SMS (Android gateway)
   projects/                 — projektový subsystém (CRUD, members, scope)
 shared/                     — sdílené pomocníky (czech.py — vokativ apod.)
 apps/api/                   — FastAPI + chat UI (index.html)
@@ -131,6 +131,20 @@ alembic_data/               — migrace pro data_db
 - `find_user` rozšířen o `preferred_phone` pro resolve podle jména
 - Audit log `send_sms` v `action_logs`
 - Setup guide: `docs/sms_setup.md`
+- Inbound SMS = **push model** (Android appka push webhook → `/api/v1/sms/gateway/inbox` → `sms_inbox` → auto-task)
+
+**Email notifikace (inbound + outbound)** ✅ (PR2 + PR3 — duben 2026)
+- **Inbound (pull model)**: `scripts/email_fetcher.py` (polling worker, 60s default) → `ews_fetcher.fetch_all_active_personas()` → EWS INBOX unread → `email_inbox` tabulka → označí v Exchange jako read
+- **Outbound (queue)**: `email_service.queue_email()` → `email_outbox` (pending) → fetcher worker ve stejném cyklu dělá `flush_outbox_pending()` → EWS send → status sent/failed; `send_email_or_raise` zůstává pro invite/password-reset (synchronní, kritická cesta, bez worker dependency)
+- **Dedup**: `email_inbox.message_id` UNIQUE per persona (RFC822 Message-ID) — restart fetcheru / overlap nezduplikuje
+- **Per-persona channel**: `persona_channels` (channel_type='email') drží login UPN (`identifier`) + SMTP alias (`display_identifier`) + Fernet-šifrované heslo + EWS server
+- **Security — login UPN je SECRET**: `identifier` se nikdy nesmí objevit v logu, v DB (`email_inbox.to_email`), v API response ani UI. Pro storage/logy se používá výhradně `display_identifier`. Fetcher personu se NULL `display_identifier` přeskočí s warningem.
+- **Task workflow (opt-in)**: email přijde → jen do inboxu (žádný auto-task). User v UI klikne "Navrhni odpověď" → `POST /inbox/{id}/suggest-reply` → task `source_type='email_inbox'` → worker → AI draft v `task.result_summary` → UI polluje `/draft` → prefill textarea. Cascade na `email_inbox.processed_at` u email tasku ZAMERNE vypnutá (draft ≠ uzavření — email zavře jen explicitní user action).
+- **Reply flow**: UI `POST /inbox/{id}/reply` → `queue_email()` + `mark processed` + cancel open tasks. Exchange odešle při dalším worker cyklu (do 60s).
+- **Header badge**: druhý řádek hlavičky zobrazuje kombinovaný neprečtený count (email + SMS) + **⟳ Fetch now** tlačítko (manuální trigger `POST /email/fetch-all`, nemusíš čekat 60s). Polling `/api/v1/notifications/unread-counts` po 30s.
+- **Email modal** (klik na badge): 3 taby Příchozí/Zpracované/Odeslané, sdílí `.sms-modal-*` CSS. Tlačítka per email: Navrhni odpověď / Odpovědět / Označit zpracované.
+- **AI tool `list_email_inbox(limit, filter_mode)`** — vrátí číslovaný seznam emailů aktivní persony (filter: new/processed/all).
+- Diagnostika: `python -m poetry run python scripts/_diag_email_pipeline.py` (read-only overview persona_channels + email_inbox + email_outbox).
 
 **Repo hygiene** ✅
 - `__pycache__` / `*.pyc` v .gitignore (od commit 7c6322a)
@@ -153,6 +167,9 @@ AI má k dispozici nástroje v `modules/conversation/application/tools.py`:
 **Email, SMS & lidé:**
 - `send_email(to, subject, body)` — preview → potvrzení → EWS odeslání
 - `send_sms(to, body)` — preview → potvrzení → outbox → Android gateway
+- `list_email_inbox(limit?, filter_mode?)` — přijaté emaily aktivní persony (filter: `new` / `processed` / `all`)
+- `list_sms_inbox(limit?, unread_only?)` — přijaté SMS aktivní persony
+- `list_missed_calls(limit?)` / `list_recent_calls(limit?)` — call log persony
 - `find_user(query)` — multi-source search v aktuálním tenantu (vrací i `preferred_phone`)
 - `list_users` — všichni aktivní v tenantu (číslovaný + selekce)
 - `invite_user(email, first_name, last_name?, gender?)` — pozvánka, odmítne aktivního
@@ -175,3 +192,4 @@ AI má k dispozici nástroje v `modules/conversation/application/tools.py`:
 - Vše auditované
 - AI vždy čeká na potvrzení před CONFIRM akcemi (email)
 - AI nikdy nevymýšlí emailové adresy — vždy přes find_user nebo se zeptá
+- **Login UPN v `persona_channels.identifier` je SECRET** — nikdy se nesmí objevit v logu, DB (`email_inbox.to_email` / `email_outbox.to_email`), API response ani UI. Autentizace proti Exchange je jediná cesta, kde se UPN používá (uvnitř `_get_account` / `_connect_account`). Pro storage, logy a UI se používá výhradně `display_identifier` (SMTP alias).

@@ -464,17 +464,30 @@ def delete_task(user_id: int, task_id: int) -> None:
 
 def _maybe_mark_source_processed(ds, task: Task, now: datetime) -> bool:
     """
-    Pokud je `task` napojen na zdroj (sms_inbox/email_inbox) a po jeho prechodu
-    na 'done' uz nezbyva zadny dalsi open/in_progress task nad tim samym
-    zdrojem, nastavi source.processed_at = now.
+    Pokud je `task` napojen na zdroj (sms_inbox) a po jeho prechodu na 'done'
+    uz nezbyva zadny dalsi open/in_progress task nad tim samym zdrojem,
+    nastavi source.processed_at = now.
 
-    Email zatim neimplementovan (PR 2) -- jen sms_inbox.
+    POZOR K EMAILUM: u email_inbox se cascade ZAMERNE NEDELA. Task u emailu
+    je opt-in ("Navrhni odpoved") a jeho vysledek je jen DRAFT -- email
+    zavrit musi user explicitne pres reply-send nebo mark-processed.
+    Kdyby cascade tu byla, email by zmizel z 'Prichozi' jakmile AI dobehne
+    s draftem, uz driv nez ho user vidi.
+
+    Helper _cascade_email zustava v kodu pro pripadne budouci pouziti
+    (napr. kdyby prisel scenar "automaticky odeslat AI draft bez user
+    potvrzeni" -- dnes se nepouziva).
 
     Vraci True pokud k cascade doslo.
     """
-    if task.source_type != "sms_inbox" or task.source_id is None:
-        return False
+    if task.source_type == "sms_inbox" and task.source_id is not None:
+        return _cascade_sms(ds, task, now)
+    # Email cascade by default DISABLED -- viz docstring.
+    return False
 
+
+def _cascade_sms(ds, task: Task, now: datetime) -> bool:
+    """Cascade dokonceni tasku -> sms_inbox.processed_at."""
     remaining = (
         ds.query(Task)
         .filter(
@@ -490,11 +503,36 @@ def _maybe_mark_source_processed(ds, task: Task, now: datetime) -> bool:
 
     sms = ds.query(SmsInbox).filter_by(id=task.source_id).first()
     if sms is None:
-        # SMS mezitim smazana (edge case) -- nic nedelame.
         return False
     if sms.processed_at is not None:
-        # Uz bylo zpracovano (napr. manual mark-processed). Idempotentne.
         return False
 
     sms.processed_at = now
+    return True
+
+
+def _cascade_email(ds, task: Task, now: datetime) -> bool:
+    """Cascade dokonceni tasku -> email_inbox.processed_at."""
+    from modules.core.infrastructure.models_data import EmailInbox
+
+    remaining = (
+        ds.query(Task)
+        .filter(
+            Task.source_type == "email_inbox",
+            Task.source_id == task.source_id,
+            Task.id != task.id,
+            Task.status.in_(["open", "in_progress"]),
+        )
+        .count()
+    )
+    if remaining > 0:
+        return False
+
+    email = ds.query(EmailInbox).filter_by(id=task.source_id).first()
+    if email is None:
+        return False
+    if email.processed_at is not None:
+        return False
+
+    email.processed_at = now
     return True

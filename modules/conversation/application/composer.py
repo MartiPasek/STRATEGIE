@@ -21,7 +21,14 @@ from modules.core.infrastructure.models_data import Message, ConversationSummary
 logger = get_logger("conversation.composer")
 
 DEFAULT_SYSTEM_PROMPT = "Jsi neutrální asistent. Odpovídej věcně a srozumitelně."
-MAX_TOKENS = 6000
+# Max tokenu pro historii zprav (recent messages vrstva, PO summary bodu).
+# Claude Sonnet 4.6 ma 200k context window -- nechavame 150k na history, zbytek
+# je buffer pro system prompt + persona + user context + tools + safety margin.
+# Historicky bylo 6000 -- to ale vedlo k agresivnimu orezani historie u konverzaci
+# delsich nez ~15 zprav a AI "zapominala" na starsi zpravy i kdyz summary byl
+# k dispozici. Sonnet 4.6 v pohode utahne 150k, Haiku 4.5 pokud bude kdy pouzity
+# take.
+MAX_TOKENS = 150_000
 CHARS_PER_TOKEN = 4
 
 

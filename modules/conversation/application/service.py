@@ -25,7 +25,11 @@ from modules.core.infrastructure.models_data import ActionLog, Message, PendingA
 
 logger = get_logger("conversation")
 
-MODEL = "claude-haiku-4-5-20251001"
+# Hlavni model pro chat + tool loop. Sonnet 4.6 ma 200k context window a znacne
+# lepsi contextual reasoning nez Haiku -- drzi vlakno konverzace i pres desitky
+# zprav. Pro title_service / summary_service / klasifikatory zustava Haiku (tam
+# staci rychlost + nizka cena, reasoning quality neni kriticky).
+MODEL = "claude-sonnet-4-6"
 
 CONFIRM_KEYWORDS = {
     # jednoslovná potvrzení
@@ -1887,7 +1891,7 @@ def chat(
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=4096,
         system=system_prompt,
         messages=messages,
         tools=effective_tools,
@@ -1938,7 +1942,7 @@ def chat(
         logger.info(f"TOOL_LOOP | synthesis call | tools={[b.name for b,_ in tool_invocations]}")
         synthesis_response = client.messages.create(
             model=MODEL,
-            max_tokens=1024,
+            max_tokens=4096,
             system=system_prompt,
             messages=follow_up_messages,
             tools=effective_tools,

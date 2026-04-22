@@ -34,14 +34,25 @@ from modules.core.infrastructure.models_data import (
 
 logger = get_logger("conversation.summary")
 
-SUMMARY_THRESHOLD = 10       # min. počet nových zpráv, aby se summary spustilo
+# Threshold: kdy zacit tvorit summary. Drive 10 zprav, coz vedlo k agresivni
+# kompresi uz u kratkych konverzaci (3 vety misto 10 zprav = ztrata detailu).
+# S Sonnet 4.6 a 150k context window je realne zvednout threshold vyrazne --
+# pouzijeme 50 zprav, kdy uz i recent history muze zacit tlacit na kontext
+# buffer. Do te doby Composer spokojene vezme plnou historii.
+SUMMARY_THRESHOLD = 50
 SUMMARY_MODEL = "claude-haiku-4-5-20251001"
-SUMMARY_MAX_OUTPUT_TOKENS = 300
+# Output: zvyseno z 300 na 1500 tokenu. 3 vety byly nedostatecne pro e-mailova
+# zadani / multi-step pokyny, kde zanikaly konkretni parametry (koho, co, kdy).
+# 1500 tokenu = ~10-15 vet shrnuti, prostor i pro vyjmenovani klicovych entit.
+SUMMARY_MAX_OUTPUT_TOKENS = 1500
 
 SUMMARY_SYSTEM_PROMPT = (
-    "Shrň následující konverzaci stručně a věcně. "
-    "Zachyť hlavní témata, rozhodnutí a důležité informace. "
-    "Neopakuj detaily ani zdvořilosti. Maximálně 3 věty."
+    "Shrň následující konverzaci věcně a s KONKRÉTNÍMI DETAILY. "
+    "Zachyť všechna jména, emaily, telefonní čísla, data, částky a rozhodnutí, "
+    "o kterých se mluvilo. Uveď, co uživatel po AI chtěl, co AI slíbila a co "
+    "ještě nebylo dokončeno (otevřené úkoly / pendingy). "
+    "Neopakuj zdvořilosti ani malé fragmenty. "
+    "Rozsah: ideálně 8-15 vět — raději detailněji než zkratkovitě."
 )
 
 

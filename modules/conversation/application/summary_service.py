@@ -36,10 +36,15 @@ logger = get_logger("conversation.summary")
 
 # Threshold: kdy zacit tvorit summary. Drive 10 zprav, coz vedlo k agresivni
 # kompresi uz u kratkych konverzaci (3 vety misto 10 zprav = ztrata detailu).
-# S Sonnet 4.6 a 150k context window je realne zvednout threshold vyrazne --
-# pouzijeme 50 zprav, kdy uz i recent history muze zacit tlacit na kontext
-# buffer. Do te doby Composer spokojene vezme plnou historii.
-SUMMARY_THRESHOLD = 50
+# S Sonnet 4.6 a 150k context window je realne summary v podstate vypnout
+# pro typicke uzivatelske konverzace -- 500 zprav je hraniční cislo, ktere
+# realne nikdo v jednom vlakne nedosahne, a Sonnet zvladne cely kontext bez
+# komprese. Cilove UX: nikdy neztracet presne zneni zprav (emaily, SMS drafty,
+# konkretni dohody), ktere byly nedavno domluvene.
+#
+# Pokud by se projevovalo tlaceni na context window (extremne dlouhe
+# konverzace, velke dokumenty v historii), zniz threshold zpet na 50-100.
+SUMMARY_THRESHOLD = 500
 SUMMARY_MODEL = "claude-haiku-4-5-20251001"
 # Output: zvyseno z 300 na 1500 tokenu. 3 vety byly nedostatecne pro e-mailova
 # zadani / multi-step pokyny, kde zanikaly konkretni parametry (koho, co, kdy).

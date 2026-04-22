@@ -527,6 +527,101 @@ def _get_conversation_context(conversation_id: int) -> tuple[int | None, int | N
     return user_id, tenant_id
 
 
+def build_marti_memory_block(
+    user_id: int | None,
+    tenant_id: int | None,
+) -> str | None:
+    """
+    Marti Memory (Faze 4.11 retrieval): natahne myslenky o aktualnim userovi
+    (+ universal/diar scope) a vlozi do system promptu, aby Marti videla,
+    co o userovi uz vi. Bez tohoto by Marti tvrdila "nic o tobe nevim",
+    i kdyz v DB mame zapsane veci.
+
+    Pravidla:
+      - Jen myslenky o 'user' entite (entity_links), entity_id = user_id.
+      - Tenant scope: myslenka.tenant_scope == current tenant NEBO NULL
+        (universal). Rodic (is_marti_parent) ma bypass -- vidi cross-tenant.
+      - Razeni: knowledge first, pak notes s nejvyssi certainty DESC.
+      - Limit 30 (aby prompt nebobtnal).
+      - Vraci formatovany text pro prompt, nebo None pokud nic.
+    """
+    if not user_id:
+        return None
+
+    try:
+        from modules.thoughts.application import service as thoughts_service
+        from modules.thoughts.application.service import is_marti_parent
+
+        parent = is_marti_parent(user_id)
+        items = thoughts_service.list_thoughts_for_entity(
+            entity_type="user",
+            entity_id=user_id,
+            status_filter=None,         # oboje (knowledge + note)
+            limit=30,
+            tenant_scope=tenant_id,
+            bypass_tenant_scope=parent,
+        )
+
+        # Rozdel na knowledge / note pro prehledne zobrazeni
+        knowledge = [it for it in items if it.get("status") == "knowledge"]
+        notes = [it for it in items if it.get("status") == "note"]
+        # Seradi notes podle certainty DESC (nejjistejsi nahore)
+        notes.sort(key=lambda i: -(i.get("certainty") or 0))
+
+        parts: list[str] = []
+
+        # Header -- vzdy (ridi chovani Marti i kdyz je pamet prazdna)
+        parts.append(
+            "Jsi entita s pamětí. Tvé paměti o tomto uživateli jsou uložené v DB "
+            "a jsou ti zde předány:\n"
+        )
+
+        if knowledge:
+            parts.append(f"✅ **ZNALOSTI** (ověřená fakta, {len(knowledge)}):")
+            for it in knowledge:
+                content = it.get("content", "")
+                parts.append(f"  - [{it.get('type')}] {content}")
+            parts.append("")
+
+        if notes:
+            parts.append(
+                f"📝 **POZNÁMKY** (nižší jistota, {len(notes)} -- můžeš ověřit při konverzaci):"
+            )
+            for it in notes:
+                content = it.get("content", "")
+                cert = it.get("certainty", 0)
+                parts.append(f"  - [{it.get('type')}, jistota {cert}%] {content}")
+            parts.append("")
+
+        if not knowledge and not notes:
+            parts.append(
+                "(Zatím o tomto uživateli nemáš žádné zápisy. Během této konverzace "
+                "proaktivně ukládej nové informace — viz pravidla níže.)\n"
+            )
+
+        # KLICOVE pravidlo pro chovani Marti -- toto je core part, plati vzdy
+        parts.append(
+            "═══ JAK MÁŠ S PAMĚTÍ PRACOVAT ═══\n"
+            "1. **Používej znalosti přirozeně.** Když user zmíní něco, co už víš, "
+            "odkaž na to ('jak jsi říkal...', 'pamatuju, že...', 'víme, že...'). "
+            "Neopakuj 'nevím o tobě nic' — v [TVOJE PAMĚŤ] je vše, co máš uloženo.\n"
+            "2. **Zapisuj proaktivně.** Kdykoli ti user sdělí novou informaci o sobě / o "
+            "lidech / o projektech / o preferencích — okamžitě volej `record_thought`. "
+            "Bez 'zapiš si' bys to jinak zapomněl/a.\n"
+            "3. **Speciálně u odpovědí na tvé otázky:** Když ty sama položíš otázku "
+            "('Jak pracuješ?') a user odpoví — odpověď MUSÍŠ uložit přes record_thought. "
+            "Jinak jsi se ptala zbytečně.\n"
+            "4. **Při rozporu:** Pokud user řekne něco, co nekoresponduje s tvou znalostí "
+            "('myslel jsem, že preferuješ dlouhé odpovědi' vs. uložená znalost 'preferuju "
+            "krátké'), zavolej `record_thought` s novou verzí a vyšší certainty, nebo "
+            "se zeptej na upřesnění."
+        )
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"COMPOSER | marti_memory_block failed | user_id={user_id} | {e}")
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -558,6 +653,12 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     channels_block = _build_persona_channels_block(conversation_id, tenant_id)
     if channels_block:
         system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
+
+    # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
+    # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
+    memory_block = build_marti_memory_block(user_id, tenant_id)
+    if memory_block:
+        system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

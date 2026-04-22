@@ -973,6 +973,104 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"_Odkazy: {entity_descr}_"
         )
 
+    if tool_name == "recall_thoughts":
+        # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import (
+            ThoughtValidationError, is_marti_parent,
+        )
+
+        # Zjisti tenant scope pro rozlozeni vysledku
+        tenant_id_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_rt
+            from modules.core.infrastructure.models_core import User as _U_rt
+            _cs = _gcs_rt()
+            try:
+                _u = _cs.query(_U_rt).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+        parent = is_marti_parent(user_id)
+
+        limit = int(tool_input.get("limit") or 20)
+        limit = max(1, min(limit, 100))
+        status_filter = tool_input.get("status_filter")
+        if status_filter not in (None, "note", "knowledge"):
+            status_filter = None
+
+        # Zjisti entitu (prvni neprazdna about_*)
+        entity_type: str | None = None
+        entity_id: int | None = None
+        for et, param in [
+            ("user", "about_user_id"),
+            ("persona", "about_persona_id"),
+            ("tenant", "about_tenant_id"),
+            ("project", "about_project_id"),
+        ]:
+            v = tool_input.get(param)
+            if v:
+                entity_type = et
+                entity_id = int(v)
+                break
+
+        query = (tool_input.get("query") or "").strip()
+
+        try:
+            items: list[dict] = []
+            if entity_type and entity_id:
+                items = _thoughts_service.list_thoughts_for_entity(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    status_filter=status_filter,
+                    limit=limit,
+                    tenant_scope=tenant_id_for_search,
+                    bypass_tenant_scope=parent,
+                )
+            elif query:
+                items = _thoughts_service.find_thought_by_text(
+                    query,
+                    tenant_scope=None if parent else tenant_id_for_search,
+                    limit=limit,
+                )
+                if status_filter:
+                    items = [i for i in items if i.get("status") == status_filter]
+            else:
+                return "❌ Musíš dodat alespoň jednu z about_* položek nebo query."
+        except ThoughtValidationError as e:
+            return f"❌ Chyba: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | recall_thoughts | error={e!r}", exc_info=True)
+            return "❌ Nelze načíst myšlenky (chyba serveru — detail v logu)."
+
+        if not items:
+            scope_descr = f"{entity_type}#{entity_id}" if entity_type else f"query='{query}'"
+            return f"📭 Nemám žádné zápisky pro {scope_descr}."
+
+        # Rozdel na knowledge / note
+        knowledge = [i for i in items if i.get("status") == "knowledge"]
+        notes = [i for i in items if i.get("status") == "note"]
+        notes.sort(key=lambda i: -(i.get("certainty") or 0))
+
+        lines: list[str] = []
+        scope_descr = f"{entity_type}#{entity_id}" if entity_type else f"vyhledávání '{query}'"
+        lines.append(f"🧠 Paměť pro {scope_descr} ({len(items)} zápisů):")
+        lines.append("")
+        if knowledge:
+            lines.append(f"✅ Znalosti ({len(knowledge)}):")
+            for it in knowledge:
+                lines.append(f"  - [{it.get('type')}] {it.get('content')}")
+            lines.append("")
+        if notes:
+            lines.append(f"📝 Poznámky ({len(notes)}):")
+            for it in notes:
+                lines.append(
+                    f"  - [{it.get('type')}, jistota {it.get('certainty', 0)}%] "
+                    f"{it.get('content')}"
+                )
+        return "\n".join(lines)
+
     if tool_name == "promote_thought":
         # Marti Memory -- Faze 2: manualni promoce note -> knowledge z chatu.
         from modules.thoughts.application import service as _thoughts_service
@@ -2183,7 +2281,7 @@ def chat(
     # find_user je v synthesis mode, protoze casto slouzi jako precursor
     # pro dalsi akce (record_thought, send_email, switch_persona) -- Claude
     # musi dostat sanci chainit.
-    SYNTHESIS_TOOLS = {"search_documents", "find_user"}
+    SYNTHESIS_TOOLS = {"search_documents", "find_user", "recall_thoughts"}
 
     preamble_text = ""
     tool_invocations: list[tuple] = []   # list of (block, tool_result_str)

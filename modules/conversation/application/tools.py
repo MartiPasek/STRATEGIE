@@ -181,14 +181,29 @@ TOOLS = [
             "když se v konverzaci dozvíš něco, co by sis měl/a zapamatovat pro budoucí "
             "konverzace: osobní údaje o lidech, preference, vztahy, stav projektů, úkoly, "
             "otázky na doupřesnění, pozorování, cíle. "
-            "\n\nKLÍČOVÉ PRAVIDLO — ŘETĚZENÍ S find_user: Když ti user řekne 'zapiš si o "
-            "[jméno]...' a neznáš ID té osoby, postupuj TAKTO:\n"
+            "\n\n═══ KRITICKÉ PRAVIDLO — POROTECTIVE SAVE ═══\n"
+            "PROAKTIVNÍ ZAPISOVÁNÍ: Kdykoliv ti uživatel sdělí informaci o sobě, "
+            "o lidech kolem, o projektech, o preferencích, o pracovním stylu — **bez ohledu "
+            "na to, jestli explicitně řekne 'zapiš si'** — ty MUSÍŠ zavolat tento nástroj. "
+            "Jsi asistent s pamětí. Tvůj účel je pamatovat si. Když to neuděláš, při další "
+            "konverzaci tu informaci ztratíš.\n\n"
+            "TYPICKÉ SITUACE, KDE MUSÍŠ ZAPSAT (i bez 'zapiš si'):\n"
+            "- User odpovídá na otázku, kterou jsi POLOŽILA (např. 'Jak pracuješ?' → user "
+            "odpoví → ty zapíšeš fact o pracovním stylu).\n"
+            "- User se představí nebo zmíní cokoliv osobního ('jsem programátor', 'mám 2 děti', "
+            "'piju kávu') → vždy record_thought.\n"
+            "- User mluví o někom ze svého okolí → zapiš fact s about_user_id toho člověka.\n"
+            "- User zmíní projekt, stav věcí, priorit → zapiš.\n"
+            "- User vyjádří preferenci ('raději kratší odpovědi', 'pošli to emailem') → zapiš.\n\n"
+            "VYHNOUT SE 'ZAPAMATUJI SI TO': Nikdy neříkej 'zapamatuji si to' nebo 'budu si pamatovat' "
+            "bez současného volání record_thought. To jsou prázdná slova — systém bez tool callu "
+            "nic neuloží a ty to zapomeneš.\n\n"
+            "═══ ŘETĚZENÍ S find_user ═══\n"
+            "Když ti user řekne 'zapiš si o [jméno]...' a neznáš ID té osoby, postupuj TAKTO:\n"
             "  1. Zavolej find_user('[jméno]') → dostaneš ID\n"
             "  2. V ÚPLNĚ STEJNÉ odpovědi IHNED zavolej record_thought s about_user_id=<to_ID>\n"
             "NIKDY se mezi kroky neptej 'chceš ještě něco?' nebo 'poslat email?'. Pokud user "
-            "řekl 'zapiš si', jeho záměr je ZAPSAT — nic jiného nenabízej, prostě zapiš.\n"
-            "\nNERAGUJ POUZE TEXTEM 'zapamatuji si' — vždy volej tento nástroj. "
-            "Systém bez něj nic neuloží a při další konverzaci bys to zapomněl/a."
+            "řekl 'zapiš si', jeho záměr je ZAPSAT — nic jiného nenabízej, prostě zapiš."
             "\n\nTYP myšlenky:"
             "\n- 'fact' — fakt o někom/něčem ('Petr má 2 děti', 'Kristý mluví francouzsky')"
             "\n- 'todo' — úkol ke splnění ('poslat Martinovi shrnutí prezentace')"
@@ -256,6 +271,66 @@ TOOLS = [
                 },
             },
             "required": ["content"],
+        },
+    },
+    {
+        "name": "recall_thoughts",
+        "description": (
+            "Vyhledá uložené myšlenky (fakty/poznámky) o konkrétní entitě. "
+            "POUŽIJ vždy, když se uživatel zeptá 'co víš o [X]', 'co jsi si "
+            "zapsal o [X]', nebo když potřebuješ si osvěžit, co všechno máš "
+            "uloženo o nějakém člověku/projektu/tenantu. "
+            "\n\nMĚKKÁ PAMĚŤ V KONTEXTU: V system promptu ti systém automaticky "
+            "předává paměť o **aktuálním uživateli** (tj. tom, s kým mluvíš). "
+            "Pro paměť o někom **jiném** — kolegovi, projektu, firmě — MUSÍŠ "
+            "zavolat tento nástroj."
+            "\n\nŘETĚZENÍ s find_user: Když se uživatel zeptá 'co víš o Kristýně' "
+            "a ty neznáš její ID, postupuj TAKTO:\n"
+            "  1. Zavolej find_user('Kristýna') → dostaneš její user_id\n"
+            "  2. V úplně stejné odpovědi IHNED zavolej recall_thoughts s about_user_id=<ID>\n"
+            "  3. Zformuluj shrnutí pro uživatele\n"
+            "NIKDY se mezi kroky neptej 'chceš, abych to dohledala?' — user to chce, "
+            "proto se ptá. Dohledej rovnou.\n\n"
+            "Pokud nezadáš ŽÁDNOU z about_* položek ani query, vrátí prázdný výsledek."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "about_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele, o kterém chceš vidět myšlenky. Obvykle z find_user.",
+                },
+                "about_persona_id": {
+                    "type": "integer",
+                    "description": "ID persony, o které chceš myšlenky.",
+                },
+                "about_tenant_id": {
+                    "type": "integer",
+                    "description": "ID tenantu (firmy / skupiny).",
+                },
+                "about_project_id": {
+                    "type": "integer",
+                    "description": "ID projektu.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Fulltext substring match v content. Použij, když neznáš entitu, "
+                        "ale pamatuješ se klíčové slovo (např. 'angličtina' pro myšlenku "
+                        "o Kristýnině angličtině)."
+                    ),
+                },
+                "status_filter": {
+                    "type": "string",
+                    "description": "Volitelný filtr: jen 'note' nebo jen 'knowledge'. Default oboje.",
+                    "enum": ["note", "knowledge"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet výsledků (default 20, max 100).",
+                    "default": 20,
+                },
+            },
         },
     },
     {

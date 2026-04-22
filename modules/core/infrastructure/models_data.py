@@ -455,3 +455,100 @@ class EmailOutbox(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── MARTI MEMORY: THOUGHTS + ENTITY LINKS ──────────────────────────────────
+
+class Thought(BaseData):
+    """
+    Zakladni atom Martiho pameti (viz docs/marti_memory_design.md).
+
+    Faze 1 (aktualni): pouziva content, type, author_*, source_*, created_at,
+    deleted_at. Ostatni pole jsou v schematu pro pozdejsi faze (zadne
+    migrace se pak nebudou delat).
+
+    type: fact | todo | observation | question | goal | experience
+      Type-specific fields v `meta` JSON:
+        fact        -> {}
+        todo        -> {"done": bool, "due_at": iso-str}
+        observation -> {"event_at": iso-str}
+        question    -> {"answered_at": iso-str, "answered_by_user_id": int,
+                        "answer_content": str}
+        goal        -> {"progress_percent": int, "milestones": [...]}
+        experience  -> {"emotion": str, "intensity": int 1-10}
+
+    status: note (pracovni poznamka) | knowledge (trvala znalost).
+      Faze 1 zapisuje vse jako 'note'. Povyseni na 'knowledge' prijde v Faze 2.
+
+    certainty: 0-100, v Fazi 1 default 50. V Fazi 3 ridi auto-promoci (>=80).
+
+    primary_parent_id: self-referential FK. Pro UI strom navigaci (jeden parent
+      per myslenka pro zobrazeni); cross-reference k vice entitam resi
+      ThoughtEntityLink.
+
+    tenant_scope: NULL = universal (Martiho diar v Faze 5+), jinak id tenantu.
+
+    Provenance:
+      author_user_id / author_persona_id -- kdo myslenku zapsal
+      source_event_type / source_event_id -- z ceho vzesla (konverzace, email,
+        SMS, manual, ai_inferred)
+
+    Soft delete: deleted_at NOT NULL = smazana. Service vzdy filtruje
+    deleted_at IS NULL.
+    """
+    __tablename__ = "thoughts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Core content
+    content: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(String(30))
+
+    # Status & certainty
+    status: Mapped[str] = mapped_column(String(20), default="note")
+    certainty: Mapped[int] = mapped_column(Integer, default=50)
+
+    # Tree structure (self-referential)
+    primary_parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Tenant isolation
+    tenant_scope: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Provenance
+    author_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    author_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_event_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    source_event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Type-specific fields (JSON)
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ThoughtEntityLink(BaseData):
+    """
+    Many-to-many vazba mezi myslenkami a entitami (user/persona/tenant/project).
+
+    Myslenka 'Petr pracuje na STRATEGII v EUROSOFTU' bude mit 3 linky:
+      (thought_id=X, entity_type='user',    entity_id=petr_id)
+      (thought_id=X, entity_type='project', entity_id=strategie_id)
+      (thought_id=X, entity_type='tenant',  entity_id=eurosoft_id)
+
+    entity_type: 'user' | 'persona' | 'tenant' | 'project'
+    entity_id: odpovidajici id (FK bez constraintu -- zachovame flexibilitu
+                                napric css_db / data_db)
+
+    UNIQUE (thought_id, entity_type, entity_id) -- zabrani duplikum.
+    Pro retrieval "vse o entite X" -- ix_entity.
+    """
+    __tablename__ = "thought_entity_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thought_id: Mapped[int] = mapped_column(BigInteger)
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

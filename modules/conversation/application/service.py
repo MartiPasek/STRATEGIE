@@ -869,6 +869,96 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             lines.append(f"{i}. {mark}{sender} — {subj}  ({ts})")
         return "\n".join(lines)
 
+    if tool_name == "record_thought":
+        # Marti Memory -- Faze 1 (zapisovani myslenek do pameti).
+        # Viz docs/marti_memory_design.md a modules/thoughts/.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        content = (tool_input.get("content") or "").strip()
+        if not content:
+            return "❌ Myšlenka nebyla zapsána — chybí obsah (content)."
+
+        thought_type = tool_input.get("type") or "fact"
+        certainty = int(tool_input.get("certainty") or 50)
+        certainty = max(0, min(100, certainty))
+
+        # Sestav entity_links ze about_* parametru
+        entity_links: list[dict] = []
+        if tool_input.get("about_user_id"):
+            entity_links.append({
+                "entity_type": "user",
+                "entity_id": int(tool_input["about_user_id"]),
+            })
+        if tool_input.get("about_persona_id"):
+            entity_links.append({
+                "entity_type": "persona",
+                "entity_id": int(tool_input["about_persona_id"]),
+            })
+        if tool_input.get("about_tenant_id"):
+            entity_links.append({
+                "entity_type": "tenant",
+                "entity_id": int(tool_input["about_tenant_id"]),
+            })
+        if tool_input.get("about_project_id"):
+            entity_links.append({
+                "entity_type": "project",
+                "entity_id": int(tool_input["about_project_id"]),
+            })
+
+        if not entity_links:
+            return (
+                "❌ Myšlenka nebyla zapsána — musíš uvést aspoň jednu entitu "
+                "(`about_user_id`, `about_persona_id`, `about_tenant_id` nebo "
+                "`about_project_id`). Jinak bych ji později nenašla."
+            )
+
+        # Provenance: Marti je autor (persona), konverzace je zdroj
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        tenant_id_for_scope: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_t
+            from modules.core.infrastructure.models_core import User as _U_t
+            _cs = _gcs_t()
+            try:
+                _u = _cs.query(_U_t).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id_for_scope = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        try:
+            result = _thoughts_service.create_thought(
+                content=content,
+                type=thought_type,
+                entity_links=entity_links,
+                author_user_id=None,            # AI zapisuje, ne human
+                author_persona_id=persona_id,
+                source_event_type="conversation",
+                source_event_id=conversation_id,
+                tenant_scope=tenant_id_for_scope,
+                certainty=certainty,
+                status="note",                  # Faze 1: vse jako poznamka
+            )
+        except ThoughtValidationError as e:
+            return f"❌ Myšlenka se nezapsala: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | record_thought | error={e!r}", exc_info=True)
+            return "❌ Myšlenka se nezapsala (chyba serveru — detail v logu)."
+
+        entity_descr = ", ".join(
+            f"{l['entity_type']}#{l['entity_id']}" for l in entity_links
+        )
+        type_icon = {
+            "fact": "📝", "todo": "✓", "observation": "👁",
+            "question": "❓", "goal": "🎯", "experience": "💭",
+        }.get(thought_type, "📝")
+        return (
+            f"{type_icon} Zapsáno do paměti (id={result['id']}, typ={thought_type}, "
+            f"jistota={certainty}%): \"{content[:80]}{'…' if len(content) > 80 else ''}\"\n"
+            f"_Odkazy: {entity_descr}_"
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -1298,31 +1388,37 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 f"Chceš ho/ji pozvat? (pokud znáš email)"
             )
 
-        # 1 výsledek — přímá odpověď
+        # 1 výsledek — vrátíme data včetně user_id (bez nabízení dalších akcí,
+        # aby AI mohla pokračovat v ORIGINÁLNÍM záměru, např. record_thought).
         if len(candidates) == 1:
             c = candidates[0]
             name = c.get("display_name") or c.get("full_name") or "—"
             email = c.get("preferred_email") or "(bez emailu)"
+            uid = c.get("user_id")
             role = c.get("role_label")
             role_part = f", {role}" if role else ""
             return (
-                f"✅ {name}{role_part} je v aktuálním tenantu.\n"
-                f"Email: {email}\n\n"
-                f"Chceš poslat email nebo přepnout na {name}-AI?"
+                f"✅ Nalezen: {name}{role_part}\n"
+                f"user_id: {uid}\n"
+                f"email: {email}\n"
+                f"_Pokračuj v záměru, se kterým jsi find_user volal/a "
+                f"(record_thought / send_email / switch_persona / ...)_"
             )
 
-        # 2+ výsledků — disambiguation
+        # 2+ výsledků — disambiguation. Dej AI i ID pro pripad ze user
+        # odpovi cislem a AI si rozhodne bez dalsiho volani find_user.
         lines = [f"Našel/a jsem {total} kandidátů odpovídajících '{query}':"]
         for i, c in enumerate(candidates, 1):
             name = c.get("display_name") or c.get("full_name") or "—"
             email = c.get("preferred_email") or "(bez emailu)"
+            uid = c.get("user_id")
             role = c.get("role_label")
             role_part = f" — {role}" if role else ""
-            lines.append(f"  {i}. {name}{role_part} ({email})")
+            lines.append(f"  {i}. {name}{role_part} ({email}) [user_id={uid}]")
         if result.get("has_more"):
             extra = total - len(candidates)
             lines.append(f"  ... a dalších {extra}. Zúpresni jméno.")
-        lines.append("\nKterého máš na mysli?")
+        lines.append("\nKterého máš na mysli? (Odpověz číslem, pak pokračuji v původní akci.)")
         return "\n".join(lines)
 
     if tool_name == "invite_user":
@@ -1985,10 +2081,15 @@ def chat(
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
     # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou
-    # uvedene nize -- pro ne udelame druhy Claude call s tool_result a Claude
-    # slozi konecnou odpoved. Ostatni tooly (list_users, send_email preview, ...)
-    # vraceji pre-formatovany text primo pouzitelny jako reply (jedno-pruchodove).
-    SYNTHESIS_TOOLS = {"search_documents"}
+    # uvedene nize -- pro ne AI dostane tool_result a muze (a) pokracovat
+    # v dalsich tool calls (multi-round loop), nebo (b) vratit finalni text.
+    # Ostatni tooly (list_users, send_email preview, ...) vraceji pre-formatovany
+    # text primo pouzitelny jako reply (jedno-pruchodove).
+    #
+    # find_user je v synthesis mode, protoze casto slouzi jako precursor
+    # pro dalsi akce (record_thought, send_email, switch_persona) -- Claude
+    # musi dostat sanci chainit.
+    SYNTHESIS_TOOLS = {"search_documents", "find_user"}
 
     preamble_text = ""
     tool_invocations: list[tuple] = []   # list of (block, tool_result_str)
@@ -2004,41 +2105,105 @@ def chat(
     needs_synthesis = any(b.name in SYNTHESIS_TOOLS for b, _ in tool_invocations)
 
     if needs_synthesis:
-        # Druhy pruchod -- pošli tool_result zpět Claude, at si slozí odpoved vlastnimi slovy.
-        # Bez tohoto by AI jen prepustila raw chunky do UI (staré chování).
-        assistant_content_blocks = []
+        # Multi-round tool loop -- Claude dostane tool_result a muze:
+        #   (a) zavolat dalsi tool (chain), napr. find_user -> record_thought
+        #   (b) vratit finalni text (loop skonci)
+        # Limit 5 round aby se v patologickem pripade nesmycklo.
+        MAX_TOOL_ROUNDS = 5
+
+        # Serialize prvni assistant response (preamble + tool calls)
+        initial_assistant_content = []
         for block in response.content:
             if block.type == "text":
-                assistant_content_blocks.append({"type": "text", "text": block.text})
+                initial_assistant_content.append({"type": "text", "text": block.text})
             elif block.type == "tool_use":
-                assistant_content_blocks.append({
+                initial_assistant_content.append({
                     "type": "tool_use",
                     "id": block.id,
                     "name": block.name,
                     "input": block.input,
                 })
-        tool_result_blocks = [
+        initial_tool_result_blocks = [
             {"type": "tool_result", "tool_use_id": b.id, "content": tresult}
             for b, tresult in tool_invocations
         ]
         follow_up_messages = messages + [
-            {"role": "assistant", "content": assistant_content_blocks},
-            {"role": "user", "content": tool_result_blocks},
+            {"role": "assistant", "content": initial_assistant_content},
+            {"role": "user", "content": initial_tool_result_blocks},
         ]
-        logger.info(f"TOOL_LOOP | synthesis call | tools={[b.name for b,_ in tool_invocations]}")
-        synthesis_response = client.messages.create(
-            model=MODEL,
-            max_tokens=4096,
-            system=system_prompt,
-            messages=follow_up_messages,
-            tools=effective_tools,
+        logger.info(
+            f"TOOL_LOOP | synthesis start | tools={[b.name for b,_ in tool_invocations]}"
         )
+
         assistant_reply = ""
-        for block in synthesis_response.content:
-            if block.type == "text":
-                assistant_reply += block.text
-        # Preamble (napr. "Zavolam si runbook...") zahazujeme -- synthesis je
-        # ten pravy finalni output, preamble byl jen Claude's "okamzity think".
+        for round_idx in range(MAX_TOOL_ROUNDS):
+            synth_response = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=follow_up_messages,
+                tools=effective_tools,
+            )
+
+            # Collect bloky z teto round: text + pripadne dalsi tool_use
+            round_text_parts: list[str] = []
+            round_tool_uses: list = []
+            round_assistant_content: list = []
+            for block in synth_response.content:
+                if block.type == "text":
+                    round_text_parts.append(block.text)
+                    round_assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    round_tool_uses.append(block)
+                    round_assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+
+            if not round_tool_uses:
+                # Claude skoncil s voláním tools -- finálni text je reply
+                assistant_reply = "".join(round_text_parts)
+                logger.info(
+                    f"TOOL_LOOP | synthesis done | round={round_idx+1} | "
+                    f"reply_len={len(assistant_reply)}"
+                )
+                break
+
+            # Dalsi tools -- vykonej a pokračuj v dalsim round
+            round_tool_names = [b.name for b in round_tool_uses]
+            logger.info(
+                f"TOOL_LOOP | chain | round={round_idx+1} | tools={round_tool_names}"
+            )
+            round_tool_results = []
+            for block in round_tool_uses:
+                tresult = _handle_tool(
+                    block.name, block.input, conversation_id, user_id=user_id,
+                )
+                round_tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": tresult,
+                })
+
+            follow_up_messages.append({
+                "role": "assistant", "content": round_assistant_content,
+            })
+            follow_up_messages.append({
+                "role": "user", "content": round_tool_results,
+            })
+        else:
+            # Vycerpali jsme MAX_TOOL_ROUNDS a stale volal tools. Safety fallback.
+            logger.warning(
+                f"TOOL_LOOP | max_rounds_reached ({MAX_TOOL_ROUNDS}) | "
+                f"conv={conversation_id}"
+            )
+            if not assistant_reply:
+                assistant_reply = (
+                    "[Dosáhla jsem limitu tool volání v jednom kole — "
+                    "zkus mi to rozdelit na mensi kroky.]"
+                )
     else:
         # Stare chovani: text preamble + tool result jako finalni odpoved.
         assistant_reply = preamble_text

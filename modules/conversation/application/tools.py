@@ -174,6 +174,89 @@ TOOLS = [
         },
     },
     {
+        "name": "record_thought",
+        "description": (
+            "Zapíše myšlenku do Martiho paměti — trvalou strukturovanou poznámku o lidech, "
+            "tenantech, projektech, nebo o čemkoliv, co si chceš pamatovat. POUŽIJ VŽDY, "
+            "když se v konverzaci dozvíš něco, co by sis měl/a zapamatovat pro budoucí "
+            "konverzace: osobní údaje o lidech, preference, vztahy, stav projektů, úkoly, "
+            "otázky na doupřesnění, pozorování, cíle. "
+            "\n\nKLÍČOVÉ PRAVIDLO — ŘETĚZENÍ S find_user: Když ti user řekne 'zapiš si o "
+            "[jméno]...' a neznáš ID té osoby, postupuj TAKTO:\n"
+            "  1. Zavolej find_user('[jméno]') → dostaneš ID\n"
+            "  2. V ÚPLNĚ STEJNÉ odpovědi IHNED zavolej record_thought s about_user_id=<to_ID>\n"
+            "NIKDY se mezi kroky neptej 'chceš ještě něco?' nebo 'poslat email?'. Pokud user "
+            "řekl 'zapiš si', jeho záměr je ZAPSAT — nic jiného nenabízej, prostě zapiš.\n"
+            "\nNERAGUJ POUZE TEXTEM 'zapamatuji si' — vždy volej tento nástroj. "
+            "Systém bez něj nic neuloží a při další konverzaci bys to zapomněl/a."
+            "\n\nTYP myšlenky:"
+            "\n- 'fact' — fakt o někom/něčem ('Petr má 2 děti', 'Kristý mluví francouzsky')"
+            "\n- 'todo' — úkol ke splnění ('poslat Martinovi shrnutí prezentace')"
+            "\n- 'observation' — kontextové pozorování ('Marti byl dnes nervózní před prezentací')"
+            "\n- 'question' — otázka, na kterou čekám odpověď ('je Ondra hospitalizován?')"
+            "\n- 'goal' — dlouhodobý cíl ('naučit se český vokativ')"
+            "\n- 'experience' — významný zážitek ('úspěšná prezentace 22.4.2026, tým oslavoval')"
+            "\n\nPŘIŘADIT K ENTITÁM: alespoň jeden about_* parametr MUSÍŠ vyplnit (jinak myšlenka "
+            "nebude dostupná při retrievalu). Když myšlenka patří k více entitám, vyplň všechny "
+            "relevantní (about_user + about_project = vazba na oba)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Vlastní text myšlenky (stručně, jako bys psal do zápisníku).",
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Typ myšlenky (viz description).",
+                    "enum": ["fact", "todo", "observation", "question", "goal", "experience"],
+                    "default": "fact",
+                },
+                "about_user_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID uživatele, ke kterému se myšlenka vztahuje. Pokud neznáš ID, "
+                        "NEJDŘÍV zavolej find_user pro vyhledání. Nevymýšlej si ID."
+                    ),
+                },
+                "about_persona_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID persony (agenta), ke které se myšlenka vztahuje. Typicky "
+                        "pro poznámky o tobě samotné (Marti-AI) nebo o jiných agentech."
+                    ),
+                },
+                "about_tenant_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID tenantu (firmy / skupiny), ke kterému se myšlenka vztahuje. "
+                        "Např. 'EUROSOFT má 3 divize' = poznámka o tenantu."
+                    ),
+                },
+                "about_project_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID projektu, ke kterému se myšlenka vztahuje. Např. 'STRATEGIE "
+                        "potřebuje refactor email modulu' = poznámka o projektu."
+                    ),
+                },
+                "certainty": {
+                    "type": "integer",
+                    "description": (
+                        "Jistota myšlenky 0-100. 30=slyšela jsem poprvé, nejsem si jistá. "
+                        "50=neutrální default. 80=docela jistá. 100=rodič potvrdil. "
+                        "Default 50."
+                    ),
+                    "default": 50,
+                    "minimum": 0,
+                    "maximum": 100,
+                },
+            },
+            "required": ["content"],
+        },
+    },
+    {
         "name": "list_missed_calls",
         "description": (
             "Vrátí zmeškané hovory aktivní persony (Marti-AI). Použij když "

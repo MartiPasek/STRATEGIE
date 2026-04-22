@@ -3414,6 +3414,7 @@
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
+      { icon: '🧠', label: 'Paměť Marti', action: () => openMemoryModal() },
       ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
@@ -5803,6 +5804,22 @@
   </div>
 </div>
 
+<!-- Pamet Marti modal (Faze 1) -- zobrazuje myslenky zapsane o aktualnim
+     uzivateli. Otevira se z profile dropdown ("Pamet Marti"). Surovy
+     list bez stromu, bez editu -- jen read-only viewer pro testovani. -->
+<div class="sms-modal-bg" id="memoryModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Pamet Marti" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="memoryModalTitle">🧠 Paměť Marti — co o tobě vím</div>
+      <div class="sms-modal-sub" id="memoryModalSub"></div>
+      <button class="sms-modal-close" id="memoryModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="sms-list" id="memoryList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
 <!-- Email modal (PR3) -- sdili .sms-modal-* tridy, jen s vlastnimi ID.
      Otevira se klikem na inbox badge v 2. radku hlavicky. -->
 <div class="sms-modal-bg" id="emailModalBg">
@@ -6404,6 +6421,106 @@
     if (badge) {
       badge.addEventListener("click", openEmailModalForActivePersona);
     }
+  })();
+
+  // ══════════════════════════════════════════════════════════════════════
+  // MARTI MEMORY MODAL (Faze 1) -- read-only viewer myslenek o userovi
+  // Otevira se z profile dropdown ('Pamet Marti'). Zobrazuje list myslenek
+  // kde entity_links obsahuje (user, current_user.user_id).
+  // Pozdejsi faze: strom, edit, promoce, filtr podle typu.
+  // ══════════════════════════════════════════════════════════════════════
+
+  async function openMemoryModal() {
+    if (!currentUser || !currentUser.user_id) {
+      alert("Nejsi prihlasen nebo chybi ID uzivatele.");
+      return;
+    }
+    document.getElementById("memoryModalBg").classList.add("open");
+    document.getElementById("memoryModalSub").textContent = currentUser.display_name || "";
+    await _memoryLoadForCurrentUser();
+  }
+
+  function closeMemoryModal() {
+    document.getElementById("memoryModalBg").classList.remove("open");
+  }
+
+  async function _memoryLoadForCurrentUser() {
+    const list = document.getElementById("memoryList");
+    const uid = currentUser && currentUser.user_id;
+    if (!uid) {
+      list.innerHTML = '<div class="sms-empty">Chybi ID uzivatele.</div>';
+      return;
+    }
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      const r = await fetch(
+        `/api/v1/thoughts?about_type=user&about_id=${uid}&limit=100`,
+        { credentials: "include" }
+      );
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        list.innerHTML = (
+          '<div class="sms-empty">'
+          + 'Marti o tobě zatím nic nezapsala. Promluv s ní víc a uvidíš, '
+          + 'co si začne pamatovat.'
+          + '</div>'
+        );
+        return;
+      }
+      list.innerHTML = items.map(_memoryRenderCard).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _memoryRenderCard(t) {
+    const esc = _smsEscape;
+    const typeIcon = {
+      "fact": "📝", "todo": "✓", "observation": "👁",
+      "question": "❓", "goal": "🎯", "experience": "💭",
+    }[t.type] || "📝";
+    const statusLabel = t.status === "knowledge" ? "ZNALOST" : "POZNÁMKA";
+    const certaintyBar = (() => {
+      const pct = Math.max(0, Math.min(100, t.certainty || 0));
+      const filled = Math.round(pct / 10);
+      const bar = "▓".repeat(filled) + "░".repeat(10 - filled);
+      return `${bar} ${pct}%`;
+    })();
+    const time = _smsFmtTime(t.created_at);
+    return `
+      <div class="sms-card" data-thought-id="${t.id}">
+        <div class="sms-card-row">
+          <span class="sms-card-from">${typeIcon} ${esc(t.type.toUpperCase())} · ${statusLabel}</span>
+          <span class="sms-card-time">${time}</span>
+        </div>
+        <div class="sms-card-body">${esc(t.content)}</div>
+        <div class="sms-card-body" style="color:var(--muted);font-size:10px;font-family:'DM Mono',monospace;margin-top:4px">
+          Jistota: ${certaintyBar}
+        </div>
+      </div>
+    `;
+  }
+
+  // Bootstrap memory modal handlers
+  (function initMemoryModal() {
+    const close = document.getElementById("memoryModalClose");
+    if (close) close.addEventListener("click", closeMemoryModal);
+    const bg = document.getElementById("memoryModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "memoryModalBg") closeMemoryModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeMemoryModal();
+      }
+    });
   })();
 
   // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────

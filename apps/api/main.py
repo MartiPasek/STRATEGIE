@@ -20,6 +20,7 @@ from modules.notifications.api.email_router import router as email_router
 from modules.notifications.api.email_ui_router import router as email_ui_router
 from modules.notifications.api.notifications_router import router as notifications_router
 from modules.tasks.api.router import router as tasks_router
+from modules.thoughts.api.router import router as thoughts_router
 
 setup_logging()
 
@@ -52,6 +53,7 @@ app.include_router(email_router)
 app.include_router(email_ui_router)
 app.include_router(notifications_router)
 app.include_router(tasks_router)
+app.include_router(thoughts_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

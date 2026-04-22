@@ -340,6 +340,23 @@
     .agent-bar-share { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; margin-left: 10px; background: rgba(249, 115, 22, 0.12); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.45); transition: background .12s, border-color .12s; }
     .agent-bar-share.clickable { cursor: pointer; }
     .agent-bar-share.clickable:hover { background: rgba(249, 115, 22, 0.22); border-color: rgba(249, 115, 22, 0.7); }
+    /* ── Inbox badge + Fetch button (druhy radek hlavicky) ────────────────
+       Agregovany counter prichozich emailu + SMS. Pravy sloupec agent-baru
+       (flex space-between). Skryt kdyz total=0. Fetch tlacitko trigne
+       email polling mimo bezny 60s interval. */
+    .agent-bar-inbox { display: inline-flex; align-items: center; gap: 8px; }
+    .inbox-badge { display: none; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(59, 130, 246, 0.12); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.45); cursor: pointer; transition: background .12s, border-color .12s; }
+    .inbox-badge.show { display: inline-flex; }
+    .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); }
+    /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
+    .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
+    .inbox-badge-count { font-weight: 600; }
+    .inbox-badge-breakdown { color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 10px; }
+    .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
+    .inbox-fetch-btn:hover:not(:disabled) { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+    .inbox-fetch-btn:disabled { opacity: 0.5; cursor: wait; }
+    .inbox-fetch-btn.spinning { animation: inbox-spin 0.8s linear infinite; }
+    @keyframes inbox-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     /* Share ikonka v listech konverzaci (sidebar + dropdown) — oranzova
        pilulka, vyrazne odlisena aby user primo v seznamu videl ktere
        konverzace sdili s nekym. */
@@ -880,6 +897,21 @@
           <span class="agent-bar-share" id="agentBarShare" style="display:none">🔗</span>
           <!-- Offline indikator — vybarveny cerveny kdyz user offline -->
           <span class="offline-indicator" id="offlineIndicator">🔌 Offline</span>
+        </div>
+        <!-- Pravy sloupec agent-baru: inbox badge (email+SMS total) + Fetch tlacitko.
+             Badge je skryty kdyz total=0. Fetch tlacitko zavola /email/fetch-all
+             a nasledne refreshne counter, aby user nemusel cekat 60s. -->
+        <div class="agent-bar-inbox">
+          <span class="inbox-badge" id="inboxBadge"
+                data-tooltip="Nezpracovane emaily a SMS"
+                title="">
+            <span id="inboxBadgeIcon">📬</span>
+            <span class="inbox-badge-count" id="inboxBadgeCount">0</span>
+            <span class="inbox-badge-breakdown" id="inboxBadgeBreakdown"></span>
+          </span>
+          <button class="inbox-fetch-btn" id="inboxFetchBtn"
+                  data-tooltip="Stahnout nove emaily z Exchange (nemusis cekat na polling)"
+                  aria-label="Fetch now">⟳</button>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -1808,6 +1840,8 @@
     await loadSharedWithMeList();      // sidebar sekce "Sdilene se mnou"
     // SMS unread badges -- polling kazdych 30s (Commit 6)
     if (typeof startSmsUnreadPoller === 'function') startSmsUnreadPoller();
+    // Global unread badge (email + SMS) v druhem radku hlavicky -- PR2
+    if (typeof startGlobalUnreadPoller === 'function') startGlobalUnreadPoller();
     inputEl.focus();
   }
 
@@ -5768,6 +5802,26 @@
     </div>
   </div>
 </div>
+
+<!-- Email modal (PR3) -- sdili .sms-modal-* tridy, jen s vlastnimi ID.
+     Otevira se klikem na inbox badge v 2. radku hlavicky. -->
+<div class="sms-modal-bg" id="emailModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Email" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="emailModalTitle">Email</div>
+      <div class="sms-modal-sub" id="emailModalSub"></div>
+      <button class="sms-modal-close" id="emailModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="sms-tabs" id="emailTabs">
+      <button class="sms-tab active" data-tab="new">Příchozí</button>
+      <button class="sms-tab" data-tab="processed">Zpracované</button>
+      <button class="sms-tab" data-tab="outbox">Odeslané</button>
+    </div>
+    <div class="sms-list" id="emailList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
 <script>
   // ── SMS modal state + renderer ──────────────────────────────────────────
   // Global state pro otevrenou instanci modalu. Zavrenim (Esc / X / click-out)
@@ -6042,6 +6096,316 @@
     });
   })();
 
+  // ══════════════════════════════════════════════════════════════════════
+  // EMAIL MODAL (PR3) — paralelni struktura k SMS modal, sdili CSS
+  //   .sms-modal-* tridy. Odlisnosti:
+  //   - 'Prichozi' karta: subject radek nad body, "Navrhni odpoved"
+  //     misto automatickeho draftu (opt-in task trigger).
+  //   - Outbox karta ukazuje subject + to_email, status pending/sent/failed.
+  // ══════════════════════════════════════════════════════════════════════
+
+  window._emailModal = { personaId: null, personaName: null, activeTab: "new" };
+
+  function openEmailModal(personaId, personaName) {
+    window._emailModal.personaId = personaId;
+    window._emailModal.personaName = personaName || "Emaily";
+    window._emailModal.activeTab = "new";
+    document.getElementById("emailModalTitle").textContent = `Email — ${window._emailModal.personaName}`;
+    document.getElementById("emailModalSub").textContent = "";
+    document.querySelectorAll("#emailTabs .sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-tab") === "new");
+    });
+    document.getElementById("emailModalBg").classList.add("open");
+    fetchAndRenderEmailTab("new");
+  }
+
+  function closeEmailModal() {
+    document.getElementById("emailModalBg").classList.remove("open");
+    window._emailModal.personaId = null;
+  }
+
+  // Otevreni modalu pro aktivni personu -- pouzito pri klik na header badge.
+  function openEmailModalForActivePersona() {
+    const activeName = (document.getElementById("agentName").textContent || "").trim();
+    // personasCache je top-level `let` v prvnim script bloku -- sdilene
+    // document lexical env znamena, ze je dostupny i odtud.
+    const p = (typeof personasCache !== "undefined" ? personasCache : []).find(x => x.name === activeName);
+    if (p) {
+      openEmailModal(p.id, p.name);
+    } else {
+      // Fallback: neumime zjistit personu -- upozornime usera
+      alert("Nelze zjistit aktivni personu. Vyber ji v dropdownu a zkus znovu.");
+    }
+  }
+
+  async function fetchAndRenderEmailTab(tab) {
+    const list = document.getElementById("emailList");
+    const pid = window._emailModal.personaId;
+    if (!pid) return;
+    window._emailModal.activeTab = tab;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+
+    let url;
+    if (tab === "new" || tab === "processed") {
+      url = `/api/v1/email/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
+    } else {
+      url = `/api/v1/email/ui/outbox?persona_id=${pid}&limit=50`;
+    }
+    try {
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        const emptyMsg = tab === "new" ? "Žádné nové emaily."
+                       : tab === "processed" ? "Žádné zpracované."
+                       : "Žádné odeslané emaily.";
+        list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(it => _emailRenderCard(it, tab)).join("");
+      _emailAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _emailRenderCard(item, tab) {
+    const esc = _smsEscape;   // reuse escaper ze SMS modalu
+    if (tab === "outbox") {
+      const statusCls = item.status || "pending";
+      const statusLabel = item.status === "sent" ? "odesláno"
+                        : item.status === "failed" ? "chyba"
+                        : "čeká";
+      const errLine = item.last_error
+        ? `<div class="sms-card-body" style="color:var(--muted);font-style:italic;margin-top:4px">${esc(item.last_error)}</div>`
+        : "";
+      const sentTime = item.sent_at || item.created_at;
+      return `
+        <div class="sms-card" data-email-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">→ ${esc(item.to_email)}</span>
+            <span class="sms-card-time">${_smsFmtTime(sentTime)}</span>
+          </div>
+          <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+          <div class="sms-card-body">${esc(item.body)}</div>
+          <div class="sms-card-actions">
+            <span class="sms-card-status ${statusCls}">${statusLabel}</span>
+          </div>
+          ${errLine}
+        </div>
+      `;
+    }
+    // inbox (new nebo processed)
+    const fromLabel = item.from_name ? `${item.from_name} <${item.from_email}>` : item.from_email;
+    const actionsBtn = tab === "new"
+      ? `<button class="sms-card-btn" data-action="suggest-reply" data-email-id="${item.id}">Navrhni odpověď</button>
+         <button class="sms-card-btn" data-action="reply" data-email-id="${item.id}">Odpovědět</button>
+         <button class="sms-card-btn" data-action="mark-processed" data-email-id="${item.id}">Označit zpracované</button>`
+      : "";
+    return `
+      <div class="sms-card" data-email-id="${item.id}">
+        <div class="sms-card-row">
+          <span class="sms-card-from">← ${esc(fromLabel)}</span>
+          <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
+        </div>
+        <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+        <div class="sms-card-body">${esc(item.body || "")}</div>
+        <div class="sms-card-actions">${actionsBtn}</div>
+        <div class="sms-reply-block" id="email-reply-${item.id}">
+          <div class="sms-reply-hint" id="email-reply-hint-${item.id}">Tvoje odpověď</div>
+          <textarea class="sms-reply-textarea" id="email-reply-text-${item.id}" placeholder="Napiš odpověď…"></textarea>
+          <div class="sms-reply-actions">
+            <button class="sms-reply-btn-cancel" data-action="reply-cancel" data-email-id="${item.id}">Zrušit</button>
+            <button class="sms-reply-btn-send" data-action="reply-send" data-email-id="${item.id}">Odeslat</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _emailAttachCardHandlers() {
+    // Mark processed
+    document.querySelectorAll("#emailList [data-action='mark-processed']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        btn.disabled = true;
+        btn.textContent = "Ukládám…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/mark-processed`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await fetchAndRenderEmailTab(window._emailModal.activeTab);
+            if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Označit zpracované";
+            alert(`Chyba: HTTP ${r.status}`);
+          }
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "Označit zpracované";
+          alert(`Chyba: ${e.message}`);
+        }
+      });
+    });
+
+    // Navrhni odpoved -- spusti AI task na serveru, UI zacne pollovat draft
+    document.querySelectorAll("#emailList [data-action='suggest-reply']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        btn.disabled = true;
+        btn.textContent = "Zadávám AI…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/suggest-reply`, {
+            method: "POST", credentials: "include",
+          });
+          if (!r.ok) {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = "Navrhni odpověď";
+            return;
+          }
+          // Task spusten -- otevreme reply block a zacneme pollovat /draft
+          btn.textContent = "AI pracuje…";
+          const block = document.getElementById(`email-reply-${id}`);
+          const textarea = document.getElementById(`email-reply-text-${id}`);
+          const hint = document.getElementById(`email-reply-hint-${id}`);
+          if (block) block.classList.add("open");
+          if (hint) hint.textContent = "Čekám na draft od AI…";
+          // Poll drop every 3s, max 20 pokusu (60s total)
+          let attempts = 0;
+          const poll = setInterval(async () => {
+            attempts++;
+            try {
+              const dr = await fetch(`/api/v1/email/ui/inbox/${id}/draft`, { credentials: "include" });
+              if (dr.ok) {
+                const data = await dr.json();
+                if (data.draft) {
+                  clearInterval(poll);
+                  if (textarea) textarea.value = data.draft;
+                  if (hint) {
+                    hint.textContent = `Návrh od AI (task ${data.task_status || "?"}) — můžeš editovat`;
+                    hint.classList.add("has-draft");
+                  }
+                  btn.disabled = false;
+                  btn.textContent = "Přepnout na nový návrh";
+                }
+              }
+            } catch (_) {}
+            if (attempts >= 20) {
+              clearInterval(poll);
+              if (hint) hint.textContent = "AI draft nedorazil (timeout) — napiš odpověď ručně";
+              btn.disabled = false;
+              btn.textContent = "Navrhni odpověď znovu";
+            }
+          }, 3000);
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = "Navrhni odpověď";
+        }
+      });
+    });
+
+    // Plain Reply (bez AI draftu) -- jen otevre reply block
+    document.querySelectorAll("#emailList [data-action='reply']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const block = document.getElementById(`email-reply-${id}`);
+        const textarea = document.getElementById(`email-reply-text-${id}`);
+        if (!block) return;
+        document.querySelectorAll("#emailList .sms-reply-block.open").forEach(b => {
+          if (b !== block) b.classList.remove("open");
+        });
+        block.classList.toggle("open");
+        if (block.classList.contains("open") && textarea) textarea.focus();
+      });
+    });
+
+    // Reply cancel
+    document.querySelectorAll("#emailList [data-action='reply-cancel']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const block = document.getElementById(`email-reply-${id}`);
+        if (block) block.classList.remove("open");
+      });
+    });
+
+    // Reply send
+    document.querySelectorAll("#emailList [data-action='reply-send']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const textarea = document.getElementById(`email-reply-text-${id}`);
+        const body = (textarea.value || "").trim();
+        if (!body) { alert("Napiš text odpovědi."); return; }
+        btn.disabled = true;
+        const origText = btn.textContent;
+        btn.textContent = "Odesílám…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/reply`, {
+            method: "POST",
+            credentials: "include",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({body}),
+          });
+          if (r.ok) {
+            await fetchAndRenderEmailTab(window._emailModal.activeTab);
+            if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+          } else {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = origText;
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
+      });
+    });
+  }
+
+  // Bootstrap email modal: tabs click + close buttons + Esc + badge click
+  (function initEmailModal() {
+    const tabsEl = document.getElementById("emailTabs");
+    if (!tabsEl) return;
+    tabsEl.addEventListener("click", (ev) => {
+      const t = ev.target.closest(".sms-tab");
+      if (!t) return;
+      const tab = t.getAttribute("data-tab");
+      document.querySelectorAll("#emailTabs .sms-tab").forEach(x => {
+        x.classList.toggle("active", x.getAttribute("data-tab") === tab);
+      });
+      fetchAndRenderEmailTab(tab);
+    });
+    document.getElementById("emailModalClose").addEventListener("click", closeEmailModal);
+    document.getElementById("emailModalBg").addEventListener("click", (ev) => {
+      if (ev.target.id === "emailModalBg") closeEmailModal();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && document.getElementById("emailModalBg").classList.contains("open")) {
+        closeEmailModal();
+      }
+    });
+    // Click na inbox badge v hlavicce -> otevre modal pro aktivni personu
+    const badge = document.getElementById("inboxBadge");
+    if (badge) {
+      badge.addEventListener("click", openEmailModalForActivePersona);
+    }
+  })();
+
   // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────
   // Drzi {persona_id: count} cache. Volat refreshSmsUnreadBadges() po zmene.
   window._smsUnreadCounts = {};
@@ -6069,6 +6433,77 @@
     window._smsUnreadPollerStarted = true;
     refreshSmsUnreadBadges();   // prvni fetch hned
     setInterval(refreshSmsUnreadBadges, 30000);
+  }
+
+  // ── Global unread badge (email + SMS) v druhem radku hlavicky ─────────
+  // Volato z /api/v1/notifications/unread-counts, ktere agreguje oba typy.
+  // Badge je skryty, kdyz total=0; kdyz neco je, zobrazime pill s rozpadem.
+  async function refreshGlobalUnreadBadge() {
+    const badge = document.getElementById("inboxBadge");
+    const countEl = document.getElementById("inboxBadgeCount");
+    const breakEl = document.getElementById("inboxBadgeBreakdown");
+    if (!badge || !countEl) return;
+    try {
+      const r = await fetch("/api/v1/notifications/unread-counts", { credentials: "include" });
+      if (!r.ok) {
+        badge.classList.remove("show");
+        return;
+      }
+      const data = await r.json();
+      const total = data.total || 0;
+      const em = data.unread_email || 0;
+      const sms = data.unread_sms || 0;
+      countEl.textContent = String(total);
+      // Rozpad "📧 3 · 📱 7" kdyz mame oba typy, jinak jen to aktualni.
+      let breakdown = "";
+      if (em > 0 && sms > 0)      breakdown = `📧 ${em} · 📱 ${sms}`;
+      else if (em > 0)            breakdown = `📧 ${em}`;
+      else if (sms > 0)           breakdown = `📱 ${sms}`;
+      if (breakEl) breakEl.textContent = breakdown;
+      // Tooltip obsahuje detail i kdyz total=0 (usability -- user vi ze to prazdne)
+      badge.setAttribute("title",
+        `${em} nezpracovan${em === 1 ? 'y' : 'e'} email${em === 1 ? '' : 'y'}, ` +
+        `${sms} nezpracovan${sms === 1 ? 'a' : 'e'} SMS`);
+      // Hide kdyz nic -- neznamou sila zobrazovat "0"
+      if (total > 0) badge.classList.add("show");
+      else badge.classList.remove("show");
+    } catch (_) { /* silent -- neprerusujeme UX log spamem */ }
+  }
+
+  // Fetch now button -- ignore SMS (ty jsou push, prijdou samy),
+  // jen trigne email polling mimo 60s interval.
+  (function initInboxFetchBtn() {
+    const btn = document.getElementById("inboxFetchBtn");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add("spinning");
+      try {
+        const r = await fetch("/api/v1/email/fetch-all", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!r.ok) {
+          console.warn("fetch-all failed", r.status);
+        }
+      } catch (e) {
+        console.warn("fetch-all error", e);
+      } finally {
+        // Refresh badge bez ohledu na vysledek -- user vidi aktualni stav
+        await refreshGlobalUnreadBadge();
+        btn.classList.remove("spinning");
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  window._globalUnreadPollerStarted = false;
+  function startGlobalUnreadPoller() {
+    if (window._globalUnreadPollerStarted) return;
+    window._globalUnreadPollerStarted = true;
+    refreshGlobalUnreadBadge();   // prvni fetch hned
+    setInterval(refreshGlobalUnreadBadge, 30000);
   }
 </script>
 

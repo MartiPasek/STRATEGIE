@@ -368,3 +368,90 @@ class Task(BaseData):
     # Kolikrat worker tenhle task prevzal (retry counter). Zabrana nekonecnemu
     # smyckovani kdyz AI opakovane selhava.
     attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ── EMAIL INBOX ────────────────────────────────────────────────────────────
+
+class EmailInbox(BaseData):
+    """
+    Prichozi emaily z Exchange/EWS. Paralelni struktura k SmsInbox, ale
+    plneni je pull-model: scripts/email_fetcher.py polluje INBOX persony
+    kazdych ~60s, oznaci v EWS jako read, ulozi do teto tabulky.
+
+    persona_id = majitel e-mailove schranky (persona_channel s channel_type
+    = 'email' a matching identifier = to_email).
+
+    message_id = RFC822 Message-ID z Exchange, pro dedup. UNIQUE per persona
+    zajistuje ze opakovany fetch (restart workera, sit vypadla) neudela
+    duplikat.
+
+    Workflow pole:
+      read_at       -- kdy si user zpravu poprve zobrazil v UI
+      processed_at  -- kdy byl email uzavren (NULL = 'Prichozi' tab,
+                       NOT NULL = 'Zpracovane' tab). Plni se bud manualne
+                       z UI, nebo kaskadou z posledniho completed tasku
+                       (stejne jako sms_inbox dnes).
+    """
+    __tablename__ = "email_inbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_email: Mapped[str] = mapped_column(String(320))
+    from_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_email: Mapped[str] = mapped_column(String(320))
+    subject: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_id: Mapped[str] = mapped_column(String(998))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # JSON metadata z EWS (cc, bcc, folder, importance, has_attachments, ...)
+    # -- debug + budoucnost (reply threading, attachments handling).
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── EMAIL OUTBOX ───────────────────────────────────────────────────────────
+
+class EmailOutbox(BaseData):
+    """
+    Odchozi emaily -- asynchronni send pres worker. Paralelni struktura k
+    SmsOutbox, ale provider je jeden (Exchange/EWS), takze nepotrebujeme
+    "provider" sloupec.
+
+    Lifecycle:
+      pending -> queue_email() zapsal, worker ceka
+      sent    -> worker odeslal (sent_at NOT NULL)
+      failed  -> EWS selhal; last_error obsahuje detail, attempts++
+
+    cc/bcc jsou JSON arrays emailu (ukladane jako Text pro prenositelnost).
+
+    conversation_id = vazba na zpravy konverzaci, z nichz email vzesel
+    (audit "zobraz v puvodnim chatu").
+
+    from_identity:
+      persona (default) -- posila jmenem persony, creds z persona_channels
+      user              -- posila jmenem usera, creds z user_channel_service
+      system            -- fallback na .env (legacy)
+    """
+    __tablename__ = "email_outbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    to_email: Mapped[str] = mapped_column(String(320))
+    cc: Mapped[str | None] = mapped_column(Text, nullable=True)        # JSON list
+    bcc: Mapped[str | None] = mapped_column(Text, nullable=True)       # JSON list
+    subject: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(String(30), default="user_request")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_identity: Mapped[str] = mapped_column(String(20), default="persona")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

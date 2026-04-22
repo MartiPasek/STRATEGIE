@@ -57,7 +57,29 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "Email adresa příjemce"},
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Email adresy příjemců (pole To:). Pro JEDNOHO příjemce zadej "
+                        "'a@b.com'. Pro VÍCE příjemců zadej je ODDĚLENÉ ČÁRKAMI: "
+                        "'a@b.com, c@d.com'. Backend si to rozparsuje a pošle každému "
+                        "samostatně — NIKDY ne jako jeden bastl."
+                    ),
+                },
+                "cc": {
+                    "type": "string",
+                    "description": (
+                        "Volitelné: CC adresa (nebo víc oddělených čárkami). Jako TO, "
+                        "ale příjemci jsou 'viditelní ostatním'. Použij, když user řekne "
+                        "'pošli X, v kopii Y' nebo 'CC: ...'."
+                    ),
+                },
+                "bcc": {
+                    "type": "string",
+                    "description": (
+                        "Volitelné: BCC adresa (skrytá kopie). Víc příjemců čárkou."
+                    ),
+                },
                 "subject": {"type": "string", "description": "Předmět emailu"},
                 "body": {"type": "string", "description": "Tělo emailu"},
                 "from_identity": {

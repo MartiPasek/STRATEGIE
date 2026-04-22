@@ -581,7 +581,19 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
         to = action["to"]
         subject = action["subject"]
         body = action["body"]
+        cc_raw = (action.get("cc") or "").strip()
+        bcc_raw = (action.get("bcc") or "").strip()
         from_identity = action.get("from_identity") or "persona"
+
+        # Parsuj cc/bcc do list[str] pro queue_email (muze byt comma/semicolon-sep)
+        def _split_addrs(s: str) -> list[str] | None:
+            if not s:
+                return None
+            parts = s.replace(";", ",").split(",")
+            cleaned = [p.strip().lower() for p in parts if p.strip()]
+            return cleaned or None
+        cc_list = _split_addrs(cc_raw)
+        bcc_list = _split_addrs(bcc_raw)
 
         # Kanal aktivni persony. Pokud persona nema nakonfigurovany email kanal
         # v persona_channels, fallback na globalni .env resi az
@@ -603,6 +615,7 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
         try:
             outbox = queue_email(
                 to=to, subject=subject, body=body,
+                cc=cc_list, bcc=bcc_list,
                 persona_id=persona_id, tenant_id=tenant_id,
                 user_id=user_id, from_identity=from_identity,
                 purpose="user_request",
@@ -754,12 +767,16 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")
         body = tool_input.get("body", "")
+        cc = tool_input.get("cc", "") or ""
+        bcc = tool_input.get("bcc", "") or ""
         from_identity = (tool_input.get("from_identity") or "persona").lower()
         if from_identity not in ("persona", "user"):
             from_identity = "persona"
 
         _save_pending_action(conversation_id, "send_email", {
             "to": to,
+            "cc": cc,
+            "bcc": bcc,
             "subject": subject,
             "body": body,
             "from_identity": from_identity,

@@ -15,6 +15,7 @@ Migrace existujicich pozvanek / password-reset emailu:
   posilaji "systemove" emaily (ne jmenem persony), takze global is fine.
 """
 from __future__ import annotations
+import json
 
 from core.config import settings
 from core.logging import get_logger
@@ -134,6 +135,36 @@ def _is_auth_error(exc: Exception) -> bool:
     return "invalid credentials" in msg or "unauthorized" in msg or "401" in msg
 
 
+def _parse_recipients(s: str | list[str] | None) -> list[str]:
+    """
+    Normalizuje recipient string/list na cisty list email adres.
+      - prijme comma-separated "a@x.com, b@y.com"
+      - nebo semicolon-separated "a@x.com; b@y.com"
+      - nebo mix "a@x.com,b@y.com;c@z.com"
+      - nebo uz list ["a@x.com", "b@y.com"]
+    Odstrani mezery, prazdne, lowercase.
+    Nevalidne polozky (bez @) odfiltrovany s warningem.
+    """
+    if s is None:
+        return []
+    if isinstance(s, list):
+        raw = s
+    else:
+        # Rozdelime po obou separatorech
+        parts = str(s).replace(";", ",").split(",")
+        raw = parts
+    out: list[str] = []
+    for item in raw:
+        clean = (item or "").strip().lower()
+        if not clean:
+            continue
+        if "@" not in clean:
+            logger.warning(f"EMAIL | recipient skipped (missing @): {clean!r}")
+            continue
+        out.append(clean)
+    return out
+
+
 def send_email_or_raise(
     to: str,
     subject: str,
@@ -142,19 +173,36 @@ def send_email_or_raise(
     tenant_id: int | None = None,
     user_id: int | None = None,
     from_identity: str = "persona",
+    cc: list[str] | str | None = None,
+    bcc: list[str] | str | None = None,
 ) -> None:
     """
     Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
     EmailNoUserChannelError.
 
+    `to` muze byt:
+      - string s jednou adresou ("a@b.com")
+      - string s vice adresami oddelenymi carkou nebo strednikem
+        ("a@b.com, c@d.com" nebo "a@b.com; c@d.com")
+      - list stringu (["a@b.com", "c@d.com"])
+    Kazdopadne se parsuje do LIST, kazda adresa -> separatni Mailbox objekt.
+    Bez tohoto parsingu exchangelib zbalancuje celou 'a@b.com, c@d.com' do
+    jedne Mailbox.email_address, Exchange se zalomi s '550 invalid recipient'.
+
+    cc a bcc fungují stejně (prijmaji list nebo separator-separated string).
+
     from_identity:
-      "persona"  (default) -- posila z persona_channels (Marti-AI),
-                              fallback na .env pokud persona nema kanal.
-      "user"               -- posila z user's EWS kanalu (users.ews_*).
-                              Pokud user kanal nema, hodi EmailNoUserChannelError.
+      "persona"  (default) -- posila z persona_channels.
+      "user"               -- posila z user's EWS kanalu.
     """
     try:
         from exchangelib import Message, Mailbox
+
+        to_list = _parse_recipients(to)
+        if not to_list:
+            raise EmailSendError("zadny platny prijemce v `to`")
+        cc_list = _parse_recipients(cc)
+        bcc_list = _parse_recipients(bcc)
 
         # Vyber credentialy podle from_identity
         if from_identity == "user":
@@ -173,26 +221,29 @@ def send_email_or_raise(
                 password=creds["password"],
                 server=creds["server"],
             )
-            # Sender v logu = VYHRADNE display (SMTP alias). Login UPN je SECRET
-            # a nesmi se objevit nikde mimo _get_account / persona_channels.
-            # Kdyz display chybi, maskujeme sender abychom nepsali login.
+            # Sender v logu = VYHRADNE display (SMTP alias).
             sender = creds.get("display_email") or f"<persona_id={persona_id} display missing>"
         else:
-            # Fallback: globalni .env. Pro pozvanky / password-reset / backward compat.
-            # (Jen pro persona mode; user mode by uz byl rejected.)
             account = _get_account()
             sender = settings.ews_email
 
-        message = Message(
-            account=account,
-            subject=subject,
-            body=body,
-            to_recipients=[Mailbox(email_address=to)],
-        )
+        msg_kwargs: dict = {
+            "account": account,
+            "subject": subject,
+            "body": body,
+            "to_recipients": [Mailbox(email_address=addr) for addr in to_list],
+        }
+        if cc_list:
+            msg_kwargs["cc_recipients"] = [Mailbox(email_address=addr) for addr in cc_list]
+        if bcc_list:
+            msg_kwargs["bcc_recipients"] = [Mailbox(email_address=addr) for addr in bcc_list]
+
+        message = Message(**msg_kwargs)
         message.send()
 
         logger.info(
-            f"EMAIL | sent | identity={from_identity} | from={sender} | to={to} | subject={subject}"
+            f"EMAIL | sent | identity={from_identity} | from={sender} | "
+            f"to={to_list} | cc={cc_list or '-'} | bcc={bcc_list or '-'} | subject={subject}"
         )
     except EmailNoUserChannelError:
         raise
@@ -449,6 +500,20 @@ def _send_outbox_row(outbox_id: int) -> dict:
         ds.close()
 
     # Pokus o odeslani -- rozdelene catche aby volajici videl typ selhani.
+    # CC/BCC v outbox rows jsou JSON arrays; deserializujeme a predame dal.
+    cc_list = None
+    bcc_list = None
+    try:
+        if row.cc:
+            cc_list = json.loads(row.cc)
+    except Exception:
+        cc_list = None
+    try:
+        if row.bcc:
+            bcc_list = json.loads(row.bcc)
+    except Exception:
+        bcc_list = None
+
     error_kind: str | None = None
     err_msg: str | None = None
     try:
@@ -460,6 +525,8 @@ def _send_outbox_row(outbox_id: int) -> dict:
             tenant_id=row.tenant_id,
             user_id=row.user_id,
             from_identity=row.from_identity,
+            cc=cc_list,
+            bcc=bcc_list,
         )
     except EmailAuthError as e:
         error_kind = "auth"

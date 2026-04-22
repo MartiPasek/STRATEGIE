@@ -40,20 +40,43 @@ def create_conversation(
     jen konverzace patřící k danému tenantu, a uvnitř tenantu se dají grupovat
     podle projektu). project_id=None znamená "bez projektu" — konverzace žije
     v tenantu mimo jakýkoli project scope.
+
+    active_agent_id se NYNI nastavuje na default personu (is_default=True).
+    Drive zustaval NULL, coz lamalo persona-dependent features: send_email
+    fallbackl na prazdne .env, send_sms nenasel persona_channel, tool_loop
+    nepredaval persona_id. chat() service overrides active_agent_id pozdeji,
+    pokud ma preferred_persona_id nebo project.default_persona_id -- tohle
+    je jen BEZPECNY DEFAULT pro pripad, ze zadna vyssi vrstva personu neurci.
     """
+    # Najdi default persona ID (is_default=True). Pokud neexistuje, necheme
+    # shodit create_conversation -- nechame NULL (stary chovani jako fallback).
+    default_persona_id: int | None = None
+    try:
+        core_session = get_core_session()
+        try:
+            default_persona = core_session.query(Persona).filter_by(is_default=True).first()
+            if default_persona:
+                default_persona_id = default_persona.id
+        finally:
+            core_session.close()
+    except Exception as e:
+        logger.warning(f"CONVERSATION | default persona lookup failed: {e}")
+
     session = get_data_session()
     try:
         conversation = Conversation(
             user_id=user_id,
             tenant_id=tenant_id,
             project_id=project_id,
+            active_agent_id=default_persona_id,
         )
         session.add(conversation)
         session.commit()
         session.refresh(conversation)
         logger.info(
             f"CONVERSATION | created | id={conversation.id} | "
-            f"user_id={user_id} | tenant_id={tenant_id} | project_id={project_id}"
+            f"user_id={user_id} | tenant_id={tenant_id} | project_id={project_id} | "
+            f"active_agent_id={default_persona_id}"
         )
         return conversation.id
     finally:

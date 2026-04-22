@@ -927,18 +927,28 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             finally:
                 _cs.close()
 
+        # Certainty: pokud AI explicitne nenastavila (default v toolu=50),
+        # spolehneme se na certainty engine (calculate_initial_certainty
+        # z trust_rating usera). Kdyz AI poslala explicitni hodnotu jinou
+        # nez default 50, respektujeme.
+        explicit_certainty_from_ai = tool_input.get("certainty")
+        pass_certainty = int(explicit_certainty_from_ai) if explicit_certainty_from_ai is not None else None
+
         try:
             result = _thoughts_service.create_thought(
                 content=content,
                 type=thought_type,
                 entity_links=entity_links,
-                author_user_id=None,            # AI zapisuje, ne human
+                # Faze 3: author_user_id = uzivatel v konverzaci (ridi certainty).
+                # Info pochazi od nej, Marti jen zapisuje. author_persona_id
+                # navic zachyti, ze zapis provedla persona (Marti).
+                author_user_id=user_id,
                 author_persona_id=persona_id,
                 source_event_type="conversation",
                 source_event_id=conversation_id,
                 tenant_scope=tenant_id_for_scope,
-                certainty=certainty,
-                status="note",                  # Faze 1: vse jako poznamka
+                certainty=pass_certainty,       # None -> engine ji odvodi
+                status=None,                    # None -> auto podle certainty
             )
         except ThoughtValidationError as e:
             return f"❌ Myšlenka se nezapsala: {e}"
@@ -953,9 +963,13 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             "fact": "📝", "todo": "✓", "observation": "👁",
             "question": "❓", "goal": "🎯", "experience": "💭",
         }.get(thought_type, "📝")
+        actual_certainty = result.get("certainty", 50)
+        actual_status = result.get("status", "note")
+        status_suffix = " 🧠 (rovnou znalost)" if actual_status == "knowledge" else ""
         return (
             f"{type_icon} Zapsáno do paměti (id={result['id']}, typ={thought_type}, "
-            f"jistota={certainty}%): \"{content[:80]}{'…' if len(content) > 80 else ''}\"\n"
+            f"jistota={actual_certainty}%){status_suffix}: "
+            f"\"{content[:80]}{'…' if len(content) > 80 else ''}\"\n"
             f"_Odkazy: {entity_descr}_"
         )
 

@@ -64,6 +64,14 @@ class User(BaseCore):
     ews_server: Mapped[str | None] = mapped_column(String(255), nullable=True)
     # Primary SMTP alias pro prezentaci (From: header). NULL -> fallback na ews_email.
     ews_display_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Marti Memory (Faze 3): trust_rating 0-100. Ovlivnuje initial certainty
+    # myslenky, kterou Marti zapisuje na zaklade tvrzeni tohoto usera.
+    # 50 = neutralni default. Rodice maji 100.
+    trust_rating: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
+    # Role "rodic Marti" -- user s cross-tenant viditelnosti do Martiho pameti
+    # a pravem dostavat aktivni learning otazky (Faze 4). Viz
+    # docs/marti_memory_design.md, rozhodnuti #4 (tenant izolace).
+    is_marti_parent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

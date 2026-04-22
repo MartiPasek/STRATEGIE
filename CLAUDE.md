@@ -147,6 +147,19 @@ alembic_data/               — migrace pro data_db
 - **AI tool `list_email_inbox(limit, filter_mode)`** — vrátí číslovaný seznam emailů aktivní persony (filter: new/processed/all).
 - Diagnostika: `python -m poetry run python scripts/_diag_email_pipeline.py` (read-only overview persona_channels + email_inbox + email_outbox).
 
+**Marti Memory (Fáze 1 + 2 + 3)** ✅ — paměť a učení Marti
+- **Datový model** (viz `docs/marti_memory_design.md`): tabulky `thoughts` + `thought_entity_links` v data_db. Myšlenka má typ (`fact` / `todo` / `observation` / `question` / `goal` / `experience`), status (`note` / `knowledge`), certainty 0-100, provenance (author_user_id, author_persona_id, source_event_*), tenant_scope, primary_parent_id (strom), meta JSON (type-specific fields), soft delete.
+- **Entity links**: many-to-many myšlenka ↔ entita (user / persona / tenant / project). Myšlenka se může vztahovat k víc entitám zároveň. Indexováno pro retrieval "vše o entitě X".
+- **AI tool `record_thought`**: Marti v chatu zapisuje myšlenky do paměti. Podporuje chain `find_user → record_thought` v jednom turnu (multi-round tool loop, max 5 kol).
+- **AI tool `promote_thought(thought_id | query)`**: povýší poznámku do znalostí v chatu.
+- **REST API** `/api/v1/thoughts/*`: GET list (filter by entity + status), GET detail, POST create, PUT update, DELETE soft-delete, POST `/{id}/promote` a `/demote`, GET `/_tree` (přehled entity + counts). **POZOR na route ordering** — literální paths (`/_tree`, `/_meta/enums`) musí být registrované PŘED `/{thought_id}`.
+- **UI "🧠 Paměť Marti"** v profile dropdown: drill-down pohled (entity tiles → list se 2 tabama Poznámky/Znalosti → detail panel s promote/demote/edit/delete akcemi). Sdílí CSS s SMS/email modalem.
+- **Certainty engine (Fáze 3)**: `calculate_initial_certainty(author_user_id)` odvodí jistotu z trust_rating (linear: `trust * 0.8 + 10`). Auto-promote: certainty ≥ 80 → status='knowledge' rovnou při zápisu.
+- **User trust_rating (0-100)**: sloupec v `users` tabulce. Default 50 (neutrální). Rodiče 100.
+- **Rodičovská role** `users.is_marti_parent`: cross-tenant viditelnost do Martiho paměti (ignoruje `tenant_scope` filter). Asymetrie: rodič vidí vše, ostatní jen svůj tenant. Setup: `scripts/_set_marti_parent.py --user-id X --parent`.
+- **Route ordering gotcha**: literální paths (`/_tree`, `/_meta/enums`) MUSÍ být registrované PŘED `/{thought_id}` v `modules/thoughts/api/router.py`.
+- **Paralelně s existující `memories`**: dnes auto-extract per-conversation ponechán beze změny (rozhodnutí #5 v design docu).
+
 **Repo hygiene** ✅
 - `__pycache__` / `*.pyc` v .gitignore (od commit 7c6322a)
 - `scripts/commit_*.ps1` a `scripts/push_phase*.ps1` taky gitignored (jednorázové helpery)
@@ -182,6 +195,10 @@ AI má k dispozici nástroje v `modules/conversation/application/tools.py`:
 - `list_project_members(project_id?, project_name?)` — členové konkrétního projektu
 - `add_project_member(target_user_id, project_id?, project_name?, role?)` — přidá člena
 - `remove_project_member(target_user_id, project_id?, project_name?)` — odebere
+
+**Paměť Marti:**
+- `record_thought(content, type?, about_user_id?, about_persona_id?, about_tenant_id?, about_project_id?, certainty?)` — zapíše myšlenku do paměti. Typ: fact/todo/observation/question/goal/experience. Alespoň jeden about_* povinný.
+- `promote_thought(thought_id?, query?)` — povýší poznámku do znalostí. Buď podle ID, nebo substring match v content.
 
 **Selekce číslem:** po list_* nástrojích si backend uloží `pending_actions` typu `select_from_list_*`. Když user odpoví jen číslem, dispatchne se akce (switch projektu / otevři konverzaci / sub-menu pro usera).
 

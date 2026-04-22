@@ -244,11 +244,13 @@ TOOLS = [
                 "certainty": {
                     "type": "integer",
                     "description": (
-                        "Jistota myšlenky 0-100. 30=slyšela jsem poprvé, nejsem si jistá. "
-                        "50=neutrální default. 80=docela jistá. 100=rodič potvrdil. "
-                        "Default 50."
+                        "Jistota myšlenky 0-100. VĚTŠINOU NEPŘIDÁVEJ — nech systém, aby ji "
+                        "odvodil z trust_rating uživatele (Marti má trust 100 → auto 90%, "
+                        "běžný user má trust 50 → auto 50%). Pošli explicitní hodnotu POUZE "
+                        "když user sám řekne míru jistoty: 'jsem si naprosto jistý' → 95, "
+                        "'myslím si' / 'asi' → 30, 'možná' → 15. Jinak necháš systém "
+                        "rozhodnout a neposíláš tento parametr."
                     ),
-                    "default": 50,
                     "minimum": 0,
                     "maximum": 100,
                 },

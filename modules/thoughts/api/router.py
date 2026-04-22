@@ -27,6 +27,7 @@ from modules.core.infrastructure.models_core import User
 from modules.thoughts.application import service as thoughts_service
 from modules.thoughts.application.service import (
     ThoughtValidationError, VALID_ENTITY_TYPES, VALID_TYPES, VALID_STATUSES,
+    is_marti_parent,
 )
 
 
@@ -111,6 +112,9 @@ def list_thoughts(
             detail=f"neznamy status '{status}' (valid: {sorted(VALID_STATUSES)})"
         )
 
+    # Rodicovska role: bypass tenant filtru, vidi napric vsemi tenanty.
+    parent = is_marti_parent(user_id)
+
     try:
         items = thoughts_service.list_thoughts_for_entity(
             entity_type=about_type,
@@ -118,6 +122,7 @@ def list_thoughts(
             status_filter=status,
             limit=limit,
             tenant_scope=tenant_id,
+            bypass_tenant_scope=parent,
         )
     except ThoughtValidationError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -128,6 +133,7 @@ def list_thoughts(
         "about_id": about_id,
         "status_filter": status,
         "tenant_id": tenant_id,
+        "is_parent_view": parent,
     }
 
 
@@ -153,9 +159,17 @@ def get_tree_overview(req: Request):
     """
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
+    parent = is_marti_parent(user_id)
 
-    items = thoughts_service.tree_overview(tenant_scope=tenant_id)
-    return {"items": items, "tenant_id": tenant_id}
+    items = thoughts_service.tree_overview(
+        tenant_scope=tenant_id,
+        bypass_tenant_scope=parent,
+    )
+    return {
+        "items": items,
+        "tenant_id": tenant_id,
+        "is_parent_view": parent,
+    }
 
 
 # Metadata endpoint -- UI si natahne validni typy pro formular
@@ -178,15 +192,16 @@ def get_thought_endpoint(thought_id: int, req: Request):
     """Detail jedne myslenky vcetne entity_links."""
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
+    parent = is_marti_parent(user_id)
 
     t = thoughts_service.get_thought(thought_id)
     if t is None:
         raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
 
-    # Tenant izolace: pokud myslenka ma scope, musi se shodovat s current tenant
-    # nebo byt universal (NULL). Cross-tenant role (rodic) prijde v Faze 3.
+    # Tenant izolace: pokud myslenka ma scope, musi se shodovat s current
+    # tenant nebo byt universal (NULL). Vyjimka: rodic ma cross-tenant pristup.
     scope = t.get("tenant_scope")
-    if scope is not None and scope != tenant_id:
+    if scope is not None and scope != tenant_id and not parent:
         raise HTTPException(
             status_code=403,
             detail="Myslenka neni dostupna v tvem aktualnim tenantu."
@@ -239,11 +254,12 @@ def update_thought_endpoint(
     tenant_id = _get_tenant_for_user(user_id)
 
     # Tenant check pred update
+    parent = is_marti_parent(user_id)
     existing = thoughts_service.get_thought(thought_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
     scope = existing.get("tenant_scope")
-    if scope is not None and scope != tenant_id:
+    if scope is not None and scope != tenant_id and not parent:
         raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
 
     try:
@@ -271,11 +287,12 @@ def delete_thought_endpoint(thought_id: int, req: Request):
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
 
+    parent = is_marti_parent(user_id)
     existing = thoughts_service.get_thought(thought_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
     scope = existing.get("tenant_scope")
-    if scope is not None and scope != tenant_id:
+    if scope is not None and scope != tenant_id and not parent:
         raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
 
     ok = thoughts_service.soft_delete_thought(thought_id)
@@ -294,11 +311,12 @@ def promote_thought_endpoint(thought_id: int, req: Request):
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
 
+    parent = is_marti_parent(user_id)
     existing = thoughts_service.get_thought(thought_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
     scope = existing.get("tenant_scope")
-    if scope is not None and scope != tenant_id:
+    if scope is not None and scope != tenant_id and not parent:
         raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
 
     result = thoughts_service.promote_thought(thought_id)
@@ -316,11 +334,12 @@ def demote_thought_endpoint(thought_id: int, req: Request):
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
 
+    parent = is_marti_parent(user_id)
     existing = thoughts_service.get_thought(thought_id)
     if existing is None:
         raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
     scope = existing.get("tenant_scope")
-    if scope is not None and scope != tenant_id:
+    if scope is not None and scope != tenant_id and not parent:
         raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
 
     result = thoughts_service.demote_thought(thought_id)

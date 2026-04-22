@@ -40,6 +40,14 @@ VALID_SOURCE_EVENT_TYPES = {
     "conversation", "email", "sms", "manual", "ai_inferred",
 }
 
+# Certainty threshold pro auto-promoci note -> knowledge (Faze 3).
+# Viz docs/marti_memory_design.md, rozhodnuti #3.
+PROMOTE_THRESHOLD = 80
+
+# Defaultni certainty pro myslenku bez zname author_user_id trust_rating.
+# Neutralni -- Marti si neni ani jista ani nejista.
+DEFAULT_CERTAINTY = 50
+
 
 class ThoughtError(Exception):
     """Baseline chyba pri praci s myslenkami."""
@@ -47,6 +55,71 @@ class ThoughtError(Exception):
 
 class ThoughtValidationError(ThoughtError):
     """Neplatny vstup (chybny typ, prazdny content, neznama entita, ...)."""
+
+
+# ── Certainty engine (Faze 3) ────────────────────────────────────────────
+
+def calculate_initial_certainty(author_user_id: int | None) -> int:
+    """
+    Odvodi initial certainty z trust_rating autora. Pouziva se v
+    create_thought, kdyz user explicitne nenastavi certainty.
+
+    Mapovani trust_rating -> certainty:
+      trust_rating 100 (rodic)     -> certainty 90 (auto-promote kandidat)
+      trust_rating 80  (trusted)   -> certainty 70
+      trust_rating 50  (default)   -> certainty 50
+      trust_rating 20  (low)       -> certainty 25
+      trust_rating 0               -> certainty 10
+
+    Linearni scaling s mirnym boostem u high-trust:
+      certainty = trust_rating * 0.8 + 10
+      (trust=100 -> certainty=90, trust=50 -> certainty=50, trust=0 -> certainty=10)
+
+    Kdyz author_user_id je None (AI-inferred, systemove), vrati
+    DEFAULT_CERTAINTY (50).
+    """
+    if not author_user_id:
+        return DEFAULT_CERTAINTY
+
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=author_user_id).first()
+            if u is None:
+                return DEFAULT_CERTAINTY
+            trust = u.trust_rating if u.trust_rating is not None else 50
+        finally:
+            cs.close()
+        calculated = int(trust * 0.8 + 10)
+        return max(0, min(100, calculated))
+    except Exception as e:
+        logger.warning(f"THOUGHT | certainty calc failed: {e}")
+        return DEFAULT_CERTAINTY
+
+
+def is_marti_parent(user_id: int | None) -> bool:
+    """
+    Zjisti, zda user ma rodicovskou roli. Pouziva se pro cross-tenant
+    retrieval (rodic vidi vsechny tenanty) a active learning pool (Faze 4).
+
+    Defensive -- pri chybe vraci False (bezpecne: default = nemas cross-tenant pristup).
+    """
+    if not user_id:
+        return False
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter_by(id=user_id).first()
+            return bool(u and u.is_marti_parent)
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"THOUGHT | is_marti_parent check failed: {e}")
+        return False
 
 
 # ── Create ─────────────────────────────────────────────────────────────────
@@ -62,8 +135,8 @@ def create_thought(
     author_persona_id: int | None = None,
     source_event_type: str | None = None,
     source_event_id: int | None = None,
-    certainty: int = 50,
-    status: str = "note",
+    certainty: int | None = None,
+    status: str | None = None,
     meta: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -73,17 +146,15 @@ def create_thought(
       content: vlastni text myslenky (required, non-empty)
       type: fact | todo | observation | question | goal | experience
       entity_links: list dictu {entity_type, entity_id} -- myslenka se
-                    vztahuje k temto entitam. Napr. pro myslenku o Petrovi
-                    a projektu STRATEGIE:
-                    [{"entity_type": "user", "entity_id": petr_id},
-                     {"entity_type": "project", "entity_id": strategie_id}]
+                    vztahuje k temto entitam.
       primary_parent_id: volitelne, id nadrazene myslenky ve stromu
       tenant_scope: kde myslenka "platti" (NULL = universal)
       author_user_id / author_persona_id: kdo to zapsal
       source_event_type / source_event_id: z jake udalosti vzesla
-                    (napr. source_event_type='conversation', source_event_id=42)
-      certainty: 0-100 (default 50 -- mid-range, ceka na overeni)
-      status: note (default) | knowledge
+      certainty: 0-100. Kdyz None, odvodi se z trust_rating author_user_id
+                 (Faze 3 certainty engine). Default chovani = automatika.
+      status: note | knowledge. Kdyz None, urci se podle certainty:
+              >= PROMOTE_THRESHOLD -> knowledge (auto-promote), jinak note.
       meta: type-specific fields jako dict, ulozi se jako JSON
 
     Returns:
@@ -98,17 +169,26 @@ def create_thought(
         raise ThoughtValidationError(
             f"neznamy type '{type}' (valid: {', '.join(sorted(VALID_TYPES))})"
         )
-    if status not in VALID_STATUSES:
-        raise ThoughtValidationError(
-            f"neznamy status '{status}' (valid: {', '.join(sorted(VALID_STATUSES))})"
-        )
     if source_event_type and source_event_type not in VALID_SOURCE_EVENT_TYPES:
         raise ThoughtValidationError(
             f"neznamy source_event_type '{source_event_type}'"
         )
+
+    # Certainty engine (Faze 3): kdyz None, odvodi z trust_rating.
+    if certainty is None:
+        certainty = calculate_initial_certainty(author_user_id)
     if not (0 <= certainty <= 100):
         raise ThoughtValidationError(
             f"certainty mimo rozsah 0-100: {certainty}"
+        )
+
+    # Auto-promote: kdyz status neni explicitni a certainty >= threshold,
+    # rovnou knowledge. Jinak fallback na 'note'.
+    if status is None:
+        status = "knowledge" if certainty >= PROMOTE_THRESHOLD else "note"
+    if status not in VALID_STATUSES:
+        raise ThoughtValidationError(
+            f"neznamy status '{status}' (valid: {', '.join(sorted(VALID_STATUSES))})"
         )
 
     # Validuj entity_links pred zapisem, aby pri chybe nevznikl "polosirotek"
@@ -202,6 +282,7 @@ def list_thoughts_for_entity(
     status_filter: str | None = None,   # 'note' | 'knowledge' | None (oboje)
     limit: int = 50,
     tenant_scope: int | None = None,
+    bypass_tenant_scope: bool = False,
     include_deleted: bool = False,
 ) -> list[dict[str, Any]]:
     """
@@ -210,13 +291,15 @@ def list_thoughts_for_entity(
 
     Args:
       entity_type: user | persona | tenant | project
-      entity_id: id entity v nativni tabulce (css_db users / personas /
-                 tenants / projects)
-      status_filter: 'note' (jen poznamky), 'knowledge' (jen znalosti),
-                     None = oboje
+      entity_id: id entity v nativni tabulce
+      status_filter: 'note' / 'knowledge' / None (oboje)
       limit: max pocet vysledku (max 200)
       tenant_scope: pokud zadano, filtruje myslenky s matching tenant_scope
-                    (nebo NULL = universal). Pouziva se pro tenant izolaci.
+                    (nebo NULL = universal).
+      bypass_tenant_scope: pokud True, tenant_scope filter se VUBEC nepouzije
+                           a user vidi myslenky napric vsemi tenanty.
+                           POUZIVAT VYHRADNE u rodicu (is_marti_parent=True).
+                           Ochrana tenant izolace pro bezne useru zustava.
       include_deleted: pokud True, vrati i soft-deleted (default False)
 
     Returns:
@@ -249,7 +332,7 @@ def list_thoughts_for_entity(
             q = q.filter(Thought.deleted_at.is_(None))
         if status_filter:
             q = q.filter(Thought.status == status_filter)
-        if tenant_scope is not None:
+        if tenant_scope is not None and not bypass_tenant_scope:
             # Myslenky z daneho tenantu + universal (NULL scope, napr. Martiho diar)
             q = q.filter(
                 or_(
@@ -257,6 +340,7 @@ def list_thoughts_for_entity(
                     Thought.tenant_scope.is_(None),
                 )
             )
+        # bypass_tenant_scope=True -> zadny tenant filter, vse cross-tenant
 
         rows = (
             q.order_by(Thought.created_at.desc())
@@ -321,6 +405,9 @@ def update_thought(
             return None
 
         changed = False
+        prev_certainty = t.certainty
+        auto_promoted = False
+
         if content is not None:
             cc = (content or "").strip()
             if not cc:
@@ -330,6 +417,15 @@ def update_thought(
         if certainty is not None and certainty != t.certainty:
             t.certainty = certainty
             changed = True
+            # Auto-promote (Faze 3): kdyz certainty prekroci threshold
+            # a user explicitne nezadal status, povysim automaticky.
+            if (
+                status is None
+                and prev_certainty < PROMOTE_THRESHOLD <= certainty
+                and t.status == "note"
+            ):
+                t.status = "knowledge"
+                auto_promoted = True
         if status is not None and status != t.status:
             t.status = status
             changed = True
@@ -349,6 +445,7 @@ def update_thought(
                     "status" if status is not None else None,
                     "meta" if meta is not None else None,
                 ]))
+                + (f" | AUTO-PROMOTED (certainty {prev_certainty}→{certainty})" if auto_promoted else "")
             )
 
         links = (
@@ -507,6 +604,7 @@ def find_thought_by_text(
 
 def tree_overview(
     tenant_scope: int | None = None,
+    bypass_tenant_scope: bool = False,
     include_empty_entities: bool = False,
 ) -> list[dict[str, Any]]:
     """
@@ -544,13 +642,14 @@ def tree_overview(
             .join(Thought, Thought.id == ThoughtEntityLink.thought_id)
             .filter(Thought.deleted_at.is_(None))
         )
-        if tenant_scope is not None:
+        if tenant_scope is not None and not bypass_tenant_scope:
             q = q.filter(
                 or_(
                     Thought.tenant_scope == tenant_scope,
                     Thought.tenant_scope.is_(None),
                 )
             )
+        # bypass=True -> vse cross-tenant (rodicovska role)
         rows = (
             q.group_by(ThoughtEntityLink.entity_type, ThoughtEntityLink.entity_id)
              .order_by(

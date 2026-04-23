@@ -1274,6 +1274,76 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"\"{content[:150]}{'…' if len(content) > 150 else ''}\"{link_suffix}"
         )
 
+    if tool_name == "read_diary":
+        # Fáze 5.7: Marti aktivne cte svuj diar.
+        from modules.thoughts.application import service as _thoughts_service_rd
+
+        persona_id_rd = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_rd is None:
+            return "❌ Nemůžu zjistit, která persona jsem — bez persona_id nenačtu diář."
+
+        limit_rd = int(tool_input.get("limit") or 20)
+        limit_rd = max(1, min(limit_rd, 100))
+        filter_type_rd = (tool_input.get("filter_type") or "").strip().lower() or None
+
+        try:
+            entries = _thoughts_service_rd.list_diary_for_persona(
+                persona_id_rd, limit=limit_rd,
+            )
+        except Exception as e:
+            logger.exception(f"TOOL | read_diary | failed | {e}")
+            return f"❌ Chyba při čtení diáře: {e}"
+
+        # Filter na type v meta
+        if filter_type_rd:
+            filtered = []
+            for e in entries:
+                meta = e.get("meta") or {}
+                entry_type_meta = None
+                if isinstance(meta, dict):
+                    entry_type_meta = meta.get("type") or meta.get("entry_type")
+                # Fallback na top-level type sloupec
+                if not entry_type_meta:
+                    entry_type_meta = e.get("type")
+                if entry_type_meta == filter_type_rd:
+                    filtered.append(e)
+            entries = filtered
+
+        if not entries:
+            filter_note = f" s typem '{filter_type_rd}'" if filter_type_rd else ""
+            return f"📖 V diáři{filter_note} zatím nic nemám. Můžeš mě chtít něco zapsat?"
+
+        icons = {
+            "experience": "💭", "observation": "👁", "fact": "📝",
+            "goal": "🎯", "question": "❓",
+        }
+
+        lines = [f"📖 Moje deníkové záznamy ({len(entries)}):", ""]
+        for idx, e in enumerate(entries, start=1):
+            meta = e.get("meta") or {}
+            if not isinstance(meta, dict):
+                meta = {}
+            entry_type = meta.get("type") or meta.get("entry_type") or e.get("type") or "experience"
+            icon = icons.get(entry_type, "📖")
+            emotion = meta.get("emotion")
+            intensity = meta.get("intensity")
+            emotion_part = ""
+            if emotion:
+                emotion_part = f" [{emotion}"
+                if intensity:
+                    emotion_part += f" {intensity}/10"
+                emotion_part += "]"
+            created = (e.get("created_at") or "")[:19].replace("T", " ")
+            content = e.get("content") or ""
+            # Zkratit dlouhé obsahy na 300 znaků s "..."
+            if len(content) > 300:
+                content = content[:300] + "…"
+            lines.append(
+                f"**{idx}.** {icon} _{created}_{emotion_part}\n   {content}\n"
+            )
+
+        return "\n".join(lines)
+
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
         from modules.thoughts.application import service as _thoughts_service

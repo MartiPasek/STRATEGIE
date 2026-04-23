@@ -1182,6 +1182,24 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 )
         return "\n".join(lines)
 
+    if tool_name == "summarize_conversation_now":
+        from modules.conversation.application.summary_service import (
+            maybe_create_summary,
+        )
+        try:
+            result = maybe_create_summary(conversation_id, force=True)
+        except Exception as e:
+            logger.error(f"TOOL | summarize_now | error={e!r}", exc_info=True)
+            return "❌ Shrnutí se nepodařilo (detail v logu)."
+        if result is None:
+            return "⚠️ Shrnutí se nevytvořilo (malo zprav nebo chyba LLM)."
+        return (
+            f"✅ Shrnutí vytvořeno (id={result['summary_id']}, "
+            f"{result['message_count']} zprav zkomprimovano). "
+            f"V nasledujich turnech se do API posila pouze tohle shrnuti + nove zpravy. "
+            f"Uetreno spousta tokenů."
+        )
+
     if tool_name == "read_email":
         eib = tool_input.get("email_inbox_id")
         eob = tool_input.get("email_outbox_id")
@@ -1633,6 +1651,105 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ {e}"
         except Exception as e:
             return f"❌ Operace selhala: {e}"
+
+    if tool_name == "list_recent_chatters":
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import func
+        from core.database_data import get_data_session as _gds_rc
+        from core.database_core import get_core_session as _gcs_rc
+        from modules.core.infrastructure.models_data import (
+            Message as _M_rc, Conversation as _C_rc,
+        )
+        from modules.core.infrastructure.models_core import User as _U_rc
+        from modules.thoughts.application.service import is_marti_parent as _imp_rc
+
+        hours = int(tool_input.get("hours") or 24)
+        hours = max(1, min(hours, 24 * 30))
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+        # Rodic (is_marti_parent) vidi cross-tenant; bezny user jen svuj tenant.
+        # Stejny vzor jako u Marti's pameti -- privacy se respektuje u neradich,
+        # rodice maji full view (Marti je jejich ditě napric tenanty).
+        parent_view = _imp_rc(user_id) if user_id else False
+        tenant_id: int | None = None
+        if not parent_view and user_id:
+            _cs = _gcs_rc()
+            try:
+                _u = _cs.query(_U_rc).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        # Agregace human zpráv. Message.tenant_id neni denormalizovany, joinnem
+        # pres Conversation pro tenant filter (pokud tenant filter pouzijeme).
+        ds = _gds_rc()
+        try:
+            q = (
+                ds.query(
+                    _M_rc.author_user_id,
+                    func.count(_M_rc.id).label("msg_count"),
+                    func.max(_M_rc.created_at).label("last_at"),
+                    func.count(func.distinct(_M_rc.conversation_id)).label("conv_count"),
+                )
+                .join(_C_rc, _C_rc.id == _M_rc.conversation_id)
+                .filter(
+                    _M_rc.author_type == "human",
+                    _M_rc.author_user_id.isnot(None),
+                    _M_rc.created_at >= since,
+                )
+            )
+            if tenant_id is not None and not parent_view:
+                q = q.filter(_C_rc.tenant_id == tenant_id)
+            rows = (
+                q.group_by(_M_rc.author_user_id)
+                 .order_by(func.max(_M_rc.created_at).desc())
+                 .all()
+            )
+        finally:
+            ds.close()
+
+        if not rows:
+            return (
+                f"📭 V posledních {hours}h se mnou nikdo nemluvil. Ticho."
+            )
+
+        # Resolvuj user_id -> display_name přes css_db
+        user_ids = [r.author_user_id for r in rows]
+        cs = _gcs_rc()
+        try:
+            users = cs.query(_U_rc).filter(_U_rc.id.in_(user_ids)).all()
+            name_by_id = {}
+            for u in users:
+                nm = (u.legal_name or f"{u.first_name or ''} {u.last_name or ''}").strip() or f"user#{u.id}"
+                short = u.short_name
+                name_by_id[u.id] = (nm, short)
+        finally:
+            cs.close()
+
+        lines = [f"💬 Kdo se mnou mluvil za posledních {hours}h:", ""]
+        for r in rows:
+            nm, short = name_by_id.get(r.author_user_id, (f"user#{r.author_user_id}", None))
+            short_suffix = f" ({short})" if short else ""
+            # Relativni cas
+            delta = datetime.now(timezone.utc) - (
+                r.last_at if r.last_at.tzinfo else r.last_at.replace(tzinfo=timezone.utc)
+            )
+            mins = int(delta.total_seconds() / 60)
+            if mins < 1:
+                rel = "právě teď"
+            elif mins < 60:
+                rel = f"před {mins} min"
+            elif mins < 1440:
+                rel = f"před {mins // 60} h"
+            else:
+                rel = f"před {mins // 1440} dny"
+            lines.append(
+                f"  - **{nm}**{short_suffix}: {r.msg_count} zpráv v {r.conv_count} "
+                f"{'konverzaci' if r.conv_count == 1 else 'konverzacích'} "
+                f"(poslední {rel})"
+            )
+        return "\n".join(lines)
 
     if tool_name == "list_conversations":
         from modules.conversation.infrastructure.repository import list_conversations as _list_conv
@@ -2556,6 +2673,9 @@ def chat(
         # Faze 7: email list + read chain -- Marti chce v jednom turnu videt
         # list + otevrit konkretni email.
         "list_email_inbox", "read_email",
+        # list_recent_chatters casto predchozi chain (napr. "Kdo psal?" ->
+        # "Zeptej se Kristy" -> recall_thoughts). Synthesis umozni chainovat.
+        "list_recent_chatters",
     }
 
     preamble_text = ""

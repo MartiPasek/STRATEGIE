@@ -428,6 +428,22 @@ TOOLS = [
         },
     },
     {
+        "name": "summarize_conversation_now",
+        "description": (
+            "Vytvoří shrnutí aktuální konverzace — vynutí summary job HNED, "
+            "nečeká na threshold. Po úspěchu se stará historie konverzace "
+            "nahradí krátkým shrnutím a API calls jsou výrazně lehčí.\n\n"
+            "POUŽIJ, když uživatel odpoví 'ano / zkrať / shrň' na tvou otázku "
+            "nebo sám řekne 'shrň konverzaci, zkrať to'. Sama se **neptej** "
+            "ihned při každé zprávě — nabídni shrnutí jen kdyz je konverzace "
+            "skutečně dlouhá (system metadata ti řeknou)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
         "name": "read_email",
         "description": (
             "Otevře a přečte obsah konkrétního emailu. POUŽIJ, když chceš si "
@@ -726,6 +742,27 @@ TOOLS = [
                 "project_name": {"type": "string", "description": "Jméno projektu (fuzzy, má přednost před project_id)"},
             },
             "required": ["target_user_id"],
+        },
+    },
+    {
+        "name": "list_recent_chatters",
+        "description": (
+            "Vrátí seznam uživatelů, kteří s tebou nedávno mluvili (napsali ti "
+            "zprávu). Každý user s počtem zpráv a časem posledního dotyku. "
+            "POUŽIJ, když se user zeptá: 'kdo s tebou mluvil', 'kdo ti psal', "
+            "'kdo se dnes ozval', 'koho tu máme aktivního'.\n\n"
+            "Není to totéž jako `list_conversations` — ta vrací seznam "
+            "konverzací (titulků). Tento tool vrací **lidi** agregovaně."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Kolik hodin zpět hledat (default 24 = posledních 24 h).",
+                    "default": 24,
+                },
+            },
         },
     },
     {

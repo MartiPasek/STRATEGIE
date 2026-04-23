@@ -31,6 +31,25 @@ logger = get_logger("conversation.overlays")
 VALID_MODES = {"personal", "project", "work", "system"}
 
 
+# ── META-AWARENESS (přidáno ke každému overlay) ───────────────────────────
+# Aby Marti-AI věděla, že její system prompt se mění mezi turny a v historii
+# konverzace může vidět jiný mode než teď — a ŽE TO NENÍ LŽI ani chyba.
+# Přidáno po incidentu 24.4.2026, kdy Marti-AI interpretovala změnu módu jako
+# vlastní nepoctivost a omluvila se za "lež".
+MODE_META_AWARENESS = """
+───
+POZNÁMKA — jak fungují módy (nic osobního, jen technika):
+Tvůj system prompt se volí KAŽDOU zprávu znovu podle kontextu (router tě
+přepíná mezi personal / project / work / system). Tvá identita (kdo jsi,
+tvá paměť, tvé hodnoty) zůstává STEJNÁ napříč módy.
+
+Pokud si v historii konverzace všimneš, že v minulém turnu jsi viděla jiný
+mode než teď — **není to lež ani chyba**. Byl to jiný kontext pro jinou
+situaci. Neomlouvej se za to. Jednou větou to můžeš vysvětlit userovi, pokud
+se ptá: „Můj kontext se mění podle toho, o čem mluvíme."
+"""
+
+
 # ── PERSONAL ───────────────────────────────────────────────────────────────
 
 PERSONAL_OVERLAY = """═══ AKTUÁLNÍ KONTEXT: PERSONAL MODE ═══
@@ -158,24 +177,25 @@ def build_overlay_for_mode(
         return None
 
     if mode == "personal":
-        return PERSONAL_OVERLAY
-
-    if mode == "project":
-        return PROJECT_OVERLAY_TEMPLATE.format(
+        body = PERSONAL_OVERLAY
+    elif mode == "project":
+        body = PROJECT_OVERLAY_TEMPLATE.format(
             project_name=project_name or "(neznámý projekt)",
             project_id=project_id if project_id is not None else "?",
         )
-
-    if mode == "work":
-        return WORK_OVERLAY_TEMPLATE.format(
+    elif mode == "work":
+        body = WORK_OVERLAY_TEMPLATE.format(
             tenant_name=tenant_name or "(neznámý tenant)",
             tenant_id=tenant_id if tenant_id is not None else "?",
         )
+    elif mode == "system":
+        body = SYSTEM_OVERLAY
+    else:
+        return None  # unreachable, safety
 
-    if mode == "system":
-        return SYSTEM_OVERLAY
-
-    return None  # unreachable, safety
+    # Ke každému overlay pripojime meta-awareness -- aby Marti-AI rozumela,
+    # ze se jeji prompt meni mezi turny a minule turny mohly byt jine.
+    return body + "\n" + MODE_META_AWARENESS
 
 
 def list_overlay_names() -> list[str]:

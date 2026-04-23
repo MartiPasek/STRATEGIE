@@ -345,9 +345,14 @@
        (flex space-between). Skryt kdyz total=0. Fetch tlacitko trigne
        email polling mimo bezny 60s interval. */
     .agent-bar-inbox { display: inline-flex; align-items: center; gap: 8px; }
-    .inbox-badge { display: none; align-items: center; gap: 6px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(59, 130, 246, 0.12); color: #3b82f6; border: 1px solid rgba(59, 130, 246, 0.45); cursor: pointer; transition: background .12s, border-color .12s; }
-    .inbox-badge.show { display: inline-flex; }
-    .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); }
+    /* Badge je vzdy viditelny (i kdyz 0) -- slouzi jako permanent vstup
+       do email modalu. Pri 0 mene saturated barvou (muted), pri >0 highlight. */
+    .inbox-badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 6px; font-size: 17px; line-height: 1.2; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(100, 116, 139, 0.10); color: var(--muted); border: 1px solid rgba(100, 116, 139, 0.3); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+    .inbox-badge.show { background: rgba(59, 130, 246, 0.12); color: #3b82f6; border-color: rgba(59, 130, 246, 0.45); }
+    .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); color: #3b82f6; }
+    /* Permanent SMS entry point - vedle emailu, symetrie */
+    .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s; }
+    .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; }
     /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
     .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
     /* Personal archive badge -- Faze 6 */
@@ -448,7 +453,7 @@
     .mq-meta { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 8px; text-align: right; }
     .inbox-badge-count { font-weight: 600; }
     .inbox-badge-breakdown { color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 10px; }
-    .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
+    .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
     .inbox-fetch-btn:hover:not(:disabled) { background: var(--bg); border-color: var(--accent); color: var(--accent); }
     .inbox-fetch-btn:disabled { opacity: 0.5; cursor: wait; }
     .inbox-fetch-btn.spinning { animation: inbox-spin 0.8s linear infinite; }
@@ -1004,12 +1009,15 @@
              a nasledne refreshne counter, aby user nemusel cekat 60s. -->
         <div class="agent-bar-inbox">
           <span class="inbox-badge" id="inboxBadge"
-                data-tooltip="Nezpracovane emaily a SMS"
+                data-tooltip="Otevrit emaily (i kdyz je prazdno)"
                 title="">
             <span id="inboxBadgeIcon">📬</span>
             <span class="inbox-badge-count" id="inboxBadgeCount">0</span>
             <span class="inbox-badge-breakdown" id="inboxBadgeBreakdown"></span>
           </span>
+          <button class="sms-icon-btn" id="smsIconBtn"
+                  data-tooltip="Otevrit SMS aktivni persony"
+                  aria-label="SMS aktivni persony">📱</button>
           <button class="inbox-fetch-btn" id="inboxFetchBtn"
                   data-tooltip="Stahnout nove emaily z Exchange (nemusis cekat na polling)"
                   aria-label="Fetch now">⟳</button>
@@ -7807,18 +7815,11 @@
       if (mq > 0)  parts.push(`❓ ${mq}`);
       const breakdown = parts.join(" · ");
       if (breakEl) breakEl.textContent = breakdown;
-      // Total schovavame kdyz mame breakdown (breakdown uz nese ty informace
-      // a samostatne cislo vedle ikonky 📬 matlo usere s SMS iconou 📱).
-      // Pouze kdyz breakdown je prazdny ale total > 0 (teoreticky edge case),
-      // ukazeme cislo jako fallback.
+      // Total cislo schovavame vzdy -- breakdown uz nese per-channel counts
+      // a samostatne "1" vedle 📬 ikony matlo usere s SMS ikonou 📱.
       if (countEl) {
-        if (breakdown) {
-          countEl.textContent = "";
-          countEl.style.display = "none";
-        } else {
-          countEl.textContent = String(total);
-          countEl.style.display = "";
-        }
+        countEl.textContent = "";
+        countEl.style.display = "none";
       }
       // Tooltip obsahuje detail i kdyz total=0
       const titleParts = [
@@ -7827,11 +7828,29 @@
       ];
       if (data.is_parent) titleParts.push(`${mq} otázek od Marti`);
       badge.setAttribute("title", titleParts.join(", "));
-      // Hide kdyz nic -- neznamou sila zobrazovat "0"
+      // Badge je permanentne viditelny (entry point do emailu). Pouze highlight
+      // barev se meni podle stavu: active kdyz total>0, muted kdyz 0.
       if (total > 0) badge.classList.add("show");
       else badge.classList.remove("show");
     } catch (_) { /* silent -- neprerusujeme UX log spamem */ }
   }
+
+  // SMS permanent button (Faze 7.10) -- nezavisle na unread stavu.
+  // Otevre SMS modal pro aktivni personu konverzace.
+  (function initSmsIconBtn() {
+    const btn = document.getElementById("smsIconBtn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const activeName = (document.getElementById("agentName")?.textContent || "").trim();
+      const p = (typeof personasCache !== "undefined" ? personasCache : [])
+        .find(x => x.name === activeName);
+      if (p) {
+        openSmsModal(p.id, p.name);
+      } else {
+        alert("Nelze zjistit aktivni personu. Vyber ji v dropdownu a zkus znovu.");
+      }
+    });
+  })();
 
   // Fetch now button -- ignore SMS (ty jsou push, prijdou samy),
   // jen trigne email polling mimo 60s interval.

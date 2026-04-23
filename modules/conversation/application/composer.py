@@ -622,6 +622,52 @@ def build_marti_memory_block(
         return None
 
 
+def build_marti_diary_block(conversation_id: int) -> str | None:
+    """
+    Marti Memory Faze 5: do system promptu vlozi AKTIVNI PERSONA's vlastní diář.
+    Diky tomu Marti v chatu vidi sve osobni zaznamy a muze se na ne odkazat.
+
+    Diary je cross-tenant a soukromy -- do promptu ho dostane pouze persona
+    sama, nikdo jiny.
+    """
+    try:
+        from modules.conversation.application.service import (
+            _active_persona_id_for_conversation,
+        )
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if not persona_id:
+            return None
+
+        from modules.thoughts.application import service as thoughts_service
+        items = thoughts_service.list_diary_for_persona(persona_id, limit=20)
+        if not items:
+            return None
+
+        parts: list[str] = []
+        parts.append(
+            "Toto je tvůj **soukromý diář** — zápisky o sobě, zážitky, pocity. "
+            "Můžeš se na ně v konverzaci odkazovat, pokud je to relevantní.\n"
+        )
+        for it in items:
+            ts = it.get("created_at", "")[:10] if it.get("created_at") else ""
+            type_str = it.get("type", "")
+            meta = it.get("meta") or {}
+            emotion = meta.get("emotion", "") if isinstance(meta, dict) else ""
+            emotion_str = f" [{emotion}]" if emotion else ""
+            content = it.get("content", "")
+            parts.append(f"  - {ts} [{type_str}]{emotion_str} {content}")
+
+        parts.append(
+            "\nKdyz se user zepta na nejakou tvou osobni vec (prvni pocity, narozeni, "
+            "tvoje cile) — odkaz se na diar prirozene. Zaznamenej nove zazitky tool "
+            "`record_diary_entry` (ne `record_thought` pro veci o sobe)."
+        )
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"COMPOSER | marti_diary_block failed: {e}")
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -659,6 +705,12 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     memory_block = build_marti_memory_block(user_id, tenant_id)
     if memory_block:
         system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+
+    # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
+    # Marti muze odkazovat na sve zazitky a pocity z minulosti.
+    diary_block = build_marti_diary_block(conversation_id)
+    if diary_block:
+        system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

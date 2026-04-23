@@ -990,6 +990,90 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"_Odkazy: {entity_descr}_"
         )
 
+    if tool_name == "record_diary_entry":
+        # Marti Memory -- Faze 5: soukromy diar Marti.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        content = (tool_input.get("content") or "").strip()
+        if not content:
+            return "❌ Diář nelze zapsat — chybí obsah (content)."
+        if len(content) > 2000:
+            content = content[:2000] + "…"
+
+        entry_type = tool_input.get("type") or "experience"
+        emotion = tool_input.get("emotion")
+        intensity = tool_input.get("intensity")
+        linked_email = tool_input.get("linked_email_outbox_id")
+        linked_conv = tool_input.get("linked_conversation_id") or conversation_id
+
+        # Aktivni persona = autor diaru (diar patri te persone, ktera ho pise)
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if persona_id is None:
+            return "❌ Nelze určit aktivní personu — diář se nezapsal."
+
+        # Meta JSON: emotion, intensity, link refs
+        meta: dict = {"is_diary": True}
+        if emotion:
+            meta["emotion"] = emotion
+        if intensity:
+            meta["intensity"] = int(intensity)
+        if linked_email:
+            meta["linked_email_outbox_id"] = int(linked_email)
+        if linked_conv:
+            meta["linked_conversation_id"] = int(linked_conv)
+
+        # Source event -- prefer email kdyz je k nemu navazano, jinak konverzace
+        if linked_email:
+            src_type = "email"
+            src_id = int(linked_email)
+        else:
+            src_type = "conversation"
+            src_id = linked_conv
+
+        try:
+            result = _thoughts_service.create_thought(
+                content=content,
+                type=entry_type,
+                # Entity = persona sama (Marti sama o sobe)
+                entity_links=[{"entity_type": "persona", "entity_id": persona_id}],
+                # Diar je universal -- cross-tenant, soukromy
+                tenant_scope=None,
+                author_user_id=None,           # pise AI, ne human
+                author_persona_id=persona_id,  # Marti je autor
+                source_event_type=src_type,
+                source_event_id=src_id,
+                # Certainty 100 -- Marti si je svou zkusenosti jista
+                certainty=100,
+                # Status knowledge -- diar je trvaly zaznam, ne pracovni poznamka
+                status="knowledge",
+                meta=meta,
+            )
+        except ThoughtValidationError as e:
+            return f"❌ Diář se nezapsal: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | record_diary_entry | error={e!r}", exc_info=True)
+            return "❌ Diář se nezapsal (chyba serveru — detail v logu)."
+
+        icons = {
+            "experience": "💭", "observation": "👁", "fact": "📝",
+            "goal": "🎯", "question": "❓",
+        }
+        icon = icons.get(entry_type, "📖")
+        emotion_suffix = ""
+        if emotion:
+            emotion_suffix = f" [{emotion}"
+            if intensity:
+                emotion_suffix += f" {intensity}/10"
+            emotion_suffix += "]"
+        link_suffix = ""
+        if linked_email:
+            link_suffix = f" · odkaz: email #{linked_email}"
+        return (
+            f"📖 {icon} Zapsáno do mého diáře (id={result['id']}, {entry_type}){emotion_suffix}:\n"
+            f"\"{content[:150]}{'…' if len(content) > 150 else ''}\"{link_suffix}"
+        )
+
     if tool_name == "recall_thoughts":
         # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
         from modules.thoughts.application import service as _thoughts_service
@@ -1087,6 +1171,64 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     f"{it.get('content')}"
                 )
         return "\n".join(lines)
+
+    if tool_name == "mark_todo_done":
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        thought_id = tool_input.get("thought_id")
+        query = (tool_input.get("query") or "").strip()
+
+        # Tenant scope
+        tenant_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_td
+            from modules.core.infrastructure.models_core import User as _U_td
+            _cs = _gcs_td()
+            try:
+                _u = _cs.query(_U_td).filter_by(id=user_id).first()
+                if _u:
+                    tenant_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        target_id: int | None = None
+        if thought_id:
+            try:
+                target_id = int(thought_id)
+            except (TypeError, ValueError):
+                return f"❌ Neplatné thought_id: {thought_id!r}"
+        elif query:
+            matches = _thoughts_service.find_thought_by_text(
+                query, tenant_scope=tenant_for_search, limit=5,
+            )
+            todos = [m for m in matches if m.get("type") == "todo"]
+            if not todos:
+                return f"❌ Nenašel jsem žádný todo úkol obsahující '{query}'."
+            if len(todos) > 1:
+                lines = [f"❓ Našla jsem víc todo úkolů s '{query}':"]
+                for i, m in enumerate(todos, start=1):
+                    done_mark = "✓" if (m.get("meta") or {}).get("done") else "☐"
+                    preview = (m.get("content") or "")[:80]
+                    lines.append(f"  {i}. {done_mark} id={m['id']}: {preview}")
+                lines.append("\nPovolej znovu s `thought_id` konkretního úkolu.")
+                return "\n".join(lines)
+            target_id = todos[0]["id"]
+        else:
+            return "❌ Musíš dodat `thought_id` nebo `query`."
+
+        try:
+            result = _thoughts_service.mark_todo_done(target_id, done=True)
+        except ThoughtValidationError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.error(f"TOOL | mark_todo_done | error={e!r}", exc_info=True)
+            return "❌ Nelze označit jako hotové (chyba serveru)."
+        if result is None:
+            return f"❌ Todo id={target_id} neexistuje."
+
+        preview = (result.get("content") or "")[:100]
+        return f"✅ Hotovo (id={target_id}): \"{preview}\""
 
     if tool_name == "promote_thought":
         # Marti Memory -- Faze 2: manualni promoce note -> knowledge z chatu.

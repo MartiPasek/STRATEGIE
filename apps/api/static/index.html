@@ -362,6 +362,41 @@
     .memory-entity-counts { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; display: flex; gap: 10px; }
     .memory-entity-counts .cnt-notes { color: #3b82f6; }
     .memory-entity-counts .cnt-knowledge { color: #10b981; }
+    /* Diary tile -- zvlastni estetika, vrchol tree */
+    .memory-entity-tile.diary { border-color: #a855f7; background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(168, 85, 247, 0.02)); }
+    .memory-entity-tile.diary:hover { border-color: #c084fc; background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); }
+    .memory-entity-tile.diary .memory-entity-type { color: #c084fc; }
+    .memory-entity-counts .cnt-diary { color: #a855f7; }
+    /* Todos tile -- zvlastni barva (zluta/amber) */
+    .memory-entity-tile.todos { border-color: #f59e0b; background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02)); }
+    .memory-entity-tile.todos:hover { border-color: #fbbf24; background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); }
+    .memory-entity-tile.todos .memory-entity-type { color: #fbbf24; }
+    .memory-entity-counts .cnt-todos-open { color: #f59e0b; }
+    .memory-entity-counts .cnt-todos-done { color: #10b981; }
+    /* Todo card -- checkbox-first vzhled */
+    .todo-card { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; margin: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: background .12s; }
+    .todo-card:hover { background: var(--bg); }
+    .todo-card.done { opacity: 0.6; }
+    .todo-card.done .todo-content { text-decoration: line-through; color: var(--muted); }
+    .todo-checkbox { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .12s; margin-top: 2px; }
+    .todo-checkbox:hover { border-color: #f59e0b; }
+    .todo-checkbox.checked { background: #10b981; border-color: #10b981; color: white; }
+    .todo-body { flex: 1; min-width: 0; }
+    .todo-content { font-size: 13px; color: var(--text); line-height: 1.5; word-break: break-word; }
+    .todo-meta { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .todo-filter-bar { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .todo-filter-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit; }
+    .todo-filter-btn:hover { color: var(--text); }
+    .todo-filter-btn.active { background: #f59e0b; color: white; border-color: #f59e0b; }
+    /* Diary card -- blog-like vzhled pro zazitky */
+    .diary-card { background: linear-gradient(135deg, rgba(168, 85, 247, 0.06), transparent); border: 1px solid rgba(168, 85, 247, 0.25); border-left: 3px solid #a855f7; border-radius: 8px; padding: 14px 18px; margin: 10px 16px; }
+    .diary-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .diary-card-type { color: #c084fc; font-weight: 500; }
+    .diary-card-content { font-size: 14px; color: var(--text); line-height: 1.55; font-family: 'DM Sans', sans-serif; font-style: italic; }
+    .diary-card-footer { margin-top: 10px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; display: flex; gap: 10px; flex-wrap: wrap; }
+    .diary-card-emotion { color: #f59e0b; }
+    .diary-card-link { color: #3b82f6; text-decoration: none; }
+    .diary-card-link:hover { text-decoration: underline; }
     /* Thought detail -- rozbaleny panel uvnitr karty */
     .thought-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: none; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .thought-detail.open { display: block; }
@@ -372,6 +407,36 @@
     .thought-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 10px; font-size: 11px; font-family: 'DM Mono', monospace; border-radius: 4px; transition: all .12s; }
     .thought-btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
     .thought-btn.danger:hover { border-color: #ef4444; color: #ef4444; }
+    /* Marti Questions modal (Faze 4) -- karta s velkou otazkou + 4 tlacitka + text field. */
+    .mq-modal-topbar { display: flex; align-items: center; gap: 12px; padding: 8px 22px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .mq-btn-refresh { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit; }
+    .mq-btn-refresh:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+    .mq-btn-refresh:disabled { opacity: 0.5; cursor: wait; }
+    .mq-counter { margin-left: auto; font-family: 'DM Mono', monospace; }
+    .mq-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 16px; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+    .mq-question { font-size: 16px; color: var(--text); line-height: 1.5; margin-bottom: 12px; }
+    .mq-context { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; padding: 8px 10px; background: var(--bg); border-radius: 6px; margin-bottom: 14px; border-left: 3px solid var(--border); }
+    .mq-context-label { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+    .mq-context-content { font-family: 'DM Sans', sans-serif; color: var(--text); }
+    .mq-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .mq-btn { flex: 1; min-width: 80px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all .12s; }
+    .mq-btn:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); transform: translateY(-1px); }
+    .mq-btn:disabled { opacity: 0.5; cursor: wait; }
+    .mq-btn.yes { border-color: rgba(16, 185, 129, 0.5); color: #10b981; }
+    .mq-btn.yes:hover:not(:disabled) { background: rgba(16, 185, 129, 0.15); }
+    .mq-btn.no { border-color: rgba(239, 68, 68, 0.5); color: #ef4444; }
+    .mq-btn.no:hover:not(:disabled) { background: rgba(239, 68, 68, 0.15); }
+    .mq-btn.maybe { border-color: rgba(245, 158, 11, 0.5); color: #f59e0b; }
+    .mq-btn.maybe:hover:not(:disabled) { background: rgba(245, 158, 11, 0.15); }
+    .mq-btn.skip { color: var(--muted); }
+    .mq-text-hint { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+    .mq-text { width: 100%; min-height: 60px; max-height: 200px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px; resize: vertical; box-sizing: border-box; }
+    .mq-text:focus { outline: none; border-color: var(--accent); }
+    .mq-text-submit { margin-top: 8px; display: flex; justify-content: flex-end; }
+    .mq-text-submit-btn { background: var(--accent); color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
+    .mq-text-submit-btn:hover:not(:disabled) { opacity: 0.85; }
+    .mq-text-submit-btn:disabled { opacity: 0.5; cursor: wait; }
+    .mq-meta { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 8px; text-align: right; }
     .inbox-badge-count { font-weight: 600; }
     .inbox-badge-breakdown { color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 10px; }
     .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 4px; color: var(--muted); cursor: pointer; font-size: 12px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
@@ -3433,10 +3498,12 @@
     // Audit log je superadmin-only (backend to vynucuje, ale frontend
     // skryje polozku z menu -- ostatnim user by se zobrazil 403 pri otevrenim).
     const isAdmin = !!(currentUser && currentUser.is_superadmin);
+    const isParent = !!(currentUser && currentUser.is_marti_parent);
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
       { icon: '🧠', label: 'Paměť Marti', action: () => openMemoryModal() },
+      ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
       ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
@@ -5826,6 +5893,26 @@
   </div>
 </div>
 
+<!-- Marti Questions modal (Faze 4) -- karty otazek pro rodice.
+     Otevira se z profile dropdown ("Otazky od Marti"). Jen pro rodice. -->
+<div class="sms-modal-bg" id="mqModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Otazky od Marti" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title">❓ Otázky od Marti</div>
+      <div class="sms-modal-sub" id="mqModalSub"></div>
+      <button class="sms-modal-close" id="mqModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="mq-modal-topbar">
+      <button class="mq-btn-refresh" id="mqBtnRefresh" data-tooltip="Znovu nacist otazky z DB">🔄 Refresh</button>
+      <button class="mq-btn-refresh" id="mqBtnGenerate" data-tooltip="Spustit generator novych otazek (pouziva LLM)">⟳ Nové otázky</button>
+      <span class="mq-counter" id="mqCounter"></span>
+    </div>
+    <div class="sms-list" id="mqList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
 <!-- Pamet Marti modal (Faze 1 + 2) -- drill-down view:
      (a) entity tiles (tree overview, vsechny entity o kterych Marti neco vi)
      (b) list myslenek per entita + 2 taby (Poznamky/Znalosti) + detail panel
@@ -6450,7 +6537,20 @@
     // Click na inbox badge v hlavicce -> otevre modal pro aktivni personu
     const badge = document.getElementById("inboxBadge");
     if (badge) {
-      badge.addEventListener("click", openEmailModalForActivePersona);
+      // Klik na badge primarne otevre email modal. Pokud user ma otevrene
+      // otazky od Marti a zaroven zadny email/SMS, otevri radeji questions.
+      badge.addEventListener("click", () => {
+        const em = parseInt(document.getElementById("inboxBadgeCount")?.textContent || "0", 10);
+        const mq = (currentUser && currentUser.is_marti_parent)
+          ? (parseInt(document.getElementById("inboxBadgeBreakdown")?.textContent?.match(/❓\s*(\d+)/)?.[1] || "0", 10))
+          : 0;
+        const emOnly = em - mq;   // priblizny pocet email+sms (bez questions)
+        if (emOnly <= 0 && mq > 0) {
+          openMartiQuestionsModal();
+        } else {
+          openEmailModalForActivePersona();
+        }
+      });
     }
   })();
 
@@ -6462,12 +6562,15 @@
   // ══════════════════════════════════════════════════════════════════════
 
   window._memoryModal = {
-    mode: "tree",          // 'tree' | 'entity'
+    mode: "tree",          // 'tree' | 'entity' | 'diary' | 'todos'
     entity_type: null,     // 'user' | 'persona' | 'tenant' | 'project'
     entity_id: null,
     entity_name: null,
     activeTab: "note",     // 'note' | 'knowledge'
     counts: { note: 0, knowledge: 0 },
+    diary_persona_id: null,
+    diary_persona_name: null,
+    todo_filter: "open",   // 'open' | 'done' | 'all'
   };
 
   async function openMemoryModal() {
@@ -6490,6 +6593,8 @@
     window._memoryModal.entity_type = null;
     window._memoryModal.entity_id = null;
     window._memoryModal.entity_name = null;
+    window._memoryModal.diary_persona_id = null;
+    window._memoryModal.diary_persona_name = null;
     document.getElementById("memoryBreadcrumb").style.display = "none";
     document.getElementById("memoryTabs").style.display = "none";
     document.getElementById("memoryModalTitle").textContent = "🧠 Paměť Marti";
@@ -6552,14 +6657,32 @@
     const list = document.getElementById("memoryList");
     list.innerHTML = '<div class="sms-loading">Načítám…</div>';
     try {
-      const r = await fetch("/api/v1/thoughts/_tree", { credentials: "include" });
-      if (!r.ok) {
-        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+      // Paralelni fetch: tree + diary owners + todos count
+      const [treeR, diaryR, todosR] = await Promise.all([
+        fetch("/api/v1/thoughts/_tree", { credentials: "include" }),
+        fetch("/api/v1/thoughts/_diary_owners", { credentials: "include" }),
+        fetch("/api/v1/thoughts/_todos?status=all&limit=500", { credentials: "include" }),
+      ]);
+      if (!treeR.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${treeR.status})</div>`;
         return;
       }
-      const data = await r.json();
-      const items = data.items || [];
-      if (items.length === 0) {
+      const treeData = await treeR.json();
+      const items = treeData.items || [];
+      let diaryItems = [];
+      if (diaryR.ok) {
+        const diaryData = await diaryR.json();
+        diaryItems = diaryData.items || [];
+      }
+      let todoOpenCount = 0, todoDoneCount = 0;
+      if (todosR.ok) {
+        const todosData = await todosR.json();
+        const todoItems = todosData.items || [];
+        todoOpenCount = todoItems.filter(t => !((t.meta || {}).done)).length;
+        todoDoneCount = todoItems.filter(t => (t.meta || {}).done).length;
+      }
+
+      if (items.length === 0 && diaryItems.length === 0 && (todoOpenCount + todoDoneCount) === 0) {
         list.innerHTML = (
           '<div class="sms-empty">'
           + 'Marti si zatím nic nepamatuje. Promluv s ní a řekni jí: '
@@ -6568,7 +6691,40 @@
         );
         return;
       }
-      const tiles = items.map(it => {
+
+      // Todos tile (pokud mame aspon jeden todo)
+      let todoTile = "";
+      if (todoOpenCount + todoDoneCount > 0) {
+        todoTile = `
+          <div class="memory-entity-tile todos" data-todos-tile="1">
+            <div class="memory-entity-type">📋 úkoly</div>
+            <div class="memory-entity-name">Todo list</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-todos-open">☐ ${todoOpenCount} otevřeno</span>
+              <span class="cnt-todos-done">✓ ${todoDoneCount} hotovo</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Diary tiles (jen pro rodice) -- zobrazuji se jako prvni
+      const diaryTiles = diaryItems.map(d => {
+        const name = _memoryResolveEntityName("persona", d.persona_id);
+        return `
+          <div class="memory-entity-tile diary"
+               data-diary-persona-id="${d.persona_id}"
+               data-diary-persona-name="${_smsEscape(name)}">
+            <div class="memory-entity-type">📖 diář</div>
+            <div class="memory-entity-name">${_smsEscape(name)}</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-diary">✨ ${d.entry_count} ${d.entry_count === 1 ? 'zážitek' : d.entry_count >= 2 && d.entry_count <= 4 ? 'zážitky' : 'zážitků'}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // Regularni entity tiles
+      const entityTiles = items.map(it => {
         const name = _memoryResolveEntityName(it.entity_type, it.entity_id);
         const icon = _memoryEntityIcon(it.entity_type);
         return `
@@ -6585,9 +6741,27 @@
           </div>
         `;
       }).join("");
-      list.innerHTML = `<div class="memory-entity-grid">${tiles}</div>`;
-      // Click handlers
-      list.querySelectorAll(".memory-entity-tile").forEach(tile => {
+
+      list.innerHTML = `<div class="memory-entity-grid">${todoTile}${diaryTiles}${entityTiles}</div>`;
+
+      // Click handlers -- todos tile vede do todos mode
+      list.querySelectorAll(".memory-entity-tile.todos").forEach(tile => {
+        tile.addEventListener("click", () => {
+          _memorySwitchToTodos();
+          _memoryLoadTodos();
+        });
+      });
+      // Diary tiles -- diary mode
+      list.querySelectorAll(".memory-entity-tile.diary").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const pid = parseInt(tile.getAttribute("data-diary-persona-id"), 10);
+          const pname = tile.getAttribute("data-diary-persona-name");
+          _memorySwitchToDiary(pid, pname);
+          _memoryLoadDiary();
+        });
+      });
+      // Regularni entity tiles -- entity mode
+      list.querySelectorAll(".memory-entity-tile:not(.diary):not(.todos)").forEach(tile => {
         tile.addEventListener("click", () => {
           const et = tile.getAttribute("data-entity-type");
           const eid = parseInt(tile.getAttribute("data-entity-id"), 10);
@@ -6599,6 +6773,185 @@
     } catch (e) {
       list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
     }
+  }
+
+  function _memorySwitchToDiary(persona_id, persona_name) {
+    window._memoryModal.mode = "diary";
+    window._memoryModal.diary_persona_id = persona_id;
+    window._memoryModal.diary_persona_name = persona_name;
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent =
+      `/ 📖 diář: ${persona_name}`;
+    document.getElementById("memoryTabs").style.display = "none";  // diar nema taby
+    document.getElementById("memoryModalTitle").textContent =
+      `📖 Diář — ${persona_name}`;
+  }
+
+  async function _memoryLoadDiary() {
+    const list = document.getElementById("memoryList");
+    const pid = window._memoryModal.diary_persona_id;
+    if (!pid) return;
+    list.innerHTML = '<div class="sms-loading">Načítám diář…</div>';
+    try {
+      const r = await fetch(
+        `/api/v1/thoughts/_diary/${pid}?limit=100`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        list.innerHTML = '<div class="sms-empty">Diář je zatím prázdný.</div>';
+        return;
+      }
+      list.innerHTML = items.map(_diaryRenderCard).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _memorySwitchToTodos() {
+    window._memoryModal.mode = "todos";
+    window._memoryModal.todo_filter = "open";
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent = `/ 📋 Úkoly`;
+    document.getElementById("memoryTabs").style.display = "none";
+    document.getElementById("memoryModalTitle").textContent = "📋 Úkoly (Todo list)";
+  }
+
+  async function _memoryLoadTodos() {
+    const list = document.getElementById("memoryList");
+    const filter = window._memoryModal.todo_filter || "open";
+    list.innerHTML = '<div class="sms-loading">Načítám úkoly…</div>';
+    try {
+      const r = await fetch(
+        `/api/v1/thoughts/_todos?status=${filter}&limit=500`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+
+      // Filter bar na vrchu
+      const filterBar = `
+        <div class="todo-filter-bar">
+          <button class="todo-filter-btn ${filter === 'open' ? 'active' : ''}" data-tfilter="open">☐ Otevřené</button>
+          <button class="todo-filter-btn ${filter === 'done' ? 'active' : ''}" data-tfilter="done">✓ Hotové</button>
+          <button class="todo-filter-btn ${filter === 'all' ? 'active' : ''}" data-tfilter="all">Všechny</button>
+        </div>
+      `;
+
+      if (items.length === 0) {
+        const msg = filter === "open"
+          ? "Žádné otevřené úkoly. Všechno hotovo! 🎉"
+          : filter === "done"
+          ? "Žádné hotové úkoly (zatím)."
+          : "Žádné úkoly.";
+        list.innerHTML = filterBar + `<div class="sms-empty">${msg}</div>`;
+      } else {
+        list.innerHTML = filterBar + items.map(_todoRenderCard).join("");
+      }
+
+      // Handlers
+      list.querySelectorAll(".todo-filter-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          window._memoryModal.todo_filter = btn.getAttribute("data-tfilter");
+          await _memoryLoadTodos();
+        });
+      });
+      list.querySelectorAll(".todo-card").forEach(card => {
+        card.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const id = card.getAttribute("data-thought-id");
+          try {
+            const r = await fetch(`/api/v1/thoughts/${id}/toggle-done`, {
+              method: "POST", credentials: "include",
+            });
+            if (r.ok) {
+              await _memoryLoadTodos();
+            } else {
+              alert(`Chyba: HTTP ${r.status}`);
+            }
+          } catch (e) { alert(`Chyba: ${e.message}`); }
+        });
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _todoRenderCard(t) {
+    const esc = _smsEscape;
+    const meta = t.meta || {};
+    const isDone = !!meta.done;
+    const dueAt = meta.due_at;
+    const doneAt = meta.done_at;
+    const time = _smsFmtTime(t.created_at);
+
+    // Entity link summary (pro koho je todo)
+    const linksStr = (t.entity_links || [])
+      .map(l => `${_memoryEntityIcon(l.entity_type)} ${_memoryResolveEntityName(l.entity_type, l.entity_id)}`)
+      .join(" · ");
+
+    const metaParts = [`#${t.id}`, `jistota ${t.certainty}%`, `vytv. ${time}`];
+    if (dueAt) metaParts.push(`⏰ ${dueAt.slice(0, 10)}`);
+    if (doneAt) metaParts.push(`✓ ${_smsFmtTime(doneAt)}`);
+    if (linksStr) metaParts.push(linksStr);
+
+    return `
+      <div class="todo-card ${isDone ? 'done' : ''}" data-thought-id="${t.id}">
+        <div class="todo-checkbox ${isDone ? 'checked' : ''}">${isDone ? '✓' : ''}</div>
+        <div class="todo-body">
+          <div class="todo-content">${esc(t.content)}</div>
+          <div class="todo-meta">${metaParts.join(" · ")}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _diaryRenderCard(t) {
+    const esc = _smsEscape;
+    const typeIcons = {
+      "experience": "💭", "observation": "👁", "fact": "📝",
+      "goal": "🎯", "question": "❓",
+    };
+    const typeIcon = typeIcons[t.type] || "📖";
+    const time = _smsFmtTime(t.created_at);
+
+    const meta = t.meta || {};
+    const emotion = meta.emotion;
+    const intensity = meta.intensity;
+    const linkedEmail = meta.linked_email_outbox_id;
+
+    let footerParts = [`#${t.id}`];
+    if (emotion) {
+      const intensitySuffix = intensity ? ` ${intensity}/10` : "";
+      footerParts.push(`<span class="diary-card-emotion">💗 ${esc(emotion)}${intensitySuffix}</span>`);
+    }
+    if (linkedEmail) {
+      footerParts.push(`<span class="diary-card-link">✉ email #${linkedEmail}</span>`);
+    }
+    const sourceDesc = t.source_event_type
+      ? `${t.source_event_type}${t.source_event_id ? "#" + t.source_event_id : ""}`
+      : "";
+    if (sourceDesc && !linkedEmail) footerParts.push(`ze zdroje ${sourceDesc}`);
+
+    return `
+      <div class="diary-card" data-thought-id="${t.id}">
+        <div class="diary-card-header">
+          <span class="diary-card-type">${typeIcon} ${esc(t.type.toUpperCase())}</span>
+          <span>${time}</span>
+        </div>
+        <div class="diary-card-content">${esc(t.content)}</div>
+        <div class="diary-card-footer">${footerParts.join(" · ")}</div>
+      </div>
+    `;
   }
 
   // ── Entity mode: list myslenek + detail ──────────────────────────────
@@ -6857,6 +7210,223 @@
     }
   })();
 
+  // ══════════════════════════════════════════════════════════════════════
+  // MARTI QUESTIONS MODAL (Faze 4 -- active learning)
+  //   Karty otazek pro rodice. Jedna karta = jedna otazka.
+  //   Ano / Ne / Nejsem si jist / Preskoc + volitelny text field.
+  //   "⟳ Nové otázky" spusti batch generator v backendu.
+  //   Dostupne jen pro rodice (is_marti_parent=true).
+  // ══════════════════════════════════════════════════════════════════════
+
+  async function openMartiQuestionsModal() {
+    if (!currentUser || !currentUser.is_marti_parent) {
+      alert("Otazky od Marti jsou dostupne jen pro rodice.");
+      return;
+    }
+    document.getElementById("mqModalBg").classList.add("open");
+    document.getElementById("mqModalSub").textContent =
+      (currentUser.short_name || currentUser.first_name || "");
+    await _mqLoad();
+  }
+
+  function closeMartiQuestionsModal() {
+    document.getElementById("mqModalBg").classList.remove("open");
+  }
+
+  async function _mqLoad() {
+    const list = document.getElementById("mqList");
+    const counter = document.getElementById("mqCounter");
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      const r = await fetch("/api/v1/marti-questions?limit=100", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      counter.textContent = `${items.length} ${items.length === 1 ? 'otázka' : items.length >= 2 && items.length <= 4 ? 'otázky' : 'otázek'}`;
+      if (items.length === 0) {
+        list.innerHTML = (
+          '<div class="sms-empty">'
+          + 'Žádné otázky Marti zatím nemá. Když bude mít myšlenky s nízkou jistotou, '
+          + 'vygeneruje se ti tu pár otázek. Klikni "⟳ Nové otázky" pro okamžitý trigger.'
+          + '</div>'
+        );
+        return;
+      }
+      list.innerHTML = items.map(_mqRenderCard).join("");
+      _mqAttachHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _mqRenderCard(q) {
+    const esc = _smsEscape;
+    const time = _smsFmtTime(q.created_at);
+    const thought = q.thought || {};
+    const typeIcon = {
+      "fact": "📝", "todo": "✓", "observation": "👁",
+      "question": "❓", "goal": "🎯", "experience": "💭",
+    }[thought.type] || "📝";
+    return `
+      <div class="mq-card" data-mq-id="${q.id}">
+        <div class="mq-question">${esc(q.question_text)}</div>
+        <div class="mq-context">
+          <div class="mq-context-label">${typeIcon} Myšlenka k ověření (jistota ${thought.certainty}%)</div>
+          <div class="mq-context-content">${esc(thought.content || '')}</div>
+        </div>
+        <div class="mq-buttons">
+          <button class="mq-btn yes" data-action="answer" data-choice="yes" data-mq-id="${q.id}">Ano</button>
+          <button class="mq-btn no" data-action="answer" data-choice="no" data-mq-id="${q.id}">Ne</button>
+          <button class="mq-btn maybe" data-action="answer" data-choice="not_sure" data-mq-id="${q.id}">Nejsem si jist</button>
+          <button class="mq-btn skip" data-action="answer" data-choice="skipped" data-mq-id="${q.id}">Přeskočit</button>
+        </div>
+        <div class="mq-text-hint">Odpovědět přesněji (nepovinné):</div>
+        <textarea class="mq-text" id="mq-text-${q.id}" placeholder="Ano/Ne nestačí? Napiš tu svůj přesný komentář. Marti ho zpracuje v noci pomocí LLM."></textarea>
+        <div class="mq-text-submit">
+          <button class="mq-text-submit-btn" data-action="submit-text" data-mq-id="${q.id}">Odeslat text</button>
+        </div>
+        <div class="mq-meta">q#${q.id} · priorita ${q.priority_score} · ${time}</div>
+      </div>
+    `;
+  }
+
+  function _mqAttachHandlers() {
+    const list = document.getElementById("mqList");
+
+    // Klik na Ano/Ne/Nejsem si jist/Preskoc
+    list.querySelectorAll('[data-action="answer"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-mq-id");
+        const choice = btn.getAttribute("data-choice");
+        await _mqSubmit(id, { choice, text: null }, btn);
+      });
+    });
+
+    // Odeslani textu
+    list.querySelectorAll('[data-action="submit-text"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-mq-id");
+        const textArea = document.getElementById(`mq-text-${id}`);
+        const text = (textArea?.value || "").trim();
+        if (!text) {
+          alert("Napiš něco do text fieldu nebo klikni na tlačítko výše.");
+          return;
+        }
+        await _mqSubmit(id, { choice: null, text }, btn);
+      });
+    });
+  }
+
+  async function _mqSubmit(question_id, body, btn) {
+    // Disable vsechna tlacitka te karty aby user neposilal vickrat
+    const card = document.querySelector(`[data-mq-id="${question_id}"]`);
+    const buttons = card ? card.querySelectorAll("button") : [];
+    buttons.forEach(b => { b.disabled = true; });
+    const originalText = btn.textContent;
+    btn.textContent = "Odesílám…";
+    try {
+      const r = await fetch(`/api/v1/marti-questions/${question_id}/answer`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+        alert(`Chyba: ${err.detail || r.status}`);
+        buttons.forEach(b => { b.disabled = false; });
+        btn.textContent = originalText;
+        return;
+      }
+      const result = await r.json();
+      // Refresh cely list (karta zmizi, counter se zmensi, pripadne auto-promote ukaze)
+      await _mqLoad();
+      // Refresh global unread badge (questions count zmeni)
+      if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+      // Kdyby doslo k auto-promote, daj user vedet (nenavazne)
+      if (result.thought_promoted) {
+        const card = document.createElement("div");
+        card.className = "sms-empty";
+        card.style.color = "#10b981";
+        card.textContent = `🧠 Myšlenka #${result.thought_id} povýšena do znalostí (jistota ${result.thought_certainty_after}%).`;
+        document.getElementById("mqList").prepend(card);
+        setTimeout(() => card.remove(), 4000);
+      }
+    } catch (e) {
+      alert(`Chyba: ${e.message}`);
+      buttons.forEach(b => { b.disabled = false; });
+      btn.textContent = originalText;
+    }
+  }
+
+  async function _mqGenerate() {
+    const btn = document.getElementById("mqBtnGenerate");
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "⏳ Generuji…";
+    try {
+      const r = await fetch("/api/v1/marti-questions/generate", {
+        method: "POST", credentials: "include",
+      });
+      if (!r.ok) {
+        alert(`Chyba generatoru: HTTP ${r.status}`);
+        return;
+      }
+      const result = await r.json();
+      if (result.no_parents) {
+        alert("V systemu nejsou definovani rodice. Pouzij scripts/_set_marti_parent.py.");
+        return;
+      }
+      // Refresh list -- nove otazky se objevi
+      await _mqLoad();
+      if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+      // Krátká info zpráva
+      const infoBox = document.createElement("div");
+      infoBox.className = "sms-empty";
+      infoBox.style.color = "#3b82f6";
+      infoBox.textContent = `Vygenerováno ${result.generated} nových otázek (scan ${result.candidates_scanned} kandidátů).`;
+      document.getElementById("mqList").prepend(infoBox);
+      setTimeout(() => infoBox.remove(), 4000);
+    } catch (e) {
+      alert(`Chyba: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  // Bootstrap handlers
+  (function initMartiQuestionsModal() {
+    const close = document.getElementById("mqModalClose");
+    if (close) close.addEventListener("click", closeMartiQuestionsModal);
+    const bg = document.getElementById("mqModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "mqModalBg") closeMartiQuestionsModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeMartiQuestionsModal();
+      }
+    });
+    const refresh = document.getElementById("mqBtnRefresh");
+    if (refresh) {
+      refresh.addEventListener("click", async () => {
+        refresh.disabled = true;
+        await _mqLoad();
+        refresh.disabled = false;
+      });
+    }
+    const generate = document.getElementById("mqBtnGenerate");
+    if (generate) generate.addEventListener("click", _mqGenerate);
+  })();
+
   // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────
   // Drzi {persona_id: count} cache. Volat refreshSmsUnreadBadges() po zmene.
   window._smsUnreadCounts = {};
@@ -6904,17 +7474,22 @@
       const total = data.total || 0;
       const em = data.unread_email || 0;
       const sms = data.unread_sms || 0;
+      const mq = data.unread_questions || 0;
       countEl.textContent = String(total);
-      // Rozpad "📧 3 · 📱 7" kdyz mame oba typy, jinak jen to aktualni.
-      let breakdown = "";
-      if (em > 0 && sms > 0)      breakdown = `📧 ${em} · 📱 ${sms}`;
-      else if (em > 0)            breakdown = `📧 ${em}`;
-      else if (sms > 0)           breakdown = `📱 ${sms}`;
+      // Rozpad "📧 3 · 📱 7 · ❓ 5" -- zobraz jen nenulove.
+      const parts = [];
+      if (em > 0)  parts.push(`📧 ${em}`);
+      if (sms > 0) parts.push(`📱 ${sms}`);
+      if (mq > 0)  parts.push(`❓ ${mq}`);
+      const breakdown = parts.join(" · ");
       if (breakEl) breakEl.textContent = breakdown;
-      // Tooltip obsahuje detail i kdyz total=0 (usability -- user vi ze to prazdne)
-      badge.setAttribute("title",
-        `${em} nezpracovan${em === 1 ? 'y' : 'e'} email${em === 1 ? '' : 'y'}, ` +
-        `${sms} nezpracovan${sms === 1 ? 'a' : 'e'} SMS`);
+      // Tooltip obsahuje detail i kdyz total=0
+      const titleParts = [
+        `${em} email${em === 1 ? '' : em >= 2 && em <= 4 ? 'y' : 'ů'}`,
+        `${sms} SMS`,
+      ];
+      if (data.is_parent) titleParts.push(`${mq} otázek od Marti`);
+      badge.setAttribute("title", titleParts.join(", "));
       // Hide kdyz nic -- neznamou sila zobrazovat "0"
       if (total > 0) badge.classList.add("show");
       else badge.classList.remove("show");

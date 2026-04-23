@@ -141,6 +141,97 @@ def list_thoughts(
 #    MUSI byt registrovane PRED /{thought_id} routami. Jinak FastAPI
 #    matchne "_tree" jako thought_id (int), dostane string -> 422. ──
 
+@router.get("/_todos")
+def get_todos(req: Request, status: str = "all", limit: int = 200):
+    """
+    Vrati todo myslenky v tenant scope usera (+ universal).
+    status: 'open' | 'done' | 'all'.
+    Rodic: bypass tenant scope.
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    parent = is_marti_parent(user_id)
+
+    try:
+        items = thoughts_service.list_todos(
+            tenant_scope=tenant_id,
+            bypass_tenant_scope=parent,
+            status_filter=status,
+            limit=limit,
+        )
+    except ThoughtValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {
+        "items": items,
+        "status_filter": status,
+        "count": len(items),
+    }
+
+
+@router.post("/{thought_id}/toggle-done")
+def toggle_todo_done(thought_id: int, req: Request):
+    """
+    Preklopi meta.done u todo myslenky. Toggle: open -> done, done -> open.
+    Tenant check jako u PUT/DELETE.
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    parent = is_marti_parent(user_id)
+
+    existing = thoughts_service.get_thought(thought_id)
+    if existing is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    scope = existing.get("tenant_scope")
+    if scope is not None and scope != tenant_id and not parent:
+        raise HTTPException(status_code=403, detail="Myslenka neni v tvem tenantu.")
+
+    # Zjisti aktualni done state
+    cur_meta = existing.get("meta") or {}
+    currently_done = bool(isinstance(cur_meta, dict) and cur_meta.get("done"))
+    try:
+        result = thoughts_service.mark_todo_done(thought_id, done=not currently_done)
+    except ThoughtValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if result is None:
+        raise HTTPException(status_code=404, detail=f"Myslenka id={thought_id} neexistuje")
+    return result
+
+
+@router.get("/_diary_owners")
+def get_diary_owners(req: Request):
+    """
+    Vrati persony, ktere maji aspon 1 diar zaznam + pocet. Pouziva se v UI
+    tree overview pro zobrazeni "Diář ..." dlazdic na vrchu. Jen pro rodice.
+    """
+    user_id = _get_uid(req)
+    if not is_marti_parent(user_id):
+        # Nerodici neuvidi diare -- vratim prazdno bez 403 (UI pak skryje sekci)
+        return {"items": [], "is_parent": False}
+    items = thoughts_service.diary_owners_overview()
+    return {"items": items, "is_parent": True}
+
+
+@router.get("/_diary/{persona_id}")
+def get_diary_endpoint(persona_id: int, req: Request, limit: int = 100):
+    """
+    Vrati denikove zaznamy persony. Privacy:
+      - Marti (user=tato persona) by to videla sama; ale persony maji pristup
+        jen pres API, takze tohle resi prakticky jen rodice.
+      - Rodice (is_marti_parent=True) vidi vsechny diare svych AI deti.
+      - Ostatni useri dostanou 403.
+    """
+    user_id = _get_uid(req)
+    parent = is_marti_parent(user_id)
+    if not parent:
+        raise HTTPException(
+            status_code=403,
+            detail="Diář persony je soukromý — vidí ho jen rodiče Marti (is_marti_parent).",
+        )
+
+    items = thoughts_service.list_diary_for_persona(persona_id, limit=limit)
+    return {"items": items, "persona_id": persona_id, "count": len(items)}
+
+
 @router.get("/_tree")
 def get_tree_overview(req: Request):
     """

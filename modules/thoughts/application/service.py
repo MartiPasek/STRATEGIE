@@ -602,6 +602,256 @@ def find_thought_by_text(
         ds.close()
 
 
+def list_todos(
+    tenant_scope: int | None = None,
+    bypass_tenant_scope: bool = False,
+    status_filter: str = "all",   # 'open' | 'done' | 'all'
+    limit: int = 200,
+) -> list[dict[str, Any]]:
+    """
+    Vrati vsechny myslenky type='todo' v tenant scope. Razeni:
+      - open first (meta.done != true)
+      - pak podle due_at ASC (kdyz je v meta), jinak created_at DESC
+
+    status_filter:
+      'open' -- jen otevrene todo
+      'done' -- jen hotove
+      'all'  -- obe
+    """
+    if status_filter not in ("open", "done", "all"):
+        raise ThoughtValidationError(f"neznamy status_filter '{status_filter}'")
+
+    ds = get_data_session()
+    try:
+        q = ds.query(Thought).filter(
+            Thought.type == "todo",
+            Thought.deleted_at.is_(None),
+        )
+        if tenant_scope is not None and not bypass_tenant_scope:
+            q = q.filter(
+                or_(
+                    Thought.tenant_scope == tenant_scope,
+                    Thought.tenant_scope.is_(None),
+                )
+            )
+        rows = (
+            q.order_by(Thought.created_at.desc())
+             .limit(max(1, min(limit, 500)))
+             .all()
+        )
+        if not rows:
+            return []
+
+        # Fetch entity_links
+        ids = [r.id for r in rows]
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id.in_(ids))
+            .all()
+        )
+        links_by_thought: dict[int, list[dict[str, Any]]] = {}
+        for l in links:
+            links_by_thought.setdefault(l.thought_id, []).append({
+                "entity_type": l.entity_type,
+                "entity_id": l.entity_id,
+            })
+
+        result = [
+            _thought_to_dict(r, entity_links=links_by_thought.get(r.id, []))
+            for r in rows
+        ]
+
+        # Filtruj podle status (done v meta)
+        def _is_done(d: dict) -> bool:
+            m = d.get("meta")
+            return bool(isinstance(m, dict) and m.get("done"))
+
+        if status_filter == "open":
+            result = [d for d in result if not _is_done(d)]
+        elif status_filter == "done":
+            result = [d for d in result if _is_done(d)]
+
+        # Razeni: otevrene prvni, pak due_at ASC, pak created_at DESC
+        def _sort_key(d: dict):
+            is_done = _is_done(d)
+            m = d.get("meta") or {}
+            due_at = m.get("due_at") if isinstance(m, dict) else None
+            # (done=True bude drzet dole): (1 pokud done, 0 otevrene), pak due_at
+            return (
+                1 if is_done else 0,
+                due_at or "9999-12-31",
+                -int((d.get("id") or 0)),
+            )
+        result.sort(key=_sort_key)
+        return result
+    finally:
+        ds.close()
+
+
+def mark_todo_done(thought_id: int, done: bool = True) -> dict[str, Any] | None:
+    """
+    Oznaci todo jako hotove (meta.done = true). Idempotent.
+    done=False vrati zpet do otevreneho stavu.
+
+    Vraci updated thought dict nebo None kdyz neexistuje.
+    """
+    ds = get_data_session()
+    try:
+        t = ds.query(Thought).filter_by(id=thought_id, deleted_at=None).first()
+        if t is None:
+            return None
+        if t.type != "todo":
+            raise ThoughtValidationError(
+                f"myslenka id={thought_id} neni todo (type='{t.type}')"
+            )
+
+        # Parsuj existujici meta, updatuj done
+        meta_dict: dict[str, Any] = {}
+        if t.meta:
+            try:
+                meta_dict = json.loads(t.meta)
+                if not isinstance(meta_dict, dict):
+                    meta_dict = {}
+            except Exception:
+                meta_dict = {}
+        meta_dict["done"] = bool(done)
+        if done:
+            meta_dict["done_at"] = datetime.now(timezone.utc).isoformat()
+        else:
+            meta_dict.pop("done_at", None)
+
+        t.meta = json.dumps(meta_dict, ensure_ascii=False)
+        t.modified_at = datetime.now(timezone.utc)
+        ds.commit()
+        ds.refresh(t)
+
+        logger.info(
+            f"THOUGHT | todo {'done' if done else 'reopened'} | id={thought_id}"
+        )
+
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id == t.id)
+            .all()
+        )
+        return _thought_to_dict(t, entity_links=[
+            {"entity_type": l.entity_type, "entity_id": l.entity_id}
+            for l in links
+        ])
+    finally:
+        ds.close()
+
+
+def diary_owners_overview() -> list[dict[str, Any]]:
+    """
+    Vrati persony, ktere maji aspon 1 denikovy zaznam, + pocet.
+    Pouziva se pro zobrazeni "Diář Marti" dlazdic na vrchu Paměť Marti modalu.
+
+    Vraci:
+      [{"persona_id": 1, "entry_count": 5}, ...]
+
+    Frontend si jmena person doplni z personasCache.
+    """
+    from sqlalchemy import func
+
+    ds = get_data_session()
+    try:
+        # Najdi thought entity links pro persony + join na thoughts kde
+        # meta obsahuje is_diary marker (jednoducha substring varianta).
+        # Nejrychlejsi: vsechny thoughts s author_persona_id = entity_id,
+        # tenant_scope NULL, join entity_link, filter obsahu meta.
+        rows = (
+            ds.query(
+                ThoughtEntityLink.entity_id,
+                func.count(Thought.id).label("cnt"),
+            )
+            .join(Thought, Thought.id == ThoughtEntityLink.thought_id)
+            .filter(
+                ThoughtEntityLink.entity_type == "persona",
+                Thought.tenant_scope.is_(None),
+                Thought.author_persona_id == ThoughtEntityLink.entity_id,
+                Thought.deleted_at.is_(None),
+                # Substring match pro marker v meta JSON -- postacuje pro MVP.
+                # Pozdeji muzeme pridat dedikovany sloupec nebo JSONB index.
+                Thought.meta.ilike('%"is_diary": true%'),
+            )
+            .group_by(ThoughtEntityLink.entity_id)
+            .order_by(func.count(Thought.id).desc())
+            .all()
+        )
+        return [
+            {"persona_id": int(r.entity_id), "entry_count": int(r.cnt)}
+            for r in rows
+        ]
+    finally:
+        ds.close()
+
+
+def list_diary_for_persona(
+    persona_id: int,
+    limit: int = 100,
+) -> list[dict[str, Any]]:
+    """
+    Vrati deníkové záznamy konkretni persony (Martiho diář).
+
+    Deníkový záznam je myšlenka splňující:
+      - entity_links obsahuje (persona, persona_id)
+      - tenant_scope IS NULL (universal = soukromá, cross-tenant)
+      - author_persona_id == persona_id (ta persona si to zapsala sama)
+      - meta.is_diary == true (marker pro rozliseni od běžných thoughts o persone)
+
+    Seřazeno od nejnovějšího.
+
+    Tenant izolace: tenant_scope=NULL samo o sobě znamená "universal" — diář
+    je mimo tenanty. Retrieval v Paměť Marti modalu respektuje privacy:
+    zobrazí se jen rodičům (is_marti_parent=True) a samotné personě (jako
+    author).
+    """
+    ds = get_data_session()
+    try:
+        rows = (
+            ds.query(Thought)
+            .join(ThoughtEntityLink, ThoughtEntityLink.thought_id == Thought.id)
+            .filter(
+                ThoughtEntityLink.entity_type == "persona",
+                ThoughtEntityLink.entity_id == persona_id,
+                Thought.tenant_scope.is_(None),
+                Thought.author_persona_id == persona_id,
+                Thought.deleted_at.is_(None),
+            )
+            .order_by(Thought.created_at.desc())
+            .limit(max(1, min(limit, 500)))
+            .all()
+        )
+        if not rows:
+            return []
+
+        # Batch fetch entity_links
+        ids = [r.id for r in rows]
+        links = (
+            ds.query(ThoughtEntityLink)
+            .filter(ThoughtEntityLink.thought_id.in_(ids))
+            .all()
+        )
+        links_by_thought: dict[int, list[dict[str, Any]]] = {}
+        for l in links:
+            links_by_thought.setdefault(l.thought_id, []).append({
+                "entity_type": l.entity_type,
+                "entity_id": l.entity_id,
+            })
+
+        # Filtruj jen ty, ktere maji meta.is_diary == true (dodatecny marker)
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = _thought_to_dict(r, entity_links=links_by_thought.get(r.id, []))
+            meta = d.get("meta")
+            if isinstance(meta, dict) and meta.get("is_diary"):
+                out.append(d)
+        return out
+    finally:
+        ds.close()
+
+
 def tree_overview(
     tenant_scope: int | None = None,
     bypass_tenant_scope: bool = False,

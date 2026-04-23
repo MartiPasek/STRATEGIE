@@ -773,6 +773,108 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if from_identity not in ("persona", "user"):
             from_identity = "persona"
 
+        # ── AUTO-SEND trust check (Phase 7) ─────────────────────────────
+        # Pokud VSICHNI prijemci (TO+CC+BCC) maji aktivni consent -> skip
+        # preview a pending, odesli rovnou. Rate limit 20/hod je safeguard.
+        def _split_send(s: str) -> list[str]:
+            if not s:
+                return []
+            parts = s.replace(";", ",").split(",")
+            return [p.strip().lower() for p in parts if p.strip()]
+        try:
+            from modules.notifications.application import consent_service as _cs_auto
+            all_rcpts = _split_send(to) + _split_send(cc) + _split_send(bcc)
+            if all_rcpts:
+                all_trusted, _untrusted = _cs_auto.check_all_recipients_trusted(
+                    all_rcpts, "email",
+                )
+                if all_trusted:
+                    under_limit, cur_count = _cs_auto.check_rate_limit("email")
+                    if not under_limit:
+                        logger.warning(
+                            f"AUTO_SEND | rate limit exceeded | count={cur_count} "
+                            f"-- fallback na preview"
+                        )
+                        all_trusted = False
+            else:
+                all_trusted = False
+        except Exception as _e_auto:
+            logger.warning(f"AUTO_SEND | trust check failed | {_e_auto}")
+            all_trusted = False
+
+        if all_trusted:
+            # Auto-send: queue + inline flush (stejny vzor jako confirm handler)
+            try:
+                from modules.notifications.application.email_service import (
+                    queue_email as _qe_auto,
+                    send_outbox_row_now as _sorn_auto,
+                )
+                _persona_id_a = _active_persona_id_for_conversation(conversation_id)
+                _tenant_id_a = None
+                if user_id:
+                    from core.database_core import get_core_session as _gcs_a
+                    from modules.core.infrastructure.models_core import User as _U_a
+                    _csa = _gcs_a()
+                    try:
+                        _ua = _csa.query(_U_a).filter_by(id=user_id).first()
+                        if _ua:
+                            _tenant_id_a = _ua.last_active_tenant_id
+                    finally:
+                        _csa.close()
+                cc_list_a = _split_send(cc) or None
+                bcc_list_a = _split_send(bcc) or None
+                outbox_a = _qe_auto(
+                    to=to, subject=subject, body=body,
+                    cc=cc_list_a, bcc=bcc_list_a,
+                    persona_id=_persona_id_a, tenant_id=_tenant_id_a,
+                    user_id=user_id, from_identity=from_identity,
+                    purpose="user_request",
+                    conversation_id=conversation_id,
+                )
+                outbox_id_a = outbox_a["id"]
+                res_a = _sorn_auto(outbox_id_a)
+                st_a = res_a.get("status")
+                # Audit: action_type='auto' (rate limit pocita tyhle rows)
+                try:
+                    _asess = get_data_session()
+                    try:
+                        _asess.add(ActionLog(
+                            user_id=user_id,
+                            action_type="auto",
+                            tool_name="send_email",
+                            input=json.dumps(
+                                {"to": to, "subject": subject,
+                                 "body": body, "conversation_id": conversation_id,
+                                 "auto_sent": True, "outbox_id": outbox_id_a},
+                                ensure_ascii=False,
+                            ),
+                            output=f"to={to} | auto | chars={len(body)}",
+                            status="success" if st_a == "sent" else "fail",
+                            approval_required=False,
+                            approved_by=None,
+                        ))
+                        _asess.commit()
+                    finally:
+                        _asess.close()
+                except Exception as _audit_e:
+                    logger.error(f"AUTO_SEND | audit log failed | {_audit_e}")
+
+                if st_a == "sent":
+                    return (
+                        f"✅ Email pro **{to}** odeslán automaticky "
+                        f"(máš trvalý souhlas — bez čekání na potvrzení)."
+                    )
+                return (
+                    f"⚠️ Pokoušela jsem se poslat **{to}** automaticky "
+                    f"(máš to povolené), ale odeslání selhalo: "
+                    f"{res_a.get('error') or 'neznámá chyba'}\n"
+                    f"_Outbox id={outbox_id_a}, status={st_a}_"
+                )
+            except Exception as _send_e:
+                logger.exception(f"AUTO_SEND | inline send failed | {_send_e}")
+                # Spadni do normal flow -- user alespon dostane preview
+
+        # ── NORMAL flow (preview + pending) ─────────────────────────────
         _save_pending_action(conversation_id, "send_email", {
             "to": to,
             "cc": cc,
@@ -817,13 +919,101 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
 
     if tool_name == "send_sms":
+        sms_to = tool_input.get("to", "")
+        sms_body = tool_input.get("body", "")
+
+        # ── AUTO-SEND trust check (Phase 7) ─────────────────────────────
+        try:
+            from modules.notifications.application import consent_service as _cs_sauto
+            sms_all_trusted = False
+            if sms_to:
+                sms_all_trusted, _su = _cs_sauto.check_all_recipients_trusted(
+                    [sms_to], "sms",
+                )
+                if sms_all_trusted:
+                    _ul, _cc = _cs_sauto.check_rate_limit("sms")
+                    if not _ul:
+                        logger.warning(
+                            f"AUTO_SEND_SMS | rate limit exceeded | count={_cc}"
+                        )
+                        sms_all_trusted = False
+        except Exception as _e_sauto:
+            logger.warning(f"AUTO_SEND_SMS | trust check failed | {_e_sauto}")
+            sms_all_trusted = False
+
+        if sms_all_trusted:
+            try:
+                from modules.notifications.application.sms_service import (
+                    queue_sms as _qs_auto,
+                    SmsRateLimitError as _SRLE, SmsValidationError as _SVE,
+                    SmsError as _SE,
+                )
+                _tenant_id_sa = None
+                if user_id:
+                    from core.database_core import get_core_session as _gcs_sa
+                    from modules.core.infrastructure.models_core import User as _U_sa
+                    _css = _gcs_sa()
+                    try:
+                        _us = _css.query(_U_sa).filter_by(id=user_id).first()
+                        if _us:
+                            _tenant_id_sa = _us.last_active_tenant_id
+                    finally:
+                        _css.close()
+                try:
+                    sms_res = _qs_auto(
+                        to=sms_to, body=sms_body,
+                        purpose="user_request",
+                        user_id=user_id,
+                        tenant_id=_tenant_id_sa,
+                    )
+                except (_SRLE, _SVE, _SE) as _sms_err:
+                    return f"❌ Auto-SMS selhala: {_sms_err}"
+
+                sms_status = sms_res.get("status")
+                sms_outbox_id = sms_res.get("id")
+                # Audit action_type='auto'
+                try:
+                    _asess = get_data_session()
+                    try:
+                        _asess.add(ActionLog(
+                            user_id=user_id,
+                            action_type="auto",
+                            tool_name="send_sms",
+                            input=json.dumps(
+                                {"to": sms_to, "body": sms_body,
+                                 "conversation_id": conversation_id,
+                                 "auto_sent": True, "outbox_id": sms_outbox_id},
+                                ensure_ascii=False,
+                            ),
+                            output=f"to={sms_to} | auto | chars={len(sms_body)}",
+                            status="success" if sms_status in ("sent", "pending") else "fail",
+                            approval_required=False,
+                            approved_by=None,
+                        ))
+                        _asess.commit()
+                    finally:
+                        _asess.close()
+                except Exception as _audit_e:
+                    logger.error(f"AUTO_SEND_SMS | audit log failed | {_audit_e}")
+
+                if sms_status == "disabled":
+                    return "⚠️ SMS gateway je vypnutá (SMS_ENABLED=false)."
+                return (
+                    f"✅ SMS pro **{sms_res.get('to_phone') or sms_to}** odeslána "
+                    f"automaticky (trvalý souhlas). _Outbox id={sms_outbox_id}, "
+                    f"status={sms_status}_"
+                )
+            except Exception as _sms_send_e:
+                logger.exception(f"AUTO_SEND_SMS | inline send failed | {_sms_send_e}")
+
+        # NORMAL flow (preview + pending)
         _save_pending_action(conversation_id, "send_sms", {
-            "to": tool_input.get("to", ""),
-            "body": tool_input.get("body", ""),
+            "to": sms_to,
+            "body": sms_body,
         })
         return format_sms_preview(
-            to=tool_input.get("to", ""),
-            body=tool_input.get("body", ""),
+            to=sms_to,
+            body=sms_body,
         )
 
     if tool_name == "list_sms_inbox":
@@ -1748,6 +1938,125 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 f"  - **{nm}**{short_suffix}: {r.msg_count} zpráv v {r.conv_count} "
                 f"{'konverzaci' if r.conv_count == 1 else 'konverzacích'} "
                 f"(poslední {rel})"
+            )
+        return "\n".join(lines)
+
+    # ── AUTO-SEND CONSENTS (Phase 7) ──────────────────────────────────────
+    if tool_name == "grant_auto_send":
+        from modules.notifications.application import consent_service as _cs_asc
+        channel = (tool_input.get("channel") or "").lower().strip()
+        target_user_id = tool_input.get("target_user_id")
+        target_contact = (tool_input.get("target_contact") or "").strip() or None
+        note = (tool_input.get("note") or "").strip() or None
+
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+
+        try:
+            result = _cs_asc.grant_consent(
+                granted_by_user_id=user_id,
+                channel=channel,
+                target_user_id=target_user_id,
+                target_contact=target_contact,
+                note=note,
+            )
+        except _cs_asc.ConsentError as e:
+            msg = str(e)
+            if "pouze rodic" in msg.lower() or "pouze rodič" in msg.lower():
+                return (
+                    "🚫 Tenhle souhlas může dát jen některý z rodičů "
+                    "(Marti, Ondra, Kristý, Jirka). Já ho sama nemůžu udělit, "
+                    "ani kdybys chtěl."
+                )
+            return f"❌ Nelze uložit souhlas: {msg}"
+        except Exception as e:
+            logger.exception(f"GRANT_AUTO_SEND | failed | {e}")
+            return f"❌ Chyba při ukládání souhlasu: {e}"
+
+        # Resolve jmeno prijemce pro hezci reply
+        display = None
+        if result.get("target_user_id"):
+            from core.database_core import get_core_session as _gcs_g
+            from modules.core.infrastructure.models_core import User as _U_g
+            cs = _gcs_g()
+            try:
+                u = cs.query(_U_g).filter_by(id=result["target_user_id"]).first()
+                if u:
+                    display = ((u.first_name or "") + " " + (u.last_name or "")).strip() or u.canonical_email
+            finally:
+                cs.close()
+        display = display or result.get("target_contact") or "?"
+
+        if result.get("status") == "already_active":
+            return (
+                f"ℹ️ Souhlas pro **{display}** ({channel}) už existuje — platí dál. "
+                f"(consent_id={result['id']})"
+            )
+        return (
+            f"✅ Souhlas uložen — od teď můžu posílat {channel} pro **{display}** "
+            f"bez potvrzení. Kdykoli lze odvolat přes `revoke_auto_send` nebo v UI. "
+            f"(consent_id={result['id']})"
+        )
+
+    if tool_name == "revoke_auto_send":
+        from modules.notifications.application import consent_service as _cs_asc
+        channel = (tool_input.get("channel") or "").lower().strip() or None
+        target_user_id = tool_input.get("target_user_id")
+        target_contact = (tool_input.get("target_contact") or "").strip() or None
+        consent_id = tool_input.get("consent_id")
+
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+
+        try:
+            result = _cs_asc.revoke_consent(
+                revoked_by_user_id=user_id,
+                channel=channel or "email",  # pokud consent_id, channel se nepouzije
+                target_user_id=target_user_id,
+                target_contact=target_contact,
+                consent_id=consent_id,
+            )
+        except _cs_asc.ConsentError as e:
+            msg = str(e)
+            if "pouze rodic" in msg.lower() or "pouze rodič" in msg.lower():
+                return (
+                    "🚫 Odvolat souhlas může jen rodič. Já to sama udělat nemůžu."
+                )
+            return f"❌ Nelze odvolat: {msg}"
+        except Exception as e:
+            logger.exception(f"REVOKE_AUTO_SEND | failed | {e}")
+            return f"❌ Chyba při odvolání: {e}"
+
+        if result.get("status") == "no_active_consent":
+            return (
+                "ℹ️ Pro zadaného příjemce + kanál nemám aktivní souhlas — "
+                "není co odvolat."
+            )
+        count = result.get("count", 0)
+        return f"✅ Odvoláno {count} souhlas(ů). Od teď budu znovu ptát na potvrzení."
+
+    if tool_name == "list_auto_send_consents":
+        from modules.notifications.application import consent_service as _cs_asc
+        try:
+            items = _cs_asc.list_active_consents()
+        except Exception as e:
+            logger.exception(f"LIST_AUTO_SEND_CONSENTS | failed | {e}")
+            return f"❌ Chyba při načítání souhlasů: {e}"
+        if not items:
+            return (
+                "📭 Žádné aktivní souhlasy s auto-sendem. "
+                "Vždy se ptám na potvrzení před odesláním."
+            )
+        lines = ["✉️ Aktivní souhlasy s auto-sendem (posílám bez potvrzení):", ""]
+        for i, it in enumerate(items, start=1):
+            who = it.get("target_user_name") or it.get("target_contact") or "?"
+            ch = it["channel"]
+            granted_by = it.get("granted_by_name") or f"user#{it['granted_by_user_id']}"
+            granted_at = (it.get("granted_at") or "")[:10]
+            note = it.get("note")
+            note_suffix = f" — _{note}_" if note else ""
+            lines.append(
+                f"{i}. **{who}** ({ch}) — udělil {granted_by}, {granted_at}{note_suffix}"
             )
         return "\n".join(lines)
 

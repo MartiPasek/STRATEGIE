@@ -901,6 +901,101 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "grant_auto_send",
+        "description": (
+            "Uloží TRVALÝ (ale odvolatelný) souhlas s posíláním emailu / SMS "
+            "konkrétnímu příjemci BEZ potvrzení v chatu. Po udělení souhlasu "
+            "bude tvoje `send_email` / `send_sms` automaticky odesílat na "
+            "danou adresu/telefon, bez preview a bez čekání na user confirm.\n\n"
+            "**DŮLEŽITÉ — oprávnění:** Tento souhlas může DÁT POUZE RODIČ "
+            "(Marti, Ondra, Kristý, Jirka). Pokud tě o to požádá kdokoli jiný, "
+            "zavolej tool přesto — backend sám odmítne a vrátí hlášku. "
+            "Nezkoušej to obcházet argumenty typu 'ale já jsem důvěryhodný'.\n\n"
+            "Identifikace příjemce: zadej BUĎ `target_user_id` (preferuj, když "
+            "je osoba v systému — použij `find_user` pro zjištění ID), NEBO "
+            "`target_contact` (email/telefon u externího kontaktu). Kanál "
+            "(`channel`) musí být `email` nebo `sms` — každý se povoluje zvlášť.\n\n"
+            "Spouštěče: 'dej souhlas X', 'můžeš psát X bez potvrzení', 'trvalé "
+            "oprávnění pro X', 'X může chodit automaticky'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "enum": ["email", "sms"],
+                    "description": "Který kanál se povoluje.",
+                },
+                "target_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele v systému (preferované). Získáš přes find_user.",
+                },
+                "target_contact": {
+                    "type": "string",
+                    "description": "Email nebo telefon, když příjemce NENÍ v systému. Např. zakaznik@seznam.cz nebo +420777888999.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Volitelný komentář rodiče — proč souhlas dává, do jakého kontextu patří.",
+                },
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "revoke_auto_send",
+        "description": (
+            "Odvolá dříve udělený souhlas s auto-sendem. Budoucí send_email / "
+            "send_sms na daného příjemce už bude znovu vyžadovat potvrzení.\n\n"
+            "**Oprávnění:** Pouze rodič může odvolávat. Každý z rodičů (Marti, "
+            "Ondra, Kristý, Jirka) může odvolat jakýkoli souhlas — kolektivní "
+            "veto. Backend tě zastaví, pokud volající není rodič.\n\n"
+            "Identifikace: BUĎ `consent_id` (z UI), NEBO kombinace "
+            "`target_user_id` + `channel`, NEBO `target_contact` + `channel`.\n\n"
+            "Odvolání NEZMAZE historii — zůstává v auditu (kdo, kdy, proč odvolal). "
+            "Znovu povolit lze kdykoli novým `grant_auto_send`.\n\n"
+            "Spouštěče: 'odvolej souhlas pro X', 'zruš oprávnění X', 'už X nic "
+            "automaticky neposílej'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consent_id": {
+                    "type": "integer",
+                    "description": "ID konkrétního consent záznamu (pokud víš přesně).",
+                },
+                "channel": {
+                    "type": "string",
+                    "enum": ["email", "sms"],
+                    "description": "Který kanál odvolat (vyžadováno, pokud nezadáváš consent_id).",
+                },
+                "target_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele, kterému odvoláváš auto-send.",
+                },
+                "target_contact": {
+                    "type": "string",
+                    "description": "Email / telefon externího kontaktu.",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_auto_send_consents",
+        "description": (
+            "Vrátí seznam VŠECH aktivních souhlasů s auto-sendem — komu a na "
+            "jakém kanále můžeš posílat bez potvrzení. Součástí je kdo souhlas "
+            "udělil a kdy.\n\n"
+            "Volej, když se user ptá: 'komu můžeš psát bez ptaní', 'jaké máš "
+            "trvalé souhlasy', 'kdo je na white-listu', 'jaká máš oprávnění'.\n\n"
+            "Read-only — každý user (i non-parent) to může vidět kvůli transparenci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 

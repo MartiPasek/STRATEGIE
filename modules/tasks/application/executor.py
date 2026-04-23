@@ -183,6 +183,25 @@ def _build_task_prompt(task: Task) -> str:
             "Pokud email nepotřebuje odpověď (reklama, info-only), napiš krátké shrnutí "
             "a uveď, proč odpověď nedává smysl."
         )
+    elif task.source_type == "sms_inbox":
+        # SMS-specific instrukce -- task executor sam zaridi odeslani.
+        # AI MA NAPSAT JEN TELO ODPOVEDI, NIC VICE. Nesmi volat send_sms tool
+        # -- jinak vznikne dvojity send (AI volani + executor auto-reply hook).
+        parts.append(
+            "\n---\n"
+            "**DŮLEŽITÉ — jak odpovídat na tento SMS task:**\n"
+            "Tvoje odpověď (final message) = **přesné tělo SMS, které se odešle**. "
+            "Napiš ho stručně, přirozeně, v SMS stylu — žádné hlavičky, žádné "
+            "uvozovací věty typu „Tady je návrh:\" nebo „Odpověď:\".\n\n"
+            "**NEPOUŽÍVEJ nástroj `send_sms`** — SMS task executor odešle SMS "
+            "automaticky na základě tvé final odpovědi. Pokud bys volala send_sms, "
+            "SMS se pošle 2x (jednou tebou, jednou executorem). Nevolej ani "
+            "`send_email` — toto je SMS task.\n\n"
+            "Můžeš volat informační tooly (find_user, recall_thoughts, list_sms_inbox) "
+            "pro získání kontextu, pokud je potřeba.\n\n"
+            "Pravidla SMS: max 2-3 věty, ~300 znaků. Pokud dotaz vyžaduje dlouhou "
+            "odpověď, napiš krátké shrnutí + „detaily pošlu mailem\" nebo podobně."
+        )
     else:
         parts.append(
             "\n---\n"
@@ -223,6 +242,16 @@ def execute_task(task_id: int) -> dict:
         conv_id = _create_execution_conversation(task)
         prompt = _build_task_prompt(task)
 
+        # High watermark pred chatem -- pouzito pro detekci, ze AI behem
+        # tasku uz odeslala SMS/email (abychom nedelali duplicitni auto-reply).
+        from modules.core.infrastructure.models_data import ActionLog as _AL_hw
+        _ds_hw = get_data_session()
+        try:
+            _hw = _ds_hw.query(_AL_hw).order_by(_AL_hw.id.desc()).first()
+            pre_chat_log_id = _hw.id if _hw else 0
+        finally:
+            _ds_hw.close()
+
         # Import uvnitr funkce kvuli cyklickym importum (conversation modul
         # casem muze importovat z tasks, kdyz pridame AI tool `create_task`).
         from modules.conversation.application.service import chat
@@ -236,13 +265,122 @@ def execute_task(task_id: int) -> dict:
             preferred_persona_id=task.persona_id,
         )
 
+        # ── AUTO-REPLY pro trusted SMS sendery (Phase 7 extension) ────────
+        # Pokud task pochazi z prichozi SMS, sender ma aktivni auto_send_consent
+        # pro SMS a jsme pod rate limitem (20/hod) -> odpoved odesleme rovnou,
+        # bez user manualniho kliknuti. Reply zustava ulozeny v task.result_summary
+        # jako audit. Email necham jako opt-in draft (uzivatelska preference).
+        auto_replied = False
+        if task.source_type == "sms_inbox" and reply and reply.strip():
+            try:
+                _ds = get_data_session()
+                try:
+                    _sms = _ds.query(SmsInbox).filter_by(id=task.source_id).first()
+                    _from = _sms.from_phone if _sms else None
+                finally:
+                    _ds.close()
+
+                if _from:
+                    # DEDUP: pokud AI behem chat() sama odeslala SMS na stejne cislo
+                    # (pres send_sms tool -- ten muze sam spustit auto-send), tak
+                    # nesmime poslat znovu. Filtrujeme action_logs vytvorene po
+                    # pre_chat_log_id kde tool_name=send_sms a input obsahuje _from.
+                    from modules.core.infrastructure.models_data import ActionLog as _AL_dup
+                    _dup_ds = get_data_session()
+                    try:
+                        _dup_rows = (
+                            _dup_ds.query(_AL_dup)
+                            .filter(
+                                _AL_dup.id > pre_chat_log_id,
+                                _AL_dup.tool_name == "send_sms",
+                                _AL_dup.status == "success",
+                            )
+                            .all()
+                        )
+                        _already_sent = False
+                        _from_digits = "".join(c for c in _from if c.isdigit() or c == "+")
+                        for _row in _dup_rows:
+                            _inp = _row.input or ""
+                            # Match podle telefonu -- nezavisle na formatu (number/escape)
+                            if _from in _inp or _from_digits in _inp:
+                                _already_sent = True
+                                break
+                    finally:
+                        _dup_ds.close()
+
+                    if _already_sent:
+                        logger.info(
+                            f"AUTO_REPLY_SMS | skipped (AI already sent) | "
+                            f"task_id={task_id} | to={_from}"
+                        )
+
+                    from modules.notifications.application import consent_service as _csvc
+                    _trust, _ = _csvc.check_all_recipients_trusted([_from], "sms")
+                    _under_limit, _cnt = _csvc.check_rate_limit("sms")
+                    if _trust and _under_limit and not _already_sent:
+                        # Strip mozny preambul AI typu "Tady je odpoved:" -- reply
+                        # je v SMS formatu primo (AI uz ma pokyn psat primo telo).
+                        from modules.notifications.application.sms_service import (
+                            queue_sms as _qs_reply, SmsError as _SE_reply,
+                        )
+                        try:
+                            _res = _qs_reply(
+                                to=_from, body=reply,
+                                purpose="user_request",
+                                user_id=None,
+                                tenant_id=task.tenant_id,
+                            )
+                            # Audit action_type='auto' (pocita se do rate limitu)
+                            try:
+                                import json as _json_auto
+                                from modules.core.infrastructure.models_data import ActionLog as _AL_auto
+                                _alog_s = get_data_session()
+                                try:
+                                    _alog_s.add(_AL_auto(
+                                        user_id=None,
+                                        action_type="auto",
+                                        tool_name="send_sms",
+                                        input=_json_auto.dumps(
+                                            {"to": _from, "body": reply,
+                                             "auto_reply": True,
+                                             "task_id": task_id,
+                                             "outbox_id": _res.get("id")},
+                                            ensure_ascii=False,
+                                        ),
+                                        output=f"to={_from} | auto_reply | task={task_id}",
+                                        status="success" if _res.get("status") in ("sent", "pending") else "fail",
+                                        approval_required=False,
+                                    ))
+                                    _alog_s.commit()
+                                finally:
+                                    _alog_s.close()
+                            except Exception as _ae:
+                                logger.error(f"AUTO_REPLY_SMS | audit failed | {_ae}")
+                            auto_replied = True
+                            logger.info(
+                                f"AUTO_REPLY_SMS | sent | task_id={task_id} | "
+                                f"to={_from} | outbox_id={_res.get('id')}"
+                            )
+                        except _SE_reply as _se:
+                            logger.warning(
+                                f"AUTO_REPLY_SMS | queue failed | task_id={task_id} | "
+                                f"to={_from} | err={_se}"
+                            )
+                    else:
+                        logger.info(
+                            f"AUTO_REPLY_SMS | skipped | task_id={task_id} | "
+                            f"trusted={_trust} under_limit={_under_limit} cnt={_cnt}"
+                        )
+            except Exception as _are:
+                logger.exception(f"AUTO_REPLY_SMS | check failed | task_id={task_id} | {_are}")
+
         # Mark done + cascade na sms_inbox.processed_at.
         # user_id=None znamena "system/AI complete" -- mark_task_done to
         # neblokuje (tenant assert se preskoci).
         task_service.mark_task_done(
             user_id=None,
             task_id=task_id,
-            result_summary=reply,
+            result_summary=(reply + "\n\n_[auto-reply odeslán]_") if auto_replied else reply,
         )
 
         logger.info(

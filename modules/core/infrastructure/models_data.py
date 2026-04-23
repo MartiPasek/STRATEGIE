@@ -552,3 +552,94 @@ class ThoughtEntityLink(BaseData):
     entity_type: Mapped[str] = mapped_column(String(30))
     entity_id: Mapped[int] = mapped_column(BigInteger)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class MartiQuestion(BaseData):
+    """
+    Otazka, kterou Marti chce polozit rodici pro overeni nejasne myslenky
+    (Faze 4, aktivni uceni).
+
+    Viz docs/marti_memory_design.md, rozhodnuti #6 (6e-6i).
+
+    Lifecycle:
+      open      -- ceka na rodice
+      answered  -- rodic odpovedel (answer_choice + optional answer_text)
+      skipped   -- rodic preskocil bez odpovedi
+      cancelled -- systemove zruseno (myslenka smazana apod.)
+
+    Odpoved:
+      answer_choice  -- yes | no | not_sure (mechanicke)
+      answer_text    -- volitelny nuancovany text, zpracuje LLM batch
+      answered_at    -- kdy rodic odpovedel
+      answered_by    -- kdo odpovedel (obvykle target_user_id, ale teoreticky
+                        jiny rodic by mohl)
+
+    text_reviewed_at:
+      NULL = LLM batch jeste nezpracoval answer_text (kandidat pro review).
+      NOT NULL = uz zpracovano.
+
+    priority_score:
+      100-0 scale. Generator vypocita (100 - certainty) + urgency_modifier.
+      UI razeni priority_score DESC.
+
+    thought_id je weak reference (bez FK constraintu) -- pokud je myslenka
+    smazana (soft delete), otazka muze zustat jako audit / je oznacena jako
+    cancelled.
+    """
+    __tablename__ = "marti_questions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thought_id: Mapped[int] = mapped_column(BigInteger)
+    question_text: Mapped[str] = mapped_column(Text)
+    target_user_id: Mapped[int] = mapped_column(BigInteger)
+
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    answer_choice: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    text_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    priority_score: Mapped[int] = mapped_column(Integer, default=50)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── AUTO-SEND CONSENTS (Phase 7) ───────────────────────────────────────────
+
+class AutoSendConsent(BaseData):
+    """
+    Trvaly, odvolatelny souhlas rodicu s odesilanim emailu/SMS Martim bez
+    potvrzeni v chatu.
+
+    Governance:
+      - Pouze rodice (users.is_marti_parent=True) mohou grantovat/revokovat.
+      - Non-parents maji jen read-only audit view.
+
+    Aktivni consent: revoked_at IS NULL.
+
+    Target: alespon jeden z (target_user_id, target_contact) musi byt neprazdny.
+      - target_user_id -- pokud je prijemce v users (preferovane).
+      - target_contact -- email/telefon pro kontakty mimo users.
+
+    Revoke NEMAZE radek -- zustava jako audit trail. Re-grant pri revoked
+    consentu = novy radek.
+
+    Rate limit (aplikacne ve service): 20 auto-sendu/hod/channel/grantee.
+    """
+    __tablename__ = "auto_send_consents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    target_contact: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+    channel: Mapped[str] = mapped_column(String(10))  # email | sms
+
+    granted_by_user_id: Mapped[int] = mapped_column(BigInteger)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    revoked_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

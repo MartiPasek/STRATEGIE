@@ -350,6 +350,8 @@
     .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); }
     /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
     .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
+    /* Personal archive badge -- Faze 6 */
+    .email-archive-badge { display: inline-block; margin-left: 8px; padding: 1px 6px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 3px; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .04em; }
     /* Memory modal -- entity tiles (drill-down pohled pred zobrazenim myslenek) */
     .memory-breadcrumb { display: flex; align-items: center; gap: 8px; padding: 8px 22px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
     .memory-breadcrumb button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; font-family: inherit; padding: 0; }
@@ -448,6 +450,11 @@
        pilulka, vyrazne odlisena aby user primo v seznamu videl ktere
        konverzace sdili s nekym. */
     .conv-share-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .05em; color: #f97316; background: rgba(249, 115, 22, 0.18); border: 1px solid rgba(249, 115, 22, 0.5); border-radius: 3px; padding: 1px 5px; margin-left: 6px; line-height: 1.3; flex-shrink: 0; }
+    /* Conversation length badge (Faze 7) -- zobrazen kdyz pocet zprav >= 20.
+       Zluta 20-39, cervena 40+. Skryty u kratkych konverzaci. */
+    .conv-length-badge { display: inline-flex; align-items: center; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .05em; border-radius: 3px; padding: 1px 5px; margin-left: 6px; line-height: 1.3; flex-shrink: 0; }
+    .conv-length-badge.warn { color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.5); }
+    .conv-length-badge.danger { color: #ef4444; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.5); }
     /* Sekce "Sdilene se mnou" v sidebaru - oranzovy nadpis */
     .sidebar-shared .sidebar-title { color: #f97316; }
     /* Shared-with-me polozky v sidebaru maji oranzovy vlevo border
@@ -2240,6 +2247,17 @@
     } else {
       title.textContent = it.title || `Konverzace #${it.id}`;
     }
+    // Faze 7: length badge -- zluta od 20+, cervena od 40+. Tooltip vysvetli.
+    const mc = it.message_count || 0;
+    if (mc >= 20) {
+      const lb = document.createElement('span');
+      lb.className = 'conv-length-badge ' + (mc >= 40 ? 'danger' : 'warn');
+      lb.textContent = `${mc}`;
+      lb.title = mc >= 40
+        ? `${mc} zpráv — konverzace je dlouhá, tokeny bobtnají. Požádej Marti o zkrácení ('shrň to') nebo otevři + Nová.`
+        : `${mc} zpráv — začíná to být dlouhé. Od 40 budeš mít výkon cítit.`;
+      title.appendChild(lb);
+    }
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
     // Sjednoceno s projekty: jen relativni cas (bez "X zprav"). Tooltip
@@ -3504,6 +3522,7 @@
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
       { icon: '🧠', label: 'Paměť Marti', action: () => openMemoryModal() },
       ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
+      ...(isParent ? [{ icon: '✉️', label: 'Důvěryhodní příjemci', action: () => openConsentsModal() }] : [{ icon: '✉️', label: 'Důvěryhodní příjemci (read)', action: () => openConsentsModal() }]),
       ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
@@ -5938,6 +5957,54 @@
   </div>
 </div>
 
+<!-- Auto-send Consents modal (Phase 7) -- dopuzivyjeme .sms-modal-* tridy.
+     Otevira se z profile dropdown ("Duveryhodni prijemci"). Parents: full CRUD.
+     Non-parents: read-only view. -->
+<div class="sms-modal-bg" id="consentsModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Duveryhodni prijemci" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title">✉️ Důvěryhodní příjemci</div>
+      <div class="sms-modal-sub">Marti posílá auto-send (bez potvrzení) jen na tento seznam.</div>
+      <button class="sms-modal-close" id="consentsModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="mq-modal-topbar" id="consentsTopbar" style="display:none">
+      <button class="mq-btn-refresh" id="consentsBtnAdd">+ Přidat souhlas</button>
+      <button class="mq-btn-refresh" id="consentsBtnRefresh">🔄 Refresh</button>
+      <span class="mq-counter" id="consentsCounter"></span>
+    </div>
+    <div id="consentsAddForm" style="display:none; padding:10px 14px; border-bottom:1px solid var(--border); background: rgba(128,128,128,0.05);">
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+        <div>
+          <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">Kanál *</label>
+          <select id="consentChannel" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+            <option value="email">email</option>
+            <option value="sms">sms</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">User ID (z find_user)</label>
+          <input id="consentUserId" type="number" placeholder="např. 5" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">nebo Email / Telefon (pro externí kontakt)</label>
+        <input id="consentContact" type="text" placeholder="např. zakaznik@firma.cz nebo +420777888999" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">Poznámka (nepovinná)</label>
+        <input id="consentNote" type="text" placeholder="proč souhlas dáváš..." style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+      </div>
+      <div style="display:flex; gap:6px; justify-content:flex-end;">
+        <button id="consentCancelBtn" style="padding:6px 12px; background:transparent; border:1px solid var(--border); color:var(--fg); border-radius:4px; cursor:pointer;">Zrušit</button>
+        <button id="consentSubmitBtn" style="padding:6px 12px; background:var(--accent); border:1px solid var(--accent); color:white; border-radius:4px; cursor:pointer;">Uložit souhlas</button>
+      </div>
+    </div>
+    <div class="sms-list" id="consentsList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
 <!-- Email modal (PR3) -- sdili .sms-modal-* tridy, jen s vlastnimi ID.
      Otevira se klikem na inbox badge v 2. radku hlavicky. -->
 <div class="sms-modal-bg" id="emailModalBg">
@@ -6341,10 +6408,13 @@
          <button class="sms-card-btn" data-action="reply" data-email-id="${item.id}">Odpovědět</button>
          <button class="sms-card-btn" data-action="mark-processed" data-email-id="${item.id}">Označit zpracované</button>`
       : "";
+    const archiveBadge = item.archived_personal
+      ? `<span class="email-archive-badge" title="Archivováno v Personal složce na Exchange">📁 Personal</span>`
+      : "";
     return `
       <div class="sms-card" data-email-id="${item.id}">
         <div class="sms-card-row">
-          <span class="sms-card-from">← ${esc(fromLabel)}</span>
+          <span class="sms-card-from">← ${esc(fromLabel)}${archiveBadge}</span>
           <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
         </div>
         <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
@@ -7425,6 +7495,173 @@
     }
     const generate = document.getElementById("mqBtnGenerate");
     if (generate) generate.addEventListener("click", _mqGenerate);
+  })();
+
+  // ── Auto-send Consents modal (Phase 7) ───────────────────────────────
+  async function openConsentsModal() {
+    const bg = document.getElementById("consentsModalBg");
+    if (!bg) return;
+    bg.classList.add("open");
+
+    const isParent = !!(currentUser && currentUser.is_marti_parent);
+    document.getElementById("consentsTopbar").style.display = isParent ? "flex" : "none";
+    await _consentsLoad();
+  }
+
+  function closeConsentsModal() {
+    const bg = document.getElementById("consentsModalBg");
+    if (bg) bg.classList.remove("open");
+    const form = document.getElementById("consentsAddForm");
+    if (form) form.style.display = "none";
+  }
+
+  async function _consentsLoad() {
+    const list = document.getElementById("consentsList");
+    const counter = document.getElementById("consentsCounter");
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      const r = await fetch("/api/v1/auto-send-consents", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div style="padding:20px; color:var(--danger);">Chyba: ${r.status}</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      counter.textContent = items.length > 0 ? `${items.length} aktivní` : "";
+      if (items.length === 0) {
+        list.innerHTML = '<div style="padding:20px; color:var(--muted); text-align:center;">Žádné aktivní souhlasy. Vše jde přes standardní potvrzení.</div>';
+        return;
+      }
+      const isParent = !!(currentUser && currentUser.is_marti_parent);
+      list.innerHTML = items.map(it => _renderConsentRow(it, isParent)).join("");
+      // Bind revoke buttons
+      if (isParent) {
+        list.querySelectorAll(".consent-revoke-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const id = parseInt(btn.dataset.id, 10);
+            const who = btn.dataset.who || "?";
+            if (!confirm(`Opravdu odvolat souhlas pro ${who}?`)) return;
+            btn.disabled = true;
+            try {
+              const dr = await fetch(`/api/v1/auto-send-consents/${id}`, {
+                method: "DELETE",
+                credentials: "include",
+              });
+              if (!dr.ok) {
+                const err = await dr.json().catch(() => ({}));
+                alert("Chyba při odvolání: " + (err.detail || dr.status));
+                btn.disabled = false;
+                return;
+              }
+              await _consentsLoad();
+            } catch (e) {
+              alert("Chyba: " + e.message);
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+    } catch (e) {
+      list.innerHTML = `<div style="padding:20px; color:var(--danger);">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _renderConsentRow(it, isParent) {
+    const who = it.target_user_name || it.target_contact || "?";
+    const ch = it.channel === "email" ? "📧 email" : "📱 sms";
+    const grantedBy = it.granted_by_name || `user#${it.granted_by_user_id}`;
+    const grantedAt = (it.granted_at || "").slice(0, 10);
+    const note = it.note ? `<div style="font-size:12px; color:var(--muted); margin-top:3px; font-style:italic;">„${_esc(it.note)}"</div>` : "";
+    const revokeBtn = isParent ? `<button class="consent-revoke-btn" data-id="${it.id}" data-who="${_esc(who)}" style="padding:4px 10px; background:transparent; border:1px solid var(--border); color:var(--danger); border-radius:4px; cursor:pointer; font-size:12px;">Odvolat</button>` : "";
+    return `
+      <div style="padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div style="flex:1;">
+          <div style="font-weight:600; color:var(--fg);">${_esc(who)} <span style="font-weight:normal; color:var(--muted); font-size:12px;">· ${ch}</span></div>
+          <div style="font-size:12px; color:var(--muted); margin-top:3px;">Udělil ${_esc(grantedBy)} · ${grantedAt}</div>
+          ${note}
+        </div>
+        ${revokeBtn}
+      </div>
+    `;
+  }
+
+  function _esc(s) {
+    return String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  async function _consentsSubmit() {
+    const channel = document.getElementById("consentChannel").value;
+    const userIdStr = document.getElementById("consentUserId").value.trim();
+    const contact = document.getElementById("consentContact").value.trim();
+    const note = document.getElementById("consentNote").value.trim();
+
+    if (!userIdStr && !contact) {
+      alert("Zadej User ID NEBO Email/Telefon.");
+      return;
+    }
+
+    const body = { channel };
+    if (userIdStr) body.target_user_id = parseInt(userIdStr, 10);
+    if (contact) body.target_contact = contact;
+    if (note) body.note = note;
+
+    const submitBtn = document.getElementById("consentSubmitBtn");
+    submitBtn.disabled = true;
+    try {
+      const r = await fetch("/api/v1/auto-send-consents", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert("Chyba: " + (err.detail || r.status));
+        submitBtn.disabled = false;
+        return;
+      }
+      // Reset form + refresh list
+      document.getElementById("consentUserId").value = "";
+      document.getElementById("consentContact").value = "";
+      document.getElementById("consentNote").value = "";
+      document.getElementById("consentsAddForm").style.display = "none";
+      await _consentsLoad();
+    } catch (e) {
+      alert("Chyba: " + e.message);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  (function initConsentsModal() {
+    const close = document.getElementById("consentsModalClose");
+    if (close) close.addEventListener("click", closeConsentsModal);
+    const bg = document.getElementById("consentsModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "consentsModalBg") closeConsentsModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeConsentsModal();
+      }
+    });
+    const refresh = document.getElementById("consentsBtnRefresh");
+    if (refresh) refresh.addEventListener("click", _consentsLoad);
+    const addBtn = document.getElementById("consentsBtnAdd");
+    const form = document.getElementById("consentsAddForm");
+    if (addBtn && form) {
+      addBtn.addEventListener("click", () => {
+        form.style.display = form.style.display === "none" ? "block" : "none";
+      });
+    }
+    const cancel = document.getElementById("consentCancelBtn");
+    if (cancel && form) {
+      cancel.addEventListener("click", () => { form.style.display = "none"; });
+    }
+    const submit = document.getElementById("consentSubmitBtn");
+    if (submit) submit.addEventListener("click", _consentsSubmit);
   })();
 
   // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────

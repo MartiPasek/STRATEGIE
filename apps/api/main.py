@@ -23,6 +23,7 @@ from modules.notifications.api.consent_router import router as consent_router
 from modules.tasks.api.router import router as tasks_router
 from modules.thoughts.api.router import router as thoughts_router
 from modules.thoughts.api.questions_router import router as marti_questions_router
+from modules.admin.api.router import router as admin_router
 
 setup_logging()
 
@@ -58,6 +59,7 @@ app.include_router(consent_router)
 app.include_router(tasks_router)
 app.include_router(thoughts_router)
 app.include_router(marti_questions_router)
+app.include_router(admin_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

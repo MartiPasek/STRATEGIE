@@ -46,6 +46,8 @@ class LoginResponse(BaseModel):
     # Superadmin flag — pro UI skrýva/odhaluje admin akce (např. "+ Nová persona").
     # Definováno centrálně v modules/personas/application/service._is_superadmin.
     is_superadmin: bool = False
+    # Marti Memory Faze 3/4: rodičovská role (cross-tenant pamět + aktivní učení).
+    is_marti_parent: bool = False
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

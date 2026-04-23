@@ -3538,6 +3538,7 @@
       { icon: '🧠', label: 'Paměť Marti', action: () => openMemoryModal() },
       ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
       ...(isParent ? [{ icon: '✉️', label: 'Důvěryhodní příjemci', action: () => openConsentsModal() }] : [{ icon: '✉️', label: 'Důvěryhodní příjemci (read)', action: () => openConsentsModal() }]),
+      ...(isParent ? [{ icon: '💾', label: 'Zálohovat databáze', action: () => runDatabaseBackup() }] : []),
       ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
@@ -7833,6 +7834,73 @@
       if (total > 0) badge.classList.add("show");
       else badge.classList.remove("show");
     } catch (_) { /* silent -- neprerusujeme UX log spamem */ }
+  }
+
+  // ── Database backup (Phase 7.11) ─────────────────────────────────────
+  // Parent-only. Zavola POST /api/v1/admin/backup-databases, ceka na vysledek,
+  // ukaze alert s cestami k vytvorenym dumps.
+  async function runDatabaseBackup() {
+    if (!confirm(
+      "Spustit zálohu obou databází (css_db + data_db)?\n\n" +
+      "Může to trvat pár sekund až minutu podle velikosti. " +
+      "Dumps se uloží do složky backups/YYYY-MM-DD/ v repu.\n\n" +
+      "Po dokončení je ručně nahraj na OneDrive / externí disk — " +
+      "do gitu NIKDY nepatří (obsahuje emaily, diář, paměť)."
+    )) {
+      return;
+    }
+    // Jednoduchy progress dialog -- alert s "..."
+    const progressEl = document.createElement("div");
+    progressEl.id = "backupProgress";
+    progressEl.style.cssText = (
+      "position:fixed;top:20px;right:20px;z-index:9999;"
+      + "padding:12px 16px;background:var(--surface);border:1px solid var(--border);"
+      + "border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);"
+      + "color:var(--fg);font-family:'DM Sans',sans-serif;font-size:13px;"
+    );
+    progressEl.innerHTML = "💾 Spouštím zálohu databází… může to trvat chvilku.";
+    document.body.appendChild(progressEl);
+
+    try {
+      const r = await fetch("/api/v1/admin/backup-databases", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        progressEl.remove();
+        alert("❌ Záloha selhala: " + (err.detail || r.status));
+        return;
+      }
+      const data = await r.json();
+      progressEl.remove();
+
+      if (data.status === "ok") {
+        const filesSummary = (data.files || [])
+          .map(f => {
+            const mb = (f.size_bytes / 1024 / 1024).toFixed(2);
+            return `  • ${f.file_name} (${mb} MB, ${f.duration_s}s)`;
+          })
+          .join("\n");
+        alert(
+          `✅ Záloha hotová!\n\n` +
+          `Datum: ${data.date}\n` +
+          `Složka: ${data.out_dir}\n\n` +
+          `Soubory:\n${filesSummary}\n\n` +
+          `⚠️ Nezapomeň zkopírovat složku na OneDrive nebo externí disk — ` +
+          `do gitu NIKDY nepatří.`
+        );
+      } else {
+        alert(
+          `⚠️ Záloha částečně / zcela selhala:\n\n${data.error || "neznámá chyba"}\n\n` +
+          `Soubory, které se podařilo vytvořit:\n` +
+          (data.files || []).map(f => `  • ${f.file_name}`).join("\n")
+        );
+      }
+    } catch (e) {
+      progressEl.remove();
+      alert("❌ Chyba sítě při záloze: " + e.message);
+    }
   }
 
   // SMS permanent button (Faze 7.10) -- nezavisle na unread stavu.

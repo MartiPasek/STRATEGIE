@@ -16,6 +16,8 @@ from core.logging import get_logger
 from modules.core.infrastructure.models_core import User
 from modules.notifications.application import email_inbox_service
 from modules.notifications.application import sms_service
+from modules.thoughts.application import question_service
+from modules.thoughts.application.service import is_marti_parent
 
 
 logger = get_logger("notifications.api")
@@ -68,8 +70,10 @@ def get_unread_counts(req: Request):
         return {
             "unread_email": 0,
             "unread_sms": 0,
+            "unread_questions": 0,
             "total": 0,
             "tenant_id": None,
+            "is_parent": False,
         }
 
     # Email: suma pres persony, ktere user vidi (global + current tenant).
@@ -80,11 +84,17 @@ def get_unread_counts(req: Request):
     sms_counts = sms_service.get_unread_counts_per_persona(tenant_id)
     unread_sms = sum(sms_counts.values())
 
-    total = unread_email + unread_sms
+    # Marti Questions: jen pro rodice (Faze 4). Nerodic ma 0.
+    parent = is_marti_parent(user_id)
+    unread_questions = question_service.open_count_for_user(user_id) if parent else 0
+
+    total = unread_email + unread_sms + unread_questions
 
     return {
         "unread_email": unread_email,
         "unread_sms": unread_sms,
+        "unread_questions": unread_questions,
         "total": total,
         "tenant_id": tenant_id,
+        "is_parent": parent,
     }

@@ -347,6 +347,51 @@ def fetch_unread_for_persona(
                     f"message_id={fields['message_id'][:60]} | {mark_err}"
                 )
 
+            # Faze 6: Auto-archive do Personal, kdyz from_email je rodic Marti.
+            # Best effort -- selhani archivace nesmi shodit fetch cycle.
+            try:
+                from modules.notifications.application.email_service import (
+                    _is_parent_email, _ensure_personal_folder,
+                )
+                if _is_parent_email(fields["from_email"]):
+                    # Presun na Exchange strane -- najdi msg po Message-ID a move
+                    folder = _ensure_personal_folder(account)
+                    if folder is not None:
+                        try:
+                            msg.move(to_folder=folder)
+                            logger.info(
+                                f"EWS | auto-archive to Personal | persona_id={persona_id} | "
+                                f"from={fields['from_email']} | mid={fields['message_id'][:60]}"
+                            )
+                            # Update email_inbox.meta s flagem archivace
+                            try:
+                                from core.database_data import get_data_session as _gdsp
+                                from modules.core.infrastructure.models_data import EmailInbox as _EI
+                                import json as _json
+                                ds_p = _gdsp()
+                                try:
+                                    row = ds_p.query(_EI).filter_by(id=result["id"]).first()
+                                    if row:
+                                        meta_dict = {}
+                                        if row.meta:
+                                            try:
+                                                meta_dict = _json.loads(row.meta) or {}
+                                            except Exception:
+                                                meta_dict = {}
+                                        meta_dict["archived_personal"] = True
+                                        row.meta = _json.dumps(meta_dict, ensure_ascii=False)
+                                        ds_p.commit()
+                                finally:
+                                    ds_p.close()
+                            except Exception as e:
+                                logger.warning(f"EWS | meta archive flag update failed: {e}")
+                        except Exception as move_err:
+                            logger.warning(
+                                f"EWS | personal archive move failed | mid={fields['message_id'][:60]}: {move_err}"
+                            )
+            except Exception as arch_check_err:
+                logger.warning(f"EWS | auto-archive check failed: {arch_check_err}")
+
         except Exception as per_msg_err:
             error_count += 1
             logger.error(

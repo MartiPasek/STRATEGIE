@@ -717,10 +717,79 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
 
     messages = _get_messages(conversation_id, after_id=after_id)
 
+    # Faze 7: sliding window s todo escape-hatch.
+    # Kdyz je konverzace delsi nez SLIDING_WINDOW_SIZE a Marti nema v ni
+    # nedokonceny todo (weak reference source_event_id=conversation_id),
+    # posleme jen poslednich N zprav. Tim uletime o desitky K tokenu per turn
+    # u delsich dev sessions.
+    SLIDING_WINDOW_SIZE = 20
+    if len(messages) > SLIDING_WINDOW_SIZE:
+        has_open_todo_in_conv = False
+        try:
+            from core.database_data import get_data_session as _gds_sw
+            from modules.core.infrastructure.models_data import Thought as _T_sw
+            ds_sw = _gds_sw()
+            try:
+                # Najdi open todo myslenku, ktera vznikla z teto konverzace
+                from sqlalchemy import and_ as _and
+                candidates = (
+                    ds_sw.query(_T_sw)
+                    .filter(
+                        _T_sw.type == "todo",
+                        _T_sw.deleted_at.is_(None),
+                        _T_sw.source_event_type == "conversation",
+                        _T_sw.source_event_id == conversation_id,
+                    )
+                    .all()
+                )
+                for t in candidates:
+                    meta = t.meta or ""
+                    # Jednoduchy substring match pro {"done": true}
+                    if '"done": true' not in meta:
+                        has_open_todo_in_conv = True
+                        break
+            finally:
+                ds_sw.close()
+        except Exception as e:
+            logger.warning(f"COMPOSER | todo-escape check failed: {e}")
+
+        if not has_open_todo_in_conv:
+            # Posli pouze poslednich SLIDING_WINDOW_SIZE zprav + doplnovaci note
+            trimmed = messages[-SLIDING_WINDOW_SIZE:]
+            logger.info(
+                f"COMPOSER | sliding window | conv={conversation_id} | "
+                f"total={len(messages)} -> sending={len(trimmed)} (no open todo)"
+            )
+            messages = trimmed
+
     if summary:
         messages = [
             {"role": "user", "content": f"[Shrnutí předchozí konverzace]: {summary.summary_text}"},
             {"role": "assistant", "content": "Rozumím, pokračujeme."},
         ] + messages
+
+    # Faze 7: awareness dlouhe konverzace. Pokud pocet zprav od posledniho
+    # summary dosahuje SUMMARY_SUGGEST_AT, Marti dostane do promptu info
+    # a navrh, at se ptala na zkraceni. Tim setrime tokeny u dlouhych sessions.
+    try:
+        from modules.conversation.application.summary_service import (
+            SUMMARY_SUGGEST_AT, SUMMARY_THRESHOLD,
+        )
+        msg_count = len(messages)
+        if msg_count >= SUMMARY_SUGGEST_AT:
+            if msg_count >= SUMMARY_THRESHOLD:
+                tone = "uz je velmi dlouha"
+                action = "Doporuc user rovnou kratkodobe shrnuti (zavolej summarize_conversation_now pokud souhlasi)."
+            else:
+                tone = "zacina byt dlouha"
+                action = "Kdyz se to hodi, nabidni user: 'Konverzace je dlouhá, mám ji zkrátit?'. Pri 'ano' zavolej summarize_conversation_now."
+            system_prompt += (
+                f"\n\n[METADATA KONVERZACE]\n"
+                f"Tato konverzace {tone} — {msg_count} zprav od posledniho shrnuti. "
+                f"{action} Shrnuti uvolni tokeny a zrychli odpovedi. Neni to tvuj ukol "
+                f"fanaticky kazdy turn pripominat — jen kdyz se to prirozene hodi."
+            )
+    except Exception as e:
+        logger.error(f"COMPOSER | long-conv check failed: {e}")
 
     return system_prompt, messages

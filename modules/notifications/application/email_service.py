@@ -135,6 +135,312 @@ def _is_auth_error(exc: Exception) -> bool:
     return "invalid credentials" in msg or "unauthorized" in msg or "401" in msg
 
 
+_PERSONAL_FOLDER_NAME = "Personal"   # Nazev slozky pro Martiho osobni archiv
+
+
+def _ensure_personal_folder(account) -> "Any":
+    """
+    Zajistí, že existuje složka `Personal` pod Inbox. Pokud ne, vytvoří ji.
+    Idempotent — pri opakovanem volani jen vrati existujici.
+    Pouziva se pro Marti Memory Faze 6 (soukromy email archiv).
+
+    Vraci folder object, nebo None kdyz selze (neshazuje operaci).
+    """
+    try:
+        from exchangelib import Folder
+        # Nejdriv zkus najit existujici
+        for f in account.inbox.children:
+            if f.name == _PERSONAL_FOLDER_NAME:
+                return f
+        # Neexistuje -- vytvor
+        folder = Folder(parent=account.inbox, name=_PERSONAL_FOLDER_NAME)
+        folder.save()
+        logger.info(f"EMAIL | personal folder created under Inbox for account")
+        return folder
+    except Exception as e:
+        logger.warning(f"EMAIL | personal folder ensure failed: {e}")
+        return None
+
+
+def move_inbox_message_to_personal(
+    creds: dict[str, str],
+    message_id: str,
+) -> bool:
+    """
+    Na zaklade creds se pripoji k EWS, najde zpravu podle RFC822 Message-ID
+    v Inbox a presunu ji do slozky Personal.
+    Vraci True pri uspechu, False jinak (neshazuje volajici).
+    """
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(
+                username=creds["email"],
+                password=creds["password"],
+            ),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return False
+
+        # Najdi zpravu v Inbox podle message_id
+        matches = list(account.inbox.filter(message_id=message_id)[:1])
+        if not matches:
+            logger.warning(f"EMAIL | personal archive | message_id not found in Inbox: {message_id[:60]}")
+            return False
+
+        msg = matches[0]
+        msg.move(to_folder=folder)
+        logger.info(
+            f"EMAIL | archived to Personal | message_id={message_id[:60]}"
+        )
+        return True
+    except Exception as e:
+        logger.error(
+            f"EMAIL | personal archive (inbound) failed | message_id={message_id[:60]}: {e}",
+            exc_info=True,
+        )
+        return False
+
+
+def _save_outbox_copy_to_personal(
+    message,
+    account,
+) -> bool:
+    """
+    Po odeslani Message ulozi jeji kopii do slozky Personal. Volano primo
+    po message.send() -- message objekt uz ma message_id po odeslani,
+    takze ji muzeme najit v Sent Items a presunout / kopirovat.
+
+    Pouziva se pro Marti Memory Faze 6 -- odchozi emaily rodicum se archivuji.
+    """
+    try:
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return False
+
+        # message object uz ma message_id po send(). Najdi v Sent Items.
+        mid = getattr(message, "message_id", None)
+        if not mid:
+            logger.warning("EMAIL | personal archive (sent) | message has no message_id after send")
+            return False
+
+        # Najdi v Sent Items
+        sent_items = account.sent
+        matches = list(sent_items.filter(message_id=mid)[:1])
+        if not matches:
+            logger.warning(f"EMAIL | personal archive (sent) | not found in Sent Items: {mid[:60]}")
+            return False
+
+        found_msg = matches[0]
+        # Copy (ne move -- chceme to i v Sent Items jako normalni odchozi)
+        try:
+            found_msg.copy(to_folder=folder)
+            logger.info(f"EMAIL | archived to Personal (sent copy) | mid={mid[:60]}")
+            return True
+        except AttributeError:
+            # Nektere verze exchangelib nemaji .copy -- fallback na move (+ ztratime Sent)
+            found_msg.move(to_folder=folder)
+            logger.info(f"EMAIL | archived to Personal (sent moved, fallback) | mid={mid[:60]}")
+            return True
+    except Exception as e:
+        logger.error(f"EMAIL | personal archive (sent) failed: {e}", exc_info=True)
+        return False
+
+
+def _is_parent_email(email_address: str | None) -> bool:
+    """
+    Zjistí, jestli dana email adresa patří rodici Marti (is_marti_parent=True).
+    Hleda pres user_contacts match. Defensive -- pri chybe False.
+    """
+    if not email_address:
+        return False
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User, UserContact
+        from sqlalchemy import func
+        cs = get_core_session()
+        try:
+            normalized = email_address.strip().lower()
+            row = (
+                cs.query(User)
+                .join(UserContact, UserContact.user_id == User.id)
+                .filter(
+                    User.is_marti_parent.is_(True),
+                    UserContact.contact_type == "email",
+                    UserContact.status == "active",
+                    func.lower(UserContact.contact_value) == normalized,
+                )
+                .first()
+            )
+            return row is not None
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"EMAIL | parent check failed: {e}")
+        return False
+
+
+def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
+    """
+    Manualni archivace prichoziho emailu do slozky Personal v Exchange.
+    Volano z AI toolu archive_email.
+
+    Vraci {"ok": bool, "message": str, "email_inbox_id": int}.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox
+    import json as _json
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row is None:
+            return {"ok": False, "message": f"email id={email_inbox_id} neexistuje", "email_inbox_id": email_inbox_id}
+
+        persona_id = row.persona_id
+        message_id = row.message_id
+        meta_dict = {}
+        if row.meta:
+            try:
+                meta_dict = _json.loads(row.meta) or {}
+            except Exception:
+                meta_dict = {}
+        if meta_dict.get("archived_personal"):
+            return {"ok": True, "message": "už bylo archivováno", "email_inbox_id": email_inbox_id}
+    finally:
+        ds.close()
+
+    if not persona_id:
+        return {"ok": False, "message": "chybi persona_id pro nacteni credentialu", "email_inbox_id": email_inbox_id}
+
+    from modules.notifications.application.persona_channel_service import (
+        get_email_credentials,
+    )
+    creds = get_email_credentials(persona_id)
+    if not creds:
+        return {"ok": False, "message": "persona nema email channel", "email_inbox_id": email_inbox_id}
+
+    moved = move_inbox_message_to_personal(creds, message_id)
+    if not moved:
+        return {"ok": False, "message": "EWS move selhal", "email_inbox_id": email_inbox_id}
+
+    # Update meta
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row:
+            meta_dict = {}
+            if row.meta:
+                try:
+                    meta_dict = _json.loads(row.meta) or {}
+                except Exception:
+                    meta_dict = {}
+            meta_dict["archived_personal"] = True
+            row.meta = _json.dumps(meta_dict, ensure_ascii=False)
+            ds.commit()
+    finally:
+        ds.close()
+
+    return {"ok": True, "message": "archivováno do Personal", "email_inbox_id": email_inbox_id}
+
+
+def archive_email_outbox_to_personal(email_outbox_id: int) -> dict:
+    """
+    Manualni archivace odchoziho emailu do Personal. Volano z AI toolu.
+    POZOR: Muze fungovat jen kdyz email uz byl odeslany (ma Exchange message_id
+    v Sent Items). U pending radku jeste ne.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+    import json as _json
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter_by(id=email_outbox_id).first()
+        if row is None:
+            return {"ok": False, "message": f"email id={email_outbox_id} neexistuje", "email_outbox_id": email_outbox_id}
+        if row.status != "sent":
+            return {"ok": False, "message": f"email je ve stavu '{row.status}', nelze archivovat pred odeslanim", "email_outbox_id": email_outbox_id}
+        persona_id = row.persona_id
+        to_email = row.to_email
+        subject = row.subject or ""
+    finally:
+        ds.close()
+
+    if not persona_id:
+        return {"ok": False, "message": "chybi persona_id", "email_outbox_id": email_outbox_id}
+
+    from modules.notifications.application.persona_channel_service import (
+        get_email_credentials,
+    )
+    creds = get_email_credentials(persona_id)
+    if not creds:
+        return {"ok": False, "message": "persona nema email channel", "email_outbox_id": email_outbox_id}
+
+    # Najdi v Sent Items podle subject + to (approximace; message_id nemame ulozene)
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(username=creds["email"], password=creds["password"]),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return {"ok": False, "message": "personal folder nelze zajistit", "email_outbox_id": email_outbox_id}
+
+        # Hleda v Sent Items podle subject (nejpresnejsi match co dneska mame)
+        matches = list(account.sent.filter(subject=subject)[:5])
+        if not matches:
+            return {"ok": False, "message": f"email nenalezen v Sent Items (subject='{subject[:40]}')", "email_outbox_id": email_outbox_id}
+
+        # Vyber nejnovejsi match
+        chosen = max(matches, key=lambda m: m.datetime_sent or m.datetime_created)
+        try:
+            chosen.copy(to_folder=folder)
+        except AttributeError:
+            chosen.move(to_folder=folder)
+        logger.info(f"EMAIL | manual archive | outbox_id={email_outbox_id} -> Personal")
+    except Exception as e:
+        return {"ok": False, "message": f"EWS selhal: {e}", "email_outbox_id": email_outbox_id}
+
+    # Update meta
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter_by(id=email_outbox_id).first()
+        if row:
+            # email_outbox nemá meta column; ulozim info do last_error jako debug? Ne.
+            # Vytvorim novy sloupec? Zatim to skipnem.
+            pass
+    finally:
+        ds.close()
+
+    return {"ok": True, "message": "archivováno do Personal", "email_outbox_id": email_outbox_id}
+
+
 def _parse_recipients(s: str | list[str] | None) -> list[str]:
     """
     Normalizuje recipient string/list na cisty list email adres.
@@ -239,12 +545,20 @@ def send_email_or_raise(
             msg_kwargs["bcc_recipients"] = [Mailbox(email_address=addr) for addr in bcc_list]
 
         message = Message(**msg_kwargs)
-        message.send()
+        message.send_and_save()
 
         logger.info(
             f"EMAIL | sent | identity={from_identity} | from={sender} | "
             f"to={to_list} | cc={cc_list or '-'} | bcc={bcc_list or '-'} | subject={subject}"
         )
+
+        # Faze 6: archive copy do Personal pokud prijemce je rodic Marti.
+        # Best effort -- pripadne selhani archivace neshodi odeslani.
+        try:
+            if any(_is_parent_email(addr) for addr in to_list):
+                _save_outbox_copy_to_personal(message, account)
+        except Exception as arch_err:
+            logger.warning(f"EMAIL | personal archive post-send failed: {arch_err}")
     except EmailNoUserChannelError:
         raise
     except Exception as e:
@@ -281,6 +595,30 @@ def send_email(
     except Exception as e:
         logger.error(f"EMAIL | unexpected | to={to} | error={e}")
         return False
+
+
+def _get_default_persona_id() -> int | None:
+    """
+    Vrati id default persony (is_default=True) pro systemove emaily
+    (invite, password reset) bez explicitniho persona_id.
+
+    Nahrada za .env EWS fallback -- persona_channels je dnes source-of-truth.
+    Kdyz default persona neexistuje nebo nema email kanal, caller dostane None
+    a send_email_or_raise zkusi legacy .env fallback (ktery pravdepodobne selze,
+    ale zachovani chovani).
+    """
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import Persona
+        cs = get_core_session()
+        try:
+            p = cs.query(Persona).filter_by(is_default=True).first()
+            return p.id if p else None
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"EMAIL | default persona lookup failed: {e}")
+        return None
 
 
 def send_invitation_email(
@@ -323,7 +661,13 @@ Odkaz je platný 48 hodin.
 S pozdravem,
 Tým STRATEGIE
 """
-    return send_email(to=to, subject=subject, body=body)
+    # Faze 6+: pozvanky pouzivaji default personu (typicky Marti-AI) pro EWS
+    # kredence -- persona_channels je source-of-truth, .env fallback je legacy.
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )
 
 
 # ── OUTBOX: queue + flush worker ──────────────────────────────────────────
@@ -799,4 +1143,8 @@ Pokud jsi o reset nežádal, ignoruj tento email. Tvoje současné heslo zůstá
 S pozdravem,
 Tým STRATEGIE
 """
-    return send_email(to=to, subject=subject, body=body)
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )

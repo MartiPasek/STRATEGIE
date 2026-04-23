@@ -266,11 +266,25 @@ def list_inbox_for_ui(
                 "received_at": r.received_at.isoformat() if r.received_at else None,
                 "read_at": r.read_at.isoformat() if r.read_at else None,
                 "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                # Faze 6: meta obsahuje archived_personal flag pro UI
+                "archived_personal": _is_archived(r.meta),
             }
             for r in rows
         ]
     finally:
         ds.close()
+
+
+def _is_archived(meta_raw: str | None) -> bool:
+    """Pomocna funkce: parsuje meta JSON a vraci meta.archived_personal flag."""
+    if not meta_raw:
+        return False
+    try:
+        import json as _j
+        m = _j.loads(meta_raw)
+        return bool(isinstance(m, dict) and m.get("archived_personal"))
+    except Exception:
+        return False
 
 
 def mark_read(inbox_id: int) -> dict | None:
@@ -605,6 +619,91 @@ def get_draft_for_inbox(inbox_id: int) -> dict:
                     "task_status": t.status,
                 }
         return {"draft": None, "task_id": None, "task_status": None}
+    finally:
+        ds.close()
+
+
+def list_personal_for_ui(
+    *,
+    persona_id: int,
+    tenant_id: int | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Personal tab (Faze 7.8) -- merged view rodicovske korespondence:
+    (a) incoming emaily kde meta.archived_personal=true
+    (b) outgoing emaily kde to_email odpovida rodici Marti (is_marti_parent)
+
+    Vraci unified list serazeny od nejnovejsich. Kazdy zaznam ma 'direction'
+    field ('in'|'out') pro UI ikonku sipky.
+
+    Incoming archivace se deje automaticky v ews_fetcher (Faze 6). Outgoing
+    detekujeme at read-time pres _is_parent_email (stejny pattern jako
+    archivace pri sendu -- neni nutna DB migrace).
+    """
+    from modules.core.infrastructure.models_data import EmailOutbox
+    from modules.notifications.application.email_service import _is_parent_email
+    import json as _json
+
+    ds = get_data_session()
+    try:
+        # (a) Incoming - filter na archived_personal flag v meta
+        incoming_rows = (
+            ds.query(EmailInbox)
+            .filter(EmailInbox.persona_id == persona_id)
+            .order_by(EmailInbox.received_at.desc())
+            .limit(max(1, min(limit * 2, 400)))  # over-fetch, post-filter archived
+            .all()
+        )
+        incoming_items = []
+        for r in incoming_rows:
+            if not _is_archived(r.meta):
+                continue
+            incoming_items.append({
+                "id": r.id,
+                "direction": "in",
+                "source_type": "inbox",
+                "from_email": r.from_email,
+                "from_name": r.from_name,
+                "to_email": r.to_email,
+                "subject": r.subject,
+                "body": r.body,
+                "ts": r.received_at.isoformat() if r.received_at else None,
+                "read_at": r.read_at.isoformat() if r.read_at else None,
+                "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+            })
+
+        # (b) Outgoing - per-row kontrola, ze to_email je rodic
+        outgoing_q = ds.query(EmailOutbox).filter(EmailOutbox.persona_id == persona_id)
+        if tenant_id is not None:
+            outgoing_q = outgoing_q.filter(EmailOutbox.tenant_id == tenant_id)
+        outgoing_rows = (
+            outgoing_q
+            .order_by(EmailOutbox.created_at.desc())
+            .limit(max(1, min(limit * 2, 400)))
+            .all()
+        )
+        outgoing_items = []
+        for r in outgoing_rows:
+            if not _is_parent_email(r.to_email):
+                continue
+            outgoing_items.append({
+                "id": r.id,
+                "direction": "out",
+                "source_type": "outbox",
+                "from_email": None,
+                "from_name": None,
+                "to_email": r.to_email,
+                "subject": r.subject,
+                "body": r.body,
+                "ts": (r.sent_at or r.created_at).isoformat() if (r.sent_at or r.created_at) else None,
+                "status": r.status,
+            })
+
+        # Merge + sort by ts desc
+        merged = incoming_items + outgoing_items
+        merged.sort(key=lambda x: x.get("ts") or "", reverse=True)
+        return merged[:limit]
     finally:
         ds.close()
 

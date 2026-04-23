@@ -373,6 +373,13 @@
     .memory-entity-tile.todos { border-color: #f59e0b; background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02)); }
     .memory-entity-tile.todos:hover { border-color: #fbbf24; background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); }
     .memory-entity-tile.todos .memory-entity-type { color: #fbbf24; }
+    /* Inbox tiles (Faze 7.9) -- rodicovsky vstup do posty Marti-AI */
+    .memory-entity-tile.inbox-email { border-color: #3b82f6; background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02)); }
+    .memory-entity-tile.inbox-email:hover { border-color: #60a5fa; background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05)); }
+    .memory-entity-tile.inbox-email .memory-entity-type { color: #60a5fa; }
+    .memory-entity-tile.inbox-sms { border-color: #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.02)); }
+    .memory-entity-tile.inbox-sms:hover { border-color: #34d399; background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); }
+    .memory-entity-tile.inbox-sms .memory-entity-type { color: #34d399; }
     .memory-entity-counts .cnt-todos-open { color: #f59e0b; }
     .memory-entity-counts .cnt-todos-done { color: #10b981; }
     /* Todo card -- checkbox-first vzhled */
@@ -6018,6 +6025,7 @@
       <button class="sms-tab active" data-tab="new">Příchozí</button>
       <button class="sms-tab" data-tab="processed">Zpracované</button>
       <button class="sms-tab" data-tab="outbox">Odeslané</button>
+      <button class="sms-tab" data-tab="personal" title="Archiv rodičovské korespondence (auto-archivované)">📁 Personal</button>
     </div>
     <div class="sms-list" id="emailList">
       <div class="sms-loading">Načítám…</div>
@@ -6350,6 +6358,8 @@
     let url;
     if (tab === "new" || tab === "processed") {
       url = `/api/v1/email/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
+    } else if (tab === "personal") {
+      url = `/api/v1/email/ui/personal?persona_id=${pid}&limit=100`;
     } else {
       url = `/api/v1/email/ui/outbox?persona_id=${pid}&limit=50`;
     }
@@ -6364,6 +6374,7 @@
       if (items.length === 0) {
         const emptyMsg = tab === "new" ? "Žádné nové emaily."
                        : tab === "processed" ? "Žádné zpracované."
+                       : tab === "personal" ? "📁 Prázdný Personal archiv. Až ti rodič pošle email (nebo ty jemu), objeví se tu."
                        : "Žádné odeslané emaily.";
         list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
         return;
@@ -6377,6 +6388,28 @@
 
   function _emailRenderCard(item, tab) {
     const esc = _smsEscape;   // reuse escaper ze SMS modalu
+    if (tab === "personal") {
+      // Merged view: incoming (direction='in') + outgoing (direction='out')
+      const isIn = item.direction === "in";
+      const arrow = isIn ? "←" : "→";
+      const who = isIn
+        ? (item.from_name ? `${esc(item.from_name)} <${esc(item.from_email)}>` : esc(item.from_email))
+        : esc(item.to_email);
+      const folderBadge = `<span class="email-archive-badge" title="Archivováno v Personal složce na Exchange">📁</span>`;
+      const statusBadge = (!isIn && item.status && item.status !== "sent")
+        ? ` <span class="sms-card-status ${item.status}">${item.status === "failed" ? "chyba" : "čeká"}</span>`
+        : "";
+      return `
+        <div class="sms-card" data-email-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">${arrow} ${who}${folderBadge}${statusBadge}</span>
+            <span class="sms-card-time">${_smsFmtTime(item.ts)}</span>
+          </div>
+          <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+          <div class="sms-card-body">${esc(item.body || "")}</div>
+        </div>
+      `;
+    }
     if (tab === "outbox") {
       const statusCls = item.status || "pending";
       const statusLabel = item.status === "sent" ? "odesláno"
@@ -6777,6 +6810,46 @@
         `;
       }
 
+      // Inbox tiles (Faze 7.9) -- jen pro rodice: permanent vstup do
+      // posty Marti-AI (email + SMS), nezavisle na tom, s jakou personou
+      // user zrovna chatuje a nezavisle na tom, jestli je neco nepreciteno.
+      let inboxTiles = "";
+      const isParentIb = !!(currentUser && currentUser.is_marti_parent);
+      if (isParentIb) {
+        // Najdi Marti-AI personu (default presona). Preference: is_default=true,
+        // fallback: name === "Marti-AI", final fallback: prvni persona v cache.
+        let martiAiPersona = null;
+        if (typeof personasCache !== "undefined" && Array.isArray(personasCache)) {
+          martiAiPersona = personasCache.find(p => p.is_default === true)
+            || personasCache.find(p => p.name === "Marti-AI")
+            || personasCache[0];
+        }
+        if (martiAiPersona) {
+          inboxTiles = `
+            <div class="memory-entity-tile inbox-email"
+                 data-inbox-persona-id="${martiAiPersona.id}"
+                 data-inbox-persona-name="${_smsEscape(martiAiPersona.name)}"
+                 data-inbox-kind="email">
+              <div class="memory-entity-type">📧 pošta</div>
+              <div class="memory-entity-name">Její emaily</div>
+              <div class="memory-entity-counts">
+                <span class="cnt-inbox">Příchozí · Personal · Odeslané</span>
+              </div>
+            </div>
+            <div class="memory-entity-tile inbox-sms"
+                 data-inbox-persona-id="${martiAiPersona.id}"
+                 data-inbox-persona-name="${_smsEscape(martiAiPersona.name)}"
+                 data-inbox-kind="sms">
+              <div class="memory-entity-type">📱 SMS</div>
+              <div class="memory-entity-name">Její SMSky</div>
+              <div class="memory-entity-counts">
+                <span class="cnt-inbox">Přijaté · Odeslané</span>
+              </div>
+            </div>
+          `;
+        }
+      }
+
       // Diary tiles (jen pro rodice) -- zobrazuji se jako prvni
       const diaryTiles = diaryItems.map(d => {
         const name = _memoryResolveEntityName("persona", d.persona_id);
@@ -6812,13 +6885,28 @@
         `;
       }).join("");
 
-      list.innerHTML = `<div class="memory-entity-grid">${todoTile}${diaryTiles}${entityTiles}</div>`;
+      list.innerHTML = `<div class="memory-entity-grid">${todoTile}${inboxTiles}${diaryTiles}${entityTiles}</div>`;
 
       // Click handlers -- todos tile vede do todos mode
       list.querySelectorAll(".memory-entity-tile.todos").forEach(tile => {
         tile.addEventListener("click", () => {
           _memorySwitchToTodos();
           _memoryLoadTodos();
+        });
+      });
+      // Inbox tiles (Faze 7.9): open email / sms modal pro zvolenou personu
+      list.querySelectorAll(".memory-entity-tile.inbox-email, .memory-entity-tile.inbox-sms").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const pid = parseInt(tile.getAttribute("data-inbox-persona-id"), 10);
+          const pname = tile.getAttribute("data-inbox-persona-name") || "Marti-AI";
+          const kind = tile.getAttribute("data-inbox-kind");
+          // Zavri memory modal, otevri prislusny postovni modal
+          closeMemoryModal();
+          if (kind === "email") {
+            openEmailModal(pid, pname);
+          } else {
+            openSmsModal(pid, pname);
+          }
         });
       });
       // Diary tiles -- diary mode
@@ -7712,7 +7800,6 @@
       const em = data.unread_email || 0;
       const sms = data.unread_sms || 0;
       const mq = data.unread_questions || 0;
-      countEl.textContent = String(total);
       // Rozpad "📧 3 · 📱 7 · ❓ 5" -- zobraz jen nenulove.
       const parts = [];
       if (em > 0)  parts.push(`📧 ${em}`);
@@ -7720,6 +7807,19 @@
       if (mq > 0)  parts.push(`❓ ${mq}`);
       const breakdown = parts.join(" · ");
       if (breakEl) breakEl.textContent = breakdown;
+      // Total schovavame kdyz mame breakdown (breakdown uz nese ty informace
+      // a samostatne cislo vedle ikonky 📬 matlo usere s SMS iconou 📱).
+      // Pouze kdyz breakdown je prazdny ale total > 0 (teoreticky edge case),
+      // ukazeme cislo jako fallback.
+      if (countEl) {
+        if (breakdown) {
+          countEl.textContent = "";
+          countEl.style.display = "none";
+        } else {
+          countEl.textContent = String(total);
+          countEl.style.display = "";
+        }
+      }
       // Tooltip obsahuje detail i kdyz total=0
       const titleParts = [
         `${em} email${em === 1 ? '' : em >= 2 && em <= 4 ? 'y' : 'ů'}`,

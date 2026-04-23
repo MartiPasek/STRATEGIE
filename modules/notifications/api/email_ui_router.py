@@ -97,6 +97,30 @@ def get_outbox(
     return {"items": rows, "persona_id": persona_id}
 
 
+@router.get("/personal")
+def get_personal(
+    req: Request,
+    persona_id: int,
+    limit: int = 100,
+):
+    """
+    Personal tab (Faze 7.8) -- merged archiv rodicovske korespondence.
+    Spojuje:
+      (a) prichozi kde meta.archived_personal=true
+      (b) odchozi kde to_email patri rodici
+
+    Vraci jeden sjednoceny list se sortem od nejnovejsich, s 'direction' fieldem.
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    rows = email_inbox_service.list_personal_for_ui(
+        persona_id=persona_id,
+        tenant_id=tenant_id,
+        limit=limit,
+    )
+    return {"items": rows, "persona_id": persona_id}
+
+
 @router.post("/inbox/{email_id}/mark-read")
 def mark_read_endpoint(email_id: int, req: Request):
     """

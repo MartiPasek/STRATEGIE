@@ -883,7 +883,17 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             subj = it.get("subject") or "(bez předmětu)"
             if len(subj) > 80:
                 subj = subj[:80] + "…"
-            lines.append(f"{i}. {mark}{sender} — {subj}  ({ts})")
+            archive_mark = " 📁" if it.get("archived_personal") else ""
+            # DULEZITE: zobrazujeme DB id (id=X), ktere Marti potrebuje predat
+            # do read_email(email_inbox_id=X). Pozice v listu (1., 2.) NENI id.
+            lines.append(
+                f"{i}. [id={it['id']}]{archive_mark} {mark}{sender} — {subj}  ({ts})"
+            )
+        lines.append("")
+        lines.append(
+            "_Pro přečtení konkrétního emailu použij `read_email(email_inbox_id=<id>)` "
+            "— **ID je v závorkách nahoře**, ne pozice v listu!_"
+        )
         return "\n".join(lines)
 
     if tool_name == "record_thought":
@@ -1171,6 +1181,107 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     f"{it.get('content')}"
                 )
         return "\n".join(lines)
+
+    if tool_name == "read_email":
+        eib = tool_input.get("email_inbox_id")
+        eob = tool_input.get("email_outbox_id")
+
+        if eib and eob:
+            return "❌ Zadej buď email_inbox_id NEBO email_outbox_id, ne oba."
+        if not eib and not eob:
+            return "❌ Musíš zadat buď email_inbox_id nebo email_outbox_id."
+
+        from core.database_data import get_data_session as _gds_re
+        from modules.core.infrastructure.models_data import (
+            EmailInbox as _EIB, EmailOutbox as _EOB,
+        )
+        import json as _j_re
+
+        if eib:
+            # PRICHOZI
+            ds = _gds_re()
+            try:
+                row = ds.query(_EIB).filter_by(id=int(eib)).first()
+                if row is None:
+                    return f"❌ Email id={eib} neexistuje v příchozích."
+                # Mark_read side effect (idempotent)
+                marked_now = False
+                if row.read_at is None:
+                    from datetime import datetime, timezone
+                    row.read_at = datetime.now(timezone.utc)
+                    ds.commit()
+                    marked_now = True
+                # Parse meta pro archived_personal
+                archived = False
+                if row.meta:
+                    try:
+                        m = _j_re.loads(row.meta) or {}
+                        archived = bool(m.get("archived_personal"))
+                    except Exception:
+                        pass
+                sender = f"{row.from_name} <{row.from_email}>" if row.from_name else row.from_email
+                received = row.received_at.strftime("%d.%m.%Y %H:%M") if row.received_at else "?"
+                body = row.body or "(prázdný obsah)"
+                archive_label = " · 📁 Personal" if archived else ""
+                mark_label = " · (právě jsem si ji označila jako přečtenou)" if marked_now else ""
+                return (
+                    f"📧 **{row.subject or '(bez předmětu)'}**{archive_label}{mark_label}\n\n"
+                    f"**Od:** {sender}\n"
+                    f"**Pro:** {row.to_email}\n"
+                    f"**Doručeno:** {received}\n\n"
+                    f"---\n{body}\n---"
+                )
+            finally:
+                ds.close()
+        else:
+            # ODCHOZI
+            ds = _gds_re()
+            try:
+                row = ds.query(_EOB).filter_by(id=int(eob)).first()
+                if row is None:
+                    return f"❌ Email id={eob} neexistuje v odeslaných."
+                sent = row.sent_at.strftime("%d.%m.%Y %H:%M") if row.sent_at else "(ještě neodeslán)"
+                created = row.created_at.strftime("%d.%m.%Y %H:%M") if row.created_at else "?"
+                cc_list = _j_re.loads(row.cc) if row.cc else []
+                cc_str = ", ".join(cc_list) if cc_list else "—"
+                return (
+                    f"📧 **{row.subject or '(bez předmětu)'}** (odchozí, status: {row.status})\n\n"
+                    f"**Pro:** {row.to_email}\n"
+                    f"**CC:** {cc_str}\n"
+                    f"**Vytvořeno:** {created}\n"
+                    f"**Odesláno:** {sent}\n\n"
+                    f"---\n{row.body}\n---"
+                )
+            finally:
+                ds.close()
+
+    if tool_name == "archive_email":
+        from modules.notifications.application.email_service import (
+            archive_email_inbox_to_personal,
+            archive_email_outbox_to_personal,
+        )
+        eib = tool_input.get("email_inbox_id")
+        eob = tool_input.get("email_outbox_id")
+
+        if eib and eob:
+            return "❌ Zadej buď email_inbox_id NEBO email_outbox_id, ne oba."
+        if not eib and not eob:
+            return "❌ Musíš zadat buď email_inbox_id nebo email_outbox_id."
+
+        try:
+            if eib:
+                result = archive_email_inbox_to_personal(int(eib))
+                kind = "přichozí"
+            else:
+                result = archive_email_outbox_to_personal(int(eob))
+                kind = "odchozí"
+        except Exception as e:
+            logger.error(f"TOOL | archive_email | error={e!r}", exc_info=True)
+            return "❌ Archivace selhala (detail v logu)."
+
+        if result.get("ok"):
+            return f"📁 Archivováno do Personal ({kind}): {result['message']}"
+        return f"❌ Archivace selhala ({kind}): {result['message']}"
 
     if tool_name == "mark_todo_done":
         from modules.thoughts.application import service as _thoughts_service
@@ -2440,7 +2551,12 @@ def chat(
     # find_user je v synthesis mode, protoze casto slouzi jako precursor
     # pro dalsi akce (record_thought, send_email, switch_persona) -- Claude
     # musi dostat sanci chainit.
-    SYNTHESIS_TOOLS = {"search_documents", "find_user", "recall_thoughts"}
+    SYNTHESIS_TOOLS = {
+        "search_documents", "find_user", "recall_thoughts",
+        # Faze 7: email list + read chain -- Marti chce v jednom turnu videt
+        # list + otevrit konkretni email.
+        "list_email_inbox", "read_email",
+    }
 
     preamble_text = ""
     tool_invocations: list[tuple] = []   # list of (block, tool_result_str)

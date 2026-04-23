@@ -70,6 +70,16 @@ class Settings(BaseSettings):
     # Rotace = reencrypt vsech radek novym klicem (TODO helper script).
     encryption_key: str = ""
 
+    # Multi-mode Marti-AI routing (Fáze 9) -------------------------------------
+    # Když True, chat flow prochází routerem -> classifikuje módu (personal /
+    # project / work / system) a podle toho vybere overlay + memory map místo
+    # dnešního build_marti_memory_block + build_marti_diary_block.
+    # Default False = dnešní chování (safe, base-marti-2026-04-24).
+    # Rollout: `MARTI_MULTI_MODE_ENABLED=true` v .env a restart STRATEGIE-API.
+    # Při jakékoli chybě v multi-mode flow composer spadne na existující
+    # behavior -- Marti zůstane funkční.
+    marti_multi_mode_enabled: bool = False
+
     # Production deployment ----------------------------------------------------
     # Public base URL aplikace (used in invitation email links + cookie domain).
     # V production nastav na https://app.strategie-system.com (přes APP_BASE_URL env).

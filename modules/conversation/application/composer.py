@@ -527,6 +527,104 @@ def _get_conversation_context(conversation_id: int) -> tuple[int | None, int | N
     return user_id, tenant_id
 
 
+# ── Phase 9 helpers pro multi-mode routing ────────────────────────────────
+
+def _get_conversation_project_id(conversation_id: int) -> int | None:
+    """Vrátí active project_id konverzace (nebo None)."""
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        return conv.project_id if conv else None
+    finally:
+        ds.close()
+
+
+def _get_tenant_info(tenant_id: int | None) -> tuple[str | None, str | None]:
+    """
+    Vrátí (tenant_name, tenant_type) pro daný tenant_id.
+    Při chybě / None tenant_id vrací (None, None).
+    """
+    if tenant_id is None:
+        return None, None
+    try:
+        from modules.core.infrastructure.models_core import Tenant
+        cs = get_core_session()
+        try:
+            t = cs.query(Tenant).filter_by(id=tenant_id).first()
+            if t is None:
+                return None, None
+            return t.name, getattr(t, "tenant_type", None)
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"COMPOSER | _get_tenant_info failed | {e}")
+        return None, None
+
+
+def _get_project_name(project_id: int | None) -> str | None:
+    """Vrátí název projektu (nebo None)."""
+    if project_id is None:
+        return None
+    try:
+        from modules.core.infrastructure.models_core import Project
+        cs = get_core_session()
+        try:
+            p = cs.query(Project).filter_by(id=project_id).first()
+            return p.name if p else None
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"COMPOSER | _get_project_name failed | {e}")
+        return None
+
+
+def _get_last_user_message_content(conversation_id: int) -> str | None:
+    """
+    Vrátí content poslední zprávy kde role='user' v této konverzaci.
+    Používá se jako vstup pro router (classify_mode).
+    Při chybě / žádné user zprávě -> None.
+    """
+    try:
+        ds = get_data_session()
+        try:
+            row = (
+                ds.query(Message)
+                .filter(Message.conversation_id == conversation_id, Message.role == "user")
+                .order_by(Message.id.desc())
+                .first()
+            )
+            return row.content if row else None
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"COMPOSER | _get_last_user_message_content failed | {e}")
+        return None
+
+
+def _get_recent_messages_for_router(conversation_id: int, limit: int = 5) -> list[dict]:
+    """
+    Vrátí posledních `limit` zpráv (role/content) pro router -- aby viděl
+    kontext konverzace při klasifikaci.
+    """
+    try:
+        ds = get_data_session()
+        try:
+            rows = (
+                ds.query(Message)
+                .filter(Message.conversation_id == conversation_id)
+                .order_by(Message.id.desc())
+                .limit(limit)
+                .all()
+            )
+            rows.reverse()  # chceme chronologický pořadí
+            return [{"role": r.role, "content": (r.content or "")[:500]} for r in rows]
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"COMPOSER | _get_recent_messages_for_router failed | {e}")
+        return []
+
+
 def build_marti_memory_block(
     user_id: int | None,
     tenant_id: int | None,
@@ -700,17 +798,116 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     if channels_block:
         system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
 
-    # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
-    # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
-    memory_block = build_marti_memory_block(user_id, tenant_id)
-    if memory_block:
-        system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+    # ── MULTI-MODE ROUTING (Fáze 9.4) ─────────────────────────────────────
+    # Pokud je feature flag on, chat prochází routerem -> klasifikuje módu
+    # (personal / project / work / system) a podle toho vybere overlay +
+    # memory map místo dnešního marti_memory_block + diary_block.
+    #
+    # Při JAKÉKOLI chybě v multi-mode flow -> fallback na existující chování
+    # (viz else branch). Tím je commit reverzibilní runtime (flag=false).
+    multi_mode_used = False
+    try:
+        from core.config import settings as _settings_mm
+        multi_mode_enabled = bool(getattr(_settings_mm, "marti_multi_mode_enabled", False))
+    except Exception:
+        multi_mode_enabled = False
 
-    # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
-    # Marti muze odkazovat na sve zazitky a pocity z minulosti.
-    diary_block = build_marti_diary_block(conversation_id)
-    if diary_block:
-        system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
+    if multi_mode_enabled and user_id:
+        try:
+            from modules.conversation.application import (
+                router_service as _router,
+                memory_map_service as _mmap,
+                scope_overlays as _overlays,
+            )
+            from modules.thoughts.application.service import is_marti_parent as _imp
+
+            # Gather UI state + context
+            active_project_id = _get_conversation_project_id(conversation_id)
+            tenant_name, tenant_type = _get_tenant_info(tenant_id)
+            is_parent = _imp(user_id) if user_id else False
+            persona_id_ui = _get_active_persona_id(conversation_id)
+
+            # Router input
+            last_user_msg = _get_last_user_message_content(conversation_id)
+            recent_msgs = _get_recent_messages_for_router(conversation_id, limit=5)
+
+            ui_state = {
+                "user_id": user_id,
+                "active_tenant_id": tenant_id,
+                "active_tenant_name": tenant_name,
+                "tenant_type": tenant_type,
+                "active_project_id": active_project_id,
+                "active_persona_id": persona_id_ui,
+                "is_parent": is_parent,
+            }
+
+            # Classify mode
+            route = _router.classify_mode(
+                message=last_user_msg or "",
+                ui_state=ui_state,
+                recent_messages=recent_msgs,
+            )
+            mode = route.get("mode") or "personal"
+            route_project_id = route.get("project_id") or active_project_id
+
+            logger.info(
+                f"COMPOSER | multi-mode | conv={conversation_id} | mode={mode} | "
+                f"conf={route.get('confidence')} | reason='{(route.get('reason') or '')[:60]}'"
+            )
+
+            # Resolve project name if project mode
+            project_name = None
+            if mode == "project" and route_project_id:
+                project_name = _get_project_name(route_project_id)
+
+            # Build overlay (scope-specific behavior instructions)
+            overlay = _overlays.build_overlay_for_mode(
+                mode,
+                project_name=project_name,
+                project_id=route_project_id,
+                tenant_name=tenant_name,
+                tenant_id=tenant_id,
+                is_parent=is_parent,
+            )
+
+            # Build memory map (scope-specific signposts)
+            memory_map = _mmap.build_memory_map_for_mode(
+                mode,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                project_id=route_project_id,
+                is_parent=is_parent,
+            )
+
+            # Append to system prompt
+            if overlay:
+                system_prompt = f"{system_prompt}\n\n{overlay}"
+            if memory_map:
+                system_prompt = f"{system_prompt}\n\n{memory_map}"
+
+            multi_mode_used = True
+        except Exception as e:
+            logger.exception(
+                f"COMPOSER | multi-mode routing failed | conv={conversation_id} | "
+                f"{e} -- fallback na existující chování"
+            )
+            multi_mode_used = False
+
+    # ── FALLBACK / LEGACY behavior (existující chování) ────────────────────
+    # Pokud multi-mode vypnutý nebo selhal, použij existujicí marti_memory_block
+    # + marti_diary_block. Tím zůstává dnešní chování v main fungujici.
+    if not multi_mode_used:
+        # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
+        # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
+        memory_block = build_marti_memory_block(user_id, tenant_id)
+        if memory_block:
+            system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+
+        # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
+        # Marti muze odkazovat na sve zazitky a pocity z minulosti.
+        diary_block = build_marti_diary_block(conversation_id)
+        if diary_block:
+            system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

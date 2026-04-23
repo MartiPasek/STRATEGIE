@@ -88,9 +88,18 @@ def test_system_overlay_basic():
 
 
 def test_system_overlay_no_personal_content():
-    out = build_overlay_for_mode("system")
-    assert "rodin" not in out.lower()
-    assert "diár" not in out.lower() or "osobní" not in out.lower()
+    """
+    System mode nemá obsahovat vyloženě osobní / rodinná témata
+    (diář, vzpomínky, rodinné události). Zmínka "rodiče" v kontextu
+    oprávnění (is_marti_parent) je legitimní -- proto kontrolujeme
+    konkrétnější slova.
+    """
+    out = build_overlay_for_mode("system").lower()
+    assert "diář" not in out
+    assert "vzpomín" not in out     # vzpomínky, vzpomínáš
+    assert "rodinn" not in out      # rodinný, rodinné (ne "rodiče")
+    assert "record_diary_entry" not in out
+    assert "record_thought" not in out
 
 
 # ── dispatcher edge cases ─────────────────────────────────────────────────

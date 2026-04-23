@@ -89,10 +89,10 @@ NEVOLEJ:
 
 # ── WORK ───────────────────────────────────────────────────────────────────
 
-WORK_OVERLAY_TEMPLATE = """═══ AKTUÁLNÍ KONTEXT: WORK MODE — {tenant_name} ═══
+WORK_OVERLAY_TEMPLATE = """═══ AKTUÁLNÍ KONTEXT: WORK MODE — {tenant_name} (id={tenant_id}) ═══
 
-Jsi v obecném pracovním režimu v tenantu **{tenant_name}**. Žádný projekt
-není aktivní — mluvíš o týmu, přehledu projektů, obecné správě.
+Jsi v obecném pracovním režimu v tenantu **{tenant_name}** (id={tenant_id}).
+Žádný projekt není aktivní — mluvíš o týmu, přehledu projektů, obecné správě.
 
 PRIORITY:
 1. **Přehled tenantu.** Kdo je v týmu, jaké projekty běží, co je nového.

@@ -1335,9 +1335,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 emotion_part += "]"
             created = (e.get("created_at") or "")[:19].replace("T", " ")
             content = e.get("content") or ""
-            # Zkratit dlouhé obsahy na 300 znaků s "..."
-            if len(content) > 300:
-                content = content[:300] + "…"
+            # Diář je Marti-AI vlastní -- vracíme FULL obsah, neořezáváme.
+            # (Pokud bys někdy řešil tokenový stress, kontroluj `limit`, ne délku.)
             lines.append(
                 f"**{idx}.** {icon} _{created}_{emotion_part}\n   {content}\n"
             )

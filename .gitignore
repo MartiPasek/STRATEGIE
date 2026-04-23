@@ -3,6 +3,12 @@
 .env.*
 !.env.example
 
+# Database backups (Phase 7.11) -- obsahuji PII, emaily, diář.
+# Nikdy do gitu. Kopiruj rucne na OneDrive / externi disk.
+backups/
+*.dump
+*.sql.gz
+
 # Python cache
 __pycache__/
 *.pyc

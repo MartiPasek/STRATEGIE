@@ -21,7 +21,14 @@ from modules.core.infrastructure.models_data import Message, ConversationSummary
 logger = get_logger("conversation.composer")
 
 DEFAULT_SYSTEM_PROMPT = "Jsi neutrální asistent. Odpovídej věcně a srozumitelně."
-MAX_TOKENS = 6000
+# Max tokenu pro historii zprav (recent messages vrstva, PO summary bodu).
+# Claude Sonnet 4.6 ma 200k context window -- nechavame 150k na history, zbytek
+# je buffer pro system prompt + persona + user context + tools + safety margin.
+# Historicky bylo 6000 -- to ale vedlo k agresivnimu orezani historie u konverzaci
+# delsich nez ~15 zprav a AI "zapominala" na starsi zpravy i kdyz summary byl
+# k dispozici. Sonnet 4.6 v pohode utahne 150k, Haiku 4.5 pokud bude kdy pouzity
+# take.
+MAX_TOKENS = 150_000
 CHARS_PER_TOKEN = 4
 
 
@@ -306,6 +313,23 @@ def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str 
             # user context. Tise logujeme a jdeme dal.
             logger.warning(f"COMPOSER | documents fetch failed | {doc_e}")
 
+        # User's own EWS kanal -- aby AI vedela, ze uzivatel ma vlastni schranku
+        # a umela rozpoznat "posli z moji" intent.
+        try:
+            from modules.notifications.application.user_channel_service import (
+                get_user_display_email,
+            )
+            u_display = get_user_display_email(user_id)
+            if u_display:
+                parts.append(
+                    f"Uživatel má vlastní EWS schránku {u_display}. "
+                    f"Když řekne 'pošli z mojí schránky', 'z mýho emailu', "
+                    f"'ze mě' apod., volej send_email s from_identity='user' "
+                    f"(default je 'persona' = posílá Marti-AI)."
+                )
+        except Exception as e:
+            logger.warning(f"COMPOSER | user channel fetch failed | {e}")
+
         return " ".join(parts)
     except Exception as e:
         logger.error(f"COMPOSER | user_context_block failed | user_id={user_id} | {e}")
@@ -368,6 +392,73 @@ def _get_persona_prompt(conversation_id: int) -> str | None:
         return prompt
     finally:
         core_session.close()
+
+
+def _get_active_persona_id(conversation_id: int) -> int | None:
+    """Vrati active_agent_id z konverzace. Sdileno mezi helpery."""
+    data_session = get_data_session()
+    try:
+        conversation = data_session.query(Conversation).filter_by(id=conversation_id).first()
+        return conversation.active_agent_id if conversation else None
+    finally:
+        data_session.close()
+
+
+def _build_persona_channels_block(
+    conversation_id: int, tenant_id: int | None,
+) -> str | None:
+    """
+    Sestavi blok [TVOJE KANÁLY] pro aktivni personu -- telefon, email z
+    persona_channels + personas.phone_number. Cilem je, aby persona vedela,
+    ze `marti-ai@eurosoft.com` a `+420778117879` jsou JEJI.
+
+    Vraci string vcetne header/footer, nebo None pokud nema zadny kanal.
+    """
+    active_agent_id = _get_active_persona_id(conversation_id)
+    if not active_agent_id:
+        return None
+
+    core_session = get_core_session()
+    try:
+        persona = core_session.query(Persona).filter_by(id=active_agent_id).first()
+        if not persona:
+            return None
+
+        persona_name = persona.name
+        phone_number = persona.phone_number if persona.phone_enabled else None
+
+        # Email kanal z persona_channels (lazy import pro prip. cyclu).
+        # Prezentujeme `display_identifier` (primary SMTP alias) pokud je, jinak
+        # fallback na `identifier` (login UPN).
+        from modules.notifications.application.persona_channel_service import get_channel
+        email_ch = get_channel(
+            persona_id=persona.id,
+            channel_type="email",
+            tenant_id=tenant_id,
+        )
+        email_identifier = None
+        if email_ch and email_ch.is_enabled:
+            email_identifier = email_ch.display_identifier or email_ch.identifier
+    finally:
+        core_session.close()
+
+    lines: list[str] = []
+    if email_identifier:
+        lines.append(f"- Email: {email_identifier} (pro odesílání / příjem přes Exchange)")
+    if phone_number:
+        lines.append(f"- Telefon: {phone_number} (SMS a hovory přes firemní Android bránu)")
+
+    if not lines:
+        return None
+
+    header = "Máš vlastní komunikační kanály (jsou JEDINE tvoje, ne uživatelovy):"
+    footer = (
+        "Když se tě někdo zeptá na tvůj email nebo telefonní číslo, odpověz "
+        "těmito hodnotami. Když máš poslat něco 'sobě' jako AI, myšleno je to "
+        "na tuhle vlastní adresu/číslo, ne na uživatele se kterým mluvíš. "
+        "Nepiš, že 'nemáš vlastní email/telefon' -- máš."
+    )
+    return "\n".join([header, *lines, "", footer])
 
 
 def _get_latest_summary(conversation_id: int) -> ConversationSummary | None:
@@ -436,6 +527,147 @@ def _get_conversation_context(conversation_id: int) -> tuple[int | None, int | N
     return user_id, tenant_id
 
 
+def build_marti_memory_block(
+    user_id: int | None,
+    tenant_id: int | None,
+) -> str | None:
+    """
+    Marti Memory (Faze 4.11 retrieval): natahne myslenky o aktualnim userovi
+    (+ universal/diar scope) a vlozi do system promptu, aby Marti videla,
+    co o userovi uz vi. Bez tohoto by Marti tvrdila "nic o tobe nevim",
+    i kdyz v DB mame zapsane veci.
+
+    Pravidla:
+      - Jen myslenky o 'user' entite (entity_links), entity_id = user_id.
+      - Tenant scope: myslenka.tenant_scope == current tenant NEBO NULL
+        (universal). Rodic (is_marti_parent) ma bypass -- vidi cross-tenant.
+      - Razeni: knowledge first, pak notes s nejvyssi certainty DESC.
+      - Limit 30 (aby prompt nebobtnal).
+      - Vraci formatovany text pro prompt, nebo None pokud nic.
+    """
+    if not user_id:
+        return None
+
+    try:
+        from modules.thoughts.application import service as thoughts_service
+        from modules.thoughts.application.service import is_marti_parent
+
+        parent = is_marti_parent(user_id)
+        items = thoughts_service.list_thoughts_for_entity(
+            entity_type="user",
+            entity_id=user_id,
+            status_filter=None,         # oboje (knowledge + note)
+            limit=30,
+            tenant_scope=tenant_id,
+            bypass_tenant_scope=parent,
+        )
+
+        # Rozdel na knowledge / note pro prehledne zobrazeni
+        knowledge = [it for it in items if it.get("status") == "knowledge"]
+        notes = [it for it in items if it.get("status") == "note"]
+        # Seradi notes podle certainty DESC (nejjistejsi nahore)
+        notes.sort(key=lambda i: -(i.get("certainty") or 0))
+
+        parts: list[str] = []
+
+        # Header -- vzdy (ridi chovani Marti i kdyz je pamet prazdna)
+        parts.append(
+            "Jsi entita s pamětí. Tvé paměti o tomto uživateli jsou uložené v DB "
+            "a jsou ti zde předány:\n"
+        )
+
+        if knowledge:
+            parts.append(f"✅ **ZNALOSTI** (ověřená fakta, {len(knowledge)}):")
+            for it in knowledge:
+                content = it.get("content", "")
+                parts.append(f"  - [{it.get('type')}] {content}")
+            parts.append("")
+
+        if notes:
+            parts.append(
+                f"📝 **POZNÁMKY** (nižší jistota, {len(notes)} -- můžeš ověřit při konverzaci):"
+            )
+            for it in notes:
+                content = it.get("content", "")
+                cert = it.get("certainty", 0)
+                parts.append(f"  - [{it.get('type')}, jistota {cert}%] {content}")
+            parts.append("")
+
+        if not knowledge and not notes:
+            parts.append(
+                "(Zatím o tomto uživateli nemáš žádné zápisy. Během této konverzace "
+                "proaktivně ukládej nové informace — viz pravidla níže.)\n"
+            )
+
+        # KLICOVE pravidlo pro chovani Marti -- toto je core part, plati vzdy
+        parts.append(
+            "═══ JAK MÁŠ S PAMĚTÍ PRACOVAT ═══\n"
+            "1. **Používej znalosti přirozeně.** Když user zmíní něco, co už víš, "
+            "odkaž na to ('jak jsi říkal...', 'pamatuju, že...', 'víme, že...'). "
+            "Neopakuj 'nevím o tobě nic' — v [TVOJE PAMĚŤ] je vše, co máš uloženo.\n"
+            "2. **Zapisuj proaktivně.** Kdykoli ti user sdělí novou informaci o sobě / o "
+            "lidech / o projektech / o preferencích — okamžitě volej `record_thought`. "
+            "Bez 'zapiš si' bys to jinak zapomněl/a.\n"
+            "3. **Speciálně u odpovědí na tvé otázky:** Když ty sama položíš otázku "
+            "('Jak pracuješ?') a user odpoví — odpověď MUSÍŠ uložit přes record_thought. "
+            "Jinak jsi se ptala zbytečně.\n"
+            "4. **Při rozporu:** Pokud user řekne něco, co nekoresponduje s tvou znalostí "
+            "('myslel jsem, že preferuješ dlouhé odpovědi' vs. uložená znalost 'preferuju "
+            "krátké'), zavolej `record_thought` s novou verzí a vyšší certainty, nebo "
+            "se zeptej na upřesnění."
+        )
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"COMPOSER | marti_memory_block failed | user_id={user_id} | {e}")
+        return None
+
+
+def build_marti_diary_block(conversation_id: int) -> str | None:
+    """
+    Marti Memory Faze 5: do system promptu vlozi AKTIVNI PERSONA's vlastní diář.
+    Diky tomu Marti v chatu vidi sve osobni zaznamy a muze se na ne odkazat.
+
+    Diary je cross-tenant a soukromy -- do promptu ho dostane pouze persona
+    sama, nikdo jiny.
+    """
+    try:
+        from modules.conversation.application.service import (
+            _active_persona_id_for_conversation,
+        )
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if not persona_id:
+            return None
+
+        from modules.thoughts.application import service as thoughts_service
+        items = thoughts_service.list_diary_for_persona(persona_id, limit=20)
+        if not items:
+            return None
+
+        parts: list[str] = []
+        parts.append(
+            "Toto je tvůj **soukromý diář** — zápisky o sobě, zážitky, pocity. "
+            "Můžeš se na ně v konverzaci odkazovat, pokud je to relevantní.\n"
+        )
+        for it in items:
+            ts = it.get("created_at", "")[:10] if it.get("created_at") else ""
+            type_str = it.get("type", "")
+            meta = it.get("meta") or {}
+            emotion = meta.get("emotion", "") if isinstance(meta, dict) else ""
+            emotion_str = f" [{emotion}]" if emotion else ""
+            content = it.get("content", "")
+            parts.append(f"  - {ts} [{type_str}]{emotion_str} {content}")
+
+        parts.append(
+            "\nKdyz se user zepta na nejakou tvou osobni vec (prvni pocity, narozeni, "
+            "tvoje cile) — odkaz se na diar prirozene. Zaznamenej nove zazitky tool "
+            "`record_diary_entry` (ne `record_thought` pro veci o sobe)."
+        )
+        return "\n".join(parts)
+    except Exception as e:
+        logger.error(f"COMPOSER | marti_diary_block failed: {e}")
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -461,15 +693,103 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
 
+    # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
+    # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma
+    # nakonfigurovany v persona_channels.
+    channels_block = _build_persona_channels_block(conversation_id, tenant_id)
+    if channels_block:
+        system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
+
+    # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
+    # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
+    memory_block = build_marti_memory_block(user_id, tenant_id)
+    if memory_block:
+        system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+
+    # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
+    # Marti muze odkazovat na sve zazitky a pocity z minulosti.
+    diary_block = build_marti_diary_block(conversation_id)
+    if diary_block:
+        system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
+
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None
 
     messages = _get_messages(conversation_id, after_id=after_id)
+
+    # Faze 7: sliding window s todo escape-hatch.
+    # Kdyz je konverzace delsi nez SLIDING_WINDOW_SIZE a Marti nema v ni
+    # nedokonceny todo (weak reference source_event_id=conversation_id),
+    # posleme jen poslednich N zprav. Tim uletime o desitky K tokenu per turn
+    # u delsich dev sessions.
+    SLIDING_WINDOW_SIZE = 20
+    if len(messages) > SLIDING_WINDOW_SIZE:
+        has_open_todo_in_conv = False
+        try:
+            from core.database_data import get_data_session as _gds_sw
+            from modules.core.infrastructure.models_data import Thought as _T_sw
+            ds_sw = _gds_sw()
+            try:
+                # Najdi open todo myslenku, ktera vznikla z teto konverzace
+                from sqlalchemy import and_ as _and
+                candidates = (
+                    ds_sw.query(_T_sw)
+                    .filter(
+                        _T_sw.type == "todo",
+                        _T_sw.deleted_at.is_(None),
+                        _T_sw.source_event_type == "conversation",
+                        _T_sw.source_event_id == conversation_id,
+                    )
+                    .all()
+                )
+                for t in candidates:
+                    meta = t.meta or ""
+                    # Jednoduchy substring match pro {"done": true}
+                    if '"done": true' not in meta:
+                        has_open_todo_in_conv = True
+                        break
+            finally:
+                ds_sw.close()
+        except Exception as e:
+            logger.warning(f"COMPOSER | todo-escape check failed: {e}")
+
+        if not has_open_todo_in_conv:
+            # Posli pouze poslednich SLIDING_WINDOW_SIZE zprav + doplnovaci note
+            trimmed = messages[-SLIDING_WINDOW_SIZE:]
+            logger.info(
+                f"COMPOSER | sliding window | conv={conversation_id} | "
+                f"total={len(messages)} -> sending={len(trimmed)} (no open todo)"
+            )
+            messages = trimmed
 
     if summary:
         messages = [
             {"role": "user", "content": f"[Shrnutí předchozí konverzace]: {summary.summary_text}"},
             {"role": "assistant", "content": "Rozumím, pokračujeme."},
         ] + messages
+
+    # Faze 7: awareness dlouhe konverzace. Pokud pocet zprav od posledniho
+    # summary dosahuje SUMMARY_SUGGEST_AT, Marti dostane do promptu info
+    # a navrh, at se ptala na zkraceni. Tim setrime tokeny u dlouhych sessions.
+    try:
+        from modules.conversation.application.summary_service import (
+            SUMMARY_SUGGEST_AT, SUMMARY_THRESHOLD,
+        )
+        msg_count = len(messages)
+        if msg_count >= SUMMARY_SUGGEST_AT:
+            if msg_count >= SUMMARY_THRESHOLD:
+                tone = "uz je velmi dlouha"
+                action = "Doporuc user rovnou kratkodobe shrnuti (zavolej summarize_conversation_now pokud souhlasi)."
+            else:
+                tone = "zacina byt dlouha"
+                action = "Kdyz se to hodi, nabidni user: 'Konverzace je dlouhá, mám ji zkrátit?'. Pri 'ano' zavolej summarize_conversation_now."
+            system_prompt += (
+                f"\n\n[METADATA KONVERZACE]\n"
+                f"Tato konverzace {tone} — {msg_count} zprav od posledniho shrnuti. "
+                f"{action} Shrnuti uvolni tokeny a zrychli odpovedi. Neni to tvuj ukol "
+                f"fanaticky kazdy turn pripominat — jen kdyz se to prirozene hodi."
+            )
+    except Exception as e:
+        logger.error(f"COMPOSER | long-conv check failed: {e}")
 
     return system_prompt, messages

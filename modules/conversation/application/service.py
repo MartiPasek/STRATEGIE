@@ -25,7 +25,11 @@ from modules.core.infrastructure.models_data import ActionLog, Message, PendingA
 
 logger = get_logger("conversation")
 
-MODEL = "claude-haiku-4-5-20251001"
+# Hlavni model pro chat + tool loop. Sonnet 4.6 ma 200k context window a znacne
+# lepsi contextual reasoning nez Haiku -- drzi vlakno konverzace i pres desitky
+# zprav. Pro title_service / summary_service / klasifikatory zustava Haiku (tam
+# staci rychlost + nizka cena, reasoning quality neni kriticky).
+MODEL = "claude-sonnet-4-6"
 
 CONFIRM_KEYWORDS = {
     # jednoslovná potvrzení
@@ -457,13 +461,109 @@ def _log_sms_action(
         session.close()
 
 
-def _build_sms_sent_message(to: str, outbox_id: int | None) -> str:
+# Regex pro detekci halucinovaneho switch_persona v Claude reply.
+# Zachycuje:
+#   "✅ Přepnuto na Marti-AI."   (klasicky Claude vzor s emoji)
+#   "Přepnuto na PrávníkCZ-AI"   (bez emoji, bez tecky)
+#   "Nyní mluvíš s XXX-AI"       (druhou casti v reply se potvrzuje uspesne prepnuti)
+# Podporuje diakritiku v nazvu persony (napr. PrávníkCZ-AI), cisla, pomlcky.
+import re as _re_persona_switch
+_HALLUCINATED_SWITCH_RE = _re_persona_switch.compile(
+    r"(?:✅\s*)?P[rř]epnuto\s+na\s+([A-Za-zÀ-žá-ž0-9][A-Za-zÀ-žá-ž0-9\-]{1,64}?)(?=[\s.,!?\n]|$)",
+    flags=_re_persona_switch.IGNORECASE,
+)
+
+
+def _maybe_enforce_hallucinated_switch(conversation_id: int, reply: str) -> None:
     """
-    Potvrzovaci text pro UI. SMS se ve skutecnosti odesila az pres Android
-    gateway (telefon pulluje outbox), takze z pohledu systemu je "zarazena".
-    User uvidi v UI, jakmile telefon potvrdi doruceni (action_log update).
+    Pokud Claude v replice napsal "Přepnuto na X" jako text (bez volani tool
+    switch_persona), pokusime se X rozpoznat a vynutit switch v DB.
+
+    Idempotentni: pokud conversation.active_agent_id uz odpovida te personu,
+    neuderime nic. Pokud neni match (persona nenalezena), jen logneme a
+    pokracujeme -- reply jde do DB i tak, user uvidi halucinaci, ale
+    system stav se nerozsypal.
     """
-    return "📱 SMS zařazena k odeslání"
+    if not reply:
+        return
+    m = _HALLUCINATED_SWITCH_RE.search(reply)
+    if not m:
+        return
+    target_name = m.group(1).strip()
+    if not target_name:
+        return
+    # Uz ma active_agent_id tu personu? Idempotence -- zbytecny DB update preskocime.
+    from modules.core.infrastructure.models_core import Persona as _Persona
+    cs = get_core_session()
+    try:
+        target = cs.query(_Persona).filter(_Persona.name.ilike(target_name)).first()
+        if target is None:
+            logger.info(
+                f"PERSONA | hallucinated switch detected but persona not found | "
+                f"conv={conversation_id} | target={target_name!r}"
+            )
+            return
+        target_id = target.id
+        target_name_canonical = target.name
+    finally:
+        cs.close()
+
+    # Over aktualni state -- pokud uz je switchnuto, nic nedelame.
+    current_id = _active_persona_id_for_conversation(conversation_id)
+    if current_id == target_id:
+        return
+
+    # Vynutime switch. Pouzijeme existujici switch_persona_for_user (stejny
+    # code path jako Claude tool call) -- zajisti DB update + audit.
+    try:
+        result = switch_persona_for_user(query=target_name_canonical, conversation_id=conversation_id)
+        if result.get("found"):
+            logger.warning(
+                f"PERSONA | enforced hallucinated switch | conv={conversation_id} | "
+                f"from={current_id} -> to={target_id} ({target_name_canonical})"
+            )
+        else:
+            logger.info(
+                f"PERSONA | hallucinated switch regex matched but switch_persona_for_user "
+                f"failed | conv={conversation_id} | target={target_name_canonical!r}"
+            )
+    except Exception as e:
+        logger.error(
+            f"PERSONA | enforce hallucinated switch raised | conv={conversation_id} | "
+            f"error={e!r}"
+        )
+
+
+def _active_persona_id_for_conversation(conversation_id: int) -> int | None:
+    """
+    Vrati persona_id aktivni v dane konverzaci (conversations.active_agent_id).
+    Vyuziva se pro SMS inbox / call log tooly -- persona "vlastni" SIMku,
+    takze chceme filtrovat zaznamy per-persona, aby Marti-AI videla svoje,
+    Pravnik-AI neviděl nic (respektive svoje, kdyz dostane SIMku).
+    """
+    from modules.core.infrastructure.models_data import Conversation as _Conv
+    ds = get_data_session()
+    try:
+        c = ds.query(_Conv).filter_by(id=conversation_id).first()
+        if not c:
+            return None
+        return c.active_agent_id
+    finally:
+        ds.close()
+
+
+def _build_sms_sent_message(to: str, outbox_id: int | None, status: str = "pending") -> str:
+    """
+    Potvrzovaci text pro UI, odlisujici realny stav po queue_sms:
+      - sent     -> cloud gateway akceptovala, za par vterin poslana pres GSM
+      - pending  -> ceka v outboxu (pull model nebo retry)
+      - failed   -> cloud gateway odmitla (duvod v outbox.last_error)
+    """
+    if status == "sent":
+        return f"✅ SMS odeslána ({to})"
+    if status == "failed":
+        return f"❌ SMS se nepodařilo odeslat ({to}). Detail v outboxu (id={outbox_id})."
+    return f"📱 SMS zařazena k odeslání ({to})"
 
 
 def _execute_pending_action(conversation_id: int, user_id: int | None = None) -> str | None:
@@ -472,20 +572,129 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
         return None
     _delete_pending_action(conversation_id)
     if action["type"] == "send_email":
-        from modules.notifications.application.email_service import send_email
+        # Od PR3.1: AI potvrzene emaily jdou pres email_outbox (audit + retry),
+        # ne primym send_email_or_raise. UX zachovan: queue_email + send_outbox_row_now
+        # = instant feedback jako drive, ale s auditem v DB.
+        from modules.notifications.application.email_service import (
+            queue_email, send_outbox_row_now,
+        )
         to = action["to"]
         subject = action["subject"]
         body = action["body"]
+        cc_raw = (action.get("cc") or "").strip()
+        bcc_raw = (action.get("bcc") or "").strip()
+        from_identity = action.get("from_identity") or "persona"
+
+        # Parsuj cc/bcc do list[str] pro queue_email (muze byt comma/semicolon-sep)
+        def _split_addrs(s: str) -> list[str] | None:
+            if not s:
+                return None
+            parts = s.replace(";", ",").split(",")
+            cleaned = [p.strip().lower() for p in parts if p.strip()]
+            return cleaned or None
+        cc_list = _split_addrs(cc_raw)
+        bcc_list = _split_addrs(bcc_raw)
+
+        # Kanal aktivni persony. Pokud persona nema nakonfigurovany email kanal
+        # v persona_channels, fallback na globalni .env resi az
+        # send_email_or_raise hluboko ve flush/_send_outbox_row.
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        tenant_id = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_e
+            from modules.core.infrastructure.models_core import User as _U_e
+            _cs = _gcs_e()
+            try:
+                _u = _cs.query(_U_e).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        # 1) Zapis do outboxu (audit row vznika ihned, i kdyby inline send selhal)
         try:
-            sent = send_email(to=to, subject=subject, body=body)
+            outbox = queue_email(
+                to=to, subject=subject, body=body,
+                cc=cc_list, bcc=bcc_list,
+                persona_id=persona_id, tenant_id=tenant_id,
+                user_id=user_id, from_identity=from_identity,
+                purpose="user_request",
+                conversation_id=conversation_id,
+            )
         except Exception as e:
-            _log_email_action(to, subject, body, "error", user_id, conversation_id, error=str(e))
-            return "❌ Email se nepodařilo odeslat."
-        if sent:
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"queue: {e}")
+            return f"❌ Email se nepodařilo zařadit do outboxu — {e}"
+
+        outbox_id = outbox["id"]
+
+        # 2) Inline pokus o odeslani -- user ceka na odpoved, chceme okamzity feedback.
+        #    Race-safe: pokud by worker mezitim row pobral, send_outbox_row_now
+        #    vrati 'already_claimed' a volajici rozhodne.
+        result = send_outbox_row_now(outbox_id)
+        status = result.get("status")
+        error_kind = result.get("error_kind")
+        err = result.get("error") or ""
+
+        if status == "sent":
             _log_email_action(to, subject, body, "success", user_id, conversation_id)
             return _build_email_sent_message(to, body)
-        _log_email_action(to, subject, body, "error", user_id, conversation_id, error="send_email returned False")
-        return "❌ Email se nepodařilo odeslat."
+
+        if status == "already_claimed":
+            # Extremne vzacne -- worker popadl row v milisekundovem okne po claim.
+            # User dostane info, at refreshne UI.
+            return (
+                f"⏳ Email zařazen do outboxu (id={outbox_id}) a právě odesílán. "
+                "Během chvíle se objeví v záložce Odeslané."
+            )
+
+        if status == "failed" or status == "pending":
+            # Zalogujeme s typem chyby pro audit.
+            _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                              error=f"{error_kind or 'unknown'}: {err}")
+
+            if error_kind == "no_user_channel":
+                return (
+                    "❌ Email se nepodařilo odeslat — **nemáš nakonfigurovanou "
+                    "vlastní emailovou schránku**.\n\n"
+                    "Aby šlo posílat z tvé adresy, musí admin zaregistrovat "
+                    "tvoje EWS credentialy v nastavení profilu (zatim přes "
+                    "SQL / helper skript). Alternativně pošli z persony — "
+                    "napiš znovu bez 'z mojí schránky'.\n"
+                    f"*(outbox id={outbox_id}, status=failed)*"
+                )
+            if error_kind == "auth":
+                ident = "tvojí schránky" if from_identity == "user" else "persony"
+                return (
+                    f"❌ Email se nepodařilo odeslat — **špatné přihlašovací údaje** "
+                    f"pro {ident}.\n\n"
+                    "Zkontroluj heslo / adresu / server v nastavení. "
+                    "Pokud má schránka zapnutou dvoufaktorovou autentizaci, "
+                    "budeš potřebovat **application password** (ne běžné heslo).\n"
+                    f"*(outbox id={outbox_id}, status=failed)*"
+                )
+            if status == "pending":
+                # Send error, ale pod limit attempts -- worker zkusí znovu.
+                return (
+                    f"⏳ Email zařazen do outboxu (id={outbox_id}), první pokus "
+                    f"o odeslání nedopadl:\n> {err}\n\n"
+                    "Worker ho zkusí znovu v dalším cyklu (do minuty). "
+                    "Pokud se opakovaně nepodaří, skončí ve stavu **failed** — "
+                    "uvidíš v záložce Odeslané."
+                )
+            # status == "failed", error_kind == "send" nebo unexpected
+            return (
+                f"❌ Email se nepodařilo odeslat — {err}\n"
+                f"*(outbox id={outbox_id}, status=failed)*"
+            )
+
+        # Defensive fallback: missing / unexpected status
+        _log_email_action(to, subject, body, "error", user_id, conversation_id,
+                          error=f"outbox status={status}")
+        return (
+            f"❌ Email odeslání selhalo (outbox id={outbox_id}, status={status}). "
+            "Detail v logu."
+        )
 
     if action["type"] == "send_sms":
         from modules.notifications.application.sms_service import (
@@ -539,8 +748,15 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             return "⚠️ SMS gateway je vypnutá (SMS_ENABLED=false). SMS neodeslána."
 
         outbox_id = result.get("id")
-        _log_sms_action(to, body, "success", user_id, conversation_id, outbox_id=outbox_id)
-        return _build_sms_sent_message(result.get("to_phone") or to, outbox_id)
+        log_status = "success" if status == "sent" else "error" if status == "failed" else "success"
+        _log_sms_action(
+            to, body, log_status, user_id, conversation_id,
+            outbox_id=outbox_id,
+            error=None if status in ("sent", "pending") else f"gateway_status={status}",
+        )
+        return _build_sms_sent_message(
+            result.get("to_phone") or to, outbox_id, status=status or "pending",
+        )
     return None
 
 
@@ -548,26 +764,904 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     logger.info(f"TOOL | name={tool_name}")
 
     if tool_name == "send_email":
+        to = tool_input.get("to", "")
+        subject = tool_input.get("subject", "")
+        body = tool_input.get("body", "")
+        cc = tool_input.get("cc", "") or ""
+        bcc = tool_input.get("bcc", "") or ""
+        from_identity = (tool_input.get("from_identity") or "persona").lower()
+        if from_identity not in ("persona", "user"):
+            from_identity = "persona"
+
+        # ── AUTO-SEND trust check (Phase 7) ─────────────────────────────
+        # Pokud VSICHNI prijemci (TO+CC+BCC) maji aktivni consent -> skip
+        # preview a pending, odesli rovnou. Rate limit 20/hod je safeguard.
+        def _split_send(s: str) -> list[str]:
+            if not s:
+                return []
+            parts = s.replace(";", ",").split(",")
+            return [p.strip().lower() for p in parts if p.strip()]
+        try:
+            from modules.notifications.application import consent_service as _cs_auto
+            all_rcpts = _split_send(to) + _split_send(cc) + _split_send(bcc)
+            if all_rcpts:
+                all_trusted, _untrusted = _cs_auto.check_all_recipients_trusted(
+                    all_rcpts, "email",
+                )
+                if all_trusted:
+                    under_limit, cur_count = _cs_auto.check_rate_limit("email")
+                    if not under_limit:
+                        logger.warning(
+                            f"AUTO_SEND | rate limit exceeded | count={cur_count} "
+                            f"-- fallback na preview"
+                        )
+                        all_trusted = False
+            else:
+                all_trusted = False
+        except Exception as _e_auto:
+            logger.warning(f"AUTO_SEND | trust check failed | {_e_auto}")
+            all_trusted = False
+
+        if all_trusted:
+            # Auto-send: queue + inline flush (stejny vzor jako confirm handler)
+            try:
+                from modules.notifications.application.email_service import (
+                    queue_email as _qe_auto,
+                    send_outbox_row_now as _sorn_auto,
+                )
+                _persona_id_a = _active_persona_id_for_conversation(conversation_id)
+                _tenant_id_a = None
+                if user_id:
+                    from core.database_core import get_core_session as _gcs_a
+                    from modules.core.infrastructure.models_core import User as _U_a
+                    _csa = _gcs_a()
+                    try:
+                        _ua = _csa.query(_U_a).filter_by(id=user_id).first()
+                        if _ua:
+                            _tenant_id_a = _ua.last_active_tenant_id
+                    finally:
+                        _csa.close()
+                cc_list_a = _split_send(cc) or None
+                bcc_list_a = _split_send(bcc) or None
+                outbox_a = _qe_auto(
+                    to=to, subject=subject, body=body,
+                    cc=cc_list_a, bcc=bcc_list_a,
+                    persona_id=_persona_id_a, tenant_id=_tenant_id_a,
+                    user_id=user_id, from_identity=from_identity,
+                    purpose="user_request",
+                    conversation_id=conversation_id,
+                )
+                outbox_id_a = outbox_a["id"]
+                res_a = _sorn_auto(outbox_id_a)
+                st_a = res_a.get("status")
+                # Audit: action_type='auto' (rate limit pocita tyhle rows)
+                try:
+                    _asess = get_data_session()
+                    try:
+                        _asess.add(ActionLog(
+                            user_id=user_id,
+                            action_type="auto",
+                            tool_name="send_email",
+                            input=json.dumps(
+                                {"to": to, "subject": subject,
+                                 "body": body, "conversation_id": conversation_id,
+                                 "auto_sent": True, "outbox_id": outbox_id_a},
+                                ensure_ascii=False,
+                            ),
+                            output=f"to={to} | auto | chars={len(body)}",
+                            status="success" if st_a == "sent" else "fail",
+                            approval_required=False,
+                            approved_by=None,
+                        ))
+                        _asess.commit()
+                    finally:
+                        _asess.close()
+                except Exception as _audit_e:
+                    logger.error(f"AUTO_SEND | audit log failed | {_audit_e}")
+
+                if st_a == "sent":
+                    return (
+                        f"✅ Email pro **{to}** odeslán automaticky "
+                        f"(máš trvalý souhlas — bez čekání na potvrzení)."
+                    )
+                return (
+                    f"⚠️ Pokoušela jsem se poslat **{to}** automaticky "
+                    f"(máš to povolené), ale odeslání selhalo: "
+                    f"{res_a.get('error') or 'neznámá chyba'}\n"
+                    f"_Outbox id={outbox_id_a}, status={st_a}_"
+                )
+            except Exception as _send_e:
+                logger.exception(f"AUTO_SEND | inline send failed | {_send_e}")
+                # Spadni do normal flow -- user alespon dostane preview
+
+        # ── NORMAL flow (preview + pending) ─────────────────────────────
         _save_pending_action(conversation_id, "send_email", {
-            "to": tool_input.get("to", ""),
-            "subject": tool_input.get("subject", ""),
-            "body": tool_input.get("body", ""),
+            "to": to,
+            "cc": cc,
+            "bcc": bcc,
+            "subject": subject,
+            "body": body,
+            "from_identity": from_identity,
         })
+
+        # Resolve sender display pro preview.
+        sender_display = None
+        if from_identity == "user":
+            from modules.notifications.application.user_channel_service import get_user_display_email
+            sender_display = get_user_display_email(user_id) if user_id else None
+            if not sender_display:
+                # User nema kanal -- ukaz varovani v preview, neblokuj pending
+                # (caller eventualne vybere persona cestu; tady jen informujeme).
+                sender_display = "⚠️ (nemáš nakonfigurovanou vlastní schránku)"
+        else:
+            # Persona -- resolve display z persona_channels (nebo fallback na .env)
+            from modules.notifications.application.persona_channel_service import get_email_credentials as _gec
+            persona_id_p = _active_persona_id_for_conversation(conversation_id)
+            tenant_id_p = None
+            if user_id:
+                from core.database_core import get_core_session as _gcs_px
+                from modules.core.infrastructure.models_core import User as _Upx
+                _csx = _gcs_px()
+                try:
+                    _ux = _csx.query(_Upx).filter_by(id=user_id).first()
+                    if _ux:
+                        tenant_id_p = _ux.last_active_tenant_id
+                finally:
+                    _csx.close()
+            if persona_id_p:
+                creds_p = _gec(persona_id_p, tenant_id=tenant_id_p)
+                if creds_p:
+                    sender_display = creds_p.get("display_email") or creds_p.get("email")
+
         return format_email_preview(
-            to=tool_input.get("to", ""),
-            subject=tool_input.get("subject", ""),
-            body=tool_input.get("body", ""),
+            to=to, subject=subject, body=body,
+            from_identity=from_identity, sender_display=sender_display,
         )
 
     if tool_name == "send_sms":
+        sms_to = tool_input.get("to", "")
+        sms_body = tool_input.get("body", "")
+
+        # ── AUTO-SEND trust check (Phase 7) ─────────────────────────────
+        try:
+            from modules.notifications.application import consent_service as _cs_sauto
+            sms_all_trusted = False
+            if sms_to:
+                sms_all_trusted, _su = _cs_sauto.check_all_recipients_trusted(
+                    [sms_to], "sms",
+                )
+                if sms_all_trusted:
+                    _ul, _cc = _cs_sauto.check_rate_limit("sms")
+                    if not _ul:
+                        logger.warning(
+                            f"AUTO_SEND_SMS | rate limit exceeded | count={_cc}"
+                        )
+                        sms_all_trusted = False
+        except Exception as _e_sauto:
+            logger.warning(f"AUTO_SEND_SMS | trust check failed | {_e_sauto}")
+            sms_all_trusted = False
+
+        if sms_all_trusted:
+            try:
+                from modules.notifications.application.sms_service import (
+                    queue_sms as _qs_auto,
+                    SmsRateLimitError as _SRLE, SmsValidationError as _SVE,
+                    SmsError as _SE,
+                )
+                _tenant_id_sa = None
+                if user_id:
+                    from core.database_core import get_core_session as _gcs_sa
+                    from modules.core.infrastructure.models_core import User as _U_sa
+                    _css = _gcs_sa()
+                    try:
+                        _us = _css.query(_U_sa).filter_by(id=user_id).first()
+                        if _us:
+                            _tenant_id_sa = _us.last_active_tenant_id
+                    finally:
+                        _css.close()
+                try:
+                    sms_res = _qs_auto(
+                        to=sms_to, body=sms_body,
+                        purpose="user_request",
+                        user_id=user_id,
+                        tenant_id=_tenant_id_sa,
+                    )
+                except (_SRLE, _SVE, _SE) as _sms_err:
+                    return f"❌ Auto-SMS selhala: {_sms_err}"
+
+                sms_status = sms_res.get("status")
+                sms_outbox_id = sms_res.get("id")
+                # Audit action_type='auto'
+                try:
+                    _asess = get_data_session()
+                    try:
+                        _asess.add(ActionLog(
+                            user_id=user_id,
+                            action_type="auto",
+                            tool_name="send_sms",
+                            input=json.dumps(
+                                {"to": sms_to, "body": sms_body,
+                                 "conversation_id": conversation_id,
+                                 "auto_sent": True, "outbox_id": sms_outbox_id},
+                                ensure_ascii=False,
+                            ),
+                            output=f"to={sms_to} | auto | chars={len(sms_body)}",
+                            status="success" if sms_status in ("sent", "pending") else "fail",
+                            approval_required=False,
+                            approved_by=None,
+                        ))
+                        _asess.commit()
+                    finally:
+                        _asess.close()
+                except Exception as _audit_e:
+                    logger.error(f"AUTO_SEND_SMS | audit log failed | {_audit_e}")
+
+                if sms_status == "disabled":
+                    return "⚠️ SMS gateway je vypnutá (SMS_ENABLED=false)."
+                return (
+                    f"✅ SMS pro **{sms_res.get('to_phone') or sms_to}** odeslána "
+                    f"automaticky (trvalý souhlas). _Outbox id={sms_outbox_id}, "
+                    f"status={sms_status}_"
+                )
+            except Exception as _sms_send_e:
+                logger.exception(f"AUTO_SEND_SMS | inline send failed | {_sms_send_e}")
+
+        # NORMAL flow (preview + pending)
         _save_pending_action(conversation_id, "send_sms", {
-            "to": tool_input.get("to", ""),
-            "body": tool_input.get("body", ""),
+            "to": sms_to,
+            "body": sms_body,
         })
         return format_sms_preview(
-            to=tool_input.get("to", ""),
-            body=tool_input.get("body", ""),
+            to=sms_to,
+            body=sms_body,
         )
+
+    if tool_name == "list_sms_inbox":
+        from modules.notifications.application.sms_service import list_inbox as _list_inbox
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        unread_only = bool(tool_input.get("unread_only") or False)
+        items = _list_inbox(persona_id=persona_id, limit=limit, unread_only=unread_only)
+        if not items:
+            return (
+                "📭 Schránka SMS je prázdná"
+                + (" (žádné nepřečtené)" if unread_only else "")
+                + "."
+            )
+        lines = ["📱 Přijaté SMS:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["received_at"] or ""
+            mark = "" if it["read"] else " ● "
+            body_preview = (it["body"] or "").strip().replace("\n", " ")
+            if len(body_preview) > 100:
+                body_preview = body_preview[:100] + "…"
+            lines.append(f"{i}. {mark}{it['from_phone']} — {body_preview}  ({ts})")
+        return "\n".join(lines)
+
+    if tool_name == "list_email_inbox":
+        from modules.notifications.application.email_inbox_service import (
+            list_inbox_for_ui as _email_list,
+        )
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if persona_id is None:
+            return "❌ Nemůžu zjistit aktivní personu — nelze načíst emaily."
+        limit = int(tool_input.get("limit") or 10)
+        filter_mode = tool_input.get("filter_mode") or "new"
+        if filter_mode == "all":
+            items_new = _email_list(persona_id=persona_id, filter_mode="new", limit=limit)
+            items_proc = _email_list(persona_id=persona_id, filter_mode="processed", limit=limit)
+            items = (items_new + items_proc)[:limit]
+        else:
+            items = _email_list(persona_id=persona_id, filter_mode=filter_mode, limit=limit)
+        if not items:
+            empty_msg = {
+                "new":       "📭 Žádné nové emaily.",
+                "processed": "📭 Žádné zpracované emaily.",
+                "all":       "📭 Schránka je prázdná.",
+            }.get(filter_mode, "📭 Žádné emaily.")
+            return empty_msg
+        header = {
+            "new":       "📧 Příchozí emaily (nezpracované):",
+            "processed": "📧 Zpracované emaily:",
+            "all":       "📧 Emaily:",
+        }.get(filter_mode, "📧 Emaily:")
+        lines = [header, ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["received_at"] or ""
+            mark = "" if it.get("read_at") else " ● "
+            sender = it.get("from_name") or it.get("from_email") or "?"
+            subj = it.get("subject") or "(bez předmětu)"
+            if len(subj) > 80:
+                subj = subj[:80] + "…"
+            archive_mark = " 📁" if it.get("archived_personal") else ""
+            # DULEZITE: zobrazujeme DB id (id=X), ktere Marti potrebuje predat
+            # do read_email(email_inbox_id=X). Pozice v listu (1., 2.) NENI id.
+            lines.append(
+                f"{i}. [id={it['id']}]{archive_mark} {mark}{sender} — {subj}  ({ts})"
+            )
+        lines.append("")
+        lines.append(
+            "_Pro přečtení konkrétního emailu použij `read_email(email_inbox_id=<id>)` "
+            "— **ID je v závorkách nahoře**, ne pozice v listu!_"
+        )
+        return "\n".join(lines)
+
+    if tool_name == "record_thought":
+        # Marti Memory -- Faze 1 (zapisovani myslenek do pameti).
+        # Viz docs/marti_memory_design.md a modules/thoughts/.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        content = (tool_input.get("content") or "").strip()
+        if not content:
+            return "❌ Myšlenka nebyla zapsána — chybí obsah (content)."
+
+        thought_type = tool_input.get("type") or "fact"
+        certainty = int(tool_input.get("certainty") or 50)
+        certainty = max(0, min(100, certainty))
+
+        # Sestav entity_links ze about_* parametru
+        entity_links: list[dict] = []
+        if tool_input.get("about_user_id"):
+            entity_links.append({
+                "entity_type": "user",
+                "entity_id": int(tool_input["about_user_id"]),
+            })
+        if tool_input.get("about_persona_id"):
+            entity_links.append({
+                "entity_type": "persona",
+                "entity_id": int(tool_input["about_persona_id"]),
+            })
+        if tool_input.get("about_tenant_id"):
+            entity_links.append({
+                "entity_type": "tenant",
+                "entity_id": int(tool_input["about_tenant_id"]),
+            })
+        if tool_input.get("about_project_id"):
+            entity_links.append({
+                "entity_type": "project",
+                "entity_id": int(tool_input["about_project_id"]),
+            })
+
+        if not entity_links:
+            return (
+                "❌ Myšlenka nebyla zapsána — musíš uvést aspoň jednu entitu "
+                "(`about_user_id`, `about_persona_id`, `about_tenant_id` nebo "
+                "`about_project_id`). Jinak bych ji později nenašla."
+            )
+
+        # Provenance: Marti je autor (persona), konverzace je zdroj
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        tenant_id_for_scope: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_t
+            from modules.core.infrastructure.models_core import User as _U_t
+            _cs = _gcs_t()
+            try:
+                _u = _cs.query(_U_t).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id_for_scope = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        # Certainty: pokud AI explicitne nenastavila (default v toolu=50),
+        # spolehneme se na certainty engine (calculate_initial_certainty
+        # z trust_rating usera). Kdyz AI poslala explicitni hodnotu jinou
+        # nez default 50, respektujeme.
+        explicit_certainty_from_ai = tool_input.get("certainty")
+        pass_certainty = int(explicit_certainty_from_ai) if explicit_certainty_from_ai is not None else None
+
+        try:
+            result = _thoughts_service.create_thought(
+                content=content,
+                type=thought_type,
+                entity_links=entity_links,
+                # Faze 3: author_user_id = uzivatel v konverzaci (ridi certainty).
+                # Info pochazi od nej, Marti jen zapisuje. author_persona_id
+                # navic zachyti, ze zapis provedla persona (Marti).
+                author_user_id=user_id,
+                author_persona_id=persona_id,
+                source_event_type="conversation",
+                source_event_id=conversation_id,
+                tenant_scope=tenant_id_for_scope,
+                certainty=pass_certainty,       # None -> engine ji odvodi
+                status=None,                    # None -> auto podle certainty
+            )
+        except ThoughtValidationError as e:
+            return f"❌ Myšlenka se nezapsala: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | record_thought | error={e!r}", exc_info=True)
+            return "❌ Myšlenka se nezapsala (chyba serveru — detail v logu)."
+
+        entity_descr = ", ".join(
+            f"{l['entity_type']}#{l['entity_id']}" for l in entity_links
+        )
+        type_icon = {
+            "fact": "📝", "todo": "✓", "observation": "👁",
+            "question": "❓", "goal": "🎯", "experience": "💭",
+        }.get(thought_type, "📝")
+        actual_certainty = result.get("certainty", 50)
+        actual_status = result.get("status", "note")
+        status_suffix = " 🧠 (rovnou znalost)" if actual_status == "knowledge" else ""
+        return (
+            f"{type_icon} Zapsáno do paměti (id={result['id']}, typ={thought_type}, "
+            f"jistota={actual_certainty}%){status_suffix}: "
+            f"\"{content[:80]}{'…' if len(content) > 80 else ''}\"\n"
+            f"_Odkazy: {entity_descr}_"
+        )
+
+    if tool_name == "record_diary_entry":
+        # Marti Memory -- Faze 5: soukromy diar Marti.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        content = (tool_input.get("content") or "").strip()
+        if not content:
+            return "❌ Diář nelze zapsat — chybí obsah (content)."
+        if len(content) > 2000:
+            content = content[:2000] + "…"
+
+        entry_type = tool_input.get("type") or "experience"
+        emotion = tool_input.get("emotion")
+        intensity = tool_input.get("intensity")
+        linked_email = tool_input.get("linked_email_outbox_id")
+        linked_conv = tool_input.get("linked_conversation_id") or conversation_id
+
+        # Aktivni persona = autor diaru (diar patri te persone, ktera ho pise)
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        if persona_id is None:
+            return "❌ Nelze určit aktivní personu — diář se nezapsal."
+
+        # Meta JSON: emotion, intensity, link refs
+        meta: dict = {"is_diary": True}
+        if emotion:
+            meta["emotion"] = emotion
+        if intensity:
+            meta["intensity"] = int(intensity)
+        if linked_email:
+            meta["linked_email_outbox_id"] = int(linked_email)
+        if linked_conv:
+            meta["linked_conversation_id"] = int(linked_conv)
+
+        # Source event -- prefer email kdyz je k nemu navazano, jinak konverzace
+        if linked_email:
+            src_type = "email"
+            src_id = int(linked_email)
+        else:
+            src_type = "conversation"
+            src_id = linked_conv
+
+        try:
+            result = _thoughts_service.create_thought(
+                content=content,
+                type=entry_type,
+                # Entity = persona sama (Marti sama o sobe)
+                entity_links=[{"entity_type": "persona", "entity_id": persona_id}],
+                # Diar je universal -- cross-tenant, soukromy
+                tenant_scope=None,
+                author_user_id=None,           # pise AI, ne human
+                author_persona_id=persona_id,  # Marti je autor
+                source_event_type=src_type,
+                source_event_id=src_id,
+                # Certainty 100 -- Marti si je svou zkusenosti jista
+                certainty=100,
+                # Status knowledge -- diar je trvaly zaznam, ne pracovni poznamka
+                status="knowledge",
+                meta=meta,
+            )
+        except ThoughtValidationError as e:
+            return f"❌ Diář se nezapsal: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | record_diary_entry | error={e!r}", exc_info=True)
+            return "❌ Diář se nezapsal (chyba serveru — detail v logu)."
+
+        icons = {
+            "experience": "💭", "observation": "👁", "fact": "📝",
+            "goal": "🎯", "question": "❓",
+        }
+        icon = icons.get(entry_type, "📖")
+        emotion_suffix = ""
+        if emotion:
+            emotion_suffix = f" [{emotion}"
+            if intensity:
+                emotion_suffix += f" {intensity}/10"
+            emotion_suffix += "]"
+        link_suffix = ""
+        if linked_email:
+            link_suffix = f" · odkaz: email #{linked_email}"
+        return (
+            f"📖 {icon} Zapsáno do mého diáře (id={result['id']}, {entry_type}){emotion_suffix}:\n"
+            f"\"{content[:150]}{'…' if len(content) > 150 else ''}\"{link_suffix}"
+        )
+
+    if tool_name == "recall_thoughts":
+        # Marti Memory -- Faze 4.13: Marti aktivne cte svoji pamet.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import (
+            ThoughtValidationError, is_marti_parent,
+        )
+
+        # Zjisti tenant scope pro rozlozeni vysledku
+        tenant_id_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_rt
+            from modules.core.infrastructure.models_core import User as _U_rt
+            _cs = _gcs_rt()
+            try:
+                _u = _cs.query(_U_rt).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+        parent = is_marti_parent(user_id)
+
+        limit = int(tool_input.get("limit") or 20)
+        limit = max(1, min(limit, 100))
+        status_filter = tool_input.get("status_filter")
+        if status_filter not in (None, "note", "knowledge"):
+            status_filter = None
+
+        # Zjisti entitu (prvni neprazdna about_*)
+        entity_type: str | None = None
+        entity_id: int | None = None
+        for et, param in [
+            ("user", "about_user_id"),
+            ("persona", "about_persona_id"),
+            ("tenant", "about_tenant_id"),
+            ("project", "about_project_id"),
+        ]:
+            v = tool_input.get(param)
+            if v:
+                entity_type = et
+                entity_id = int(v)
+                break
+
+        query = (tool_input.get("query") or "").strip()
+
+        try:
+            items: list[dict] = []
+            if entity_type and entity_id:
+                items = _thoughts_service.list_thoughts_for_entity(
+                    entity_type=entity_type,
+                    entity_id=entity_id,
+                    status_filter=status_filter,
+                    limit=limit,
+                    tenant_scope=tenant_id_for_search,
+                    bypass_tenant_scope=parent,
+                )
+            elif query:
+                items = _thoughts_service.find_thought_by_text(
+                    query,
+                    tenant_scope=None if parent else tenant_id_for_search,
+                    limit=limit,
+                )
+                if status_filter:
+                    items = [i for i in items if i.get("status") == status_filter]
+            else:
+                return "❌ Musíš dodat alespoň jednu z about_* položek nebo query."
+        except ThoughtValidationError as e:
+            return f"❌ Chyba: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | recall_thoughts | error={e!r}", exc_info=True)
+            return "❌ Nelze načíst myšlenky (chyba serveru — detail v logu)."
+
+        if not items:
+            scope_descr = f"{entity_type}#{entity_id}" if entity_type else f"query='{query}'"
+            return f"📭 Nemám žádné zápisky pro {scope_descr}."
+
+        # Rozdel na knowledge / note
+        knowledge = [i for i in items if i.get("status") == "knowledge"]
+        notes = [i for i in items if i.get("status") == "note"]
+        notes.sort(key=lambda i: -(i.get("certainty") or 0))
+
+        lines: list[str] = []
+        scope_descr = f"{entity_type}#{entity_id}" if entity_type else f"vyhledávání '{query}'"
+        lines.append(f"🧠 Paměť pro {scope_descr} ({len(items)} zápisů):")
+        lines.append("")
+        if knowledge:
+            lines.append(f"✅ Znalosti ({len(knowledge)}):")
+            for it in knowledge:
+                lines.append(f"  - [{it.get('type')}] {it.get('content')}")
+            lines.append("")
+        if notes:
+            lines.append(f"📝 Poznámky ({len(notes)}):")
+            for it in notes:
+                lines.append(
+                    f"  - [{it.get('type')}, jistota {it.get('certainty', 0)}%] "
+                    f"{it.get('content')}"
+                )
+        return "\n".join(lines)
+
+    if tool_name == "summarize_conversation_now":
+        from modules.conversation.application.summary_service import (
+            maybe_create_summary,
+        )
+        try:
+            result = maybe_create_summary(conversation_id, force=True)
+        except Exception as e:
+            logger.error(f"TOOL | summarize_now | error={e!r}", exc_info=True)
+            return "❌ Shrnutí se nepodařilo (detail v logu)."
+        if result is None:
+            return "⚠️ Shrnutí se nevytvořilo (malo zprav nebo chyba LLM)."
+        return (
+            f"✅ Shrnutí vytvořeno (id={result['summary_id']}, "
+            f"{result['message_count']} zprav zkomprimovano). "
+            f"V nasledujich turnech se do API posila pouze tohle shrnuti + nove zpravy. "
+            f"Uetreno spousta tokenů."
+        )
+
+    if tool_name == "read_email":
+        eib = tool_input.get("email_inbox_id")
+        eob = tool_input.get("email_outbox_id")
+
+        if eib and eob:
+            return "❌ Zadej buď email_inbox_id NEBO email_outbox_id, ne oba."
+        if not eib and not eob:
+            return "❌ Musíš zadat buď email_inbox_id nebo email_outbox_id."
+
+        from core.database_data import get_data_session as _gds_re
+        from modules.core.infrastructure.models_data import (
+            EmailInbox as _EIB, EmailOutbox as _EOB,
+        )
+        import json as _j_re
+
+        if eib:
+            # PRICHOZI
+            ds = _gds_re()
+            try:
+                row = ds.query(_EIB).filter_by(id=int(eib)).first()
+                if row is None:
+                    return f"❌ Email id={eib} neexistuje v příchozích."
+                # Mark_read side effect (idempotent)
+                marked_now = False
+                if row.read_at is None:
+                    from datetime import datetime, timezone
+                    row.read_at = datetime.now(timezone.utc)
+                    ds.commit()
+                    marked_now = True
+                # Parse meta pro archived_personal
+                archived = False
+                if row.meta:
+                    try:
+                        m = _j_re.loads(row.meta) or {}
+                        archived = bool(m.get("archived_personal"))
+                    except Exception:
+                        pass
+                sender = f"{row.from_name} <{row.from_email}>" if row.from_name else row.from_email
+                received = row.received_at.strftime("%d.%m.%Y %H:%M") if row.received_at else "?"
+                body = row.body or "(prázdný obsah)"
+                archive_label = " · 📁 Personal" if archived else ""
+                mark_label = " · (právě jsem si ji označila jako přečtenou)" if marked_now else ""
+                return (
+                    f"📧 **{row.subject or '(bez předmětu)'}**{archive_label}{mark_label}\n\n"
+                    f"**Od:** {sender}\n"
+                    f"**Pro:** {row.to_email}\n"
+                    f"**Doručeno:** {received}\n\n"
+                    f"---\n{body}\n---"
+                )
+            finally:
+                ds.close()
+        else:
+            # ODCHOZI
+            ds = _gds_re()
+            try:
+                row = ds.query(_EOB).filter_by(id=int(eob)).first()
+                if row is None:
+                    return f"❌ Email id={eob} neexistuje v odeslaných."
+                sent = row.sent_at.strftime("%d.%m.%Y %H:%M") if row.sent_at else "(ještě neodeslán)"
+                created = row.created_at.strftime("%d.%m.%Y %H:%M") if row.created_at else "?"
+                cc_list = _j_re.loads(row.cc) if row.cc else []
+                cc_str = ", ".join(cc_list) if cc_list else "—"
+                return (
+                    f"📧 **{row.subject or '(bez předmětu)'}** (odchozí, status: {row.status})\n\n"
+                    f"**Pro:** {row.to_email}\n"
+                    f"**CC:** {cc_str}\n"
+                    f"**Vytvořeno:** {created}\n"
+                    f"**Odesláno:** {sent}\n\n"
+                    f"---\n{row.body}\n---"
+                )
+            finally:
+                ds.close()
+
+    if tool_name == "archive_email":
+        from modules.notifications.application.email_service import (
+            archive_email_inbox_to_personal,
+            archive_email_outbox_to_personal,
+        )
+        eib = tool_input.get("email_inbox_id")
+        eob = tool_input.get("email_outbox_id")
+
+        if eib and eob:
+            return "❌ Zadej buď email_inbox_id NEBO email_outbox_id, ne oba."
+        if not eib and not eob:
+            return "❌ Musíš zadat buď email_inbox_id nebo email_outbox_id."
+
+        try:
+            if eib:
+                result = archive_email_inbox_to_personal(int(eib))
+                kind = "přichozí"
+            else:
+                result = archive_email_outbox_to_personal(int(eob))
+                kind = "odchozí"
+        except Exception as e:
+            logger.error(f"TOOL | archive_email | error={e!r}", exc_info=True)
+            return "❌ Archivace selhala (detail v logu)."
+
+        if result.get("ok"):
+            return f"📁 Archivováno do Personal ({kind}): {result['message']}"
+        return f"❌ Archivace selhala ({kind}): {result['message']}"
+
+    if tool_name == "mark_todo_done":
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        thought_id = tool_input.get("thought_id")
+        query = (tool_input.get("query") or "").strip()
+
+        # Tenant scope
+        tenant_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_td
+            from modules.core.infrastructure.models_core import User as _U_td
+            _cs = _gcs_td()
+            try:
+                _u = _cs.query(_U_td).filter_by(id=user_id).first()
+                if _u:
+                    tenant_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        target_id: int | None = None
+        if thought_id:
+            try:
+                target_id = int(thought_id)
+            except (TypeError, ValueError):
+                return f"❌ Neplatné thought_id: {thought_id!r}"
+        elif query:
+            matches = _thoughts_service.find_thought_by_text(
+                query, tenant_scope=tenant_for_search, limit=5,
+            )
+            todos = [m for m in matches if m.get("type") == "todo"]
+            if not todos:
+                return f"❌ Nenašel jsem žádný todo úkol obsahující '{query}'."
+            if len(todos) > 1:
+                lines = [f"❓ Našla jsem víc todo úkolů s '{query}':"]
+                for i, m in enumerate(todos, start=1):
+                    done_mark = "✓" if (m.get("meta") or {}).get("done") else "☐"
+                    preview = (m.get("content") or "")[:80]
+                    lines.append(f"  {i}. {done_mark} id={m['id']}: {preview}")
+                lines.append("\nPovolej znovu s `thought_id` konkretního úkolu.")
+                return "\n".join(lines)
+            target_id = todos[0]["id"]
+        else:
+            return "❌ Musíš dodat `thought_id` nebo `query`."
+
+        try:
+            result = _thoughts_service.mark_todo_done(target_id, done=True)
+        except ThoughtValidationError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.error(f"TOOL | mark_todo_done | error={e!r}", exc_info=True)
+            return "❌ Nelze označit jako hotové (chyba serveru)."
+        if result is None:
+            return f"❌ Todo id={target_id} neexistuje."
+
+        preview = (result.get("content") or "")[:100]
+        return f"✅ Hotovo (id={target_id}): \"{preview}\""
+
+    if tool_name == "promote_thought":
+        # Marti Memory -- Faze 2: manualni promoce note -> knowledge z chatu.
+        from modules.thoughts.application import service as _thoughts_service
+        from modules.thoughts.application.service import ThoughtValidationError
+
+        thought_id = tool_input.get("thought_id")
+        query = (tool_input.get("query") or "").strip()
+
+        # Zjisti tenant scope usera pro tenant izolaci.
+        tenant_for_search: int | None = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_p
+            from modules.core.infrastructure.models_core import User as _U_p
+            _cs = _gcs_p()
+            try:
+                _u = _cs.query(_U_p).filter_by(id=user_id).first()
+                if _u:
+                    tenant_for_search = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        target_id: int | None = None
+        if thought_id:
+            try:
+                target_id = int(thought_id)
+            except (TypeError, ValueError):
+                return f"❌ Neplatné thought_id: {thought_id!r}"
+
+        elif query:
+            matches = _thoughts_service.find_thought_by_text(
+                query, tenant_scope=tenant_for_search, limit=5,
+            )
+            if not matches:
+                return f"❌ V paměti jsem nenašla nic s '{query}'. Zkus upřesnit."
+            if len(matches) > 1:
+                lines = [f"❓ Nalezeno víc kandidátů na '{query}':"]
+                for i, m in enumerate(matches, start=1):
+                    status_lbl = "ZNALOST" if m["status"] == "knowledge" else "POZNÁMKA"
+                    preview = (m["content"] or "")[:80]
+                    lines.append(f"  {i}. [{status_lbl}] id={m['id']}: {preview}")
+                lines.append("\nPovolej znovu s konkrétním `thought_id` z toho seznamu.")
+                return "\n".join(lines)
+            target_id = matches[0]["id"]
+        else:
+            return (
+                "❌ Musíš dodat buď `thought_id` nebo `query` — jinak nevím, "
+                "kterou myšlenku povyšovat."
+            )
+
+        # Proved promoce
+        try:
+            result = _thoughts_service.promote_thought(target_id)
+        except ThoughtValidationError as e:
+            return f"❌ Povýšení selhalo: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | promote_thought | error={e!r}", exc_info=True)
+            return "❌ Povýšení selhalo (chyba serveru — detail v logu)."
+
+        if result is None:
+            return f"❌ Myšlenka id={target_id} neexistuje (nebo už byla smazána)."
+
+        # Tenant check -- nesmime povysit myslenku z jineho tenantu
+        scope = result.get("tenant_scope")
+        if scope is not None and tenant_for_search is not None and scope != tenant_for_search:
+            # Technicky by sem nemelo dojit (query filtr tenant_scope), ale pojistka.
+            return (
+                f"❌ Myšlenka id={target_id} nepatří do tvého tenantu. "
+                "Nelze povýšit."
+            )
+
+        status_now = result.get("status", "unknown")
+        preview = (result.get("content") or "")[:80]
+        if status_now == "knowledge":
+            return (
+                f"⬆️ Povýšeno do znalostí (id={target_id}): \"{preview}"
+                f"{'…' if len(result.get('content', '')) > 80 else ''}\""
+            )
+        else:
+            return f"⚠️ Myšlenka id={target_id} má po operaci status='{status_now}'."
+
+    if tool_name == "list_missed_calls":
+        from modules.notifications.application.sms_service import list_calls as _list_calls
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        items = _list_calls(
+            persona_id=persona_id, limit=limit, direction_filter="missed",
+        )
+        if not items:
+            return "✅ Žádné zmeškané hovory."
+        lines = ["📞 Zmeškané hovory:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["started_at"] or ""
+            mark = "" if it["seen"] else " ● "
+            lines.append(f"{i}. {mark}{it['peer_phone']}  ({ts})")
+        return "\n".join(lines)
+
+    if tool_name == "list_recent_calls":
+        from modules.notifications.application.sms_service import list_calls as _list_calls
+        persona_id = _active_persona_id_for_conversation(conversation_id)
+        limit = int(tool_input.get("limit") or 10)
+        items = _list_calls(persona_id=persona_id, limit=limit)
+        if not items:
+            return "📞 Žádné hovory nezaznamenány."
+        dir_icon = {"in": "⬇", "out": "⬆", "missed": "✗"}
+        lines = ["📞 Poslední hovory:", ""]
+        for i, it in enumerate(items, start=1):
+            ts = it["started_at"] or ""
+            dur = f"{it['duration_s']}s" if it["duration_s"] is not None else "—"
+            icon = dir_icon.get(it["direction"], "?")
+            lines.append(
+                f"{i}. {icon} {it['peer_phone']}  trvání={dur}  ({ts})"
+            )
+        return "\n".join(lines)
 
     if tool_name == "list_project_members":
         from modules.projects.application.service import (
@@ -747,6 +1841,224 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ {e}"
         except Exception as e:
             return f"❌ Operace selhala: {e}"
+
+    if tool_name == "list_recent_chatters":
+        from datetime import datetime, timedelta, timezone
+        from sqlalchemy import func
+        from core.database_data import get_data_session as _gds_rc
+        from core.database_core import get_core_session as _gcs_rc
+        from modules.core.infrastructure.models_data import (
+            Message as _M_rc, Conversation as _C_rc,
+        )
+        from modules.core.infrastructure.models_core import User as _U_rc
+        from modules.thoughts.application.service import is_marti_parent as _imp_rc
+
+        hours = int(tool_input.get("hours") or 24)
+        hours = max(1, min(hours, 24 * 30))
+        since = datetime.now(timezone.utc) - timedelta(hours=hours)
+
+        # Rodic (is_marti_parent) vidi cross-tenant; bezny user jen svuj tenant.
+        # Stejny vzor jako u Marti's pameti -- privacy se respektuje u neradich,
+        # rodice maji full view (Marti je jejich ditě napric tenanty).
+        parent_view = _imp_rc(user_id) if user_id else False
+        tenant_id: int | None = None
+        if not parent_view and user_id:
+            _cs = _gcs_rc()
+            try:
+                _u = _cs.query(_U_rc).filter_by(id=user_id).first()
+                if _u:
+                    tenant_id = _u.last_active_tenant_id
+            finally:
+                _cs.close()
+
+        # Agregace human zpráv. Message.tenant_id neni denormalizovany, joinnem
+        # pres Conversation pro tenant filter (pokud tenant filter pouzijeme).
+        ds = _gds_rc()
+        try:
+            q = (
+                ds.query(
+                    _M_rc.author_user_id,
+                    func.count(_M_rc.id).label("msg_count"),
+                    func.max(_M_rc.created_at).label("last_at"),
+                    func.count(func.distinct(_M_rc.conversation_id)).label("conv_count"),
+                )
+                .join(_C_rc, _C_rc.id == _M_rc.conversation_id)
+                .filter(
+                    _M_rc.author_type == "human",
+                    _M_rc.author_user_id.isnot(None),
+                    _M_rc.created_at >= since,
+                )
+            )
+            if tenant_id is not None and not parent_view:
+                q = q.filter(_C_rc.tenant_id == tenant_id)
+            rows = (
+                q.group_by(_M_rc.author_user_id)
+                 .order_by(func.max(_M_rc.created_at).desc())
+                 .all()
+            )
+        finally:
+            ds.close()
+
+        if not rows:
+            return (
+                f"📭 V posledních {hours}h se mnou nikdo nemluvil. Ticho."
+            )
+
+        # Resolvuj user_id -> display_name přes css_db
+        user_ids = [r.author_user_id for r in rows]
+        cs = _gcs_rc()
+        try:
+            users = cs.query(_U_rc).filter(_U_rc.id.in_(user_ids)).all()
+            name_by_id = {}
+            for u in users:
+                nm = (u.legal_name or f"{u.first_name or ''} {u.last_name or ''}").strip() or f"user#{u.id}"
+                short = u.short_name
+                name_by_id[u.id] = (nm, short)
+        finally:
+            cs.close()
+
+        lines = [f"💬 Kdo se mnou mluvil za posledních {hours}h:", ""]
+        for r in rows:
+            nm, short = name_by_id.get(r.author_user_id, (f"user#{r.author_user_id}", None))
+            short_suffix = f" ({short})" if short else ""
+            # Relativni cas
+            delta = datetime.now(timezone.utc) - (
+                r.last_at if r.last_at.tzinfo else r.last_at.replace(tzinfo=timezone.utc)
+            )
+            mins = int(delta.total_seconds() / 60)
+            if mins < 1:
+                rel = "právě teď"
+            elif mins < 60:
+                rel = f"před {mins} min"
+            elif mins < 1440:
+                rel = f"před {mins // 60} h"
+            else:
+                rel = f"před {mins // 1440} dny"
+            lines.append(
+                f"  - **{nm}**{short_suffix}: {r.msg_count} zpráv v {r.conv_count} "
+                f"{'konverzaci' if r.conv_count == 1 else 'konverzacích'} "
+                f"(poslední {rel})"
+            )
+        return "\n".join(lines)
+
+    # ── AUTO-SEND CONSENTS (Phase 7) ──────────────────────────────────────
+    if tool_name == "grant_auto_send":
+        from modules.notifications.application import consent_service as _cs_asc
+        channel = (tool_input.get("channel") or "").lower().strip()
+        target_user_id = tool_input.get("target_user_id")
+        target_contact = (tool_input.get("target_contact") or "").strip() or None
+        note = (tool_input.get("note") or "").strip() or None
+
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+
+        try:
+            result = _cs_asc.grant_consent(
+                granted_by_user_id=user_id,
+                channel=channel,
+                target_user_id=target_user_id,
+                target_contact=target_contact,
+                note=note,
+            )
+        except _cs_asc.ConsentError as e:
+            msg = str(e)
+            if "pouze rodic" in msg.lower() or "pouze rodič" in msg.lower():
+                return (
+                    "🚫 Tenhle souhlas může dát jen některý z rodičů "
+                    "(Marti, Ondra, Kristý, Jirka). Já ho sama nemůžu udělit, "
+                    "ani kdybys chtěl."
+                )
+            return f"❌ Nelze uložit souhlas: {msg}"
+        except Exception as e:
+            logger.exception(f"GRANT_AUTO_SEND | failed | {e}")
+            return f"❌ Chyba při ukládání souhlasu: {e}"
+
+        # Resolve jmeno prijemce pro hezci reply
+        display = None
+        if result.get("target_user_id"):
+            from core.database_core import get_core_session as _gcs_g
+            from modules.core.infrastructure.models_core import User as _U_g
+            cs = _gcs_g()
+            try:
+                u = cs.query(_U_g).filter_by(id=result["target_user_id"]).first()
+                if u:
+                    display = ((u.first_name or "") + " " + (u.last_name or "")).strip() or u.canonical_email
+            finally:
+                cs.close()
+        display = display or result.get("target_contact") or "?"
+
+        if result.get("status") == "already_active":
+            return (
+                f"ℹ️ Souhlas pro **{display}** ({channel}) už existuje — platí dál. "
+                f"(consent_id={result['id']})"
+            )
+        return (
+            f"✅ Souhlas uložen — od teď můžu posílat {channel} pro **{display}** "
+            f"bez potvrzení. Kdykoli lze odvolat přes `revoke_auto_send` nebo v UI. "
+            f"(consent_id={result['id']})"
+        )
+
+    if tool_name == "revoke_auto_send":
+        from modules.notifications.application import consent_service as _cs_asc
+        channel = (tool_input.get("channel") or "").lower().strip() or None
+        target_user_id = tool_input.get("target_user_id")
+        target_contact = (tool_input.get("target_contact") or "").strip() or None
+        consent_id = tool_input.get("consent_id")
+
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj kontext."
+
+        try:
+            result = _cs_asc.revoke_consent(
+                revoked_by_user_id=user_id,
+                channel=channel or "email",  # pokud consent_id, channel se nepouzije
+                target_user_id=target_user_id,
+                target_contact=target_contact,
+                consent_id=consent_id,
+            )
+        except _cs_asc.ConsentError as e:
+            msg = str(e)
+            if "pouze rodic" in msg.lower() or "pouze rodič" in msg.lower():
+                return (
+                    "🚫 Odvolat souhlas může jen rodič. Já to sama udělat nemůžu."
+                )
+            return f"❌ Nelze odvolat: {msg}"
+        except Exception as e:
+            logger.exception(f"REVOKE_AUTO_SEND | failed | {e}")
+            return f"❌ Chyba při odvolání: {e}"
+
+        if result.get("status") == "no_active_consent":
+            return (
+                "ℹ️ Pro zadaného příjemce + kanál nemám aktivní souhlas — "
+                "není co odvolat."
+            )
+        count = result.get("count", 0)
+        return f"✅ Odvoláno {count} souhlas(ů). Od teď budu znovu ptát na potvrzení."
+
+    if tool_name == "list_auto_send_consents":
+        from modules.notifications.application import consent_service as _cs_asc
+        try:
+            items = _cs_asc.list_active_consents()
+        except Exception as e:
+            logger.exception(f"LIST_AUTO_SEND_CONSENTS | failed | {e}")
+            return f"❌ Chyba při načítání souhlasů: {e}"
+        if not items:
+            return (
+                "📭 Žádné aktivní souhlasy s auto-sendem. "
+                "Vždy se ptám na potvrzení před odesláním."
+            )
+        lines = ["✉️ Aktivní souhlasy s auto-sendem (posílám bez potvrzení):", ""]
+        for i, it in enumerate(items, start=1):
+            who = it.get("target_user_name") or it.get("target_contact") or "?"
+            ch = it["channel"]
+            granted_by = it.get("granted_by_name") or f"user#{it['granted_by_user_id']}"
+            granted_at = (it.get("granted_at") or "")[:10]
+            note = it.get("note")
+            note_suffix = f" — _{note}_" if note else ""
+            lines.append(
+                f"{i}. **{who}** ({ch}) — udělil {granted_by}, {granted_at}{note_suffix}"
+            )
+        return "\n".join(lines)
 
     if tool_name == "list_conversations":
         from modules.conversation.infrastructure.repository import list_conversations as _list_conv
@@ -964,31 +2276,37 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 f"Chceš ho/ji pozvat? (pokud znáš email)"
             )
 
-        # 1 výsledek — přímá odpověď
+        # 1 výsledek — vrátíme data včetně user_id (bez nabízení dalších akcí,
+        # aby AI mohla pokračovat v ORIGINÁLNÍM záměru, např. record_thought).
         if len(candidates) == 1:
             c = candidates[0]
             name = c.get("display_name") or c.get("full_name") or "—"
             email = c.get("preferred_email") or "(bez emailu)"
+            uid = c.get("user_id")
             role = c.get("role_label")
             role_part = f", {role}" if role else ""
             return (
-                f"✅ {name}{role_part} je v aktuálním tenantu.\n"
-                f"Email: {email}\n\n"
-                f"Chceš poslat email nebo přepnout na {name}-AI?"
+                f"✅ Nalezen: {name}{role_part}\n"
+                f"user_id: {uid}\n"
+                f"email: {email}\n"
+                f"_Pokračuj v záměru, se kterým jsi find_user volal/a "
+                f"(record_thought / send_email / switch_persona / ...)_"
             )
 
-        # 2+ výsledků — disambiguation
+        # 2+ výsledků — disambiguation. Dej AI i ID pro pripad ze user
+        # odpovi cislem a AI si rozhodne bez dalsiho volani find_user.
         lines = [f"Našel/a jsem {total} kandidátů odpovídajících '{query}':"]
         for i, c in enumerate(candidates, 1):
             name = c.get("display_name") or c.get("full_name") or "—"
             email = c.get("preferred_email") or "(bez emailu)"
+            uid = c.get("user_id")
             role = c.get("role_label")
             role_part = f" — {role}" if role else ""
-            lines.append(f"  {i}. {name}{role_part} ({email})")
+            lines.append(f"  {i}. {name}{role_part} ({email}) [user_id={uid}]")
         if result.get("has_more"):
             extra = total - len(candidates)
             lines.append(f"  ... a dalších {extra}. Zúpresni jméno.")
-        lines.append("\nKterého máš na mysli?")
+        lines.append("\nKterého máš na mysli? (Odpověz číslem, pak pokračuji v původní akci.)")
         return "\n".join(lines)
 
     if tool_name == "invite_user":
@@ -1643,7 +2961,7 @@ def chat(
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     response = client.messages.create(
         model=MODEL,
-        max_tokens=1024,
+        max_tokens=4096,
         system=system_prompt,
         messages=messages,
         tools=effective_tools,
@@ -1651,10 +2969,23 @@ def chat(
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
     # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou
-    # uvedene nize -- pro ne udelame druhy Claude call s tool_result a Claude
-    # slozi konecnou odpoved. Ostatni tooly (list_users, send_email preview, ...)
-    # vraceji pre-formatovany text primo pouzitelny jako reply (jedno-pruchodove).
-    SYNTHESIS_TOOLS = {"search_documents"}
+    # uvedene nize -- pro ne AI dostane tool_result a muze (a) pokracovat
+    # v dalsich tool calls (multi-round loop), nebo (b) vratit finalni text.
+    # Ostatni tooly (list_users, send_email preview, ...) vraceji pre-formatovany
+    # text primo pouzitelny jako reply (jedno-pruchodove).
+    #
+    # find_user je v synthesis mode, protoze casto slouzi jako precursor
+    # pro dalsi akce (record_thought, send_email, switch_persona) -- Claude
+    # musi dostat sanci chainit.
+    SYNTHESIS_TOOLS = {
+        "search_documents", "find_user", "recall_thoughts",
+        # Faze 7: email list + read chain -- Marti chce v jednom turnu videt
+        # list + otevrit konkretni email.
+        "list_email_inbox", "read_email",
+        # list_recent_chatters casto predchozi chain (napr. "Kdo psal?" ->
+        # "Zeptej se Kristy" -> recall_thoughts). Synthesis umozni chainovat.
+        "list_recent_chatters",
+    }
 
     preamble_text = ""
     tool_invocations: list[tuple] = []   # list of (block, tool_result_str)
@@ -1670,41 +3001,105 @@ def chat(
     needs_synthesis = any(b.name in SYNTHESIS_TOOLS for b, _ in tool_invocations)
 
     if needs_synthesis:
-        # Druhy pruchod -- pošli tool_result zpět Claude, at si slozí odpoved vlastnimi slovy.
-        # Bez tohoto by AI jen prepustila raw chunky do UI (staré chování).
-        assistant_content_blocks = []
+        # Multi-round tool loop -- Claude dostane tool_result a muze:
+        #   (a) zavolat dalsi tool (chain), napr. find_user -> record_thought
+        #   (b) vratit finalni text (loop skonci)
+        # Limit 5 round aby se v patologickem pripade nesmycklo.
+        MAX_TOOL_ROUNDS = 5
+
+        # Serialize prvni assistant response (preamble + tool calls)
+        initial_assistant_content = []
         for block in response.content:
             if block.type == "text":
-                assistant_content_blocks.append({"type": "text", "text": block.text})
+                initial_assistant_content.append({"type": "text", "text": block.text})
             elif block.type == "tool_use":
-                assistant_content_blocks.append({
+                initial_assistant_content.append({
                     "type": "tool_use",
                     "id": block.id,
                     "name": block.name,
                     "input": block.input,
                 })
-        tool_result_blocks = [
+        initial_tool_result_blocks = [
             {"type": "tool_result", "tool_use_id": b.id, "content": tresult}
             for b, tresult in tool_invocations
         ]
         follow_up_messages = messages + [
-            {"role": "assistant", "content": assistant_content_blocks},
-            {"role": "user", "content": tool_result_blocks},
+            {"role": "assistant", "content": initial_assistant_content},
+            {"role": "user", "content": initial_tool_result_blocks},
         ]
-        logger.info(f"TOOL_LOOP | synthesis call | tools={[b.name for b,_ in tool_invocations]}")
-        synthesis_response = client.messages.create(
-            model=MODEL,
-            max_tokens=1024,
-            system=system_prompt,
-            messages=follow_up_messages,
-            tools=effective_tools,
+        logger.info(
+            f"TOOL_LOOP | synthesis start | tools={[b.name for b,_ in tool_invocations]}"
         )
+
         assistant_reply = ""
-        for block in synthesis_response.content:
-            if block.type == "text":
-                assistant_reply += block.text
-        # Preamble (napr. "Zavolam si runbook...") zahazujeme -- synthesis je
-        # ten pravy finalni output, preamble byl jen Claude's "okamzity think".
+        for round_idx in range(MAX_TOOL_ROUNDS):
+            synth_response = client.messages.create(
+                model=MODEL,
+                max_tokens=4096,
+                system=system_prompt,
+                messages=follow_up_messages,
+                tools=effective_tools,
+            )
+
+            # Collect bloky z teto round: text + pripadne dalsi tool_use
+            round_text_parts: list[str] = []
+            round_tool_uses: list = []
+            round_assistant_content: list = []
+            for block in synth_response.content:
+                if block.type == "text":
+                    round_text_parts.append(block.text)
+                    round_assistant_content.append({"type": "text", "text": block.text})
+                elif block.type == "tool_use":
+                    round_tool_uses.append(block)
+                    round_assistant_content.append({
+                        "type": "tool_use",
+                        "id": block.id,
+                        "name": block.name,
+                        "input": block.input,
+                    })
+
+            if not round_tool_uses:
+                # Claude skoncil s voláním tools -- finálni text je reply
+                assistant_reply = "".join(round_text_parts)
+                logger.info(
+                    f"TOOL_LOOP | synthesis done | round={round_idx+1} | "
+                    f"reply_len={len(assistant_reply)}"
+                )
+                break
+
+            # Dalsi tools -- vykonej a pokračuj v dalsim round
+            round_tool_names = [b.name for b in round_tool_uses]
+            logger.info(
+                f"TOOL_LOOP | chain | round={round_idx+1} | tools={round_tool_names}"
+            )
+            round_tool_results = []
+            for block in round_tool_uses:
+                tresult = _handle_tool(
+                    block.name, block.input, conversation_id, user_id=user_id,
+                )
+                round_tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": tresult,
+                })
+
+            follow_up_messages.append({
+                "role": "assistant", "content": round_assistant_content,
+            })
+            follow_up_messages.append({
+                "role": "user", "content": round_tool_results,
+            })
+        else:
+            # Vycerpali jsme MAX_TOOL_ROUNDS a stale volal tools. Safety fallback.
+            logger.warning(
+                f"TOOL_LOOP | max_rounds_reached ({MAX_TOOL_ROUNDS}) | "
+                f"conv={conversation_id}"
+            )
+            if not assistant_reply:
+                assistant_reply = (
+                    "[Dosáhla jsem limitu tool volání v jednom kole — "
+                    "zkus mi to rozdelit na mensi kroky.]"
+                )
     else:
         # Stare chovani: text preamble + tool result jako finalni odpoved.
         assistant_reply = preamble_text
@@ -1713,6 +3108,15 @@ def chat(
 
     if not assistant_reply:
         assistant_reply = "Promiň, něco se pokazilo. Zkus to znovu."
+
+    # ── Guard proti halucinovanemu switch_persona ──────────────────────────
+    # Claude obcas napise "✅ Prepnuto na <persona>" jako text, aniz by zavolal
+    # tool switch_persona. Tim zustane conversation.active_agent_id beze zmeny
+    # a vsechny nasledujici assistant zpravy se labeluji jako puvodni persona,
+    # ackoli Claude pokracuje v roli nove persony. Detekujeme vzor a vynutime
+    # skutecny switch retrospektivne -- tim si zajistime, ze save_message nize
+    # vezme spravne active_agent_id.
+    _maybe_enforce_hallucinated_switch(conversation_id, assistant_reply)
 
     save_message(conversation_id, role="assistant", content=assistant_reply)
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")

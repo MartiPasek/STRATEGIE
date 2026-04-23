@@ -61,6 +61,9 @@ def list_personas_for_user(user_id: int) -> list[dict]:
                     "tenant_id": p.tenant_id,
                     "is_global": p.tenant_id is None,
                     "has_avatar": bool(p.avatar_path),
+                    # phone_number -- pro UI, aby vedelo, zda zobrazit ikonku
+                    # 'SMS' vedle persony v dropdownu.
+                    "phone_number": (p.phone_number or None),
                 })
         return out
     finally:

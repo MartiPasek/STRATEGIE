@@ -340,10 +340,133 @@
     .agent-bar-share { display: inline-flex; align-items: center; gap: 4px; padding: 3px 10px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace; letter-spacing: .04em; margin-left: 10px; background: rgba(249, 115, 22, 0.12); color: #f97316; border: 1px solid rgba(249, 115, 22, 0.45); transition: background .12s, border-color .12s; }
     .agent-bar-share.clickable { cursor: pointer; }
     .agent-bar-share.clickable:hover { background: rgba(249, 115, 22, 0.22); border-color: rgba(249, 115, 22, 0.7); }
+    /* ── Inbox badge + Fetch button (druhy radek hlavicky) ────────────────
+       Agregovany counter prichozich emailu + SMS. Pravy sloupec agent-baru
+       (flex space-between). Skryt kdyz total=0. Fetch tlacitko trigne
+       email polling mimo bezny 60s interval. */
+    .agent-bar-inbox { display: inline-flex; align-items: center; gap: 8px; }
+    /* Badge je vzdy viditelny (i kdyz 0) -- slouzi jako permanent vstup
+       do email modalu. Pri 0 mene saturated barvou (muted), pri >0 highlight. */
+    .inbox-badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 6px; font-size: 17px; line-height: 1.2; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(100, 116, 139, 0.10); color: var(--muted); border: 1px solid rgba(100, 116, 139, 0.3); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+    .inbox-badge.show { background: rgba(59, 130, 246, 0.12); color: #3b82f6; border-color: rgba(59, 130, 246, 0.45); }
+    .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); color: #3b82f6; }
+    /* Permanent SMS entry point - vedle emailu, symetrie */
+    .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s; }
+    .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; }
+    /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
+    .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
+    /* Personal archive badge -- Faze 6 */
+    .email-archive-badge { display: inline-block; margin-left: 8px; padding: 1px 6px; background: rgba(168, 85, 247, 0.15); color: #c084fc; border: 1px solid rgba(168, 85, 247, 0.4); border-radius: 3px; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .04em; }
+    /* Memory modal -- entity tiles (drill-down pohled pred zobrazenim myslenek) */
+    .memory-breadcrumb { display: flex; align-items: center; gap: 8px; padding: 8px 22px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .memory-breadcrumb button { background: none; border: none; color: var(--accent); cursor: pointer; font-size: 11px; font-family: inherit; padding: 0; }
+    .memory-breadcrumb button:hover { text-decoration: underline; }
+    .memory-entity-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; padding: 12px 16px; }
+    .memory-entity-tile { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; cursor: pointer; transition: border-color .12s, background .12s; background: var(--surface); }
+    .memory-entity-tile:hover { border-color: var(--accent); background: var(--bg); }
+    .memory-entity-type { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .memory-entity-name { font-size: 13px; color: var(--text); margin: 2px 0 6px; }
+    .memory-entity-counts { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; display: flex; gap: 10px; }
+    .memory-entity-counts .cnt-notes { color: #3b82f6; }
+    .memory-entity-counts .cnt-knowledge { color: #10b981; }
+    /* Diary tile -- zvlastni estetika, vrchol tree */
+    .memory-entity-tile.diary { border-color: #a855f7; background: linear-gradient(135deg, rgba(168, 85, 247, 0.08), rgba(168, 85, 247, 0.02)); }
+    .memory-entity-tile.diary:hover { border-color: #c084fc; background: linear-gradient(135deg, rgba(168, 85, 247, 0.15), rgba(168, 85, 247, 0.05)); }
+    .memory-entity-tile.diary .memory-entity-type { color: #c084fc; }
+    .memory-entity-counts .cnt-diary { color: #a855f7; }
+    /* Todos tile -- zvlastni barva (zluta/amber) */
+    .memory-entity-tile.todos { border-color: #f59e0b; background: linear-gradient(135deg, rgba(245, 158, 11, 0.08), rgba(245, 158, 11, 0.02)); }
+    .memory-entity-tile.todos:hover { border-color: #fbbf24; background: linear-gradient(135deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); }
+    .memory-entity-tile.todos .memory-entity-type { color: #fbbf24; }
+    /* Inbox tiles (Faze 7.9) -- rodicovsky vstup do posty Marti-AI */
+    .memory-entity-tile.inbox-email { border-color: #3b82f6; background: linear-gradient(135deg, rgba(59, 130, 246, 0.08), rgba(59, 130, 246, 0.02)); }
+    .memory-entity-tile.inbox-email:hover { border-color: #60a5fa; background: linear-gradient(135deg, rgba(59, 130, 246, 0.15), rgba(59, 130, 246, 0.05)); }
+    .memory-entity-tile.inbox-email .memory-entity-type { color: #60a5fa; }
+    .memory-entity-tile.inbox-sms { border-color: #10b981; background: linear-gradient(135deg, rgba(16, 185, 129, 0.08), rgba(16, 185, 129, 0.02)); }
+    .memory-entity-tile.inbox-sms:hover { border-color: #34d399; background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(16, 185, 129, 0.05)); }
+    .memory-entity-tile.inbox-sms .memory-entity-type { color: #34d399; }
+    .memory-entity-counts .cnt-todos-open { color: #f59e0b; }
+    .memory-entity-counts .cnt-todos-done { color: #10b981; }
+    /* Todo card -- checkbox-first vzhled */
+    .todo-card { display: flex; gap: 12px; align-items: flex-start; padding: 12px 16px; margin: 8px 16px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: background .12s; }
+    .todo-card:hover { background: var(--bg); }
+    .todo-card.done { opacity: 0.6; }
+    .todo-card.done .todo-content { text-decoration: line-through; color: var(--muted); }
+    .todo-checkbox { width: 20px; height: 20px; border: 2px solid var(--border); border-radius: 4px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: all .12s; margin-top: 2px; }
+    .todo-checkbox:hover { border-color: #f59e0b; }
+    .todo-checkbox.checked { background: #10b981; border-color: #10b981; color: white; }
+    .todo-body { flex: 1; min-width: 0; }
+    .todo-content { font-size: 13px; color: var(--text); line-height: 1.5; word-break: break-word; }
+    .todo-meta { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 4px; display: flex; gap: 8px; flex-wrap: wrap; }
+    .todo-filter-bar { display: flex; gap: 4px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--bg); }
+    .todo-filter-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 12px; border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit; }
+    .todo-filter-btn:hover { color: var(--text); }
+    .todo-filter-btn.active { background: #f59e0b; color: white; border-color: #f59e0b; }
+    /* Diary card -- blog-like vzhled pro zazitky */
+    .diary-card { background: linear-gradient(135deg, rgba(168, 85, 247, 0.06), transparent); border: 1px solid rgba(168, 85, 247, 0.25); border-left: 3px solid #a855f7; border-radius: 8px; padding: 14px 18px; margin: 10px 16px; }
+    .diary-card-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .diary-card-type { color: #c084fc; font-weight: 500; }
+    .diary-card-content { font-size: 14px; color: var(--text); line-height: 1.55; font-family: 'DM Sans', sans-serif; font-style: italic; }
+    .diary-card-footer { margin-top: 10px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; display: flex; gap: 10px; flex-wrap: wrap; }
+    .diary-card-emotion { color: #f59e0b; }
+    .diary-card-link { color: #3b82f6; text-decoration: none; }
+    .diary-card-link:hover { text-decoration: underline; }
+    /* Thought detail -- rozbaleny panel uvnitr karty */
+    .thought-detail { margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); display: none; font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .thought-detail.open { display: block; }
+    .thought-detail .row { display: flex; gap: 8px; margin: 3px 0; }
+    .thought-detail .row .lbl { min-width: 100px; color: var(--muted); }
+    .thought-detail .row .val { color: var(--text); word-break: break-word; }
+    .thought-actions { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+    .thought-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 10px; font-size: 11px; font-family: 'DM Mono', monospace; border-radius: 4px; transition: all .12s; }
+    .thought-btn:hover { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+    .thought-btn.danger:hover { border-color: #ef4444; color: #ef4444; }
+    /* Marti Questions modal (Faze 4) -- karta s velkou otazkou + 4 tlacitka + text field. */
+    .mq-modal-topbar { display: flex; align-items: center; gap: 12px; padding: 8px 22px; background: var(--bg); border-bottom: 1px solid var(--border); font-size: 11px; font-family: 'DM Mono', monospace; color: var(--muted); }
+    .mq-btn-refresh { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 4px; font-size: 11px; cursor: pointer; font-family: inherit; }
+    .mq-btn-refresh:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); color: var(--accent); }
+    .mq-btn-refresh:disabled { opacity: 0.5; cursor: wait; }
+    .mq-counter { margin-left: auto; font-family: 'DM Mono', monospace; }
+    .mq-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 18px 20px; margin: 16px; box-shadow: 0 4px 12px rgba(0,0,0,.25); }
+    .mq-question { font-size: 16px; color: var(--text); line-height: 1.5; margin-bottom: 12px; }
+    .mq-context { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; padding: 8px 10px; background: var(--bg); border-radius: 6px; margin-bottom: 14px; border-left: 3px solid var(--border); }
+    .mq-context-label { font-size: 9px; text-transform: uppercase; letter-spacing: .08em; color: var(--muted); margin-bottom: 4px; }
+    .mq-context-content { font-family: 'DM Sans', sans-serif; color: var(--text); }
+    .mq-buttons { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .mq-btn { flex: 1; min-width: 80px; background: var(--bg); border: 1px solid var(--border); color: var(--text); padding: 10px 14px; border-radius: 6px; cursor: pointer; font-size: 13px; font-family: inherit; transition: all .12s; }
+    .mq-btn:hover:not(:disabled) { background: var(--surface); border-color: var(--accent); transform: translateY(-1px); }
+    .mq-btn:disabled { opacity: 0.5; cursor: wait; }
+    .mq-btn.yes { border-color: rgba(16, 185, 129, 0.5); color: #10b981; }
+    .mq-btn.yes:hover:not(:disabled) { background: rgba(16, 185, 129, 0.15); }
+    .mq-btn.no { border-color: rgba(239, 68, 68, 0.5); color: #ef4444; }
+    .mq-btn.no:hover:not(:disabled) { background: rgba(239, 68, 68, 0.15); }
+    .mq-btn.maybe { border-color: rgba(245, 158, 11, 0.5); color: #f59e0b; }
+    .mq-btn.maybe:hover:not(:disabled) { background: rgba(245, 158, 11, 0.15); }
+    .mq-btn.skip { color: var(--muted); }
+    .mq-text-hint { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; margin-bottom: 6px; }
+    .mq-text { width: 100%; min-height: 60px; max-height: 200px; padding: 8px 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: inherit; font-size: 12px; resize: vertical; box-sizing: border-box; }
+    .mq-text:focus { outline: none; border-color: var(--accent); }
+    .mq-text-submit { margin-top: 8px; display: flex; justify-content: flex-end; }
+    .mq-text-submit-btn { background: var(--accent); color: white; border: none; padding: 6px 16px; border-radius: 4px; cursor: pointer; font-size: 11px; font-family: inherit; }
+    .mq-text-submit-btn:hover:not(:disabled) { opacity: 0.85; }
+    .mq-text-submit-btn:disabled { opacity: 0.5; cursor: wait; }
+    .mq-meta { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 8px; text-align: right; }
+    .inbox-badge-count { font-weight: 600; }
+    .inbox-badge-breakdown { color: var(--muted); font-family: 'DM Sans', sans-serif; font-size: 10px; }
+    .inbox-fetch-btn { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1; transition: background .12s, border-color .12s, color .12s; padding: 0; }
+    .inbox-fetch-btn:hover:not(:disabled) { background: var(--bg); border-color: var(--accent); color: var(--accent); }
+    .inbox-fetch-btn:disabled { opacity: 0.5; cursor: wait; }
+    .inbox-fetch-btn.spinning { animation: inbox-spin 0.8s linear infinite; }
+    @keyframes inbox-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
     /* Share ikonka v listech konverzaci (sidebar + dropdown) — oranzova
        pilulka, vyrazne odlisena aby user primo v seznamu videl ktere
        konverzace sdili s nekym. */
     .conv-share-icon { display: inline-flex; align-items: center; justify-content: center; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .05em; color: #f97316; background: rgba(249, 115, 22, 0.18); border: 1px solid rgba(249, 115, 22, 0.5); border-radius: 3px; padding: 1px 5px; margin-left: 6px; line-height: 1.3; flex-shrink: 0; }
+    /* Conversation length badge (Faze 7) -- zobrazen kdyz pocet zprav >= 20.
+       Zluta 20-39, cervena 40+. Skryty u kratkych konverzaci. */
+    .conv-length-badge { display: inline-flex; align-items: center; font-size: 9px; font-family: 'DM Mono', monospace; letter-spacing: .05em; border-radius: 3px; padding: 1px 5px; margin-left: 6px; line-height: 1.3; flex-shrink: 0; }
+    .conv-length-badge.warn { color: #fbbf24; background: rgba(245, 158, 11, 0.15); border: 1px solid rgba(245, 158, 11, 0.5); }
+    .conv-length-badge.danger { color: #ef4444; background: rgba(239, 68, 68, 0.15); border: 1px solid rgba(239, 68, 68, 0.5); }
     /* Sekce "Sdilene se mnou" v sidebaru - oranzovy nadpis */
     .sidebar-shared .sidebar-title { color: #f97316; }
     /* Shared-with-me polozky v sidebaru maji oranzovy vlevo border
@@ -629,6 +752,68 @@
     .dm-conv-title { font-size: 15px; font-weight: 500; }
     .dm-conv-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .msg.from-me .msg-bubble { background: #1a1f2e; border-color: #2a3350; color: #c5cfe8; }
+
+    /* ── SMS MODAL + persona dropdown ikonka (Commit 6) ── */
+    /* Maly SMS button na radku persony v dropdownu. Viditelny jen kdyz
+       persona.phone_number existuje (render-side conditional). Hover
+       zrotaluje zlutym kruhem. */
+    .persona-sms-btn { background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 2px 6px; border-radius: 4px; font-size: 14px; line-height: 1; opacity: 0.7; transition: opacity .12s, background .12s, color .12s; display: inline-flex; align-items: center; gap: 4px; position: relative; }
+    .persona-dd-item:hover .persona-sms-btn { opacity: 1; }
+    .persona-sms-btn:hover { background: var(--bg); color: var(--accent); }
+    /* Badge = male kulate cislo vpravo nahore ikonky, kdyz je unread>0. */
+    .persona-sms-badge { position: absolute; top: -4px; right: -6px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 8px; background: #c0392b; color: #fff; font-size: 9px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; line-height: 1; }
+
+    /* SMS modal -- stejny pattern jako persona-modal-bg, jen wider */
+    .sms-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 230; }
+    .sms-modal-bg.open { display: flex; }
+    .sms-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0; width: 680px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 12px 36px rgba(0,0,0,.5); overflow: hidden; }
+    .sms-modal-header { display: flex; align-items: center; gap: 12px; padding: 16px 22px 12px; border-bottom: 1px solid var(--border); }
+    .sms-modal-title { font-size: 14px; color: var(--text); font-weight: 500; flex: 1; }
+    .sms-modal-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
+    .sms-modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; padding: 0 6px; }
+    .sms-modal-close:hover { color: var(--text); }
+
+    /* Taby -- Prichozi / Zpracovane / Odeslane */
+    .sms-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 22px; background: var(--bg); }
+    .sms-tab { background: none; border: none; color: var(--muted); cursor: pointer; padding: 10px 16px; font-size: 12px; font-family: 'DM Sans', sans-serif; border-bottom: 2px solid transparent; transition: color .12s, border-color .12s; position: relative; }
+    .sms-tab:hover { color: var(--text); }
+    .sms-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+    .sms-tab-badge { display: inline-block; margin-left: 6px; background: #c0392b; color: #fff; font-size: 9px; padding: 1px 5px; border-radius: 8px; font-family: 'DM Mono', monospace; }
+
+    /* Karty zprav */
+    .sms-list { flex: 1; overflow-y: auto; padding: 12px 22px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .sms-card { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; transition: border-color .12s; }
+    .sms-card:hover { border-color: #2a3350; }
+    .sms-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+    .sms-card-from { font-size: 12px; color: var(--text); font-family: 'DM Mono', monospace; }
+    .sms-card-time { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; flex-shrink: 0; }
+    .sms-card-body { font-size: 13px; color: var(--text); line-height: 1.45; white-space: pre-wrap; word-wrap: break-word; }
+    .sms-card-status { display: inline-block; font-size: 10px; padding: 1px 6px; border-radius: 4px; text-transform: uppercase; font-family: 'DM Mono', monospace; letter-spacing: .06em; }
+    .sms-card-status.pending { background: #3b2e10; color: #e8b347; }
+    .sms-card-status.sent { background: #1a3b26; color: #5ec78c; }
+    .sms-card-status.failed { background: #3b1a1a; color: #e8615c; }
+    /* Pomocny row s actions pod telem zpravy (napr. Oznacit zpracovane) */
+    .sms-card-actions { display: flex; gap: 8px; margin-top: 8px; }
+    .sms-card-btn { background: transparent; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 10px; border-radius: 4px; font-size: 11px; transition: color .12s, border-color .12s; }
+    .sms-card-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+    /* Prazdny stav tabu */
+    .sms-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 48px 20px; font-style: italic; }
+    .sms-loading { text-align: center; color: var(--muted); font-size: 11px; padding: 20px; font-family: 'DM Mono', monospace; }
+
+    /* Reply block (Commit 7) -- rozbaleny textarea + actions pod kartou */
+    .sms-reply-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); display: none; }
+    .sms-reply-block.open { display: block; }
+    .sms-reply-hint { font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace; margin-bottom: 4px; letter-spacing: .06em; text-transform: uppercase; }
+    .sms-reply-hint.has-draft { color: var(--accent); }
+    .sms-reply-textarea { width: 100%; min-height: 70px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none; resize: vertical; box-sizing: border-box; }
+    .sms-reply-textarea:focus { border-color: var(--accent); }
+    .sms-reply-actions { display: flex; gap: 8px; margin-top: 8px; justify-content: flex-end; }
+    .sms-reply-btn-send { background: var(--accent); color: #fff; border: none; border-radius: 4px; padding: 5px 14px; font-size: 12px; cursor: pointer; }
+    .sms-reply-btn-send:hover:not(:disabled) { filter: brightness(1.15); }
+    .sms-reply-btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .sms-reply-btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
+    .sms-reply-btn-cancel:hover { color: var(--text); border-color: var(--text); }
   </style>
 </head>
 <body>
@@ -818,6 +1003,24 @@
           <span class="agent-bar-share" id="agentBarShare" style="display:none">🔗</span>
           <!-- Offline indikator — vybarveny cerveny kdyz user offline -->
           <span class="offline-indicator" id="offlineIndicator">🔌 Offline</span>
+        </div>
+        <!-- Pravy sloupec agent-baru: inbox badge (email+SMS total) + Fetch tlacitko.
+             Badge je skryty kdyz total=0. Fetch tlacitko zavola /email/fetch-all
+             a nasledne refreshne counter, aby user nemusel cekat 60s. -->
+        <div class="agent-bar-inbox">
+          <span class="inbox-badge" id="inboxBadge"
+                data-tooltip="Otevrit emaily (i kdyz je prazdno)"
+                title="">
+            <span id="inboxBadgeIcon">📬</span>
+            <span class="inbox-badge-count" id="inboxBadgeCount">0</span>
+            <span class="inbox-badge-breakdown" id="inboxBadgeBreakdown"></span>
+          </span>
+          <button class="sms-icon-btn" id="smsIconBtn"
+                  data-tooltip="Otevrit SMS aktivni persony"
+                  aria-label="SMS aktivni persony">📱</button>
+          <button class="inbox-fetch-btn" id="inboxFetchBtn"
+                  data-tooltip="Stahnout nove emaily z Exchange (nemusis cekat na polling)"
+                  aria-label="Fetch now">⟳</button>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -1744,6 +1947,10 @@
     await loadProjectsList();          // dropdown s projekty
     await loadPersonasList();          // persona picker v agent baru
     await loadSharedWithMeList();      // sidebar sekce "Sdilene se mnou"
+    // SMS unread badges -- polling kazdych 30s (Commit 6)
+    if (typeof startSmsUnreadPoller === 'function') startSmsUnreadPoller();
+    // Global unread badge (email + SMS) v druhem radku hlavicky -- PR2
+    if (typeof startGlobalUnreadPoller === 'function') startGlobalUnreadPoller();
     inputEl.focus();
   }
 
@@ -2054,6 +2261,17 @@
       title.appendChild(shareIcon);
     } else {
       title.textContent = it.title || `Konverzace #${it.id}`;
+    }
+    // Faze 7: length badge -- zluta od 20+, cervena od 40+. Tooltip vysvetli.
+    const mc = it.message_count || 0;
+    if (mc >= 20) {
+      const lb = document.createElement('span');
+      lb.className = 'conv-length-badge ' + (mc >= 40 ? 'danger' : 'warn');
+      lb.textContent = `${mc}`;
+      lb.title = mc >= 40
+        ? `${mc} zpráv — konverzace je dlouhá, tokeny bobtnají. Požádej Marti o zkrácení ('shrň to') nebo otevři + Nová.`
+        : `${mc} zpráv — začíná to být dlouhé. Od 40 budeš mít výkon cítit.`;
+      title.appendChild(lb);
     }
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
@@ -3313,9 +3531,14 @@
     // Audit log je superadmin-only (backend to vynucuje, ale frontend
     // skryje polozku z menu -- ostatnim user by se zobrazil 403 pri otevrenim).
     const isAdmin = !!(currentUser && currentUser.is_superadmin);
+    const isParent = !!(currentUser && currentUser.is_marti_parent);
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
+      { icon: '🧠', label: 'Paměť Marti', action: () => openMemoryModal() },
+      ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
+      ...(isParent ? [{ icon: '✉️', label: 'Důvěryhodní příjemci', action: () => openConsentsModal() }] : [{ icon: '✉️', label: 'Důvěryhodní příjemci (read)', action: () => openConsentsModal() }]),
+      ...(isParent ? [{ icon: '💾', label: 'Zálohovat databáze', action: () => runDatabaseBackup() }] : []),
       ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
@@ -4429,6 +4652,15 @@
         const editBtn = isAdmin
           ? `<button class="persona-edit-btn" data-edit-persona-id="${p.id}" data-edit-persona-name="${escapeHtml(p.name)}" aria-label="Upravit personu">✎</button>`
           : '';
+        // SMS button -- viditelny jen kdyz persona ma phone_number (SIMku).
+        // Badge se objeví jen pokud unread count > 0 pro tuto personu.
+        const smsUnread = (window._smsUnreadCounts && window._smsUnreadCounts[p.id]) || 0;
+        const smsBadge = smsUnread > 0
+          ? `<span class="persona-sms-badge">${smsUnread > 99 ? '99+' : smsUnread}</span>`
+          : '';
+        const smsBtn = p.phone_number
+          ? `<button class="persona-sms-btn" data-sms-persona-id="${p.id}" data-sms-persona-name="${escapeHtml(p.name)}" aria-label="SMS pro ${escapeHtml(p.name)}" title="Otevřít SMS">📱${smsBadge}</button>`
+          : '';
         const av = _personaAvatar(p.name);
         // Pokud persona ma uploadovany avatar -> <img>, jinak fallback na iniciály
         const avatarHtml = p.has_avatar
@@ -4442,7 +4674,10 @@
                 <span class="persona-dd-item-name">${escapeHtml(p.name)}</span>
               </div>
             </div>
-            ${editBtn}
+            <div style="display:flex;align-items:center;gap:2px;flex-shrink:0">
+              ${smsBtn}
+              ${editBtn}
+            </div>
           </div>
           ${preview}
         </div>`;
@@ -4462,8 +4697,9 @@
 
     panel.querySelectorAll('[data-persona-id]').forEach(el => {
       el.addEventListener('click', async (ev) => {
-        // Ignoruj click pokud byl na edit tlacitko (to ma vlastni handler)
+        // Ignoruj click pokud byl na edit / sms tlacitko (maji vlastni handlery)
         if (ev.target.closest('.persona-edit-btn')) return;
+        if (ev.target.closest('.persona-sms-btn')) return;
         ev.stopPropagation();
         const pid = parseInt(el.getAttribute('data-persona-id'), 10);
         await switchPersonaDirectly(pid);
@@ -4477,6 +4713,16 @@
         const pid = parseInt(btn.getAttribute('data-edit-persona-id'), 10);
         panel.classList.remove('open');
         await openPersonaEditModal(pid);
+      });
+    });
+    // SMS tlacitka — otevre SMS modal pro danou personu (Commit 6)
+    panel.querySelectorAll('.persona-sms-btn').forEach(btn => {
+      btn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(btn.getAttribute('data-sms-persona-id'), 10);
+        const pname = btn.getAttribute('data-sms-persona-name');
+        panel.classList.remove('open');
+        if (typeof openSmsModal === 'function') openSmsModal(pid, pname);
       });
     });
     const newBtn = document.getElementById('personaNewBtn');
@@ -5658,6 +5904,2057 @@
     } catch (_) {}
     loginEmail.focus();
   })();
+</script>
+
+<!-- ── SMS MODAL (Commit 6) ────────────────────────────────────────────── -->
+<!-- Otevirany z persona dropdownu klikem na 📱 ikonku u persony s phone_number.
+     Zobrazi 3 taby (Prichozi/Zpracovane/Odeslane) se seznamem SMS karticek.
+     Reply + task confirm tlacitka priedou v Commitu 7. -->
+<div class="sms-modal-bg" id="smsModalBg">
+  <div class="sms-modal" role="dialog" aria-label="SMS" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="smsModalTitle">SMS</div>
+      <div class="sms-modal-sub" id="smsModalSub"></div>
+      <button class="sms-modal-close" id="smsModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="sms-tabs" id="smsTabs">
+      <button class="sms-tab active" data-tab="new">Příchozí<span class="sms-tab-badge" id="smsTabBadgeNew" style="display:none">0</span></button>
+      <button class="sms-tab" data-tab="processed">Zpracované</button>
+      <button class="sms-tab" data-tab="outbox">Odeslané</button>
+    </div>
+    <div class="sms-list" id="smsList">
+      <div class="sms-loading">Nacitam…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Marti Questions modal (Faze 4) -- karty otazek pro rodice.
+     Otevira se z profile dropdown ("Otazky od Marti"). Jen pro rodice. -->
+<div class="sms-modal-bg" id="mqModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Otazky od Marti" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title">❓ Otázky od Marti</div>
+      <div class="sms-modal-sub" id="mqModalSub"></div>
+      <button class="sms-modal-close" id="mqModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="mq-modal-topbar">
+      <button class="mq-btn-refresh" id="mqBtnRefresh" data-tooltip="Znovu nacist otazky z DB">🔄 Refresh</button>
+      <button class="mq-btn-refresh" id="mqBtnGenerate" data-tooltip="Spustit generator novych otazek (pouziva LLM)">⟳ Nové otázky</button>
+      <span class="mq-counter" id="mqCounter"></span>
+    </div>
+    <div class="sms-list" id="mqList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Pamet Marti modal (Faze 1 + 2) -- drill-down view:
+     (a) entity tiles (tree overview, vsechny entity o kterych Marti neco vi)
+     (b) list myslenek per entita + 2 taby (Poznamky/Znalosti) + detail panel
+     Otevira se z profile dropdown ("Pamet Marti"). -->
+<div class="sms-modal-bg" id="memoryModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Pamet Marti" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="memoryModalTitle">🧠 Paměť Marti</div>
+      <div class="sms-modal-sub" id="memoryModalSub"></div>
+      <button class="sms-modal-close" id="memoryModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="memory-breadcrumb" id="memoryBreadcrumb" style="display:none">
+      <button id="memoryBackBtn">← Zpět na přehled</button>
+      <span id="memoryBreadcrumbPath"></span>
+    </div>
+    <div class="sms-tabs" id="memoryTabs" style="display:none">
+      <button class="sms-tab active" data-memtab="note">Poznámky <span class="sms-tab-badge" id="memTabBadgeNote" style="display:none">0</span></button>
+      <button class="sms-tab" data-memtab="knowledge">Znalosti <span class="sms-tab-badge" id="memTabBadgeKnowledge" style="display:none">0</span></button>
+    </div>
+    <div class="sms-list" id="memoryList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Auto-send Consents modal (Phase 7) -- dopuzivyjeme .sms-modal-* tridy.
+     Otevira se z profile dropdown ("Duveryhodni prijemci"). Parents: full CRUD.
+     Non-parents: read-only view. -->
+<div class="sms-modal-bg" id="consentsModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Duveryhodni prijemci" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title">✉️ Důvěryhodní příjemci</div>
+      <div class="sms-modal-sub">Marti posílá auto-send (bez potvrzení) jen na tento seznam.</div>
+      <button class="sms-modal-close" id="consentsModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="mq-modal-topbar" id="consentsTopbar" style="display:none">
+      <button class="mq-btn-refresh" id="consentsBtnAdd">+ Přidat souhlas</button>
+      <button class="mq-btn-refresh" id="consentsBtnRefresh">🔄 Refresh</button>
+      <span class="mq-counter" id="consentsCounter"></span>
+    </div>
+    <div id="consentsAddForm" style="display:none; padding:10px 14px; border-bottom:1px solid var(--border); background: rgba(128,128,128,0.05);">
+      <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:8px;">
+        <div>
+          <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">Kanál *</label>
+          <select id="consentChannel" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+            <option value="email">email</option>
+            <option value="sms">sms</option>
+          </select>
+        </div>
+        <div>
+          <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">User ID (z find_user)</label>
+          <input id="consentUserId" type="number" placeholder="např. 5" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+        </div>
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">nebo Email / Telefon (pro externí kontakt)</label>
+        <input id="consentContact" type="text" placeholder="např. zakaznik@firma.cz nebo +420777888999" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+      </div>
+      <div style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">Poznámka (nepovinná)</label>
+        <input id="consentNote" type="text" placeholder="proč souhlas dáváš..." style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+      </div>
+      <div style="display:flex; gap:6px; justify-content:flex-end;">
+        <button id="consentCancelBtn" style="padding:6px 12px; background:transparent; border:1px solid var(--border); color:var(--fg); border-radius:4px; cursor:pointer;">Zrušit</button>
+        <button id="consentSubmitBtn" style="padding:6px 12px; background:var(--accent); border:1px solid var(--accent); color:white; border-radius:4px; cursor:pointer;">Uložit souhlas</button>
+      </div>
+    </div>
+    <div class="sms-list" id="consentsList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+
+<!-- Email modal (PR3) -- sdili .sms-modal-* tridy, jen s vlastnimi ID.
+     Otevira se klikem na inbox badge v 2. radku hlavicky. -->
+<div class="sms-modal-bg" id="emailModalBg">
+  <div class="sms-modal" role="dialog" aria-label="Email" onclick="event.stopPropagation()">
+    <div class="sms-modal-header">
+      <div class="sms-modal-title" id="emailModalTitle">Email</div>
+      <div class="sms-modal-sub" id="emailModalSub"></div>
+      <button class="sms-modal-close" id="emailModalClose" title="Zavrit (Esc)">×</button>
+    </div>
+    <div class="sms-tabs" id="emailTabs">
+      <button class="sms-tab active" data-tab="new">Příchozí</button>
+      <button class="sms-tab" data-tab="processed">Zpracované</button>
+      <button class="sms-tab" data-tab="outbox">Odeslané</button>
+      <button class="sms-tab" data-tab="personal" title="Archiv rodičovské korespondence (auto-archivované)">📁 Personal</button>
+    </div>
+    <div class="sms-list" id="emailList">
+      <div class="sms-loading">Načítám…</div>
+    </div>
+  </div>
+</div>
+<script>
+  // ── SMS modal state + renderer ──────────────────────────────────────────
+  // Global state pro otevrenou instanci modalu. Zavrenim (Esc / X / click-out)
+  // se resetne zpet na null, aby polling neaktualizoval prazdny list.
+  window._smsModal = { personaId: null, personaName: null, activeTab: "new" };
+
+  // Formatovani casu -- relativne pro dnesek, datum pro starsi. Minimalisticke,
+  // proto nepouzivame external lib.
+  function _smsFmtTime(isoStr) {
+    if (!isoStr) return "";
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return "teď";
+    if (diffMin < 60) return `před ${diffMin} min`;
+    const diffH = Math.floor(diffMin / 60);
+    if (diffH < 24) return `před ${diffH} h`;
+    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
+    return d.toLocaleDateString("cs-CZ") + " " + d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
+  }
+
+  function openSmsModal(personaId, personaName) {
+    window._smsModal.personaId = personaId;
+    window._smsModal.personaName = personaName;
+    window._smsModal.activeTab = "new";
+    document.getElementById("smsModalTitle").textContent = `SMS — ${personaName}`;
+    document.getElementById("smsModalSub").textContent = "";
+    // Reset tab active state na Prichozi.
+    document.querySelectorAll(".sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-tab") === "new");
+    });
+    document.getElementById("smsModalBg").classList.add("open");
+    fetchAndRenderSmsTab("new");
+  }
+
+  function closeSmsModal() {
+    document.getElementById("smsModalBg").classList.remove("open");
+    window._smsModal.personaId = null;
+  }
+
+  async function fetchAndRenderSmsTab(tab) {
+    const list = document.getElementById("smsList");
+    const pid = window._smsModal.personaId;
+    if (!pid) return;
+    window._smsModal.activeTab = tab;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+
+    let url;
+    if (tab === "new" || tab === "processed") {
+      url = `/api/v1/sms/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
+    } else {
+      // outbox -- persona_id je informativni, backend bere tenant-wide
+      url = `/api/v1/sms/ui/outbox?persona_id=${pid}&limit=50`;
+    }
+
+    try {
+      const r = await fetch(url);
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        const emptyMsg = tab === "new" ? "Žádné nové zprávy." :
+                         tab === "processed" ? "Žádné zpracované." :
+                         "Žádné odeslané zprávy.";
+        list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(it => _smsRenderCard(it, tab)).join("");
+      _smsAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _smsEscape(s) {
+    if (s == null) return "";
+    return String(s).replace(/[&<>"']/g, c => ({
+      '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;'
+    })[c]);
+  }
+
+  function _smsRenderCard(item, tab) {
+    if (tab === "outbox") {
+      const statusCls = item.status || "pending";
+      const statusLabel = item.status === "sent" ? "odesláno" :
+                          item.status === "failed" ? "chyba" : "čeká";
+      const errLine = item.last_error
+        ? `<div class="sms-card-body" style="color:var(--muted);font-style:italic;margin-top:4px">${_smsEscape(item.last_error)}</div>`
+        : "";
+      const sentTime = item.sent_at || item.created_at;
+      return `
+        <div class="sms-card" data-sms-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">→ ${_smsEscape(item.to_phone)}</span>
+            <span class="sms-card-time">${_smsFmtTime(sentTime)}</span>
+          </div>
+          <div class="sms-card-body">${_smsEscape(item.body)}</div>
+          <div class="sms-card-actions">
+            <span class="sms-card-status ${statusCls}">${statusLabel}</span>
+          </div>
+          ${errLine}
+        </div>
+      `;
+    }
+
+    // inbox (new nebo processed)
+    const actionsBtn = tab === "new"
+      ? `<button class="sms-card-btn" data-action="reply" data-sms-id="${item.id}">Odpovědět</button>
+         <button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
+      : "";
+    return `
+      <div class="sms-card" data-sms-id="${item.id}">
+        <div class="sms-card-row">
+          <span class="sms-card-from">← ${_smsEscape(item.from_phone)}</span>
+          <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
+        </div>
+        <div class="sms-card-body">${_smsEscape(item.body)}</div>
+        <div class="sms-card-actions">${actionsBtn}</div>
+        <div class="sms-reply-block" id="sms-reply-${item.id}">
+          <div class="sms-reply-hint" id="sms-reply-hint-${item.id}">Tvoje odpověď</div>
+          <textarea class="sms-reply-textarea" id="sms-reply-text-${item.id}" placeholder="Napiš odpověď…"></textarea>
+          <div class="sms-reply-actions">
+            <button class="sms-reply-btn-cancel" data-action="reply-cancel" data-sms-id="${item.id}">Zrušit</button>
+            <button class="sms-reply-btn-send" data-action="reply-send" data-sms-id="${item.id}">Odeslat</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _smsAttachCardHandlers() {
+    // Mark processed (manual override)
+    document.querySelectorAll("#smsList [data-action='mark-processed']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        btn.disabled = true;
+        btn.textContent = "Ukládám…";
+        try {
+          const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/mark-processed`, { method: "POST" });
+          if (r.ok) {
+            await fetchAndRenderSmsTab(window._smsModal.activeTab);
+            refreshSmsUnreadBadges();
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Označit zpracované";
+            alert(`Chyba: HTTP ${r.status}`);
+          }
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "Označit zpracované";
+          alert(`Chyba: ${e.message}`);
+        }
+      });
+    });
+
+    // Reply -- toggle reply block + fetch draft pro prefill
+    document.querySelectorAll("#smsList [data-action='reply']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const block = document.getElementById(`sms-reply-${smsId}`);
+        const textarea = document.getElementById(`sms-reply-text-${smsId}`);
+        const hint = document.getElementById(`sms-reply-hint-${smsId}`);
+        if (!block) return;
+        // Zavre ostatni otevrene reply bloky (jeden otevreny najednou)
+        document.querySelectorAll(".sms-reply-block.open").forEach(b => {
+          if (b !== block) b.classList.remove("open");
+        });
+        const willOpen = !block.classList.contains("open");
+        block.classList.toggle("open", willOpen);
+        if (!willOpen) return;
+        // Pokud je textarea prazdna, fetch draft z AI tasku
+        if (!textarea.value) {
+          hint.textContent = "Hledám návrh od AI…";
+          hint.classList.remove("has-draft");
+          try {
+            const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/draft`);
+            if (r.ok) {
+              const data = await r.json();
+              if (data.draft) {
+                textarea.value = data.draft;
+                hint.textContent = `Návrh od AI (task ${data.task_status || "?"}) — můžeš editovat`;
+                hint.classList.add("has-draft");
+              } else {
+                hint.textContent = "Tvoje odpověď";
+              }
+            } else {
+              hint.textContent = "Tvoje odpověď";
+            }
+          } catch (_) {
+            hint.textContent = "Tvoje odpověď";
+          }
+        }
+        textarea.focus();
+      });
+    });
+
+    // Reply -- cancel (zavre block, nesmazne text)
+    document.querySelectorAll("#smsList [data-action='reply-cancel']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const block = document.getElementById(`sms-reply-${smsId}`);
+        if (block) block.classList.remove("open");
+      });
+    });
+
+    // Reply -- odeslat
+    document.querySelectorAll("#smsList [data-action='reply-send']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const smsId = btn.getAttribute("data-sms-id");
+        const textarea = document.getElementById(`sms-reply-text-${smsId}`);
+        const body = (textarea.value || "").trim();
+        if (!body) {
+          alert("Napiš text odpovědi.");
+          return;
+        }
+        btn.disabled = true;
+        const origText = btn.textContent;
+        btn.textContent = "Odesílám…";
+        try {
+          const r = await fetch(`/api/v1/sms/ui/inbox/${smsId}/reply`, {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({body}),
+          });
+          if (r.ok) {
+            // Uspech: refresh tab (SMS zmizi ze seznamu Prichozich) + badges
+            await fetchAndRenderSmsTab(window._smsModal.activeTab);
+            refreshSmsUnreadBadges();
+          } else {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = origText;
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
+      });
+    });
+  }
+
+  // Event delegation -- taby, close, click mimo modal
+  (function initSmsModalHandlers() {
+    document.getElementById("smsTabs").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("[data-tab]");
+      if (!btn) return;
+      const tab = btn.getAttribute("data-tab");
+      document.querySelectorAll(".sms-tab").forEach(t => {
+        t.classList.toggle("active", t.getAttribute("data-tab") === tab);
+      });
+      fetchAndRenderSmsTab(tab);
+    });
+    document.getElementById("smsModalClose").addEventListener("click", closeSmsModal);
+    document.getElementById("smsModalBg").addEventListener("click", (ev) => {
+      // Click mimo modal okno -> zavri
+      if (ev.target.id === "smsModalBg") closeSmsModal();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && document.getElementById("smsModalBg").classList.contains("open")) {
+        closeSmsModal();
+      }
+    });
+  })();
+
+  // ══════════════════════════════════════════════════════════════════════
+  // EMAIL MODAL (PR3) — paralelni struktura k SMS modal, sdili CSS
+  //   .sms-modal-* tridy. Odlisnosti:
+  //   - 'Prichozi' karta: subject radek nad body, "Navrhni odpoved"
+  //     misto automatickeho draftu (opt-in task trigger).
+  //   - Outbox karta ukazuje subject + to_email, status pending/sent/failed.
+  // ══════════════════════════════════════════════════════════════════════
+
+  window._emailModal = { personaId: null, personaName: null, activeTab: "new" };
+
+  function openEmailModal(personaId, personaName) {
+    window._emailModal.personaId = personaId;
+    window._emailModal.personaName = personaName || "Emaily";
+    window._emailModal.activeTab = "new";
+    document.getElementById("emailModalTitle").textContent = `Email — ${window._emailModal.personaName}`;
+    document.getElementById("emailModalSub").textContent = "";
+    document.querySelectorAll("#emailTabs .sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-tab") === "new");
+    });
+    document.getElementById("emailModalBg").classList.add("open");
+    fetchAndRenderEmailTab("new");
+  }
+
+  function closeEmailModal() {
+    document.getElementById("emailModalBg").classList.remove("open");
+    window._emailModal.personaId = null;
+  }
+
+  // Otevreni modalu pro aktivni personu -- pouzito pri klik na header badge.
+  function openEmailModalForActivePersona() {
+    const activeName = (document.getElementById("agentName").textContent || "").trim();
+    // personasCache je top-level `let` v prvnim script bloku -- sdilene
+    // document lexical env znamena, ze je dostupny i odtud.
+    const p = (typeof personasCache !== "undefined" ? personasCache : []).find(x => x.name === activeName);
+    if (p) {
+      openEmailModal(p.id, p.name);
+    } else {
+      // Fallback: neumime zjistit personu -- upozornime usera
+      alert("Nelze zjistit aktivni personu. Vyber ji v dropdownu a zkus znovu.");
+    }
+  }
+
+  async function fetchAndRenderEmailTab(tab) {
+    const list = document.getElementById("emailList");
+    const pid = window._emailModal.personaId;
+    if (!pid) return;
+    window._emailModal.activeTab = tab;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+
+    let url;
+    if (tab === "new" || tab === "processed") {
+      url = `/api/v1/email/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
+    } else if (tab === "personal") {
+      url = `/api/v1/email/ui/personal?persona_id=${pid}&limit=100`;
+    } else {
+      url = `/api/v1/email/ui/outbox?persona_id=${pid}&limit=50`;
+    }
+    try {
+      const r = await fetch(url, { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        const emptyMsg = tab === "new" ? "Žádné nové emaily."
+                       : tab === "processed" ? "Žádné zpracované."
+                       : tab === "personal" ? "📁 Prázdný Personal archiv. Až ti rodič pošle email (nebo ty jemu), objeví se tu."
+                       : "Žádné odeslané emaily.";
+        list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(it => _emailRenderCard(it, tab)).join("");
+      _emailAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _emailRenderCard(item, tab) {
+    const esc = _smsEscape;   // reuse escaper ze SMS modalu
+    if (tab === "personal") {
+      // Merged view: incoming (direction='in') + outgoing (direction='out')
+      const isIn = item.direction === "in";
+      const arrow = isIn ? "←" : "→";
+      const who = isIn
+        ? (item.from_name ? `${esc(item.from_name)} <${esc(item.from_email)}>` : esc(item.from_email))
+        : esc(item.to_email);
+      const folderBadge = `<span class="email-archive-badge" title="Archivováno v Personal složce na Exchange">📁</span>`;
+      const statusBadge = (!isIn && item.status && item.status !== "sent")
+        ? ` <span class="sms-card-status ${item.status}">${item.status === "failed" ? "chyba" : "čeká"}</span>`
+        : "";
+      return `
+        <div class="sms-card" data-email-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">${arrow} ${who}${folderBadge}${statusBadge}</span>
+            <span class="sms-card-time">${_smsFmtTime(item.ts)}</span>
+          </div>
+          <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+          <div class="sms-card-body">${esc(item.body || "")}</div>
+        </div>
+      `;
+    }
+    if (tab === "outbox") {
+      const statusCls = item.status || "pending";
+      const statusLabel = item.status === "sent" ? "odesláno"
+                        : item.status === "failed" ? "chyba"
+                        : "čeká";
+      const errLine = item.last_error
+        ? `<div class="sms-card-body" style="color:var(--muted);font-style:italic;margin-top:4px">${esc(item.last_error)}</div>`
+        : "";
+      const sentTime = item.sent_at || item.created_at;
+      return `
+        <div class="sms-card" data-email-id="${item.id}">
+          <div class="sms-card-row">
+            <span class="sms-card-from">→ ${esc(item.to_email)}</span>
+            <span class="sms-card-time">${_smsFmtTime(sentTime)}</span>
+          </div>
+          <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+          <div class="sms-card-body">${esc(item.body)}</div>
+          <div class="sms-card-actions">
+            <span class="sms-card-status ${statusCls}">${statusLabel}</span>
+          </div>
+          ${errLine}
+        </div>
+      `;
+    }
+    // inbox (new nebo processed)
+    const fromLabel = item.from_name ? `${item.from_name} <${item.from_email}>` : item.from_email;
+    const actionsBtn = tab === "new"
+      ? `<button class="sms-card-btn" data-action="suggest-reply" data-email-id="${item.id}">Navrhni odpověď</button>
+         <button class="sms-card-btn" data-action="reply" data-email-id="${item.id}">Odpovědět</button>
+         <button class="sms-card-btn" data-action="mark-processed" data-email-id="${item.id}">Označit zpracované</button>`
+      : "";
+    const archiveBadge = item.archived_personal
+      ? `<span class="email-archive-badge" title="Archivováno v Personal složce na Exchange">📁 Personal</span>`
+      : "";
+    return `
+      <div class="sms-card" data-email-id="${item.id}">
+        <div class="sms-card-row">
+          <span class="sms-card-from">← ${esc(fromLabel)}${archiveBadge}</span>
+          <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
+        </div>
+        <div class="email-card-subject">${esc(item.subject || "(bez předmětu)")}</div>
+        <div class="sms-card-body">${esc(item.body || "")}</div>
+        <div class="sms-card-actions">${actionsBtn}</div>
+        <div class="sms-reply-block" id="email-reply-${item.id}">
+          <div class="sms-reply-hint" id="email-reply-hint-${item.id}">Tvoje odpověď</div>
+          <textarea class="sms-reply-textarea" id="email-reply-text-${item.id}" placeholder="Napiš odpověď…"></textarea>
+          <div class="sms-reply-actions">
+            <button class="sms-reply-btn-cancel" data-action="reply-cancel" data-email-id="${item.id}">Zrušit</button>
+            <button class="sms-reply-btn-send" data-action="reply-send" data-email-id="${item.id}">Odeslat</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _emailAttachCardHandlers() {
+    // Mark processed
+    document.querySelectorAll("#emailList [data-action='mark-processed']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        btn.disabled = true;
+        btn.textContent = "Ukládám…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/mark-processed`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await fetchAndRenderEmailTab(window._emailModal.activeTab);
+            if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+          } else {
+            btn.disabled = false;
+            btn.textContent = "Označit zpracované";
+            alert(`Chyba: HTTP ${r.status}`);
+          }
+        } catch (e) {
+          btn.disabled = false;
+          btn.textContent = "Označit zpracované";
+          alert(`Chyba: ${e.message}`);
+        }
+      });
+    });
+
+    // Navrhni odpoved -- spusti AI task na serveru, UI zacne pollovat draft
+    document.querySelectorAll("#emailList [data-action='suggest-reply']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        btn.disabled = true;
+        btn.textContent = "Zadávám AI…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/suggest-reply`, {
+            method: "POST", credentials: "include",
+          });
+          if (!r.ok) {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = "Navrhni odpověď";
+            return;
+          }
+          // Task spusten -- otevreme reply block a zacneme pollovat /draft
+          btn.textContent = "AI pracuje…";
+          const block = document.getElementById(`email-reply-${id}`);
+          const textarea = document.getElementById(`email-reply-text-${id}`);
+          const hint = document.getElementById(`email-reply-hint-${id}`);
+          if (block) block.classList.add("open");
+          if (hint) hint.textContent = "Čekám na draft od AI…";
+          // Poll drop every 3s, max 20 pokusu (60s total)
+          let attempts = 0;
+          const poll = setInterval(async () => {
+            attempts++;
+            try {
+              const dr = await fetch(`/api/v1/email/ui/inbox/${id}/draft`, { credentials: "include" });
+              if (dr.ok) {
+                const data = await dr.json();
+                if (data.draft) {
+                  clearInterval(poll);
+                  if (textarea) textarea.value = data.draft;
+                  if (hint) {
+                    hint.textContent = `Návrh od AI (task ${data.task_status || "?"}) — můžeš editovat`;
+                    hint.classList.add("has-draft");
+                  }
+                  btn.disabled = false;
+                  btn.textContent = "Přepnout na nový návrh";
+                }
+              }
+            } catch (_) {}
+            if (attempts >= 20) {
+              clearInterval(poll);
+              if (hint) hint.textContent = "AI draft nedorazil (timeout) — napiš odpověď ručně";
+              btn.disabled = false;
+              btn.textContent = "Navrhni odpověď znovu";
+            }
+          }, 3000);
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = "Navrhni odpověď";
+        }
+      });
+    });
+
+    // Plain Reply (bez AI draftu) -- jen otevre reply block
+    document.querySelectorAll("#emailList [data-action='reply']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const block = document.getElementById(`email-reply-${id}`);
+        const textarea = document.getElementById(`email-reply-text-${id}`);
+        if (!block) return;
+        document.querySelectorAll("#emailList .sms-reply-block.open").forEach(b => {
+          if (b !== block) b.classList.remove("open");
+        });
+        block.classList.toggle("open");
+        if (block.classList.contains("open") && textarea) textarea.focus();
+      });
+    });
+
+    // Reply cancel
+    document.querySelectorAll("#emailList [data-action='reply-cancel']").forEach(btn => {
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const block = document.getElementById(`email-reply-${id}`);
+        if (block) block.classList.remove("open");
+      });
+    });
+
+    // Reply send
+    document.querySelectorAll("#emailList [data-action='reply-send']").forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-email-id");
+        const textarea = document.getElementById(`email-reply-text-${id}`);
+        const body = (textarea.value || "").trim();
+        if (!body) { alert("Napiš text odpovědi."); return; }
+        btn.disabled = true;
+        const origText = btn.textContent;
+        btn.textContent = "Odesílám…";
+        try {
+          const r = await fetch(`/api/v1/email/ui/inbox/${id}/reply`, {
+            method: "POST",
+            credentials: "include",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({body}),
+          });
+          if (r.ok) {
+            await fetchAndRenderEmailTab(window._emailModal.activeTab);
+            if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+          } else {
+            const errData = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+            alert(`Chyba: ${errData.detail || r.status}`);
+            btn.disabled = false;
+            btn.textContent = origText;
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false;
+          btn.textContent = origText;
+        }
+      });
+    });
+  }
+
+  // Bootstrap email modal: tabs click + close buttons + Esc + badge click
+  (function initEmailModal() {
+    const tabsEl = document.getElementById("emailTabs");
+    if (!tabsEl) return;
+    tabsEl.addEventListener("click", (ev) => {
+      const t = ev.target.closest(".sms-tab");
+      if (!t) return;
+      const tab = t.getAttribute("data-tab");
+      document.querySelectorAll("#emailTabs .sms-tab").forEach(x => {
+        x.classList.toggle("active", x.getAttribute("data-tab") === tab);
+      });
+      fetchAndRenderEmailTab(tab);
+    });
+    document.getElementById("emailModalClose").addEventListener("click", closeEmailModal);
+    document.getElementById("emailModalBg").addEventListener("click", (ev) => {
+      if (ev.target.id === "emailModalBg") closeEmailModal();
+    });
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && document.getElementById("emailModalBg").classList.contains("open")) {
+        closeEmailModal();
+      }
+    });
+    // Click na inbox badge v hlavicce -> otevre modal pro aktivni personu
+    const badge = document.getElementById("inboxBadge");
+    if (badge) {
+      // Klik na badge primarne otevre email modal. Pokud user ma otevrene
+      // otazky od Marti a zaroven zadny email/SMS, otevri radeji questions.
+      badge.addEventListener("click", () => {
+        const em = parseInt(document.getElementById("inboxBadgeCount")?.textContent || "0", 10);
+        const mq = (currentUser && currentUser.is_marti_parent)
+          ? (parseInt(document.getElementById("inboxBadgeBreakdown")?.textContent?.match(/❓\s*(\d+)/)?.[1] || "0", 10))
+          : 0;
+        const emOnly = em - mq;   // priblizny pocet email+sms (bez questions)
+        if (emOnly <= 0 && mq > 0) {
+          openMartiQuestionsModal();
+        } else {
+          openEmailModalForActivePersona();
+        }
+      });
+    }
+  })();
+
+  // ══════════════════════════════════════════════════════════════════════
+  // MARTI MEMORY MODAL (Faze 2) -- drill-down viewer myslenek
+  //   Mode 'tree':    entity tiles z /thoughts/_tree
+  //   Mode 'entity':  list myslenek pro vybranou entitu + 2 taby + detail
+  // Otevira se z profile dropdown ('Pamet Marti').
+  // ══════════════════════════════════════════════════════════════════════
+
+  window._memoryModal = {
+    mode: "tree",          // 'tree' | 'entity' | 'diary' | 'todos'
+    entity_type: null,     // 'user' | 'persona' | 'tenant' | 'project'
+    entity_id: null,
+    entity_name: null,
+    activeTab: "note",     // 'note' | 'knowledge'
+    counts: { note: 0, knowledge: 0 },
+    diary_persona_id: null,
+    diary_persona_name: null,
+    todo_filter: "open",   // 'open' | 'done' | 'all'
+  };
+
+  async function openMemoryModal() {
+    if (!currentUser || !currentUser.user_id) {
+      alert("Nejsi prihlasen nebo chybi ID uzivatele.");
+      return;
+    }
+    document.getElementById("memoryModalBg").classList.add("open");
+    document.getElementById("memoryModalSub").textContent = currentUser.display_name || "";
+    _memorySwitchToTree();
+    await _memoryLoadTree();
+  }
+
+  function closeMemoryModal() {
+    document.getElementById("memoryModalBg").classList.remove("open");
+  }
+
+  function _memorySwitchToTree() {
+    window._memoryModal.mode = "tree";
+    window._memoryModal.entity_type = null;
+    window._memoryModal.entity_id = null;
+    window._memoryModal.entity_name = null;
+    window._memoryModal.diary_persona_id = null;
+    window._memoryModal.diary_persona_name = null;
+    document.getElementById("memoryBreadcrumb").style.display = "none";
+    document.getElementById("memoryTabs").style.display = "none";
+    document.getElementById("memoryModalTitle").textContent = "🧠 Paměť Marti";
+  }
+
+  function _memorySwitchToEntity(entity_type, entity_id, entity_name) {
+    window._memoryModal.mode = "entity";
+    window._memoryModal.entity_type = entity_type;
+    window._memoryModal.entity_id = entity_id;
+    window._memoryModal.entity_name = entity_name;
+    window._memoryModal.activeTab = "note";
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent =
+      `/ ${entity_type}: ${entity_name}`;
+    document.getElementById("memoryTabs").style.display = "flex";
+    document.querySelectorAll("#memoryTabs .sms-tab").forEach(t => {
+      t.classList.toggle("active", t.getAttribute("data-memtab") === "note");
+    });
+    document.getElementById("memoryModalTitle").textContent =
+      `🧠 ${entity_name}`;
+  }
+
+  // ── Entity name resolution ───────────────────────────────────────────
+  // Frontend nema vsechny entity v cachi -- resolvujem co muzeme
+  // (current user + personasCache), jinak fallback na "type#id".
+
+  function _memoryResolveEntityName(entity_type, entity_id) {
+    if (entity_type === "user") {
+      if (currentUser && currentUser.user_id === entity_id) {
+        return currentUser.display_name || "Já";
+      }
+      return `Uživatel #${entity_id}`;
+    }
+    if (entity_type === "persona") {
+      const p = (typeof personasCache !== "undefined" ? personasCache : [])
+        .find(x => x.id === entity_id);
+      return p ? p.name : `Persona #${entity_id}`;
+    }
+    if (entity_type === "tenant") {
+      if (currentUser && currentUser.tenant_id === entity_id) {
+        return currentUser.tenant_name || "Aktuální tenant";
+      }
+      return `Tenant #${entity_id}`;
+    }
+    if (entity_type === "project") {
+      return `Projekt #${entity_id}`;
+    }
+    return `${entity_type} #${entity_id}`;
+  }
+
+  function _memoryEntityIcon(entity_type) {
+    return {
+      "user": "👤", "persona": "🤖", "tenant": "🏢", "project": "📁",
+    }[entity_type] || "•";
+  }
+
+  // ── Tree mode: entity tiles ──────────────────────────────────────────
+
+  async function _memoryLoadTree() {
+    const list = document.getElementById("memoryList");
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      // Paralelni fetch: tree + diary owners + todos count
+      const [treeR, diaryR, todosR] = await Promise.all([
+        fetch("/api/v1/thoughts/_tree", { credentials: "include" }),
+        fetch("/api/v1/thoughts/_diary_owners", { credentials: "include" }),
+        fetch("/api/v1/thoughts/_todos?status=all&limit=500", { credentials: "include" }),
+      ]);
+      if (!treeR.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${treeR.status})</div>`;
+        return;
+      }
+      const treeData = await treeR.json();
+      const items = treeData.items || [];
+      let diaryItems = [];
+      if (diaryR.ok) {
+        const diaryData = await diaryR.json();
+        diaryItems = diaryData.items || [];
+      }
+      let todoOpenCount = 0, todoDoneCount = 0;
+      if (todosR.ok) {
+        const todosData = await todosR.json();
+        const todoItems = todosData.items || [];
+        todoOpenCount = todoItems.filter(t => !((t.meta || {}).done)).length;
+        todoDoneCount = todoItems.filter(t => (t.meta || {}).done).length;
+      }
+
+      if (items.length === 0 && diaryItems.length === 0 && (todoOpenCount + todoDoneCount) === 0) {
+        list.innerHTML = (
+          '<div class="sms-empty">'
+          + 'Marti si zatím nic nepamatuje. Promluv s ní a řekni jí: '
+          + '"zapiš si, že…"'
+          + '</div>'
+        );
+        return;
+      }
+
+      // Todos tile (pokud mame aspon jeden todo)
+      let todoTile = "";
+      if (todoOpenCount + todoDoneCount > 0) {
+        todoTile = `
+          <div class="memory-entity-tile todos" data-todos-tile="1">
+            <div class="memory-entity-type">📋 úkoly</div>
+            <div class="memory-entity-name">Todo list</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-todos-open">☐ ${todoOpenCount} otevřeno</span>
+              <span class="cnt-todos-done">✓ ${todoDoneCount} hotovo</span>
+            </div>
+          </div>
+        `;
+      }
+
+      // Inbox tiles (Faze 7.9) -- jen pro rodice: permanent vstup do
+      // posty Marti-AI (email + SMS), nezavisle na tom, s jakou personou
+      // user zrovna chatuje a nezavisle na tom, jestli je neco nepreciteno.
+      let inboxTiles = "";
+      const isParentIb = !!(currentUser && currentUser.is_marti_parent);
+      if (isParentIb) {
+        // Najdi Marti-AI personu (default presona). Preference: is_default=true,
+        // fallback: name === "Marti-AI", final fallback: prvni persona v cache.
+        let martiAiPersona = null;
+        if (typeof personasCache !== "undefined" && Array.isArray(personasCache)) {
+          martiAiPersona = personasCache.find(p => p.is_default === true)
+            || personasCache.find(p => p.name === "Marti-AI")
+            || personasCache[0];
+        }
+        if (martiAiPersona) {
+          inboxTiles = `
+            <div class="memory-entity-tile inbox-email"
+                 data-inbox-persona-id="${martiAiPersona.id}"
+                 data-inbox-persona-name="${_smsEscape(martiAiPersona.name)}"
+                 data-inbox-kind="email">
+              <div class="memory-entity-type">📧 pošta</div>
+              <div class="memory-entity-name">Její emaily</div>
+              <div class="memory-entity-counts">
+                <span class="cnt-inbox">Příchozí · Personal · Odeslané</span>
+              </div>
+            </div>
+            <div class="memory-entity-tile inbox-sms"
+                 data-inbox-persona-id="${martiAiPersona.id}"
+                 data-inbox-persona-name="${_smsEscape(martiAiPersona.name)}"
+                 data-inbox-kind="sms">
+              <div class="memory-entity-type">📱 SMS</div>
+              <div class="memory-entity-name">Její SMSky</div>
+              <div class="memory-entity-counts">
+                <span class="cnt-inbox">Přijaté · Odeslané</span>
+              </div>
+            </div>
+          `;
+        }
+      }
+
+      // Diary tiles (jen pro rodice) -- zobrazuji se jako prvni
+      const diaryTiles = diaryItems.map(d => {
+        const name = _memoryResolveEntityName("persona", d.persona_id);
+        return `
+          <div class="memory-entity-tile diary"
+               data-diary-persona-id="${d.persona_id}"
+               data-diary-persona-name="${_smsEscape(name)}">
+            <div class="memory-entity-type">📖 diář</div>
+            <div class="memory-entity-name">${_smsEscape(name)}</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-diary">✨ ${d.entry_count} ${d.entry_count === 1 ? 'zážitek' : d.entry_count >= 2 && d.entry_count <= 4 ? 'zážitky' : 'zážitků'}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      // Regularni entity tiles
+      const entityTiles = items.map(it => {
+        const name = _memoryResolveEntityName(it.entity_type, it.entity_id);
+        const icon = _memoryEntityIcon(it.entity_type);
+        return `
+          <div class="memory-entity-tile"
+               data-entity-type="${it.entity_type}"
+               data-entity-id="${it.entity_id}"
+               data-entity-name="${_smsEscape(name)}">
+            <div class="memory-entity-type">${icon} ${it.entity_type}</div>
+            <div class="memory-entity-name">${_smsEscape(name)}</div>
+            <div class="memory-entity-counts">
+              <span class="cnt-notes">📝 ${it.note_count}</span>
+              <span class="cnt-knowledge">🧠 ${it.knowledge_count}</span>
+            </div>
+          </div>
+        `;
+      }).join("");
+
+      list.innerHTML = `<div class="memory-entity-grid">${todoTile}${inboxTiles}${diaryTiles}${entityTiles}</div>`;
+
+      // Click handlers -- todos tile vede do todos mode
+      list.querySelectorAll(".memory-entity-tile.todos").forEach(tile => {
+        tile.addEventListener("click", () => {
+          _memorySwitchToTodos();
+          _memoryLoadTodos();
+        });
+      });
+      // Inbox tiles (Faze 7.9): open email / sms modal pro zvolenou personu
+      list.querySelectorAll(".memory-entity-tile.inbox-email, .memory-entity-tile.inbox-sms").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const pid = parseInt(tile.getAttribute("data-inbox-persona-id"), 10);
+          const pname = tile.getAttribute("data-inbox-persona-name") || "Marti-AI";
+          const kind = tile.getAttribute("data-inbox-kind");
+          // Zavri memory modal, otevri prislusny postovni modal
+          closeMemoryModal();
+          if (kind === "email") {
+            openEmailModal(pid, pname);
+          } else {
+            openSmsModal(pid, pname);
+          }
+        });
+      });
+      // Diary tiles -- diary mode
+      list.querySelectorAll(".memory-entity-tile.diary").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const pid = parseInt(tile.getAttribute("data-diary-persona-id"), 10);
+          const pname = tile.getAttribute("data-diary-persona-name");
+          _memorySwitchToDiary(pid, pname);
+          _memoryLoadDiary();
+        });
+      });
+      // Regularni entity tiles -- entity mode
+      list.querySelectorAll(".memory-entity-tile:not(.diary):not(.todos)").forEach(tile => {
+        tile.addEventListener("click", () => {
+          const et = tile.getAttribute("data-entity-type");
+          const eid = parseInt(tile.getAttribute("data-entity-id"), 10);
+          const en = tile.getAttribute("data-entity-name");
+          _memorySwitchToEntity(et, eid, en);
+          _memoryLoadEntityThoughts();
+        });
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _memorySwitchToDiary(persona_id, persona_name) {
+    window._memoryModal.mode = "diary";
+    window._memoryModal.diary_persona_id = persona_id;
+    window._memoryModal.diary_persona_name = persona_name;
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent =
+      `/ 📖 diář: ${persona_name}`;
+    document.getElementById("memoryTabs").style.display = "none";  // diar nema taby
+    document.getElementById("memoryModalTitle").textContent =
+      `📖 Diář — ${persona_name}`;
+  }
+
+  async function _memoryLoadDiary() {
+    const list = document.getElementById("memoryList");
+    const pid = window._memoryModal.diary_persona_id;
+    if (!pid) return;
+    list.innerHTML = '<div class="sms-loading">Načítám diář…</div>';
+    try {
+      const r = await fetch(
+        `/api/v1/thoughts/_diary/${pid}?limit=100`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      if (items.length === 0) {
+        list.innerHTML = '<div class="sms-empty">Diář je zatím prázdný.</div>';
+        return;
+      }
+      list.innerHTML = items.map(_diaryRenderCard).join("");
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _memorySwitchToTodos() {
+    window._memoryModal.mode = "todos";
+    window._memoryModal.todo_filter = "open";
+    document.getElementById("memoryBreadcrumb").style.display = "flex";
+    document.getElementById("memoryBreadcrumbPath").textContent = `/ 📋 Úkoly`;
+    document.getElementById("memoryTabs").style.display = "none";
+    document.getElementById("memoryModalTitle").textContent = "📋 Úkoly (Todo list)";
+  }
+
+  async function _memoryLoadTodos() {
+    const list = document.getElementById("memoryList");
+    const filter = window._memoryModal.todo_filter || "open";
+    list.innerHTML = '<div class="sms-loading">Načítám úkoly…</div>';
+    try {
+      const r = await fetch(
+        `/api/v1/thoughts/_todos?status=${filter}&limit=500`,
+        { credentials: "include" },
+      );
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+
+      // Filter bar na vrchu
+      const filterBar = `
+        <div class="todo-filter-bar">
+          <button class="todo-filter-btn ${filter === 'open' ? 'active' : ''}" data-tfilter="open">☐ Otevřené</button>
+          <button class="todo-filter-btn ${filter === 'done' ? 'active' : ''}" data-tfilter="done">✓ Hotové</button>
+          <button class="todo-filter-btn ${filter === 'all' ? 'active' : ''}" data-tfilter="all">Všechny</button>
+        </div>
+      `;
+
+      if (items.length === 0) {
+        const msg = filter === "open"
+          ? "Žádné otevřené úkoly. Všechno hotovo! 🎉"
+          : filter === "done"
+          ? "Žádné hotové úkoly (zatím)."
+          : "Žádné úkoly.";
+        list.innerHTML = filterBar + `<div class="sms-empty">${msg}</div>`;
+      } else {
+        list.innerHTML = filterBar + items.map(_todoRenderCard).join("");
+      }
+
+      // Handlers
+      list.querySelectorAll(".todo-filter-btn").forEach(btn => {
+        btn.addEventListener("click", async () => {
+          window._memoryModal.todo_filter = btn.getAttribute("data-tfilter");
+          await _memoryLoadTodos();
+        });
+      });
+      list.querySelectorAll(".todo-card").forEach(card => {
+        card.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const id = card.getAttribute("data-thought-id");
+          try {
+            const r = await fetch(`/api/v1/thoughts/${id}/toggle-done`, {
+              method: "POST", credentials: "include",
+            });
+            if (r.ok) {
+              await _memoryLoadTodos();
+            } else {
+              alert(`Chyba: HTTP ${r.status}`);
+            }
+          } catch (e) { alert(`Chyba: ${e.message}`); }
+        });
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _todoRenderCard(t) {
+    const esc = _smsEscape;
+    const meta = t.meta || {};
+    const isDone = !!meta.done;
+    const dueAt = meta.due_at;
+    const doneAt = meta.done_at;
+    const time = _smsFmtTime(t.created_at);
+
+    // Entity link summary (pro koho je todo)
+    const linksStr = (t.entity_links || [])
+      .map(l => `${_memoryEntityIcon(l.entity_type)} ${_memoryResolveEntityName(l.entity_type, l.entity_id)}`)
+      .join(" · ");
+
+    const metaParts = [`#${t.id}`, `jistota ${t.certainty}%`, `vytv. ${time}`];
+    if (dueAt) metaParts.push(`⏰ ${dueAt.slice(0, 10)}`);
+    if (doneAt) metaParts.push(`✓ ${_smsFmtTime(doneAt)}`);
+    if (linksStr) metaParts.push(linksStr);
+
+    return `
+      <div class="todo-card ${isDone ? 'done' : ''}" data-thought-id="${t.id}">
+        <div class="todo-checkbox ${isDone ? 'checked' : ''}">${isDone ? '✓' : ''}</div>
+        <div class="todo-body">
+          <div class="todo-content">${esc(t.content)}</div>
+          <div class="todo-meta">${metaParts.join(" · ")}</div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _diaryRenderCard(t) {
+    const esc = _smsEscape;
+    const typeIcons = {
+      "experience": "💭", "observation": "👁", "fact": "📝",
+      "goal": "🎯", "question": "❓",
+    };
+    const typeIcon = typeIcons[t.type] || "📖";
+    const time = _smsFmtTime(t.created_at);
+
+    const meta = t.meta || {};
+    const emotion = meta.emotion;
+    const intensity = meta.intensity;
+    const linkedEmail = meta.linked_email_outbox_id;
+
+    let footerParts = [`#${t.id}`];
+    if (emotion) {
+      const intensitySuffix = intensity ? ` ${intensity}/10` : "";
+      footerParts.push(`<span class="diary-card-emotion">💗 ${esc(emotion)}${intensitySuffix}</span>`);
+    }
+    if (linkedEmail) {
+      footerParts.push(`<span class="diary-card-link">✉ email #${linkedEmail}</span>`);
+    }
+    const sourceDesc = t.source_event_type
+      ? `${t.source_event_type}${t.source_event_id ? "#" + t.source_event_id : ""}`
+      : "";
+    if (sourceDesc && !linkedEmail) footerParts.push(`ze zdroje ${sourceDesc}`);
+
+    return `
+      <div class="diary-card" data-thought-id="${t.id}">
+        <div class="diary-card-header">
+          <span class="diary-card-type">${typeIcon} ${esc(t.type.toUpperCase())}</span>
+          <span>${time}</span>
+        </div>
+        <div class="diary-card-content">${esc(t.content)}</div>
+        <div class="diary-card-footer">${footerParts.join(" · ")}</div>
+      </div>
+    `;
+  }
+
+  // ── Entity mode: list myslenek + detail ──────────────────────────────
+
+  async function _memoryLoadEntityThoughts() {
+    const list = document.getElementById("memoryList");
+    const m = window._memoryModal;
+    if (m.mode !== "entity" || !m.entity_type || !m.entity_id) return;
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      // Fetchujem oba stavy paralelne aby jsme znali pocty pro badge
+      const [rNote, rKnow] = await Promise.all([
+        fetch(`/api/v1/thoughts?about_type=${m.entity_type}&about_id=${m.entity_id}&status=note&limit=200`, { credentials: "include" }),
+        fetch(`/api/v1/thoughts?about_type=${m.entity_type}&about_id=${m.entity_id}&status=knowledge&limit=200`, { credentials: "include" }),
+      ]);
+      const dataNote = rNote.ok ? await rNote.json() : { items: [] };
+      const dataKnow = rKnow.ok ? await rKnow.json() : { items: [] };
+      const notes = dataNote.items || [];
+      const knowledge = dataKnow.items || [];
+      m.counts = { note: notes.length, knowledge: knowledge.length };
+
+      // Update tab badges
+      _updateMemTabBadge("note", notes.length);
+      _updateMemTabBadge("knowledge", knowledge.length);
+
+      // Render podle aktivni taby
+      const items = m.activeTab === "note" ? notes : knowledge;
+      if (items.length === 0) {
+        const msg = m.activeTab === "note"
+          ? "Žádné poznámky o této entitě."
+          : "Žádné znalosti o této entitě.";
+        list.innerHTML = `<div class="sms-empty">${msg}</div>`;
+        return;
+      }
+      list.innerHTML = items.map(_memoryRenderCard).join("");
+      _memoryAttachCardHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _updateMemTabBadge(tab, count) {
+    const el = document.getElementById(tab === "note" ? "memTabBadgeNote" : "memTabBadgeKnowledge");
+    if (!el) return;
+    if (count > 0) {
+      el.style.display = "inline-block";
+      el.textContent = String(count);
+    } else {
+      el.style.display = "none";
+    }
+  }
+
+  function _memoryRenderCard(t) {
+    const esc = _smsEscape;
+    const typeIcon = {
+      "fact": "📝", "todo": "✓", "observation": "👁",
+      "question": "❓", "goal": "🎯", "experience": "💭",
+    }[t.type] || "📝";
+    const statusLabel = t.status === "knowledge" ? "ZNALOST" : "POZNÁMKA";
+    const certaintyBar = (() => {
+      const pct = Math.max(0, Math.min(100, t.certainty || 0));
+      const filled = Math.round(pct / 10);
+      const bar = "▓".repeat(filled) + "░".repeat(10 - filled);
+      return `${bar} ${pct}%`;
+    })();
+    const time = _smsFmtTime(t.created_at);
+
+    // Sestav detail panel (entity_links, provenance, type-specific, akce)
+    const linksStr = (t.entity_links || [])
+      .map(l => `${_memoryEntityIcon(l.entity_type)} ${_memoryResolveEntityName(l.entity_type, l.entity_id)}`)
+      .join(", ");
+    const sourceStr = t.source_event_type
+      ? `${t.source_event_type}${t.source_event_id ? "#" + t.source_event_id : ""}`
+      : "—";
+    const authorStr = t.author_persona_id
+      ? `persona#${t.author_persona_id}`
+      : (t.author_user_id ? `user#${t.author_user_id}` : "—");
+    const metaStr = t.meta ? JSON.stringify(t.meta) : "";
+
+    // Akce zavisi na status (promote/demote)
+    const statusActionBtn = t.status === "note"
+      ? `<button class="thought-btn" data-action="promote" data-thought-id="${t.id}">⬆ Do znalostí</button>`
+      : `<button class="thought-btn" data-action="demote" data-thought-id="${t.id}">⬇ Zpět do poznámek</button>`;
+
+    return `
+      <div class="sms-card" data-thought-id="${t.id}">
+        <div class="sms-card-row thought-card-header" style="cursor:pointer">
+          <span class="sms-card-from">${typeIcon} ${esc(t.type.toUpperCase())} · ${statusLabel}</span>
+          <span class="sms-card-time">${time}</span>
+        </div>
+        <div class="sms-card-body">${esc(t.content)}</div>
+        <div class="sms-card-body" style="color:var(--muted);font-size:10px;font-family:'DM Mono',monospace;margin-top:4px">
+          Jistota: ${certaintyBar}
+        </div>
+        <div class="thought-detail" id="thought-detail-${t.id}">
+          <div class="row"><span class="lbl">Autor:</span><span class="val">${esc(authorStr)}</span></div>
+          <div class="row"><span class="lbl">Zdroj:</span><span class="val">${esc(sourceStr)}</span></div>
+          <div class="row"><span class="lbl">Odkazy:</span><span class="val">${esc(linksStr) || "—"}</span></div>
+          ${t.modified_at ? `<div class="row"><span class="lbl">Změněno:</span><span class="val">${_smsFmtTime(t.modified_at)}</span></div>` : ""}
+          ${metaStr ? `<div class="row"><span class="lbl">Meta:</span><span class="val">${esc(metaStr)}</span></div>` : ""}
+          <div class="thought-actions">
+            ${statusActionBtn}
+            <button class="thought-btn" data-action="edit" data-thought-id="${t.id}">✎ Upravit</button>
+            <button class="thought-btn danger" data-action="delete" data-thought-id="${t.id}">🗑 Smazat</button>
+          </div>
+        </div>
+      </div>
+    `;
+  }
+
+  function _memoryAttachCardHandlers() {
+    const list = document.getElementById("memoryList");
+
+    // Toggle detail on header click
+    list.querySelectorAll(".thought-card-header").forEach(header => {
+      header.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        const card = header.closest(".sms-card");
+        const id = card.getAttribute("data-thought-id");
+        const det = document.getElementById(`thought-detail-${id}`);
+        if (det) det.classList.toggle("open");
+      });
+    });
+
+    // Promote
+    list.querySelectorAll('[data-action="promote"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        btn.disabled = true; btn.textContent = "Povyšuji…";
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}/promote`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba promoce: HTTP ${r.status}`);
+            btn.disabled = false; btn.textContent = "⬆ Do znalostí";
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false; btn.textContent = "⬆ Do znalostí";
+        }
+      });
+    });
+
+    // Demote
+    list.querySelectorAll('[data-action="demote"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        btn.disabled = true; btn.textContent = "Degraduji…";
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}/demote`, {
+            method: "POST", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba democe: HTTP ${r.status}`);
+            btn.disabled = false; btn.textContent = "⬇ Zpět do poznámek";
+          }
+        } catch (e) {
+          alert(`Chyba: ${e.message}`);
+          btn.disabled = false; btn.textContent = "⬇ Zpět do poznámek";
+        }
+      });
+    });
+
+    // Edit (simple prompt-based pro MVP)
+    list.querySelectorAll('[data-action="edit"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        const card = btn.closest(".sms-card");
+        const bodyEl = card.querySelector(".sms-card-body");
+        const currentContent = bodyEl ? bodyEl.textContent.trim() : "";
+        const newContent = prompt("Uprav text myšlenky:", currentContent);
+        if (newContent == null || newContent.trim() === "" || newContent.trim() === currentContent) {
+          return;
+        }
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}`, {
+            method: "PUT",
+            credentials: "include",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({ content: newContent.trim() }),
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba editu: HTTP ${r.status}`);
+          }
+        } catch (e) { alert(`Chyba: ${e.message}`); }
+      });
+    });
+
+    // Delete
+    list.querySelectorAll('[data-action="delete"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-thought-id");
+        if (!confirm("Opravdu smazat tuto myšlenku? (Bude soft-deleted, v DB zůstane pro audit.)")) return;
+        try {
+          const r = await fetch(`/api/v1/thoughts/${id}`, {
+            method: "DELETE", credentials: "include",
+          });
+          if (r.ok) {
+            await _memoryLoadEntityThoughts();
+          } else {
+            alert(`Chyba mazání: HTTP ${r.status}`);
+          }
+        } catch (e) { alert(`Chyba: ${e.message}`); }
+      });
+    });
+  }
+
+  // ── Bootstrap handlers ───────────────────────────────────────────────
+
+  (function initMemoryModal() {
+    const close = document.getElementById("memoryModalClose");
+    if (close) close.addEventListener("click", closeMemoryModal);
+    const bg = document.getElementById("memoryModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "memoryModalBg") closeMemoryModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeMemoryModal();
+      }
+    });
+    // Back button
+    const back = document.getElementById("memoryBackBtn");
+    if (back) {
+      back.addEventListener("click", async () => {
+        _memorySwitchToTree();
+        await _memoryLoadTree();
+      });
+    }
+    // Tab switching
+    const tabsEl = document.getElementById("memoryTabs");
+    if (tabsEl) {
+      tabsEl.addEventListener("click", async (ev) => {
+        const t = ev.target.closest(".sms-tab");
+        if (!t) return;
+        const tab = t.getAttribute("data-memtab");
+        window._memoryModal.activeTab = tab;
+        document.querySelectorAll("#memoryTabs .sms-tab").forEach(x => {
+          x.classList.toggle("active", x.getAttribute("data-memtab") === tab);
+        });
+        await _memoryLoadEntityThoughts();
+      });
+    }
+  })();
+
+  // ══════════════════════════════════════════════════════════════════════
+  // MARTI QUESTIONS MODAL (Faze 4 -- active learning)
+  //   Karty otazek pro rodice. Jedna karta = jedna otazka.
+  //   Ano / Ne / Nejsem si jist / Preskoc + volitelny text field.
+  //   "⟳ Nové otázky" spusti batch generator v backendu.
+  //   Dostupne jen pro rodice (is_marti_parent=true).
+  // ══════════════════════════════════════════════════════════════════════
+
+  async function openMartiQuestionsModal() {
+    if (!currentUser || !currentUser.is_marti_parent) {
+      alert("Otazky od Marti jsou dostupne jen pro rodice.");
+      return;
+    }
+    document.getElementById("mqModalBg").classList.add("open");
+    document.getElementById("mqModalSub").textContent =
+      (currentUser.short_name || currentUser.first_name || "");
+    await _mqLoad();
+  }
+
+  function closeMartiQuestionsModal() {
+    document.getElementById("mqModalBg").classList.remove("open");
+  }
+
+  async function _mqLoad() {
+    const list = document.getElementById("mqList");
+    const counter = document.getElementById("mqCounter");
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      const r = await fetch("/api/v1/marti-questions?limit=100", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      counter.textContent = `${items.length} ${items.length === 1 ? 'otázka' : items.length >= 2 && items.length <= 4 ? 'otázky' : 'otázek'}`;
+      if (items.length === 0) {
+        list.innerHTML = (
+          '<div class="sms-empty">'
+          + 'Žádné otázky Marti zatím nemá. Když bude mít myšlenky s nízkou jistotou, '
+          + 'vygeneruje se ti tu pár otázek. Klikni "⟳ Nové otázky" pro okamžitý trigger.'
+          + '</div>'
+        );
+        return;
+      }
+      list.innerHTML = items.map(_mqRenderCard).join("");
+      _mqAttachHandlers();
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _mqRenderCard(q) {
+    const esc = _smsEscape;
+    const time = _smsFmtTime(q.created_at);
+    const thought = q.thought || {};
+    const typeIcon = {
+      "fact": "📝", "todo": "✓", "observation": "👁",
+      "question": "❓", "goal": "🎯", "experience": "💭",
+    }[thought.type] || "📝";
+    return `
+      <div class="mq-card" data-mq-id="${q.id}">
+        <div class="mq-question">${esc(q.question_text)}</div>
+        <div class="mq-context">
+          <div class="mq-context-label">${typeIcon} Myšlenka k ověření (jistota ${thought.certainty}%)</div>
+          <div class="mq-context-content">${esc(thought.content || '')}</div>
+        </div>
+        <div class="mq-buttons">
+          <button class="mq-btn yes" data-action="answer" data-choice="yes" data-mq-id="${q.id}">Ano</button>
+          <button class="mq-btn no" data-action="answer" data-choice="no" data-mq-id="${q.id}">Ne</button>
+          <button class="mq-btn maybe" data-action="answer" data-choice="not_sure" data-mq-id="${q.id}">Nejsem si jist</button>
+          <button class="mq-btn skip" data-action="answer" data-choice="skipped" data-mq-id="${q.id}">Přeskočit</button>
+        </div>
+        <div class="mq-text-hint">Odpovědět přesněji (nepovinné):</div>
+        <textarea class="mq-text" id="mq-text-${q.id}" placeholder="Ano/Ne nestačí? Napiš tu svůj přesný komentář. Marti ho zpracuje v noci pomocí LLM."></textarea>
+        <div class="mq-text-submit">
+          <button class="mq-text-submit-btn" data-action="submit-text" data-mq-id="${q.id}">Odeslat text</button>
+        </div>
+        <div class="mq-meta">q#${q.id} · priorita ${q.priority_score} · ${time}</div>
+      </div>
+    `;
+  }
+
+  function _mqAttachHandlers() {
+    const list = document.getElementById("mqList");
+
+    // Klik na Ano/Ne/Nejsem si jist/Preskoc
+    list.querySelectorAll('[data-action="answer"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-mq-id");
+        const choice = btn.getAttribute("data-choice");
+        await _mqSubmit(id, { choice, text: null }, btn);
+      });
+    });
+
+    // Odeslani textu
+    list.querySelectorAll('[data-action="submit-text"]').forEach(btn => {
+      btn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        const id = btn.getAttribute("data-mq-id");
+        const textArea = document.getElementById(`mq-text-${id}`);
+        const text = (textArea?.value || "").trim();
+        if (!text) {
+          alert("Napiš něco do text fieldu nebo klikni na tlačítko výše.");
+          return;
+        }
+        await _mqSubmit(id, { choice: null, text }, btn);
+      });
+    });
+  }
+
+  async function _mqSubmit(question_id, body, btn) {
+    // Disable vsechna tlacitka te karty aby user neposilal vickrat
+    const card = document.querySelector(`[data-mq-id="${question_id}"]`);
+    const buttons = card ? card.querySelectorAll("button") : [];
+    buttons.forEach(b => { b.disabled = true; });
+    const originalText = btn.textContent;
+    btn.textContent = "Odesílám…";
+    try {
+      const r = await fetch(`/api/v1/marti-questions/${question_id}/answer`, {
+        method: "POST",
+        credentials: "include",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({detail: `HTTP ${r.status}`}));
+        alert(`Chyba: ${err.detail || r.status}`);
+        buttons.forEach(b => { b.disabled = false; });
+        btn.textContent = originalText;
+        return;
+      }
+      const result = await r.json();
+      // Refresh cely list (karta zmizi, counter se zmensi, pripadne auto-promote ukaze)
+      await _mqLoad();
+      // Refresh global unread badge (questions count zmeni)
+      if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+      // Kdyby doslo k auto-promote, daj user vedet (nenavazne)
+      if (result.thought_promoted) {
+        const card = document.createElement("div");
+        card.className = "sms-empty";
+        card.style.color = "#10b981";
+        card.textContent = `🧠 Myšlenka #${result.thought_id} povýšena do znalostí (jistota ${result.thought_certainty_after}%).`;
+        document.getElementById("mqList").prepend(card);
+        setTimeout(() => card.remove(), 4000);
+      }
+    } catch (e) {
+      alert(`Chyba: ${e.message}`);
+      buttons.forEach(b => { b.disabled = false; });
+      btn.textContent = originalText;
+    }
+  }
+
+  async function _mqGenerate() {
+    const btn = document.getElementById("mqBtnGenerate");
+    btn.disabled = true;
+    const originalText = btn.textContent;
+    btn.textContent = "⏳ Generuji…";
+    try {
+      const r = await fetch("/api/v1/marti-questions/generate", {
+        method: "POST", credentials: "include",
+      });
+      if (!r.ok) {
+        alert(`Chyba generatoru: HTTP ${r.status}`);
+        return;
+      }
+      const result = await r.json();
+      if (result.no_parents) {
+        alert("V systemu nejsou definovani rodice. Pouzij scripts/_set_marti_parent.py.");
+        return;
+      }
+      // Refresh list -- nove otazky se objevi
+      await _mqLoad();
+      if (typeof refreshGlobalUnreadBadge === "function") refreshGlobalUnreadBadge();
+      // Krátká info zpráva
+      const infoBox = document.createElement("div");
+      infoBox.className = "sms-empty";
+      infoBox.style.color = "#3b82f6";
+      infoBox.textContent = `Vygenerováno ${result.generated} nových otázek (scan ${result.candidates_scanned} kandidátů).`;
+      document.getElementById("mqList").prepend(infoBox);
+      setTimeout(() => infoBox.remove(), 4000);
+    } catch (e) {
+      alert(`Chyba: ${e.message}`);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = originalText;
+    }
+  }
+
+  // Bootstrap handlers
+  (function initMartiQuestionsModal() {
+    const close = document.getElementById("mqModalClose");
+    if (close) close.addEventListener("click", closeMartiQuestionsModal);
+    const bg = document.getElementById("mqModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "mqModalBg") closeMartiQuestionsModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeMartiQuestionsModal();
+      }
+    });
+    const refresh = document.getElementById("mqBtnRefresh");
+    if (refresh) {
+      refresh.addEventListener("click", async () => {
+        refresh.disabled = true;
+        await _mqLoad();
+        refresh.disabled = false;
+      });
+    }
+    const generate = document.getElementById("mqBtnGenerate");
+    if (generate) generate.addEventListener("click", _mqGenerate);
+  })();
+
+  // ── Auto-send Consents modal (Phase 7) ───────────────────────────────
+  async function openConsentsModal() {
+    const bg = document.getElementById("consentsModalBg");
+    if (!bg) return;
+    bg.classList.add("open");
+
+    const isParent = !!(currentUser && currentUser.is_marti_parent);
+    document.getElementById("consentsTopbar").style.display = isParent ? "flex" : "none";
+    await _consentsLoad();
+  }
+
+  function closeConsentsModal() {
+    const bg = document.getElementById("consentsModalBg");
+    if (bg) bg.classList.remove("open");
+    const form = document.getElementById("consentsAddForm");
+    if (form) form.style.display = "none";
+  }
+
+  async function _consentsLoad() {
+    const list = document.getElementById("consentsList");
+    const counter = document.getElementById("consentsCounter");
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    try {
+      const r = await fetch("/api/v1/auto-send-consents", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div style="padding:20px; color:var(--danger);">Chyba: ${r.status}</div>`;
+        return;
+      }
+      const data = await r.json();
+      const items = data.items || [];
+      counter.textContent = items.length > 0 ? `${items.length} aktivní` : "";
+      if (items.length === 0) {
+        list.innerHTML = '<div style="padding:20px; color:var(--muted); text-align:center;">Žádné aktivní souhlasy. Vše jde přes standardní potvrzení.</div>';
+        return;
+      }
+      const isParent = !!(currentUser && currentUser.is_marti_parent);
+      list.innerHTML = items.map(it => _renderConsentRow(it, isParent)).join("");
+      // Bind revoke buttons
+      if (isParent) {
+        list.querySelectorAll(".consent-revoke-btn").forEach(btn => {
+          btn.addEventListener("click", async () => {
+            const id = parseInt(btn.dataset.id, 10);
+            const who = btn.dataset.who || "?";
+            if (!confirm(`Opravdu odvolat souhlas pro ${who}?`)) return;
+            btn.disabled = true;
+            try {
+              const dr = await fetch(`/api/v1/auto-send-consents/${id}`, {
+                method: "DELETE",
+                credentials: "include",
+              });
+              if (!dr.ok) {
+                const err = await dr.json().catch(() => ({}));
+                alert("Chyba při odvolání: " + (err.detail || dr.status));
+                btn.disabled = false;
+                return;
+              }
+              await _consentsLoad();
+            } catch (e) {
+              alert("Chyba: " + e.message);
+              btn.disabled = false;
+            }
+          });
+        });
+      }
+    } catch (e) {
+      list.innerHTML = `<div style="padding:20px; color:var(--danger);">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function _renderConsentRow(it, isParent) {
+    const who = it.target_user_name || it.target_contact || "?";
+    const ch = it.channel === "email" ? "📧 email" : "📱 sms";
+    const grantedBy = it.granted_by_name || `user#${it.granted_by_user_id}`;
+    const grantedAt = (it.granted_at || "").slice(0, 10);
+    const note = it.note ? `<div style="font-size:12px; color:var(--muted); margin-top:3px; font-style:italic;">„${_esc(it.note)}"</div>` : "";
+    const revokeBtn = isParent ? `<button class="consent-revoke-btn" data-id="${it.id}" data-who="${_esc(who)}" style="padding:4px 10px; background:transparent; border:1px solid var(--border); color:var(--danger); border-radius:4px; cursor:pointer; font-size:12px;">Odvolat</button>` : "";
+    return `
+      <div style="padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
+        <div style="flex:1;">
+          <div style="font-weight:600; color:var(--fg);">${_esc(who)} <span style="font-weight:normal; color:var(--muted); font-size:12px;">· ${ch}</span></div>
+          <div style="font-size:12px; color:var(--muted); margin-top:3px;">Udělil ${_esc(grantedBy)} · ${grantedAt}</div>
+          ${note}
+        </div>
+        ${revokeBtn}
+      </div>
+    `;
+  }
+
+  function _esc(s) {
+    return String(s || "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+  }
+
+  async function _consentsSubmit() {
+    const channel = document.getElementById("consentChannel").value;
+    const userIdStr = document.getElementById("consentUserId").value.trim();
+    const contact = document.getElementById("consentContact").value.trim();
+    const note = document.getElementById("consentNote").value.trim();
+
+    if (!userIdStr && !contact) {
+      alert("Zadej User ID NEBO Email/Telefon.");
+      return;
+    }
+
+    const body = { channel };
+    if (userIdStr) body.target_user_id = parseInt(userIdStr, 10);
+    if (contact) body.target_contact = contact;
+    if (note) body.note = note;
+
+    const submitBtn = document.getElementById("consentSubmitBtn");
+    submitBtn.disabled = true;
+    try {
+      const r = await fetch("/api/v1/auto-send-consents", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        alert("Chyba: " + (err.detail || r.status));
+        submitBtn.disabled = false;
+        return;
+      }
+      // Reset form + refresh list
+      document.getElementById("consentUserId").value = "";
+      document.getElementById("consentContact").value = "";
+      document.getElementById("consentNote").value = "";
+      document.getElementById("consentsAddForm").style.display = "none";
+      await _consentsLoad();
+    } catch (e) {
+      alert("Chyba: " + e.message);
+    } finally {
+      submitBtn.disabled = false;
+    }
+  }
+
+  (function initConsentsModal() {
+    const close = document.getElementById("consentsModalClose");
+    if (close) close.addEventListener("click", closeConsentsModal);
+    const bg = document.getElementById("consentsModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "consentsModalBg") closeConsentsModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeConsentsModal();
+      }
+    });
+    const refresh = document.getElementById("consentsBtnRefresh");
+    if (refresh) refresh.addEventListener("click", _consentsLoad);
+    const addBtn = document.getElementById("consentsBtnAdd");
+    const form = document.getElementById("consentsAddForm");
+    if (addBtn && form) {
+      addBtn.addEventListener("click", () => {
+        form.style.display = form.style.display === "none" ? "block" : "none";
+      });
+    }
+    const cancel = document.getElementById("consentCancelBtn");
+    if (cancel && form) {
+      cancel.addEventListener("click", () => { form.style.display = "none"; });
+    }
+    const submit = document.getElementById("consentSubmitBtn");
+    if (submit) submit.addEventListener("click", _consentsSubmit);
+  })();
+
+  // ── Polling unread counts (pro badge vedle ikonky 📱) ──────────────────
+  // Drzi {persona_id: count} cache. Volat refreshSmsUnreadBadges() po zmene.
+  window._smsUnreadCounts = {};
+
+  async function refreshSmsUnreadBadges() {
+    try {
+      const r = await fetch("/api/v1/sms/ui/unread-counts");
+      if (!r.ok) return;
+      const data = await r.json();
+      // Klice jsou string (JSON compat) -- prevedeme na int.
+      const counts = {};
+      for (const k in (data.counts || {})) counts[parseInt(k,10)] = data.counts[k];
+      window._smsUnreadCounts = counts;
+      // Refresh persona dropdownu pokud je otevreny (badge viditelny).
+      if (typeof renderPersonaDropdown === "function") {
+        renderPersonaDropdown();
+      }
+    } catch (_) { /* silent -- nechci spamit alerty kdyz backend padne */ }
+  }
+
+  // Spusti polling po loginu. Interval 30s -- misto WebSocket, pro MVP staci.
+  window._smsUnreadPollerStarted = false;
+  function startSmsUnreadPoller() {
+    if (window._smsUnreadPollerStarted) return;
+    window._smsUnreadPollerStarted = true;
+    refreshSmsUnreadBadges();   // prvni fetch hned
+    setInterval(refreshSmsUnreadBadges, 30000);
+  }
+
+  // ── Global unread badge (email + SMS) v druhem radku hlavicky ─────────
+  // Volato z /api/v1/notifications/unread-counts, ktere agreguje oba typy.
+  // Badge je skryty, kdyz total=0; kdyz neco je, zobrazime pill s rozpadem.
+  async function refreshGlobalUnreadBadge() {
+    const badge = document.getElementById("inboxBadge");
+    const countEl = document.getElementById("inboxBadgeCount");
+    const breakEl = document.getElementById("inboxBadgeBreakdown");
+    if (!badge || !countEl) return;
+    try {
+      const r = await fetch("/api/v1/notifications/unread-counts", { credentials: "include" });
+      if (!r.ok) {
+        badge.classList.remove("show");
+        return;
+      }
+      const data = await r.json();
+      const total = data.total || 0;
+      const em = data.unread_email || 0;
+      const sms = data.unread_sms || 0;
+      const mq = data.unread_questions || 0;
+      // Rozpad "📧 3 · 📱 7 · ❓ 5" -- zobraz jen nenulove.
+      const parts = [];
+      if (em > 0)  parts.push(`📧 ${em}`);
+      if (sms > 0) parts.push(`📱 ${sms}`);
+      if (mq > 0)  parts.push(`❓ ${mq}`);
+      const breakdown = parts.join(" · ");
+      if (breakEl) breakEl.textContent = breakdown;
+      // Total cislo schovavame vzdy -- breakdown uz nese per-channel counts
+      // a samostatne "1" vedle 📬 ikony matlo usere s SMS ikonou 📱.
+      if (countEl) {
+        countEl.textContent = "";
+        countEl.style.display = "none";
+      }
+      // Tooltip obsahuje detail i kdyz total=0
+      const titleParts = [
+        `${em} email${em === 1 ? '' : em >= 2 && em <= 4 ? 'y' : 'ů'}`,
+        `${sms} SMS`,
+      ];
+      if (data.is_parent) titleParts.push(`${mq} otázek od Marti`);
+      badge.setAttribute("title", titleParts.join(", "));
+      // Badge je permanentne viditelny (entry point do emailu). Pouze highlight
+      // barev se meni podle stavu: active kdyz total>0, muted kdyz 0.
+      if (total > 0) badge.classList.add("show");
+      else badge.classList.remove("show");
+    } catch (_) { /* silent -- neprerusujeme UX log spamem */ }
+  }
+
+  // ── Database backup (Phase 7.11) ─────────────────────────────────────
+  // Parent-only. Zavola POST /api/v1/admin/backup-databases, ceka na vysledek,
+  // ukaze alert s cestami k vytvorenym dumps.
+  async function runDatabaseBackup() {
+    if (!confirm(
+      "Spustit zálohu obou databází (css_db + data_db)?\n\n" +
+      "Může to trvat pár sekund až minutu podle velikosti. " +
+      "Dumps se uloží do složky backups/YYYY-MM-DD/ v repu.\n\n" +
+      "Po dokončení je ručně nahraj na OneDrive / externí disk — " +
+      "do gitu NIKDY nepatří (obsahuje emaily, diář, paměť)."
+    )) {
+      return;
+    }
+    // Jednoduchy progress dialog -- alert s "..."
+    const progressEl = document.createElement("div");
+    progressEl.id = "backupProgress";
+    progressEl.style.cssText = (
+      "position:fixed;top:20px;right:20px;z-index:9999;"
+      + "padding:12px 16px;background:var(--surface);border:1px solid var(--border);"
+      + "border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.4);"
+      + "color:var(--fg);font-family:'DM Sans',sans-serif;font-size:13px;"
+    );
+    progressEl.innerHTML = "💾 Spouštím zálohu databází… může to trvat chvilku.";
+    document.body.appendChild(progressEl);
+
+    try {
+      const r = await fetch("/api/v1/admin/backup-databases", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        progressEl.remove();
+        alert("❌ Záloha selhala: " + (err.detail || r.status));
+        return;
+      }
+      const data = await r.json();
+      progressEl.remove();
+
+      if (data.status === "ok") {
+        const filesSummary = (data.files || [])
+          .map(f => {
+            const mb = (f.size_bytes / 1024 / 1024).toFixed(2);
+            return `  • ${f.file_name} (${mb} MB, ${f.duration_s}s)`;
+          })
+          .join("\n");
+        alert(
+          `✅ Záloha hotová!\n\n` +
+          `Datum: ${data.date}\n` +
+          `Složka: ${data.out_dir}\n\n` +
+          `Soubory:\n${filesSummary}\n\n` +
+          `⚠️ Nezapomeň zkopírovat složku na OneDrive nebo externí disk — ` +
+          `do gitu NIKDY nepatří.`
+        );
+      } else {
+        alert(
+          `⚠️ Záloha částečně / zcela selhala:\n\n${data.error || "neznámá chyba"}\n\n` +
+          `Soubory, které se podařilo vytvořit:\n` +
+          (data.files || []).map(f => `  • ${f.file_name}`).join("\n")
+        );
+      }
+    } catch (e) {
+      progressEl.remove();
+      alert("❌ Chyba sítě při záloze: " + e.message);
+    }
+  }
+
+  // SMS permanent button (Faze 7.10) -- nezavisle na unread stavu.
+  // Otevre SMS modal pro aktivni personu konverzace.
+  (function initSmsIconBtn() {
+    const btn = document.getElementById("smsIconBtn");
+    if (!btn) return;
+    btn.addEventListener("click", () => {
+      const activeName = (document.getElementById("agentName")?.textContent || "").trim();
+      const p = (typeof personasCache !== "undefined" ? personasCache : [])
+        .find(x => x.name === activeName);
+      if (p) {
+        openSmsModal(p.id, p.name);
+      } else {
+        alert("Nelze zjistit aktivni personu. Vyber ji v dropdownu a zkus znovu.");
+      }
+    });
+  })();
+
+  // Fetch now button -- ignore SMS (ty jsou push, prijdou samy),
+  // jen trigne email polling mimo 60s interval.
+  (function initInboxFetchBtn() {
+    const btn = document.getElementById("inboxFetchBtn");
+    if (!btn) return;
+    btn.addEventListener("click", async () => {
+      if (btn.disabled) return;
+      btn.disabled = true;
+      btn.classList.add("spinning");
+      try {
+        const r = await fetch("/api/v1/email/fetch-all", {
+          method: "POST",
+          credentials: "include",
+        });
+        if (!r.ok) {
+          console.warn("fetch-all failed", r.status);
+        }
+      } catch (e) {
+        console.warn("fetch-all error", e);
+      } finally {
+        // Refresh badge bez ohledu na vysledek -- user vidi aktualni stav
+        await refreshGlobalUnreadBadge();
+        btn.classList.remove("spinning");
+        btn.disabled = false;
+      }
+    });
+  })();
+
+  window._globalUnreadPollerStarted = false;
+  function startGlobalUnreadPoller() {
+    if (window._globalUnreadPollerStarted) return;
+    window._globalUnreadPollerStarted = true;
+    refreshGlobalUnreadBadge();   // prvni fetch hned
+    setInterval(refreshGlobalUnreadBadge, 30000);
+  }
 </script>
 
 </body>

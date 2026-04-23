@@ -1,32 +1,59 @@
 """
 Email service přes Exchange Web Services (EWS).
 Používá knihovnu exchangelib.
+
+Po fázi 5a (persona_channels) podporuje:
+  - send_email(to, subject, body, persona_id=None, tenant_id=None)
+      pouziva creds z persona_channels pokud persona_id. Pokud kanal
+      chybi, fallback na globalni .env EWS (backward compat).
+  - _get_account(email, password, server) prijma parametry, fallback
+    na settings.ews_* pokud None.
+
+Migrace existujicich pozvanek / password-reset emailu:
+  send_invitation_email / send_password_reset_email dnes volaji send_email
+  bez persona_id -> fallback na global -> funguje jak pred. Tyhle funkce
+  posilaji "systemove" emaily (ne jmenem persony), takze global is fine.
 """
+from __future__ import annotations
+import json
+
 from core.config import settings
 from core.logging import get_logger
 
 logger = get_logger("notifications.email")
 
 
-
-def _get_account():
-    """Vytvoří EWS připojení k Exchange serveru."""    
+def _get_account(email: str | None = None, password: str | None = None, server: str | None = None):
+    """
+    Vytvori EWS pripojeni. Pokud nejsou parametry predany, fallback na
+    settings.ews_* (backward compat pro pozvanky/password-reset).
+    """
     from exchangelib import Credentials, Account, Configuration, DELEGATE
     import urllib3
     urllib3.disable_warnings()
 
+    ews_email = email or settings.ews_email
+    ews_password = password or settings.ews_password
+    ews_server = server or settings.ews_server
+
+    if not ews_email or not ews_password or not ews_server:
+        raise RuntimeError(
+            "EWS credentials chybi. Bud nastavte v .env (EWS_EMAIL/EWS_PASSWORD/EWS_SERVER), "
+            "nebo predejte persona_id s nakonfigurovanym persona_channels kanalem."
+        )
+
     credentials = Credentials(
-        username=settings.ews_email,
-        password=settings.ews_password,
+        username=ews_email,
+        password=ews_password,
     )
 
     config = Configuration(
-        server=settings.ews_server.replace("https://", "").replace("http://", ""),
+        server=ews_server.replace("https://", "").replace("http://", ""),
         credentials=credentials,
     )
 
     account = Account(
-        primary_smtp_address=settings.ews_email,
+        primary_smtp_address=ews_email,
         config=config,
         autodiscover=False,
         access_type=DELEGATE,
@@ -34,30 +61,564 @@ def _get_account():
     return account
 
 
-def send_email(to: str, subject: str, body: str) -> bool:
+def _resolve_persona_email_creds(
+    persona_id: int | None, tenant_id: int | None
+) -> dict[str, str] | None:
     """
-    Odešle email přes EWS.
-    Vrátí True při úspěchu, False při selhání.
+    Vrati dict {email, display_email, password, server} pokud persona ma kanal,
+    jinak None -> fallback na .env v _get_account.
+    """
+    if not persona_id:
+        return None
+    try:
+        from modules.notifications.application.persona_channel_service import (
+            get_email_credentials,
+        )
+        return get_email_credentials(persona_id, tenant_id=tenant_id)
+    except Exception as e:
+        logger.error(
+            f"EMAIL | persona creds resolve failed | persona_id={persona_id} | error={e}"
+        )
+        return None
+
+
+def _resolve_user_email_creds(user_id: int | None) -> dict[str, str] | None:
+    """
+    Vrati user's EWS creds (pro "posli z moji schranky"), nebo None
+    pokud user nema nakonfigurovano.
+    """
+    if not user_id:
+        return None
+    try:
+        from modules.notifications.application.user_channel_service import (
+            get_user_email_credentials,
+        )
+        return get_user_email_credentials(user_id)
+    except Exception as e:
+        logger.error(
+            f"EMAIL | user creds resolve failed | user_id={user_id} | error={e}"
+        )
+        return None
+
+
+# Sentinel -- pro signalizaci ze user chce posilat z vlastni schranky, ale
+# nema nastavene credentialy. send_email_or_raise hodi EmailNoUserChannelError.
+class EmailNoUserChannelError(RuntimeError):
+    """User pozadal o "posli z moji", ale nema nakonfigurovany EWS kanal."""
+
+
+# ── Specificke vyjimky pro jemnejsi error handling v callerech ────────────
+
+class EmailAuthError(RuntimeError):
+    """EWS server odmitl prihlasovaci udaje (spatny email/heslo/MFA chybi)."""
+
+
+class EmailSendError(RuntimeError):
+    """Obecna chyba pri odesilani emailu (connection, server-side, ...)."""
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    """
+    Rozpozna, zda je exception od exchangelib auth selhani.
+    exchangelib.errors.UnauthorizedError je HTTP 401 pri EWS auth.
+    Nekdy taky chodi ServerBusyError / RateLimitError pri brute-force
+    ochranne; ty neblokujeme jako auth fail.
+    """
+    try:
+        from exchangelib.errors import UnauthorizedError
+        if isinstance(exc, UnauthorizedError):
+            return True
+    except ImportError:
+        pass
+    msg = str(exc).lower()
+    # Fallback textova detekce (pro pripad jinych verzi exchangelib)
+    return "invalid credentials" in msg or "unauthorized" in msg or "401" in msg
+
+
+_PERSONAL_FOLDER_NAME = "Personal"   # Nazev slozky pro Martiho osobni archiv
+
+
+def _ensure_personal_folder(account) -> "Any":
+    """
+    Zajistí, že existuje složka `Personal` pod Inbox. Pokud ne, vytvoří ji.
+    Idempotent — pri opakovanem volani jen vrati existujici.
+    Pouziva se pro Marti Memory Faze 6 (soukromy email archiv).
+
+    Vraci folder object, nebo None kdyz selze (neshazuje operaci).
+    """
+    try:
+        from exchangelib import Folder
+        # Nejdriv zkus najit existujici
+        for f in account.inbox.children:
+            if f.name == _PERSONAL_FOLDER_NAME:
+                return f
+        # Neexistuje -- vytvor
+        folder = Folder(parent=account.inbox, name=_PERSONAL_FOLDER_NAME)
+        folder.save()
+        logger.info(f"EMAIL | personal folder created under Inbox for account")
+        return folder
+    except Exception as e:
+        logger.warning(f"EMAIL | personal folder ensure failed: {e}")
+        return None
+
+
+def move_inbox_message_to_personal(
+    creds: dict[str, str],
+    message_id: str,
+) -> bool:
+    """
+    Na zaklade creds se pripoji k EWS, najde zpravu podle RFC822 Message-ID
+    v Inbox a presunu ji do slozky Personal.
+    Vraci True pri uspechu, False jinak (neshazuje volajici).
+    """
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(
+                username=creds["email"],
+                password=creds["password"],
+            ),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return False
+
+        # Najdi zpravu v Inbox podle message_id
+        matches = list(account.inbox.filter(message_id=message_id)[:1])
+        if not matches:
+            logger.warning(f"EMAIL | personal archive | message_id not found in Inbox: {message_id[:60]}")
+            return False
+
+        msg = matches[0]
+        msg.move(to_folder=folder)
+        logger.info(
+            f"EMAIL | archived to Personal | message_id={message_id[:60]}"
+        )
+        return True
+    except Exception as e:
+        logger.error(
+            f"EMAIL | personal archive (inbound) failed | message_id={message_id[:60]}: {e}",
+            exc_info=True,
+        )
+        return False
+
+
+def _save_outbox_copy_to_personal(
+    message,
+    account,
+) -> bool:
+    """
+    Po odeslani Message ulozi jeji kopii do slozky Personal. Volano primo
+    po message.send() -- message objekt uz ma message_id po odeslani,
+    takze ji muzeme najit v Sent Items a presunout / kopirovat.
+
+    Pouziva se pro Marti Memory Faze 6 -- odchozi emaily rodicum se archivuji.
+    """
+    try:
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return False
+
+        # message object uz ma message_id po send(). Najdi v Sent Items.
+        mid = getattr(message, "message_id", None)
+        if not mid:
+            logger.warning("EMAIL | personal archive (sent) | message has no message_id after send")
+            return False
+
+        # Najdi v Sent Items
+        sent_items = account.sent
+        matches = list(sent_items.filter(message_id=mid)[:1])
+        if not matches:
+            logger.warning(f"EMAIL | personal archive (sent) | not found in Sent Items: {mid[:60]}")
+            return False
+
+        found_msg = matches[0]
+        # Copy (ne move -- chceme to i v Sent Items jako normalni odchozi)
+        try:
+            found_msg.copy(to_folder=folder)
+            logger.info(f"EMAIL | archived to Personal (sent copy) | mid={mid[:60]}")
+            return True
+        except AttributeError:
+            # Nektere verze exchangelib nemaji .copy -- fallback na move (+ ztratime Sent)
+            found_msg.move(to_folder=folder)
+            logger.info(f"EMAIL | archived to Personal (sent moved, fallback) | mid={mid[:60]}")
+            return True
+    except Exception as e:
+        logger.error(f"EMAIL | personal archive (sent) failed: {e}", exc_info=True)
+        return False
+
+
+def _is_parent_email(email_address: str | None) -> bool:
+    """
+    Zjistí, jestli dana email adresa patří rodici Marti (is_marti_parent=True).
+    Hleda pres user_contacts match. Defensive -- pri chybe False.
+    """
+    if not email_address:
+        return False
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User, UserContact
+        from sqlalchemy import func
+        cs = get_core_session()
+        try:
+            normalized = email_address.strip().lower()
+            row = (
+                cs.query(User)
+                .join(UserContact, UserContact.user_id == User.id)
+                .filter(
+                    User.is_marti_parent.is_(True),
+                    UserContact.contact_type == "email",
+                    UserContact.status == "active",
+                    func.lower(UserContact.contact_value) == normalized,
+                )
+                .first()
+            )
+            return row is not None
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"EMAIL | parent check failed: {e}")
+        return False
+
+
+def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
+    """
+    Manualni archivace prichoziho emailu do slozky Personal v Exchange.
+    Volano z AI toolu archive_email.
+
+    Vraci {"ok": bool, "message": str, "email_inbox_id": int}.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox
+    import json as _json
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row is None:
+            return {"ok": False, "message": f"email id={email_inbox_id} neexistuje", "email_inbox_id": email_inbox_id}
+
+        persona_id = row.persona_id
+        message_id = row.message_id
+        meta_dict = {}
+        if row.meta:
+            try:
+                meta_dict = _json.loads(row.meta) or {}
+            except Exception:
+                meta_dict = {}
+        if meta_dict.get("archived_personal"):
+            return {"ok": True, "message": "už bylo archivováno", "email_inbox_id": email_inbox_id}
+    finally:
+        ds.close()
+
+    if not persona_id:
+        return {"ok": False, "message": "chybi persona_id pro nacteni credentialu", "email_inbox_id": email_inbox_id}
+
+    from modules.notifications.application.persona_channel_service import (
+        get_email_credentials,
+    )
+    creds = get_email_credentials(persona_id)
+    if not creds:
+        return {"ok": False, "message": "persona nema email channel", "email_inbox_id": email_inbox_id}
+
+    moved = move_inbox_message_to_personal(creds, message_id)
+    if not moved:
+        return {"ok": False, "message": "EWS move selhal", "email_inbox_id": email_inbox_id}
+
+    # Update meta
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row:
+            meta_dict = {}
+            if row.meta:
+                try:
+                    meta_dict = _json.loads(row.meta) or {}
+                except Exception:
+                    meta_dict = {}
+            meta_dict["archived_personal"] = True
+            row.meta = _json.dumps(meta_dict, ensure_ascii=False)
+            ds.commit()
+    finally:
+        ds.close()
+
+    return {"ok": True, "message": "archivováno do Personal", "email_inbox_id": email_inbox_id}
+
+
+def archive_email_outbox_to_personal(email_outbox_id: int) -> dict:
+    """
+    Manualni archivace odchoziho emailu do Personal. Volano z AI toolu.
+    POZOR: Muze fungovat jen kdyz email uz byl odeslany (ma Exchange message_id
+    v Sent Items). U pending radku jeste ne.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+    import json as _json
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter_by(id=email_outbox_id).first()
+        if row is None:
+            return {"ok": False, "message": f"email id={email_outbox_id} neexistuje", "email_outbox_id": email_outbox_id}
+        if row.status != "sent":
+            return {"ok": False, "message": f"email je ve stavu '{row.status}', nelze archivovat pred odeslanim", "email_outbox_id": email_outbox_id}
+        persona_id = row.persona_id
+        to_email = row.to_email
+        subject = row.subject or ""
+    finally:
+        ds.close()
+
+    if not persona_id:
+        return {"ok": False, "message": "chybi persona_id", "email_outbox_id": email_outbox_id}
+
+    from modules.notifications.application.persona_channel_service import (
+        get_email_credentials,
+    )
+    creds = get_email_credentials(persona_id)
+    if not creds:
+        return {"ok": False, "message": "persona nema email channel", "email_outbox_id": email_outbox_id}
+
+    # Najdi v Sent Items podle subject + to (approximace; message_id nemame ulozene)
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(username=creds["email"], password=creds["password"]),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        folder = _ensure_personal_folder(account)
+        if folder is None:
+            return {"ok": False, "message": "personal folder nelze zajistit", "email_outbox_id": email_outbox_id}
+
+        # Hleda v Sent Items podle subject (nejpresnejsi match co dneska mame)
+        matches = list(account.sent.filter(subject=subject)[:5])
+        if not matches:
+            return {"ok": False, "message": f"email nenalezen v Sent Items (subject='{subject[:40]}')", "email_outbox_id": email_outbox_id}
+
+        # Vyber nejnovejsi match
+        chosen = max(matches, key=lambda m: m.datetime_sent or m.datetime_created)
+        try:
+            chosen.copy(to_folder=folder)
+        except AttributeError:
+            chosen.move(to_folder=folder)
+        logger.info(f"EMAIL | manual archive | outbox_id={email_outbox_id} -> Personal")
+    except Exception as e:
+        return {"ok": False, "message": f"EWS selhal: {e}", "email_outbox_id": email_outbox_id}
+
+    # Update meta
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter_by(id=email_outbox_id).first()
+        if row:
+            # email_outbox nemá meta column; ulozim info do last_error jako debug? Ne.
+            # Vytvorim novy sloupec? Zatim to skipnem.
+            pass
+    finally:
+        ds.close()
+
+    return {"ok": True, "message": "archivováno do Personal", "email_outbox_id": email_outbox_id}
+
+
+def _parse_recipients(s: str | list[str] | None) -> list[str]:
+    """
+    Normalizuje recipient string/list na cisty list email adres.
+      - prijme comma-separated "a@x.com, b@y.com"
+      - nebo semicolon-separated "a@x.com; b@y.com"
+      - nebo mix "a@x.com,b@y.com;c@z.com"
+      - nebo uz list ["a@x.com", "b@y.com"]
+    Odstrani mezery, prazdne, lowercase.
+    Nevalidne polozky (bez @) odfiltrovany s warningem.
+    """
+    if s is None:
+        return []
+    if isinstance(s, list):
+        raw = s
+    else:
+        # Rozdelime po obou separatorech
+        parts = str(s).replace(";", ",").split(",")
+        raw = parts
+    out: list[str] = []
+    for item in raw:
+        clean = (item or "").strip().lower()
+        if not clean:
+            continue
+        if "@" not in clean:
+            logger.warning(f"EMAIL | recipient skipped (missing @): {clean!r}")
+            continue
+        out.append(clean)
+    return out
+
+
+def send_email_or_raise(
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
+    cc: list[str] | str | None = None,
+    bcc: list[str] | str | None = None,
+) -> None:
+    """
+    Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
+    EmailNoUserChannelError.
+
+    `to` muze byt:
+      - string s jednou adresou ("a@b.com")
+      - string s vice adresami oddelenymi carkou nebo strednikem
+        ("a@b.com, c@d.com" nebo "a@b.com; c@d.com")
+      - list stringu (["a@b.com", "c@d.com"])
+    Kazdopadne se parsuje do LIST, kazda adresa -> separatni Mailbox objekt.
+    Bez tohoto parsingu exchangelib zbalancuje celou 'a@b.com, c@d.com' do
+    jedne Mailbox.email_address, Exchange se zalomi s '550 invalid recipient'.
+
+    cc a bcc fungují stejně (prijmaji list nebo separator-separated string).
+
+    from_identity:
+      "persona"  (default) -- posila z persona_channels.
+      "user"               -- posila z user's EWS kanalu.
     """
     try:
         from exchangelib import Message, Mailbox
 
-        account = _get_account()
+        to_list = _parse_recipients(to)
+        if not to_list:
+            raise EmailSendError("zadny platny prijemce v `to`")
+        cc_list = _parse_recipients(cc)
+        bcc_list = _parse_recipients(bcc)
 
-        message = Message(
-            account=account,
-            subject=subject,
-            body=body,
-            to_recipients=[Mailbox(email_address=to)],
+        # Vyber credentialy podle from_identity
+        if from_identity == "user":
+            creds = _resolve_user_email_creds(user_id)
+            if not creds:
+                raise EmailNoUserChannelError(
+                    f"user_id={user_id} nema nakonfigurovany EWS kanal"
+                )
+        else:
+            # "persona" (default)
+            creds = _resolve_persona_email_creds(persona_id, tenant_id)
+
+        if creds:
+            account = _get_account(
+                email=creds["email"],
+                password=creds["password"],
+                server=creds["server"],
+            )
+            # Sender v logu = VYHRADNE display (SMTP alias).
+            sender = creds.get("display_email") or f"<persona_id={persona_id} display missing>"
+        else:
+            account = _get_account()
+            sender = settings.ews_email
+
+        msg_kwargs: dict = {
+            "account": account,
+            "subject": subject,
+            "body": body,
+            "to_recipients": [Mailbox(email_address=addr) for addr in to_list],
+        }
+        if cc_list:
+            msg_kwargs["cc_recipients"] = [Mailbox(email_address=addr) for addr in cc_list]
+        if bcc_list:
+            msg_kwargs["bcc_recipients"] = [Mailbox(email_address=addr) for addr in bcc_list]
+
+        message = Message(**msg_kwargs)
+        message.send_and_save()
+
+        logger.info(
+            f"EMAIL | sent | identity={from_identity} | from={sender} | "
+            f"to={to_list} | cc={cc_list or '-'} | bcc={bcc_list or '-'} | subject={subject}"
         )
-        message.send()
 
-        logger.info(f"EMAIL | sent | to={to} | subject={subject}")
-        return True
-
+        # Faze 6: archive copy do Personal pokud prijemce je rodic Marti.
+        # Best effort -- pripadne selhani archivace neshodi odeslani.
+        try:
+            if any(_is_parent_email(addr) for addr in to_list):
+                _save_outbox_copy_to_personal(message, account)
+        except Exception as arch_err:
+            logger.warning(f"EMAIL | personal archive post-send failed: {arch_err}")
+    except EmailNoUserChannelError:
+        raise
     except Exception as e:
+        if _is_auth_error(e):
+            logger.error(f"EMAIL | auth-failed | to={to} | error={e}")
+            raise EmailAuthError(str(e)) from e
         logger.error(f"EMAIL | failed | to={to} | error={e}")
+        raise EmailSendError(str(e)) from e
+
+
+def send_email(
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
+) -> bool:
+    """
+    Backward-compat wrapper: vrati True pri uspechu, False pri selhani.
+    Chyba jde do logu. Pro jemnejsi error handling (auth vs. jine) pouzij
+    send_email_or_raise().
+    """
+    try:
+        send_email_or_raise(
+            to, subject, body,
+            persona_id=persona_id, tenant_id=tenant_id,
+            user_id=user_id, from_identity=from_identity,
+        )
+        return True
+    except (EmailAuthError, EmailSendError, EmailNoUserChannelError):
         return False
+    except Exception as e:
+        logger.error(f"EMAIL | unexpected | to={to} | error={e}")
+        return False
+
+
+def _get_default_persona_id() -> int | None:
+    """
+    Vrati id default persony (is_default=True) pro systemove emaily
+    (invite, password reset) bez explicitniho persona_id.
+
+    Nahrada za .env EWS fallback -- persona_channels je dnes source-of-truth.
+    Kdyz default persona neexistuje nebo nema email kanal, caller dostane None
+    a send_email_or_raise zkusi legacy .env fallback (ktery pravdepodobne selze,
+    ale zachovani chovani).
+    """
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import Persona
+        cs = get_core_session()
+        try:
+            p = cs.query(Persona).filter_by(is_default=True).first()
+            return p.id if p else None
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"EMAIL | default persona lookup failed: {e}")
+        return None
 
 
 def send_invitation_email(
@@ -100,7 +661,451 @@ Odkaz je platný 48 hodin.
 S pozdravem,
 Tým STRATEGIE
 """
-    return send_email(to=to, subject=subject, body=body)
+    # Faze 6+: pozvanky pouzivaji default personu (typicky Marti-AI) pro EWS
+    # kredence -- persona_channels je source-of-truth, .env fallback je legacy.
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )
+
+
+# ── OUTBOX: queue + flush worker ──────────────────────────────────────────
+
+# Maximalni pocet pokusu nez email oznacime jako trvale failed. Pri flush
+# workera se kazdy pokus inkrementuje attempts; po dosazeni limitu uz ho
+# worker nevezme. User muze v administraci manualne zretransmitovat.
+MAX_SEND_ATTEMPTS = 5
+
+
+def queue_email(
+    *,
+    to: str,
+    subject: str,
+    body: str,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    from_identity: str = "persona",
+    purpose: str = "user_request",
+    cc: list[str] | None = None,
+    bcc: list[str] | None = None,
+    conversation_id: int | None = None,
+) -> dict:
+    """
+    Zaradi email do email_outbox tabulky. Worker (flush_outbox_pending, volany
+    z email_fetcher.py) ho pozdeji odesle pres EWS.
+
+    Returns:
+        {"id": int, "to_email": str, "status": "pending"}
+
+    Pro synchronni odeslani (napr. invitation email) pouzij primo
+    send_email_or_raise(), ktery ceka na EWS. queue_email je lepsi pro
+    AI tool send_email -- user dostane okamzitou odpoved (task hotovo),
+    worker email casem posle.
+    """
+    import json
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    to_clean = (to or "").strip()
+    body_clean = (body or "").strip()
+    if not to_clean:
+        raise EmailSendError("prazdny to_email")
+    if not body_clean:
+        raise EmailSendError("prazdny body")
+    if "@" not in to_clean:
+        raise EmailSendError(f"neplatny email format: {to_clean!r}")
+
+    if purpose not in ("user_request", "notification", "system"):
+        raise EmailSendError(f"neznamy purpose: {purpose!r}")
+    if from_identity not in ("persona", "user", "system"):
+        raise EmailSendError(f"neznama from_identity: {from_identity!r}")
+
+    cc_json = json.dumps(cc, ensure_ascii=False) if cc else None
+    bcc_json = json.dumps(bcc, ensure_ascii=False) if bcc else None
+
+    ds = get_data_session()
+    try:
+        row = EmailOutbox(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            persona_id=persona_id,
+            to_email=to_clean.lower(),
+            cc=cc_json,
+            bcc=bcc_json,
+            subject=(subject or "").strip()[:998] or None,
+            body=body_clean,
+            purpose=purpose,
+            status="pending",
+            attempts=0,
+            conversation_id=conversation_id,
+            from_identity=from_identity,
+        )
+        ds.add(row)
+        ds.commit()
+        ds.refresh(row)
+        outbox_id = row.id
+    finally:
+        ds.close()
+
+    logger.info(
+        f"EMAIL | queued | id={outbox_id} | to={to_clean.lower()} | "
+        f"persona_id={persona_id} | from_identity={from_identity}"
+    )
+    return {
+        "id": outbox_id,
+        "to_email": to_clean.lower(),
+        "status": "pending",
+    }
+
+
+def _atomic_claim_outbox(batch_size: int = 10) -> list[int]:
+    """
+    Atomicky "zamkne" pending radky v email_outbox oznacenim status='in_progress'
+    + claimed_at = now. Vraci ID zavzatych radku. Skip radky ktere uz maji
+    max attempts.
+
+    Pouzita stejna "poll + UPDATE ... RETURNING" strategie jako tasks.executor
+    pro idempotenci -- dva soubezne workery nedostanou stejny row.
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    from core.database_data import get_data_session
+
+    ds = get_data_session()
+    try:
+        # UPDATE ... SET ... WHERE id IN (SELECT id FROM ... LIMIT n FOR UPDATE SKIP LOCKED)
+        # PostgreSQL specificky. Vraci ID claimed radku.
+        result = ds.execute(
+            text(
+                """
+                UPDATE email_outbox
+                   SET status = 'in_progress',
+                       claimed_at = :now,
+                       attempts = attempts + 1
+                 WHERE id IN (
+                     SELECT id FROM email_outbox
+                      WHERE status = 'pending'
+                        AND attempts < :max_attempts
+                      ORDER BY created_at ASC
+                      LIMIT :batch_size
+                      FOR UPDATE SKIP LOCKED
+                 )
+                 RETURNING id
+                """
+            ),
+            {
+                "now": datetime.now(timezone.utc),
+                "max_attempts": MAX_SEND_ATTEMPTS,
+                "batch_size": batch_size,
+            },
+        )
+        claimed_ids = [r[0] for r in result.fetchall()]
+        ds.commit()
+        return claimed_ids
+    finally:
+        ds.close()
+
+
+def _send_outbox_row(outbox_id: int) -> dict:
+    """
+    Pokusi se odeslat jeden outbox row pres EWS. Po uspesnem odeslani
+    oznaci status='sent' + sent_at = now. Pri selhani status='failed' nebo
+    (pokud attempts < MAX) zpet na 'pending' (retry v pristim pollu).
+
+    Vraci:
+      {
+        "id":         int,
+        "status":     "sent" | "failed" | "pending" | "missing",
+        "error":      str | None,      -- chybova zprava pro user-facing display
+        "error_kind": str | None,      -- "auth" | "no_user_channel" | "send" | None
+      }
+
+    error_kind se pouziva volajicim (confirm email flow v conversation/service.py)
+    pro dispatch na strukturovanou chybovou hlasku (rozdilna rada pro auth vs.
+    missing user channel vs. generic send error).
+    """
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+        if row is None:
+            return {
+                "id": outbox_id, "status": "missing",
+                "error": "row gone", "error_kind": None,
+            }
+    finally:
+        ds.close()
+
+    # Pokus o odeslani -- rozdelene catche aby volajici videl typ selhani.
+    # CC/BCC v outbox rows jsou JSON arrays; deserializujeme a predame dal.
+    cc_list = None
+    bcc_list = None
+    try:
+        if row.cc:
+            cc_list = json.loads(row.cc)
+    except Exception:
+        cc_list = None
+    try:
+        if row.bcc:
+            bcc_list = json.loads(row.bcc)
+    except Exception:
+        bcc_list = None
+
+    error_kind: str | None = None
+    err_msg: str | None = None
+    try:
+        send_email_or_raise(
+            to=row.to_email,
+            subject=row.subject or "",
+            body=row.body,
+            persona_id=row.persona_id,
+            tenant_id=row.tenant_id,
+            user_id=row.user_id,
+            from_identity=row.from_identity,
+            cc=cc_list,
+            bcc=bcc_list,
+        )
+    except EmailAuthError as e:
+        error_kind = "auth"
+        err_msg = str(e)[:500]
+    except EmailNoUserChannelError as e:
+        error_kind = "no_user_channel"
+        err_msg = str(e)[:500]
+    except EmailSendError as e:
+        error_kind = "send"
+        err_msg = str(e)[:500]
+
+    # Success path (zadny exception nezachycen)
+    if error_kind is None:
+        ds = get_data_session()
+        try:
+            row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row2:
+                row2.status = "sent"
+                row2.sent_at = datetime.now(timezone.utc)
+                ds.commit()
+        finally:
+            ds.close()
+        return {"id": outbox_id, "status": "sent", "error": None, "error_kind": None}
+
+    # Failure path -- retry logika
+    ds = get_data_session()
+    try:
+        row2 = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+        if not row2:
+            return {
+                "id": outbox_id, "status": "missing",
+                "error": "row gone", "error_kind": error_kind,
+            }
+        if row2.attempts >= MAX_SEND_ATTEMPTS:
+            row2.status = "failed"
+            row2.last_error = err_msg
+            logger.error(
+                f"EMAIL | outbox | failed (max attempts) | id={outbox_id} | "
+                f"kind={error_kind} | {err_msg}"
+            )
+            new_status = "failed"
+        else:
+            # auth + no_user_channel = "konfiguracni" problem, retry nepomuze,
+            # rovnou failed (aby se to netlacilo do fronty dokola).
+            if error_kind in ("auth", "no_user_channel"):
+                row2.status = "failed"
+                new_status = "failed"
+                logger.error(
+                    f"EMAIL | outbox | failed (config error) | id={outbox_id} | "
+                    f"kind={error_kind} | {err_msg}"
+                )
+            else:
+                row2.status = "pending"
+                new_status = "pending"
+                logger.warning(
+                    f"EMAIL | outbox | retry | id={outbox_id} | "
+                    f"attempt={row2.attempts} | kind={error_kind} | {err_msg}"
+                )
+            row2.last_error = err_msg
+        ds.commit()
+        return {
+            "id": outbox_id, "status": new_status,
+            "error": err_msg, "error_kind": error_kind,
+        }
+    finally:
+        ds.close()
+
+
+def flush_outbox_pending(batch_size: int = 10) -> dict:
+    """
+    Worker tick -- claimne pending radky a pokusi se je odeslat. Vraci
+    souhrn pro logging workera:
+      {"claimed": N, "sent": N, "failed": N, "retry": N}
+
+    Volano z scripts/email_fetcher.py v kazdem poll cyklu (po fetch_all).
+    Muze bezet soubezne s inbound fetchem -- jsou to ruzne radky v jine
+    tabulce.
+    """
+    claimed = _atomic_claim_outbox(batch_size=batch_size)
+    if not claimed:
+        return {"claimed": 0, "sent": 0, "failed": 0, "retry": 0}
+
+    logger.info(f"EMAIL | outbox | flush | claimed={len(claimed)} | ids={claimed}")
+
+    sent_count = 0
+    failed_count = 0
+    retry_count = 0
+
+    for outbox_id in claimed:
+        try:
+            result = _send_outbox_row(outbox_id)
+            if result["status"] == "sent":
+                sent_count += 1
+            elif result["status"] == "failed":
+                failed_count += 1
+            else:
+                retry_count += 1
+        except Exception as e:
+            # Kdyby neco proteklo mimo EmailError kategorii -- oznacime failed
+            # aby neblokovalo dalsi cykly.
+            logger.error(
+                f"EMAIL | outbox | unexpected | id={outbox_id} | {e}",
+                exc_info=True,
+            )
+            from datetime import datetime, timezone
+            from core.database_data import get_data_session
+            from modules.core.infrastructure.models_data import EmailOutbox
+            ds = get_data_session()
+            try:
+                row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+                if row:
+                    row.status = "failed"
+                    row.last_error = f"unexpected: {e}"[:500]
+                    ds.commit()
+            finally:
+                ds.close()
+            failed_count += 1
+
+    return {
+        "claimed": len(claimed),
+        "sent": sent_count,
+        "failed": failed_count,
+        "retry": retry_count,
+    }
+
+
+def send_outbox_row_now(outbox_id: int) -> dict:
+    """
+    Atomicky claimne JEDEN konkretni outbox row (id=outbox_id) a pokusi se
+    ho odeslat inline. Pouziva se z AI confirm email flow -- uzivatel rekne
+    "ano", my zapiseme do outboxu a hned se pokusime poslat, aby user dostal
+    okamzity feedback ("✅ odeslano" vs. "❌ chyba") misto cekani az to
+    popadne pravidelny worker cycle.
+
+    Race-safe proti paralelne bezicimu workerovi:
+      - Pokud worker mezitim row claimnul (status != 'pending'), vracime
+        status='already_claimed' a volajici rozhodne co zobrazit.
+      - Pokud row uz prekrocila MAX_SEND_ATTEMPTS, nezcentlaimneme, vracime
+        aktualni (failed) stav.
+
+    Vraci dict ve stejnem tvaru jako _send_outbox_row:
+      {
+        "id":         int,
+        "status":     "sent" | "failed" | "pending" | "already_claimed" | "missing",
+        "error":      str | None,
+        "error_kind": str | None,
+      }
+    """
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailOutbox
+
+    # Atomicky: UPDATE ... WHERE id=X AND status='pending' AND attempts<MAX
+    # RETURNING id. Kdyz 0 rows vraceno, row mezitim chytil nekdo jiny /
+    # prekrocila attempts / neexistuje.
+    ds = get_data_session()
+    try:
+        result = ds.execute(
+            text(
+                """
+                UPDATE email_outbox
+                   SET status = 'in_progress',
+                       claimed_at = :now,
+                       attempts = attempts + 1
+                 WHERE id = :id
+                   AND status = 'pending'
+                   AND attempts < :max_attempts
+                 RETURNING id
+                """
+            ),
+            {
+                "now": datetime.now(timezone.utc),
+                "id": outbox_id,
+                "max_attempts": MAX_SEND_ATTEMPTS,
+            },
+        )
+        claimed_row = result.fetchone()
+        ds.commit()
+    finally:
+        ds.close()
+
+    if claimed_row is None:
+        # Claim selhal -- row neni pending (uz poslany, failed, in_progress,
+        # nebo neexistuje). Vratime aktualni stav pro reporting volajicimu.
+        ds = get_data_session()
+        try:
+            row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row is None:
+                return {
+                    "id": outbox_id, "status": "missing",
+                    "error": "row gone", "error_kind": None,
+                }
+            # Pokud status byl uz 'in_progress', pravdepodobne ho drzi worker.
+            # Oznacme to jako 'already_claimed' aby UI zobrazila "worker pracuje".
+            if row.status == "in_progress":
+                return {
+                    "id": outbox_id, "status": "already_claimed",
+                    "error": None, "error_kind": None,
+                }
+            return {
+                "id": outbox_id, "status": row.status,
+                "error": row.last_error, "error_kind": None,
+            }
+        finally:
+            ds.close()
+
+    # Claim uspel -- mame exkluzivni pravo poslat. _send_outbox_row zvladne
+    # success/failure bookkeeping (row je nyni 'in_progress', on ji oznaci
+    # sent / pending / failed).
+    logger.info(f"EMAIL | outbox | send_now | claimed | id={outbox_id}")
+    try:
+        return _send_outbox_row(outbox_id)
+    except Exception as e:
+        # Defensive fallback -- neocekavana vyjimka mimo EmailError kategorie.
+        # Musime row vratit z 'in_progress' zpatky, aby se tam nezasekla.
+        logger.error(
+            f"EMAIL | outbox | send_now | unexpected | id={outbox_id} | {e}",
+            exc_info=True,
+        )
+        err_msg = f"unexpected: {e}"[:500]
+        ds = get_data_session()
+        try:
+            row = ds.query(EmailOutbox).filter(EmailOutbox.id == outbox_id).first()
+            if row:
+                row.status = "failed"
+                row.last_error = err_msg
+                ds.commit()
+        finally:
+            ds.close()
+        return {
+            "id": outbox_id, "status": "failed",
+            "error": err_msg, "error_kind": "unexpected",
+        }
 
 
 def send_password_reset_email(
@@ -138,4 +1143,8 @@ Pokud jsi o reset nežádal, ignoruj tento email. Tvoje současné heslo zůstá
 S pozdravem,
 Tým STRATEGIE
 """
-    return send_email(to=to, subject=subject, body=body)
+    persona_id = _get_default_persona_id()
+    return send_email(
+        to=to, subject=subject, body=body,
+        persona_id=persona_id,
+    )

@@ -34,14 +34,33 @@ from modules.core.infrastructure.models_data import (
 
 logger = get_logger("conversation.summary")
 
-SUMMARY_THRESHOLD = 10       # min. počet nových zpráv, aby se summary spustilo
+# Threshold: kdy zacit tvorit summary. Historie:
+#   10 zprav   -- agresivni, nedostatek detailu (3 vety misto 10 zprav)
+#   500 zprav  -- prakticky vypnute, ale dnes uz kontext (pamet + diar + tool
+#                 schemas) rychle bobtna, takze u 30+ zprav to skripe i s
+#                 Sonnet 4.6 a 450K TPM (Tier 2).
+#   40 zprav (dnes) -- rozumny kompromis: u kratkych konverzaci se summary
+#                 nevytvori (nikdy vice nez 10-20 zprav pri kratkem ukolu),
+#                 u dlouhych dev sessions (40+) uleva.
+# Pri zmene pouzivaj notifikaci v UI (SUMMARY_SUGGEST_AT) pro user awareness.
+SUMMARY_THRESHOLD = 40
+
+# Pro UI + Marti system prompt: nad timto poctem zprav zacnem signalizovat
+# uzivateli, ze je konverzace dlouha a summary se blizi / uz bezi.
+SUMMARY_SUGGEST_AT = 30
 SUMMARY_MODEL = "claude-haiku-4-5-20251001"
-SUMMARY_MAX_OUTPUT_TOKENS = 300
+# Output: zvyseno z 300 na 1500 tokenu. 3 vety byly nedostatecne pro e-mailova
+# zadani / multi-step pokyny, kde zanikaly konkretni parametry (koho, co, kdy).
+# 1500 tokenu = ~10-15 vet shrnuti, prostor i pro vyjmenovani klicovych entit.
+SUMMARY_MAX_OUTPUT_TOKENS = 1500
 
 SUMMARY_SYSTEM_PROMPT = (
-    "Shrň následující konverzaci stručně a věcně. "
-    "Zachyť hlavní témata, rozhodnutí a důležité informace. "
-    "Neopakuj detaily ani zdvořilosti. Maximálně 3 věty."
+    "Shrň následující konverzaci věcně a s KONKRÉTNÍMI DETAILY. "
+    "Zachyť všechna jména, emaily, telefonní čísla, data, částky a rozhodnutí, "
+    "o kterých se mluvilo. Uveď, co uživatel po AI chtěl, co AI slíbila a co "
+    "ještě nebylo dokončeno (otevřené úkoly / pendingy). "
+    "Neopakuj zdvořilosti ani malé fragmenty. "
+    "Rozsah: ideálně 8-15 vět — raději detailněji než zkratkovitě."
 )
 
 
@@ -49,11 +68,18 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def _get_range_to_summarize(conversation_id: int) -> tuple[int, int, list[Message]] | None:
+def _get_range_to_summarize(
+    conversation_id: int,
+    min_count: int | None = None,
+) -> tuple[int, int, list[Message]] | None:
     """
     Vrátí (from_message_id, to_message_id, messages) pro nové summary,
     nebo None pokud podmínky nejsou splněné.
+
+    min_count: pocet zprav pro spusteni. Default SUMMARY_THRESHOLD.
     """
+    if min_count is None:
+        min_count = SUMMARY_THRESHOLD
     session = get_data_session()
     try:
         last_summary = (
@@ -73,7 +99,7 @@ def _get_range_to_summarize(conversation_id: int) -> tuple[int, int, list[Messag
             .order_by(Message.id.asc())
             .all()
         )
-        if len(messages) < SUMMARY_THRESHOLD:
+        if len(messages) < min_count:
             return None
 
         # SQLAlchemy objekty odpoj od session, ať je můžeme vrátit a volající
@@ -158,10 +184,21 @@ def _get_conversation_context(conversation_id: int) -> tuple[int | None, int | N
         session.close()
 
 
-def maybe_create_summary(conversation_id: int) -> dict | None:
+def maybe_create_summary(
+    conversation_id: int,
+    force: bool = False,
+    min_messages: int | None = None,
+) -> dict | None:
     """
     Hlavní entrypoint. Idempotentní.
     Vrátí info o vytvořeném summary, nebo None pokud nebyly splněny podmínky.
+
+    force=True: ignoruje SUMMARY_THRESHOLD -- vytvori summary i u kratkych
+    konverzaci. Pouziva se z AI toolu summarize_conversation_now, kdyz
+    user explicitne pozada o zkraceni.
+
+    min_messages: volitelne minimum (default SUMMARY_THRESHOLD). Pri force=True
+    se bere default 2 (aby summary mohla vzniknout i z malo zprav).
 
     Tvar výstupu: {
         "summary_id": int,
@@ -172,7 +209,8 @@ def maybe_create_summary(conversation_id: int) -> dict | None:
     }
     """
     try:
-        range_info = _get_range_to_summarize(conversation_id)
+        effective_min = min_messages or (2 if force else SUMMARY_THRESHOLD)
+        range_info = _get_range_to_summarize(conversation_id, min_count=effective_min)
         if range_info is None:
             return None
         from_id, to_id, messages = range_info

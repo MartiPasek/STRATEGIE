@@ -156,6 +156,9 @@ def get_user_context(user_id: int) -> dict | None:
             "project_id": project_id,
             "project_name": project_name,
             "is_superadmin": is_superadmin,
+            # Marti Memory Faze 3/4: rodicovska role -- cross-tenant pristup
+            # do pameti + pravo dostavat aktivni learning otazky.
+            "is_marti_parent": bool(user.is_marti_parent),
         }
     finally:
         session.close()

@@ -38,24 +38,37 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
 
     # SMS notifikace -----------------------------------------------------------
-    # Pull model: aplikace zapisuje do sms_outbox, Android telefon s GSM SIMkou
-    # pulluje pending SMS pres GET /api/v1/sms/gateway/outbox. Doporucena
-    # appka: capcom6/android-sms-gateway (F-Droid, open source).
+    # Push model pres sms-gate.app cloud relay (capcom6):
+    #   STRATEGIE --HTTP POST--> sms-gate.app --websocket--> Android telefon --GSM--> prijemce
+    #   Android telefon --webhook--> STRATEGIE /api/v1/sms/gateway/inbox (pro prichozi SMS)
     #
     # SMS_ENABLED=false   -> queue_sms() se bezpecne no-opne (log warning).
-    #                        Pouzivej v dev kdyz nechces spam na realna cisla.
-    # SMS_PROVIDER        -> aktualne podporovany jen "android_gateway".
-    #                        Planovany: "smseagle", "twilio".
-    # SMS_GATEWAY_KEY     -> shared secret mezi appkou a serverem. Poshli ho
-    #                        pres X-Gateway-Key header. 32+ znaku, random.
+    # SMS_PROVIDER        -> "android_gateway" (push na sms-gate.app)
+    # SMS_GATEWAY_KEY     -> Nas shared secret pro prichozi webhook (X-Gateway-Key
+    #                        v hlavicce). 32+ znaku. Nastavuje se v sms-gate.app dashboardu.
+    # SMS_GATE_API_URL    -> Base URL sms-gate.app API (default: jejich cloud).
+    #                        Pro self-hosting prepiseme na vlastni URL.
+    # SMS_GATE_USERNAME   -> login do sms-gate.app (registrovano v Android appce).
+    # SMS_GATE_PASSWORD   -> heslo (plaintext v .env; pripadne later zasifrovat).
     # SMS_FROM_NUMBER     -> info pro audit/display -- skutecne odesilaci cislo
     #                        je cislo SIM v telefonu, tohle je jen label.
     # SMS_RATE_LIMIT_PER_USER_PER_HOUR -> brzda proti spamu AI toolem.
     sms_enabled: bool = False
     sms_provider: str = "android_gateway"
     sms_gateway_key: str = ""
-    sms_from_number: str = "+420777180511"
+    sms_gate_api_url: str = "https://api.sms-gate.app/3rdparty/v1"
+    sms_gate_username: str = ""
+    sms_gate_password: str = ""
+    sms_from_number: str = "+420778117879"
     sms_rate_limit_per_user_per_hour: int = 5
+
+    # Šifrování kredencialů ----------------------------------------------------
+    # Fernet-kompatibilní klíč (32 bytů base64url). Sifrujeme s nim EWS hesla
+    # v `persona_channels.credentials_encrypted` a `user_channels...`.
+    # Generuj: python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    # Klic nikdy neubrat z .env -- jinak ztratime pristup ke vsem ulozenym heslum.
+    # Rotace = reencrypt vsech radek novym klicem (TODO helper script).
+    encryption_key: str = ""
 
     # Production deployment ----------------------------------------------------
     # Public base URL aplikace (used in invitation email links + cookie domain).

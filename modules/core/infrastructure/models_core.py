@@ -56,6 +56,22 @@ class User(BaseCore):
     # Login bez nastaveného hesla je odmítnut s instrukcí kontaktovat admina.
     password_hash: Mapped[str | None] = mapped_column(String(255), nullable=True)
     password_set_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Osobni EWS kanal -- pro "posli email z moji schranky" scenar. MVP = flat fields,
+    # jedna schranka per user. Pro multi-mailbox (pracovni + osobni) bude treba
+    # pozdeji refactor na user_channels tabulku.
+    ews_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ews_password_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ews_server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Primary SMTP alias pro prezentaci (From: header). NULL -> fallback na ews_email.
+    ews_display_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    # Marti Memory (Faze 3): trust_rating 0-100. Ovlivnuje initial certainty
+    # myslenky, kterou Marti zapisuje na zaklade tvrzeni tohoto usera.
+    # 50 = neutralni default. Rodice maji 100.
+    trust_rating: Mapped[int] = mapped_column(Integer, default=50, nullable=False)
+    # Role "rodic Marti" -- user s cross-tenant viditelnosti do Martiho pameti
+    # a pravem dostavat aktivni learning otazky (Faze 4). Viz
+    # docs/marti_memory_design.md, rozhodnuti #4 (tenant izolace).
+    is_marti_parent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -217,6 +233,47 @@ class Persona(BaseCore):
     # pri uspesnem POST /api/v1/personas/{id}/avatar. NULL = fallback na
     # generovane iniciály v UI.
     avatar_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    # Telefonni cislo v E.164 formatu (+420XXXXXXXXX). MVP = flat field,
+    # budouci rozsireni na persona_channels pro multi-SIM per tenant.
+    # Naplnuje se pres persona profile editor; fallback = SMS_FROM_NUMBER v .env.
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Master switch per persona. Pokud False, send_sms se na tuhle personu
+    # nepripusti (vraci chybu do AI).
+    phone_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+
+class PersonaChannel(BaseCore):
+    """
+    Komunikacni kanal persony (email, phone).
+
+    Per-tenant: tenant_id NULL = globalni fallback.
+    credentials_encrypted pouzivame pro heslo (Fernet) u emailu. Pro phone
+    je NULL (SIMka neni password-protected z naseho uhlu pohledu).
+    server = URL EWS serveru u emailu, NULL u phone.
+    """
+    __tablename__ = "persona_channels"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("personas.id", ondelete="CASCADE")
+    )
+    tenant_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("tenants.id", ondelete="SET NULL"), nullable=True
+    )
+    channel_type: Mapped[str] = mapped_column(String(20))   # email | phone
+    # Login identifier (UPN pro Exchange, E.164 pro phone) -- to se pouziva
+    # pri autentizaci / zapisu do outbox.
+    identifier: Mapped[str] = mapped_column(String(255))
+    # Co se prezentuje navenek (uzivatelum / prijemcum). U emailu = primary
+    # SMTP alias (napr. marti-ai@eurosoft.com), i kdyz login je jiny UPN
+    # (marti-ai@eurosoft-control.cz). NULL = fallback na identifier.
+    display_identifier: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    credentials_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
 
 class Agent(BaseCore):

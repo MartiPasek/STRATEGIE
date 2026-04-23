@@ -247,3 +247,399 @@ class SmsOutbox(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── SMS INBOX ──────────────────────────────────────────────────────────────
+
+class SmsInbox(BaseData):
+    """
+    Prichozi SMS od Android gateway (capcom6 webhook).
+    persona_id = komu to prislo (majitel SIMky = persona s matching phone_number).
+
+    Workflow pole:
+      read_at       -- kdy si user zpravu poprve zobrazil v UI (binarni stav
+                       "videna" vs "nova")
+      processed_at  -- kdy byly vsechny souvisejici tasky dokonceny (inbox ->
+                       processed). NULL = lezi ve slozce "Prichozi", NOT NULL
+                       = slozka "Zpracovane". Plni se z tasks.completed_at,
+                       kdyz posledni open task nad touhle SMS prejde do 'done'.
+    """
+    __tablename__ = "sms_inbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_phone: Mapped[str] = mapped_column(String(20))
+    body: Mapped[str] = mapped_column(Text)
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # JSON metadata z gateway (SIM slot, delivery reports, ...) -- kdyby
+    # bylo treba debug.
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── PHONE CALLS ────────────────────────────────────────────────────────────
+
+class PhoneCall(BaseData):
+    """
+    Zaznam telefonniho hovoru z Android telefonu (Tasker push po skonceni / missed).
+
+    direction:
+      in      -- prichozi hovor prijat (duration_s > 0)
+      out     -- odchozi hovor uskutecneny (duration_s >= 0)
+      missed  -- prichozi hovor nezvednut (duration_s = NULL)
+    """
+    __tablename__ = "phone_calls"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    peer_phone: Mapped[str] = mapped_column(String(20))
+    direction: Mapped[str] = mapped_column(String(10))   # in | out | missed
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    duration_s: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── TASKS (AI agent task queue) ────────────────────────────────────────────
+
+class Task(BaseData):
+    """
+    Task jako first-class entita -- jednotka prace pro AI personu.
+
+    Vznika bud:
+      - automaticky pri prichozi zprave (source_type='sms_inbox' | 'email_inbox')
+      - manualne od usera v UI (source_type='manual')
+      - kdyz AI sama rozhodne ze neco potrebuje udelat (source_type='ai_generated')
+
+    Lifecycle:
+      open        -- prave vytvoreny, ceka na exekutora
+      in_progress -- worker ho prevzal, AI na nem pracuje
+      done        -- hotovo, result_summary obsahuje co se udelalo
+      cancelled   -- zrusil user pred dokoncenim
+      failed      -- exekuce selhala (error obsahuje detail), muze se retry-ovat
+
+    source_id je weak reference (bez FK constraintu) na sms_inbox.id / email_inbox.id
+    / manual=NULL. Takhle se vyhneme cross-table FK matici a zachovame flexibilitu.
+
+    execution_conversation_id odkazuje na skrytou conversation (conversation_type=
+    'task_execution'), kde probihal AI tool loop -- pro audit a pripadne UI
+    zobrazeni postupu AI.
+
+    priority je fixed string (misto int) kvuli citelnosti v SQL dotazech.
+    """
+    __tablename__ = "tasks"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    source_type: Mapped[str] = mapped_column(String(30))    # sms_inbox | email_inbox | manual | ai_generated
+    source_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    title: Mapped[str] = mapped_column(String(255))
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    status: Mapped[str] = mapped_column(String(20), default="open")        # open | in_progress | done | cancelled | failed
+    priority: Mapped[str] = mapped_column(String(10), default="normal")    # high | normal | low
+    due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Kdyz executor zalozi skrytou conversation, zapise sem jeji ID, aby UI
+    # mohlo nabidnout "Zobrazit postup AI" a audit videl cely prubeh.
+    execution_conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Co AI udelala (final message od AI pri done, nebo stripped error pri failed).
+    result_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Kdo task vytvoril:
+    #   NULL                 -- automaticky system (auto-create ze zpravy, AI)
+    #   user_id (BigInteger) -- manualne clovek z UI
+    created_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    # Kolikrat worker tenhle task prevzal (retry counter). Zabrana nekonecnemu
+    # smyckovani kdyz AI opakovane selhava.
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+
+
+# ── EMAIL INBOX ────────────────────────────────────────────────────────────
+
+class EmailInbox(BaseData):
+    """
+    Prichozi emaily z Exchange/EWS. Paralelni struktura k SmsInbox, ale
+    plneni je pull-model: scripts/email_fetcher.py polluje INBOX persony
+    kazdych ~60s, oznaci v EWS jako read, ulozi do teto tabulky.
+
+    persona_id = majitel e-mailove schranky (persona_channel s channel_type
+    = 'email' a matching identifier = to_email).
+
+    message_id = RFC822 Message-ID z Exchange, pro dedup. UNIQUE per persona
+    zajistuje ze opakovany fetch (restart workera, sit vypadla) neudela
+    duplikat.
+
+    Workflow pole:
+      read_at       -- kdy si user zpravu poprve zobrazil v UI
+      processed_at  -- kdy byl email uzavren (NULL = 'Prichozi' tab,
+                       NOT NULL = 'Zpracovane' tab). Plni se bud manualne
+                       z UI, nebo kaskadou z posledniho completed tasku
+                       (stejne jako sms_inbox dnes).
+    """
+    __tablename__ = "email_inbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_email: Mapped[str] = mapped_column(String(320))
+    from_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    to_email: Mapped[str] = mapped_column(String(320))
+    subject: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    body: Mapped[str | None] = mapped_column(Text, nullable=True)
+    message_id: Mapped[str] = mapped_column(String(998))
+    received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # JSON metadata z EWS (cc, bcc, folder, importance, has_attachments, ...)
+    # -- debug + budoucnost (reply threading, attachments handling).
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── EMAIL OUTBOX ───────────────────────────────────────────────────────────
+
+class EmailOutbox(BaseData):
+    """
+    Odchozi emaily -- asynchronni send pres worker. Paralelni struktura k
+    SmsOutbox, ale provider je jeden (Exchange/EWS), takze nepotrebujeme
+    "provider" sloupec.
+
+    Lifecycle:
+      pending -> queue_email() zapsal, worker ceka
+      sent    -> worker odeslal (sent_at NOT NULL)
+      failed  -> EWS selhal; last_error obsahuje detail, attempts++
+
+    cc/bcc jsou JSON arrays emailu (ukladane jako Text pro prenositelnost).
+
+    conversation_id = vazba na zpravy konverzaci, z nichz email vzesel
+    (audit "zobraz v puvodnim chatu").
+
+    from_identity:
+      persona (default) -- posila jmenem persony, creds z persona_channels
+      user              -- posila jmenem usera, creds z user_channel_service
+      system            -- fallback na .env (legacy)
+    """
+    __tablename__ = "email_outbox"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    to_email: Mapped[str] = mapped_column(String(320))
+    cc: Mapped[str | None] = mapped_column(Text, nullable=True)        # JSON list
+    bcc: Mapped[str | None] = mapped_column(Text, nullable=True)       # JSON list
+    subject: Mapped[str | None] = mapped_column(String(998), nullable=True)
+    body: Mapped[str] = mapped_column(Text)
+    purpose: Mapped[str] = mapped_column(String(30), default="user_request")
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    from_identity: Mapped[str] = mapped_column(String(20), default="persona")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── MARTI MEMORY: THOUGHTS + ENTITY LINKS ──────────────────────────────────
+
+class Thought(BaseData):
+    """
+    Zakladni atom Martiho pameti (viz docs/marti_memory_design.md).
+
+    Faze 1 (aktualni): pouziva content, type, author_*, source_*, created_at,
+    deleted_at. Ostatni pole jsou v schematu pro pozdejsi faze (zadne
+    migrace se pak nebudou delat).
+
+    type: fact | todo | observation | question | goal | experience
+      Type-specific fields v `meta` JSON:
+        fact        -> {}
+        todo        -> {"done": bool, "due_at": iso-str}
+        observation -> {"event_at": iso-str}
+        question    -> {"answered_at": iso-str, "answered_by_user_id": int,
+                        "answer_content": str}
+        goal        -> {"progress_percent": int, "milestones": [...]}
+        experience  -> {"emotion": str, "intensity": int 1-10}
+
+    status: note (pracovni poznamka) | knowledge (trvala znalost).
+      Faze 1 zapisuje vse jako 'note'. Povyseni na 'knowledge' prijde v Faze 2.
+
+    certainty: 0-100, v Fazi 1 default 50. V Fazi 3 ridi auto-promoci (>=80).
+
+    primary_parent_id: self-referential FK. Pro UI strom navigaci (jeden parent
+      per myslenka pro zobrazeni); cross-reference k vice entitam resi
+      ThoughtEntityLink.
+
+    tenant_scope: NULL = universal (Martiho diar v Faze 5+), jinak id tenantu.
+
+    Provenance:
+      author_user_id / author_persona_id -- kdo myslenku zapsal
+      source_event_type / source_event_id -- z ceho vzesla (konverzace, email,
+        SMS, manual, ai_inferred)
+
+    Soft delete: deleted_at NOT NULL = smazana. Service vzdy filtruje
+    deleted_at IS NULL.
+    """
+    __tablename__ = "thoughts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Core content
+    content: Mapped[str] = mapped_column(Text)
+    type: Mapped[str] = mapped_column(String(30))
+
+    # Status & certainty
+    status: Mapped[str] = mapped_column(String(20), default="note")
+    certainty: Mapped[int] = mapped_column(Integer, default=50)
+
+    # Tree structure (self-referential)
+    primary_parent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Tenant isolation
+    tenant_scope: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Provenance
+    author_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    author_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    source_event_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    source_event_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Type-specific fields (JSON)
+    meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class ThoughtEntityLink(BaseData):
+    """
+    Many-to-many vazba mezi myslenkami a entitami (user/persona/tenant/project).
+
+    Myslenka 'Petr pracuje na STRATEGII v EUROSOFTU' bude mit 3 linky:
+      (thought_id=X, entity_type='user',    entity_id=petr_id)
+      (thought_id=X, entity_type='project', entity_id=strategie_id)
+      (thought_id=X, entity_type='tenant',  entity_id=eurosoft_id)
+
+    entity_type: 'user' | 'persona' | 'tenant' | 'project'
+    entity_id: odpovidajici id (FK bez constraintu -- zachovame flexibilitu
+                                napric css_db / data_db)
+
+    UNIQUE (thought_id, entity_type, entity_id) -- zabrani duplikum.
+    Pro retrieval "vse o entite X" -- ix_entity.
+    """
+    __tablename__ = "thought_entity_links"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thought_id: Mapped[int] = mapped_column(BigInteger)
+    entity_type: Mapped[str] = mapped_column(String(30))
+    entity_id: Mapped[int] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class MartiQuestion(BaseData):
+    """
+    Otazka, kterou Marti chce polozit rodici pro overeni nejasne myslenky
+    (Faze 4, aktivni uceni).
+
+    Viz docs/marti_memory_design.md, rozhodnuti #6 (6e-6i).
+
+    Lifecycle:
+      open      -- ceka na rodice
+      answered  -- rodic odpovedel (answer_choice + optional answer_text)
+      skipped   -- rodic preskocil bez odpovedi
+      cancelled -- systemove zruseno (myslenka smazana apod.)
+
+    Odpoved:
+      answer_choice  -- yes | no | not_sure (mechanicke)
+      answer_text    -- volitelny nuancovany text, zpracuje LLM batch
+      answered_at    -- kdy rodic odpovedel
+      answered_by    -- kdo odpovedel (obvykle target_user_id, ale teoreticky
+                        jiny rodic by mohl)
+
+    text_reviewed_at:
+      NULL = LLM batch jeste nezpracoval answer_text (kandidat pro review).
+      NOT NULL = uz zpracovano.
+
+    priority_score:
+      100-0 scale. Generator vypocita (100 - certainty) + urgency_modifier.
+      UI razeni priority_score DESC.
+
+    thought_id je weak reference (bez FK constraintu) -- pokud je myslenka
+    smazana (soft delete), otazka muze zustat jako audit / je oznacena jako
+    cancelled.
+    """
+    __tablename__ = "marti_questions"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thought_id: Mapped[int] = mapped_column(BigInteger)
+    question_text: Mapped[str] = mapped_column(Text)
+    target_user_id: Mapped[int] = mapped_column(BigInteger)
+
+    status: Mapped[str] = mapped_column(String(20), default="open")
+    answer_choice: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
+    answered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    text_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    priority_score: Mapped[int] = mapped_column(Integer, default=50)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── AUTO-SEND CONSENTS (Phase 7) ───────────────────────────────────────────
+
+class AutoSendConsent(BaseData):
+    """
+    Trvaly, odvolatelny souhlas rodicu s odesilanim emailu/SMS Martim bez
+    potvrzeni v chatu.
+
+    Governance:
+      - Pouze rodice (users.is_marti_parent=True) mohou grantovat/revokovat.
+      - Non-parents maji jen read-only audit view.
+
+    Aktivni consent: revoked_at IS NULL.
+
+    Target: alespon jeden z (target_user_id, target_contact) musi byt neprazdny.
+      - target_user_id -- pokud je prijemce v users (preferovane).
+      - target_contact -- email/telefon pro kontakty mimo users.
+
+    Revoke NEMAZE radek -- zustava jako audit trail. Re-grant pri revoked
+    consentu = novy radek.
+
+    Rate limit (aplikacne ve service): 20 auto-sendu/hod/channel/grantee.
+    """
+    __tablename__ = "auto_send_consents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    target_contact: Mapped[str | None] = mapped_column(String(320), nullable=True)
+
+    channel: Mapped[str] = mapped_column(String(10))  # email | sms
+
+    granted_by_user_id: Mapped[int] = mapped_column(BigInteger)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+    revoked_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -11,6 +11,10 @@ class PersonaInfo(BaseModel):
     # True pokud persona ma uploadovany avatar -- frontend muze pak renderovat
     # <img src="/api/v1/personas/{id}/avatar"> misto generovanych iniciál.
     has_avatar: bool = False
+    # Phone number persony (SIMka) pokud je nakonfigurovana -- frontend podle
+    # tohoto rozhoduje, zda zobrazit ikonku 'SMS' vedle persony v dropdownu.
+    # None = persona nema SIMku, SMS modal se pro ni neotevre.
+    phone_number: str | None = None
 
 
 class SwitchPersonaRequest(BaseModel):

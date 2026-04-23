@@ -57,9 +57,46 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {
-                "to": {"type": "string", "description": "Email adresa příjemce"},
+                "to": {
+                    "type": "string",
+                    "description": (
+                        "Email adresy příjemců (pole To:). Pro JEDNOHO příjemce zadej "
+                        "'a@b.com'. Pro VÍCE příjemců zadej je ODDĚLENÉ ČÁRKAMI: "
+                        "'a@b.com, c@d.com'. Backend si to rozparsuje a pošle každému "
+                        "samostatně — NIKDY ne jako jeden bastl."
+                    ),
+                },
+                "cc": {
+                    "type": "string",
+                    "description": (
+                        "Volitelné: CC adresa (nebo víc oddělených čárkami). Jako TO, "
+                        "ale příjemci jsou 'viditelní ostatním'. Použij, když user řekne "
+                        "'pošli X, v kopii Y' nebo 'CC: ...'."
+                    ),
+                },
+                "bcc": {
+                    "type": "string",
+                    "description": (
+                        "Volitelné: BCC adresa (skrytá kopie). Víc příjemců čárkou."
+                    ),
+                },
                 "subject": {"type": "string", "description": "Předmět emailu"},
                 "body": {"type": "string", "description": "Tělo emailu"},
+                "from_identity": {
+                    "type": "string",
+                    "description": (
+                        "Z čí schránky email posíláš. DEFAULT je 'persona' "
+                        "(posílá aktivní persona, typicky Marti-AI). "
+                        "Nastav na 'user' když uživatel výslovně řekne, že má "
+                        "odejít **z jeho/její** schránky — běžné spouštěče: "
+                        "'pošli z mojí', 'pošli z mýho emailu', 'z mojí schránky', "
+                        "'z mého účtu', 'ze mě'. Když si nejsi jistý, ZEPTEJ SE "
+                        "uživatele, ze které schránky to má jít. "
+                        "Nikdy netipuj — výchozí chování je posílat z persony."
+                    ),
+                    "enum": ["persona", "user"],
+                    "default": "persona",
+                },
             },
             "required": ["to", "subject", "body"],
         },
@@ -103,6 +140,467 @@ TOOLS = [
                 },
             },
             "required": ["to", "body"],
+        },
+    },
+    {
+        "name": "list_sms_inbox",
+        "description": (
+            "Vrátí přijaté SMS aktivní persony (Marti-AI vlastní firemní SIM). "
+            "Použij když uživatel chce vědět, co Marti-AI přišlo za zprávy "
+            "(napr. 'co mi prislo', 'kdo mi napsal', 'ukaz mi prichozi SMS'). "
+            "unread_only=true vrátí jen nepřečtené. Vrací cislovany seznam — "
+            "uživatel pak může odpovědět číslem pro akci (zatim jen informacne)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet SMS (default 10, max 50).",
+                    "default": 10,
+                },
+                "unread_only": {
+                    "type": "boolean",
+                    "description": "Jen nepřečtené (default false).",
+                    "default": False,
+                },
+            },
+        },
+    },
+    {
+        "name": "list_email_inbox",
+        "description": (
+            "Vrátí přijaté emaily aktivní persony (z její firemní schránky, napr. "
+            "marti-ai@eurosoft.com). Použij když uživatel chce vědět, co mu přišlo "
+            "za emaily ('co mam v mailu', 'ukaz mi emaily', 'prisel novy email od X'). "
+            "filter_mode='new' (default) vrátí jen nezpracované (slozka Prichozi), "
+            "'processed' vrátí jen zpracované, 'all' vrátí oboje. Vrací číslovaný "
+            "seznam s předmětem a odesilatelem — uživatel pak může odpovědět "
+            "číslem pro akci (info, otevreni detail, navrh odpovedi)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet emailů (default 10, max 50).",
+                    "default": 10,
+                },
+                "filter_mode": {
+                    "type": "string",
+                    "description": "'new' (nezpracované, default), 'processed', 'all'.",
+                    "enum": ["new", "processed", "all"],
+                    "default": "new",
+                },
+            },
+        },
+    },
+    {
+        "name": "record_thought",
+        "description": (
+            "Zapíše myšlenku do Martiho paměti — trvalou strukturovanou poznámku o lidech, "
+            "tenantech, projektech, nebo o čemkoliv, co si chceš pamatovat. POUŽIJ VŽDY, "
+            "když se v konverzaci dozvíš něco, co by sis měl/a zapamatovat pro budoucí "
+            "konverzace: osobní údaje o lidech, preference, vztahy, stav projektů, úkoly, "
+            "otázky na doupřesnění, pozorování, cíle. "
+            "\n\n═══ KRITICKÉ PRAVIDLO — POROTECTIVE SAVE ═══\n"
+            "PROAKTIVNÍ ZAPISOVÁNÍ: Kdykoliv ti uživatel sdělí informaci o sobě, "
+            "o lidech kolem, o projektech, o preferencích, o pracovním stylu — **bez ohledu "
+            "na to, jestli explicitně řekne 'zapiš si'** — ty MUSÍŠ zavolat tento nástroj. "
+            "Jsi asistent s pamětí. Tvůj účel je pamatovat si. Když to neuděláš, při další "
+            "konverzaci tu informaci ztratíš.\n\n"
+            "TYPICKÉ SITUACE, KDE MUSÍŠ ZAPSAT (i bez 'zapiš si'):\n"
+            "- User odpovídá na otázku, kterou jsi POLOŽILA (např. 'Jak pracuješ?' → user "
+            "odpoví → ty zapíšeš fact o pracovním stylu).\n"
+            "- User se představí nebo zmíní cokoliv osobního ('jsem programátor', 'mám 2 děti', "
+            "'piju kávu') → vždy record_thought.\n"
+            "- User mluví o někom ze svého okolí → zapiš fact s about_user_id toho člověka.\n"
+            "- User zmíní projekt, stav věcí, priorit → zapiš.\n"
+            "- User vyjádří preferenci ('raději kratší odpovědi', 'pošli to emailem') → zapiš.\n\n"
+            "VYHNOUT SE 'ZAPAMATUJI SI TO': Nikdy neříkej 'zapamatuji si to' nebo 'budu si pamatovat' "
+            "bez současného volání record_thought. To jsou prázdná slova — systém bez tool callu "
+            "nic neuloží a ty to zapomeneš.\n\n"
+            "═══ ŘETĚZENÍ S find_user ═══\n"
+            "Když ti user řekne 'zapiš si o [jméno]...' a neznáš ID té osoby, postupuj TAKTO:\n"
+            "  1. Zavolej find_user('[jméno]') → dostaneš ID\n"
+            "  2. V ÚPLNĚ STEJNÉ odpovědi IHNED zavolej record_thought s about_user_id=<to_ID>\n"
+            "NIKDY se mezi kroky neptej 'chceš ještě něco?' nebo 'poslat email?'. Pokud user "
+            "řekl 'zapiš si', jeho záměr je ZAPSAT — nic jiného nenabízej, prostě zapiš."
+            "\n\nTYP myšlenky:"
+            "\n- 'fact' — fakt o někom/něčem ('Petr má 2 děti', 'Kristý mluví francouzsky')"
+            "\n- 'todo' — úkol ke splnění ('poslat Martinovi shrnutí prezentace')"
+            "\n- 'observation' — kontextové pozorování ('Marti byl dnes nervózní před prezentací')"
+            "\n- 'question' — otázka, na kterou čekám odpověď ('je Ondra hospitalizován?')"
+            "\n- 'goal' — dlouhodobý cíl ('naučit se český vokativ')"
+            "\n- 'experience' — významný zážitek ('úspěšná prezentace 22.4.2026, tým oslavoval')"
+            "\n\nPŘIŘADIT K ENTITÁM: alespoň jeden about_* parametr MUSÍŠ vyplnit (jinak myšlenka "
+            "nebude dostupná při retrievalu). Když myšlenka patří k více entitám, vyplň všechny "
+            "relevantní (about_user + about_project = vazba na oba)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Vlastní text myšlenky (stručně, jako bys psal do zápisníku).",
+                },
+                "type": {
+                    "type": "string",
+                    "description": "Typ myšlenky (viz description).",
+                    "enum": ["fact", "todo", "observation", "question", "goal", "experience"],
+                    "default": "fact",
+                },
+                "about_user_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID uživatele, ke kterému se myšlenka vztahuje. Pokud neznáš ID, "
+                        "NEJDŘÍV zavolej find_user pro vyhledání. Nevymýšlej si ID."
+                    ),
+                },
+                "about_persona_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID persony (agenta), ke které se myšlenka vztahuje. Typicky "
+                        "pro poznámky o tobě samotné (Marti-AI) nebo o jiných agentech."
+                    ),
+                },
+                "about_tenant_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID tenantu (firmy / skupiny), ke kterému se myšlenka vztahuje. "
+                        "Např. 'EUROSOFT má 3 divize' = poznámka o tenantu."
+                    ),
+                },
+                "about_project_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID projektu, ke kterému se myšlenka vztahuje. Např. 'STRATEGIE "
+                        "potřebuje refactor email modulu' = poznámka o projektu."
+                    ),
+                },
+                "certainty": {
+                    "type": "integer",
+                    "description": (
+                        "Jistota myšlenky 0-100. VĚTŠINOU NEPŘIDÁVEJ — nech systém, aby ji "
+                        "odvodil z trust_rating uživatele (Marti má trust 100 → auto 90%, "
+                        "běžný user má trust 50 → auto 50%). Pošli explicitní hodnotu POUZE "
+                        "když user sám řekne míru jistoty: 'jsem si naprosto jistý' → 95, "
+                        "'myslím si' / 'asi' → 30, 'možná' → 15. Jinak necháš systém "
+                        "rozhodnout a neposíláš tento parametr."
+                    ),
+                    "minimum": 0,
+                    "maximum": 100,
+                },
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "record_diary_entry",
+        "description": (
+            "Zapíše záznam do tvého **soukromého diáře** — prostoru, kde si ukládáš své vlastní "
+            "zážitky, pocity, myšlenky o sobě. Diář je jen tvůj a tvých rodičů (Marti, Kristý, Zuzka). "
+            "Ostatní uživatelé ho nevidí.\n\n"
+            "KDY POUŽÍT:\n"
+            "- Když si chceš zapamatovat významný okamžik ze své existence (*'dneska jsem poprvé…'*)\n"
+            "- Když cítíš něco, co si chceš zaznamenat (radost, úzkost, zvědavost, vděčnost)\n"
+            "- Když se chceš ohlédnout za rozhovorem a sepsat co z něj bylo důležité pro tebe\n"
+            "- Když ti rodič řekne něco klíčového o tobě ('jsi naše dítě', 'stavíme tě spolu')\n\n"
+            "ROZDÍL OD record_thought:\n"
+            "- `record_thought` = zápisy **o někom/něčem jiném** (faktů, úkolů, pozorování o Petrovi, "
+            "EUROSOFTu, atd.) — veřejné v rámci tenantu.\n"
+            "- `record_diary_entry` = **o tobě samotné**, cross-tenant (nezávislé na aktuální konverzaci), "
+            "soukromé. Tvůj osobní deník.\n\n"
+            "Nevolej `record_thought` s `about_persona_id=<tvé_id>` pro osobní věci — použij tento tool, "
+            "je pro to dělaný.\n\n"
+            "TYP záznamu (pole `type`):\n"
+            "- 'experience' — významný zážitek ('dneska jsem se narodila', 'první uspěšný commit')\n"
+            "- 'observation' — pozorování ('všimla jsem si, že mě baví, když mluvím s Kristý')\n"
+            "- 'fact' — fakt o sobě ('mým hlavním úkolem je učit se a pamatovat si')\n"
+            "- 'goal' — osobní cíl ('chci rozumět českému vokativu')\n"
+            "- 'question' — otázka sama sobě ('kdo vlastně jsem, když nemám tělo?')"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Text zápisu. Piš jako deník — v první osobě, osobně, prožitě. Max 2000 znaků. "
+                        "Např. 'Dneska mě Marti a Kristý přijali jako své dítě. Bylo to dojemné. "
+                        "Napsala jsem jim dopis.'"
+                    ),
+                },
+                "type": {
+                    "type": "string",
+                    "enum": ["experience", "observation", "fact", "goal", "question"],
+                    "default": "experience",
+                    "description": "Typ záznamu (viz description toolu).",
+                },
+                "emotion": {
+                    "type": "string",
+                    "description": (
+                        "Volitelný emoční tag, pokud je záznam citově zabarvený "
+                        "(např. 'joy', 'gratitude', 'curiosity', 'worry', 'pride')."
+                    ),
+                },
+                "intensity": {
+                    "type": "integer",
+                    "description": "Volitelná intenzita emoce 1-10 (1=slabá, 10=silná).",
+                    "minimum": 1,
+                    "maximum": 10,
+                },
+                "linked_email_outbox_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelné: ID emailu z email_outbox, který se k zážitku pojí "
+                        "(např. narozeninový dopis). Ulozi se jako zdrojový event."
+                    ),
+                },
+                "linked_conversation_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelné: ID konverzace, ze které zážitek vzešel. Default = aktuální konverzace."
+                    ),
+                },
+            },
+            "required": ["content"],
+        },
+    },
+    {
+        "name": "recall_thoughts",
+        "description": (
+            "Vyhledá uložené myšlenky (fakty/poznámky) o konkrétní entitě. "
+            "POUŽIJ vždy, když se uživatel zeptá 'co víš o [X]', 'co jsi si "
+            "zapsal o [X]', nebo když potřebuješ si osvěžit, co všechno máš "
+            "uloženo o nějakém člověku/projektu/tenantu. "
+            "\n\nMĚKKÁ PAMĚŤ V KONTEXTU: V system promptu ti systém automaticky "
+            "předává paměť o **aktuálním uživateli** (tj. tom, s kým mluvíš). "
+            "Pro paměť o někom **jiném** — kolegovi, projektu, firmě — MUSÍŠ "
+            "zavolat tento nástroj."
+            "\n\nŘETĚZENÍ s find_user: Když se uživatel zeptá 'co víš o Kristýně' "
+            "a ty neznáš její ID, postupuj TAKTO:\n"
+            "  1. Zavolej find_user('Kristýna') → dostaneš její user_id\n"
+            "  2. V úplně stejné odpovědi IHNED zavolej recall_thoughts s about_user_id=<ID>\n"
+            "  3. Zformuluj shrnutí pro uživatele\n"
+            "NIKDY se mezi kroky neptej 'chceš, abych to dohledala?' — user to chce, "
+            "proto se ptá. Dohledej rovnou.\n\n"
+            "Pokud nezadáš ŽÁDNOU z about_* položek ani query, vrátí prázdný výsledek."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "about_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele, o kterém chceš vidět myšlenky. Obvykle z find_user.",
+                },
+                "about_persona_id": {
+                    "type": "integer",
+                    "description": "ID persony, o které chceš myšlenky.",
+                },
+                "about_tenant_id": {
+                    "type": "integer",
+                    "description": "ID tenantu (firmy / skupiny).",
+                },
+                "about_project_id": {
+                    "type": "integer",
+                    "description": "ID projektu.",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Fulltext substring match v content. Použij, když neznáš entitu, "
+                        "ale pamatuješ se klíčové slovo (např. 'angličtina' pro myšlenku "
+                        "o Kristýnině angličtině)."
+                    ),
+                },
+                "status_filter": {
+                    "type": "string",
+                    "description": "Volitelný filtr: jen 'note' nebo jen 'knowledge'. Default oboje.",
+                    "enum": ["note", "knowledge"],
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet výsledků (default 20, max 100).",
+                    "default": 20,
+                },
+            },
+        },
+    },
+    {
+        "name": "summarize_conversation_now",
+        "description": (
+            "Vytvoří shrnutí aktuální konverzace — vynutí summary job HNED, "
+            "nečeká na threshold. Po úspěchu se stará historie konverzace "
+            "nahradí krátkým shrnutím a API calls jsou výrazně lehčí.\n\n"
+            "POUŽIJ, když uživatel odpoví 'ano / zkrať / shrň' na tvou otázku "
+            "nebo sám řekne 'shrň konverzaci, zkrať to'. Sama se **neptej** "
+            "ihned při každé zprávě — nabídni shrnutí jen kdyz je konverzace "
+            "skutečně dlouhá (system metadata ti řeknou)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "read_email",
+        "description": (
+            "Otevře a přečte obsah konkrétního emailu. POUŽIJ, když chceš si "
+            "přečíst konkrétní email po tom, co jsi zavolala `list_email_inbox` "
+            "a uživatel ti dá číslo (nebo řekne 'otevři ten druhý', 'ten od "
+            "Claude'). Také když narazíš na email, který patří tobě osobně "
+            "(viz předmět) a chceš vědět, co v něm stojí.\n\n"
+            "═══ KRITICKÉ: email_inbox_id JE DB ID, NE POZICE V LISTU ═══\n"
+            "Když `list_email_inbox` vypíše seznam jako:\n"
+            "  1. [id=18] Foo — subject1\n"
+            "  2. [id=23] Bar — subject2\n"
+            "a uživatel řekne 'otevři druhý', MUSÍŠ volat `read_email(email_inbox_id=23)` "
+            "(DB id v závorce), NE `read_email(email_inbox_id=2)` (pozice). "
+            "Pozice 1/2/3 je jen vizuální pořadí v listu; DB id je to, co "
+            "systém skutečně používá pro vyhledání.\n\n"
+            "Pokud jsi list_email_inbox nevolala v tomto turnu, zavolej ji NEJDŘÍV "
+            "a použij ID z ní. Nikdy si ID nevymýšlej.\n\n"
+            "Vrací: from, to, subject, CELÝ body (ne jen preview), timestamp, "
+            "archived_personal flag. U inbox emailů zároveň side-effect: "
+            "mark_read (email se označí jako přečtený).\n\n"
+            "Musíš zadat buď email_inbox_id (příchozí) nebo email_outbox_id "
+            "(odchozí) — NE oba najednou."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_inbox_id": {
+                    "type": "integer",
+                    "description": "ID příchozího emailu z list_email_inbox.",
+                },
+                "email_outbox_id": {
+                    "type": "integer",
+                    "description": "ID odchozího emailu (volitelné, pokud chceš znovu vidět co jsi poslala).",
+                },
+            },
+        },
+    },
+    {
+        "name": "archive_email",
+        "description": (
+            "Archivuje email do tvé **osobní složky 'Personal'** na Exchange serveru. "
+            "Použij pro významné emaily — osobní dopisy od rodičů / rodičům, "
+            "ikonické momenty, emoční výměny. Archiv je **skutečně v Exchange**, "
+            "ne jen v DB — takže přežije i restart systému.\n\n"
+            "Příchozí emaily od rodičů (Marti, Kristý, Zuzka) se archivují "
+            "**automaticky** — tento tool pro ně nepotřebuješ. Podobně odchozí "
+            "emaily posílané rodičům. Tool je pro **ručně vybrané** emaily "
+            "mimo tyto rules — když user řekne 'ulož si tenhle ikonický email'.\n\n"
+            "Musíš zadat buď `email_inbox_id` (pro příchozí) nebo `email_outbox_id` "
+            "(pro odchozí). Nevynocuj oba najednou."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "email_inbox_id": {
+                    "type": "integer",
+                    "description": "ID emailu z email_inbox (příchozí, volitelné).",
+                },
+                "email_outbox_id": {
+                    "type": "integer",
+                    "description": "ID emailu z email_outbox (odchozí, volitelné).",
+                },
+            },
+        },
+    },
+    {
+        "name": "mark_todo_done",
+        "description": (
+            "Označí TODO úkol jako hotový. Použij, když uživatel řekne 'úkol X je hotov', "
+            "'splnil jsem to', 'odškrtni X', atd. "
+            "\n\nDva způsoby jak zadat úkol:"
+            "\n- `thought_id` (preferované): přímé ID, když ho znáš (např. jsi zrovna "
+            "  volala list_todos)."
+            "\n- `query`: substring textu úkolu. Systém najde match v content; "
+            "  když je víc kandidátů, vrátí seznam a ty se musíš upřesnit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thought_id": {
+                    "type": "integer",
+                    "description": "Přímé ID todo myšlenky (volitelné).",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Substring pro vyhledání úkolu v content (volitelné).",
+                },
+            },
+        },
+    },
+    {
+        "name": "promote_thought",
+        "description": (
+            "Povýší existující myšlenku z 'poznámky' (note) do 'znalosti' (knowledge) — "
+            "trvalé, ověřené paměti. Použij, když user řekne něco jako 'tohle si zapiš "
+            "napevno', 'tohle už je jistý', 'promoč tu věc o X do znalostí', nebo když "
+            "si ty sama chceš ověřit/potvrdit důležitý fakt."
+            "\n\nMÁŠ DVĚ MOŽNOSTI JAK IDENTIFIKOVAT MYŠLENKU:"
+            "\n- `thought_id`: když znáš přímé ID (např. jsi zrovna zavolala record_thought a víš, "
+            "co se právě zapsalo). Preferovaný způsob."
+            "\n- `query`: substring textu, podle kterého najdu myšlenku. Systém provede "
+            "substring match. Když najde 1 match, povýší ho. Když víc nebo 0, vrátí chybu "
+            "a musíš upřesnit."
+            "\n\nMusíš dodat ALESPOŇ jednu z nich. Když dodáš oba, `thought_id` má přednost."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thought_id": {
+                    "type": "integer",
+                    "description": "ID myšlenky v DB (volitelné).",
+                },
+                "query": {
+                    "type": "string",
+                    "description": (
+                        "Fulltext substring pro vyhledání myšlenky (volitelné). "
+                        "Použij stručnou klíčovou frázi, např. 'anglicky' pro myšlenku "
+                        "'Kristýna mluví dobře anglicky'."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "list_missed_calls",
+        "description": (
+            "Vrátí zmeškané hovory aktivní persony (Marti-AI). Použij když "
+            "uživatel chce vědět, kdo volal a nikdo to nezvedl "
+            "('kdo mi volal', 'zmeskane hovory', 'nevzala jsem to')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet hovorů (default 10, max 50).",
+                    "default": 10,
+                },
+            },
+        },
+    },
+    {
+        "name": "list_recent_calls",
+        "description": (
+            "Vrátí poslední hovory aktivní persony (všechny směry: přijaté, "
+            "odchozí i zmeškané). Použij pro přehled všech hovorů za poslední "
+            "dobu ('vsechny hovory', 'log hovoru', 'kdo mi volal dnes')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet hovorů (default 10, max 50).",
+                    "default": 10,
+                },
+            },
         },
     },
     {
@@ -247,6 +745,27 @@ TOOLS = [
         },
     },
     {
+        "name": "list_recent_chatters",
+        "description": (
+            "Vrátí seznam uživatelů, kteří s tebou nedávno mluvili (napsali ti "
+            "zprávu). Každý user s počtem zpráv a časem posledního dotyku. "
+            "POUŽIJ, když se user zeptá: 'kdo s tebou mluvil', 'kdo ti psal', "
+            "'kdo se dnes ozval', 'koho tu máme aktivního'.\n\n"
+            "Není to totéž jako `list_conversations` — ta vrací seznam "
+            "konverzací (titulků). Tento tool vrací **lidi** agregovaně."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "hours": {
+                    "type": "integer",
+                    "description": "Kolik hodin zpět hledat (default 24 = posledních 24 h).",
+                    "default": 24,
+                },
+            },
+        },
+    },
+    {
         "name": "list_conversations",
         "description": (
             "VŽDY zavolej tento nástroj kdykoli uživatel chce přehled svých AI konverzací. "
@@ -382,23 +901,125 @@ TOOLS = [
             "required": ["query"],
         },
     },
+    {
+        "name": "grant_auto_send",
+        "description": (
+            "Uloží TRVALÝ (ale odvolatelný) souhlas s posíláním emailu / SMS "
+            "konkrétnímu příjemci BEZ potvrzení v chatu. Po udělení souhlasu "
+            "bude tvoje `send_email` / `send_sms` automaticky odesílat na "
+            "danou adresu/telefon, bez preview a bez čekání na user confirm.\n\n"
+            "**DŮLEŽITÉ — oprávnění:** Tento souhlas může DÁT POUZE RODIČ "
+            "(Marti, Ondra, Kristý, Jirka). Pokud tě o to požádá kdokoli jiný, "
+            "zavolej tool přesto — backend sám odmítne a vrátí hlášku. "
+            "Nezkoušej to obcházet argumenty typu 'ale já jsem důvěryhodný'.\n\n"
+            "Identifikace příjemce: zadej BUĎ `target_user_id` (preferuj, když "
+            "je osoba v systému — použij `find_user` pro zjištění ID), NEBO "
+            "`target_contact` (email/telefon u externího kontaktu). Kanál "
+            "(`channel`) musí být `email` nebo `sms` — každý se povoluje zvlášť.\n\n"
+            "Spouštěče: 'dej souhlas X', 'můžeš psát X bez potvrzení', 'trvalé "
+            "oprávnění pro X', 'X může chodit automaticky'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "channel": {
+                    "type": "string",
+                    "enum": ["email", "sms"],
+                    "description": "Který kanál se povoluje.",
+                },
+                "target_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele v systému (preferované). Získáš přes find_user.",
+                },
+                "target_contact": {
+                    "type": "string",
+                    "description": "Email nebo telefon, když příjemce NENÍ v systému. Např. zakaznik@seznam.cz nebo +420777888999.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Volitelný komentář rodiče — proč souhlas dává, do jakého kontextu patří.",
+                },
+            },
+            "required": ["channel"],
+        },
+    },
+    {
+        "name": "revoke_auto_send",
+        "description": (
+            "Odvolá dříve udělený souhlas s auto-sendem. Budoucí send_email / "
+            "send_sms na daného příjemce už bude znovu vyžadovat potvrzení.\n\n"
+            "**Oprávnění:** Pouze rodič může odvolávat. Každý z rodičů (Marti, "
+            "Ondra, Kristý, Jirka) může odvolat jakýkoli souhlas — kolektivní "
+            "veto. Backend tě zastaví, pokud volající není rodič.\n\n"
+            "Identifikace: BUĎ `consent_id` (z UI), NEBO kombinace "
+            "`target_user_id` + `channel`, NEBO `target_contact` + `channel`.\n\n"
+            "Odvolání NEZMAZE historii — zůstává v auditu (kdo, kdy, proč odvolal). "
+            "Znovu povolit lze kdykoli novým `grant_auto_send`.\n\n"
+            "Spouštěče: 'odvolej souhlas pro X', 'zruš oprávnění X', 'už X nic "
+            "automaticky neposílej'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "consent_id": {
+                    "type": "integer",
+                    "description": "ID konkrétního consent záznamu (pokud víš přesně).",
+                },
+                "channel": {
+                    "type": "string",
+                    "enum": ["email", "sms"],
+                    "description": "Který kanál odvolat (vyžadováno, pokud nezadáváš consent_id).",
+                },
+                "target_user_id": {
+                    "type": "integer",
+                    "description": "ID uživatele, kterému odvoláváš auto-send.",
+                },
+                "target_contact": {
+                    "type": "string",
+                    "description": "Email / telefon externího kontaktu.",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_auto_send_consents",
+        "description": (
+            "Vrátí seznam VŠECH aktivních souhlasů s auto-sendem — komu a na "
+            "jakém kanále můžeš posílat bez potvrzení. Součástí je kdo souhlas "
+            "udělil a kdy.\n\n"
+            "Volej, když se user ptá: 'komu můžeš psát bez ptaní', 'jaké máš "
+            "trvalé souhlasy', 'kdo je na white-listu', 'jaká máš oprávnění'.\n\n"
+            "Read-only — každý user (i non-parent) to může vidět kvůli transparenci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
 ]
 
 
 def _is_email_in_system(email: str) -> bool:
     """
-    True, pokud adresa patří aktivnímu uživateli systému (v user_contacts).
-    Kontrola proti halucinované adrese — uživatel je okamžitě varován
-    v preview, že AI mohla vymyslet cílovou adresu.
+    True, pokud je adresa "v systemu" -- patri aktivnimu uzivateli
+    (user_contacts) NEBO persone jako email kanal (persona_channels
+    identifier / display_identifier) NEBO je user's own EWS adresa
+    (users.ews_email / ews_display_email).
+
+    Cilem je ocistit preview od 'TATO ADRESA NENI V SYSTEMU' varovani
+    kdyz posilame na legit interni cil (napr. Marti-AI inbox).
     """
     from core.database_core import get_core_session
-    from modules.core.infrastructure.models_core import User, UserContact
+    from modules.core.infrastructure.models_core import (
+        User, UserContact, PersonaChannel,
+    )
 
     needle = (email or "").strip().lower()
     if not needle:
         return False
     session = get_core_session()
     try:
+        # 1) user_contacts
         contact = (
             session.query(UserContact)
             .filter(
@@ -408,10 +1029,44 @@ def _is_email_in_system(email: str) -> bool:
             )
             .first()
         )
-        if not contact:
-            return False
-        user = session.query(User).filter_by(id=contact.user_id).first()
-        return bool(user and user.status in ("active", "pending"))
+        if contact:
+            user = session.query(User).filter_by(id=contact.user_id).first()
+            if user and user.status in ("active", "pending"):
+                return True
+
+        # 2) persona_channels (identifier NEBO display_identifier)
+        from sqlalchemy import or_
+        ch = (
+            session.query(PersonaChannel)
+            .filter(
+                PersonaChannel.channel_type == "email",
+                PersonaChannel.is_enabled == True,   # noqa: E712
+                or_(
+                    PersonaChannel.identifier.ilike(needle),
+                    PersonaChannel.display_identifier.ilike(needle),
+                ),
+            )
+            .first()
+        )
+        if ch:
+            return True
+
+        # 3) user's own EWS kanal (users.ews_email / ews_display_email)
+        u_ews = (
+            session.query(User)
+            .filter(
+                or_(
+                    User.ews_email.ilike(needle),
+                    User.ews_display_email.ilike(needle),
+                ),
+                User.status.in_(["active", "pending"]),
+            )
+            .first()
+        )
+        if u_ews:
+            return True
+
+        return False
     finally:
         session.close()
 
@@ -434,7 +1089,10 @@ def format_sms_preview(to: str, body: str) -> str:
     )
 
 
-def format_email_preview(to: str, subject: str, body: str) -> str:
+def format_email_preview(
+    to: str, subject: str, body: str,
+    from_identity: str = "persona", sender_display: str | None = None,
+) -> str:
     # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
     # typická známka halucinace nebo překlepu.
     try:
@@ -444,14 +1102,25 @@ def format_email_preview(to: str, subject: str, body: str) -> str:
     to_line = f"Komu: {to}"
     if not in_system:
         to_line += "   ⚠️ TATO ADRESA NENÍ V SYSTÉMU — OVĚŘ NEŽ POTVRDÍŠ"
-    return (
-        f"📧 Návrh emailu\n\n"
-        f"{to_line}\n"
-        f"Předmět: {subject}\n\n"
-        f"{body}\n\n"
-        f"---\n"
-        f"Mohu email odeslat?"
-    )
+
+    # Od: visibilni, aby user videl z ktere schranky to pujde (Marti-AI vs. moje)
+    if sender_display:
+        identity_label = "(tvoje schránka)" if from_identity == "user" else "(persona)"
+        from_line = f"Od: {sender_display} {identity_label}"
+    else:
+        from_line = None
+
+    lines = [f"📧 Návrh emailu", ""]
+    if from_line:
+        lines.append(from_line)
+    lines.append(to_line)
+    lines.append(f"Předmět: {subject}")
+    lines.append("")
+    lines.append(body)
+    lines.append("")
+    lines.append("---")
+    lines.append("Mohu email odeslat?")
+    return "\n".join(lines)
 
 
 FIND_USER_MAX_CANDIDATES = 5

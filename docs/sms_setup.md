@@ -50,7 +50,7 @@ Přidej (nebo uprav) tyto řádky v `D:\Projekty\STRATEGIE\.env`:
 SMS_ENABLED=true
 SMS_PROVIDER=android_gateway
 SMS_GATEWAY_KEY=7k3hX8_p-4VqR0YcE2bFa1T9NmU6WjLhS5gA-OdK8Pw
-SMS_FROM_NUMBER=+420777180511
+SMS_FROM_NUMBER=+420778117879
 SMS_RATE_LIMIT_PER_USER_PER_HOUR=5
 ```
 
@@ -123,10 +123,10 @@ capcom6 cloudu):
 
 ### 2.5 Test odeslání z telefonu
 
-1. V STRATEGIE chatu řekni: *„Pošli SMS na +420777180511 text TEST"*
+1. V STRATEGIE chatu řekni: *„Pošli SMS na +420778117879 text TEST"*
    (samotný AI tool `send_sms` přijde v Fázi 2 — zatím testuj přes Python
    shell: `from modules.notifications.application.sms_service import queue_sms;
-   queue_sms("777180511", "test", purpose="system")`)
+   queue_sms("778117879", "test", purpose="system")`)
 2. Na telefonu by se do 30 sekund objevila SMS v odchozích.
 3. V DB: `SELECT * FROM sms_outbox ORDER BY id DESC LIMIT 5;` → status=`sent`.
 
@@ -164,7 +164,116 @@ za hodinu přes AI tool. Vyšší limit? Uprav v `.env` + restart.
 - Nesedí `SMS_GATEWAY_KEY` mezi serverem a telefonem
 - Klič má < 32 znaků (server rejectuje i platný, pokud je slabý)
 
-## 4. Migrace na SMSEagle (budoucnost)
+## 4. Inbound SMS + Call log (fáze 3 + 4)
+
+Po rozšíření o obousměrnou komunikaci telefon nejen posílá, ale i přijímá
+SMS a logguje hovory. Vyžaduje dvě navázané věci: **capcom6 webhook na
+incoming SMS** a **Tasker profil na call events**.
+
+### 4.1 Marti-AI vlastní SIMku — nastavení persony
+
+Po migraci `personas.phone_number` je sloupec prázdný. Navaž firemní SIMku
+na Marti-AI persony přes SQL:
+
+```sql
+UPDATE personas
+SET phone_number = '+420778117879', phone_enabled = true
+WHERE is_default = true;   -- Marti-AI
+```
+
+Ověř:
+```sql
+SELECT id, name, phone_number, phone_enabled FROM personas WHERE phone_enabled = true;
+```
+
+### 4.2 capcom6 webhook — incoming SMS push
+
+V capcom6 app jdi do Settings → **Webhooks** (nebo **Integration**,
+pojmenování se liší verzí). Přidej webhook:
+
+- **Event**: `sms:received` (nebo „Incoming SMS")
+- **URL**: `https://app.strategie-system.com/api/v1/sms/gateway/inbox`
+- **Method**: `POST`
+- **Headers**:
+  - `X-Gateway-Key: <tvuj klic z .env>`
+  - `Content-Type: application/json`
+- **Body template** (JSON):
+  ```json
+  {
+    "from_phone": "{{sender}}",
+    "body": "{{message}}",
+    "to_phone": "+420778117879",
+    "received_at": "{{timestamp}}"
+  }
+  ```
+
+Názvy proměnných v mustache (`{{sender}}` apod.) se můžou lišit podle verze
+capcom6. Pokud se mapping neshoduje, podívej se do jejich dokumentace
+nebo zapni **Request log** v appce, ať vidíš skutečnou strukturu.
+
+### 4.3 Tasker — call events
+
+Tasker zachytává události o hovorech. Nainstaluj Tasker (Play Store, placený
+jednorazak cca 200 Kč) nebo alternativu **Automate by LlamaLab** (free verze
+stačí).
+
+#### Profil 1: Missed call
+
+- **Event**: Phone → Missed Call (Number: `*`)
+- **Task**: HTTP Request
+  - Method: `POST`
+  - URL: `https://app.strategie-system.com/api/v1/sms/gateway/calls`
+  - Headers:
+    ```
+    X-Gateway-Key: <klic>
+    Content-Type: application/json
+    ```
+  - Body:
+    ```json
+    {
+      "peer_phone": "%CNUM",
+      "direction": "missed",
+      "started_at": "%TIMES",
+      "to_phone": "+420778117879"
+    }
+    ```
+
+#### Profil 2: Incoming call ended
+
+- **Event**: Phone → Phone Idle (po byl Phone Offhook)
+- **Task**: HTTP Request, stejné URL + headers
+- Body:
+  ```json
+  {
+    "peer_phone": "%CNUM",
+    "direction": "in",
+    "started_at": "%TIMES",
+    "duration_s": "%CDUR",
+    "to_phone": "+420778117879"
+  }
+  ```
+
+#### Profil 3: Outgoing call ended
+
+- **Event**: Phone → Phone Idle (po Phone Outgoing)
+- Body s `"direction": "out"`, jinak stejné
+
+Poznámka: Tasker proměnné se liší verzí; `%CNUM`, `%TIMES`, `%CDUR` jsou
+ty nejběžnější. Ověř v Tasker Variables doc.
+
+### 4.4 Test
+
+1. Napiš STRATEGIE z jiného telefonu SMS na 778117879. Za ~30 sekund by
+   se mělo objevit v `sms_inbox` (ověř `SELECT * FROM sms_inbox`).
+2. V chatu s Marti-AI: *„Co mi přišlo za SMS?"* → měla by zavolat
+   `list_sms_inbox` a ukázat seznam.
+3. Zavolej na 778117879 z jiného čísla a zavěš → za ~5 sekund by měl přijít
+   záznam v `phone_calls` (direction=missed nebo in podle toho zda jsi vzal).
+4. V chatu: *„Zmeškal jsem nějaký hovor?"* → `list_missed_calls`.
+
+---
+
+## 5. Migrace na SMSEagle (budoucnost)
 
 Až objemy narostou (~100+ SMS/den a víc), nebo budeš chtít redundanci
 a profi HW, přepnutí je lineární:

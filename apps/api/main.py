@@ -15,6 +15,15 @@ from modules.personas.api.router import router as personas_router
 from modules.rag.api.router import router as rag_router
 from modules.audit.api.router import router as audit_router
 from modules.notifications.api.sms_gateway_router import router as sms_gateway_router
+from modules.notifications.api.sms_ui_router import router as sms_ui_router
+from modules.notifications.api.email_router import router as email_router
+from modules.notifications.api.email_ui_router import router as email_ui_router
+from modules.notifications.api.notifications_router import router as notifications_router
+from modules.notifications.api.consent_router import router as consent_router
+from modules.tasks.api.router import router as tasks_router
+from modules.thoughts.api.router import router as thoughts_router
+from modules.thoughts.api.questions_router import router as marti_questions_router
+from modules.admin.api.router import router as admin_router
 
 setup_logging()
 
@@ -42,6 +51,15 @@ app.include_router(personas_router)
 app.include_router(rag_router)
 app.include_router(audit_router)
 app.include_router(sms_gateway_router)
+app.include_router(sms_ui_router)
+app.include_router(email_router)
+app.include_router(email_ui_router)
+app.include_router(notifications_router)
+app.include_router(consent_router)
+app.include_router(tasks_router)
+app.include_router(thoughts_router)
+app.include_router(marti_questions_router)
+app.include_router(admin_router)
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

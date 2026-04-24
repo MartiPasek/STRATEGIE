@@ -159,6 +159,12 @@ def get_user_context(user_id: int) -> dict | None:
             # Marti Memory Faze 3/4: rodicovska role -- cross-tenant pristup
             # do pameti + pravo dostavat aktivni learning otazky.
             "is_marti_parent": bool(user.is_marti_parent),
+            # Faze 9.1 Dev observability: admin role + per-user dev mode toggle.
+            # is_admin = opravneni k Dev View (Router/Composer tracing, llm_calls).
+            # dev_mode_enabled = aktualne zapnuty pohled (admin si ho muze vypnout
+            # aby videl UI "jako ostatni uzivatele").
+            "is_admin": bool(user.is_admin),
+            "dev_mode_enabled": bool(user.dev_mode_enabled),
         }
     finally:
         session.close()

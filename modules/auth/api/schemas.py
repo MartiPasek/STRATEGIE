@@ -48,6 +48,12 @@ class LoginResponse(BaseModel):
     is_superadmin: bool = False
     # Marti Memory Faze 3/4: rodičovská role (cross-tenant pamět + aktivní učení).
     is_marti_parent: bool = False
+    # Faze 9.1 Dev observability: admin role (spravce systemu, odlisene od rodice).
+    # UI: is_admin=True -> v Profile dropdown se ukaze sekce "Vyvojarsky rezim"
+    # s toggle switchem. dev_mode_enabled=True -> v hlavicce badge "🔧 DEV"
+    # a pod zpravami Marti-AI lupy pro Router/Composer tracing.
+    is_admin: bool = False
+    dev_mode_enabled: bool = False
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

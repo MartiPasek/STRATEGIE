@@ -301,6 +301,51 @@ def update_profile(body: UpdateProfileRequest, req: Request) -> LoginResponse:
     return LoginResponse(**ctx)
 
 
+# ── DEV MODE (Faze 9.1b) ──────────────────────────────────────────────────
+
+class SetDevModeRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch("/me/dev-mode", response_model=LoginResponse)
+def set_dev_mode(body: SetDevModeRequest, req: Request) -> LoginResponse:
+    """
+    Zapne/vypne 'Vyvojarsky rezim' v UI (lupy pod zpravami Marti-AI, DEV badge
+    v hlavicce). Per-user preference ulozena v users.dev_mode_enabled.
+
+    Gated: pouze users.is_admin=True. Non-admin dostane 403. UI toggle se
+    zobrazi jen kdyz LoginResponse.is_admin=True.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Účet není aktivní.")
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="Dev režim je jen pro administrátory.")
+
+        user.dev_mode_enabled = bool(body.enabled)
+        session.commit()
+        logger.info(
+            f"AUTH | dev_mode {'ON' if body.enabled else 'OFF'} | user={user_id}"
+        )
+    finally:
+        session.close()
+
+    ctx = get_user_context(user_id)
+    if ctx is None:
+        raise HTTPException(status_code=401, detail="Účet není aktivní.")
+    return LoginResponse(**ctx)
+
+
 # ── FORGOT / RESET PASSWORD ──────────────────────────────────────────────
 
 class ForgotPasswordRequest(BaseModel):

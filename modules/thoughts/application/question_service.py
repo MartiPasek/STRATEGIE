@@ -335,12 +335,36 @@ def _llm_generate_question(
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=QUESTION_GEN_MODEL,
-            max_tokens=200,
-            system=system_prompt,
-            messages=[{"role": "user", "content": user_prompt}],
-        )
+        # Faze 10b: call_llm_with_trace zapise do llm_calls kind='question_gen'.
+        # conversation_id=None (worker, ne chat), attribution = target_parent + thought.
+        _target_tenant_id = None
+        try:
+            _target_tenant_id = target_parent.last_active_tenant_id
+        except Exception:
+            pass
+        try:
+            from modules.conversation.application import telemetry_service as _telemetry
+            response = _telemetry.call_llm_with_trace(
+                client,
+                conversation_id=None,
+                kind="question_gen",
+                model=QUESTION_GEN_MODEL,
+                max_tokens=200,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+                tenant_id=_target_tenant_id,
+                user_id=target_parent.id,
+                persona_id=None,
+            )
+        except Exception as _te:
+            # Fallback pri telemetry failure -- primy call bez tracingu.
+            logger.warning(f"QUESTIONS | telemetry skip | {_te}")
+            response = client.messages.create(
+                model=QUESTION_GEN_MODEL,
+                max_tokens=200,
+                system=system_prompt,
+                messages=[{"role": "user", "content": user_prompt}],
+            )
         for block in response.content:
             if block.type == "text":
                 text = block.text.strip()
@@ -766,12 +790,41 @@ def review_text_answers_batch(max_reviews: int = MAX_TEXT_REVIEW_PER_BATCH) -> d
                 f"Vrat POUZE JSON, zadne vysvetleni."
             )
 
-            response = client.messages.create(
-                model=TEXT_REVIEW_MODEL,
-                max_tokens=500,
-                system=system_prompt,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
+            # Faze 10b: kind='answer_review', attribution z answering parent + thought.
+            try:
+                from modules.conversation.application import telemetry_service as _telemetry
+                _parent_tenant = None
+                try:
+                    from modules.core.infrastructure.models_core import User as _U_at
+                    from core.database_core import get_core_session as _gcs_at
+                    _cs_at = _gcs_at()
+                    try:
+                        _pu = _cs_at.query(_U_at).filter_by(id=q.answered_by_user_id).first() if q.answered_by_user_id else None
+                        _parent_tenant = _pu.last_active_tenant_id if _pu else None
+                    finally:
+                        _cs_at.close()
+                except Exception:
+                    pass
+                response = _telemetry.call_llm_with_trace(
+                    client,
+                    conversation_id=None,
+                    kind="answer_review",
+                    model=TEXT_REVIEW_MODEL,
+                    max_tokens=500,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    tenant_id=_parent_tenant,
+                    user_id=q.answered_by_user_id,
+                    persona_id=None,
+                )
+            except Exception as _te:
+                logger.warning(f"QUESTIONS | answer_review telemetry skip | {_te}")
+                response = client.messages.create(
+                    model=TEXT_REVIEW_MODEL,
+                    max_tokens=500,
+                    system=system_prompt,
+                    messages=[{"role": "user", "content": user_prompt}],
+                )
 
             raw = ""
             for block in response.content:

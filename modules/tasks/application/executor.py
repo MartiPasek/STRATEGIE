@@ -256,6 +256,15 @@ def execute_task(task_id: int) -> dict:
         # casem muze importovat z tasks, kdyz pridame AI tool `create_task`).
         from modules.conversation.application.service import chat
 
+        # Faze 10b: source rozlisi typ LLM volani v llm_calls.kind
+        # -> dashboard umi delit 'user_chat' vs 'task_email' vs 'task_sms'.
+        if task.source_type == "email_inbox":
+            _src = "email_suggest"
+        elif task.source_type == "sms_inbox":
+            _src = "sms_task"
+        else:
+            _src = "task_other"
+
         _, reply, _summary = chat(
             conversation_id=conv_id,
             user_message=prompt,
@@ -263,6 +272,7 @@ def execute_task(task_id: int) -> dict:
             tenant_id=task.tenant_id,
             project_id=None,
             preferred_persona_id=task.persona_id,
+            source=_src,
         )
 
         # ── AUTO-REPLY pro trusted SMS sendery (Phase 7 extension) ────────

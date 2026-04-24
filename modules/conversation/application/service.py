@@ -2527,6 +2527,7 @@ def chat(
     tenant_id: int | None = None,
     project_id: int | None = None,
     preferred_persona_id: int | None = None,
+    source: str = "composer",
 ) -> tuple[int, str, dict | None]:
     """
     Vrátí (conversation_id, reply, summary_info).
@@ -3045,7 +3046,7 @@ def chat(
         response = _telemetry.call_llm_with_trace(
             client,
             conversation_id=conversation_id,
-            kind="composer",
+            kind=source,
             model=MODEL,
             system=system_prompt,
             messages=messages,
@@ -3136,7 +3137,7 @@ def chat(
                 synth_response = _telemetry.call_llm_with_trace(
                     client,
                     conversation_id=conversation_id,
-                    kind="composer",
+                    kind=source,
                     model=MODEL,
                     system=system_prompt,
                     messages=follow_up_messages,

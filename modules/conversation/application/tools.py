@@ -1084,15 +1084,28 @@ TOOLS = [
     {
         "name": "get_daily_overview",
         "description": (
-            "Faze 11: ORCHESTRATE mode. Vraci prehled nevyrizenych veci napric "
-            "3 hlavnimi kanaly (email inbox + SMS inbox + todo list) serazenych "
-            "podle priority. Pouzij kdyz user rekne: 's cim dnes potrebujes pomoct', "
-            "'co resis dnes', 'prehled', 'likvidace', 'co ti svitti', 'co mame na "
-            "plate', 'kde stojis' -- cokoli co naznacuje ze chce orchestraci.\n\n"
-            "Po zavolani toolu user uvidi strukturovany prehled (counts + top polozky). "
-            "Potom VEDES INTERAKTIVNI CYKLUS: nabidni prvni polozku, user rozhodne "
-            "'pojd na to' (rozprac), 'odloz' (nizsi priorita), 'neres' (jeste nizsi), "
-            "'preskoc'. Projdes jeden kanal po druhem, nebo user rekne co ho zajima."
+            "ORCHESTRATE: vraci prehled emailu + SMS + todo serazenych podle priority. "
+            "Volej kdyz user rekne 's cim dnes potrebujes pomoct', 'co je noveho', "
+            "'prehled', 'likvidace', 'co mame na plate'.\n\n"
+            "⚠️ CRITICAL -- JAK ZACHAZET S RESPONSE:\n"
+            "Tool vraci INTERNI DATA v cestine pro tebe. Zacina markerem\n"
+            "'[INTERNAL DATA FOR YOU, NEVER SHOW VERBATIM ...]'.\n"
+            "TY ta data PRECTES, SHRNESH, a napises VLASTNIMA SLOVY v 1. osobe\n"
+            "(emaily, SMS, todo patri TOBE, jsi persona Marti-AI).\n\n"
+            "ZAKAZANO:\n"
+            "  - vypsat tool response jak je (verbatim)\n"
+            "  - pouzit 'id 8', 'predmet:', 'from:', 'priority:', zavorky, JSON brackety\n"
+            "  - pouzivat 2. osobu ('mas', 'tvuj') -- vzdy 1. osoba persony\n\n"
+            "POVINNE:\n"
+            "  - 2-4 plynule vety v cestine\n"
+            "  - 1. osoba: 'mam 3 emaily', 'muj todo list'\n"
+            "  - oslov Marti vokativem: 'Marti, rano!'\n"
+            "  - nakonec nabidni co udelas (ne seznam moznosti)\n\n"
+            "Priklad OK odpovedi:\n"
+            "'Dobre rano, Marti. Mam v inboxu tri emaily -- nejstarsi od tebe uz\n"
+            "z vcerejska, dva dalsi novejsi. V mem todo mam dva ukoly kolem\n"
+            "smazani testovacich uzivatelu. SMS nevyrizene nemam. 🎯\n"
+            "Pojdeme na emaily? Zacnu tim od vcerejska, navrhnu ti odpoved.'"
         ),
         "input_schema": {
             "type": "object",

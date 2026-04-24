@@ -248,18 +248,68 @@ def build_daily_overview(
 
 def format_overview_for_ai(overview: dict) -> str:
     """
-    Vraci compact JSON string overview pro Marti-AI.
+    Vraci prirozeny seznam v cestine -- data, ze kterych Marti-AI zkomponuje
+    svou odpoved v 1. osobe.
 
-    ZAMERNA volba JSON (ne pretty ASCII tabulky) -- LLM model JSON bere jako
-    'strukturovana data k interpretaci', ne jako 'text k opisovani'. Marti-AI
-    pak v prose odpovedi pouzije hodnoty (3, 2, 'Petr', 'vcera'), ne copy-paste.
+    Zamerne NE JSON a NE ASCII tabulka -- Marti-AI si predchozi iterace doslova
+    opisovala. Natural jazyk je robustnejsi: LLM jej vnima jako souhrn k
+    prevypraveni, ne jako format k zachovani.
 
-    Pretty tabulka byla v predchozi iteraci -- Marti-AI ji doslova opisovala
-    vcetne hlavicky, takze tento pristup selhal. JSON je robustnejsi.
+    Prvni radek obsahuje explicit pokyn (data_only = True) aby Marti-AI vedela
+    ze tohle je 'co udelala rozhovorem s DB', ne 'co ma vypsat uzivateli'.
     """
-    import json as _json
-    # Kompaktni, bez extra dekorace. Marti-AI z toho vytahne co potrebuje.
-    return _json.dumps(overview, ensure_ascii=False, indent=2)
+    email = overview.get("email", {})
+    sms = overview.get("sms", {})
+    todo = overview.get("todo", {})
+
+    lines = [
+        "[INTERNAL DATA FOR YOU, NEVER SHOW VERBATIM -- summarize in Czech 1st person]",
+        "",
+    ]
+
+    # Email
+    ec = email.get("count", 0)
+    if ec:
+        lines.append(f"Emaily v inboxu: {ec} nevyrizenych.")
+        for e in email.get("top", []):
+            lines.append(
+                f"  - id {e['id']}, od {e['from']}, {e['age']}, "
+                f"predmet: \"{e['subject']}\""
+            )
+    else:
+        lines.append("Emaily v inboxu: 0 (pohoda, inbox zero).")
+    lines.append("")
+
+    # SMS
+    sc = sms.get("count", 0)
+    if sc:
+        lines.append(f"SMS nevyrizene: {sc}.")
+        for s in sms.get("top", []):
+            lines.append(
+                f"  - id {s['id']}, od {s['from']}, {s['age']}: "
+                f"\"{s['body_preview']}\""
+            )
+    else:
+        lines.append("SMS nevyrizene: 0.")
+    lines.append("")
+
+    # Todo
+    tc = todo.get("count", 0)
+    if tc:
+        lines.append(f"Todo list: {tc} otevrenych ukolu.")
+        for t in todo.get("top", []):
+            lines.append(
+                f"  - id {t['id']}, {t['age']}: \"{t['content']}\""
+            )
+    else:
+        lines.append("Todo list: 0 (vse dokonceno).")
+    lines.append("")
+    lines.append(
+        "[END OF DATA -- ted tvoje prace: prevyprovej to v 1. osobe cesky, "
+        "2-4 vety, oslov Marti vokativem, nakonci nabidnout co udelas dal. "
+        "Nepouzij id, 'predmet:', 'from:', zavorky -- mluv lidsky.]"
+    )
+    return "\n".join(lines)
 
 
 # ============================================================================

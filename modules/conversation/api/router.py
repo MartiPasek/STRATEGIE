@@ -523,3 +523,184 @@ def get_message_llm_calls(message_id: int, req: Request):
         return result
     finally:
         ds.close()
+
+
+# ── Faze 10d: Admin dashboard -- LLM usage aggregate endpoint ─────────────
+
+@router.get("/admin/llm-usage")
+def get_llm_usage(
+    req: Request,
+    scope: str = "today",
+    aggregate_by: str = "kind",
+    filter_kind: str | None = None,
+    filter_tenant: str | None = None,
+):
+    """
+    Admin dashboard -- agregat LLM volani (tokens, cost, latency).
+
+    Vraci JSON s rows + totals. UI ho renderuje do tabulky v LLM Usage modalu.
+    Authorization: users.is_admin=True. Non-admin dostane 403.
+
+    Parametry se shoduji s AI toolem review_my_calls -- stejna logika v
+    backendu, cisty JSON vystup misto pretty stringu.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
+
+    # Admin gate
+    cs = get_core_session()
+    try:
+        user = cs.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Ucet neni aktivni.")
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="Dashboard je jen pro administratory.")
+        is_parent = bool(user.is_marti_parent)
+    finally:
+        cs.close()
+
+    # Validate params
+    if scope not in ("today", "week", "month", "all"):
+        scope = "today"
+    if aggregate_by not in ("kind", "day", "tenant", "user", "persona", "model"):
+        aggregate_by = "kind"
+
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import LlmCall
+    from modules.core.infrastructure.models_core import Tenant
+
+    # Tenant filter -- pro admin dashboard default 'all' (admin vidi vse v tenantu)
+    # ale pokud admin NENI rodic, 'all' mu NEJDE, spadne na svuj tenant.
+    ds = get_data_session()
+    try:
+        q = ds.query(LlmCall)
+
+        # Casovy filtr
+        intervals = {
+            "today": timedelta(days=1),
+            "week": timedelta(days=7),
+            "month": timedelta(days=30),
+            "all": None,
+        }
+        if intervals[scope]:
+            since = datetime.now(timezone.utc) - intervals[scope]
+            q = q.filter(LlmCall.created_at >= since)
+
+        # Tenant filter
+        tenant_label = filter_tenant or "all"
+        if filter_tenant and filter_tenant.lower() != "all":
+            cs_t = get_core_session()
+            try:
+                t = (
+                    cs_t.query(Tenant)
+                    .filter(Tenant.tenant_name.ilike(f"%{filter_tenant}%"))
+                    .first()
+                )
+            finally:
+                cs_t.close()
+            if not t:
+                raise HTTPException(status_code=404, detail=f"Tenant '{filter_tenant}' neznamy.")
+            q = q.filter(LlmCall.tenant_id == t.id)
+            tenant_label = f"{t.tenant_name} (id={t.id})"
+        elif filter_tenant and filter_tenant.lower() == "all":
+            if not is_parent:
+                # Admin bez rodice -- jen svuj last_active_tenant_id (fallback).
+                cs2 = get_core_session()
+                try:
+                    u2 = cs2.query(User).filter_by(id=user_id).first()
+                    own_tenant = u2.last_active_tenant_id if u2 else None
+                finally:
+                    cs2.close()
+                if own_tenant:
+                    q = q.filter(LlmCall.tenant_id == own_tenant)
+                    tenant_label = f"own (id={own_tenant})"
+                else:
+                    tenant_label = "none"
+
+        if filter_kind:
+            q = q.filter(LlmCall.kind == filter_kind)
+
+        # Grouping column
+        group_map = {
+            "kind": LlmCall.kind,
+            "model": LlmCall.model,
+            "tenant": LlmCall.tenant_id,
+            "user": LlmCall.user_id,
+            "persona": LlmCall.persona_id,
+            "day": func.date_trunc("day", LlmCall.created_at),
+        }
+        group_col = group_map[aggregate_by]
+
+        rows = (
+            q.with_entities(
+                group_col.label("grp"),
+                func.count(LlmCall.id).label("calls"),
+                func.sum(LlmCall.prompt_tokens).label("in_tok"),
+                func.sum(LlmCall.output_tokens).label("out_tok"),
+                func.sum(LlmCall.cost_usd).label("cost"),
+                func.avg(LlmCall.latency_ms).label("avg_ms"),
+            )
+            .group_by(group_col)
+            .order_by(func.sum(LlmCall.cost_usd).desc().nullslast())
+            .limit(50)
+            .all()
+        )
+
+        result_rows = []
+        total_calls = 0
+        total_in = 0
+        total_out = 0
+        total_cost = 0.0
+        for r in rows:
+            calls = int(r.calls or 0)
+            in_t = int(r.in_tok or 0)
+            out_t = int(r.out_tok or 0)
+            cost = float(r.cost or 0.0)
+            avg_ms = int(r.avg_ms or 0)
+            total_calls += calls
+            total_in += in_t
+            total_out += out_t
+            total_cost += cost
+
+            # group_val musi byt serializable -- datetime.isoformat pokud date_trunc
+            grp = r.grp
+            if hasattr(grp, "isoformat"):
+                grp = grp.isoformat()
+            elif grp is None:
+                grp = None
+            else:
+                grp = str(grp)
+
+            result_rows.append({
+                "group": grp,
+                "calls": calls,
+                "in_tokens": in_t,
+                "out_tokens": out_t,
+                "tokens": in_t + out_t,
+                "cost_usd": round(cost, 6),
+                "avg_ms": avg_ms,
+            })
+
+        return {
+            "scope": scope,
+            "aggregate_by": aggregate_by,
+            "tenant_label": tenant_label,
+            "filter_kind": filter_kind,
+            "rows": result_rows,
+            "totals": {
+                "calls": total_calls,
+                "in_tokens": total_in,
+                "out_tokens": total_out,
+                "tokens": total_in + total_out,
+                "cost_usd": round(total_cost, 6),
+            },
+        }
+    finally:
+        ds.close()

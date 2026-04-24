@@ -906,11 +906,6 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
 
-    # Faze 11d: orchestrate blok -- jen pro Marti-AI default personu.
-    orch_block = _build_orchestrate_block(conversation_id)
-    if orch_block:
-        system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE]\n{orch_block}"
-
     # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
     # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma
     # nakonfigurovany v persona_channels.
@@ -1013,6 +1008,13 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
                 system_prompt = f"{system_prompt}\n\n{memory_map}"
 
             multi_mode_used = True
+            # Faze 11d -- orchestrate blok V POSLEDNI POZICI (po overlay + memory).
+            # Drive byl hned po user_ctx, ale overlay ho prebijal -- presouvame
+            # sem aby instrukce "1. osoba, never verbatim tool output" bola
+            # posledni a nejprominentnejsi ktere Marti-AI precte.
+            _orch = _build_orchestrate_block(conversation_id)
+            if _orch:
+                system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch}"
         except Exception as e:
             logger.exception(
                 f"COMPOSER | multi-mode routing failed | conv={conversation_id} | "
@@ -1115,5 +1117,13 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             )
     except Exception as e:
         logger.error(f"COMPOSER | long-conv check failed: {e}")
+
+    # Faze 11d -- zajistit orchestrate blok pro non-multi-mode fallback (kdyz
+    # feature flag multi_mode_enabled=False). Pokud jsme uz injectnuli v multi-mode
+    # branchi, '[ORCHESTRATE MODE' je v system_promptu -- skip.
+    if "[ORCHESTRATE MODE" not in system_prompt:
+        _orch2 = _build_orchestrate_block(conversation_id)
+        if _orch2:
+            system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch2}"
 
     return system_prompt, messages

@@ -20,6 +20,7 @@ MANAGEMENT_TOOL_NAMES = {
     "list_users",
     "list_conversations",
     "list_personas",
+    "review_my_calls",   # Faze 10c: Dev/admin introspection -- jen default persona
 }
 
 
@@ -1033,6 +1034,52 @@ TOOLS = [
             "properties": {},
         },
     },
+    {
+        "name": "review_my_calls",
+        "description": (
+            "Faze 10: Vraci agregaty LLM volani (tokeny, cena v USD, latence) "
+            "napric tvou historii -- kolik jsi ty (Marti-AI) dnes / za tyden / "
+            "za mesic spotrebovala. Pouzij kdyz user rekne: 'kolik me dnes stalo', "
+            "'kolik tokenu za tyden', 'kolik EUROSOFT propalil', 'kde nejvic utikaji "
+            "penize', 'jak jsem drahou AI'.\n\n"
+            "ETHICAL: vraci se jen AGREGATY (sumy + counts + prumery), ne raw "
+            "request/response JSON. Raw detail jde prohlizet v Dev View modalu v UI, "
+            "ne v chatu -- admin si to otevre kliknutim na lupu.\n\n"
+            "Defaultne scope='today' a tenant='current' (aktualni tenant konverzace). "
+            "Rodic (is_marti_parent) muze pouzit filter_tenant='all' pro cross-tenant pohled."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["today", "week", "month", "all"],
+                    "description": "Casovy rozsah (default: today)."
+                },
+                "aggregate_by": {
+                    "type": "string",
+                    "enum": ["kind", "day", "tenant", "user", "persona", "model"],
+                    "description": "Podle ceho seskupit radky (default: kind)."
+                },
+                "filter_kind": {
+                    "type": "string",
+                    "description": (
+                        "Jen jeden kind: router / composer / title / summary / "
+                        "email_suggest / sms_task / question_gen / answer_review. "
+                        "Default: vse."
+                    )
+                },
+                "filter_tenant": {
+                    "type": "string",
+                    "description": (
+                        "'current' (default, aktualni tenant), 'all' (cross-tenant, "
+                        "jen rodic), nebo substring nazvu tenantu (EUROSOFT, ...)."
+                    )
+                }
+            }
+        }
+    }
+
 ]
 
 
@@ -1875,3 +1922,178 @@ def get_user_default_tenant_id(user_id: int) -> int | None:
         return ut.tenant_id if ut else None
     finally:
         session.close()
+
+
+# ============================================================================
+# Faze 10c: AI tool review_my_calls -- agregat LLM volani (tokens, cost).
+# ============================================================================
+
+def review_my_llm_calls(
+    *,
+    user_id: int | None,
+    conversation_id: int,
+    scope: str = "today",
+    aggregate_by: str = "kind",
+    filter_kind: str | None = None,
+    filter_tenant: str | None = None,
+) -> str:
+    """
+    Vrati agregat LLM volani (tokens, cena, latence) podle zadanych filtru.
+
+    Vraci lidsky citelny string -- AI ho prevezme do odpovedi uzivateli.
+    Ethical: zadne raw request/response JSONy. Ty jsou viditelne jen v
+    Dev View modalu v UI (admin zapne).
+    """
+    from datetime import datetime, timedelta, timezone
+    from sqlalchemy import func
+    from core.database_data import get_data_session
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_data import LlmCall, Conversation
+    from modules.core.infrastructure.models_core import User, Tenant
+
+    # 1) Normalize params
+    if scope not in ("today", "week", "month", "all"):
+        scope = "today"
+    if aggregate_by not in ("kind", "day", "tenant", "user", "persona", "model"):
+        aggregate_by = "kind"
+
+    # 2) Zjisti aktualni tenant z konverzace + is_parent z usera
+    current_tenant_id: int | None = None
+    ds_conv = get_data_session()
+    try:
+        _conv = ds_conv.query(Conversation).filter_by(id=conversation_id).first()
+        if _conv:
+            current_tenant_id = _conv.tenant_id
+    finally:
+        ds_conv.close()
+
+    is_parent = False
+    if user_id:
+        cs = get_core_session()
+        try:
+            _u = cs.query(User).filter_by(id=user_id).first()
+            is_parent = bool(_u and _u.is_marti_parent)
+        finally:
+            cs.close()
+
+    # 3) Build query
+    ds = get_data_session()
+    try:
+        q = ds.query(LlmCall)
+
+        # Casovy filtr
+        intervals = {
+            "today": timedelta(days=1),
+            "week": timedelta(days=7),
+            "month": timedelta(days=30),
+            "all": None,
+        }
+        if intervals[scope]:
+            since = datetime.now(timezone.utc) - intervals[scope]
+            q = q.filter(LlmCall.created_at >= since)
+
+        # Tenant filter
+        tenant_label = "current"
+        if filter_tenant is None or filter_tenant.lower() == "current":
+            if current_tenant_id is not None:
+                q = q.filter(LlmCall.tenant_id == current_tenant_id)
+                tenant_label = f"current (id={current_tenant_id})"
+            else:
+                tenant_label = "current (none -- conversation nema tenant)"
+        elif filter_tenant.lower() == "all":
+            if not is_parent:
+                return (
+                    "Jen rodice (is_marti_parent) mohou pouzit filter_tenant='all'. "
+                    "Zkus filter_tenant='current' nebo konkretni nazev tenantu."
+                )
+            tenant_label = "all (cross-tenant)"
+        else:
+            cs = get_core_session()
+            try:
+                t = (
+                    cs.query(Tenant)
+                    .filter(Tenant.tenant_name.ilike(f"%{filter_tenant}%"))
+                    .first()
+                )
+                if not t:
+                    return f"Tenant '{filter_tenant}' neznamy. Zkus 'current' nebo 'all'."
+                if not is_parent and current_tenant_id != t.id:
+                    return (
+                        f"Nemuzes filtrovat tenant '{t.tenant_name}' (nejsi rodic a "
+                        f"neni aktualni). Zkus filter_tenant='current'."
+                    )
+                q = q.filter(LlmCall.tenant_id == t.id)
+                tenant_label = f"{t.tenant_name} (id={t.id})"
+            finally:
+                cs.close()
+
+        # Kind filter
+        if filter_kind:
+            q = q.filter(LlmCall.kind == filter_kind)
+
+        # Grouping column
+        group_map = {
+            "kind": LlmCall.kind,
+            "model": LlmCall.model,
+            "tenant": LlmCall.tenant_id,
+            "user": LlmCall.user_id,
+            "persona": LlmCall.persona_id,
+            "day": func.date_trunc("day", LlmCall.created_at),
+        }
+        group_col = group_map[aggregate_by]
+
+        rows = (
+            q.with_entities(
+                group_col.label("grp"),
+                func.count(LlmCall.id).label("calls"),
+                func.sum(LlmCall.prompt_tokens).label("in_tok"),
+                func.sum(LlmCall.output_tokens).label("out_tok"),
+                func.sum(LlmCall.cost_usd).label("cost"),
+                func.avg(LlmCall.latency_ms).label("avg_ms"),
+            )
+            .group_by(group_col)
+            .order_by(func.sum(LlmCall.cost_usd).desc().nullslast())
+            .limit(25)
+            .all()
+        )
+    finally:
+        ds.close()
+
+    if not rows:
+        return (
+            f"Zadne LLM volani v rozsahu scope='{scope}', tenant={tenant_label}"
+            + (f", kind='{filter_kind}'" if filter_kind else "")
+            + "."
+        )
+
+    # 4) Format output
+    lines = [
+        f"=== LLM usage agregat ===",
+        f"  scope         : {scope}",
+        f"  tenant        : {tenant_label}",
+        f"  kind filter   : {filter_kind or '(vsechny)'}",
+        f"  aggregate_by  : {aggregate_by}",
+        "",
+        f"{'GROUP':<28} {'CALLS':>6} {'TOKENS':>10} {'COST USD':>11} {'AVG MS':>7}",
+        "-" * 66,
+    ]
+    total_cost = 0.0
+    total_calls = 0
+    total_tokens = 0
+    for r in rows:
+        g = str(r.grp if r.grp is not None else "(none)")[:26]
+        calls = int(r.calls or 0)
+        in_t = int(r.in_tok or 0)
+        out_t = int(r.out_tok or 0)
+        tokens = in_t + out_t
+        cost = float(r.cost or 0.0)
+        avg = int(r.avg_ms or 0)
+        total_cost += cost
+        total_calls += calls
+        total_tokens += tokens
+        lines.append(f"{g:<28} {calls:>6} {tokens:>10} {cost:>10.4f}  {avg:>7}")
+    lines.append("-" * 66)
+    lines.append(
+        f"{'TOTAL':<28} {total_calls:>6} {total_tokens:>10} {total_cost:>10.4f}"
+    )
+    return "\n".join(lines)

@@ -763,6 +763,22 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
 def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> str:
     logger.info(f"TOOL | name={tool_name}")
 
+    # Faze 10c: AI self-reflection tool -- agregaty LLM usage.
+    if tool_name == "review_my_calls":
+        from modules.conversation.application.tools import review_my_llm_calls
+        try:
+            return review_my_llm_calls(
+                user_id=user_id,
+                conversation_id=conversation_id,
+                scope=tool_input.get("scope", "today"),
+                aggregate_by=tool_input.get("aggregate_by", "kind"),
+                filter_kind=tool_input.get("filter_kind"),
+                filter_tenant=tool_input.get("filter_tenant"),
+            )
+        except Exception as e:
+            logger.exception(f"TOOL | review_my_calls failed: {e}")
+            return f"Chyba pri review_my_calls: {e}"
+
     if tool_name == "send_email":
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")

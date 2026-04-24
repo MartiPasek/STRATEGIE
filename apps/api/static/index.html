@@ -4,6 +4,8 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, interactive-widget=resizes-content" />
   <title>STRATEGIE</title>
+  <!-- Faze 10 Alt A: Chart.js pro LLM Usage dashboard grafy. CDN v4.4, ~80KB. -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
   <!-- Favicon: inline SVG s velkym 'S' v gradient barve loga (modra -> fialova).
        Tmave pozadi, zaobleny ctverec — vizualne sjednoceno s app theme. -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>" />
@@ -870,6 +872,43 @@
       font-family: 'DM Mono', monospace;
       font-size: 11px;
       width: 140px;
+    }
+    .llm-usage-charts {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      padding: 14px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(168, 85, 247, 0.03);
+    }
+    .llm-usage-chart-card {
+      flex: 1 1 400px;
+      background: var(--surface);
+      border: 1px solid rgba(168, 85, 247, 0.15);
+      border-radius: 8px;
+      padding: 10px 12px 14px 12px;
+      min-height: 180px;
+      position: relative;
+    }
+    .llm-usage-chart-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      color: #c084fc;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 6px;
+    }
+    .llm-usage-chart-empty {
+      color: var(--muted);
+      font-style: italic;
+      text-align: center;
+      padding: 30px 10px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+    }
+    .llm-usage-chart-canvas-wrap {
+      position: relative;
+      height: 180px;
     }
     .llm-usage-body {
       flex: 1;
@@ -4349,10 +4388,177 @@
       }
       const data = await resp.json();
       _renderLlmUsageTable(data);
+      // Faze 10 Alt A: grafy -- pie (per kind) + line (per day) -- fetch
+      // separatne aby nezavisely na aggregate_by tabulky.
+      _refreshLlmUsageCharts(scope, tenant, kind);
     } catch (e) {
       console.error('llm-usage fetch failed', e);
       body.innerHTML = `<div class="llm-usage-empty">Chyba sítě: ${e}</div>`;
     }
+  }
+
+  // -- Faze 10 Alt A: LLM Usage grafy (Chart.js) ----------------------------
+  let _llmUsagePieChart = null;
+  let _llmUsageLineChart = null;
+
+  async function _refreshLlmUsageCharts(scope, tenantStr, kindStr) {
+    // Fetch 2 agregaty paralelne: kind (pie) + day (line).
+    const baseQs = new URLSearchParams();
+    baseQs.set('scope', scope);
+    if (tenantStr && tenantStr.trim()) baseQs.set('filter_tenant', tenantStr.trim());
+    if (kindStr && kindStr.trim()) baseQs.set('filter_kind', kindStr.trim());
+
+    const qsKind = new URLSearchParams(baseQs);
+    qsKind.set('aggregate_by', 'kind');
+    const qsDay = new URLSearchParams(baseQs);
+    qsDay.set('aggregate_by', 'day');
+
+    try {
+      const [respKind, respDay] = await Promise.all([
+        fetch(`/api/v1/conversation/admin/llm-usage?${qsKind.toString()}`, { credentials: 'include' }),
+        fetch(`/api/v1/conversation/admin/llm-usage?${qsDay.toString()}`, { credentials: 'include' }),
+      ]);
+      const dataKind = respKind.ok ? await respKind.json() : { rows: [] };
+      const dataDay = respDay.ok ? await respDay.json() : { rows: [] };
+      _renderLlmUsagePie(dataKind);
+      _renderLlmUsageLine(dataDay);
+    } catch (e) {
+      console.error('llm-usage charts fetch failed', e);
+    }
+  }
+
+  // Paleta pro pie -- purpurova skala + akcenty pro vic kinds.
+  const _LLM_CHART_COLORS = [
+    '#c084fc',  // primary purple
+    '#60a5fa',  // blue
+    '#f59e0b',  // amber
+    '#10b981',  // emerald
+    '#ef4444',  // red
+    '#ec4899',  // pink
+    '#14b8a6',  // teal
+    '#a78bfa',  // violet
+  ];
+
+  function _renderLlmUsagePie(data) {
+    const canvas = document.getElementById('llmUsagePieCanvas');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const rows = (data.rows || []).filter(r => (r.cost_usd || 0) > 0);
+    if (_llmUsagePieChart) {
+      _llmUsagePieChart.destroy();
+      _llmUsagePieChart = null;
+    }
+    if (!rows.length) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    const labels = rows.map(r => String(r.group || '(none)'));
+    const values = rows.map(r => Number(r.cost_usd || 0));
+    const colors = labels.map((_, i) => _LLM_CHART_COLORS[i % _LLM_CHART_COLORS.length]);
+    _llmUsagePieChart = new Chart(canvas.getContext('2d'), {
+      type: 'doughnut',
+      data: {
+        labels: labels,
+        datasets: [{
+          data: values,
+          backgroundColor: colors,
+          borderColor: 'rgba(0,0,0,0.3)',
+          borderWidth: 1,
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            position: 'right',
+            labels: {
+              color: '#cbd5e1',
+              font: { family: "'DM Mono', monospace", size: 10 },
+              boxWidth: 12,
+              padding: 8,
+            },
+          },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) {
+                const v = ctx.parsed;
+                const total = ctx.dataset.data.reduce((a, b) => a + b, 0);
+                const pct = total > 0 ? ((v / total) * 100).toFixed(1) : '0.0';
+                return `${ctx.label}: $${v.toFixed(4)} (${pct}%)`;
+              },
+            },
+          },
+        },
+      },
+    });
+  }
+
+  function _renderLlmUsageLine(data) {
+    const canvas = document.getElementById('llmUsageLineCanvas');
+    if (!canvas || typeof Chart === 'undefined') return;
+    const rows = (data.rows || []).slice().sort((a, b) => {
+      const aa = String(a.group || '');
+      const bb = String(b.group || '');
+      return aa.localeCompare(bb);
+    });
+    if (_llmUsageLineChart) {
+      _llmUsageLineChart.destroy();
+      _llmUsageLineChart = null;
+    }
+    if (!rows.length) {
+      const ctx = canvas.getContext('2d');
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      return;
+    }
+    const labels = rows.map(r => {
+      // r.group je ISO datetime (date_trunc('day', created_at)). Zkratime na YYYY-MM-DD.
+      const s = String(r.group || '');
+      return s.length >= 10 ? s.substring(0, 10) : s;
+    });
+    const values = rows.map(r => Number(r.cost_usd || 0));
+    _llmUsageLineChart = new Chart(canvas.getContext('2d'), {
+      type: 'line',
+      data: {
+        labels: labels,
+        datasets: [{
+          label: 'Cost USD',
+          data: values,
+          borderColor: '#c084fc',
+          backgroundColor: 'rgba(192, 132, 252, 0.2)',
+          tension: 0.25,
+          fill: true,
+          pointRadius: 3,
+          pointBackgroundColor: '#c084fc',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              label: function(ctx) { return `$${ctx.parsed.y.toFixed(4)}`; },
+            },
+          },
+        },
+        scales: {
+          x: {
+            ticks: { color: '#94a3b8', font: { family: "'DM Mono', monospace", size: 9 } },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+          },
+          y: {
+            ticks: {
+              color: '#94a3b8',
+              font: { family: "'DM Mono', monospace", size: 9 },
+              callback: function(v) { return '$' + Number(v).toFixed(2); },
+            },
+            grid: { color: 'rgba(255,255,255,0.05)' },
+          },
+        },
+      },
+    });
   }
 
   function _renderLlmUsageTable(data) {
@@ -8884,6 +9090,20 @@
         <input class="llm-usage-filter-input" id="llmUsageTenant" placeholder="all / EUROSOFT" value="all">
         <span class="llm-usage-filter-label">Kind:</span>
         <input class="llm-usage-filter-input" id="llmUsageKind" placeholder="(vše) / composer" value="">
+      </div>
+      <div class="llm-usage-charts" id="llmUsageCharts">
+        <div class="llm-usage-chart-card">
+          <div class="llm-usage-chart-title">📊 Rozdělení podle typu volání (cost USD)</div>
+          <div class="llm-usage-chart-canvas-wrap">
+            <canvas id="llmUsagePieCanvas"></canvas>
+          </div>
+        </div>
+        <div class="llm-usage-chart-card">
+          <div class="llm-usage-chart-title">📈 Trend per den (cost USD)</div>
+          <div class="llm-usage-chart-canvas-wrap">
+            <canvas id="llmUsageLineCanvas"></canvas>
+          </div>
+        </div>
       </div>
       <div class="llm-usage-body" id="llmUsageBody">
         <div class="llm-usage-empty">Načítám…</div>

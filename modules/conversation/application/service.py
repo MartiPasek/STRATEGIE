@@ -3229,14 +3229,6 @@ def chat(
     _outgoing_msg_id = save_message(conversation_id, role="assistant", content=assistant_reply)
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")
 
-    # Faze 9.1: dolinkovat vsechna llm_calls (router + composer) na outgoing
-    # assistant message. Buffer byl zalozen pres begin_chat_trace() nahore.
-    if _telemetry is not None:
-        try:
-            _telemetry.end_chat_trace_and_link(_outgoing_msg_id)
-        except Exception as _e:
-            logger.warning(f"TELEMETRY | end_chat_trace_and_link failed: {_e}")
-
     try:
         from modules.memory.application.service import extract_and_save
         all_messages = get_messages(conversation_id)
@@ -3262,5 +3254,15 @@ def chat(
         maybe_generate_title(conversation_id)
     except Exception as e:
         logger.error(f"TITLE | failed: {e}")
+
+    # Faze 9.1/9.2: dolinkovat vsechna llm_calls (router + composer + title + summary)
+    # na outgoing assistant message. Buffer byl zalozen pres begin_chat_trace()
+    # nahore. Presunuto AZ ZA title/summary aby i jejich kind='title'/'summary'
+    # radky dostaly message_id (jinak by zustaly s NULL).
+    if _telemetry is not None:
+        try:
+            _telemetry.end_chat_trace_and_link(_outgoing_msg_id)
+        except Exception as _e:
+            logger.warning(f"TELEMETRY | end_chat_trace_and_link failed: {_e}")
 
     return conversation_id, assistant_reply, summary_info

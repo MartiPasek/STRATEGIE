@@ -130,14 +130,34 @@ def _format_messages_for_llm(messages: list[Message]) -> str:
     return "\n\n".join(lines)
 
 
-def _call_llm_for_summary(text: str) -> str:
+def _call_llm_for_summary(text: str, conversation_id: int | None = None) -> str:
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=SUMMARY_MODEL,
-        max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
-        system=SUMMARY_SYSTEM_PROMPT,
-        messages=[{"role": "user", "content": text}],
-    )
+    # Faze 9.2: kdyz je zadan conversation_id, zapiseme volani do llm_calls
+    # (kind='summary') pres telemetry. Bez conversation_id (legacy volani /
+    # ruzne eval skripty) pouzije primy call_messages bez tracingu.
+    response = None
+    if conversation_id is not None:
+        try:
+            from modules.conversation.application import telemetry_service as _telemetry
+            response = _telemetry.call_llm_with_trace(
+                client,
+                conversation_id=conversation_id,
+                kind="summary",
+                model=SUMMARY_MODEL,
+                max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+                system=SUMMARY_SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": text}],
+            )
+        except Exception as _te:
+            logger.warning(f"SUMMARY | telemetry skip | {_te}")
+            response = None
+    if response is None:
+        response = client.messages.create(
+            model=SUMMARY_MODEL,
+            max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
+            system=SUMMARY_SYSTEM_PROMPT,
+            messages=[{"role": "user", "content": text}],
+        )
     out = ""
     for block in response.content:
         if block.type == "text":
@@ -216,7 +236,7 @@ def maybe_create_summary(
         from_id, to_id, messages = range_info
 
         text_block = _format_messages_for_llm(messages)
-        summary_text = _call_llm_for_summary(text_block)
+        summary_text = _call_llm_for_summary(text_block, conversation_id=conversation_id)
         if not summary_text:
             logger.warning(f"SUMMARY | empty output | conv={conversation_id}")
             return None

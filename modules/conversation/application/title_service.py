@@ -110,13 +110,30 @@ def maybe_generate_title(conversation_id: int) -> str | None:
             session.close()
 
         # Volej Claude Haiku
+        # Faze 9.2: pouzijeme call_llm_with_trace aby se volani zapsalo do
+        # llm_calls (kind='title'). ContextVar trace buffer je aktivni z chat().
+        # Pri importu / telemetry failure fallback na puvodni primy call.
         client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        response = client.messages.create(
-            model=TITLE_MODEL,
-            max_tokens=30,
-            system=SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": transcript}],
-        )
+        try:
+            from modules.conversation.application import telemetry_service as _telemetry
+            response = _telemetry.call_llm_with_trace(
+                client,
+                conversation_id=conversation_id,
+                kind="title",
+                model=TITLE_MODEL,
+                max_tokens=30,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": transcript}],
+            )
+        except Exception as _te:
+            # Telemetry import/init selhalo -- pokracujeme bez tracingu.
+            logger.warning(f"TITLE | telemetry skip | {_te}")
+            response = client.messages.create(
+                model=TITLE_MODEL,
+                max_tokens=30,
+                system=SYSTEM_PROMPT,
+                messages=[{"role": "user", "content": transcript}],
+            )
         raw_title = "".join(
             b.text for b in response.content if b.type == "text"
         ).strip()

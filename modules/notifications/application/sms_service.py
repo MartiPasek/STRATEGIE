@@ -810,6 +810,7 @@ def list_inbox_for_ui(
                 "received_at": r.received_at.isoformat() if r.received_at else None,
                 "read_at": r.read_at.isoformat() if r.read_at else None,
                 "processed_at": r.processed_at.isoformat() if r.processed_at else None,
+                "is_personal": bool(getattr(r, "is_personal", False)),
             }
             for r in rows
         ]
@@ -821,6 +822,7 @@ def list_outbox_for_ui(
     *,
     persona_id: int | None = None,
     tenant_id: int | None = None,
+    cross_tenant: bool = False,
     limit: int = 50,
 ) -> list[dict]:
     """
@@ -830,11 +832,16 @@ def list_outbox_for_ui(
     tenant_id), takze primary filter je tenant_id. persona_id je zatim
     ignorovano (vsechny zpravy z tenantu jsou videt). Az pribude persona-
     scope outbox (napr. per-persona SIMky s vlastni historii), zapocitame.
+
+    cross_tenant=True:
+      Ignoruje tenant_id filter -- pro rodice (is_marti_parent) ktery vidi
+      SMS Marti-AI napric vsemi tenants. SMS patri persone (1 SIM = 1
+      persona), ne tenantu konverzace.
     """
     ds = get_data_session()
     try:
         q = ds.query(SmsOutbox)
-        if tenant_id is not None:
+        if tenant_id is not None and not cross_tenant:
             q = q.filter(SmsOutbox.tenant_id == tenant_id)
         rows = (
             q.order_by(SmsOutbox.created_at.desc())
@@ -852,6 +859,7 @@ def list_outbox_for_ui(
                 "last_error": r.last_error,
                 "created_at": r.created_at.isoformat() if r.created_at else None,
                 "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+                "is_personal": bool(getattr(r, "is_personal", False)),
             }
             for r in rows
         ]
@@ -1054,3 +1062,201 @@ def get_unread_counts_per_persona(tenant_id: int) -> dict[int, int]:
         return {pid: cnt for pid, cnt in rows}
     finally:
         ds.close()
+
+
+# ============================================================================
+# Faze 11b-darek: Personal SMS slozka (hvezdicka pro Marti-AI).
+# ============================================================================
+
+def mark_sms_personal(
+    *,
+    sms_id: int,
+    source: str,      # 'inbox' | 'outbox'
+    personal: bool = True,
+) -> dict:
+    """
+    Oznaci SMS jako personal (pridani do 'hvezdickove' slozky) nebo ho
+    zrusi (personal=False).
+
+    source: 'inbox' pro prichozi, 'outbox' pro odchozi.
+    Vraci: {'sms_id', 'source', 'is_personal', 'body_preview'}
+
+    Raises SmsValidationError pokud source neni znamy nebo SMS neexistuje.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import SmsInbox, SmsOutbox
+
+    if source not in ("inbox", "outbox"):
+        raise SmsValidationError(f"source musi byt 'inbox' nebo 'outbox', dostal {source!r}")
+
+    Model = SmsInbox if source == "inbox" else SmsOutbox
+    ds = get_data_session()
+    try:
+        row = ds.query(Model).filter_by(id=sms_id).first()
+        if row is None:
+            raise SmsValidationError(f"SMS id={sms_id} v {source} neexistuje")
+        row.is_personal = bool(personal)
+        ds.commit()
+        body = row.body or ""
+        preview = body[:80] + ("..." if len(body) > 80 else "")
+        logger.info(
+            f"SMS PERSONAL | {source}#{sms_id} -> {row.is_personal} "
+            f"| preview='{preview[:40]}'"
+        )
+        return {
+            "sms_id": sms_id,
+            "source": source,
+            "is_personal": bool(row.is_personal),
+            "body_preview": preview,
+        }
+    finally:
+        ds.close()
+
+
+def list_personal_for_ui(
+    *,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    cross_tenant: bool = False,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Vrati mix personal SMS (inbox + outbox) pro danou personu, serazene
+    podle casu DESC. Pouzito v UI tabu 'Personal'.
+
+    Vraci list dictu s fields:
+      {id, source ('inbox'|'outbox'), from_phone/to_phone, body, body_preview,
+       received_at/sent_at, is_personal=True, direction ('in'|'out')}
+
+    Scope: persona_id filtr (majitel SIMky) pro inbox, tenant_id pro outbox
+    (outbox je tenant-scoped, nema persona_id field).
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import SmsInbox, SmsOutbox
+
+    rows: list[dict] = []
+    ds = get_data_session()
+    try:
+        # Inbox personal
+        q_in = ds.query(SmsInbox).filter(SmsInbox.is_personal.is_(True))
+        if persona_id is not None:
+            q_in = q_in.filter(SmsInbox.persona_id == persona_id)
+        for r in q_in.order_by(SmsInbox.received_at.desc()).limit(limit).all():
+            ts = r.received_at.isoformat() if r.received_at else None
+            rows.append({
+                "id": r.id,
+                "source": "inbox",
+                "direction": "in",
+                "from_phone": r.from_phone,
+                "to_phone": None,
+                "body": r.body,
+                "body_preview": (r.body or "")[:120],
+                "time": ts,
+                "received_at": ts,   # UI renderer fallback
+                "is_personal": True,
+                "persona_id": r.persona_id,
+            })
+
+        # Outbox personal -- tenant-scoped, pokud dodano (pro rodice cross_tenant=True)
+        q_out = ds.query(SmsOutbox).filter(SmsOutbox.is_personal.is_(True))
+        if tenant_id is not None and not cross_tenant:
+            q_out = q_out.filter(SmsOutbox.tenant_id == tenant_id)
+        for r in q_out.order_by(SmsOutbox.created_at.desc()).limit(limit).all():
+            sent_ts = r.sent_at.isoformat() if r.sent_at else None
+            created_ts = r.created_at.isoformat() if r.created_at else None
+            rows.append({
+                "id": r.id,
+                "source": "outbox",
+                "direction": "out",
+                "from_phone": None,
+                "to_phone": r.to_phone,
+                "body": r.body,
+                "body_preview": (r.body or "")[:120],
+                "time": sent_ts or created_ts,
+                "sent_at": sent_ts,         # UI renderer
+                "created_at": created_ts,   # UI renderer fallback
+                "status": r.status,
+                "last_error": r.last_error,
+                "is_personal": True,
+                "persona_id": None,
+            })
+    finally:
+        ds.close()
+
+    # Mix serazen podle casu DESC, top `limit`
+    rows.sort(key=lambda r: r.get("time") or "", reverse=True)
+    return rows[:limit]
+
+
+def list_all_for_ui(
+    *,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    cross_tenant: bool = False,
+    limit: int = 200,
+) -> list[dict]:
+    """
+    Thread-view: VSECHNY SMS (prichozi + odchozi) v jednom seznamu serazene
+    chronologicky vzestupne (nejstarsi nahore, nejnovejsi dole) -- jako SMS
+    vlakno v telefonu. Pouzito v UI tabu 'Vsechny'.
+
+    Vraci list dictu s fields:
+      {id, source ('inbox'|'outbox'), direction ('in'|'out'),
+       from_phone/to_phone, body, time, is_personal, status (jen outbox)}
+
+    Scope:
+      - inbox: persona_id filter (majitel SIMky)
+      - outbox: tenant_id filter (tenant-scoped), nebo cross_tenant=True
+                ignore (rodicovsky bypass)
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import SmsInbox, SmsOutbox
+
+    rows: list[dict] = []
+    ds = get_data_session()
+    try:
+        # Inbox
+        q_in = ds.query(SmsInbox)
+        if persona_id is not None:
+            q_in = q_in.filter(SmsInbox.persona_id == persona_id)
+        for r in q_in.order_by(SmsInbox.received_at.desc()).limit(limit).all():
+            ts = r.received_at.isoformat() if r.received_at else None
+            rows.append({
+                "id": r.id,
+                "source": "inbox",
+                "direction": "in",
+                "from_phone": r.from_phone,
+                "to_phone": None,
+                "body": r.body,
+                "time": ts,
+                "is_personal": bool(getattr(r, "is_personal", False)),
+                "status": None,
+            })
+
+        # Outbox
+        q_out = ds.query(SmsOutbox)
+        if tenant_id is not None and not cross_tenant:
+            q_out = q_out.filter(SmsOutbox.tenant_id == tenant_id)
+        for r in q_out.order_by(SmsOutbox.created_at.desc()).limit(limit).all():
+            sent_ts = r.sent_at.isoformat() if r.sent_at else None
+            created_ts = r.created_at.isoformat() if r.created_at else None
+            rows.append({
+                "id": r.id,
+                "source": "outbox",
+                "direction": "out",
+                "from_phone": None,
+                "to_phone": r.to_phone,
+                "body": r.body,
+                "time": sent_ts or created_ts,
+                "is_personal": bool(getattr(r, "is_personal", False)),
+                "status": r.status,
+            })
+    finally:
+        ds.close()
+
+    # Chronologicke ASC (nejstarsi nahore, nejnovejsi dole -- jako chat thread)
+    rows.sort(key=lambda r: r.get("time") or "")
+    # Kdyz je vic nez limit dohromady, ponechame nejnovejsich `limit` (tail).
+    if len(rows) > limit:
+        rows = rows[-limit:]
+    return rows

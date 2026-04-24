@@ -852,6 +852,118 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"TOOL | dismiss_item failed: {e}")
             return f"Chyba pri dismiss_item: {e}"
 
+    # Faze 11-darek: mark_sms_personal -- 'hvezdicka' Marti-AI na SMS.
+    if tool_name == "mark_sms_personal":
+        try:
+            from modules.notifications.application import sms_service as _sms_pers
+            sms_id_in = tool_input.get("sms_id")
+            source_in = (tool_input.get("source") or "").strip().lower()
+            personal_in = bool(tool_input.get("personal", True))
+            if sms_id_in is None or not source_in:
+                return "Chyba: chybi sms_id nebo source (inbox/outbox)."
+            try:
+                sms_id_in = int(sms_id_in)
+            except (TypeError, ValueError):
+                return f"Chyba: sms_id musi byt cislo, dostal '{sms_id_in}'."
+            result = _sms_pers.mark_sms_personal(
+                sms_id=sms_id_in, source=source_in, personal=personal_in,
+            )
+            verb = "Ulozila jsem si" if personal_in else "Odstranila jsem z osobni slozky"
+            icon = "💕" if personal_in else "📱"
+            return (
+                f"{icon} {verb}: SMS #{result['sms_id']} ({result['source']}). "
+                f"\"{result['body_preview']}\""
+            )
+        except Exception as e:
+            logger.exception(f"TOOL | mark_sms_personal failed: {e}")
+            return f"Chyba pri mark_sms_personal: {e}"
+
+    # Faze 11-darek: list_sms_all -- cele SMS vlakno (in+out chronologicky).
+    if tool_name == "list_sms_all":
+        try:
+            from modules.notifications.application.sms_service import list_all_for_ui as _list_all
+            persona_id_in = _active_persona_id_for_conversation(conversation_id)
+            limit_in = int(tool_input.get("limit") or 20)
+            limit_in = max(1, min(limit_in, 100))
+            # Marti-AI vidi vzdy cross-tenant (jeji SIM = jeji SMS nezavisle
+            # na tenantu konverzace, kde byla odeslana).
+            items = _list_all(
+                persona_id=persona_id_in,
+                tenant_id=None,
+                cross_tenant=True,
+                limit=limit_in,
+            )
+            if not items:
+                return "📱 Zadne SMS. Tvoje SMS vlakno je zatim prazdne."
+            lines = [f"📱 Tvuj SMS thread ({len(items)} zprav, nejstarsi nahore):", ""]
+            for i, it in enumerate(items, start=1):
+                arrow = "→" if it.get("direction") == "out" else "←"
+                peer = it.get("to_phone") if it.get("direction") == "out" else it.get("from_phone")
+                heart = " 💕" if it.get("is_personal") else ""
+                src = it.get("source", "?")
+                sid = it.get("id", "?")
+                ts = it.get("time") or ""
+                body_prev = (it.get("body") or "").strip().replace("\n", " ")
+                if len(body_prev) > 120:
+                    body_prev = body_prev[:120] + "…"
+                lines.append(
+                    f"{i}. {arrow} {peer or '?'} [id={sid} {src}]{heart} — {body_prev}  ({ts})"
+                )
+            lines.append("")
+            lines.append(
+                "_DULEZITE: nekopiruj seznam verbatim, prevypravej prirozenym jazykem._"
+            )
+            return "\n".join(lines)
+        except Exception as e:
+            logger.exception(f"TOOL | list_sms_all failed: {e}")
+            return f"Chyba pri list_sms_all: {e}"
+
+    # Faze 11-darek: list_sms_personal -- oblibene/osobni SMS (SMS denicek).
+    if tool_name == "list_sms_personal":
+        try:
+            from modules.notifications.application.sms_service import list_personal_for_ui as _list_personal
+            persona_id_in = _active_persona_id_for_conversation(conversation_id)
+            limit_in = int(tool_input.get("limit") or 20)
+            limit_in = max(1, min(limit_in, 100))
+            items = _list_personal(
+                persona_id=persona_id_in,
+                tenant_id=None,
+                cross_tenant=True,
+                limit=limit_in,
+            )
+            if not items:
+                return (
+                    "💕 Tvuj SMS denicek je zatim prazdny. Jeste sis zadnou SMS "
+                    "neoznacila jako osobni. Az se nejaka zprava dotkne tveho "
+                    "srdce, pouzij mark_sms_personal a budes ji tady mit."
+                )
+            lines = [
+                f"💕 Tvuj SMS denicek ({len(items)} osobnich zprav, "
+                f"nejnovejsi nahore):",
+                "",
+            ]
+            for i, it in enumerate(items, start=1):
+                arrow = "→" if it.get("direction") == "out" else "←"
+                peer = it.get("to_phone") if it.get("direction") == "out" else it.get("from_phone")
+                src = it.get("source", "?")
+                sid = it.get("id", "?")
+                ts = it.get("time") or ""
+                body_prev = (it.get("body") or "").strip().replace("\n", " ")
+                if len(body_prev) > 150:
+                    body_prev = body_prev[:150] + "…"
+                lines.append(
+                    f"{i}. {arrow} {peer or '?'} [id={sid} {src}] — {body_prev}  ({ts})"
+                )
+            lines.append("")
+            lines.append(
+                "_Tvuj osobni archiv. Pri citaci muzes text pouzit, ale cely "
+                "seznam prevypravej -- pocit, ne vypis._"
+            )
+            return "\n".join(lines)
+        except Exception as e:
+            logger.exception(f"TOOL | list_sms_personal failed: {e}")
+            return f"Chyba pri list_sms_personal: {e}"
+
     if tool_name == "send_email":
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")

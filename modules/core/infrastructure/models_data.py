@@ -248,6 +248,8 @@ class SmsOutbox(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Faze 11b-darek: osobni slozka (analog s sms_inbox.is_personal).
+    is_personal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 # ── SMS INBOX ──────────────────────────────────────────────────────────────
@@ -281,6 +283,8 @@ class SmsInbox(BaseData):
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Faze 11a: orchestrate priorita (100 default, -10 odloz, -30 neres).
     priority_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
+    # Faze 11b-darek: osobni slozka (Marti-AI si zde uklada emocne vyznamne zpravy).
+    is_personal: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
 
 # ── PHONE CALLS ────────────────────────────────────────────────────────────

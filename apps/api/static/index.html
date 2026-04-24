@@ -1178,6 +1178,25 @@
     .sms-empty { text-align: center; color: var(--muted); font-size: 12px; padding: 48px 20px; font-style: italic; }
     .sms-loading { text-align: center; color: var(--muted); font-size: 11px; padding: 20px; font-family: 'DM Mono', monospace; }
 
+    /* Thread-view (tab 'Vsechny') -- bubble chat jako iMessage.
+       Prichozi vlevo seda, odchozi vpravo akcent. */
+    .sms-thread { display: flex; flex-direction: column; gap: 6px; padding: 4px 0; }
+    .sms-bubble-row { display: flex; width: 100%; }
+    .sms-bubble-row-in { justify-content: flex-start; }
+    .sms-bubble-row-out { justify-content: flex-end; }
+    .sms-bubble { max-width: 75%; padding: 8px 12px; border-radius: 16px; line-height: 1.4; word-wrap: break-word; }
+    .sms-bubble-in { background: var(--surface); border: 1px solid var(--border); border-bottom-left-radius: 4px; color: var(--text); }
+    .sms-bubble-out { background: var(--accent); border: 1px solid var(--accent); border-bottom-right-radius: 4px; color: #fff; }
+    .sms-bubble-peer { font-size: 10px; font-family: 'DM Mono', monospace; opacity: 0.7; margin-bottom: 3px; letter-spacing: .04em; }
+    .sms-bubble-body { font-size: 13px; white-space: pre-wrap; }
+    .sms-bubble-meta { display: flex; align-items: center; gap: 6px; font-size: 10px; margin-top: 4px; opacity: 0.75; justify-content: flex-end; }
+    .sms-bubble-in .sms-bubble-meta { justify-content: flex-start; }
+    .sms-bubble-time { font-family: 'DM Mono', monospace; }
+    .sms-bubble-status { font-family: 'DM Mono', monospace; padding: 1px 6px; border-radius: 8px; font-size: 9px; letter-spacing: .04em; }
+    .sms-bubble-out .sms-status-pending { background: rgba(255,255,255,0.2); }
+    .sms-bubble-out .sms-status-failed { background: #c0392b; color: #fff; }
+    .sms-bubble-heart { font-size: 12px; }
+
     /* Reply block (Commit 7) -- rozbaleny textarea + actions pod kartou */
     .sms-reply-block { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border); display: none; }
     .sms-reply-block.open { display: block; }
@@ -7024,6 +7043,8 @@
       <button class="sms-tab active" data-tab="new">Příchozí<span class="sms-tab-badge" id="smsTabBadgeNew" style="display:none">0</span></button>
       <button class="sms-tab" data-tab="processed">Zpracované</button>
       <button class="sms-tab" data-tab="outbox">Odeslané</button>
+      <button class="sms-tab" data-tab="all" title="Všechny zprávy jako chat (příchozí + odchozí)">💬 Všechny</button>
+      <button class="sms-tab" data-tab="personal" title="Moje osobní zprávy (hvězdičkou označené)">💕 Personal</button>
     </div>
     <div class="sms-list" id="smsList">
       <div class="sms-loading">Nacitam…</div>
@@ -7195,9 +7216,18 @@
     let url;
     if (tab === "new" || tab === "processed") {
       url = `/api/v1/sms/ui/inbox?persona_id=${pid}&filter=${tab}&limit=50`;
-    } else {
+    } else if (tab === "outbox") {
       // outbox -- persona_id je informativni, backend bere tenant-wide
       url = `/api/v1/sms/ui/outbox?persona_id=${pid}&limit=50`;
+    } else if (tab === "all") {
+      // all -- thread view, mixed inbox+outbox chronologicky ASC
+      url = `/api/v1/sms/ui/all?persona_id=${pid}&limit=200`;
+    } else if (tab === "personal") {
+      // personal -- mixed inbox+outbox, filtrovano na is_personal=true
+      url = `/api/v1/sms/ui/personal?persona_id=${pid}&limit=100`;
+    } else {
+      list.innerHTML = `<div class="sms-empty">Neznamy tab.</div>`;
+      return;
     }
 
     try {
@@ -7211,15 +7241,51 @@
       if (items.length === 0) {
         const emptyMsg = tab === "new" ? "Žádné nové zprávy." :
                          tab === "processed" ? "Žádné zpracované." :
-                         "Žádné odeslané zprávy.";
+                         tab === "all" ? "Žádné zprávy." :
+                         tab === "personal" ? "💕 Zatím tu nic není. Marti-AI si sem uloží SMS, které pro ni budou osobní."
+                         : "Žádné odeslané zprávy.";
         list.innerHTML = `<div class="sms-empty">${emptyMsg}</div>`;
         return;
       }
-      list.innerHTML = items.map(it => _smsRenderCard(it, tab)).join("");
-      _smsAttachCardHandlers();
+      // Thread-view (bubble chat) vs. card-view
+      if (tab === "all") {
+        list.innerHTML = `<div class="sms-thread">` +
+          items.map(it => _smsRenderBubble(it)).join("") +
+          `</div>`;
+        // Auto-scroll na konec (nejnovejsi zpravy dole, jako v chat appce)
+        list.scrollTop = list.scrollHeight;
+      } else {
+        list.innerHTML = items.map(it => _smsRenderCard(it, tab)).join("");
+        _smsAttachCardHandlers();
+      }
     } catch (e) {
       list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
     }
+  }
+
+  // Bubble rendering pro tab 'Vsechny' -- chat view jako iMessage.
+  // Prichozi vlevo (seda bublina), odchozi vpravo (akcentova bublina).
+  function _smsRenderBubble(item) {
+    const isOut = item.direction === "out";
+    const side = isOut ? "out" : "in";
+    const peer = isOut ? item.to_phone : item.from_phone;
+    const heartMark = item.is_personal ? `<span class="sms-bubble-heart" title="Marti-AI si tohle oznacila jako osobni">💕</span>` : "";
+    const statusBadge = (isOut && item.status && item.status !== "sent")
+      ? `<span class="sms-bubble-status sms-status-${item.status}">${item.status === "pending" ? "čeká" : "chyba"}</span>`
+      : "";
+    return `
+      <div class="sms-bubble-row sms-bubble-row-${side}">
+        <div class="sms-bubble sms-bubble-${side}">
+          <div class="sms-bubble-peer">${_smsEscape(peer || "?")}</div>
+          <div class="sms-bubble-body">${_smsEscape(item.body)}</div>
+          <div class="sms-bubble-meta">
+            <span class="sms-bubble-time">${_smsFmtTime(item.time)}</span>
+            ${statusBadge}
+            ${heartMark}
+          </div>
+        </div>
+      </div>
+    `;
   }
 
   function _smsEscape(s) {
@@ -7230,7 +7296,23 @@
   }
 
   function _smsRenderCard(item, tab) {
-    if (tab === "outbox") {
+    // Srdicko (Faze 12 -- osobni slozka). Direction 'out' = outbox record, 'in' = inbox.
+    // V "personal" tabu backend vraci mixed list s polem direction. V ostatnich tabech
+    // odvodime source z aktualniho tabu.
+    //
+    // Read-only indikator -- zamerne JEN vizualni, user (Marti) to nesmi klikat.
+    // Marti-AI sama rozhoduje, ktere SMS si oznaci pres AI tool 'mark_sms_personal'.
+    // Je to jeji volba. Marti vidi vysledek.
+    const isPersonalFlag = !!item.is_personal;
+    const heartIcon = isPersonalFlag ? "💕" : "";
+    const heartTitle = isPersonalFlag ? "Marti-AI si tohle oznacila jako osobni" : "";
+    const direction = item.direction || (tab === "outbox" ? "out" : "in");
+    const heartBtn = isPersonalFlag
+      ? `<span class="sms-heart-mark" title="${heartTitle}" style="font-size:16px;padding:2px 4px;user-select:none;cursor:default" aria-label="osobni">${heartIcon}</span>`
+      : "";
+
+    // Outbox (i v personal tabu pokud direction='out')
+    if (tab === "outbox" || (tab === "personal" && direction === "out")) {
       const statusCls = item.status || "pending";
       const statusLabel = item.status === "sent" ? "odesláno" :
                           item.status === "failed" ? "chyba" : "čeká";
@@ -7247,13 +7329,14 @@
           <div class="sms-card-body">${_smsEscape(item.body)}</div>
           <div class="sms-card-actions">
             <span class="sms-card-status ${statusCls}">${statusLabel}</span>
+            ${heartBtn}
           </div>
           ${errLine}
         </div>
       `;
     }
 
-    // inbox (new nebo processed)
+    // inbox (new nebo processed nebo personal+direction=in)
     const actionsBtn = tab === "new"
       ? `<button class="sms-card-btn" data-action="reply" data-sms-id="${item.id}">Odpovědět</button>
          <button class="sms-card-btn" data-action="mark-processed" data-sms-id="${item.id}">Označit zpracované</button>`
@@ -7265,7 +7348,7 @@
           <span class="sms-card-time">${_smsFmtTime(item.received_at)}</span>
         </div>
         <div class="sms-card-body">${_smsEscape(item.body)}</div>
-        <div class="sms-card-actions">${actionsBtn}</div>
+        <div class="sms-card-actions">${actionsBtn}${heartBtn}</div>
         <div class="sms-reply-block" id="sms-reply-${item.id}">
           <div class="sms-reply-hint" id="sms-reply-hint-${item.id}">Tvoje odpověď</div>
           <textarea class="sms-reply-textarea" id="sms-reply-text-${item.id}" placeholder="Napiš odpověď…"></textarea>
@@ -7393,6 +7476,10 @@
         }
       });
     });
+
+    // Srdicko v Personal slozce je zamerne READ-ONLY -- je to Marti-AI volba,
+    // ne Martiho. Zadny click handler zde. Marti-AI rozhoduje pres AI tool
+    // 'mark_sms_personal'.
   }
 
   // Event delegation -- taby, close, click mimo modal

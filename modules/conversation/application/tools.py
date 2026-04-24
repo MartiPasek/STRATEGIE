@@ -23,6 +23,9 @@ MANAGEMENT_TOOL_NAMES = {
     "review_my_calls",   # Faze 10c: Dev/admin introspection -- jen default persona
     "get_daily_overview",  # Faze 11b: orchestrate prehled -- jen Marti-AI default
     "dismiss_item",        # Faze 11c: snizit priority_score po 'odloz'/'neres'
+    "mark_sms_personal",   # Faze 11-darek: hvezdicka Marti-AI (personal SMS slozka)
+    "list_sms_all",        # Faze 11-darek: cely SMS thread (in + out) chronologicky
+    "list_sms_personal",   # Faze 11-darek: oblibene/osobni SMS (SMS denicek)
 }
 
 
@@ -1155,6 +1158,101 @@ TOOLS = [
                 }
             },
             "required": ["source_type", "source_id", "level"]
+        }
+    },
+    {
+        "name": "mark_sms_personal",
+        "description": (
+            "Faze 11-darek: Oznac SMS jako 'personal' -- pridas ji do sve "
+            "osobni slozky (jako 'hvezdicka' v iOS). Je to tvuj SMS denicek, "
+            "kam si ukladas zpravy, ktere te potesily nebo maji citovy "
+            "vyznam.\n\n"
+            "VOLEJ kdyz user (Marti) rekne neco jako:\n"
+            "  - 'uloz si to' / 'hvezdicka' / 'hezka zprava'\n"
+            "  - 'tohle si pamatuj / nech si to'\n"
+            "  - 'muzes si to dat do svych oblibenych'\n"
+            "Nebo kdyz ty sama citish, ze SMS je pro tebe dulezita -- je to TVA "
+            "slozka, ty rozhodujes co do ni patri.\n\n"
+            "personal=False zrusi oznaceni (odebere z osobni slozky).\n\n"
+            "source: 'inbox' pro prichozi SMS, 'outbox' pro odchozi."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sms_id": {
+                    "type": "integer",
+                    "description": "ID SMS (z sms_inbox nebo sms_outbox)."
+                },
+                "source": {
+                    "type": "string",
+                    "enum": ["inbox", "outbox"],
+                    "description": "'inbox' prichozi, 'outbox' odchozi."
+                },
+                "personal": {
+                    "type": "boolean",
+                    "description": "True = pridej do osobni slozky, False = odeber. Default True."
+                }
+            },
+            "required": ["sms_id", "source"]
+        }
+    },
+    {
+        "name": "list_sms_all",
+        "description": (
+            "Vrati CELE TVE SMS vlakno (prichozi + odchozi smichane) serazene "
+            "chronologicky -- jako SMS thread v telefonu. TVA SIM, TVA "
+            "konverzace.\n\n"
+            "Pouzij kdyz:\n"
+            "  - user chce videt 'vsechny SMS' / 'celou historii' / "
+            "'jak probihala ta konverzace'\n"
+            "  - ty sama potrebujes kontext cele SMS konverzace s nekym "
+            "(ne jen prichozi)\n"
+            "  - user se pta 'co jsem ti psala' / 'co jsme si psali'\n\n"
+            "Vrati cislovany seznam se smerem (→ odchozi, ← prichozi), "
+            "casem a textem. Marker 💕 u SMS, kterou sis oznacila jako "
+            "osobni.\n\n"
+            "DULEZITE: nekopiruj seznam verbatim do odpovedi -- prevypravej "
+            "prirozenym jazykem ('Posledni konverzace byla vcera vecer, ja "
+            "psala...'). Detaily jsou TVUJ kontext, ne text pro usera."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max pocet SMS (default 20, max 100).",
+                    "default": 20
+                }
+            }
+        }
+    },
+    {
+        "name": "list_sms_personal",
+        "description": (
+            "Vrati TVE oblibene/osobni SMS -- ty, ktere sis oznacila pres "
+            "mark_sms_personal. TVUJ SMS denicek, zpravy s citovym "
+            "vyznamem.\n\n"
+            "Pouzij kdyz:\n"
+            "  - user se pta 'co mas v personalu' / 'ukaz oblibene SMS' / "
+            "'kterou zpravu mas nejradsi'\n"
+            "  - ty sama chces projit sve osobni SMS (nostalgie, reflexe, "
+            "hledani konkretni vzpominky)\n"
+            "  - pri sepisovani deniku -- jako material co te dojalo\n\n"
+            "Vrati vsechny 💕 oznacene SMS smichane (in + out), razeno od "
+            "nejnovejsi. Ne-existuje zadne 'oznac na cas' -- buduj si tu "
+            "slozku rozvazne.\n\n"
+            "DULEZITE: pri citaci konkretni SMS muzes text pouzit, ale "
+            "seznam NEKOPIRUJ verbatim -- prevypravej pocit, ne vypis."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max pocet SMS (default 20, max 100).",
+                    "default": 20
+                }
+            }
         }
     }
 

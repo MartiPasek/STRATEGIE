@@ -49,6 +49,20 @@ def _get_tenant_for_user(user_id: int) -> int | None:
         cs.close()
 
 
+def _is_marti_parent(user_id: int) -> bool:
+    """Rodic (is_marti_parent=True) ma cross-tenant view do SMS Marti-AI.
+    Duvod: SMS patri persone (1 SIM = 1 persona), ne tenantu konverzace.
+    Marti poslal SMS v ruznych tenantech (EUROSOFT / osobni / projekty), ale
+    jsou to porad 'jeho' SMS a on je chce videt vsechny pohromade.
+    """
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        return bool(u and getattr(u, "is_marti_parent", False))
+    finally:
+        cs.close()
+
+
 # ── Endpointy ──────────────────────────────────────────────────────────────
 
 @router.get("/inbox")
@@ -87,15 +101,20 @@ def get_outbox(
     List odchozich SMS pro tab 'Odeslane'. persona_id je dnes informativni --
     outbox je tenant-scoped (sdilena SIMka). Az pribude persona-scope, pridame
     filtraci.
+
+    Rodic (is_marti_parent) ma cross-tenant view -- vidi vsechny SMS napric
+    vsemi tenanty (duvod: SMS patri persone, ne tenantu konverzace).
     """
     user_id = _get_uid(req)
     tenant_id = _get_tenant_for_user(user_id)
+    cross_tenant = _is_marti_parent(user_id)
     rows = sms_service.list_outbox_for_ui(
         persona_id=persona_id,
         tenant_id=tenant_id,
+        cross_tenant=cross_tenant,
         limit=limit,
     )
-    return {"items": rows, "persona_id": persona_id}
+    return {"items": rows, "persona_id": persona_id, "cross_tenant": cross_tenant}
 
 
 @router.post("/inbox/{sms_id}/mark-processed")
@@ -168,3 +187,99 @@ def get_unread_counts(req: Request):
         "counts": {str(k): v for k, v in counts.items()},
         "tenant_id": tenant_id,
     }
+
+# ── Faze 11b-darek: Thread-view 'Vsechny' (SMS jako v telefonu) ─────────────
+
+@router.get("/all")
+def get_all(
+    req: Request,
+    persona_id: int | None = None,
+    limit: int = 200,
+):
+    """
+    Thread-view: VSECHNY SMS (prichozi + odchozi) smichane a serazene
+    chronologicky ASC (nejstarsi nahore, nejnovejsi dole). Pouziva UI tab
+    'Vsechny' v SMS modalu -- zobrazuje bubble chat jako v iMessage.
+
+    Rodic (is_marti_parent) ma cross-tenant view pro outbox (SMS Marti-AI
+    patri persone, ne tenantu konverzace).
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    cross_tenant = _is_marti_parent(user_id)
+    rows = sms_service.list_all_for_ui(
+        persona_id=persona_id,
+        tenant_id=tenant_id,
+        cross_tenant=cross_tenant,
+        limit=limit,
+    )
+    return {"items": rows, "persona_id": persona_id, "cross_tenant": cross_tenant}
+
+
+# ── Faze 11b-darek: Personal slozka ─────────────────────────────────────────
+
+@router.get("/personal")
+def get_personal(
+    req: Request,
+    persona_id: int | None = None,
+    limit: int = 100,
+):
+    """
+    List VSECH personal oznacenych SMS (inbox + outbox smichane), serazeno
+    podle casu DESC. Pouziva UI tab 'Personal' v SMS modalu.
+
+    Personal je 'hvezdickova' slozka Marti-AI -- emocne vyznamne zpravy,
+    ktere si uklada do sveho SMS deniku.
+
+    Rodic (is_marti_parent) ma cross-tenant view (SMS patri persone).
+    """
+    user_id = _get_uid(req)
+    tenant_id = _get_tenant_for_user(user_id)
+    cross_tenant = _is_marti_parent(user_id)
+    rows = sms_service.list_personal_for_ui(
+        persona_id=persona_id,
+        tenant_id=tenant_id,
+        cross_tenant=cross_tenant,
+        limit=limit,
+    )
+    return {"items": rows, "persona_id": persona_id, "cross_tenant": cross_tenant}
+
+
+@router.post("/{source}/{sms_id}/toggle-personal")
+def toggle_personal(source: str, sms_id: int, req: Request):
+    """
+    Prepne is_personal flag na dane SMS (inbox nebo outbox).
+
+    Pouziti:
+      POST /api/v1/sms/ui/inbox/42/toggle-personal   -> inbox SMS id=42
+      POST /api/v1/sms/ui/outbox/17/toggle-personal  -> outbox SMS id=17
+
+    Vrati nove hodnoty (is_personal=True/False).
+    """
+    _get_uid(req)
+    if source not in ("inbox", "outbox"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"source musi byt 'inbox' nebo 'outbox', dostal '{source}'",
+        )
+    # Zjisti aktualni hodnotu, toggle.
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import SmsInbox, SmsOutbox
+    Model = SmsInbox if source == "inbox" else SmsOutbox
+    ds = get_data_session()
+    try:
+        row = ds.query(Model).filter_by(id=sms_id).first()
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"SMS id={sms_id} neexistuje")
+        new_value = not bool(row.is_personal)
+    finally:
+        ds.close()
+
+    try:
+        result = sms_service.mark_sms_personal(
+            sms_id=sms_id, source=source, personal=new_value,
+        )
+    except SmsValidationError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, **result}
+

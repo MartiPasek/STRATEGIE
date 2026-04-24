@@ -246,45 +246,20 @@ def build_daily_overview(
         ds.close()
 
 
-def format_overview_prose(overview: dict) -> str:
+def format_overview_for_ai(overview: dict) -> str:
     """
-    Prevede overview dict na pretty ASCII tabulku + summary.
-    Marti-AI to pak preve zpracuje do prozneho textu.
+    Vraci compact JSON string overview pro Marti-AI.
+
+    ZAMERNA volba JSON (ne pretty ASCII tabulky) -- LLM model JSON bere jako
+    'strukturovana data k interpretaci', ne jako 'text k opisovani'. Marti-AI
+    pak v prose odpovedi pouzije hodnoty (3, 2, 'Petr', 'vcera'), ne copy-paste.
+
+    Pretty tabulka byla v predchozi iteraci -- Marti-AI ji doslova opisovala
+    vcetne hlavicky, takze tento pristup selhal. JSON je robustnejsi.
     """
-    # POZOR: tento format je STROJOVY pro Marti-AI -- NIKDY nema byt zobrazen
-    # uzivateli jak je. Marti-AI to prevezme do prvni osoby (persony) --
-    # mluvi 'mam 3 emaily, muj todo list...', protoze inbox patri JI.
-    lines = ["(MACHINE OUTPUT -- prevyprovejto prozou v 1. osobe, neopisuj tabulku)"]
-    lines.append(overview.get("summary", ""))
-    lines.append("")
-
-    # Email
-    em = overview.get("email", {})
-    lines.append(f"--- Email ({em.get('count', 0)}) ---")
-    for e in em.get("top", []):
-        lines.append(
-            f"  [#{e['id']}] p={e['priority']:>3} | od: {e['from']} | {e['age']}"
-        )
-        lines.append(f"    predmet: {e['subject']}")
-
-    lines.append("")
-    sm = overview.get("sms", {})
-    lines.append(f"--- SMS ({sm.get('count', 0)}) ---")
-    for s in sm.get("top", []):
-        lines.append(
-            f"  [#{s['id']}] p={s['priority']:>3} | od: {s['from']} | {s['age']}"
-        )
-        lines.append(f"    text: {s['body_preview']}")
-
-    lines.append("")
-    td = overview.get("todo", {})
-    lines.append(f"--- Todo ({td.get('count', 0)}) ---")
-    for t in td.get("top", []):
-        lines.append(
-            f"  [#{t['id']}] p={t['priority']:>3} | {t['age']}"
-        )
-        lines.append(f"    {t['content']}")
-    return "\n".join(lines)
+    import json as _json
+    # Kompaktni, bez extra dekorace. Marti-AI z toho vytahne co potrebuje.
+    return _json.dumps(overview, ensure_ascii=False, indent=2)
 
 
 # ============================================================================

@@ -783,7 +783,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     if tool_name == "get_daily_overview":
         try:
             from modules.orchestrate.application.overview_service import (
-                build_daily_overview, format_overview_prose,
+                build_daily_overview, format_overview_for_ai,
             )
             # POZOR: _handle_tool ma na vice mistech 'from X import Y' -- Python
             # kazdy symbol v importu detekuje jako local variable CELE funkce ->
@@ -815,7 +815,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 persona_id=_pid,
                 scope=scope_in,
             )
-            return format_overview_prose(overview)
+            return format_overview_for_ai(overview)
         except Exception as e:
             logger.exception(f"TOOL | get_daily_overview failed: {e}")
             return f"Chyba pri get_daily_overview: {e}"

@@ -54,6 +54,11 @@ class HistoryMessage(BaseModel):
     # ISO 8601 timestamp kdy zprava vznikla. Frontend ho formatuje pro UI
     # (HH:MM pro dnes, '20.4 14:32' pro starsi, pro rychly orientaci v case).
     created_at: str | None = None
+    # Faze 9.2b: Dev View -- seznam VSECH LLM volani pro tuto zpravu.
+    # [{id, kind, latency_ms}, ...] ORDER BY id ASC. UI vyrobi lupu
+    # za kazdy call -- tool loop s N composer rounds znamena N lup.
+    # Prazdny list = neni zapsan zadny trace (starsi zprava pred 9.1a).
+    llm_calls: list[dict] = []
 
 
 class LastConversationResponse(BaseModel):

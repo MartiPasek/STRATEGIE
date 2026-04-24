@@ -201,6 +201,47 @@ def _default_persona_name() -> str:
         cs.close()
 
 
+def _lookup_llm_calls(message_ids: list[int]) -> dict[int, list[dict]]:
+    """
+    Faze 9.2b: Bulk lookup -- pro kazde message_id vrati seznam VSECH
+    LLM volani (ne DISTINCT kinds). Kazdy row obsahuje id + kind + latency_ms.
+
+    UI tim vytvori lupu za KAZDY call -- 5 composer rounds v tool loop
+    znamena 5 lup "Composer #1..#5". Plus title + summary pokud probehly.
+
+    Seznam je serazeny podle id ASC -- poradi vzniku v chat cyklu
+    (router prvni, pak composer 1..N, pak title / summary).
+
+    Pri jakekoli chybe vrati prazdny dict -- UI padne na default 2 lupy
+    (router + composer) pres _attachDevLupy fallback.
+    """
+    if not message_ids:
+        return {}
+    try:
+        from modules.core.infrastructure.models_data import LlmCall
+        ds = get_data_session()
+        try:
+            rows = (
+                ds.query(LlmCall.id, LlmCall.message_id, LlmCall.kind, LlmCall.latency_ms)
+                .filter(LlmCall.message_id.in_(message_ids))
+                .order_by(LlmCall.id.asc())
+                .all()
+            )
+            out: dict[int, list[dict]] = {}
+            for cid, mid, kind, latency in rows:
+                out.setdefault(mid, []).append({
+                    "id": cid,
+                    "kind": kind,
+                    "latency_ms": latency,
+                })
+            return out
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"LLM_CALLS | bulk lookup failed: {e}")
+        return {}
+
+
 def _serialize_messages(messages: list[Message]) -> list[dict]:
     """Serializace listu Message ORM -> dict pro API. Pridava persona_name
     pres bulk JOIN s personas tabulkou (1 query pro N zprav) a created_at
@@ -213,6 +254,9 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
     """
     agent_ids = {m.agent_id for m in messages if m.agent_id}
     persona_names = _resolve_persona_names(agent_ids)
+    # Faze 9.2b: Bulk lookup llm_calls per message (Dev View dynamicke lupy).
+    # Jedna lupa per call -- tool loop s 5 composer rounds = 5 lup.
+    calls_by_id = _lookup_llm_calls([m.id for m in messages])
     # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
     # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
     default_name: str | None = None
@@ -236,6 +280,9 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
             "agent_id": m.agent_id,
             "persona_name": pname,
             "created_at": m.created_at.isoformat() if m.created_at else None,
+            # Faze 9.2b: llm_calls -- UI podle toho zobrazi lupu za kazdy call.
+            # [{id, kind, latency_ms}, ...]
+            "llm_calls": calls_by_id.get(m.id, []),
         })
     return out
 

@@ -2227,7 +2227,7 @@
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
-      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id));
+      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
   }
@@ -3562,7 +3562,7 @@
         document.getElementById('agentName').textContent = data.active_persona;
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
-      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id));
+      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
@@ -3881,33 +3881,70 @@
   }
 
   // -- Faze 9.1c: Dev View lupy + LLM trace modal -------------------------
+  // Faze 9.2b: dynamicke lupy podle msg.dataset.llmCalls (z backend response).
+  // JEDNA LUPA ZA JEDNO VOLANI: tool loop s 5 composer rounds = 5 lup
+  // "Composer #1..#5". Plus router + title + summary kdyz probehly.
+  //
+  // Pokud llmCalls chybi (live chat zpravy pred reload konverzace), fallback
+  // na default ['router', 'composer'] -- jsou zapsane vzdy pri Marti-AI odpovedi.
+  const _LUPA_LABELS = {
+    router: 'Router',
+    composer: 'Composer',
+    title: 'Title',
+    summary: 'Summary',
+    synth: 'Synth',
+  };
+  const _LUPA_TOOLTIPS = {
+    router: 'Haiku klasifikace modu (personal / project / work / system).',
+    composer: 'Sonnet generovani odpovedi (vcetne tool loop).',
+    title: 'Haiku generovani nazvu konverzace.',
+    summary: 'Sonnet shrnuti starsich zprav konverzace.',
+    synth: 'Sonnet RAG synteza nad retrieved chunky.',
+  };
+
   function _attachDevLupy(msg, messageId, role, messageType) {
     if (!msg || role !== 'assistant' || messageType === 'system') return;
     if (!messageId) return;
     if (!currentUser || !currentUser.is_admin) return;
     if (!currentUser.dev_mode_enabled) return;
+    // Parsuj llm_calls z dataset. Kazdy call je {id, kind, latency_ms}.
+    const callsStr = msg.dataset.llmCalls || '';
+    let calls = [];
+    if (callsStr) {
+      try { calls = JSON.parse(callsStr); } catch (_) { calls = []; }
+    }
+    if (!calls.length) {
+      // Fallback pro live chat zpravy -- router + composer jsou zapsane vzdy.
+      // Bez callId -> openLlmTraceModal fallbackne na prvni match podle kind.
+      calls = [
+        { id: null, kind: 'router', latency_ms: null },
+        { id: null, kind: 'composer', latency_ms: null },
+      ];
+    }
+    // Spocitej kolik volani tehoz kindu -- kdyz vic nez 1, pridej #N do labelu.
+    const kindTotals = {};
+    calls.forEach(c => { kindTotals[c.kind] = (kindTotals[c.kind] || 0) + 1; });
+    const kindCounters = {};
+
     const box = document.createElement('div');
     box.className = 'dev-lupy';
-    const lRouter = document.createElement('button');
-    lRouter.type = 'button';
-    lRouter.className = 'dev-lupa';
-    lRouter.textContent = '🔍 1. Router';
-    lRouter.dataset.tooltip = 'Haiku klasifikace modu (personal / project / work / system).';
-    lRouter.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openLlmTraceModal(messageId, 'router');
+    calls.forEach(c => {
+      kindCounters[c.kind] = (kindCounters[c.kind] || 0) + 1;
+      const idx = kindCounters[c.kind];
+      const total = kindTotals[c.kind] || 1;
+      const labelBase = _LUPA_LABELS[c.kind] || c.kind;
+      const label = `🔍 ${labelBase}${total > 1 ? ' #' + idx : ''}`;
+      const lupa = document.createElement('button');
+      lupa.type = 'button';
+      lupa.className = 'dev-lupa';
+      lupa.textContent = label;
+      lupa.dataset.tooltip = _LUPA_TOOLTIPS[c.kind] || '';
+      lupa.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openLlmTraceModal(messageId, c.kind, c.id);
+      });
+      box.appendChild(lupa);
     });
-    box.appendChild(lRouter);
-    const lComposer = document.createElement('button');
-    lComposer.type = 'button';
-    lComposer.className = 'dev-lupa';
-    lComposer.textContent = '🔍 2. Composer';
-    lComposer.dataset.tooltip = 'Sonnet generovani odpovedi (vcetne pripadneho tool loop).';
-    lComposer.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openLlmTraceModal(messageId, 'composer');
-    });
-    box.appendChild(lComposer);
     msg.appendChild(box);
   }
 
@@ -3926,7 +3963,7 @@
 
   let _llmTraceState = { rows: [], current: null, tab: 'overview' };
 
-  async function openLlmTraceModal(messageId, kind) {
+  async function openLlmTraceModal(messageId, kind, callId) {
     const backdrop = document.getElementById('llmTraceBackdrop');
     if (!backdrop) return;
     try {
@@ -3939,14 +3976,22 @@
       }
       const rows = await resp.json();
       _llmTraceState.rows = rows;
-      // Faze 9.2: Pokud existuje row daneho kindu, zobrazime prvni; jinak fallback
-      // na prvni row (uzivatel muze prepnout pres record pills v modalu).
-      const filtered = rows.filter(r => r.kind === kind);
       if (!rows.length) {
         alert('Žádný záznam pro tuto zprávu nebyl zapsán.');
         return;
       }
-      _llmTraceState.current = (filtered.length ? filtered[0] : rows[0]);
+      // Faze 9.2b: Pokud je callId, vyber konkretni row (user klikl na
+      // 'Composer #3' -- musime ukazat #3, ne #1). Jinak fallback na prvni
+      // row daneho kindu, jinak prvni ze vsech.
+      let selected = null;
+      if (callId) {
+        selected = rows.find(r => r.id === callId) || null;
+      }
+      if (!selected) {
+        const filtered = rows.filter(r => r.kind === kind);
+        selected = filtered.length ? filtered[0] : rows[0];
+      }
+      _llmTraceState.current = selected;
       _llmTraceState.tab = 'overview';
       _renderLlmTraceModal();
       backdrop.classList.add('open');
@@ -5810,7 +5855,7 @@
     return true;
   }
 
-  function renderMessage(role, content, messageType, personaName, createdAt, messageId) {
+  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
@@ -5822,6 +5867,14 @@
     if (createdAt) msg.dataset.createdAt = createdAt;
     // Faze 9.1c: messageId pro Dev View lupy -> /messages/{id}/llm-calls.
     if (messageId) msg.dataset.messageId = messageId;
+    // Faze 9.2b: llmCalls -- list [{id, kind, latency_ms}, ...] pro Dev View.
+    // UI vytvori lupu za kazdy call (1 volani = 1 lupa), s labelem jako
+    // 'Composer #2' kdyz je vic rounds tehoz kindu.
+    if (llmCalls && llmCalls.length) {
+      try {
+        msg.dataset.llmCalls = JSON.stringify(llmCalls);
+      } catch (_) {}
+    }
     // Systémové markery (např. tenant switch) renderujeme s vlastní třídou
     // .system — left-aligned, label 'STRATEGIE'. Ignorujeme původní role 'user'
     // (backend ji volí kvůli LLM kontextu, frontend ji nezobrazuje jako user).

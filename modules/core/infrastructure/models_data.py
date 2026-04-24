@@ -5,7 +5,7 @@ Obsahuje všechny tabulky pro provozní a obsahová data.
 from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
-    Integer, String, Text
+    Integer, Numeric, String, Text
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -701,5 +701,19 @@ class LlmCall(BaseData):
 
     # NULL pri success, jinak str(exception) -- pro debug "proc spadl router".
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Faze 10a: attribution pro 'kolik propalil tenant / user / persona'.
+    # Chat calls: tenant_id + user_id + persona_id z conversation.
+    # Worker calls (question_gen, email_suggest): aspon tenant_id povinne
+    # pro dashboard. Persona_id / user_id pokud smysluplne (persona z workeru).
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Vypoctena cena v USD pri insertu (z prompt/output tokens + LLM_PRICING).
+    # Stabilni historicka cena -- Anthropic muze v budoucnu menit pricing.
+    cost_usd: Mapped[float | None] = mapped_column(Numeric(10, 6), nullable=True)
+    # True pro auto-sendy (SMS / email auto-reply) kde nebyla user interakce.
+    # False pro klasicke chat() volani. V dashboardu lze filtrovat.
+    is_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

@@ -224,6 +224,10 @@ def classify_mode(
     recent_messages=None,
     *,
     conversation_id=None,
+    tenant_id=None,
+    user_id=None,
+    persona_id=None,
+    is_auto=False,
 ):
     """
     Hlavni entrypoint. Klasifikuje vstupni zpravu do jednoho ze 4 modu.
@@ -293,6 +297,10 @@ def classify_mode(
                 output_tokens=output_tokens,
                 latency_ms=_telemetry.now_ms() - _t_start,
                 error=error,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=persona_id,
+                is_auto=is_auto,
             )
         except Exception as te:
             logger.warning(f"ROUTER | telemetry zapis selhal: {te}")

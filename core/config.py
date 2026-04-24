@@ -117,3 +117,43 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+
+# ============================================================================
+# Faze 10a: Pricing LLM modelu -- USD za 1M tokens.
+# ============================================================================
+# Cost se vypocita pri insertu do llm_calls (stabilni historicka cena).
+# Kdyz Anthropic zmeni cenu, uprav hodnoty nize -- historicka data v DB
+# zustavaji, budouci volani se budou pocitat novou cenou.
+#
+# Zdroj: https://docs.claude.com/en/docs/build-with-claude/pricing
+# Orientacni ceny duben 2026, over je pri nasazeni v produkci.
+
+LLM_PRICING: dict[str, dict[str, float]] = {
+    # Haiku 4.5 -- nejlevnejsi, router / title / question_gen
+    "claude-haiku-4-5-20251001": {"input": 1.00, "output": 5.00},
+    # Sonnet 4.6 -- hlavni composer, summary, email_suggest
+    "claude-sonnet-4-6": {"input": 3.00, "output": 15.00},
+    # Opus 4.6 -- nejvykonnejsi, pro critical path (zatim nepouzivame)
+    "claude-opus-4-6": {"input": 15.00, "output": 75.00},
+}
+
+# Fallback cena pro nezname modely -- at nikdy nezapiseme NULL cost jen proto,
+# ze model nebyl v tabulce. Defaultne Sonnet ceny (strednobezny).
+LLM_PRICING_FALLBACK: dict[str, float] = {"input": 3.00, "output": 15.00}
+
+
+def calculate_cost_usd(model: str, prompt_tokens: int | None, output_tokens: int | None) -> float | None:
+    """
+    Vypocita cenu v USD za jedno LLM volani. Vraci None pokud tokens chybi.
+
+    Nepritomny model v LLM_PRICING -> pouziva LLM_PRICING_FALLBACK (stredni cenu).
+    Vysledek v USD (napr. 0.012345) s presnosti na 6 desetinnych mist.
+    """
+    if prompt_tokens is None and output_tokens is None:
+        return None
+    pricing = LLM_PRICING.get(model, LLM_PRICING_FALLBACK)
+    p_in = (prompt_tokens or 0) * pricing["input"] / 1_000_000.0
+    p_out = (output_tokens or 0) * pricing["output"] / 1_000_000.0
+    return round(p_in + p_out, 6)

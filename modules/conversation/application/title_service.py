@@ -61,7 +61,13 @@ SYSTEM_PROMPT = (
 )
 
 
-def maybe_generate_title(conversation_id: int) -> str | None:
+def maybe_generate_title(
+    conversation_id: int,
+    *,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
+) -> str | None:
     """
     Idempotentne vygeneruje a ulozi nazev konverzace. Vraci nazev pokud byl
     vygenerovan (nebo uz existoval), jinak None.
@@ -124,6 +130,9 @@ def maybe_generate_title(conversation_id: int) -> str | None:
                 max_tokens=30,
                 system=SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": transcript}],
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=persona_id,
             )
         except Exception as _te:
             # Telemetry import/init selhalo -- pokracujeme bez tracingu.

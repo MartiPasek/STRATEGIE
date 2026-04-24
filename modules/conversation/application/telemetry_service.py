@@ -271,7 +271,7 @@ def build_request_json(
 
 def record_llm_call(
     *,
-    conversation_id: int,
+    conversation_id: int | None,
     message_id: int | None,
     kind: str,
     model: str,
@@ -281,12 +281,20 @@ def record_llm_call(
     output_tokens: int | None,
     latency_ms: int | None,
     error: str | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
+    is_auto: bool = False,
 ) -> int | None:
     """
     Zapise jeden radek do llm_calls. Pri jakekoli DB chybe vrati None
     a zaloguje warning (telemetry nesmi shodit hlavni LLM flow).
 
-    Vraci id noveho radku pro pozdejsi link_message_to_calls.
+    Faze 10a: navic tenant_id / user_id / persona_id / cost_usd / is_auto
+    pro attribution a dashboard. Cost se pocita z LLM_PRICING automaticky.
+
+    Worker calls (question_gen, email_suggest) nemaji conversation_id --
+    signature nyni accept conversation_id=None.
 
     Secret masking probehne PRED zapisem.
     """
@@ -295,6 +303,14 @@ def record_llm_call(
         masked_request = mask_secrets(request_json, login_upns) if request_json else {}
         masked_response = mask_secrets(response_json, login_upns) if response_json else None
         masked_error = _mask_string(error, login_upns) if error else None
+
+        # Faze 10a: automaticky vypocet cost_usd z pricing mapy.
+        cost_usd = None
+        try:
+            from core.config import calculate_cost_usd
+            cost_usd = calculate_cost_usd(model, prompt_tokens, output_tokens)
+        except Exception as ce:
+            logger.warning(f"TELEMETRY | cost calc selhal ({model}): {ce}")
 
         from modules.core.infrastructure.models_data import LlmCall
         from core.database_data import get_data_session
@@ -312,6 +328,11 @@ def record_llm_call(
                 output_tokens=output_tokens,
                 latency_ms=latency_ms,
                 error=masked_error,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=persona_id,
+                cost_usd=cost_usd,
+                is_auto=bool(is_auto),
             )
             ds.add(row)
             ds.commit()
@@ -388,7 +409,7 @@ def begin_chat_trace() -> None:
 
 def record_chat_call(
     *,
-    conversation_id: int,
+    conversation_id: int | None,
     kind: str,
     model: str,
     request_json: dict,
@@ -397,10 +418,14 @@ def record_chat_call(
     output_tokens: int | None,
     latency_ms: int | None,
     error: str | None = None,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
+    is_auto: bool = False,
 ) -> int | None:
     """
     Zapise LLM call do llm_calls (bez message_id) a pripoji call_id do
-    aktualniho chat trace bufferu.
+    aktualniho chat trace bufferu. Faze 10a: propagace attribution fields.
     """
     call_id = record_llm_call(
         conversation_id=conversation_id,
@@ -413,6 +438,10 @@ def record_chat_call(
         output_tokens=output_tokens,
         latency_ms=latency_ms,
         error=error,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        persona_id=persona_id,
+        is_auto=is_auto,
     )
     buf = _current_chat_trace.get()
     if buf is not None and call_id is not None:
@@ -436,17 +465,24 @@ def end_chat_trace_and_link(message_id: int) -> None:
 def call_llm_with_trace(
     client: Any,
     *,
-    conversation_id: int,
+    conversation_id: int | None,
     kind: str,
     model: str,
     system,
     messages: list,
     tools: list | None = None,
     max_tokens: int = 4096,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
+    is_auto: bool = False,
 ):
     """
     Wrapper kolem client.messages.create() -- provede API call, zmeri latency,
     zapise do llm_calls (kind=?, conversation_id=?) pres record_chat_call.
+
+    Faze 10a: vola record_chat_call s tenant_id / user_id / persona_id /
+    is_auto pro attribution. conversation_id muze byt None (worker calls).
 
     Vyhodi stejnou exception jako puvodni client.messages.create() (telemetry
     nema polkat chyby -- hlavni flow v service.py ma svoje error handling).
@@ -475,6 +511,7 @@ def call_llm_with_trace(
                 prompt_tokens=None, output_tokens=None,
                 latency_ms=now_ms() - t0,
                 error=str(e),
+                tenant_id=tenant_id, user_id=user_id, persona_id=persona_id, is_auto=is_auto,
             )
         except Exception as rec_err:
             logger.warning(f"TELEMETRY | record on error selhal: {rec_err}")
@@ -490,6 +527,7 @@ def call_llm_with_trace(
             output_tokens=getattr(response.usage, "output_tokens", None)
             if hasattr(response, "usage") else None,
             latency_ms=now_ms() - t0,
+            tenant_id=tenant_id, user_id=user_id, persona_id=persona_id, is_auto=is_auto,
         )
     except Exception as e:
         logger.warning(f"TELEMETRY | record on success selhal: {e}")

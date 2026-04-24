@@ -130,7 +130,14 @@ def _format_messages_for_llm(messages: list[Message]) -> str:
     return "\n\n".join(lines)
 
 
-def _call_llm_for_summary(text: str, conversation_id: int | None = None) -> str:
+def _call_llm_for_summary(
+    text: str,
+    conversation_id: int | None = None,
+    *,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
+) -> str:
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     # Faze 9.2: kdyz je zadan conversation_id, zapiseme volani do llm_calls
     # (kind='summary') pres telemetry. Bez conversation_id (legacy volani /
@@ -147,6 +154,9 @@ def _call_llm_for_summary(text: str, conversation_id: int | None = None) -> str:
                 max_tokens=SUMMARY_MAX_OUTPUT_TOKENS,
                 system=SUMMARY_SYSTEM_PROMPT,
                 messages=[{"role": "user", "content": text}],
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=persona_id,
             )
         except Exception as _te:
             logger.warning(f"SUMMARY | telemetry skip | {_te}")
@@ -208,6 +218,10 @@ def maybe_create_summary(
     conversation_id: int,
     force: bool = False,
     min_messages: int | None = None,
+    *,
+    tenant_id: int | None = None,
+    user_id: int | None = None,
+    persona_id: int | None = None,
 ) -> dict | None:
     """
     Hlavní entrypoint. Idempotentní.
@@ -236,7 +250,13 @@ def maybe_create_summary(
         from_id, to_id, messages = range_info
 
         text_block = _format_messages_for_llm(messages)
-        summary_text = _call_llm_for_summary(text_block, conversation_id=conversation_id)
+        summary_text = _call_llm_for_summary(
+            text_block,
+            conversation_id=conversation_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            persona_id=persona_id,
+        )
         if not summary_text:
             logger.warning(f"SUMMARY | empty output | conv={conversation_id}")
             return None

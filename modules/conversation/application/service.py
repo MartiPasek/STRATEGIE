@@ -3051,6 +3051,9 @@ def chat(
             messages=messages,
             tools=effective_tools,
             max_tokens=4096,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            persona_id=_active_pid,
         )
     else:
         response = client.messages.create(
@@ -3139,6 +3142,9 @@ def chat(
                     messages=follow_up_messages,
                     tools=effective_tools,
                     max_tokens=4096,
+                    tenant_id=tenant_id,
+                    user_id=user_id,
+                    persona_id=_active_pid,
                 )
             else:
                 synth_response = client.messages.create(
@@ -3242,7 +3248,12 @@ def chat(
     summary_info: dict | None = None
     try:
         from modules.conversation.application.summary_service import maybe_create_summary
-        summary_info = maybe_create_summary(conversation_id)
+        summary_info = maybe_create_summary(
+            conversation_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            persona_id=_active_pid,
+        )
     except Exception as e:
         logger.error(f"SUMMARY | failed: {e}")
 
@@ -3251,7 +3262,12 @@ def chat(
     # latenci na 4. zpravu, pak uz nic.
     try:
         from modules.conversation.application.title_service import maybe_generate_title
-        maybe_generate_title(conversation_id)
+        maybe_generate_title(
+            conversation_id,
+            tenant_id=tenant_id,
+            user_id=user_id,
+            persona_id=_active_pid,
+        )
     except Exception as e:
         logger.error(f"TITLE | failed: {e}")
 

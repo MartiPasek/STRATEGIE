@@ -228,6 +228,8 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
         else:
             pname = None
         out.append({
+            # Faze 9.1c: message_id pro Dev View (lupy -> /messages/{id}/llm-calls).
+            "id": m.id,
             "role": m.role,
             "content": m.content,
             "message_type": m.message_type,

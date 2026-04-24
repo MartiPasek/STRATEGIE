@@ -458,3 +458,68 @@ def remove_conversation_share(conversation_id: int, share_id: int, req: Request)
     except ShareError as e:
         raise HTTPException(status_code=403, detail=str(e))
     return {"success": ok}
+
+
+# -- DEV VIEW: LLM CALLS TRACE (Faze 9.1c) ----------------------------------
+
+@router.get("/messages/{message_id}/llm-calls")
+def get_message_llm_calls(message_id: int, req: Request):
+    """
+    Vrati vsechny LLM volani (router + composer 1..N) linkovane na outgoing
+    assistant zpravu. Pouziva se v UI Dev View pod zpravami Marti-AI.
+
+    Authorization: vyzaduje users.is_admin=True. Non-admin dostane 403.
+    Request/response JSONy jsou jiz zamaskovane pred zapisem do DB
+    (viz telemetry_service.mask_secrets).
+
+    Response: list dictu serazenych podle id ASC (v poradi vzniku --
+    nejprve router, pak composer, pripadne dalsi composer rounds v tool loop).
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
+
+    cs = get_core_session()
+    try:
+        user = cs.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Ucet neni aktivni.")
+        if not user.is_admin:
+            raise HTTPException(status_code=403, detail="Dev View je jen pro administratory.")
+    finally:
+        cs.close()
+
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import LlmCall
+
+    ds = get_data_session()
+    try:
+        rows = (
+            ds.query(LlmCall)
+            .filter_by(message_id=message_id)
+            .order_by(LlmCall.id.asc())
+            .all()
+        )
+        result = []
+        for r in rows:
+            result.append({
+                "id": r.id,
+                "conversation_id": r.conversation_id,
+                "message_id": r.message_id,
+                "kind": r.kind,
+                "model": r.model,
+                "request_json": r.request_json,
+                "response_json": r.response_json,
+                "prompt_tokens": r.prompt_tokens,
+                "output_tokens": r.output_tokens,
+                "latency_ms": r.latency_ms,
+                "error": r.error,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+            })
+        return result
+    finally:
+        ds.close()

@@ -169,13 +169,16 @@ def test_mask_nested_dict():
 
 
 def test_mask_list_of_dicts():
+    # Pouzivame 'access_token' (konkretni *_token variant), ne generic
+    # 'token' -- generic nematchuje kvuli anti-regression na max_tokens
+    # (Anthropic legitimni pole, viz test_sensitive_key_max_tokens_NOT_matched).
     obj = [
-        {"name": "alice", "token": "t1"},
-        {"name": "bob", "token": "t2"},
+        {"name": "alice", "access_token": "t1"},
+        {"name": "bob", "access_token": "t2"},
     ]
     out = mask_secrets(obj, login_upns=set())
-    assert out[0]["token"] == "***MASKED***"
-    assert out[1]["token"] == "***MASKED***"
+    assert out[0]["access_token"] == "***MASKED***"
+    assert out[1]["access_token"] == "***MASKED***"
     assert out[0]["name"] == "alice"
 
 

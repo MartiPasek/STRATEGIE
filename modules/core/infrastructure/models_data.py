@@ -279,6 +279,8 @@ class SmsInbox(BaseData):
     # JSON metadata z gateway (SIM slot, delivery reports, ...) -- kdyby
     # bylo treba debug.
     meta: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Faze 11a: orchestrate priorita (100 default, -10 odloz, -30 neres).
+    priority_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
 
 
 # ── PHONE CALLS ────────────────────────────────────────────────────────────
@@ -407,6 +409,8 @@ class EmailInbox(BaseData):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Faze 11a: orchestrate priorita (100 default, -10 odloz, -30 neres).
+    priority_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     # JSON metadata z EWS (cc, bcc, folder, importance, has_attachments, ...)
     # -- debug + budoucnost (reply threading, attachments handling).
@@ -528,6 +532,8 @@ class Thought(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     modified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Faze 11a: orchestrate priorita -- plati pro type=todo.
+    priority_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
 
 
 class ThoughtEntityLink(BaseData):

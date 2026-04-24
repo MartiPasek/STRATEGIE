@@ -37,6 +37,9 @@ class ChatResponse(BaseModel):
 
 
 class HistoryMessage(BaseModel):
+    # Faze 9.1c: message_id pro Dev View (lupy -> /messages/{id}/llm-calls).
+    # Frontend ho uklada do msg.dataset.messageId a pouziva pri kliku na lupu.
+    id: int | None = None
     role: str
     content: str
     # message_type: 'text' (běžné) | 'system' (systémové markery jako tenant switch).

@@ -72,6 +72,13 @@ class User(BaseCore):
     # a pravem dostavat aktivni learning otazky (Faze 4). Viz
     # docs/marti_memory_design.md, rozhodnuti #4 (tenant izolace).
     is_marti_parent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Faze 9.1 -- Dev observability. Admin = spravce systemu (oddelene od rodice).
+    # Admin ma pristup k Dev View (Router/Composer tracing) a llm_calls tabulce.
+    # Nastavuje se skriptem scripts/_set_admin.py --user-id X --admin.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Per-user preference "Zobrazovat Dev panely" v UI. Prepinac v Profile settings.
+    # Smysl ma jen pro is_admin=true -- endpoint /dev-trace gate-uje na is_admin.
+    dev_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

@@ -7,6 +7,7 @@ from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
     Integer, String, Text
 )
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from core.database_data import BaseData
 
@@ -643,3 +644,62 @@ class AutoSendConsent(BaseData):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# -- LLM CALLS (Phase 9.1 -- Dev observability) -------------------------------
+
+class LlmCall(BaseData):
+    """
+    Telemetrie LLM volani -- kazda Marti-AI odpoved generuje 2+ radky:
+      kind='router'   -- Haiku klasifikace modu (personal/project/work/system)
+      kind='composer' -- Sonnet generovani vlastni odpovedi (1-5x s tool loop)
+
+    Vsechny radky jednoho chat cyklu jsou linkovane na stejne message_id
+    (outgoing assistant message). kind='router' a 'composer' se zapisuji s
+    message_id=NULL pred save_message() a po commitu outgoing message se
+    UPDATE-em dolinkuji (viz telemetry_service.link_message_to_calls).
+
+    Zapisujeme VZDY (bez ohledu na dev_mode_enabled), storage je levny a
+    retrospektivni debugging se neda delat bez historickych dat.
+    Retence: 30 dni (scripts/llm_calls_retention.py, denni cron).
+
+    Secret masking: request_json/response_json prochazi mask_secrets()
+    pred zapisem -- nahrazuje login UPN / API key / Fernet key / hesla
+    na '***MASKED***'. Viz modules/conversation/application/telemetry_service.py.
+
+    UI access: endpoint GET /api/v1/messages/{id}/dev-trace gate-uje
+    na users.is_admin=True. Dev View ikony v UI se zobrazuji jen kdyz
+    users.dev_mode_enabled=True (admin si muze pohled vypnout, aby videl
+    UI "jako ostatni uzivatele").
+    """
+    __tablename__ = "llm_calls"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    conversation_id: Mapped[int] = mapped_column(BigInteger)
+    # NULL dokud se nelinkne po commitu outgoing message (viz docstring).
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # router | composer (budoucne: synth, title, summary, rag_embed, ...)
+    kind: Mapped[str] = mapped_column(String(30))
+
+    # Model string jak byl poslan do Anthropic API.
+    model: Mapped[str] = mapped_column(String(100))
+
+    # Kompletni payload -- system + messages + tools + max_tokens + model.
+    # System prompt je v request_json['system'] -- neduplikujeme.
+    request_json: Mapped[dict] = mapped_column(JSONB)
+    # NULL pri failure pred tim, nez API vratilo odpoved (exception).
+    response_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Z response.usage (NULL pri failure).
+    prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Latence Anthropic API volani v ms (cas mezi create() vstup a vystup).
+    latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # NULL pri success, jinak str(exception) -- pro debug "proc spadl router".
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

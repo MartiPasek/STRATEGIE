@@ -634,6 +634,131 @@
     .profile-dd-toggle.on::after {
       left: 14px;
     }
+    /* Faze 9.1c: Dev View lupy pod zpravami Marti-AI. */
+    .dev-lupy {
+      display: flex; gap: 6px;
+      margin-top: 6px; margin-left: 2px;
+      opacity: 0.35;
+      transition: opacity .15s;
+    }
+    .msg:hover .dev-lupy { opacity: 1; }
+    .dev-lupa {
+      background: rgba(168, 85, 247, 0.08);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.25);
+      border-radius: 6px;
+      padding: 3px 8px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      cursor: pointer;
+      transition: background .12s, border-color .12s;
+      user-select: none;
+    }
+    .dev-lupa:hover {
+      background: rgba(168, 85, 247, 0.18);
+      border-color: rgba(168, 85, 247, 0.5);
+    }
+    /* Faze 9.1c: LLM trace modal (Dev View). */
+    .llm-trace-modal-backdrop {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.6);
+      z-index: 200;
+      align-items: center; justify-content: center;
+    }
+    .llm-trace-modal-backdrop.open { display: flex; }
+    .llm-trace-modal {
+      background: var(--surface);
+      border: 1px solid rgba(168, 85, 247, 0.4);
+      border-radius: 10px;
+      width: 90vw; max-width: 1100px;
+      max-height: 88vh;
+      display: flex; flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 12px 40px rgba(0,0,0,0.5);
+    }
+    .llm-trace-modal-header {
+      padding: 12px 16px;
+      background: rgba(168, 85, 247, 0.12);
+      border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .llm-trace-modal-title {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      color: var(--text);
+      display: flex; gap: 8px; align-items: baseline;
+    }
+    .llm-trace-modal-title .llm-trace-kind {
+      color: #c084fc;
+      font-family: 'DM Mono', monospace;
+    }
+    .llm-trace-modal-close {
+      background: none; border: none;
+      color: var(--muted);
+      font-size: 18px; cursor: pointer;
+      padding: 4px 8px;
+    }
+    .llm-trace-modal-close:hover { color: var(--text); }
+    .llm-trace-tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      padding: 0 12px;
+      gap: 2px;
+    }
+    .llm-trace-tab {
+      padding: 10px 14px;
+      background: none; border: none;
+      color: var(--muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      cursor: pointer;
+      border-bottom: 2px solid transparent;
+      transition: color .12s, border-color .12s;
+    }
+    .llm-trace-tab:hover { color: var(--text); }
+    .llm-trace-tab.active {
+      color: #c084fc;
+      border-bottom-color: #c084fc;
+    }
+    .llm-trace-body {
+      flex: 1;
+      overflow: auto;
+      padding: 16px;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      color: var(--text);
+      background: var(--bg);
+    }
+    .llm-trace-body pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+    .llm-trace-overview {
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+    .llm-trace-overview strong {
+      color: #c084fc;
+      font-family: 'DM Mono', monospace;
+      font-size: 11px;
+      display: inline-block;
+      min-width: 140px;
+    }
+    .llm-trace-copy {
+      margin-top: 12px;
+      background: rgba(168, 85, 247, 0.1);
+      color: #c084fc;
+      border: 1px solid rgba(168, 85, 247, 0.3);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .llm-trace-copy:hover { background: rgba(168, 85, 247, 0.2); }
     /* Profile dropdown — sdílený styl s tenant-dropdown */
     .profile-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
     .profile-dropdown.open { display: block; }
@@ -2062,7 +2187,7 @@
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
-      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at));
+      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id));
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
   }
@@ -3397,7 +3522,7 @@
         document.getElementById('agentName').textContent = data.active_persona;
       }
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
-      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at));
+      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id));
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
@@ -3667,6 +3792,8 @@
     setTenantPill(currentUser.display_name, currentUser.tenant_name);
     const pd = document.getElementById('profileDropdown');
     if (pd && pd.classList.contains('open')) _renderProfileDropdown();
+    // Faze 9.1c: pridat / skryt lupy u existujicich zprav.
+    if (typeof _refreshDevLupyInConversation === 'function') _refreshDevLupyInConversation();
   }
   async function toggleDevMode() {
     if (!currentUser || !currentUser.is_admin) return;   // defense-in-depth
@@ -3688,6 +3815,8 @@
       currentUser = updated;
       setTenantPill(currentUser.display_name, currentUser.tenant_name);
       _renderProfileDropdown();   // prekresli dropdown se spravnym stavem toggle
+      // Faze 9.1c: pridat / skryt lupy u existujicich zprav.
+      if (typeof _refreshDevLupyInConversation === 'function') _refreshDevLupyInConversation();
       // Broadcast ostatnim tabum tehoz usera.
       const ch = _getDevModeChannel();
       if (ch) {
@@ -3709,6 +3838,194 @@
   // pripojeny i kdyz uzivatel sam toggle nestiskne).
   if (typeof window !== 'undefined') {
     _getDevModeChannel();
+  }
+
+  // -- Faze 9.1c: Dev View lupy + LLM trace modal -------------------------
+  function _attachDevLupy(msg, messageId, role, messageType) {
+    if (!msg || role !== 'assistant' || messageType === 'system') return;
+    if (!messageId) return;
+    if (!currentUser || !currentUser.is_admin) return;
+    if (!currentUser.dev_mode_enabled) return;
+    const box = document.createElement('div');
+    box.className = 'dev-lupy';
+    const lRouter = document.createElement('button');
+    lRouter.type = 'button';
+    lRouter.className = 'dev-lupa';
+    lRouter.textContent = '🔍 1. Router';
+    lRouter.dataset.tooltip = 'Haiku klasifikace modu (personal / project / work / system).';
+    lRouter.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openLlmTraceModal(messageId, 'router');
+    });
+    box.appendChild(lRouter);
+    const lComposer = document.createElement('button');
+    lComposer.type = 'button';
+    lComposer.className = 'dev-lupa';
+    lComposer.textContent = '🔍 2. Composer';
+    lComposer.dataset.tooltip = 'Sonnet generovani odpovedi (vcetne pripadneho tool loop).';
+    lComposer.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openLlmTraceModal(messageId, 'composer');
+    });
+    box.appendChild(lComposer);
+    msg.appendChild(box);
+  }
+
+  function _refreshDevLupyInConversation() {
+    const on = !!(currentUser && currentUser.dev_mode_enabled);
+    const msgs = document.querySelectorAll('.msg.assistant');
+    msgs.forEach(m => {
+      const existing = m.querySelector('.dev-lupy');
+      if (existing) existing.remove();
+      if (on) {
+        const mid = m.dataset.messageId ? parseInt(m.dataset.messageId, 10) : null;
+        if (mid) _attachDevLupy(m, mid, 'assistant', 'text');
+      }
+    });
+  }
+
+  let _llmTraceState = { rows: [], current: null, tab: 'overview' };
+
+  async function openLlmTraceModal(messageId, kind) {
+    const backdrop = document.getElementById('llmTraceBackdrop');
+    if (!backdrop) return;
+    try {
+      const resp = await fetch(`/api/v1/conversation/messages/${messageId}/llm-calls`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        alert('Nelze načíst trace: ' + resp.status);
+        return;
+      }
+      const rows = await resp.json();
+      _llmTraceState.rows = rows;
+      const filtered = rows.filter(r => r.kind === kind);
+      if (!filtered.length) {
+        alert(`Žádný ${kind} záznam pro tuto zprávu nebyl zapsán.`);
+        return;
+      }
+      _llmTraceState.current = filtered[0];
+      _llmTraceState.tab = 'overview';
+      _renderLlmTraceModal();
+      backdrop.classList.add('open');
+    } catch (e) {
+      console.error('openLlmTraceModal failed', e);
+      alert('Chyba sítě při načítání trace.');
+    }
+  }
+
+  function closeLlmTraceModal() {
+    const backdrop = document.getElementById('llmTraceBackdrop');
+    if (backdrop) backdrop.classList.remove('open');
+    _llmTraceState = { rows: [], current: null, tab: 'overview' };
+  }
+
+  function _setLlmTraceTab(tab) {
+    _llmTraceState.tab = tab;
+    _renderLlmTraceModal();
+  }
+
+  function _renderLlmTraceModal() {
+    const row = _llmTraceState.current;
+    if (!row) return;
+    const titleEl = document.getElementById('llmTraceTitle');
+    if (titleEl) {
+      titleEl.innerHTML = `<span class="llm-trace-kind">${row.kind.toUpperCase()}</span><span>${row.model}</span>`;
+    }
+    const tabs = ['overview', 'system', 'request', 'response', 'timing'];
+    const tabLabels = {
+      overview: 'Přehled',
+      system: 'System prompt',
+      request: 'Request',
+      response: 'Response',
+      timing: 'Timing',
+    };
+    const tabsEl = document.getElementById('llmTraceTabs');
+    if (tabsEl) {
+      tabsEl.innerHTML = '';
+      tabs.forEach(t => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'llm-trace-tab' + (_llmTraceState.tab === t ? ' active' : '');
+        b.textContent = tabLabels[t];
+        b.addEventListener('click', () => _setLlmTraceTab(t));
+        tabsEl.appendChild(b);
+      });
+    }
+    const body = document.getElementById('llmTraceBody');
+    if (!body) return;
+    body.innerHTML = '';
+    const tab = _llmTraceState.tab;
+    if (tab === 'overview') {
+      const div = document.createElement('div');
+      div.className = 'llm-trace-overview';
+      const when = row.created_at ? new Date(row.created_at).toLocaleString('cs-CZ') : '-';
+      div.innerHTML = `
+        <div><strong>kind</strong>${row.kind}</div>
+        <div><strong>model</strong>${row.model}</div>
+        <div><strong>latency</strong>${row.latency_ms !== null ? row.latency_ms + ' ms' : '-'}</div>
+        <div><strong>prompt_tokens</strong>${row.prompt_tokens !== null ? row.prompt_tokens : '-'}</div>
+        <div><strong>output_tokens</strong>${row.output_tokens !== null ? row.output_tokens : '-'}</div>
+        <div><strong>message_id</strong>${row.message_id || '-'}</div>
+        <div><strong>conversation_id</strong>${row.conversation_id}</div>
+        <div><strong>created_at</strong>${when}</div>
+        ${row.error ? '<div><strong>error</strong><code>' + _escapeHtml(row.error) + '</code></div>' : ''}
+      `;
+      body.appendChild(div);
+    } else if (tab === 'system') {
+      const pre = document.createElement('pre');
+      const sys = (row.request_json && row.request_json.system) || '(empty)';
+      pre.textContent = typeof sys === 'string' ? sys : JSON.stringify(sys, null, 2);
+      body.appendChild(pre);
+      body.appendChild(_llmTraceCopyBtn(pre.textContent));
+    } else if (tab === 'request') {
+      const pre = document.createElement('pre');
+      pre.textContent = JSON.stringify(row.request_json || {}, null, 2);
+      body.appendChild(pre);
+      body.appendChild(_llmTraceCopyBtn(pre.textContent));
+    } else if (tab === 'response') {
+      const pre = document.createElement('pre');
+      if (row.response_json) {
+        pre.textContent = JSON.stringify(row.response_json, null, 2);
+      } else {
+        pre.textContent = '(no response -- call failed or not completed)';
+      }
+      body.appendChild(pre);
+      body.appendChild(_llmTraceCopyBtn(pre.textContent));
+    } else if (tab === 'timing') {
+      const div = document.createElement('div');
+      div.className = 'llm-trace-overview';
+      div.innerHTML = `
+        <div><strong>latency_ms</strong>${row.latency_ms !== null ? row.latency_ms + ' ms' : '-'}</div>
+        <div><strong>prompt_tokens</strong>${row.prompt_tokens !== null ? row.prompt_tokens : '-'}</div>
+        <div><strong>output_tokens</strong>${row.output_tokens !== null ? row.output_tokens : '-'}</div>
+        <div><strong>total_tokens</strong>${(row.prompt_tokens || 0) + (row.output_tokens || 0)}</div>
+      `;
+      body.appendChild(div);
+    }
+  }
+
+  function _escapeHtml(s) {
+    return String(s || '').replace(/[&<>"']/g, c => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;'
+    })[c]);
+  }
+
+  function _llmTraceCopyBtn(text) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'llm-trace-copy';
+    b.textContent = 'Copy';
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        b.textContent = 'Copied!';
+        setTimeout(() => { b.textContent = 'Copy'; }, 1500);
+      } catch (_) {
+        b.textContent = 'Copy failed';
+      }
+    });
+    return b;
   }
 
   function _renderTenantDropdown() {
@@ -5409,7 +5726,7 @@
     return true;
   }
 
-  function renderMessage(role, content, messageType, personaName, createdAt) {
+  function renderMessage(role, content, messageType, personaName, createdAt, messageId) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
@@ -5419,6 +5736,8 @@
     msg.dataset.msgRole = role;
     msg.dataset.personaName = personaName || '';
     if (createdAt) msg.dataset.createdAt = createdAt;
+    // Faze 9.1c: messageId pro Dev View lupy -> /messages/{id}/llm-calls.
+    if (messageId) msg.dataset.messageId = messageId;
     // Systémové markery (např. tenant switch) renderujeme s vlastní třídou
     // .system — left-aligned, label 'STRATEGIE'. Ignorujeme původní role 'user'
     // (backend ji volí kvůli LLM kontextu, frontend ji nezobrazuje jako user).
@@ -5456,6 +5775,8 @@
       timeEl.textContent = formatMessageTime(createdAt);
       msg.appendChild(timeEl);
     }
+    // Faze 9.1c: Dev View lupy (Router/Composer trace) -- jen assistant, admin, dev_mode.
+    _attachDevLupy(msg, messageId, role, messageType);
     _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     return msg;
@@ -8105,5 +8426,16 @@
   }
 </script>
 
+  <!-- Faze 9.1c: LLM trace modal (Dev View, admin + dev_mode_enabled). -->
+  <div class="llm-trace-modal-backdrop" id="llmTraceBackdrop" onclick="if(event.target===this)closeLlmTraceModal()">
+    <div class="llm-trace-modal">
+      <div class="llm-trace-modal-header">
+        <div class="llm-trace-modal-title" id="llmTraceTitle">LLM Trace</div>
+        <button class="llm-trace-modal-close" type="button" onclick="closeLlmTraceModal()">×</button>
+      </div>
+      <div class="llm-trace-tabs" id="llmTraceTabs"></div>
+      <div class="llm-trace-body" id="llmTraceBody"></div>
+    </div>
+  </div>
 </body>
 </html>

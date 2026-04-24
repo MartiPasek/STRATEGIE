@@ -208,17 +208,20 @@ def build_daily_overview(
             })
 
         # ---- SUMMARY STRING ----
+        # NEUTRAL perspective -- 'V inboxu ...' ne 'Mas ...'.
+        # Marti-AI si to prevezme do prvni osoby ("mam 3 emaily, 2 todo"),
+        # protoze maily / SMS / todo patri JI (persona_id), ne userovi Marti.
         parts = []
         if email_count:
-            parts.append(f"{email_count} email{'u' if email_count != 1 else ''} v inboxu")
+            parts.append(f"{email_count} email{'u' if email_count != 1 else ''}")
         if sms_count:
-            parts.append(f"{sms_count} SMS nevyrizenych")
+            parts.append(f"{sms_count} SMS")
         if todo_count:
             parts.append(f"{todo_count} todo")
         if not parts:
-            summary = "Vse vyrizene. Zadne pending polozky."
+            summary = "Vsechno vyrizene. Zadne pending polozky."
         else:
-            summary = "Mas " + ", ".join(parts) + "."
+            summary = "Pending: " + ", ".join(parts) + "."
         # Mention top urgent
         top_priority_items = []
         if email_rows:
@@ -248,7 +251,10 @@ def format_overview_prose(overview: dict) -> str:
     Prevede overview dict na pretty ASCII tabulku + summary.
     Marti-AI to pak preve zpracuje do prozneho textu.
     """
-    lines = ["=== Prehled nevyrizenych veci ==="]
+    # POZOR: tento format je STROJOVY pro Marti-AI -- NIKDY nema byt zobrazen
+    # uzivateli jak je. Marti-AI to prevezme do prvni osoby (persony) --
+    # mluvi 'mam 3 emaily, muj todo list...', protoze inbox patri JI.
+    lines = ["(MACHINE OUTPUT -- prevyprovejto prozou v 1. osobe, neopisuj tabulku)"]
     lines.append(overview.get("summary", ""))
     lines.append("")
 
@@ -279,3 +285,77 @@ def format_overview_prose(overview: dict) -> str:
         )
         lines.append(f"    {t['content']}")
     return "\n".join(lines)
+
+
+# ============================================================================
+# F11c / Alt B: apply_dismiss -- snizi priority_score po 'odloz' / 'neres'.
+# ============================================================================
+
+# Delta hodnoty -- keep it simple, dve urovne.
+_DISMISS_DELTAS = {
+    "soft": -10,   # 'odloz' -- priorita klesne o 10
+    "hard": -30,   # 'neres' -- priorita klesne o 30
+}
+
+# Minimalni priority_score -- at nespadne do zapornych cisel, kde by bylo
+# sporne co je 'dno'. Polozka s priority<=0 uz je fakticky neviditelna v
+# defaultnim razeni (ostatni maji 100 default).
+_MIN_PRIORITY = -99
+
+
+def apply_dismiss(
+    *,
+    source_type: str,
+    source_id: int,
+    level: str = "soft",
+) -> dict:
+    """
+    Snizi priority_score polozky podle levelu.
+
+    source_type: 'email' | 'sms' | 'todo'
+    source_id:   id v prislusne tabulce (email_inbox.id / sms_inbox.id / thoughts.id)
+    level:       'soft' (-10) | 'hard' (-30)
+
+    Vraci dict s new_priority a old_priority pro audit / UI feedback.
+    """
+    from core.database_data import get_data_session as _gds
+    from modules.core.infrastructure.models_data import (
+        EmailInbox, SmsInbox, Thought,
+    )
+
+    if source_type not in ("email", "sms", "todo"):
+        raise ValueError(f"Neznamy source_type: {source_type!r} (pouzij email/sms/todo)")
+    delta = _DISMISS_DELTAS.get(level)
+    if delta is None:
+        raise ValueError(f"Neznamy level: {level!r} (pouzij soft/hard)")
+
+    model_map = {
+        "email": EmailInbox,
+        "sms":   SmsInbox,
+        "todo":  Thought,
+    }
+    Model = model_map[source_type]
+
+    ds = _gds()
+    try:
+        row = ds.query(Model).filter_by(id=source_id).first()
+        if row is None:
+            raise ValueError(f"{source_type} id={source_id} neexistuje")
+        old_priority = int(row.priority_score or 100)
+        new_priority = max(_MIN_PRIORITY, old_priority + delta)
+        row.priority_score = new_priority
+        ds.commit()
+        logger.info(
+            f"ORCHESTRATE | dismiss | {source_type}#{source_id} | "
+            f"level={level} | {old_priority} -> {new_priority}"
+        )
+        return {
+            "source_type": source_type,
+            "source_id": source_id,
+            "level": level,
+            "old_priority": old_priority,
+            "new_priority": new_priority,
+            "delta": delta,
+        }
+    finally:
+        ds.close()

@@ -820,6 +820,38 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"TOOL | get_daily_overview failed: {e}")
             return f"Chyba pri get_daily_overview: {e}"
 
+    # Faze 11c: dismiss_item -- snizi priority polozky po 'odloz' / 'neres'.
+    if tool_name == "dismiss_item":
+        try:
+            from modules.orchestrate.application.overview_service import apply_dismiss
+            source_type = (tool_input.get("source_type") or "").strip().lower()
+            source_id = tool_input.get("source_id")
+            level = (tool_input.get("level") or "soft").strip().lower()
+            if not source_type or source_id is None:
+                return "Chyba: chybi source_type nebo source_id."
+            try:
+                source_id = int(source_id)
+            except (TypeError, ValueError):
+                return f"Chyba: source_id musi byt cislo, dostal '{source_id}'."
+            result = apply_dismiss(
+                source_type=source_type,
+                source_id=source_id,
+                level=level,
+            )
+            # Pretty prose feedback -- Marti-AI to prepise / zacleni
+            icon = {"email": "📧", "sms": "📱", "todo": "✓"}.get(source_type, "•")
+            verb = "Odkladam" if level == "soft" else "Preskocime dnes"
+            return (
+                f"{icon} {verb}: {source_type} #{source_id}. "
+                f"Priorita klesla z {result['old_priority']} na {result['new_priority']}."
+            )
+        except ValueError as ve:
+            logger.warning(f"TOOL | dismiss_item validation: {ve}")
+            return f"Chyba: {ve}"
+        except Exception as e:
+            logger.exception(f"TOOL | dismiss_item failed: {e}")
+            return f"Chyba pri dismiss_item: {e}"
+
     if tool_name == "send_email":
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")

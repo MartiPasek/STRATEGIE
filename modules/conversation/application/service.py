@@ -785,16 +785,17 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             from modules.orchestrate.application.overview_service import (
                 build_daily_overview, format_overview_prose,
             )
-            # Explicitne importuju get_data_session pod aliasem -- v _handle_tool
-            # je jinde v kodu 'from core.database_data import get_data_session'
-            # co Python detekuje jako local variable -> UnboundLocalError pro
-            # volani v tomto bloku. Alias se vyhne shadowingu.
+            # POZOR: _handle_tool ma na vice mistech 'from X import Y' -- Python
+            # kazdy symbol v importu detekuje jako local variable CELE funkce ->
+            # UnboundLocalError pri pristupu v tomto bloku. Reseni: vsechny
+            # potrebne symboly importovat pod aliasy (Conv_ov, Cvs_ov, ...).
             from core.database_data import get_data_session as _gds_overview
             from core.database_core import get_core_session as _gcs_overview
             from modules.core.infrastructure.models_core import User as _U_overview
+            from modules.core.infrastructure.models_data import Conversation as _Conv_overview
             _ds_ov = _gds_overview()
             try:
-                _conv_ov = _ds_ov.query(Conversation).filter_by(id=conversation_id).first()
+                _conv_ov = _ds_ov.query(_Conv_overview).filter_by(id=conversation_id).first()
                 _tid = _conv_ov.tenant_id if _conv_ov else None
                 _pid = _conv_ov.active_agent_id if _conv_ov else None
             finally:

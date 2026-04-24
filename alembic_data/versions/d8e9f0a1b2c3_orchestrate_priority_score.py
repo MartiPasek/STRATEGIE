@@ -19,14 +19,11 @@ priority_score:
   Marti-AI po vyreseni nastavi processed_at / meta.done -> polozka
   z prehledu zmizi (neni pending).
 
-Indexy: (priority_score DESC, created_at DESC) pro fast ORDER BY
-v build_daily_overview query.
-
-Plati na:
-  email_inbox -- pending = processed_at IS NULL
-  sms_inbox   -- pending = processed_at IS NULL
-  thoughts    -- pending = type='todo' AND (meta::jsonb->>'done' IS NULL
-                  OR meta::jsonb->>'done' != 'true') AND deleted_at IS NULL
+Indexy: (priority_score DESC, <time_col> DESC) pro fast ORDER BY.
+Per-tabulka jiny time sloupec:
+  email_inbox -> received_at
+  sms_inbox   -> received_at
+  thoughts    -> created_at
 """
 from alembic import op
 import sqlalchemy as sa
@@ -39,8 +36,16 @@ branch_labels = None
 depends_on = None
 
 
+# Per-tabulka mapping: nazev casu pro secondary ORDER BY.
+_TABLES_TIME_COL = {
+    "email_inbox": "received_at",
+    "sms_inbox":   "received_at",
+    "thoughts":    "created_at",
+}
+
+
 def upgrade() -> None:
-    for table in ("email_inbox", "sms_inbox", "thoughts"):
+    for table, time_col in _TABLES_TIME_COL.items():
         op.add_column(
             table,
             sa.Column(
@@ -48,16 +53,14 @@ def upgrade() -> None:
                 server_default="100",
             ),
         )
-        # Sestupne podle skore + casu pro stabilne poradi.
-        # Index name prefix: ix_<table>_priority
         op.create_index(
             f"ix_{table}_priority",
             table,
-            [sa.text("priority_score DESC"), sa.text("created_at DESC")],
+            [sa.text("priority_score DESC"), sa.text(f"{time_col} DESC")],
         )
 
 
 def downgrade() -> None:
-    for table in ("email_inbox", "sms_inbox", "thoughts"):
+    for table in _TABLES_TIME_COL:
         op.drop_index(f"ix_{table}_priority", table_name=table)
         op.drop_column(table, "priority_score")

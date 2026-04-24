@@ -593,6 +593,47 @@
     .tenant-pill-tenant { color: var(--text); padding: 6px 10px; cursor: pointer; transition: background .12s; }
     .tenant-pill-tenant:hover { background: rgba(255,255,255,0.06); }
     .tenant-pill-caret { color: var(--muted); margin-left: 6px; font-size: 10px; }
+    /* Faze 9.1b: Dev mode badge v tenant pilulce -- zobrazen kdyz
+       currentUser.dev_mode_enabled=true. Purpurova (vyrazna, ale ne agresivni). */
+    .dev-mode-badge {
+      padding: 6px 8px;
+      background: rgba(168, 85, 247, 0.15);
+      color: #c084fc;
+      border-left: 1px solid rgba(168, 85, 247, 0.3);
+      font-size: 10px;
+      font-family: 'DM Mono', monospace;
+      letter-spacing: .05em;
+      user-select: none;
+      cursor: default;
+    }
+    /* Faze 9.1b: toggle switch uvnitr profile-dd-item (Dev rezim on/off). */
+    .profile-dd-toggle {
+      margin-left: auto;
+      width: 28px;
+      height: 16px;
+      border-radius: 10px;
+      background: var(--border);
+      position: relative;
+      transition: background .15s;
+      flex-shrink: 0;
+    }
+    .profile-dd-toggle::after {
+      content: '';
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      background: #fff;
+      transition: left .15s;
+    }
+    .profile-dd-toggle.on {
+      background: #a855f7;
+    }
+    .profile-dd-toggle.on::after {
+      left: 14px;
+    }
     /* Profile dropdown — sdílený styl s tenant-dropdown */
     .profile-dropdown { position: absolute; top: calc(100% + 4px); right: 0; min-width: 200px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 100; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; }
     .profile-dropdown.open { display: block; }
@@ -3495,6 +3536,18 @@
       });
       pill.appendChild(tenantSpan);
     }
+    // Faze 9.1b: DEV badge za tenantem, jen kdyz je dev mode zapnuty.
+    // Upozornuje admina ze se dila pod zvednutym hledickem (dev trace v DB,
+    // lupy pod zpravami). Jen admini maji is_admin=true, tak se badge nezobrazi
+    // nahodne.
+    if (currentUser && currentUser.dev_mode_enabled) {
+      const devBadge = document.createElement('span');
+      devBadge.className = 'dev-mode-badge';
+      devBadge.textContent = '🔧 DEV';
+      devBadge.dataset.tooltip = 'Vývojářský režim je zapnutý — vidíš lupy pod zprávami Marti-AI.';
+      devBadge.setAttribute('aria-label', 'Vyvojarsky rezim zapnuty');
+      pill.appendChild(devBadge);
+    }
     // VŽDY viditelná pilulka (wrap + inner) pokud je user přihlášen.
     pill.style.display = 'inline-flex';
     wrap.style.display = 'inline-block';
@@ -3530,8 +3583,13 @@
     pd.innerHTML = '';
     // Audit log je superadmin-only (backend to vynucuje, ale frontend
     // skryje polozku z menu -- ostatnim user by se zobrazil 403 pri otevrenim).
-    const isAdmin = !!(currentUser && currentUser.is_superadmin);
+    const isSuper = !!(currentUser && currentUser.is_superadmin);
     const isParent = !!(currentUser && currentUser.is_marti_parent);
+    // Faze 9.1b: is_admin je NEZAVISLA role od is_marti_parent a is_superadmin.
+    // Pristup k Dev View (Router/Composer tracing). UI polozka 'Vyvojarsky
+    // rezim' se zobrazi jen adminům.
+    const isAdmin = !!(currentUser && currentUser.is_admin);
+    const devModeOn = !!(currentUser && currentUser.dev_mode_enabled);
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
@@ -3539,7 +3597,17 @@
       ...(isParent ? [{ icon: '❓', label: 'Otázky od Marti', action: () => openMartiQuestionsModal() }] : []),
       ...(isParent ? [{ icon: '✉️', label: 'Důvěryhodní příjemci', action: () => openConsentsModal() }] : [{ icon: '✉️', label: 'Důvěryhodní příjemci (read)', action: () => openConsentsModal() }]),
       ...(isParent ? [{ icon: '💾', label: 'Zálohovat databáze', action: () => runDatabaseBackup() }] : []),
-      ...(isAdmin ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
+      ...(isSuper ? [{ icon: '📋', label: 'Audit log', action: () => openAuditLogModal() }] : []),
+      // Faze 9.1b: Dev rezim toggle. Klik prepne dev_mode_enabled pres
+      // PATCH /auth/me/dev-mode. Dropdown se po kliku NEzavre (kind='toggle'),
+      // aby user videl vizualni zmenu (switch + badge v pilulce) okamzite.
+      ...(isAdmin ? [{
+        icon: '🔧',
+        label: 'Vývojářský režim',
+        kind: 'toggle',
+        isOn: devModeOn,
+        action: () => toggleDevMode(),
+      }] : []),
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
@@ -3553,14 +3621,94 @@
       }
       const el = document.createElement('div');
       el.className = 'profile-dd-item' + (it.danger ? ' danger' : '');
-      el.innerHTML = `<span style="font-size:14px;">${it.icon}</span><span>${it.label}</span>`;
+      // Toggle item ma vlevo icon+label, vpravo switch. Ostatni items jen icon+label.
+      if (it.kind === 'toggle') {
+        el.innerHTML = `<span style="font-size:14px;">${it.icon}</span><span>${it.label}</span><span class="profile-dd-toggle${it.isOn ? ' on' : ''}"></span>`;
+      } else {
+        el.innerHTML = `<span style="font-size:14px;">${it.icon}</span><span>${it.label}</span>`;
+      }
       el.addEventListener('click', (ev) => {
         ev.stopPropagation();
-        pd.classList.remove('open');
+        // Toggle neuzavira dropdown (user ma videt switch fliknout).
+        if (it.kind !== 'toggle') {
+          pd.classList.remove('open');
+        }
         it.action();
       });
       pd.appendChild(el);
     });
+  }
+
+  // ── Faze 9.1b: DEV MODE toggle + cross-tab sync ─────────────────────────
+  // Admin klikne v profile dropdown na "Vyvojarsky rezim" -> toggle se flipne,
+  // backend (PATCH /auth/me/dev-mode) ulozi users.dev_mode_enabled, pak:
+  //   1) aktualizuje currentUser (in-memory)
+  //   2) prerendruje tenant pilulku (badge "🔧 DEV" se objevi / zmizi)
+  //   3) prerendruje profile dropdown (toggle switch v dropdownu taky prepne)
+  //   4) broadcastne pres BroadcastChannel aby ostatni taby tehoz usera
+  //      taky aktualizovaly (stejny user v 3 tabach -> synchronni stav).
+  let _devModeChannel = null;
+  function _getDevModeChannel() {
+    if (_devModeChannel) return _devModeChannel;
+    try {
+      if (typeof BroadcastChannel !== 'undefined') {
+        _devModeChannel = new BroadcastChannel('strategie_dev_mode');
+        _devModeChannel.onmessage = _onDevModeBroadcast;
+      }
+    } catch (e) { _devModeChannel = null; }
+    return _devModeChannel;
+  }
+  function _onDevModeBroadcast(ev) {
+    const data = ev.data || {};
+    if (data.type !== 'dev_mode_toggle') return;
+    // Jen pro stejneho usera -- jinak ignoruj (ostatni taby maji jineho usera).
+    if (!currentUser || data.user_id !== currentUser.user_id) return;
+    currentUser.dev_mode_enabled = !!data.enabled;
+    setTenantPill(currentUser.display_name, currentUser.tenant_name);
+    const pd = document.getElementById('profileDropdown');
+    if (pd && pd.classList.contains('open')) _renderProfileDropdown();
+  }
+  async function toggleDevMode() {
+    if (!currentUser || !currentUser.is_admin) return;   // defense-in-depth
+    const newValue = !currentUser.dev_mode_enabled;
+    try {
+      const resp = await fetch('/api/v1/auth/me/dev-mode', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: newValue }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Nepovedlo se přepnout Dev režim: ' + (err.detail || resp.status));
+        return;
+      }
+      const updated = await resp.json();
+      // Obnov celeho currentUser z response (backend je zdroj pravdy).
+      currentUser = updated;
+      setTenantPill(currentUser.display_name, currentUser.tenant_name);
+      _renderProfileDropdown();   // prekresli dropdown se spravnym stavem toggle
+      // Broadcast ostatnim tabum tehoz usera.
+      const ch = _getDevModeChannel();
+      if (ch) {
+        try {
+          ch.postMessage({
+            type: 'dev_mode_toggle',
+            user_id: currentUser.user_id,
+            enabled: currentUser.dev_mode_enabled,
+            at: Date.now(),
+          });
+        } catch (_) {}
+      }
+    } catch (e) {
+      console.error('toggleDevMode failed', e);
+      alert('Chyba sítě při přepnutí Dev režimu.');
+    }
+  }
+  // Init kanalu pri nacteni (lazy by taky fungovalo, ale takhle je onmessage
+  // pripojeny i kdyz uzivatel sam toggle nestiskne).
+  if (typeof window !== 'undefined') {
+    _getDevModeChannel();
   }
 
   function _renderTenantDropdown() {

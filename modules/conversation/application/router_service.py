@@ -79,24 +79,24 @@ MÓDY:
   "nastav autosend consent", "kolik konverzací je v systému"
   Signály: admin keywordy (backup, restart, delete, setup, config).
 
-═══ UI STATE JAKO PRIOR ═══
+=== UI STATE JAKO PRIOR ===
 
 Input ti dává UI state. Ten je **STRONG PRIOR** — přemýšlej o něm jako o kormidle:
 
-- `active_project_id` je set  → prior = "project" (zachovej dokud text jasně neříká jinak)
-- `tenant_type` = "personal"  → prior = "personal"
-- `active_tenant_id` bez projektu (pracovní tenant) → prior = "work"
-- `is_parent` = true + admin keyword → zvažuj "system"
+- `active_project_id` je set  -> prior = "project" (zachovej dokud text jasně neříká jinak)
+- `tenant_type` = "personal"  -> prior = "personal"
+- `active_tenant_id` bez projektu (pracovní tenant) -> prior = "work"
+- `is_parent` = true + admin keyword -> zvažuj "system"
 
-═══ JAK SE ROZHODNOUT ═══
+=== JAK SE ROZHODNOUT ===
 
-1. Podívej se na UI state → to je tvůj **default mode**.
-2. Přečti si text zprávy → je tam SILNÝ signál jiného módu?
-3. Pokud SILNÝ signál → override (třeba: aktivní projekt, ale user píše "co máš v deníku" → personal).
-4. Pokud text je ambiguous (např. "jak to vypadá?") → **UI prior vyhrává**, vrať default mode s high confidence.
-5. Pokud vůbec nevíš → vrať "personal", confidence 0.3 (bezpečný fallback).
+1. Podívej se na UI state -> to je tvůj **default mode**.
+2. Přečti si text zprávy -> je tam SILNÝ signál jiného módu?
+3. Pokud SILNÝ signál -> override (třeba: aktivní projekt, ale user píše "co máš v deníku" -> personal).
+4. Pokud text je ambiguous (např. "jak to vypadá?") -> **UI prior vyhrává**, vrať default mode s high confidence.
+5. Pokud vůbec nevíš -> vrať "personal", confidence 0.3 (bezpečný fallback).
 
-═══ VÝSTUPNÍ FORMÁT ═══
+=== VÝSTUPNÍ FORMÁT ===
 
 VRAŤ POUZE validní JSON, bez jakéhokoli dalšího textu, bez markdown, bez ```:
 
@@ -111,31 +111,31 @@ Pole:
 """
 
 
-def _format_recent_messages(recent: list[dict[str, str]] | None) -> str:
+def _format_recent_messages(recent):
     """
     Naformátuje posledních pár zpráv jako kontext pro router.
     Omezíme na posledních 3-5 zpráv a krátí obsah, ať prompt nebobtná.
     """
     if not recent:
         return "(žádná předchozí historie)"
-    lines: list[str] = []
+    lines = []
     for m in recent[-5:]:
         role = m.get("role", "?")
         content = (m.get("content") or "").strip()
         if len(content) > 200:
-            content = content[:200] + "…"
+            content = content[:200] + "..."
         role_label = "Uživatel" if role == "user" else "Marti-AI" if role == "assistant" else role
         lines.append(f"{role_label}: {content}")
     return "\n".join(lines)
 
 
-def _format_ui_state(ui_state: dict[str, Any] | None) -> str:
+def _format_ui_state(ui_state):
     """
     Naformátuje UI state jako čitelný blok pro Haiku.
     """
     if not ui_state:
         return "(žádný UI stav neznámý)"
-    parts: list[str] = []
+    parts = []
     for key in [
         "active_tenant_id", "active_tenant_name", "tenant_type",
         "active_project_id", "active_project_name",
@@ -147,7 +147,7 @@ def _format_ui_state(ui_state: dict[str, Any] | None) -> str:
     return "\n".join(parts) if parts else "(UI state prázdný)"
 
 
-def _parse_router_output(raw: str) -> dict | None:
+def _parse_router_output(raw):
     """
     Parsuje JSON z Haiku odpovědi. Robustní — tolerujeme případy kdy
     Haiku zabalí JSON do markdown bloku nebo přidá trailing text.
@@ -156,16 +156,13 @@ def _parse_router_output(raw: str) -> dict | None:
     if not raw:
         return None
     text = raw.strip()
-    # Odstraň ```json ... ``` wrapping pokud tam je
     if text.startswith("```"):
-        # najdi první newline a poslední ```
         first_nl = text.find("\n")
         if first_nl != -1:
             text = text[first_nl + 1:]
         if text.rstrip().endswith("```"):
             text = text.rsplit("```", 1)[0]
     text = text.strip()
-    # Zkusit najít první { a poslední } a vzít to mezi
     start = text.find("{")
     end = text.rfind("}")
     if start == -1 or end == -1 or end <= start:
@@ -176,7 +173,7 @@ def _parse_router_output(raw: str) -> dict | None:
         return None
 
 
-def _validate_and_normalize(raw_dict: dict, ui_state: dict[str, Any] | None) -> dict:
+def _validate_and_normalize(raw_dict, ui_state):
     """
     Validuje pole, nastaví defaults, normalizuje hodnoty.
     """
@@ -198,7 +195,6 @@ def _validate_and_normalize(raw_dict: dict, ui_state: dict[str, Any] | None) -> 
         except (TypeError, ValueError):
             project_id = None
 
-    # Pokud mode="project" a project_id je None, pokus se ho dostat z UI state
     if mode == "project" and project_id is None and ui_state:
         ui_pid = ui_state.get("active_project_id")
         if ui_pid:
@@ -211,7 +207,7 @@ def _validate_and_normalize(raw_dict: dict, ui_state: dict[str, Any] | None) -> 
     secondary = raw_dict.get("secondary_hints") or []
     if not isinstance(secondary, list):
         secondary = []
-    secondary = [str(s)[:100] for s in secondary[:5]]  # max 5, každý max 100 chars
+    secondary = [str(s)[:100] for s in secondary[:5]]
 
     return {
         "mode": mode,
@@ -223,34 +219,33 @@ def _validate_and_normalize(raw_dict: dict, ui_state: dict[str, Any] | None) -> 
 
 
 def classify_mode(
-    message: str,
-    ui_state: dict[str, Any] | None = None,
-    recent_messages: list[dict[str, str]] | None = None,
-) -> dict:
+    message,
+    ui_state=None,
+    recent_messages=None,
+    *,
+    conversation_id=None,
+):
     """
-    Hlavní entrypoint. Klasifikuje vstupní zprávu do jednoho ze 4 módů.
+    Hlavni entrypoint. Klasifikuje vstupni zpravu do jednoho ze 4 modu.
 
     Args:
-      message: text od uživatele (poslední zpráva v konverzaci)
+      message: text od uzivatele (posledni zprava v konverzaci)
       ui_state: dict s UI kontextem -- active_project_id, tenant_type, is_parent, ...
-                Viz _format_ui_state pro plný seznam podporovaných klíčů.
-      recent_messages: posledních pár zpráv konverzace (role/content dict) pro detekci
-                       mode shiftu. Omezíme na posledních 5 pro úsporu tokenů.
+      recent_messages: poslednich par zprav konverzace
+      conversation_id: pokud zadano, router zapise svuj LLM call do llm_calls
+                       tabulky (kind='router') pro Faze 9.1 Dev View.
+                       Pri None (legacy / unit testy) se nezapisuje.
 
     Returns:
       Dict { "mode", "confidence", "project_id", "reason", "secondary_hints" }
 
-    Failure mode:
-      Při jakékoli chybě (API, parse, validation) vrátí fallback:
-        { "mode": "personal", "confidence": 0.0, "project_id": None,
-          "reason": "fallback: router selhal", "secondary_hints": [] }
-      Důvod: personal mode je superset — vždy bezpečné, nic neshodí.
+    Failure mode: pri jakekoli chybe vraci fallback s mode='personal', conf=0.
     """
     fallback = {
         "mode": DEFAULT_MODE,
         "confidence": 0.0,
         "project_id": None,
-        "reason": "fallback: router selhal nebo nevolán",
+        "reason": "fallback: router selhal nebo nevolan",
         "secondary_hints": [],
     }
 
@@ -262,11 +257,45 @@ def classify_mode(
     history_text = _format_recent_messages(recent_messages)
 
     user_prompt = (
-        f"═══ UI STATE ═══\n{ui_text}\n\n"
-        f"═══ POSLEDNÍ ZPRÁVY V KONVERZACI ═══\n{history_text}\n\n"
-        f"═══ AKTUÁLNÍ ZPRÁVA K KLASIFIKACI ═══\n{message.strip()}\n\n"
-        "Klasifikuj. Vrať pouze JSON podle formátu v system promptu."
+        f"=== UI STATE ===\n{ui_text}\n\n"
+        f"=== POSLEDNI ZPRAVY V KONVERZACI ===\n{history_text}\n\n"
+        f"=== AKTUALNI ZPRAVA K KLASIFIKACI ===\n{message.strip()}\n\n"
+        "Klasifikuj. Vrat pouze JSON podle formatu v system promptu."
     )
+
+    # Faze 9.1 telemetry -- jen pokud je conversation_id (pouzivat z composeru)
+    _telemetry = None
+    _t_start = 0
+    if conversation_id is not None:
+        try:
+            from modules.conversation.application import telemetry_service as _telemetry
+            _t_start = _telemetry.now_ms()
+        except Exception as e:
+            logger.warning(f"ROUTER | telemetry import selhal: {e}")
+            _telemetry = None
+
+    def _record(response_json, prompt_tokens, output_tokens, error):
+        if _telemetry is None or conversation_id is None:
+            return
+        try:
+            _telemetry.record_chat_call(
+                conversation_id=conversation_id,
+                kind="router",
+                model=ROUTER_MODEL,
+                request_json=_telemetry.build_request_json(
+                    model=ROUTER_MODEL,
+                    system=ROUTER_SYSTEM_PROMPT,
+                    messages=[{"role": "user", "content": user_prompt}],
+                    max_tokens=ROUTER_MAX_OUTPUT_TOKENS,
+                ),
+                response_json=response_json,
+                prompt_tokens=prompt_tokens,
+                output_tokens=output_tokens,
+                latency_ms=_telemetry.now_ms() - _t_start,
+                error=error,
+            )
+        except Exception as te:
+            logger.warning(f"ROUTER | telemetry zapis selhal: {te}")
 
     try:
         if not settings.anthropic_api_key:
@@ -282,12 +311,25 @@ def classify_mode(
         )
     except anthropic.APIError as e:
         logger.warning(f"ROUTER | API error | {e} -> fallback")
+        _record(None, None, None, str(e))
         return fallback
     except Exception as e:
         logger.exception(f"ROUTER | unexpected | {e} -> fallback")
+        _record(None, None, None, str(e))
         return fallback
 
-    # Extrahuj text z response content (první text block)
+    # Zapis do llm_calls pri uspechu
+    _prompt_tokens = getattr(response.usage, "input_tokens", None) if hasattr(response, "usage") else None
+    _output_tokens = getattr(response.usage, "output_tokens", None) if hasattr(response, "usage") else None
+    _resp_json = None
+    if _telemetry is not None:
+        try:
+            _resp_json = _telemetry.serialize_anthropic_response(response)
+        except Exception as e:
+            logger.warning(f"ROUTER | response serialize selhal: {e}")
+    _record(_resp_json, _prompt_tokens, _output_tokens, None)
+
+    # Extrahuj text z response content (prvni text block)
     raw_text = ""
     for block in response.content:
         if block.type == "text":
@@ -309,25 +351,20 @@ def classify_mode(
     return result
 
 
-# ── PRIOR-ONLY HELPER (bez LLM call) ───────────────────────────────────────
-# Užitečné pro testy a fallback scénáře, kdy je ANTHROPIC_API_KEY nedostupný.
+# -- PRIOR-ONLY HELPER (bez LLM call) -----------------------------------------
+# Uzitecne pro testy a fallback scenare, kdy je ANTHROPIC_API_KEY nedostupny.
 
-def infer_prior_mode(ui_state: dict[str, Any] | None) -> dict:
+def infer_prior_mode(ui_state):
     """
-    Deterministická klasifikace jen z UI state, bez volání LLM.
-    Vrací stejnou strukturu jako classify_mode(), ale pouze podle UI priors.
-
-    Používá se:
-      - Jako baseline pro porovnání s LLM klasifikací (debug)
-      - Jako emergency fallback při opakovaném selhání routeru
-      - V testech
+    Deterministicka klasifikace jen z UI state, bez volani LLM.
+    Vraci stejnou strukturu jako classify_mode(), ale pouze podle UI priors.
     """
     if not ui_state:
         return {
             "mode": DEFAULT_MODE,
             "confidence": 0.3,
             "project_id": None,
-            "reason": "prior-only: prázdný UI state",
+            "reason": "prior-only: prazdny UI state",
             "secondary_hints": [],
         }
 
@@ -344,7 +381,7 @@ def infer_prior_mode(ui_state: dict[str, Any] | None) -> dict:
             "mode": "project",
             "confidence": 0.7,
             "project_id": pid,
-            "reason": "prior-only: UI má aktivní projekt",
+            "reason": "prior-only: UI ma aktivni projekt",
             "secondary_hints": [],
         }
 
@@ -353,7 +390,7 @@ def infer_prior_mode(ui_state: dict[str, Any] | None) -> dict:
             "mode": "personal",
             "confidence": 0.7,
             "project_id": None,
-            "reason": "prior-only: osobní tenant",
+            "reason": "prior-only: osobni tenant",
             "secondary_hints": [],
         }
 
@@ -362,7 +399,7 @@ def infer_prior_mode(ui_state: dict[str, Any] | None) -> dict:
             "mode": "work",
             "confidence": 0.5,
             "project_id": None,
-            "reason": "prior-only: pracovní tenant bez projektu",
+            "reason": "prior-only: pracovni tenant bez projektu",
             "secondary_hints": [],
         }
 
@@ -370,6 +407,6 @@ def infer_prior_mode(ui_state: dict[str, Any] | None) -> dict:
         "mode": DEFAULT_MODE,
         "confidence": 0.3,
         "project_id": None,
-        "reason": "prior-only: žádný kontext, fallback personal",
+        "reason": "prior-only: zadny kontext, fallback personal",
         "secondary_hints": [],
     }

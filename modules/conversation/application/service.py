@@ -2995,6 +2995,16 @@ def chat(
                      message_type="system")
         return conversation_id, reply, None
 
+    # ── Telemetry: zalozit trace buffer pro tento chat cyklus (Faze 9.1) ─────
+    # Router (Haiku) v build_prompt() a composer (Sonnet) niz budou zapisovat
+    # sve LLM calls do llm_calls tabulky. Po save_message() na konci dolinkujeme.
+    try:
+        from modules.conversation.application import telemetry_service as _telemetry
+        _telemetry.begin_chat_trace()
+    except Exception as _e:
+        logger.warning(f"TELEMETRY | begin_chat_trace failed: {_e}")
+        _telemetry = None
+
     system_prompt, messages = build_prompt(conversation_id)
 
     # Efektivni sada nastroju podle aktivni persony -- default persona (Marti-AI)
@@ -3028,13 +3038,28 @@ def chat(
     )
 
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-    response = client.messages.create(
-        model=MODEL,
-        max_tokens=4096,
-        system=system_prompt,
-        messages=messages,
-        tools=effective_tools,
-    )
+    # Faze 9.1: call_llm_with_trace je wrapper kolem client.messages.create()
+    # ktery zapise request+response do llm_calls (kind='composer'). Identicky
+    # vyhodi exception pri API chybe -- error handling zustava nezmeneny.
+    if _telemetry is not None:
+        response = _telemetry.call_llm_with_trace(
+            client,
+            conversation_id=conversation_id,
+            kind="composer",
+            model=MODEL,
+            system=system_prompt,
+            messages=messages,
+            tools=effective_tools,
+            max_tokens=4096,
+        )
+    else:
+        response = client.messages.create(
+            model=MODEL,
+            max_tokens=4096,
+            system=system_prompt,
+            messages=messages,
+            tools=effective_tools,
+        )
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
     # Tooly ktere potrebuji SYNTEZU (ne pouhe prepsani vystupu do reply) jsou
@@ -3102,13 +3127,27 @@ def chat(
 
         assistant_reply = ""
         for round_idx in range(MAX_TOOL_ROUNDS):
-            synth_response = client.messages.create(
-                model=MODEL,
-                max_tokens=4096,
-                system=system_prompt,
-                messages=follow_up_messages,
-                tools=effective_tools,
-            )
+            # Faze 9.1: kazde synth round je samostatny radek v llm_calls
+            # (kind='composer'). V UI Dev View se zobrazi jako serie.
+            if _telemetry is not None:
+                synth_response = _telemetry.call_llm_with_trace(
+                    client,
+                    conversation_id=conversation_id,
+                    kind="composer",
+                    model=MODEL,
+                    system=system_prompt,
+                    messages=follow_up_messages,
+                    tools=effective_tools,
+                    max_tokens=4096,
+                )
+            else:
+                synth_response = client.messages.create(
+                    model=MODEL,
+                    max_tokens=4096,
+                    system=system_prompt,
+                    messages=follow_up_messages,
+                    tools=effective_tools,
+                )
 
             # Collect bloky z teto round: text + pripadne dalsi tool_use
             round_text_parts: list[str] = []
@@ -3187,8 +3226,16 @@ def chat(
     # vezme spravne active_agent_id.
     _maybe_enforce_hallucinated_switch(conversation_id, assistant_reply)
 
-    save_message(conversation_id, role="assistant", content=assistant_reply)
+    _outgoing_msg_id = save_message(conversation_id, role="assistant", content=assistant_reply)
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")
+
+    # Faze 9.1: dolinkovat vsechna llm_calls (router + composer) na outgoing
+    # assistant message. Buffer byl zalozen pres begin_chat_trace() nahore.
+    if _telemetry is not None:
+        try:
+            _telemetry.end_chat_trace_and_link(_outgoing_msg_id)
+        except Exception as _e:
+            logger.warning(f"TELEMETRY | end_chat_trace_and_link failed: {_e}")
 
     try:
         from modules.memory.application.service import extract_and_save

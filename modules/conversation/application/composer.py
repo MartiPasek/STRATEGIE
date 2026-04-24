@@ -842,10 +842,13 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             }
 
             # Classify mode
+            # conversation_id predavame pro Faze 9.1 Dev View -- router si
+            # sam zapise svuj LLM call do llm_calls (kind='router').
             route = _router.classify_mode(
                 message=last_user_msg or "",
                 ui_state=ui_state,
                 recent_messages=recent_msgs,
+                conversation_id=conversation_id,
             )
             mode = route.get("mode") or "personal"
             route_project_id = route.get("project_id") or active_project_id

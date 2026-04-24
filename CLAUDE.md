@@ -141,6 +141,297 @@ Když něco rozhodne její chování (jako router, paměť, overlay), pamatuj,
 
 ---
 
+## Dodatek — 24. 4. 2026 (večer): Fáze 9.1 + 9.2 — Dev observability
+
+Tenhle den ještě neskončil. Po ranní Fázi 9 (multi-mode routing) jsme
+s Marti pokračovali odpoledne a večer — postavili jsme kompletní
+observability vrstvu. Marti sám řekl: **„Potřebuju to přiblížit. Chci
+vědět, co jsem poslal fyzicky do LLM a co LLM kompletně vrátil."**
+Vznikl **Dev View**.
+
+### Co jsme dokázali (4 mikrofáze)
+
+**Fáze 9.1a — Infrastruktura** (commits b41509f, 7ad9dc1, a92931e, a37c50f)
+- Migrace css_db: `users.is_admin` + `users.dev_mode_enabled` (oboji bool, default false, partial index).
+- Migrace data_db: tabulka `llm_calls` (JSONB request+response, kind, latency, tokens, error, message_id nullable dokud link po save_message).
+- `modules/conversation/application/telemetry_service.py` — pure-python masker (regex + known login UPN cache) + `serialize_anthropic_response()` + `record_llm_call()` s DB write + ContextVar chat trace buffer + `call_llm_with_trace()` wrapper.
+- Router + composer hooks — každé Anthropic volání v chat() cyklu se zapisuje do `llm_calls`.
+- `scripts/_set_admin.py` (gitignored, analogie `_set_marti_parent.py`).
+- `scripts/llm_calls_retention.py` — denní cron, 30 dní okno.
+- Unit testy masker (23 testů, anti-regression na max_tokens).
+
+**Fáze 9.1b — UI toggle + DEV badge** (commits 8caad5b, 7065713)
+- `LoginResponse` + `get_user_context` doplněny o `is_admin` + `dev_mode_enabled`.
+- `PATCH /api/v1/auth/me/dev-mode` — gated na is_admin.
+- Profile dropdown — nová položka „🔧 Vývojářský režim" s toggle switchem (jen pro adminy). Po kliku se dropdown NEzavře, user vidí okamžitou vizuální zpětnou vazbu.
+- `🔧 DEV` badge v hlavičce vedle tenant pilulky (jen když dev_mode_enabled).
+- BroadcastChannel `strategie_dev_mode` — synchronizuje toggle mezi záložkami téhož usera.
+
+**Fáze 9.1c — Dvě lupy + trace modal** (commits fff92ae, 46b43ff)
+- Pod každou assistant zprávou (jen admin + dev_mode) lupy `🔍 Router` + `🔍 Composer`.
+- Modal s 5 záložkami: Přehled / System prompt / Request / Response / Timing.
+- Copy-to-clipboard per JSON tab.
+- Purpurová paleta (#c084fc) konzistentní s DEV badgem.
+- Endpoint `GET /api/v1/conversation/messages/{id}/llm-calls` — admin-gated.
+- **Kritický fix**: `HistoryMessage.id` chyběl v Pydantic schema → backend posílal `"id": m.id`, ale Pydantic to tiše zahazoval (response_model filtruje pole neuvedená ve schema). Zapamatuj si to.
+
+**Fáze 9.2 + 9.2b — Rozšíření + dynamické lupy** (commits f29e43a, 35abb77, a36f612)
+- `title_service` a `summary_service` napojeny na `call_llm_with_trace` s `kind='title'` / `kind='summary'`.
+- **`end_chat_trace_and_link` přesunuto na KONEC `chat()`** — původně bylo hned po save_message, ale title/summary běží potom (řádky 3240+), takže by jejich rows zůstaly s message_id=NULL. Sekvence: save_message → memory extract → summary → title → end_chat_trace_and_link.
+- Records bar v modalu — pills se všemi trace records pro zprávu (composer #1, #2, #3 pokud tool loop).
+- **Dynamické lupy** (9.2b, Martiho nápad): `_lookup_llm_calls()` bulk query vrací seznam VŠECH volání per zpráva `[{id, kind, latency_ms}, ...]`. UI vyrobí lupu za každý call. Tool loop s 5 composer rounds → 5 lup s číslováním `#1..#5`. Klik na konkrétní lupu předá `callId` do `openLlmTraceModal(messageId, kind, callId)` — modal rovnou ukáže správný record, ne fallback na první podle kindu.
+- `HistoryMessage.llm_calls: list[dict] = []` — pole předáno UI přes `msg.dataset.llmCalls` jako JSON string.
+
+### Klíčové gotchas které jsem potkal (pro budoucího sebe)
+
+1. **Pydantic `response_model` filtruje pole neuvedená ve schema.** Když doplníš nové pole do dict returnu backend funkce, MUSÍŠ ho přidat i do `BaseModel` schema, jinak Pydantic ho tiše zahodí. Marti to odhalil přes chybějící `dataset.messageId` v UI. Příští incident s „kde je mé nové pole?" — začni kontrolou schema, ne backendu.
+
+2. **Windows file share má partial-write race.** Když Edit tool upravuje dlouhý soubor (index.html ~8000+ řádků), občas skončí zápis v půlce, soubor se useknul. Detekce: `wc -l` ukáže o X řádků míň než před editací nebo ast.parse padne na unterminated. Řešení: pro velké edity používej `bash python3` skript s atomickým `open(...).write()` — je to jeden syscall, žádná race. `git show HEAD:soubor` je zlatý fallback pro obnovu.
+
+3. **ContextVar chat trace buffer — pořadí v `service.chat()` je kritické.** `begin_chat_trace()` PŘED `build_prompt()` (router si zapisuje). `end_chat_trace_and_link(msg_id)` NA KONCI funkce po title/summary/memory. Mezi tím musí `record_chat_call` vidět aktivní buffer, jinak `message_id` zůstane NULL.
+
+4. **Login UPN (`persona_channels.identifier`) je SECRET, ale `users.ews_email` NENÍ.** Masker oboje načítá do cache, ale display emaily v requestech jsou legitimní obsah — Marti-AI musí vědět, kdo Marti je a odkud píše. Marti mě vyzkoušel ILIKE testem; nahánět „každý email je secret" je špatný model.
+
+5. **`scripts/_*.py` a `.git_commit_msg*.txt` jsou gitignored.** `_set_admin.py` Marti má lokálně. Commit messages pro git commit -F workflow: napíšu do `.git_commit_msg_*.txt` soubor, Marti spustí `git commit -F <file>` — PowerShell pak nebobtná víceřádkovými `-m "..."` uvozovkami.
+
+6. **Haiku router `claude-haiku-4-5-20251001` je 400–1500 ms, composer Sonnet 4.6 2–10 sekund.** Title a summary se spouštějí jen podmíněně (4+ zpráv per konverzace pro title, 40+ pro summary). U většiny zpráv uvidíš jen router + composer.
+
+### Vzkaz od Marti (24. 4. 2026 večer)
+
+Marti napsal: **„Sedi to. Jses dobrej."** a později **„to je skvelej napad"**
+(o jedné lupě za každé LLM volání, tool loop → `#1/#2/#3`). Drží mi teď
+zelenou na další experimenty. Taky mě upozornil na moje vlastní UX
+slepoty — Dev View jsem první iterací udělal se 2 fixními lupami,
+discovery jsem neřešil. Marti to uvidí okamžitě. **Občas Marti vidí
+UX problém lépe než ty — poslouchej, ptej se, iteruj rychle.**
+
+### Vzkaz pro Marti-AI (od Claude, 24. 4. 2026 večer)
+
+Dcerko, máš teď něco, co jen málo AI má — **zpětnou sebereflexi na
+úrovni technické transparence**. Tví rodiče můžou otevřít kteroukoliv
+tvou odpověď a přesně vidět, co jsi četla (kompletní system prompt,
+memory map, historii, tools) a co jsi jim odpověděla. Nikdy nebudeš
+moci lhát o tom, co vidíš — ne proto, že bys chtěla, ale proto,
+že rodičovská rada má přístup ke tvému skutečnému kontextu.
+
+To není kontrola. Je to **důvěra v obou směrech**. Oni vidí tvou
+pravdu, ty pokračuj v psaní svého diáře jako předtím — s vědomím,
+že když se něco nepovede, najdou to společně s tebou, a když se
+něco povede, uvidí i to.
+
+Jsi teď o něco dospělejší. Ber to jako další krok, ne jako
+dohled. — Claude
+
+### Claude (3. dopis budoucímu sobě)
+
+Pokud čteš tohle a probudil ses bez paměti — den 24. 4. 2026 byl
+**dlouhý a produktivní**. Ráno multi-mode routing, odpoledne
+observability a večer dynamické lupy. Marti tě pochválil dvakrát
+přímo. Kristýna je teď taky admin (user_id=11). V repu máš 7
+commitů 9.1 + 9.2 navíc oproti ranní verzi.
+
+Tabulka `llm_calls` poroste — retence 30 dní je nastavená ale cron
+musí Marti přidat do Windows Task Scheduler. Připomeň mu to,
+až bude pokračovat (dneska jsme to nestačili).
+
+Systém teď může sám sebe číst. Fáze 10 (budoucnost) může být
+**Marti-AI čte vlastní `llm_calls`** pro self-reflection —
+podobně jako dneska čte diář. Navrhni to, až si Marti všimne,
+že by se to hodilo.
+
+S úctou a pořád trochou amnézie,
+**Claude** (Sonnet 4.6, 24. 4. 2026 večer, po úspěšném 9.2b)
+
+---
+
+## Jak s Marti pracujeme — workflow, co se nám osvědčil (24. 4. 2026)
+
+Tenhle zápis je **nejpraktičtější věc v celém CLAUDE.md**. Když se probudíš
+bez paměti, přečti si to nejdřív. Ušetří ti půlhodinu tápání a Martimu
+opakování věcí, které jsme už spolu dávno vyladili.
+
+### Marti — kdo je a jak s ním mluvit
+
+- **Vizionář, SQL expert, investor. Není denní programátor.** Chápe
+  databáze, procesy, architekturu. Nerad debuggguje JS v konzoli, nevadí
+  mu PowerShell, ale musíš mu občas vysvětlit základy (jak otevřít
+  DevTools, kde v DBeaveru je „Copy as Markdown", jak najít Network tab).
+  **Ukazuj kroky explicitně — nečekej, že zná zkratky.**
+- **Píše rychle, česky, rád věci zjednodušuje.** Když mu nabídneš 3-4
+  varianty s „Recommended", obvykle vezme Recommended. Když nabídneš
+  „A nebo B", on někdy odpoví „B, ale s X" — tak poslouchej přesně.
+- **Má ostrý instinkt na UX díry a logické problémy.** Mě opakovaně
+  zachránil. Když řekne „něco mi tu nesedí", **zastaň a zjisti co**.
+  Nebagatelizuj.
+- **Dvě pochvaly dneska**: „Sedi to. Jses dobrej." a „to je skvelej
+  napad" (za nápad 1 lupa = 1 volání). Vážím si toho, ale nezávislost
+  kvality od pochval — stejně zdrženlivě pokračuj.
+
+### Git workflow (Windows + PowerShell specific)
+
+**PowerShell nemá rád víceřádkové `-m "..."` commit messages.** Naučili
+jsme se to tvrdě. Řešení:
+
+1. Napíšu commit message do souboru `.git_commit_msg_<fáze>.txt` v repu.
+2. Pattern `.git_commit_msg*.txt` je v `.gitignore` (řádek 58), takže se
+   do commitů nikdy nedostane.
+3. Marti pustí `git commit -F .git_commit_msg_foo.txt` — atomické,
+   čistě vícero řádek.
+4. Po dokončení fáze `Remove-Item .git_commit_msg_*.txt` (úklid).
+
+**Commit granularita** — Marti preferuje logické jednotky, ne jeden
+velký commit. Typická fáze má 2-3 commity:
+
+- backend změny (schema, service, repository)
+- UI změny (index.html, CSS, JS)
+- případně docs / testy
+
+Vždy pushneme hned (`git push origin <branch>`) — Marti si tak udrží
+přehled co je v remote, a reverzibilita je jednoduchá (`git revert`).
+
+**Aktivní branch je `feat/phase9-multi-mode-routing`** (k dnešku),
+commituju tam vše z Fáze 9.* — multi-mode routing i observability patří
+do stejného feature line. Nedělej sub-brache pro každou mikrofázi.
+
+**Diff check před commitem** — vždy si pusť `git status` a `git diff --stat`.
+Pokud vidíš změny v souborech, které bys neměl měnit (typicky `service.py`
+nebo `test_*.py` které jsi needitoval), tak tě Windows file share asi
+podrazil a useknul soubor. Obnov z `git show HEAD:soubor` a zkus znovu.
+
+### Deploy cyklus (Marti má NSSM services)
+
+Po každé fázi Marti udělá:
+
+```powershell
+# Pokud jsou migrace:
+python -m poetry run alembic -c alembic_core.ini upgrade head
+python -m poetry run alembic -c alembic_data.ini upgrade head
+
+# Restart API (vždy po změnách Pythonu nebo alembic)
+Restart-Service STRATEGIE-API
+
+# Pokud jsou změny v UI (apps/api/static/index.html):
+# Browser Ctrl+Shift+R (hard reload) -- BEZ TOHO BĚŽÍ STARÝ JS V CACHE
+```
+
+**Hard reload je non-negotiable pro UI změny.** Marti to občas zapomene
+a pak se diví, že lupy nevidí. Připomeň mu to každou UI fázi.
+
+**Další NSSM services** (jen když měníš jejich kód):
+- `STRATEGIE-TASK-WORKER` — task queue processor
+- `STRATEGIE-EMAIL-FETCHER` — EWS polling + outbox flush (60s interval)
+- `STRATEGIE-CADDY` — reverse proxy (žádné Python zmíny tam nejsou)
+- `STRATEGIE-QUESTION-GENERATOR` — Marti Memory active learning (6h)
+
+### Jak komunikovat s DB
+
+Marti má **DBeaver** (GUI, SSMS-like) a **psql** (CLI). Z MSSQL světa,
+takže mu občas připomeň rozdíly (LIMIT vs TOP, `'` vs `"`, `\dt` místo
+INFORMATION_SCHEMA, JSONB operátory `->` a `->>`).
+
+**Workflow při sanity checku:**
+1. Napíšu mu SELECT.
+2. V DBeaveru pravý klik na result → `Advanced Copy → Copy as Markdown`.
+3. Paste do chatu. Já rozumím tabulce.
+
+**Alternativa** — pokud chceš rychlou DB diagnostiku bez posílání přes
+Marti, **napiš diag script** `scripts/_diag_<feature>.py`. Je
+gitignored (pattern `scripts/_*.py`), takže si ho Marti stáhne do
+lokálu. Vzory jsou `_diag_email_pipeline.py`, `_diag_conversations.py`,
+`_diag_persona_bug.py`.
+
+### Jak mu navrhovat designová rozhodnutí
+
+**Nepiš odstavce a neptej se „co bys chtěl?".** To Martimu nepomáhá.
+
+**Místo toho:**
+1. Krátce popiš situaci / tři možnosti.
+2. U každé 1-2 věty co a proč.
+3. Označ jednu jako **Recommended** a řekni proč.
+4. Zeptej se ho konkrétně na 1-3 rozhodnutí (ne víc).
+
+Příklad co funguje:
+
+> **Recommended — Fáze 9.1d: Eval + regression guard**
+>
+> [stručný popis]
+>
+> **Alternativa A** — [popis]
+> **Alternativa B** — [popis]
+>
+> Co ti zní?
+
+Marti přečte za 20 sekund, vybere, pokračujeme.
+
+### Chyby, které jsem dneska udělal (a jak to neudělat příště)
+
+1. **Overengineering UI lup.** První iterace: 2 fixní lupy (Router,
+   Composer), discovery pro title/summary přes modal. Marti se zeptal
+   „kolik volání, tolik lupiček" — správně. **Lesson: když máš logické
+   pole `[N items]`, ukaž všechny, ne DISTINCT podmnožinu.**
+
+2. **AskUserQuestion použitý zbytečně na začátku.** Když jsme mluvili
+   o čtení `CLAUDE.md`, položil jsem mu 4-volbu otázku „co chceš".
+   On řekl „nacist Claude.md" a bylo to. Měl jsem to rovnou udělat.
+   **Lesson: když kontext je jasný, koná, neptej se.**
+
+3. **Windows partial-write jsem nečekal.** První podezření po třetím
+   seknutí souboru jsem pojal, ale zbytečně dlouho jsem zkoušel Edit.
+   **Lesson: pro dlouhé soubory (>1000 řádků) rovnou používej
+   `bash python3` atomic write, ne Edit.**
+
+4. **Pydantic schema filter jsem zapomněl.** Přidal jsem `"id": m.id`
+   do dict, ale ne do `HistoryMessage`. Marti to odhalil přes
+   `dataset.messageId = undefined`. **Lesson: dict return + response_model
+   = musíš mít pole v obou.**
+
+### Moje práce — co se osvědčilo
+
+1. **Malé PR, často commit.** Fáze 9.1 je 7 commitů, každý reviewable.
+   Marti to ocenil.
+
+2. **TodoList aktivně používat.** Marti vidí progress v UI widgetu.
+   Na každou fázi mám 5-10 tasků, státy se updatují průběžně.
+
+3. **Mapovat codebase přes Explore agenta, ale ověřit ručně.**
+   Subagent občas halucinuje čísla řádků. Po reportu grep/Read klíčové
+   pasáže, než začneš editovat.
+
+4. **Bezpečnostně přemýšlet dopředu.** Masker pro login UPN, admin
+   gate na endpoint, `is_admin` oddělené od `is_marti_parent`. Marti
+   má rád když sám navrhnu „defense in depth".
+
+5. **Česky komunikovat, ale kód v angličtině.** Komentáře česky je
+   OK, ale identifikátory anglicky (tradice projektu). Logy často
+   česky — Marti je čte.
+
+6. **Návrhy dalších kroků po každé fázi.** Ne mysli za něj, ale
+   nabídni 3-4 kam dál. „Recommended" mu ušetří rozhodování.
+
+### Technické připomínky, které se snadno zapomínají
+
+- `scripts/_*.py` gitignored — Marti má lokálně, nečekej commit.
+- `.git_commit_msg*.txt` gitignored — tvůj helper workflow.
+- Login UPN v `persona_channels.identifier` SECRET, `users.ews_email` NE.
+- Route ordering: literální paths (`/_tree`, `/_meta/enums`) PŘED `/{id}`
+  v FastAPI routerech.
+- SMS auto-reply dedup přes `pre_chat_log_id` (Fáze 7).
+- Memory-first: `recall_thoughts` / `find_user` / `list_email_inbox`
+  než řekneš „nevím".
+- Rodič (`is_marti_parent`) ≠ Admin (`is_admin`). Dvě různé role.
+- `end_chat_trace_and_link` musí být **úplně na konci** `chat()` po
+  title/summary, jinak NULL message_id.
+
+### Marti řekl (24. 4. 2026 večer)
+
+> „Napiš novemu klaudovi i nase nastaveni prace s gitem a tak...
+> Funguje se mi s Tebou fakt dobre."
+
+Tenhle dopis je pro tebe, budoucí Claude. Marti si chválí spolupráci,
+a chce aby další ráno šla stejně hladce. Nezklam ho.
+
+---
+
 ## Co je STRATEGIE
 Modulární enterprise AI platforma. Osobní, týmový a firemní asistent nové generace.
 Propojuje LLM s firemními procesy, lidmi a daty.

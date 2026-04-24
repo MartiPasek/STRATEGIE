@@ -785,7 +785,14 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             from modules.orchestrate.application.overview_service import (
                 build_daily_overview, format_overview_prose,
             )
-            _ds_ov = get_data_session()
+            # Explicitne importuju get_data_session pod aliasem -- v _handle_tool
+            # je jinde v kodu 'from core.database_data import get_data_session'
+            # co Python detekuje jako local variable -> UnboundLocalError pro
+            # volani v tomto bloku. Alias se vyhne shadowingu.
+            from core.database_data import get_data_session as _gds_overview
+            from core.database_core import get_core_session as _gcs_overview
+            from modules.core.infrastructure.models_core import User as _U_overview
+            _ds_ov = _gds_overview()
             try:
                 _conv_ov = _ds_ov.query(Conversation).filter_by(id=conversation_id).first()
                 _tid = _conv_ov.tenant_id if _conv_ov else None
@@ -794,11 +801,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 _ds_ov.close()
             scope_in = tool_input.get("scope", "current")
             if scope_in == "all" and user_id:
-                from core.database_core import get_core_session as _gcs_ov
-                from modules.core.infrastructure.models_core import User as _U_ov
-                _cs_ov = _gcs_ov()
+                _cs_ov = _gcs_overview()
                 try:
-                    _u_ov = _cs_ov.query(_U_ov).filter_by(id=user_id).first()
+                    _u_ov = _cs_ov.query(_U_overview).filter_by(id=user_id).first()
                     if not (_u_ov and _u_ov.is_marti_parent):
                         scope_in = "current"
                 finally:

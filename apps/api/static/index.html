@@ -4291,6 +4291,153 @@
     return b;
   }
 
+  // -- Faze 10d: LLM Usage dashboard (admin only) ----------------------------
+  async function openLlmUsageModal() {
+    if (!currentUser || !currentUser.is_admin) {
+      alert('LLM Usage dashboard je jen pro administrátory.');
+      return;
+    }
+    const backdrop = document.getElementById('llmUsageBackdrop');
+    if (!backdrop) return;
+    backdrop.classList.add('open');
+    const scope = document.getElementById('llmUsageScope');
+    const aggBy = document.getElementById('llmUsageAggregateBy');
+    const tenant = document.getElementById('llmUsageTenant');
+    const kind = document.getElementById('llmUsageKind');
+    [scope, aggBy, tenant, kind].forEach(el => {
+      if (!el) return;
+      if (!el.dataset.wired) {
+        el.addEventListener('change', _refreshLlmUsage);
+        el.addEventListener('keyup', (ev) => { if (ev.key === 'Enter') _refreshLlmUsage(); });
+        el.dataset.wired = '1';
+      }
+    });
+    await _refreshLlmUsage();
+  }
+
+  function closeLlmUsageModal() {
+    const backdrop = document.getElementById('llmUsageBackdrop');
+    if (backdrop) backdrop.classList.remove('open');
+  }
+
+  async function _refreshLlmUsage() {
+    const body = document.getElementById('llmUsageBody');
+    const meta = document.getElementById('llmUsageMeta');
+    if (!body) return;
+    body.innerHTML = '<div class="llm-usage-empty">Načítám…</div>';
+    if (meta) meta.textContent = '';
+
+    const scope = (document.getElementById('llmUsageScope') || {}).value || 'today';
+    const aggBy = (document.getElementById('llmUsageAggregateBy') || {}).value || 'kind';
+    const tenant = (document.getElementById('llmUsageTenant') || {}).value || '';
+    const kind = (document.getElementById('llmUsageKind') || {}).value || '';
+
+    const qs = new URLSearchParams();
+    qs.set('scope', scope);
+    qs.set('aggregate_by', aggBy);
+    if (tenant.trim()) qs.set('filter_tenant', tenant.trim());
+    if (kind.trim()) qs.set('filter_kind', kind.trim());
+
+    try {
+      const resp = await fetch(`/api/v1/conversation/admin/llm-usage?${qs.toString()}`, {
+        credentials: 'include',
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        body.innerHTML = `<div class="llm-usage-empty">Chyba ${resp.status}: ${err.detail || 'neznama'}</div>`;
+        return;
+      }
+      const data = await resp.json();
+      _renderLlmUsageTable(data);
+    } catch (e) {
+      console.error('llm-usage fetch failed', e);
+      body.innerHTML = `<div class="llm-usage-empty">Chyba sítě: ${e}</div>`;
+    }
+  }
+
+  function _renderLlmUsageTable(data) {
+    const body = document.getElementById('llmUsageBody');
+    const meta = document.getElementById('llmUsageMeta');
+    if (!body) return;
+    body.innerHTML = '';
+    const rows = data.rows || [];
+    if (!rows.length) {
+      body.innerHTML = '<div class="llm-usage-empty">Žádná data v tomto rozsahu / filtru.</div>';
+      if (meta) meta.textContent = '';
+      return;
+    }
+    const table = document.createElement('table');
+    table.className = 'llm-usage-table';
+    const thead = document.createElement('thead');
+    const trh = document.createElement('tr');
+    const headers = [
+      { label: data.aggregate_by || 'GROUP', cls: '' },
+      { label: 'Calls', cls: 'numeric' },
+      { label: 'In tokens', cls: 'numeric' },
+      { label: 'Out tokens', cls: 'numeric' },
+      { label: 'Tokens', cls: 'numeric' },
+      { label: 'Cost USD', cls: 'numeric' },
+      { label: 'Avg ms', cls: 'numeric' },
+    ];
+    headers.forEach(h => {
+      const th = document.createElement('th');
+      th.textContent = h.label;
+      if (h.cls) th.classList.add(h.cls);
+      trh.appendChild(th);
+    });
+    thead.appendChild(trh);
+    table.appendChild(thead);
+
+    const tbody = document.createElement('tbody');
+    rows.forEach(r => {
+      const tr = document.createElement('tr');
+      const cells = [
+        { v: r.group != null ? String(r.group) : '(none)', cls: '' },
+        { v: r.calls, cls: 'numeric' },
+        { v: r.in_tokens, cls: 'numeric' },
+        { v: r.out_tokens, cls: 'numeric' },
+        { v: r.tokens, cls: 'numeric' },
+        { v: '$' + (r.cost_usd || 0).toFixed(4), cls: 'numeric' },
+        { v: r.avg_ms, cls: 'numeric' },
+      ];
+      cells.forEach(c => {
+        const td = document.createElement('td');
+        td.textContent = c.v;
+        if (c.cls) td.classList.add(c.cls);
+        tr.appendChild(td);
+      });
+      tbody.appendChild(tr);
+    });
+
+    const totals = data.totals || {};
+    const tfoot = document.createElement('tfoot');
+    const tft = document.createElement('tr');
+    tft.className = 'llm-usage-totals';
+    const totalCells = [
+      { v: 'TOTAL', cls: '' },
+      { v: totals.calls || 0, cls: 'numeric' },
+      { v: totals.in_tokens || 0, cls: 'numeric' },
+      { v: totals.out_tokens || 0, cls: 'numeric' },
+      { v: totals.tokens || 0, cls: 'numeric' },
+      { v: '$' + (totals.cost_usd || 0).toFixed(4), cls: 'numeric' },
+      { v: '', cls: '' },
+    ];
+    totalCells.forEach(c => {
+      const td = document.createElement('td');
+      td.textContent = c.v;
+      if (c.cls) td.classList.add(c.cls);
+      tft.appendChild(td);
+    });
+    tfoot.appendChild(tft);
+    table.appendChild(tbody);
+    table.appendChild(tfoot);
+    body.appendChild(table);
+
+    if (meta) {
+      meta.textContent = `scope=${data.scope} · aggregate_by=${data.aggregate_by} · tenant=${data.tenant_label}${data.filter_kind ? ' · kind=' + data.filter_kind : ''}`;
+    }
+  }
+
   function _renderTenantDropdown() {
     const dd = document.getElementById('tenantDropdown');
     dd.innerHTML = '';

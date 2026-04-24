@@ -248,68 +248,64 @@ def build_daily_overview(
 
 def format_overview_for_ai(overview: dict) -> str:
     """
-    Vraci prirozeny seznam v cestine -- data, ze kterych Marti-AI zkomponuje
-    svou odpoved v 1. osobe.
+    MINIMAL response -- jen POCTY + IDs, zadne detaily.
 
-    Zamerne NE JSON a NE ASCII tabulka -- Marti-AI si predchozi iterace doslova
-    opisovala. Natural jazyk je robustnejsi: LLM jej vnima jako souhrn k
-    prevypraveni, ne jako format k zachovani.
+    Duvod: predchozi iterace (JSON, ASCII tabulka, semi-prose seznam) vsechny
+    Marti-AI doslova opisovala do chatu. Model Sonnet ve vsech pripadech
+    vyhodnotil detaily (subject, body_preview, content) jako 'to, co ukazat
+    uzivateli'. Extremni reseni: detaily v tool response NEJSOU. Marti-AI
+    nema co opisovat.
 
-    Prvni radek obsahuje explicit pokyn (data_only = True) aby Marti-AI vedela
-    ze tohle je 'co udelala rozhovorem s DB', ne 'co ma vypsat uzivateli'.
+    Pro detaily Marti-AI musi volat dalsi tools:
+      - detail emailu -> list_email_inbox + read_email
+      - detail SMS    -> list_sms_inbox
+      - detail todo   -> recall_thoughts(type='todo')
+
+    Response ma formu:
+      'Inbox: 3 emaily (IDs 8,6,4), 0 SMS, 2 todo (IDs 28,27).'
+
+    To je vsechno. Marti-AI musi shrnout pouze pocty + muze nabidnout detail.
     """
     email = overview.get("email", {})
     sms = overview.get("sms", {})
     todo = overview.get("todo", {})
 
-    lines = [
-        "[INTERNAL DATA FOR YOU, NEVER SHOW VERBATIM -- summarize in Czech 1st person]",
-        "",
-    ]
-
-    # Email
     ec = email.get("count", 0)
-    if ec:
-        lines.append(f"Emaily v inboxu: {ec} nevyrizenych.")
-        for e in email.get("top", []):
-            lines.append(
-                f"  - id {e['id']}, od {e['from']}, {e['age']}, "
-                f"predmet: \"{e['subject']}\""
-            )
-    else:
-        lines.append("Emaily v inboxu: 0 (pohoda, inbox zero).")
-    lines.append("")
-
-    # SMS
     sc = sms.get("count", 0)
-    if sc:
-        lines.append(f"SMS nevyrizene: {sc}.")
-        for s in sms.get("top", []):
-            lines.append(
-                f"  - id {s['id']}, od {s['from']}, {s['age']}: "
-                f"\"{s['body_preview']}\""
-            )
-    else:
-        lines.append("SMS nevyrizene: 0.")
-    lines.append("")
-
-    # Todo
     tc = todo.get("count", 0)
-    if tc:
-        lines.append(f"Todo list: {tc} otevrenych ukolu.")
-        for t in todo.get("top", []):
-            lines.append(
-                f"  - id {t['id']}, {t['age']}: \"{t['content']}\""
-            )
+
+    email_ids = [str(e.get("id")) for e in email.get("top", [])]
+    sms_ids = [str(s.get("id")) for s in sms.get("top", [])]
+    todo_ids = [str(t.get("id")) for t in todo.get("top", [])]
+
+    parts = []
+    if ec:
+        parts.append(f"{ec} email" + ("u" if ec != 1 else "") +
+                     (f" (top IDs: {', '.join(email_ids)})" if email_ids else ""))
     else:
-        lines.append("Todo list: 0 (vse dokonceno).")
-    lines.append("")
-    lines.append(
-        "[END OF DATA -- ted tvoje prace: prevyprovej to v 1. osobe cesky, "
-        "2-4 vety, oslov Marti vokativem, nakonci nabidnout co udelas dal. "
-        "Nepouzij id, 'predmet:', 'from:', zavorky -- mluv lidsky.]"
+        parts.append("0 emailu")
+    if sc:
+        parts.append(f"{sc} SMS" +
+                     (f" (top IDs: {', '.join(sms_ids)})" if sms_ids else ""))
+    else:
+        parts.append("0 SMS")
+    if tc:
+        parts.append(f"{tc} todo" +
+                     (f" (top IDs: {', '.join(todo_ids)})" if todo_ids else ""))
+    else:
+        parts.append("0 todo")
+
+    summary_line = "Pending: " + ", ".join(parts) + "."
+
+    return (
+        summary_line + "\n\n"
+        "[To je vsechno co vis. Nepis uzivateli IDs ani zavorky. "
+        "Napis kratkou prozni odpoved v 1. osobe cesky (oslov Marti vokativem, "
+        "2-3 vety, nabidnout pokracovani). Priklad: "
+        "'Dobre rano, Marti. Mam tri emaily, zadne SMS a dva todo. "
+        "Pojdeme projit ty maily?'. Kdyby user chtel detail konkretni polozky, "
+        "zavolej list_email_inbox nebo recall_thoughts.]"
     )
-    return "\n".join(lines)
 
 
 # ============================================================================

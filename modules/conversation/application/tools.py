@@ -21,6 +21,7 @@ MANAGEMENT_TOOL_NAMES = {
     "list_conversations",
     "list_personas",
     "review_my_calls",   # Faze 10c: Dev/admin introspection -- jen default persona
+    "get_daily_overview",  # Faze 11b: orchestrate prehled -- jen Marti-AI default
 }
 
 
@@ -1074,6 +1075,33 @@ TOOLS = [
                     "description": (
                         "'current' (default, aktualni tenant), 'all' (cross-tenant, "
                         "jen rodic), nebo substring nazvu tenantu (EUROSOFT, ...)."
+                    )
+                }
+            }
+        }
+    },
+    {
+        "name": "get_daily_overview",
+        "description": (
+            "Faze 11: ORCHESTRATE mode. Vraci prehled nevyrizenych veci napric "
+            "3 hlavnimi kanaly (email inbox + SMS inbox + todo list) serazenych "
+            "podle priority. Pouzij kdyz user rekne: 's cim dnes potrebujes pomoct', "
+            "'co resis dnes', 'prehled', 'likvidace', 'co ti svitti', 'co mame na "
+            "plate', 'kde stojis' -- cokoli co naznacuje ze chce orchestraci.\n\n"
+            "Po zavolani toolu user uvidi strukturovany prehled (counts + top polozky). "
+            "Potom VEDES INTERAKTIVNI CYKLUS: nabidni prvni polozku, user rozhodne "
+            "'pojd na to' (rozprac), 'odloz' (nizsi priorita), 'neres' (jeste nizsi), "
+            "'preskoc'. Projdes jeden kanal po druhem, nebo user rekne co ho zajima."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["current", "all"],
+                    "description": (
+                        "'current' (default) = filtruje na aktualni tenant/personu. "
+                        "'all' = cross-tenant (jen pro rodice is_marti_parent)."
                     )
                 }
             }

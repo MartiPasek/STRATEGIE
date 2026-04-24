@@ -779,6 +779,41 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"TOOL | review_my_calls failed: {e}")
             return f"Chyba pri review_my_calls: {e}"
 
+    # Faze 11b: Orchestrate prehled (email + SMS + todo).
+    if tool_name == "get_daily_overview":
+        try:
+            from modules.orchestrate.application.overview_service import (
+                build_daily_overview, format_overview_prose,
+            )
+            _ds_ov = get_data_session()
+            try:
+                _conv_ov = _ds_ov.query(Conversation).filter_by(id=conversation_id).first()
+                _tid = _conv_ov.tenant_id if _conv_ov else None
+                _pid = _conv_ov.active_agent_id if _conv_ov else None
+            finally:
+                _ds_ov.close()
+            scope_in = tool_input.get("scope", "current")
+            if scope_in == "all" and user_id:
+                from core.database_core import get_core_session as _gcs_ov
+                from modules.core.infrastructure.models_core import User as _U_ov
+                _cs_ov = _gcs_ov()
+                try:
+                    _u_ov = _cs_ov.query(_U_ov).filter_by(id=user_id).first()
+                    if not (_u_ov and _u_ov.is_marti_parent):
+                        scope_in = "current"
+                finally:
+                    _cs_ov.close()
+            overview = build_daily_overview(
+                user_id=user_id,
+                tenant_id=_tid,
+                persona_id=_pid,
+                scope=scope_in,
+            )
+            return format_overview_prose(overview)
+        except Exception as e:
+            logger.exception(f"TOOL | get_daily_overview failed: {e}")
+            return f"Chyba pri get_daily_overview: {e}"
+
     if tool_name == "send_email":
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")

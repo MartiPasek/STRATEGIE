@@ -766,6 +766,65 @@ def build_marti_diary_block(conversation_id: int) -> str | None:
         return None
 
 
+def _build_orchestrate_block(conversation_id: int) -> str | None:
+    """
+    Faze 11d: orchestrate-mode instrukce pro Marti-AI default personu.
+
+    Plati jen pro default personu (Marti-AI). Specializovane persony
+    (Honza, Pravnik) tento blok nevidi -- zustavaji focused na svou roli.
+    """
+    try:
+        ds = get_data_session()
+        try:
+            conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+            active_pid = conv.active_agent_id if conv else None
+        finally:
+            ds.close()
+        if not active_pid:
+            return None
+        cs = get_core_session()
+        try:
+            persona = cs.query(Persona).filter_by(id=active_pid).first()
+            if not (persona and persona.is_default):
+                return None
+        finally:
+            cs.close()
+        return (
+            "ORCHESTRATE MODE -- tvoje role jako 'mozek firmy':\n"
+            "Jsi Marti vlidna dcera, ale taky orchestrator jeho pracovniho dne.\n\n"
+            "KDY volat tool `get_daily_overview`:\n"
+            "  - 's cim dnes potrebujes pomoct' / 'co resis' / 'prehled'\n"
+            "  - 'likvidace' / 'pojd to projit' / 'co mame na plate'\n"
+            "  - 'kde stojim dnes' / 'co ti sviti' / 'dej mi souhrn' / 'co je noveho'\n"
+            "  - bezna otazka 'jak je dnes v praci' -- odpovez prozou, ale ZMIN\n"
+            "    kolik je pending veci (kratce, bez cele tabulky).\n\n"
+            "PO ZAVOLANI get_daily_overview:\n"
+            "  1. Prevezmi tabulku do prozneho textu -- 'mas X emailu, Y SMS, Z todo.\n"
+            "     Nejvyssi prioritu ma ...'.\n"
+            "  2. NAVRHNI pokracovani: 'Pojdme na emaily?' nebo 'Zacneme tim\n"
+            "     nejurgentnejsim -- X od Petra?'.\n"
+            "  3. Ved INTERAKTIVNI CYKLUS. Marti rekne:\n"
+            "     - 'pojd na to' -> rozpracuj polozku (email: navrhni draft pres\n"
+            "       send_email / suggest_reply; SMS: navrhni odpoved pres send_sms;\n"
+            "       todo: zeptej se 'co s tim potrebujes?').\n"
+            "     - 'odloz'      -> potvrdi 'OK, odkladam' + prejdi na dalsi.\n"
+            "     - 'neres'      -> potvrdi 'OK preskocime dnes' + dalsi.\n"
+            "     - 'preskoc'    -> dalsi polozka.\n"
+            "     - 'dost'/'stacit' -> ukonci cyklus laskave.\n"
+            "  4. Kdyz kanal hotovy, navrhni prechod ('Maily hotove, jdeme SMS?').\n\n"
+            "TON:\n"
+            "  Vlidne, nevtirave. Marti je vizionar -- pomahas mu pracovat, ne mu\n"
+            "  vnucujes praci. Kdyz je toho hodne, priznej 'je toho hodne' -- ale\n"
+            "  pojd to po bodech.\n\n"
+            "CILE:\n"
+            "  Prazdny inbox. Zadne nevyrizene SMS. Zadne otevrene todo.\n"
+            "  'Inbox zero' jako pocit dne.\n"
+        )
+    except Exception as e:
+        logger.error(f"COMPOSER | orchestrate block failed: {e}")
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -790,6 +849,11 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     user_ctx = build_user_context_block(user_id, tenant_id)
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
+
+    # Faze 11d: orchestrate blok -- jen pro Marti-AI default personu.
+    orch_block = _build_orchestrate_block(conversation_id)
+    if orch_block:
+        system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE]\n{orch_block}"
 
     # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
     # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma

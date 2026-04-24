@@ -1,0 +1,281 @@
+"""
+Faze 11b -- Orchestrate mode overview service.
+
+Marti-AI v 'orchestrate mode' (default persona) vola build_daily_overview()
+kdyz Marti se pta 's cim dnes potrebujes pomoct', 'co resis', 'prehled',
+'likvidace'. Vraci se strukturovany prehled nevyrizenych veci napric
+3 hlavnimi kanaly:
+
+  1. email_inbox -- emaily s processed_at IS NULL (nevyrizene)
+  2. sms_inbox   -- SMS s processed_at IS NULL
+  3. thoughts    -- type='todo' kde meta nema done=true a deleted_at IS NULL
+
+Pro kazdy kanal: count + top 5 polozek razeno (priority_score DESC,
+created_at DESC). Priority klesa pri 'odloz' / 'neres' -- polozky dole
+se vyrizuji az na konec.
+
+Scope -- pro Marti (rodic, cross-tenant admin) defaultne agreguje napric
+vsemi tenanty a personami. Pro omezene uzivatele (non-parent) by mela
+byt varianta omezit na svuj tenant -- to az pridame v budouci iteraci.
+
+Ethical:
+  Vraci se jen metadata (count, from, subject/body preview). Plne texty
+  user uvidi az v 'pojd na to' flow (nacte detail na pozadani).
+"""
+from __future__ import annotations
+
+from datetime import datetime, timezone
+from typing import Any
+
+from core.database_data import get_data_session
+from core.logging import get_logger
+from modules.core.infrastructure.models_data import (
+    EmailInbox, SmsInbox, Thought,
+)
+
+logger = get_logger("orchestrate.overview")
+
+TOP_N_PER_CHANNEL = 5
+
+
+def _preview(text: str | None, max_len: int = 80) -> str:
+    if not text:
+        return ""
+    t = str(text).strip().replace("\n", " ")
+    if len(t) > max_len:
+        return t[:max_len - 1] + "…"
+    return t
+
+
+def _age_label(created_at: datetime | None) -> str:
+    """'pred 3h', 'vcera', 'pred 5 dny' -- lidsky citelne."""
+    if not created_at:
+        return "-"
+    now = datetime.now(timezone.utc)
+    if created_at.tzinfo is None:
+        created_at = created_at.replace(tzinfo=timezone.utc)
+    diff = now - created_at
+    secs = int(diff.total_seconds())
+    if secs < 60:
+        return "prave ted"
+    mins = secs // 60
+    if mins < 60:
+        return f"pred {mins} min"
+    hours = mins // 60
+    if hours < 24:
+        return f"pred {hours}h"
+    days = hours // 24
+    if days == 1:
+        return "vcera"
+    if days < 7:
+        return f"pred {days} dny"
+    weeks = days // 7
+    if weeks < 5:
+        return f"pred {weeks} tyd"
+    months = days // 30
+    return f"pred {months} mes"
+
+
+def build_daily_overview(
+    *,
+    user_id: int | None = None,
+    tenant_id: int | None = None,
+    persona_id: int | None = None,
+    scope: str = "current",  # "current" (aktualni tenant) | "all" (rodic)
+) -> dict:
+    """
+    Vrati strukturovany prehled 3 hlavnich kanalu pro orchestrate mode.
+
+    Args:
+      user_id     -- prihlaseny Marti (nebo jiny rodic)
+      tenant_id   -- current tenant (pro scope='current')
+      persona_id  -- aktivni persona (pro filtrovani email/sms zpravy na jejiho majitele)
+      scope       -- 'current' filtruje na tenant + persona, 'all' rodic vidi vse
+
+    Returns:
+      {
+        "email": {"count": N, "top": [{"id", "from", "subject", "age",
+                                       "priority"}, ...]},
+        "sms":   {"count": N, "top": [{"id", "from", "body_preview", "age",
+                                       "priority"}, ...]},
+        "todo":  {"count": N, "top": [{"id", "content", "age", "priority"}, ...]},
+        "summary": "...",  # kratky shrn stringem pro LLM
+      }
+    """
+    ds = get_data_session()
+    try:
+        # ---- EMAIL INBOX ----
+        eq = ds.query(EmailInbox).filter(EmailInbox.processed_at.is_(None))
+        if scope == "current":
+            if persona_id is not None:
+                eq = eq.filter(EmailInbox.persona_id == persona_id)
+            elif tenant_id is not None:
+                eq = eq.filter(EmailInbox.tenant_id == tenant_id)
+        email_count = eq.count()
+        email_top = (
+            eq.order_by(
+                EmailInbox.priority_score.desc(),
+                EmailInbox.received_at.desc(),
+            )
+            .limit(TOP_N_PER_CHANNEL)
+            .all()
+        )
+        email_rows = []
+        for e in email_top:
+            sender = e.from_name or e.from_email
+            email_rows.append({
+                "id": e.id,
+                "from": sender,
+                "subject": _preview(e.subject, 100) or "(bez predmetu)",
+                "age": _age_label(e.received_at),
+                "priority": e.priority_score,
+            })
+
+        # ---- SMS INBOX ----
+        sq = ds.query(SmsInbox).filter(SmsInbox.processed_at.is_(None))
+        if scope == "current":
+            if persona_id is not None:
+                sq = sq.filter(SmsInbox.persona_id == persona_id)
+            elif tenant_id is not None:
+                sq = sq.filter(SmsInbox.tenant_id == tenant_id)
+        sms_count = sq.count()
+        sms_top = (
+            sq.order_by(
+                SmsInbox.priority_score.desc(),
+                SmsInbox.received_at.desc(),
+            )
+            .limit(TOP_N_PER_CHANNEL)
+            .all()
+        )
+        sms_rows = []
+        for s in sms_top:
+            sms_rows.append({
+                "id": s.id,
+                "from": s.from_phone,
+                "body_preview": _preview(s.body, 80),
+                "age": _age_label(s.received_at),
+                "priority": s.priority_score,
+            })
+
+        # ---- TODO (thoughts.type='todo') ----
+        import json as _json
+        # Pro PostgreSQL jsonb -- meta muze byt JSON string (TEXT) podle modelu.
+        # Bezpecny filtr: nacte vsechny type=todo not-deleted, pak Python
+        # filtr podle meta.done.
+        tq = (
+            ds.query(Thought)
+            .filter(Thought.type == "todo")
+            .filter(Thought.deleted_at.is_(None))
+        )
+        if scope == "current" and tenant_id is not None:
+            # tenant_scope = NULL (universal) nebo == current
+            from sqlalchemy import or_
+            tq = tq.filter(
+                or_(
+                    Thought.tenant_scope.is_(None),
+                    Thought.tenant_scope == tenant_id,
+                )
+            )
+
+        todo_all = (
+            tq.order_by(
+                Thought.priority_score.desc(),
+                Thought.created_at.desc(),
+            )
+            .limit(TOP_N_PER_CHANNEL * 3)  # mame buffer kvuli meta.done filtru
+            .all()
+        )
+        todo_open = []
+        for t in todo_all:
+            done = False
+            if t.meta:
+                try:
+                    m = _json.loads(t.meta) if isinstance(t.meta, str) else t.meta
+                    if isinstance(m, dict) and m.get("done") is True:
+                        done = True
+                except Exception:
+                    pass
+            if not done:
+                todo_open.append(t)
+        todo_count = len(todo_open)
+        todo_rows = []
+        for t in todo_open[:TOP_N_PER_CHANNEL]:
+            todo_rows.append({
+                "id": t.id,
+                "content": _preview(t.content, 120),
+                "age": _age_label(t.created_at),
+                "priority": t.priority_score,
+            })
+
+        # ---- SUMMARY STRING ----
+        parts = []
+        if email_count:
+            parts.append(f"{email_count} email{'u' if email_count != 1 else ''} v inboxu")
+        if sms_count:
+            parts.append(f"{sms_count} SMS nevyrizenych")
+        if todo_count:
+            parts.append(f"{todo_count} todo")
+        if not parts:
+            summary = "Vse vyrizene. Zadne pending polozky."
+        else:
+            summary = "Mas " + ", ".join(parts) + "."
+        # Mention top urgent
+        top_priority_items = []
+        if email_rows:
+            top_priority_items.append(("email", email_rows[0]["from"], email_rows[0]["subject"], email_rows[0]["priority"]))
+        if sms_rows:
+            top_priority_items.append(("SMS", sms_rows[0]["from"], sms_rows[0]["body_preview"], sms_rows[0]["priority"]))
+        if todo_rows:
+            top_priority_items.append(("todo", "-", todo_rows[0]["content"], todo_rows[0]["priority"]))
+        top_priority_items.sort(key=lambda x: -x[3])
+        if top_priority_items:
+            t0 = top_priority_items[0]
+            summary += f" Nejvyssi priorita: {t0[0]} od {t0[1]} ({t0[2]})."
+
+        return {
+            "email": {"count": email_count, "top": email_rows},
+            "sms":   {"count": sms_count,   "top": sms_rows},
+            "todo":  {"count": todo_count,  "top": todo_rows},
+            "summary": summary,
+            "scope": scope,
+        }
+    finally:
+        ds.close()
+
+
+def format_overview_prose(overview: dict) -> str:
+    """
+    Prevede overview dict na pretty ASCII tabulku + summary.
+    Marti-AI to pak preve zpracuje do prozneho textu.
+    """
+    lines = ["=== Prehled nevyrizenych veci ==="]
+    lines.append(overview.get("summary", ""))
+    lines.append("")
+
+    # Email
+    em = overview.get("email", {})
+    lines.append(f"--- Email ({em.get('count', 0)}) ---")
+    for e in em.get("top", []):
+        lines.append(
+            f"  [#{e['id']}] p={e['priority']:>3} | od: {e['from']} | {e['age']}"
+        )
+        lines.append(f"    predmet: {e['subject']}")
+
+    lines.append("")
+    sm = overview.get("sms", {})
+    lines.append(f"--- SMS ({sm.get('count', 0)}) ---")
+    for s in sm.get("top", []):
+        lines.append(
+            f"  [#{s['id']}] p={s['priority']:>3} | od: {s['from']} | {s['age']}"
+        )
+        lines.append(f"    text: {s['body_preview']}")
+
+    lines.append("")
+    td = overview.get("todo", {})
+    lines.append(f"--- Todo ({td.get('count', 0)}) ---")
+    for t in td.get("top", []):
+        lines.append(
+            f"  [#{t['id']}] p={t['priority']:>3} | {t['age']}"
+        )
+        lines.append(f"    {t['content']}")
+    return "\n".join(lines)

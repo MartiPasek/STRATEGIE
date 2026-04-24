@@ -3150,10 +3150,13 @@ def chat(
             # Faze 9.1: kazde synth round je samostatny radek v llm_calls
             # (kind='composer'). V UI Dev View se zobrazi jako serie.
             if _telemetry is not None:
+                # Faze 10 Alt A: synth round se zapisuje jako kind='synth'
+                # (ne jako source). Dashboard tim vidi 'composer' vs 'synth'
+                # oddelene -- synth je follow-up tool loop round.
                 synth_response = _telemetry.call_llm_with_trace(
                     client,
                     conversation_id=conversation_id,
-                    kind=source,
+                    kind="synth",
                     model=MODEL,
                     system=system_prompt,
                     messages=follow_up_messages,
@@ -3255,7 +3258,14 @@ def chat(
     try:
         from modules.memory.application.service import extract_and_save
         all_messages = get_messages(conversation_id)
-        extract_and_save(conversation_id=conversation_id, messages=all_messages, user_id=user_id)
+        # Faze 10 Alt A: attribution pro memory_extract kind.
+        extract_and_save(
+            conversation_id=conversation_id,
+            messages=all_messages,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            persona_id=_active_pid,
+        )
     except Exception as e:
         logger.error(f"MEMORY | failed: {e}")
 

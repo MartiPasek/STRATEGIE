@@ -4063,16 +4063,26 @@
   const _LUPA_LABELS = {
     router: 'Router',
     composer: 'Composer',
+    synth: 'Synth',
     title: 'Title',
     summary: 'Summary',
-    synth: 'Synth',
+    memory_extract: 'Memory',
+    email_suggest: 'Email draft',
+    sms_task: 'SMS task',
+    question_gen: 'Question gen',
+    answer_review: 'Answer review',
   };
   const _LUPA_TOOLTIPS = {
     router: 'Haiku klasifikace modu (personal / project / work / system).',
-    composer: 'Sonnet generovani odpovedi (vcetne tool loop).',
-    title: 'Haiku generovani nazvu konverzace.',
-    summary: 'Sonnet shrnuti starsich zprav konverzace.',
-    synth: 'Sonnet RAG synteza nad retrieved chunky.',
+    composer: 'Sonnet -- hlavni generovani odpovedi.',
+    synth: 'Sonnet -- synth round v tool loopu (po tool_result).',
+    title: 'Haiku -- generovani nazvu konverzace.',
+    summary: 'Sonnet -- shrnuti starsich zprav konverzace.',
+    memory_extract: 'Haiku -- extrakce faktu z konverzace do pameti.',
+    email_suggest: 'Sonnet -- AI draft odpovedi na email (task executor).',
+    sms_task: 'Sonnet -- AI odpoved na prichozi SMS (task executor).',
+    question_gen: 'Haiku -- generovani aktivni learning otazky rodicum.',
+    answer_review: 'Haiku -- zpracovani textove odpovedi rodice.',
   };
 
   function _attachDevLupy(msg, messageId, role, messageType) {

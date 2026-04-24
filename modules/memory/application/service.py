@@ -43,6 +43,7 @@ def extract_and_save(
     user_id: int | None = None,
     tenant_id: int | None = None,
     project_id: int | None = None,
+    persona_id: int | None = None,
 ) -> list[str]:
     """
     Automatická extrakce pamětí z konverzace.
@@ -60,12 +61,30 @@ def extract_and_save(
             f"{m['role'].upper()}: {m['content']}" for m in messages[-10:]  # posledních 10 zpráv
         )
 
-        response = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=512,
-            system=MEMORY_EXTRACTION_PROMPT,
-            messages=[{"role": "user", "content": f"Konverzace:\n\n{conv_text}"}],
-        )
+        # Faze 10 Alt A: call_llm_with_trace -> llm_calls (kind='memory_extract').
+        # Fallback na primy call pri telemetry failure (neshazuje memory extract).
+        try:
+            from modules.conversation.application import telemetry_service as _telemetry
+            response = _telemetry.call_llm_with_trace(
+                client,
+                conversation_id=conversation_id,
+                kind="memory_extract",
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                system=MEMORY_EXTRACTION_PROMPT,
+                messages=[{"role": "user", "content": f"Konverzace:\n\n{conv_text}"}],
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=persona_id,
+            )
+        except Exception as _te:
+            logger.warning(f"MEMORY | telemetry skip: {_te}")
+            response = client.messages.create(
+                model="claude-haiku-4-5-20251001",
+                max_tokens=512,
+                system=MEMORY_EXTRACTION_PROMPT,
+                messages=[{"role": "user", "content": f"Konverzace:\n\n{conv_text}"}],
+            )
 
         raw = response.content[0].text.strip()
         # Odstraní markdown obal

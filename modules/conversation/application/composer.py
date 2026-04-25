@@ -1171,6 +1171,15 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     except Exception:
         multi_mode_enabled = False
 
+    # Faze 13c B-varianta (cleanup): MEMORY_RAG_ENABLED bypassuje multi-mode router.
+    # Per design v memory_rag.md: 'rezignovat na hard router, RAG-driven cognition'.
+    # Kdyz mame RAG (sémanticky vybavena pamet), nepotrebujeme hard mode classification --
+    # kontext sám rozhoduje co se vybaví. Jeden universal persona prompt + RAG injection.
+    # Multi-mode overlay + memory_map se NEPOUZIJI, sparuje se primy fallback path.
+    if settings.memory_rag_enabled:
+        multi_mode_enabled = False
+        logger.info(f"COMPOSER | RAG-driven mode | multi-mode bypassed | conv={conversation_id}")
+
     if multi_mode_enabled and user_id:
         try:
             from modules.conversation.application import (

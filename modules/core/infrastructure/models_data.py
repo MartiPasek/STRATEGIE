@@ -7,7 +7,7 @@ from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
     Integer, Numeric, String, Text
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 from core.database_data import BaseData
 
@@ -796,3 +796,67 @@ class MediaFile(BaseData):
     # Lifecycle
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+# ── THOUGHT VECTORS (Faze 13a Marti Memory v2 RAG) ─────────────────────────
+
+class ThoughtVector(BaseData):
+    """
+    Voyage voyage-3 embedding pro thought.content. 1024 dimensions, cosine distance.
+    HNSW index (vector_cosine_ops) -- viz migrace f1c2d3e4a5b6.
+
+    Mirror DocumentVector pattern -- konzistentni s RAG dokumenty.
+
+    Klicove rozdily proti DocumentVector:
+      - thought_id (ne chunk_id) -- 1:1 s thoughts row
+      - persona ownership (D1: kazda persona ma vlastni namespace pameti)
+      - tenant_scope cache (C1: tenant filter)
+      - entity_*_ids ARRAY (entity disambiguation pres GIN)
+      - is_diary, thought_type (special filter pro mode-aware retrieval)
+
+    Synchronizace s thoughts:
+      - INSERT: po record_thought() -> embedding_service.index_thought
+      - UPDATE: po update_thought() (kdyz se zmeni content) -> reindex
+      - DELETE (soft): explicitne zavolat embedding_service.delete_vector
+        FK CASCADE chrani jen pred fyzickym delete thoughts row.
+    """
+    __tablename__ = "thought_vectors"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    thought_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("thoughts.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    embedding: Mapped[list[float]] = mapped_column(Vector(EMBEDDING_DIM))
+    model: Mapped[str | None] = mapped_column(String(50), nullable=True)   # "voyage-3", pro re-embed pri upgrade
+
+    # === D1: persona ownership (kazda persona ma vlastni namespace pameti) ===
+    author_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # === C1: tenant scope cache (denormalizovano z thoughts pro filter perf) ===
+    tenant_scope: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    status: Mapped[str] = mapped_column(String(20))  # 'note' | 'knowledge'
+
+    # === Entity disambiguation (denormalized z thought_entity_links) ===
+    # Filter v retrievalu: WHERE entity_user_ids @> ARRAY[:user_id]
+    entity_user_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), default=list, nullable=False,
+    )
+    entity_tenant_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), default=list, nullable=False,
+    )
+    entity_project_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), default=list, nullable=False,
+    )
+    entity_persona_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), default=list, nullable=False,
+    )
+
+    # === Meta flags pro filter (z thoughts.meta + thoughts.type) ===
+    # is_diary: pro mode-aware retrieval (personal mode boost, work mode skip)
+    # thought_type: 'fact'|'observation'|'goal'|'experience'|'question'|'todo'
+    is_diary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    thought_type: Mapped[str] = mapped_column(String(20))
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

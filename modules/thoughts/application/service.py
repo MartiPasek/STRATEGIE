@@ -244,9 +244,39 @@ def create_thought(
             f"author_persona={author_persona_id} | tenant={tenant_scope} | "
             f"links={len(cleaned_links)}"
         )
+
+        # Faze 13a: index thought do thought_vectors (RAG memory).
+        # Best effort -- pri chybe Voyage jen warning, nesho create_thought.
+        # Volame az po commit (index_thought si otevre vlastni session).
+        _new_id = t.id
+        _hook_index_thought(_new_id)
+
         return _thought_to_dict(t, entity_links=cleaned_links)
     finally:
         ds.close()
+
+
+def _hook_index_thought(thought_id: int) -> None:
+    """
+    Best-effort hook: indexuje nove vytvorenou nebo upravenou thought do
+    thought_vectors. Pri chybe Voyage / DB jen warning, parent flow nesho.
+
+    Faze 13a (Marti Memory v2 RAG).
+    """
+    try:
+        from modules.thoughts.application import embedding_service as _es
+        _es.index_thought(thought_id, force=True)
+    except Exception as _e:
+        logger.warning(f"THOUGHT | RAG index hook failed | thought_id={thought_id} | {_e}")
+
+
+def _hook_delete_vector(thought_id: int) -> None:
+    """Best-effort hook: smaze vector pri soft_delete_thought."""
+    try:
+        from modules.thoughts.application import embedding_service as _es
+        _es.delete_vector(thought_id)
+    except Exception as _e:
+        logger.warning(f"THOUGHT | RAG delete hook failed | thought_id={thought_id} | {_e}")
 
 
 # ── Read ───────────────────────────────────────────────────────────────────
@@ -447,6 +477,12 @@ def update_thought(
                 ]))
                 + (f" | AUTO-PROMOTED (certainty {prev_certainty}→{certainty})" if auto_promoted else "")
             )
+
+            # Faze 13a: reindex po update -- jen pokud se zmenil content nebo
+            # meta (status/certainty se v vector denorm cache odrazi taky, ale
+            # samotne vector pole se reembeduje jen kvuli content). Konzervativne
+            # reindexujeme pri jakekoliv zmene (cost je negligible -- 1 thought).
+            _hook_index_thought(thought_id)
 
         links = (
             ds.query(ThoughtEntityLink)
@@ -940,6 +976,10 @@ def soft_delete_thought(thought_id: int) -> bool:
         t.deleted_at = datetime.now(timezone.utc)
         ds.commit()
         logger.info(f"THOUGHT | soft deleted | id={thought_id}")
+
+        # Faze 13a: smaz vector z RAG (soft delete v thoughts neflowsuje
+        # cascade do thought_vectors -- musime explicitne).
+        _hook_delete_vector(thought_id)
         return True
     finally:
         ds.close()

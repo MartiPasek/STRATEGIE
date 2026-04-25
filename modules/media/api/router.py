@@ -52,20 +52,42 @@ def _get_uid(req: Request) -> int:
         raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
 
 
-def _get_user_context(user_id: int) -> dict:
-    """Nacte user info pro upload (tenant_id, persona_id z aktivni persony)."""
+def _get_user_context(user_id: int, conversation_id: int | None = None) -> dict:
+    """
+    Nacte user info pro upload.
+
+    tenant_id: z User.last_active_tenant_id (kde Marti zrovna sedi).
+    persona_id:
+      - Primarne z Conversation.active_agent_id (kdyz user uploaduje
+        do existujici konverzace, persona je defacto vlastnik media).
+      - Fallback: bez persony (NULL = system / orphan upload).
+    """
     cs = get_core_session()
     try:
         u = cs.query(User).filter_by(id=user_id).first()
         if u is None:
             raise HTTPException(status_code=401, detail="User neexistuje.")
-        return {
-            "user_id": user_id,
-            "tenant_id": u.last_active_tenant_id,
-            "persona_id": u.last_active_agent_id,
-        }
+        tenant_id = u.last_active_tenant_id
     finally:
         cs.close()
+
+    persona_id: int | None = None
+    if conversation_id is not None:
+        from core.database_data import get_data_session
+        from modules.core.infrastructure.models_data import Conversation
+        ds = get_data_session()
+        try:
+            conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+            if conv is not None:
+                persona_id = conv.active_agent_id
+        finally:
+            ds.close()
+
+    return {
+        "user_id": user_id,
+        "tenant_id": tenant_id,
+        "persona_id": persona_id,
+    }
 
 
 # ── In-memory rate limiter (per user, sliding hour window) ──────────────────
@@ -116,7 +138,7 @@ async def upload(
     """
     user_id = _get_uid(req)
     _check_rate_limit(user_id)
-    ctx = _get_user_context(user_id)
+    ctx = _get_user_context(user_id, conversation_id=conversation_id)
 
     # Persona override / default
     effective_persona = persona_id if persona_id is not None else ctx["persona_id"]

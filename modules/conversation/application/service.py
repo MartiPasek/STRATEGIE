@@ -3006,7 +3006,14 @@ def chat(
         # Jinak (ano bez pendingu a bez email kontextu) = běžné potvrzení,
         # nechej to dojít k Claude standardní cestou.
 
-    _user_msg_id = save_message(conversation_id, role="user", content=user_message,
+    # Faze 12a: pokud user poslal jen image bez textu (drag&drop avatar do
+    # textarea, klik Send), zaznamename placeholder content. Anthropic API
+    # odmita prazdne user messages (400 BadRequest), tohle to preventivne
+    # osetri uz v DB. Marti-AI v Dev View uvidi co user skutecne poslal.
+    _save_content = user_message
+    if (not user_message or not user_message.strip()) and media_ids:
+        _save_content = "[obrázek]"
+    _user_msg_id = save_message(conversation_id, role="user", content=_save_content,
                                  author_type="human", author_user_id=user_id)
     # Faze 12a: Late-fill media_ids -> message_id (multimedia attachments).
     # Volame okamzite po save, aby composer.build_prompt() v dalsim kroku

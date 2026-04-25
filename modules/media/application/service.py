@@ -321,6 +321,13 @@ def attach_to_message(media_ids: list[int], message_id: int) -> int:
     composer dostane media_ids v request, po save_message zavolame tuhle
     funkci pro doplneni FK.
 
+    POZN: VYNECHAVAME 'IS NULL' filter -- pri dedup hit (stejny sha256
+    uploadnuty znovu, treba do nove konverzace) by jinak attach selhal,
+    protoze existujici row jiz ma message_id z drivejsiho uploadu.
+    Last-attach-wins -- image patri posledni zprave, ktera ho poslala.
+    Pro multi-attach (jeden image v nekolika zpravach) bude treba
+    message_media_links table (variant C z multimedia.md, future).
+
     Vraci pocet updatovanych rows.
     """
     if not media_ids:
@@ -329,7 +336,7 @@ def attach_to_message(media_ids: list[int], message_id: int) -> int:
     try:
         updated = (
             ds.query(MediaFile)
-            .filter(MediaFile.id.in_(media_ids), MediaFile.message_id.is_(None))
+            .filter(MediaFile.id.in_(media_ids))
             .update({"message_id": message_id}, synchronize_session=False)
         )
         ds.commit()

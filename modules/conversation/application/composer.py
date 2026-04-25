@@ -550,8 +550,12 @@ def _build_multimodal_content(text: str, images: list[dict]) -> list[dict] | str
         blocks.append({"type": "text", "text": text})
 
     if not blocks:
-        # Vsechny obrazky failly a zadny text -- nemame co poslat, fallback prazdny text
-        return text or ""
+        # Vsechny obrazky failly a zadny text -- vratime fallback placeholder.
+        # PROC: Anthropic API odmita {"role":"user","content":""} s 400
+        # ('user messages must have non-empty content'). Stalo se kdyz user
+        # poslal jen image bez textu a image FS read pak selhal (nebo image
+        # uz neni linknuta).
+        return text or "(zpráva bez textu)"
     return blocks
 
 
@@ -579,10 +583,27 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
         images_by_msg = _load_attached_images(session, msg_ids)
 
         # Build content (multimodal blocks pokud ma obrazky, jinak plain string)
+        # POZN: NIKDY ze sliding window neskipovat zpravy -- Anthropic by mohl
+        # vratit 400 'conversation must end with user message' kdybychom omylem
+        # skipli posledni user msg. Pokud je content prazdny, _build_multimodal_content
+        # uz vrati fallback "(zpráva bez textu)" misto "" -- ten Anthropic
+        # akceptuje. Lepsi mit v history hloupy placeholder nez crashnout chat.
         selected: list[dict] = []
         for msg in selected_msgs:
             attached = images_by_msg.get(msg.id, [])
             content = _build_multimodal_content(msg.content or "", attached)
+            # Posledni safety net -- pro pripad ze _build_multimodal_content
+            # nejak vratil empty (napr. list s vyfiltovanymi failed images).
+            if isinstance(content, str) and not content.strip():
+                content = "(zpráva bez textu)"
+                logger.warning(
+                    f"COMPOSER | empty content fallback | msg_id={msg.id} | role={msg.role}"
+                )
+            elif isinstance(content, list) and len(content) == 0:
+                content = "(zpráva bez textu)"
+                logger.warning(
+                    f"COMPOSER | empty multimodal fallback | msg_id={msg.id} | role={msg.role}"
+                )
             selected.append({"role": msg.role, "content": content})
 
         selected.reverse()

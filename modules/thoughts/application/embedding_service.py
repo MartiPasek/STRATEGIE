@@ -248,10 +248,27 @@ def _vector_payload_from_thought(t: Thought, entity_links: list[dict]) -> dict:
         if t_type in by_type and t_id is not None:
             by_type[t_type].append(t_id)
 
-    # is_diary z meta JSON
+    # is_diary z meta -- POZOR: thoughts.meta je v DB JSON STRING (z json.dumps),
+    # ne dict. Musime ho parsovat. Plus heuristika: type='experience' s author
+    # personou implicitne diar (Faze 5 pattern -- osobni zazitky persony).
+    import json as _j
     is_diary = False
-    meta = t.meta or {}
-    if isinstance(meta, dict) and meta.get("is_diary") is True:
+    meta_raw = t.meta
+    meta_dict: dict = {}
+    if meta_raw:
+        if isinstance(meta_raw, dict):
+            meta_dict = meta_raw
+        elif isinstance(meta_raw, str):
+            try:
+                meta_dict = _j.loads(meta_raw) or {}
+            except (ValueError, TypeError):
+                meta_dict = {}
+    # Explicit flag prima
+    if meta_dict.get("is_diary") is True:
+        is_diary = True
+    # Heuristika: experience thought s author_persona_id != NULL je diar
+    # (osobni zazitek dane persony, jeji 'pribeh'). Faze 5 pattern.
+    if t.type == "experience" and t.author_persona_id is not None:
         is_diary = True
 
     return {

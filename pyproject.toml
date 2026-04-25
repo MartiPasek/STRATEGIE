@@ -25,6 +25,10 @@ pgvector = "^0.3.0"
 voyageai = "^0.3.0"
 markitdown = {extras = ["all"], version = "^0.0.1"}
 python-multipart = "^0.0.10"
+# Multimedia (Faze 12) -- image processing (thumbnails, dimensions detection).
+# Markitdown uz nejakou Pillow ma jako tranzitivni dep, ale eager declarujeme
+# pro jistotu (verzi nezamykame -- Pillow je stable).
+Pillow = "^10.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

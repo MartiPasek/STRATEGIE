@@ -727,3 +727,72 @@ class LlmCall(BaseData):
     is_auto: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── MEDIA FILES (Faze 12a multimedia) ──────────────────────────────────────
+
+class MediaFile(BaseData):
+    """
+    Multimedia uploads (obrazky, audio, video, dokumenty).
+
+    Storage:
+      - storage_provider='local' (default): file je na FS pod
+        D:\\Data\\STRATEGIE\\media\\<persona_id>\\<sha256[:2]>\\<sha256>.<ext>
+      - storage_path je relativni path pod MEDIA_STORAGE_ROOT (provider-specific)
+      - sha256 je primary identitou souboru (deduplication)
+
+    Lifecycle:
+      - upload (POST /api/v1/media/upload) -> insert row + write file
+      - message_id late-fill: upload muze probehnout pred save_message,
+        sloupec je nullable, doplni se UPDATE po vytvoreni messages row
+      - soft delete (deleted_at SET) -- fyzicke mazani souboru pres
+        retention cron (later)
+
+    AI processing:
+      - description: image popis (alt text) z `describe_image` tool
+      - transcript: audio Whisper prepis (Faze 12b)
+      - ai_metadata: volne JSONB pole pro extra (OCR text, sentiment, tagy)
+      - processed_at / processing_error: zaznam pokusu o AI zpracovani
+    """
+    __tablename__ = "media_files"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Vlastnictvi (1 SIM/email = 1 persona pattern)
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Late-fill: upload pred save_message -> message_id se UPDATE doplni
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # File metadata
+    # kind: 'image' | 'audio' | 'video' | 'document' | 'generated_image'
+    kind: Mapped[str] = mapped_column(String(20))
+    # source: 'upload' | 'mms' | 'email_attachment' | 'voice_memo' | 'ai_generated'
+    source: Mapped[str] = mapped_column(String(30))
+    mime_type: Mapped[str] = mapped_column(String(100))
+    file_size: Mapped[int] = mapped_column(BigInteger)  # bytes
+    sha256: Mapped[str] = mapped_column(String(64))    # deduplication klic
+    # storage_provider: 'local' (default), future 's3' / 'r2'
+    storage_provider: Mapped[str] = mapped_column(String(20), default="local", nullable=False)
+    storage_path: Mapped[str] = mapped_column(Text)    # relativni path pod root
+    original_filename: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Image/video metadata (nullable pro audio)
+    width: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    height: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # Audio/video metadata (nullable pro image)
+    duration_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+    # AI processing vystupy
+    transcript: Mapped[str | None] = mapped_column(Text, nullable=True)        # audio (Whisper)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)       # image (alt text)
+    ai_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)     # volne pole
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Lifecycle
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

@@ -24,6 +24,22 @@ class Settings(BaseSettings):
     # necommitovaly. Lze prepsat pres AVATARS_STORAGE_DIR env.
     avatars_storage_dir: str = "Avatary"
 
+    # Multimedia (Faze 12) -- adresar na disku pro media uploads (image/audio).
+    # Per-persona subfolder + sha256 sharding: {MEDIA_STORAGE_ROOT}/{persona_id}/
+    #   {sha256[:2]}/{sha256}.{ext}
+    # Default MIMO projekt -- media files mohou rust do GB (obrazky, audio,
+    # video). Hygiena: kod v repo, runtime data v D:\\Data\\STRATEGIE\\.
+    # Lze prepsat pres MEDIA_STORAGE_ROOT env.
+    media_storage_root: str = "D:/Data/STRATEGIE/media"
+    # Eager thumbnail generation: pri uploadu image se rovnou vytvori
+    # zmensena verze (max MEDIA_THUMBNAIL_SIZE px, JPEG quality 85).
+    # Vyssi storage cost, ale UI okamzite vidi preview.
+    media_thumbnail_size: int = 800
+    # Max upload velikost (bytes). Default 100 MB.
+    media_max_upload_bytes: int = 100 * 1024 * 1024
+    # Rate limit per user (uploads per hour).
+    media_rate_limit_per_user_per_hour: int = 50
+
     # Databases
     database_url: str = ""
     database_core_url: str = ""

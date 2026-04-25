@@ -474,6 +474,87 @@ def _get_latest_summary(conversation_id: int) -> ConversationSummary | None:
         session.close()
 
 
+def _load_attached_images(session, message_ids: list[int]) -> dict[int, list[dict]]:
+    """
+    Faze 12a: Bulk lookup attached images per message.
+
+    Vraci {message_id: [{mime_type, storage_path, id}, ...]} pro vsechny
+    nesoft-deleted obrazky pripnute k danym messages. Volame uvnitr
+    _get_messages a vystavime jako multimodal content blocks pro Anthropic API.
+    """
+    if not message_ids:
+        return {}
+    try:
+        from modules.core.infrastructure.models_data import MediaFile
+    except ImportError:
+        return {}
+    rows = (
+        session.query(MediaFile)
+        .filter(
+            MediaFile.message_id.in_(message_ids),
+            MediaFile.kind == "image",
+            MediaFile.deleted_at.is_(None),
+        )
+        .order_by(MediaFile.id.asc())
+        .all()
+    )
+    by_msg: dict[int, list[dict]] = {}
+    for r in rows:
+        by_msg.setdefault(r.message_id, []).append({
+            "id": r.id,
+            "mime_type": r.mime_type,
+            "storage_path": r.storage_path,
+        })
+    return by_msg
+
+
+def _build_multimodal_content(text: str, images: list[dict]) -> list[dict] | str:
+    """
+    Faze 12a: Sestavi content pro Anthropic API podle pripevnenych obrazku.
+
+    - Bez obrazku -> vraci text jako plain string (zpetna kompatibilita).
+    - S obrazky -> vraci list content blocks: [image1, image2, ..., text].
+
+    Image bytes nacita z FS pres storage_service, base64 enkoduje. Pri
+    selhani jednotlive image (FS missing, decode error) se ji vynecha
+    a logne se warning -- composer nepadne.
+    """
+    if not images:
+        return text or ""
+
+    import base64
+    try:
+        from modules.media.application import storage_service as _media_storage
+    except ImportError:
+        return text or ""
+
+    blocks: list[dict] = []
+    for img in images:
+        try:
+            raw = _media_storage.read_file(img["storage_path"])
+            b64 = base64.b64encode(raw).decode("ascii")
+            blocks.append({
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "media_type": img["mime_type"],
+                    "data": b64,
+                },
+            })
+        except Exception as e:
+            logger.warning(
+                f"COMPOSER | image load failed | media_id={img.get('id')} | {e}"
+            )
+
+    if text:
+        blocks.append({"type": "text", "text": text})
+
+    if not blocks:
+        # Vsechny obrazky failly a zadny text -- nemame co poslat, fallback prazdny text
+        return text or ""
+    return blocks
+
+
 def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dict]:
     session = get_data_session()
     try:
@@ -482,14 +563,27 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
             query = query.filter(Message.id > after_id)
         messages = query.order_by(Message.id.desc()).all()
 
-        selected = []
+        # Sliding window: token-based limit (image tokeny se nepocitaji do MAX_TOKENS,
+        # Anthropic je uctuje separe a vstupy obrazku jsou tu spis vzacne).
+        selected_msgs = []
         used_tokens = 0
         for msg in messages:
             tokens = _estimate_tokens(msg.content)
             if used_tokens + tokens > MAX_TOKENS:
                 break
-            selected.append({"role": msg.role, "content": msg.content})
+            selected_msgs.append(msg)
             used_tokens += tokens
+
+        # Faze 12a: Bulk lookup attached images pro vsechny vybrane msgs
+        msg_ids = [m.id for m in selected_msgs]
+        images_by_msg = _load_attached_images(session, msg_ids)
+
+        # Build content (multimodal blocks pokud ma obrazky, jinak plain string)
+        selected: list[dict] = []
+        for msg in selected_msgs:
+            attached = images_by_msg.get(msg.id, [])
+            content = _build_multimodal_content(msg.content or "", attached)
+            selected.append({"role": msg.role, "content": content})
 
         selected.reverse()
         return selected

@@ -8,6 +8,13 @@ class ChatRequest(BaseModel):
     # frontend ji pošle sem. Backend ji použije jako active_agent_id nově
     # vytvořené konverzace (přepíše default persona fallback).
     preferred_persona_id: int | None = None
+    # Faze 12a multimedia: media_files.id soubory, ktere user prilozil
+    # k teto zprave. Frontend nejdriv volal POST /api/v1/media/upload pro
+    # kazdy soubor a dostal id, pak pri Send je posila tady. Backend po
+    # save_message(user) zavola attach_to_message (late-fill message_id),
+    # composer pak v build_prompt vytvori multimodal content blocks pro
+    # Anthropic API. Maximalne 5 souboru per zprava.
+    media_ids: list[int] | None = None
 
 
 class ChatResponse(BaseModel):
@@ -59,6 +66,11 @@ class HistoryMessage(BaseModel):
     # za kazdy call -- tool loop s N composer rounds znamena N lup.
     # Prazdny list = neni zapsan zadny trace (starsi zprava pred 9.1a).
     llm_calls: list[dict] = []
+    # Faze 12a multimedia: pripevnene media (obrazky/audio/...) k teto zprave.
+    # [{id, kind, mime_type, original_filename, width, height, description}, ...]
+    # UI rendruje image thumbnail (GET /api/v1/media/{id}/preview) v bublino,
+    # klik -> lightbox s GET /raw. Audio: <audio controls src=/raw>.
+    media: list[dict] = []
 
 
 class LastConversationResponse(BaseModel):

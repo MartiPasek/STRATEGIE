@@ -964,6 +964,150 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"TOOL | list_sms_personal failed: {e}")
             return f"Chyba pri list_sms_personal: {e}"
 
+    # Faze 12a multimedia: describe_image / read_text_from_image
+    # Vola Sonnet 4.6 s image content block + popisovaci/OCR prompt.
+    # Vysledek se ulozi do media_files.description / ai_metadata.
+    if tool_name in ("describe_image", "read_text_from_image"):
+        try:
+            import base64 as _b64_img
+            from modules.media.application import service as _media_svc
+            from modules.media.application import storage_service as _media_storage
+
+            media_id_in = tool_input.get("media_id")
+            if media_id_in is None:
+                return "Chyba: chybi media_id."
+            try:
+                media_id_in = int(media_id_in)
+            except (TypeError, ValueError):
+                return f"Chyba: media_id musi byt cislo, dostal '{media_id_in}'."
+
+            # Auth: pouzijeme user_id co volal chat (pres get_media s scope check)
+            row_dict = _media_svc.get_media(media_id_in, user_id) if user_id else None
+            if row_dict is None:
+                return f"Chyba: media #{media_id_in} neexistuje nebo k nemu nemas pristup."
+
+            if row_dict.get("kind") != "image":
+                return (
+                    f"Chyba: media #{media_id_in} neni obrazek "
+                    f"(kind={row_dict.get('kind')}). describe_image / "
+                    f"read_text_from_image funguji jen pro images."
+                )
+
+            # Nacti raw content + base64
+            try:
+                raw = _media_storage.read_file(row_dict["storage_path"])
+            except Exception as _re:
+                return f"Chyba: nelze nacist soubor z FS: {_re}"
+            b64 = _b64_img.b64encode(raw).decode("ascii")
+
+            # Vyber prompt + ulozeni
+            if tool_name == "describe_image":
+                focus = (tool_input.get("focus") or "").strip()
+                if focus:
+                    prompt_text = (
+                        f"Popis tento obrazek detailne, s durazem na: {focus}. "
+                        f"Odpovez cesky, prirozenym jazykem, 2-5 vet."
+                    )
+                else:
+                    prompt_text = (
+                        "Popis tento obrazek detailne -- co vidis, kontext, "
+                        "vyznamne detaily. Odpovez cesky, prirozenym jazykem, 2-5 vet."
+                    )
+                kind_telemetry = "vision_describe"
+            else:  # read_text_from_image
+                lang = (tool_input.get("language") or "cs").strip().lower()
+                lang_label = {"cs": "cestiny", "en": "anglictiny"}.get(lang, lang)
+                prompt_text = (
+                    f"Precti vsechen text z tohoto obrazku ({lang_label}). "
+                    f"Zachovaj puvodni strukturu (radky, odsazeni, odrazky) "
+                    f"jak nejvic to jde. Pokud na obrazku zadny text neni, "
+                    f"napis '(zadny text k precteni)'. Vystup je jen text -- "
+                    f"zadny komentar, popis sceny, ani metadata."
+                )
+                kind_telemetry = "vision_ocr"
+
+            # Volani Anthropic Sonnet 4.6 s image + text content blocks.
+            # Pres telemetry_service pro zaznam do llm_calls (Faze 9.1+).
+            client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
+            try:
+                from modules.conversation.application import telemetry_service as _tele_vis
+                response = _tele_vis.call_llm_with_trace(
+                    client,
+                    conversation_id=conversation_id,
+                    kind=kind_telemetry,
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": row_dict["mime_type"],
+                                    "data": b64,
+                                },
+                            },
+                            {"type": "text", "text": prompt_text},
+                        ],
+                    }],
+                    tenant_id=row_dict.get("tenant_id"),
+                    user_id=user_id,
+                    persona_id=row_dict.get("persona_id"),
+                )
+            except Exception as _te:
+                logger.warning(f"VISION | telemetry skip: {_te}")
+                response = client.messages.create(
+                    model="claude-sonnet-4-6",
+                    max_tokens=2048,
+                    messages=[{
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": row_dict["mime_type"],
+                                    "data": b64,
+                                },
+                            },
+                            {"type": "text", "text": prompt_text},
+                        ],
+                    }],
+                )
+
+            text_out = response.content[0].text.strip() if response.content else ""
+
+            # Persist
+            if tool_name == "describe_image":
+                # description = alt text obrazku
+                _media_svc.save_description(media_id_in, description=text_out)
+            else:
+                # OCR text -> ai_metadata.ocr_text (description zustava bez zmeny,
+                # to je alt text z describe_image -- jiny vystup, jiny field)
+                _media_svc.save_description(
+                    media_id_in,
+                    description=None,  # zachovat existujici
+                    ai_metadata={"ocr_text": text_out, "ocr_language": lang},
+                )
+
+            # Format output: prose, ne raw dump (anti-copy z Faze 11)
+            if tool_name == "describe_image":
+                return f"🖼 Obrazek #{media_id_in}: {text_out}"
+            else:
+                if not text_out or text_out.lower().startswith("(zadny text"):
+                    return f"📃 Na obrazku #{media_id_in} jsem zadny text neprecetla."
+                return f"📃 Text z obrazku #{media_id_in}:\n\n{text_out}"
+
+        except Exception as e:
+            logger.exception(f"TOOL | {tool_name} failed: {e}")
+            try:
+                from modules.media.application import service as _ms_err
+                _ms_err.save_processing_error(int(tool_input.get("media_id") or 0), str(e))
+            except Exception:
+                pass
+            return f"Chyba pri {tool_name}: {e}"
+
     if tool_name == "send_email":
         to = tool_input.get("to", "")
         subject = tool_input.get("subject", "")
@@ -2721,6 +2865,24 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     return ""
 
 
+def _attach_media_to_message_if_any(msg_id: int | None, media_ids: list[int] | None):
+    """
+    Faze 12a: Late-fill pattern -- po save_message(user) doplnime message_id
+    do MediaFile rows, ktere user nahral pred odeslanim. Composer pak v dalsim
+    volani _get_messages najde attached images a vlozi je jako multimodal
+    content blocks pro Anthropic API.
+
+    Bezpecne -- pri jakekoli chybe jen warning, chat() neshazujeme.
+    """
+    if not msg_id or not media_ids:
+        return
+    try:
+        from modules.media.application import service as _media_service_attach
+        _media_service_attach.attach_to_message(media_ids, msg_id)
+    except Exception as _e_attach:
+        logger.warning(f"MEDIA | attach_to_message failed | msg_id={msg_id} | {_e_attach}")
+
+
 def chat(
     conversation_id: int | None,
     user_message: str,
@@ -2729,6 +2891,7 @@ def chat(
     project_id: int | None = None,
     preferred_persona_id: int | None = None,
     source: str = "composer",
+    media_ids: list[int] | None = None,
 ) -> tuple[int, str, dict | None]:
     """
     Vrátí (conversation_id, reply, summary_info).
@@ -2843,8 +3006,12 @@ def chat(
         # Jinak (ano bez pendingu a bez email kontextu) = běžné potvrzení,
         # nechej to dojít k Claude standardní cestou.
 
-    save_message(conversation_id, role="user", content=user_message,
-                 author_type="human", author_user_id=user_id)
+    _user_msg_id = save_message(conversation_id, role="user", content=user_message,
+                                 author_type="human", author_user_id=user_id)
+    # Faze 12a: Late-fill media_ids -> message_id (multimedia attachments).
+    # Volame okamzite po save, aby composer.build_prompt() v dalsim kroku
+    # uz videl attached images.
+    _attach_media_to_message_if_any(_user_msg_id, media_ids)
 
     # ── ČÍSLOVANÁ SELEKCE z předchozího seznamu ───────────────────────
     # Pokud je user_message jen číslo (případně s tečkou) a v pending_actions

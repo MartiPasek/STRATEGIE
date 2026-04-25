@@ -242,6 +242,48 @@ def _lookup_llm_calls(message_ids: list[int]) -> dict[int, list[dict]]:
         return {}
 
 
+def _lookup_message_media(message_ids: list[int]) -> dict[int, list[dict]]:
+    """
+    Faze 12a multimedia: bulk lookup attached MediaFile per message.
+    Vraci {message_id: [{id, kind, mime_type, original_filename, width,
+                          height, description}, ...]}
+    Soft-deleted (deleted_at IS NOT NULL) jsou vyjmuti.
+    Pouziva se v _serialize_messages -- UI podle toho rendruje obrazky
+    v message bubbles.
+    """
+    if not message_ids:
+        return {}
+    try:
+        from modules.core.infrastructure.models_data import MediaFile
+    except ImportError:
+        return {}
+    session = get_data_session()
+    try:
+        rows = (
+            session.query(MediaFile)
+            .filter(
+                MediaFile.message_id.in_(message_ids),
+                MediaFile.deleted_at.is_(None),
+            )
+            .order_by(MediaFile.id.asc())
+            .all()
+        )
+        by_msg: dict[int, list[dict]] = {}
+        for r in rows:
+            by_msg.setdefault(r.message_id, []).append({
+                "id": r.id,
+                "kind": r.kind,
+                "mime_type": r.mime_type,
+                "original_filename": r.original_filename,
+                "width": r.width,
+                "height": r.height,
+                "description": r.description,
+            })
+        return by_msg
+    finally:
+        session.close()
+
+
 def _serialize_messages(messages: list[Message]) -> list[dict]:
     """Serializace listu Message ORM -> dict pro API. Pridava persona_name
     pres bulk JOIN s personas tabulkou (1 query pro N zprav) a created_at
@@ -256,7 +298,10 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
     persona_names = _resolve_persona_names(agent_ids)
     # Faze 9.2b: Bulk lookup llm_calls per message (Dev View dynamicke lupy).
     # Jedna lupa per call -- tool loop s 5 composer rounds = 5 lup.
-    calls_by_id = _lookup_llm_calls([m.id for m in messages])
+    msg_ids = [m.id for m in messages]
+    calls_by_id = _lookup_llm_calls(msg_ids)
+    # Faze 12a: bulk lookup attached media (UI rendruje image preview v bubble)
+    media_by_id = _lookup_message_media(msg_ids)
     # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
     # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
     default_name: str | None = None
@@ -283,6 +328,9 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
             # Faze 9.2b: llm_calls -- UI podle toho zobrazi lupu za kazdy call.
             # [{id, kind, latency_ms}, ...]
             "llm_calls": calls_by_id.get(m.id, []),
+            # Faze 12a: attached media files (image/audio/...). Pouziva se v UI
+            # pro render obrazku v message bubble + lightbox.
+            "media": media_by_id.get(m.id, []),
         })
     return out
 

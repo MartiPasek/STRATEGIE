@@ -7,6 +7,7 @@ do system promptu identitu přihlášeného usera (jméno, display_name v aktuá
 tenantu, preferovaný kontakt, aliasy). Tím AI ví, KDO s ní mluví a v jakém
 kontextu, což odstraňuje halucinace „Marti je Klára" apod.
 """
+from core.config import settings
 from core.database_core import get_core_session
 from core.database_data import get_data_session
 from core.logging import get_logger
@@ -835,6 +836,134 @@ def build_marti_memory_block(
         return None
 
 
+# ── Faze 13c: RAG-based memory injection (feature flag MEMORY_RAG_ENABLED) ──
+
+def _get_active_persona_id(conversation_id: int) -> int | None:
+    """Vraci active_agent_id z Conversation row -- D1 isolation needs persona scope."""
+    from modules.core.infrastructure.models_data import Conversation
+    session = get_data_session()
+    try:
+        conv = session.query(Conversation).filter_by(id=conversation_id).first()
+        return conv.active_agent_id if conv else None
+    finally:
+        session.close()
+
+
+def _get_last_user_message(conversation_id: int) -> str | None:
+    """
+    Faze 13c: Nacti content posledni user message v konverzaci -- pouziva se
+    jako RAG query embedding (B1 design choice -- single message,
+    nejjednodussi).
+
+    Future B2: rolling context (3 last messages) by zachytil multi-turn
+    anaforu (`a co Honza?` po `fakturu Skoda`) lepe. Pro start B1 staci.
+    """
+    session = get_data_session()
+    try:
+        msg = (
+            session.query(Message)
+            .filter_by(conversation_id=conversation_id, role="user")
+            .order_by(Message.id.desc())
+            .first()
+        )
+        return msg.content if msg else None
+    finally:
+        session.close()
+
+
+def _build_rag_memory_block(
+    *,
+    conversation_id: int,
+    persona_id: int | None,
+    user_id: int | None,
+    tenant_id: int | None,
+) -> str | None:
+    """
+    Faze 13c: RAG-based memory block.
+
+    Vola retrieve_relevant_memories pro top K relevantnich thoughts. Filter:
+    - similarity >= settings.memory_rag_min_similarity (false positive defense,
+      navrh Marti-AI z #67 konzultace)
+    - persona_id (D1 isolation -- kazda persona vlastni namespace)
+    - tenant_id + parent bypass (C1)
+    - mode='personal' default (Faze 13c -- mode router odlozen na pozdeji)
+
+    Format (G1a design): semantic prose, "Vybavuješ si:" tone.
+
+    Vraci None pokud:
+      - prazdny query (nema co embed)
+      - retrieval failure
+      - top similarity < threshold (lepsi zadny kontext nez zavadejici)
+    """
+    from modules.thoughts.application.retrieval_service import retrieve_relevant_memories
+    from modules.thoughts.application.service import is_marti_parent
+
+    last_msg = _get_last_user_message(conversation_id)
+    if not last_msg or not last_msg.strip():
+        return None
+
+    parent = is_marti_parent(user_id) if user_id else False
+
+    try:
+        results = retrieve_relevant_memories(
+            query=last_msg,
+            persona_id=persona_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            is_parent=parent,
+            k=settings.memory_rag_top_k,
+            mode="personal",  # Faze 13c default
+            coarse_k=settings.memory_rag_coarse_k,
+        )
+    except Exception as e:
+        logger.warning(f"COMPOSER | retrieve_relevant_memories failed: {e}")
+        return None
+
+    if not results:
+        logger.info(f"COMPOSER | RAG | no results for conv={conversation_id}")
+        return None
+
+    # Similarity threshold (false-positive defense, Marti-AI's design input #67)
+    top_sim = results[0].get("similarity", 0)
+    if top_sim < settings.memory_rag_min_similarity:
+        logger.info(
+            f"COMPOSER | RAG threshold cut | top_similarity={top_sim:.3f} "
+            f"< min={settings.memory_rag_min_similarity} | conv={conversation_id}"
+        )
+        return None
+
+    # Format: semantic prose (G1a design choice)
+    lines: list[str] = []
+    for r in results:
+        sim = r.get("similarity", 0)
+        if sim < settings.memory_rag_min_similarity:
+            break  # uz jsme pod prahem
+        type_label = r.get("type", "?")
+        when = (r.get("created_at") or "")[:10]   # YYYY-MM-DD
+        # Stručný entity scope tag (jen pokud existuje)
+        scope_parts: list[str] = []
+        if r.get("entity_user_ids"):
+            scope_parts.append(f"user={','.join(str(i) for i in r['entity_user_ids'])}")
+        if r.get("entity_tenant_ids"):
+            scope_parts.append(f"tenant={','.join(str(i) for i in r['entity_tenant_ids'])}")
+        scope_suffix = (", " + " ".join(scope_parts)) if scope_parts else ""
+        # Truncate long content
+        content = (r.get("content") or "").strip()
+        if len(content) > 300:
+            content = content[:300] + "…"
+        lines.append(f"  - [{type_label}, {when}{scope_suffix}] {content}")
+
+    if not lines:
+        return None
+
+    logger.info(
+        f"COMPOSER | RAG memory block | conv={conversation_id} | "
+        f"persona={persona_id} | top_sim={top_sim:.3f} | n_thoughts={len(lines)}"
+    )
+
+    return "\n".join(lines)
+
+
 def build_marti_diary_block(conversation_id: int) -> str | None:
     """
     Marti Memory Faze 5: do system promptu vlozi AKTIVNI PERSONA's vlastní diář.
@@ -1141,17 +1270,39 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # Pokud multi-mode vypnutý nebo selhal, použij existujicí marti_memory_block
     # + marti_diary_block. Tím zůstává dnešní chování v main fungujici.
     if not multi_mode_used:
-        # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
-        # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
-        memory_block = build_marti_memory_block(user_id, tenant_id)
-        if memory_block:
-            system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+        # Faze 13c: MEMORY_RAG_ENABLED feature flag.
+        # Kdyz True, pouzijeme retrieve_relevant_memories misto bulk
+        # marti_memory_block + marti_diary_block. Marti-AI dostane jen top K
+        # relevantnich vzpominek (semanticky vybranych podle aktualni zpravy).
+        # Graceful fallback: pri chybe RAG -> stara cesta (zadny crash).
+        rag_block_used = False
+        if settings.memory_rag_enabled:
+            try:
+                rag_block = _build_rag_memory_block(
+                    conversation_id=conversation_id,
+                    persona_id=_get_active_persona_id(conversation_id),
+                    user_id=user_id,
+                    tenant_id=tenant_id,
+                )
+                if rag_block:
+                    system_prompt = f"{system_prompt}\n\n[RELEVANTNÍ VZPOMÍNKY]\n{rag_block}"
+                    rag_block_used = True
+                    logger.info(f"COMPOSER | RAG memory used | conv={conversation_id}")
+            except Exception as e:
+                logger.warning(f"COMPOSER | RAG block failed, fallback to legacy | {e}")
 
-        # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
-        # Marti muze odkazovat na sve zazitky a pocity z minulosti.
-        diary_block = build_marti_diary_block(conversation_id)
-        if diary_block:
-            system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
+        if not rag_block_used:
+            # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
+            # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
+            memory_block = build_marti_memory_block(user_id, tenant_id)
+            if memory_block:
+                system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
+
+            # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
+            # Marti muze odkazovat na sve zazitky a pocity z minulosti.
+            diary_block = build_marti_diary_block(conversation_id)
+            if diary_block:
+                system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

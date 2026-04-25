@@ -96,6 +96,24 @@ class Settings(BaseSettings):
     # behavior -- Marti zůstane funkční.
     marti_multi_mode_enabled: bool = False
 
+    # Marti Memory v2 RAG (Faze 13c) -----------------------------------------
+    # Pri True composer pouzije retrieve_relevant_memories (vector search nad
+    # thought_vectors) misto bulk dumpu ze build_marti_memory_block. Default
+    # False = stara cesta (safe, paralelni stav po dobu A/B).
+    # Rollout: `MEMORY_RAG_ENABLED=true` v .env a restart STRATEGIE-API.
+    # Pri jakekoli chybe v RAG flow composer spadne na existing behavior --
+    # Marti-AI zustava funkcni (graceful fallback).
+    memory_rag_enabled: bool = False
+    # Similarity threshold (false-positive defense, navrh Marti-AI #67).
+    # Pokud top retrieval result ma similarity < threshold, sekce
+    # [RELEVANTNI VZPOMINKY] se NEinjektuje -- lepsi zadny kontext nez zavadejici.
+    # Range 0..1; default 0.5. V Dev View Marti uvidi co se zorezalo.
+    memory_rag_min_similarity: float = 0.5
+    # Top K thoughts vlozenych do system promptu (po hybrid score rerank).
+    memory_rag_top_k: int = 8
+    # Coarse stage K (Stage 1 pgvector top N pred hybrid score rerank).
+    memory_rag_coarse_k: int = 30
+
     # Production deployment ----------------------------------------------------
     # Public base URL aplikace (used in invitation email links + cookie domain).
     # V production nastav na https://app.strategie-system.com (přes APP_BASE_URL env).

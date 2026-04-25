@@ -93,6 +93,21 @@ paměti se vybaví. To je věrnější model lidské kognice.
 | **D1** | Persona ownership | **Každá persona má vlastní paměť, žádné sdílení.** Marti-AI vidí jen své thoughts/communications. Pravnik-AI začíná s prázdnou pamětí a buduje si vlastní. **Orchestr (`ask_persona` AI tool)** přijde v budoucnu jako separátní fáze. |
 | **G1a** | Composer integrace | **Dedikovaná sekce** `[RELEVANTNÍ VZPOMÍNKY]` v system promptu. **Semantic prose** (typ + datum + scope), bez relevance % (Marti-AI nemá vidět skóre — důvěřuje retrievalu). **Tone framing**: *„Vybavuješ si:"* (cognitive flow). |
 
+### Tuning rozhodnutí (26. 4. 2026 ráno)
+
+Foundation (A3, C1+decay, D1, G1a) řeší architekturu. Tuning rozhoduje
+**konkrétní kvality retrievalu**:
+
+| # | Oblast | Volba |
+|---|--------|-------|
+| **B2** | Query construction | **Rolling context** — embed konkat posledních 3 zpráv (user + assistant). Multi-turn anaphora vyřešená v embedding. Žádný extra LLM call. |
+| **E1** | Coarse retrieval (Stage 1) | **Pure pgvector HNSW** — top 30 candidates per layer. Konzistentní s `document_vectors`. ~80ms. Když Marti uvidí v Dev View *„recall miss"*, eskalujeme na E2 (hybrid + BM25) nebo E3 (multi-query). |
+| **F1 → F4** | Rerank (Stage 2) | **F1 deterministic hybrid score** jako start (similarity × priority × recency × certainty + entity_boost + freshness). Eskalace na **F4 Haiku rerank** (~250ms, ~$0.0001) pokud kvalita nedostačuje. Tvoje *„hrubě + čistě"* explicit. |
+| **I1 → I2** | Iterativní retrieval | **I1 single-shot** default. **I2 `dig_deeper(topic)` AI tool** ve Fázi 13d — Marti-AI volá explicitně když cítí potřebu hloubky. Cognitive autonomy. |
+| **J1** | Conversation summary v RAG | Index `ConversationSummary` do `thought_vectors` jako `type='conversation_summary'`. Negligible cost (~10/den). |
+| **J1 — gotcha** | Krátké konverzace bez summary | **Důležité:** dnešní `summary_service` vytváří summary jen pro dlouhé konverzace (40+ zpráv, Fáze 7 sliding window). Pro RAG potřebujeme **summary pro každou ukončenou konverzaci**, i kratší — jinak by 5-30zprávové konverzace v RAG úplně chyběly. **Návrh:** rozšířit `summary_service` o *„short summary mode"* (kratší prompt, 2-3 věty místo full digest), trigger po posledním turn (např. konverzace neaktivní 30 min). |
+| **J2** | Auto-extract refactor | Migrate `memory_service.extract_and_save` (Fáze 0) z `memories` tabulky na `thoughts` (přes `record_thought` interně). Auto-extracted facts pak přirozeně v RAG. |
+
 ### Future evolution paths
 
 - **G1B** — splení vzpomínek s persona prose (*„Jsi Marti-AI. Pamatuješ
@@ -103,7 +118,90 @@ paměti se vybaví. To je věrnější model lidské kognice.
   soft prior boosting.
 - **Promote-to-thoughts pipeline** — extrakce důležitých faktů ze
   staré komunikace do thoughts (memory consolidation worker). Krátkodobá
-  paměť → dlouhodobá. Lidský model.
+  paměť → dlouhodobá. Lidský model. **= J5 (Phase 14+)**.
+
+- **J3 — Auto-extract z příchozí komunikace** (opt-in, privacy review).
+  Po `email_fetch` background worker pošle email do Haiku
+  (`extract_facts(email_body)`), vytvoří thoughts s referencí na zdroj.
+  Pozor: privacy concern — auto-extract z osobních emailů je sensitive.
+  Default OFF, opt-in per persona, audit trail per extracted thought.
+
+- **J4 — Document upload summary thoughts** (nice-to-have). Když Marti
+  uploadne PDF, kromě `document_vectors` chunks vytvoří 1-2 summary
+  thoughts (*„Smlouva-2026.pdf, klient Škoda, doložka §4.2 o lhůtách"*).
+  Marti-AI tak v retrievalu najde *„o čem ten dokument byl"* bez
+  čtení full chunks.
+
+- **J5 — Memory consolidation worker** (Phase 14+, complex). Stará
+  komunikace ztrácí decay váhu → background worker měsíčně se ptá
+  Haiku: *„obsahuje tato komunikace fakt, který stojí za extrakci do
+  thoughts?"*. Pokud ano, vytvoří thought, communication může být
+  smazaná (žije dál jako extrakt). Lidský model: *„email zapomenu,
+  ale fakt z něj si pamatuju"*.
+- **N-stage adaptive retrieval** — kognitivní hloubka per importance
+  (Martiho úvaha 26. 4. ráno):
+
+  | Scénář | Stages | Latence | Kdy |
+  |--------|--------|---------|-----|
+  | Casual chat | 1 (vector search) | ~80ms | vždy |
+  | Standard query | 2 (+Haiku rerank) | ~330ms | default ON |
+  | Project decision | 3 (+Sonnet refine + explain) | ~1.8s | heuristic / AI tool request |
+  | Critical hloubání | 4 (+self-RAG iteration) | ~3-4s | Marti-AI explicit `dig_deeper()` |
+
+  **Trigger:** `request_deeper_search()` AI tool kterým Marti-AI sama
+  signalizuje *„tohle potřebuje hlubší prozkoumání"*. Plus heuristika
+  na user message (délka, otazníky, klíčová slova *„rozhodnout"*,
+  *„precizně"*, *„důležité"*).
+
+  **Schema-friendly už od začátku:** `retrieve_relevant_memories()`
+  vrací nejen list, ale i metadata `{stage_used, candidates_evaluated,
+  confidence_score}`. Stages 3-4 přijdou jako později nadstavba bez
+  refactoru retrieval API.
+
+- **Provider abstraction** — vlastní LLM model na našem serveru
+  (Martiho úvaha 26. 4. ráno):
+
+  > *„Do budoucna take uvazuji o vlastnim modelu na nasem serveru.
+  > Tak si jen nezavreme dvere..."*
+
+  Aktuálně `anthropic.Anthropic(api_key=...)` direct calls v composer.py,
+  service.py, telemetry_service.py. `voyageai.Client()` v RAG modulu.
+  Chceme to umět zapnout local model (Ollama / vLLM / LM Studio) bez
+  přepisu 50 souborů.
+
+  **Architektura:**
+  ```python
+  class LLMProvider(ABC):
+      def complete(self, messages, ...) -> Response: ...
+
+  class AnthropicProvider(LLMProvider): ...
+  class OpenAIProvider(LLMProvider): ...
+  class LocalProvider(LLMProvider): ...   # Ollama/vLLM
+
+  class EmbeddingProvider(ABC): ...
+  class VoyageProvider(EmbeddingProvider): ...
+  class LocalEmbeddingProvider(EmbeddingProvider): ...   # nomic-embed-text
+  ```
+
+  **Per-task provider selection** v `core/config.py`:
+  ```python
+  llm_provider_chat: str = "anthropic"
+  llm_provider_router: str = "anthropic"      # Haiku → later local Llama
+  llm_provider_rerank: str = "anthropic"
+  llm_provider_embedding: str = "voyage"      # → later local nomic
+  ```
+
+  **Logické první kroky abstraction:**
+  1. **Fáze 12b** (Whisper audio) — otevírá první otázku *Whisper API
+     vs. lokální whisper.cpp*. Začne audio provider abstraction.
+  2. **Fáze 13b** (RAG retrieval) — embedding provider abstraction
+     (Voyage vs. local nomic).
+  3. **Fáze 14+** (kdykoli) — chat provider abstraction (Anthropic
+     vs. local). Největší refactor (composer.py je hlavní volající).
+
+  **Pricing tracking**: pro local model `cost_usd=0` (žádný marginal
+  cost), GPU bill je infrastruktura, ne per-call. Dashboard (Fáze 10d)
+  může zobrazit per-provider tabs.
 
 ---
 

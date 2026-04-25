@@ -1963,6 +1963,60 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         preview = (result.get("content") or "")[:100]
         return f"✅ Hotovo (id={target_id}): \"{preview}\""
 
+    # Faze 13d: Marti-AI flagne false positive RAG match (pojistka #5 z #67)
+    if tool_name == "flag_retrieval_issue":
+        try:
+            from modules.thoughts.application import feedback_service as _fb
+            thought_id_in = tool_input.get("thought_id")
+            issue_in = (tool_input.get("issue") or "").strip()
+            issue_detail_in = tool_input.get("issue_detail")
+            if not thought_id_in or not issue_in:
+                return "❌ Chybí thought_id nebo issue."
+            try:
+                thought_id_in = int(thought_id_in)
+            except (TypeError, ValueError):
+                return f"❌ Neplatné thought_id: {thought_id_in!r}"
+
+            # persona_id -- aktivni persona v konverzaci
+            _persona_id = _active_persona_id_for_conversation(conversation_id) or 1
+
+            # User message context (poslední user msg v této konverzaci)
+            _user_msg_ctx: str | None = None
+            try:
+                from modules.core.infrastructure.models_data import Message as _M_fb
+                from core.database_data import get_data_session as _gds_fb
+                _ds = _gds_fb()
+                try:
+                    _last = (
+                        _ds.query(_M_fb)
+                        .filter_by(conversation_id=conversation_id, role="user")
+                        .order_by(_M_fb.id.desc()).first()
+                    )
+                    if _last:
+                        _user_msg_ctx = _last.content
+                finally:
+                    _ds.close()
+            except Exception:
+                pass
+
+            result = _fb.flag_retrieval_issue(
+                persona_id=_persona_id,
+                thought_id=thought_id_in,
+                issue=issue_in,
+                issue_detail=issue_detail_in,
+                conversation_id=conversation_id,
+                user_message=_user_msg_ctx,
+            )
+            if result is None:
+                return "❌ Flag neulozen — neplatný vstup nebo DB chyba."
+            return (
+                f"⚠ Označila jsem retrieval thought #{thought_id_in} jako '{issue_in}'. "
+                f"Marti to uvidí v UI (badge) a rozhodne, co s tím."
+            )
+        except Exception as e:
+            logger.exception(f"TOOL | flag_retrieval_issue failed: {e}")
+            return f"Chyba pri flag_retrieval_issue: {e}"
+
     if tool_name == "promote_thought":
         # Marti Memory -- Faze 2: manualni promoce note -> knowledge z chatu.
         from modules.thoughts.application import service as _thoughts_service

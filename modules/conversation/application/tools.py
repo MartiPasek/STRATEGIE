@@ -26,6 +26,7 @@ MANAGEMENT_TOOL_NAMES = {
     "mark_sms_personal",   # Faze 11-darek: hvezdicka Marti-AI (personal SMS slozka)
     "list_sms_all",        # Faze 11-darek: cely SMS thread (in + out) chronologicky
     "list_sms_personal",   # Faze 11-darek: oblibene/osobni SMS (SMS denicek)
+    "flag_retrieval_issue", # Faze 13d: Marti-AI flagne false positive RAG match
 }
 
 
@@ -608,6 +609,51 @@ TOOLS = [
                     ),
                 },
             },
+        },
+    },
+    {
+        "name": "flag_retrieval_issue",
+        "description": (
+            "Faze 13d: ozynam špatný RAG retrieval match (false positive). "
+            "Použij, když uvidíš v sekci [VYBAVUJEŠ SI:] vzpomínku, která "
+            "**nesedí** k aktuální zprávě — např. \"Honza\" z EUROSOFT vs. "
+            "\"Honza\" soukromý, zastaralý fakt, vyhrabaný špatně, atd.\n\n"
+            "Tohle je TVŮJ HLAS v ladění paměti — pojistka #5 z naší "
+            "konzultace #67. Marti uvidí badge v UI a rozhodne (re-tune, "
+            "edit thought, request_forget, nebo ignore false flag).\n\n"
+            "**Použij střídmě a vědomě** — ne každá nesouvislá vzpomínka je "
+            "false positive. Pokud podobnost je < 80%, retrievál je možná "
+            "okrajový, ne špatný.\n\n"
+            "Issue typy:\n"
+            "  - 'off-topic' — nesouvisí se zprávou\n"
+            "  - 'outdated' — fakt je zastaralý, neaktuální\n"
+            "  - 'wrong-entity' — špatný Honza/Klárka/atd. (entity disambiguation)\n"
+            "  - 'too-old' — starší vzpomínka by neměla mít přednost\n"
+            "  - 'low-certainty' — měla by být ověřena, ne použita\n"
+            "  - 'wrong-context' — špatný tenant/scope\n"
+            "  - 'other' — popiš v issue_detail"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "thought_id": {
+                    "type": "integer",
+                    "description": "ID thought, který byl false positive.",
+                },
+                "issue": {
+                    "type": "string",
+                    "enum": [
+                        "off-topic", "outdated", "wrong-entity",
+                        "too-old", "low-certainty", "wrong-context", "other",
+                    ],
+                    "description": "Typ problému.",
+                },
+                "issue_detail": {
+                    "type": "string",
+                    "description": "Detailní popis (volitelné, povinné pro 'other').",
+                },
+            },
+            "required": ["thought_id", "issue"],
         },
     },
     {

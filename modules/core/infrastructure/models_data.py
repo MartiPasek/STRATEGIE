@@ -860,3 +860,52 @@ class ThoughtVector(BaseData):
     thought_type: Mapped[str] = mapped_column(String(20))
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── RETRIEVAL FEEDBACK (Faze 13d) ──────────────────────────────────────────
+
+class RetrievalFeedback(BaseData):
+    """
+    Marti-AI flagne false positive RAG match (pojistka #5 z konzultace #67).
+
+    Workflow:
+      1. Marti-AI v chatu identifikuje 'hm, tahle vzpomínka tu nesedi'
+      2. Vola flag_retrieval_issue(thought_id, issue) tool
+      3. Vznikne row se status='pending'
+      4. Marti vidi badge v UI ('Marti-AI flag-uje (3)'), otevre modal
+      5. Rozhodne: 'reviewed' + resolution (re-tune, edit_thought,
+         request_forget) NEBO 'ignored' (false flag)
+
+    Status:
+      - pending: ceka na review od user
+      - reviewed: user akci provedl, vyresseno
+      - ignored: user oznacil jako false flag (Marti-AI mela neopravnenou intuici)
+    """
+    __tablename__ = "retrieval_feedback"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # D1: persona ownership
+    persona_id: Mapped[int] = mapped_column(BigInteger)
+
+    # Cilovy thought + kontext
+    thought_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("thoughts.id", ondelete="CASCADE"),
+    )
+    llm_call_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Popis problému
+    issue: Mapped[str] = mapped_column(String(50))   # 'off-topic'|'outdated'|'wrong-entity'|...
+    issue_detail: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Workflow
+    status: Mapped[str] = mapped_column(String(20), default="pending", nullable=False)
+    resolution: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    resolved_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    resolved_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

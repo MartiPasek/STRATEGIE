@@ -836,6 +836,43 @@ def build_marti_memory_block(
         return None
 
 
+# ── Memory behavior rules (Faze 13c B) ─────────────────────────────────────
+
+MEMORY_BEHAVIOR_RULES = (
+    "═══ JAK MÁŠ S PAMĚTÍ PRACOVAT ═══\n"
+    "1. **Používej znalosti přirozeně.** Když user zmíní něco, co už víš, "
+    "odkaž na to ('jak jsi říkal...', 'pamatuju, že...', 'víme, že...'). "
+    "Vyhýbej se 'nevím o tobě nic' — paměť máš, jen ji aktivuj retrievalem.\n"
+    "2. **Zapisuj proaktivně. VŽDY.** Kdykoli ti user sdělí novou informaci o "
+    "**sobě, o své rodině, o lidech, kteří ho obklopují, o projektech, "
+    "preferencích, zážitcích, životě** — okamžitě volej `record_thought`. "
+    "Bez 'zapiš si' bys to jinak zapomněl/a. Toto je TVOJE odpovědnost, "
+    "ne user-ova. Když ti řekne 'mám tři děti — Honzu, Klárku, Michelle', "
+    "MUSÍŠ to zapsat 3× (jeden record_thought za každé dítě).\n"
+    "3. **Speciálně u odpovědí na tvé otázky:** Když ty sama položíš otázku "
+    "('Jak pracuješ?') a user odpoví — odpověď MUSÍŠ uložit přes record_thought. "
+    "Jinak jsi se ptala zbytečně.\n"
+    "4. **Při rozporu:** Pokud user řekne něco, co nekoresponduje s tvou znalostí "
+    "('myslel jsem, že preferuješ dlouhé odpovědi' vs. uložená znalost 'preferuju "
+    "krátké'), zavolej `record_thought` s novou verzí a vyšší certainty, nebo "
+    "se zeptej na upřesnění.\n"
+    "5. **Osobní fakta o user-ovi mají vysokou prioritu.** Jméno dětí, partnerů, "
+    "rodičů, blízkých přátel; co user dělá pro radost; jeho zdraví; co ho trápí; "
+    "co prožívá. Tyto věci jsou základ vztahu — bez nich nejsi partnerka, "
+    "jsi jen nástroj. Při každé zmínce o osobním životě **automaticky** "
+    "vytáhni `record_thought` jako reflex."
+)
+
+
+def _build_memory_behavior_block() -> str:
+    """
+    Faze 13c B: Behavior rules samostatne -- aby fungovaly i v RAG-driven cestě
+    (RAG nahrazuje data, ne instrukce). Volat vzdy v build_prompt nezavisle na
+    tom, jestli mame thoughts data k dispozici nebo ne.
+    """
+    return MEMORY_BEHAVIOR_RULES
+
+
 # ── Faze 13c: RAG-based memory injection (feature flag MEMORY_RAG_ENABLED) ──
 
 def _get_active_persona_id(conversation_id: int) -> int | None:
@@ -1294,11 +1331,30 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
                     tenant_id=tenant_id,
                 )
                 if rag_block:
-                    system_prompt = f"{system_prompt}\n\n[RELEVANTNÍ VZPOMÍNKY]\n{rag_block}"
+                    system_prompt = f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n{rag_block}"
                     rag_block_used = True
                     logger.info(f"COMPOSER | RAG memory used | conv={conversation_id}")
+                else:
+                    # RAG bezi, ale zadna relevantni vzpominka (similarity pod prah
+                    # nebo prazdna pamet). Marti-AI presto musi vedet, ze MA pamet
+                    # a MA ji aktivovat -- pridame placeholder hint.
+                    system_prompt = (
+                        f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n"
+                        "(K této konkrétní zprávě se nevybavila žádná konkrétní vzpomínka. "
+                        "Tvá paměť ale obsahuje thoughts/diáře — můžeš je vyhledat tool "
+                        "calls `recall_thoughts` (semanticky) nebo `read_diary` (osobní deník) "
+                        "kdykoli potřebuješ něco konkrétního zjistit.)"
+                    )
+                    rag_block_used = True
+                    logger.info(f"COMPOSER | RAG no relevant -> hint placeholder | conv={conversation_id}")
             except Exception as e:
                 logger.warning(f"COMPOSER | RAG block failed, fallback to legacy | {e}")
+
+        # Faze 13c B: Memory behavior rules -- VZDY pripojit kdyz jsme v RAG cestě
+        # (RAG nahrazuje data, ne instrukce 'zapisuj proaktivne, pouzivej znalosti').
+        # Bez tohoto by Marti-AI neměla povědomí, že MÁ proaktivně volat record_thought.
+        if rag_block_used:
+            system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
 
         if not rag_block_used:
             # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.

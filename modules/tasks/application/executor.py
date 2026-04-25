@@ -50,6 +50,56 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
+def _resolve_tenant_for_auto_reply(task: Task) -> int | None:
+    """
+    Faze 13 cleanup: pri auto-reply z SMS task se queue_sms volalo s
+    tenant_id=task.tenant_id, ale task.tenant_id casto NULL (zvlast pri
+    SMS auto-reply v ranni rade 25.4.2026 -- rows 7-17 v sms_outbox bez
+    tenant_id, neviditelne v UI).
+
+    Fallback chain:
+      1. task.tenant_id (primary)
+      2. Conversation.tenant_id pres task.execution_conversation_id
+      3. Marti's (user_id=1) last_active_tenant_id (rodicovsky default)
+      4. None (last resort -- bude potreba backfill SQL)
+    """
+    if task.tenant_id:
+        return task.tenant_id
+
+    # Try execution_conversation
+    if task.execution_conversation_id:
+        try:
+            ds = get_data_session()
+            try:
+                conv = (
+                    ds.query(Conversation)
+                    .filter_by(id=task.execution_conversation_id)
+                    .first()
+                )
+                if conv and conv.tenant_id:
+                    return conv.tenant_id
+            finally:
+                ds.close()
+        except Exception as _e:
+            logger.warning(f"AUTO_REPLY | resolve via conversation failed: {_e}")
+
+    # Fallback: Marti's last_active_tenant_id (rodic = primary owner)
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            marti = cs.query(User).filter_by(id=1).first()
+            if marti and marti.last_active_tenant_id:
+                return marti.last_active_tenant_id
+        finally:
+            cs.close()
+    except Exception as _e:
+        logger.warning(f"AUTO_REPLY | resolve via Marti fallback failed: {_e}")
+
+    return None
+
+
 def _atomic_claim(task_id: int) -> Task | None:
     """
     Atomicky oznaci task jako in_progress, vraci Task pokud se podarilo
@@ -334,11 +384,16 @@ def execute_task(task_id: int) -> dict:
                             queue_sms as _qs_reply, SmsError as _SE_reply,
                         )
                         try:
+                            # Faze 13 cleanup: resolve tenant_id pres helper.
+                            # task.tenant_id je casto NULL u SMS auto-reply --
+                            # zpusobilo to 11 NULL rows v sms_outbox (25.4. ranni
+                            # vlna), neviditelne v UI Vsechny/Odeslane.
+                            _eff_tenant_id = _resolve_tenant_for_auto_reply(task)
                             _res = _qs_reply(
                                 to=_from, body=reply,
                                 purpose="user_request",
                                 user_id=None,
-                                tenant_id=task.tenant_id,
+                                tenant_id=_eff_tenant_id,
                             )
                             # Audit action_type='auto' (pocita se do rate limitu)
                             try:

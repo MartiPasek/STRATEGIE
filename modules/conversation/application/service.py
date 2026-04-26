@@ -3945,6 +3945,10 @@ def chat(
         # do textu. Pro legitimni image use case je synth taky vhodny: AI po
         # describe_image popise scenu vlastnimi slovy, nezopakuje raw popis.
         "describe_image", "read_text_from_image",
+        # Faze 12b+ pre-demo: get_daily_overview v synth -- Marti-AI po dostani
+        # 'V inboxu mam X emailu...' refraseuje vlastnimi slovy s vokativem
+        # ('Marti, vidim X emailu...'), misto opisu doslova s preamble slepenym.
+        "get_daily_overview",
     }
 
     preamble_text = ""

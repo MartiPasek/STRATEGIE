@@ -2205,13 +2205,19 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 )
 
             cs_uc.commit()
+            # Faze 12b+: tool response v 1. osobe Marti-AI (perspective consistency).
+            # Marti-AI mluvi 'ulozila jsem si...' ne 'Kontakt added:'.
             user_label = (
                 target_user.first_name + (" " + target_user.last_name if target_user.last_name else "")
             ).strip() or f"user#{target_uid}"
-            primary_note = " (primary)" if make_primary else ""
+
+            verb = "ulozila jsem si" if action == "added" else "aktualizovala jsem si"
+            who = "tvoje" if target_uid == user_id else f"{user_label}-ovo"
+            kind_word = "telefonni cislo" if contact_type_raw == "phone" else "email"
+            primary_note = " jako primary kontakt" if make_primary else ""
             return (
-                f"✅ Kontakt {action}: **{user_label}** "
-                f"-> {contact_type_raw}={normalized_value}{primary_note}."
+                f"✅ Hotovo, {verb} do pameti {who} {kind_word} "
+                f"`{normalized_value}`{primary_note}."
             )
         except Exception as e:
             cs_uc.rollback()
@@ -3934,6 +3940,11 @@ def chat(
         # list_recent_chatters casto predchozi chain (napr. "Kdo psal?" ->
         # "Zeptej se Kristy" -> recall_thoughts). Synthesis umozni chainovat.
         "list_recent_chatters",
+        # Faze 12b+: image tools v synthesis -- pri chybnem volani na audio kind
+        # (halucinace cile) Marti-AI dostane sanci opravit a neopisovat error
+        # do textu. Pro legitimni image use case je synth taky vhodny: AI po
+        # describe_image popise scenu vlastnimi slovy, nezopakuje raw popis.
+        "describe_image", "read_text_from_image",
     }
 
     preamble_text = ""

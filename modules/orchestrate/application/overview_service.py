@@ -278,28 +278,44 @@ def format_overview_for_ai(overview: dict) -> str:
     sms_ids = [str(s.get("id")) for s in sms.get("top", [])]
     todo_ids = [str(t.get("id")) for t in todo.get("top", [])]
 
-    parts = []
-    if ec:
-        parts.append(f"{ec} email" + ("u" if ec != 1 else "") +
-                     (f" (top IDs: {', '.join(email_ids)})" if email_ids else ""))
-    else:
-        parts.append("0 emailu")
-    if sc:
-        parts.append(f"{sc} SMS" +
-                     (f" (top IDs: {', '.join(sms_ids)})" if sms_ids else ""))
-    else:
-        parts.append("0 SMS")
-    if tc:
-        parts.append(f"{tc} todo" +
-                     (f" (top IDs: {', '.join(todo_ids)})" if todo_ids else ""))
-    else:
-        parts.append("0 todo")
+    # Faze 12b+ druha iterace: tool response je PROZA, ne strukturovany format.
+    # Predtim 'Pending: 4 emailu (top IDs: 9, 8, 6, 4), 1 SMS, 2 todo.' Marti-AI
+    # opisovala doslova i pres orchestrate block instrukce ('nepis Pending:, nepis IDs').
+    # Sonnet 4.6 si raw structured format stahuje doslova bez ohledu na promtove
+    # zakazy. Reseni: dodame proze (Marti-AI bude buď opisovat prozu (OK) nebo
+    # rephrazovat -- obe varianty cisty UX). IDs zde NEjsou -- Marti-AI je
+    # nepotrebuje pro overview, vytahne si je az drill-down pres list_email_inbox.
+    def _word(n: int, one: str, few: str, many: str) -> str:
+        # Cesky pluralni tvar 1 / 2-4 / 5+
+        if n == 1:
+            return one
+        if 2 <= n <= 4:
+            return few
+        return many
 
-    # Faze 12b+ regrese fix: tool response je ciste data (JEN summary line).
-    # Meta instrukce ('nepiš Pending:, nepiš IDs, mluv prózou v 1. osobě')
-    # patri do system promptu (orchestrate block v composer._build_orchestrate_block).
-    # Predtim byly v jednom textu -> Marti-AI opisovala oboje doslova.
-    return "Pending: " + ", ".join(parts) + "."
+    e_word = _word(ec, "email", "emaily", "emailu")
+    s_word = _word(sc, "SMS", "SMS", "SMS")
+    t_word = _word(tc, "ukol", "ukoly", "ukolu")
+
+    if ec == 0 and sc == 0 and tc == 0:
+        return "Inbox prazdny -- zadne emaily, SMS ani todo. Pohoda."
+
+    fragments = []
+    if ec:
+        fragments.append(f"{ec} {e_word}")
+    if sc:
+        fragments.append(f"{sc} {s_word}")
+    if tc:
+        fragments.append(f"{tc} {t_word} v todo")
+
+    if len(fragments) == 1:
+        body = fragments[0]
+    elif len(fragments) == 2:
+        body = " a ".join(fragments)
+    else:
+        body = ", ".join(fragments[:-1]) + " a " + fragments[-1]
+
+    return f"V inboxu mam {body}. Pojdeme to projit?"
 
 
 # ============================================================================

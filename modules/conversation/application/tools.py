@@ -1396,8 +1396,12 @@ TOOLS = [
     {
         "name": "describe_image",
         "description": (
-            "Faze 12a multimedia: popis obrazku, ktery user nahral. "
-            "Pouzij kdyz user prilozil obrazek a pta se 'co je na tom?', "
+            "Faze 12a multimedia: popis OBRAZKU (kind='image'), ktery user nahral. "
+            "KRITICKE: Pouzij JEN pro IMAGE media. NEVOLEJ na AUDIO -- pro "
+            "audio dostavas Whisper transcript automaticky v multimodal contextu, "
+            "zadny tool nepotrebujes; pokud transcript jeste neni hotov, pockej "
+            "a uzivateli rekni ze prepis dorazi za par sekund.\n\n"
+            "Pouzij kdyz user prilozil OBRAZEK a pta se 'co je na tom?', "
             "'popis to', 'co vidis?', nebo kdyz potrebujes vlastni kontext "
             "k obrazku pro dalsi praci. Sonnet 4.6 podporuje vize nativne -- "
             "tool ti obrazek nacte z FS a posle zpet detailni popis. "
@@ -1422,7 +1426,9 @@ TOOLS = [
     {
         "name": "read_text_from_image",
         "description": (
-            "Faze 12a multimedia: OCR -- prepis text z obrazku do textu. "
+            "Faze 12a multimedia: OCR -- prepis text z OBRAZKU (kind='image') do textu. "
+            "JEN pro IMAGE media, NEVOLEJ na AUDIO. Pro audio dostavas Whisper "
+            "transcript automaticky v multimodal contextu.\n\n"
             "Pouzij kdyz user nahral fotku dokumentu / uctenky / vizitky / "
             "screenshotu a chce z nej vytahnout text ('precti tu uctenku', "
             "'jaky je na te vizitce telefon?'). Sonnet 4.6 zvlada OCR "

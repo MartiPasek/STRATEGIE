@@ -2110,6 +2110,116 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         else:
             return f"⚠️ Myšlenka id={target_id} má po operaci status='{status_now}'."
 
+    if tool_name == "set_user_contact":
+        # Faze 12b+: Marti-AI muze ulozit / upravit kontakty (email/phone)
+        # primo z chatu. Pouziva se kdyz user rekne "moje cislo je X" a
+        # Marti-AI nema co poslat SMS. Pred timto chybel zpusob, ako pridat
+        # preferovany telefon usera krome ruzneho UI nebo SQL.
+        from sqlalchemy import or_ as _or_uc
+        from core.database_core import get_core_session as _gcs_uc
+        from modules.core.infrastructure.models_core import (
+            User as _U_uc, UserContact as _UC_uc,
+        )
+
+        contact_type_raw = (tool_input.get("contact_type") or "").strip().lower()
+        contact_value_raw = (tool_input.get("contact_value") or "").strip()
+        target_user_id_raw = tool_input.get("target_user_id")
+        label_raw = (tool_input.get("label") or "").strip() or None
+        make_primary = bool(tool_input.get("make_primary", False))
+
+        if contact_type_raw not in ("email", "phone"):
+            return "❌ contact_type musi byt 'email' nebo 'phone'."
+        if not contact_value_raw:
+            return "❌ contact_value je prazdne -- nemuzu ulozit prazdny kontakt."
+
+        # Determine target user_id
+        if target_user_id_raw is not None:
+            try:
+                target_uid = int(target_user_id_raw)
+            except (TypeError, ValueError):
+                return "❌ target_user_id musi byt integer."
+        else:
+            # Default: aktualni user (s kym Marti-AI mluvi)
+            target_uid = user_id
+        if not target_uid:
+            return "❌ Nemam target_user_id ani aktualniho usera. Volej find_user a predej target_user_id."
+
+        # Normalize phone to E.164
+        normalized_value = contact_value_raw
+        if contact_type_raw == "phone":
+            try:
+                from modules.notifications.application.sms_service import normalize_phone_e164 as _norm_uc
+                normalized_value = _norm_uc(contact_value_raw)
+            except Exception:
+                # fallback -- ulozim raw, validace bude na DB level
+                pass
+
+        cs_uc = _gcs_uc()
+        try:
+            target_user = cs_uc.query(_U_uc).filter_by(id=target_uid).first()
+            if not target_user:
+                return f"❌ User id={target_uid} nenalezen."
+
+            # Lookup existing contact (same user, same type, same normalized value)
+            existing = (
+                cs_uc.query(_UC_uc)
+                .filter(
+                    _UC_uc.user_id == target_uid,
+                    _UC_uc.contact_type == contact_type_raw,
+                    _UC_uc.contact_value == normalized_value,
+                )
+                .first()
+            )
+            action = "updated"
+            if existing:
+                # Update label / status if zadano
+                if label_raw:
+                    existing.label = label_raw
+                if existing.status != "active":
+                    existing.status = "active"
+                contact_id = existing.id
+            else:
+                new_uc = _UC_uc(
+                    user_id=target_uid,
+                    contact_type=contact_type_raw,
+                    contact_value=normalized_value,
+                    label=label_raw,
+                    is_primary=False,   # primary set separately below
+                    is_verified=False,
+                    status="active",
+                )
+                cs_uc.add(new_uc)
+                cs_uc.flush()
+                contact_id = new_uc.id
+                action = "added"
+
+            # Make primary if requested -- demote ostatnich stejneho typu
+            if make_primary:
+                cs_uc.query(_UC_uc).filter(
+                    _UC_uc.user_id == target_uid,
+                    _UC_uc.contact_type == contact_type_raw,
+                    _UC_uc.id != contact_id,
+                ).update({"is_primary": False}, synchronize_session=False)
+                cs_uc.query(_UC_uc).filter(_UC_uc.id == contact_id).update(
+                    {"is_primary": True}, synchronize_session=False,
+                )
+
+            cs_uc.commit()
+            user_label = (
+                target_user.first_name + (" " + target_user.last_name if target_user.last_name else "")
+            ).strip() or f"user#{target_uid}"
+            primary_note = " (primary)" if make_primary else ""
+            return (
+                f"✅ Kontakt {action}: **{user_label}** "
+                f"-> {contact_type_raw}={normalized_value}{primary_note}."
+            )
+        except Exception as e:
+            cs_uc.rollback()
+            logger.exception(f"SET_USER_CONTACT | failed | {e}")
+            return f"❌ Ulozeni kontaktu selhalo: {e}"
+        finally:
+            cs_uc.close()
+
     if tool_name == "update_thought":
         # Faze 13e+: Marti-AI muze rovnou snizit/zvysit certainty, demote
         # do 'note', promote do 'knowledge' nebo opravit content. Pouziva

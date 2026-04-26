@@ -4130,6 +4130,69 @@
     });
   };
 
+  // ── Faze 12b: polling for async Whisper transcript ─────────────────────
+  // Po audio uploadu backend zaradi media_transcribe task. Dokud Whisper
+  // nedoběhne (3-15s typicky), media_files.transcript je NULL. UI poll co 3s
+  // na /api/v1/media/{id}/meta, max 20x (60s strop). Po prichodu transcript
+  // doplni <details> do DOM in-place (bez full reloadu konverzace).
+  window._activeTranscriptPolls = window._activeTranscriptPolls || new Set();
+
+  window._pollAudioTranscript = function(mediaId, mediaWrap) {
+    if (!mediaId || !mediaWrap) return;
+    if (window._activeTranscriptPolls.has(mediaId)) return;  // uz beho jiny poll
+    window._activeTranscriptPolls.add(mediaId);
+    let attempts = 0;
+    const MAX_ATTEMPTS = 20;
+    const INTERVAL_MS = 3000;
+    const tick = async () => {
+      attempts++;
+      if (!mediaWrap.isConnected) {
+        window._activeTranscriptPolls.delete(mediaId);
+        return;
+      }
+      try {
+        const r = await fetch(`/api/v1/media/${mediaId}/meta`, { credentials: 'include' });
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const meta = await r.json();
+        if (meta.transcript) {
+          // Vložit transcript bublinu, pokud ji ještě nemáme
+          if (!mediaWrap.querySelector('.msg-media-transcript')) {
+            const tWrap = document.createElement('details');
+            tWrap.className = 'msg-media-transcript';
+            const sum = document.createElement('summary');
+            sum.textContent = '📝 Přepis';
+            tWrap.appendChild(sum);
+            const p = document.createElement('div');
+            p.className = 'msg-media-transcript-body';
+            p.textContent = meta.transcript;
+            tWrap.appendChild(p);
+            mediaWrap.appendChild(tWrap);
+          }
+          window._activeTranscriptPolls.delete(mediaId);
+          return;
+        }
+        if (meta.processing_error) {
+          if (!mediaWrap.querySelector('.msg-media-transcript-error')) {
+            const err = document.createElement('div');
+            err.className = 'msg-media-transcript-error';
+            err.textContent = `⚠ Přepis selhal: ${meta.processing_error}`;
+            mediaWrap.appendChild(err);
+          }
+          window._activeTranscriptPolls.delete(mediaId);
+          return;
+        }
+      } catch (_e) {
+        // Sit chyba -- pokracujeme dal v polling, snad to dorazi
+      }
+      if (attempts < MAX_ATTEMPTS) {
+        setTimeout(tick, INTERVAL_MS);
+      } else {
+        window._activeTranscriptPolls.delete(mediaId);
+      }
+    };
+    setTimeout(tick, INTERVAL_MS);
+  };
+
   // Lightbox -- otevre image fullscreen pri kliku na thumbnail v message
   window.openLightbox = function(mediaId) {
     const bg = document.getElementById('lightboxBg');
@@ -6792,6 +6855,10 @@
             err.className = 'msg-media-transcript-error';
             err.textContent = `⚠ Přepis selhal: ${m.processing_error}`;
             mediaWrap.appendChild(err);
+          } else {
+            // Faze 12b: Whisper jeste neprepsal -- spust polling co 3s.
+            // Po prichodu transcript se DOM dopise in-place.
+            window._pollAudioTranscript(m.id, mediaWrap);
           }
         }
       }
@@ -6895,6 +6962,8 @@
               nameEl.textContent = it.name;
               mediaWrap.appendChild(nameEl);
             }
+            // Faze 12b: po uploadu Whisper task uz bezi -- polluj transcript
+            window._pollAudioTranscript(it.id, mediaWrap);
           } else {
             const img = document.createElement('img');
             img.className = 'msg-media-img';

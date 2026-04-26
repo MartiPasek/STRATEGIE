@@ -12,6 +12,30 @@ class Settings(BaseSettings):
     # Voyage AI -- embedding provider pro RAG. voyage-3 = 1024 dim, multilingual.
     voyage_api_key: str = ""
 
+    # OpenAI -- aktuálně používáme pouze Whisper (audio transcription, Faze 12b).
+    # Composer / router jsou Anthropic-only. Bez api key Whisper transkripce
+    # se preskoci s processing_error="OpenAI api key chybi" -- audio upload
+    # samotny funguje bez ni (kind='audio', duration_ms set, jen transcript=NULL).
+    openai_api_key: str = ""
+    # Model pro transkripce. 'whisper-1' = jediný aktuální Whisper model
+    # v OpenAI API (large-v2 base). Multilingual, automatická detekce jazyka.
+    # Pricing $0.006/min audia (duben 2026).
+    whisper_model: str = "whisper-1"
+    # Master switch -- pri False se task `media_transcribe` rovnou skipne s warningem.
+    # Uzitecne pri vypadku OpenAI nebo kdyz ladime jen UI / audio storage.
+    whisper_enabled: bool = True
+    # Bezpecnostni cap na delku audia (sekundy). Defaultne 1 hodina = $0.36 max
+    # za jeden upload. Pro porady to staci, pro celodenni nahravani by Marti
+    # zvysil. Audio nad tento limit dostane processing_error.
+    whisper_max_duration_s: int = 3600
+    # Jazyk hint -- 'cs' nutno pro Whisper, ze jinak detekuje jen z prvnich
+    # ~30s a u krátkých nahrávek nebo silných cizojazycnych pasazich obcas
+    # zvolí spatne. None = nech detekci na Whisperu (fallback).
+    whisper_language: str | None = "cs"
+    # HTTP timeout (sekundy). Whisper API u dlouhych audio nahravek umi 30-90s
+    # zpracovat -- nastavujeme 180 jako bezpecny strop.
+    whisper_http_timeout_s: int = 180
+
     # RAG -- adresar na disku kam se ukladaji nahrane dokumenty (PDF, DOCX, ...).
     # Per-tenant subfolder: {DOCUMENTS_STORAGE_DIR}/{tenant_id}/{document_id}.{ext}
     # Default MIMO projekt -- dokumenty mohou rust do GB a zasirat git repo.
@@ -180,3 +204,22 @@ def calculate_cost_usd(model: str, prompt_tokens: int | None, output_tokens: int
     p_in = (prompt_tokens or 0) * pricing["input"] / 1_000_000.0
     p_out = (output_tokens or 0) * pricing["output"] / 1_000_000.0
     return round(p_in + p_out, 6)
+
+
+# ============================================================================
+# Faze 12b: OpenAI Whisper pricing
+# ============================================================================
+# whisper-1: $0.006 / minute audia (duben 2026, OpenAI ceník).
+# Vypocet pri zaznamu transcript do media_files.ai_metadata['cost_usd'].
+
+WHISPER_PRICING_USD_PER_MINUTE: dict[str, float] = {
+    "whisper-1": 0.006,
+}
+
+
+def calculate_whisper_cost_usd(model: str, duration_s: float | None) -> float | None:
+    """Vypocet ceny Whisper transkripce v USD. Vrátí None pokud chybi data."""
+    if duration_s is None or duration_s <= 0:
+        return None
+    rate = WHISPER_PRICING_USD_PER_MINUTE.get(model, 0.006)  # fallback default
+    return round((duration_s / 60.0) * rate, 6)

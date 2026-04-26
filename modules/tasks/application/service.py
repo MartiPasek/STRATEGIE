@@ -59,7 +59,16 @@ class InvalidTaskInput(TaskError):
 
 _ALLOWED_STATUSES = {"open", "in_progress", "done", "cancelled", "failed"}
 _ALLOWED_PRIORITIES = {"high", "normal", "low"}
-_ALLOWED_SOURCE_TYPES = {"sms_inbox", "email_inbox", "manual", "ai_generated"}
+_ALLOWED_SOURCE_TYPES = {
+    "sms_inbox",
+    "email_inbox",
+    "manual",
+    "ai_generated",
+    # Faze 12b: async Whisper transkripce audio uploadu. source_id = media_files.id.
+    # Executor zavola whisper_provider.transcribe a ulozi vysledek do
+    # media_files.transcript pres save_transcript().
+    "media_transcribe",
+}
 
 # Prechody stavu, ktere pres mark_task_done / cancel_task povolujeme.
 # open | in_progress -> done        (mark_task_done)

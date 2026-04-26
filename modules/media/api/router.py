@@ -177,6 +177,41 @@ async def upload(
         logger.exception(f"MEDIA | upload storage failed | {e}")
         raise HTTPException(status_code=500, detail=f"Storage chyba: {e}")
 
+    # Faze 12b: po audio uploadu (jen u nove vlozenych radek, ne u dedup hits)
+    # zaradime media_transcribe task -- worker ho zpracuje pres Whisper.
+    if (
+        settings.whisper_enabled
+        and result.get("kind") == "audio"
+        and not result.get("processed_at")  # jeste neni transkribovano (dedup hit
+        and not result.get("transcript")     # by mohl mit prepis z drivejsiho)
+    ):
+        try:
+            from modules.tasks.application import service as task_service
+            fname = result.get("original_filename") or f"audio_{result['id']}"
+            t = task_service.create_task_from_source(
+                tenant_id=ctx["tenant_id"],
+                persona_id=effective_persona,
+                source_type="media_transcribe",
+                source_id=result["id"],
+                title=f"Transkripce: {fname}",
+                description=(
+                    f"Whisper prepis audio souboru media_files.id={result['id']}. "
+                    f"Po dokonceni vysledek bude v media_files.transcript."
+                ),
+                priority="normal",
+            )
+            logger.info(
+                f"MEDIA | enqueued media_transcribe | task_id={t['id']} | "
+                f"media_id={result['id']} | persona_id={effective_persona}"
+            )
+        except Exception as e:
+            # Enqueue selhal -- upload je hotov, ale transkripce nepojede.
+            # Marti muze manualne re-trigger pres POST /api/v1/media/{id}/transcribe
+            # (nebo pres AI tool extract_from_audio v 12b-3, ktery si task vyrobi sam).
+            logger.warning(
+                f"MEDIA | media_transcribe enqueue failed | media_id={result['id']} | {e}"
+            )
+
     return JSONResponse(content=result, status_code=201)
 
 

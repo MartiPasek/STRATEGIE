@@ -288,6 +288,19 @@ def execute_task(task_id: int) -> dict:
         f"attempt={task.attempts} | source={task.source_type}:{task.source_id}"
     )
 
+    # Faze 12b: media_transcribe je non-chat task (jen Whisper API), skip
+    # vsechny chat() / pending_actions / auto-reply infrastructure.
+    if task.source_type == "media_transcribe":
+        try:
+            return _execute_media_transcribe(task)
+        except Exception as e:
+            _mark_task_failed(task_id, str(e))
+            logger.error(
+                f"TASK EXECUTOR | media_transcribe failed | task_id={task_id} | error={e!r}",
+                exc_info=True,
+            )
+            return {"status": "failed", "task_id": task_id, "error": str(e)}
+
     try:
         conv_id = _create_execution_conversation(task)
         prompt = _build_task_prompt(task)
@@ -530,6 +543,134 @@ def _mark_task_failed(task_id: int, error: str) -> None:
         ds.commit()
     finally:
         ds.close()
+
+
+# ── Faze 12b: media_transcribe handler ─────────────────────────────────────
+
+def _execute_media_transcribe(task: Task) -> dict:
+    """
+    Transkripce audio souboru pres OpenAI Whisper API.
+
+    Flow:
+      1. Nacti MediaFile row (source_id = media_files.id).
+      2. Validace: kind musi byt 'audio', transcript jeste neexistuje
+         (jinak retry by zbytecne placil).
+      3. Nacti audio bytes z FS (storage_service.read_file).
+      4. whisper_provider.transcribe() -- HTTPS multipart na OpenAI.
+      5. media_service.save_transcript(media_id, transcript, ai_metadata).
+      6. mark_task_done s pretty result_summary (preview prepisu).
+
+    Pri chybe ulozi processing_error do media_files (pro UI feedback)
+    a re-raise pro executor (mark_task_failed). To znamená dva mista
+    audit: media_files.processing_error pro UI a tasks.error pro audit.
+    """
+    from modules.core.infrastructure.models_data import MediaFile
+    from modules.media.application import service as media_service
+    from modules.media.application import storage_service as media_storage
+    from modules.media.application.whisper_provider import (
+        transcribe as whisper_transcribe,
+        MediaProcessingError,
+    )
+
+    media_id = task.source_id
+    if media_id is None:
+        raise ValueError("media_transcribe task bez source_id (media_files.id)")
+
+    # 1. Load row
+    ds = get_data_session()
+    try:
+        row = ds.query(MediaFile).filter_by(id=media_id).first()
+        if row is None:
+            raise ValueError(f"MediaFile id={media_id} neexistuje (smazany?)")
+        if row.deleted_at is not None:
+            raise ValueError(f"MediaFile id={media_id} je soft-deleted, transkripci preskocime.")
+        if row.kind != "audio":
+            raise ValueError(
+                f"MediaFile id={media_id} ma kind={row.kind!r}, ne 'audio' -- "
+                "media_transcribe je vyhradne pro audio."
+            )
+        if row.transcript:
+            # Jiz prepsano (race condition mezi enqueue a manualni call?). Skip.
+            logger.info(
+                f"TASK EXECUTOR | media_transcribe skip (uz prepsano) | "
+                f"task_id={task.id} | media_id={media_id}"
+            )
+            task_service.mark_task_done(
+                user_id=None,
+                task_id=task.id,
+                result_summary=f"Prepis uz existoval ({len(row.transcript)} znaku), preskoceno.",
+            )
+            return {"status": "done", "task_id": task.id, "media_id": media_id, "skipped": True}
+        storage_path = row.storage_path
+        mime_type = row.mime_type
+        original_filename = row.original_filename
+        duration_s_hint = (row.duration_ms / 1000.0) if row.duration_ms else None
+    finally:
+        ds.close()
+
+    # 2. Read audio bytes z FS
+    try:
+        audio_bytes = media_storage.read_file(storage_path)
+    except Exception as e:
+        # FS error -- jako processing_error, retry by nepomohl bez admin zasahu.
+        media_service.save_processing_error(media_id, f"FS read selhal: {e}")
+        raise
+
+    # 3. Whisper transcribe
+    try:
+        result = whisper_transcribe(
+            audio_bytes,
+            mime_type=mime_type,
+            original_filename=original_filename,
+            duration_s_hint=duration_s_hint,
+        )
+    except MediaProcessingError as e:
+        # API/validation error -- ulozime do media_files.processing_error
+        # at UI vidi proc transcript chybi.
+        media_service.save_processing_error(media_id, str(e))
+        raise
+
+    # 4. Save transcript (+ ai_metadata pro audit / future tooling)
+    ai_meta = {
+        "whisper_model": result.get("model"),
+        "whisper_language": result.get("language"),
+        "whisper_duration_s": result.get("duration_s"),
+        "whisper_cost_usd": result.get("cost_usd"),
+    }
+    media_service.save_transcript(
+        media_id,
+        transcript=result["transcript"],
+        ai_metadata=ai_meta,
+    )
+
+    # 5. Mark task done s preview prepisu
+    transcript_preview = result["transcript"][:200].strip()
+    cost = result.get("cost_usd")
+    cost_str = f"${cost:.4f}" if cost is not None else "?"
+    summary = (
+        f"Whisper prepis hotov ({len(result['transcript'])} znaku, "
+        f"jazyk={result.get('language')}, cost={cost_str}).\n\n"
+        f"Preview: {transcript_preview}"
+        + ("..." if len(result['transcript']) > 200 else "")
+    )
+    task_service.mark_task_done(
+        user_id=None,
+        task_id=task.id,
+        result_summary=summary,
+    )
+
+    logger.info(
+        f"TASK EXECUTOR | media_transcribe done | task_id={task.id} | "
+        f"media_id={media_id} | chars={len(result['transcript'])} | "
+        f"cost_usd={cost}"
+    )
+
+    return {
+        "status": "done",
+        "task_id": task.id,
+        "media_id": media_id,
+        "transcript_chars": len(result["transcript"]),
+    }
 
 
 def fetch_open_task_ids(limit: int = 10) -> list[int]:

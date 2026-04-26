@@ -156,7 +156,12 @@ async def upload(
     # MIME type: bereme z UploadFile.content_type (browser/client si o tom rekne).
     # Server-side validace v storage_service (whitelist + Pillow image dimensions
     # = de-facto magic bytes check pro images).
+    # Faze 12b fix: nektere browsery posilaji parametrizovany mime, napr.
+    # Chrome MediaRecorder vraci `audio/webm;codecs=opus`. Storage MIME whitelist
+    # dela exact match -- ostrihame parametry pred validaci.
     mime_type = (file.content_type or "").lower().strip()
+    if ";" in mime_type:
+        mime_type = mime_type.split(";", 1)[0].strip()
     if not mime_type:
         raise HTTPException(status_code=400, detail="Chybi Content-Type.")
 

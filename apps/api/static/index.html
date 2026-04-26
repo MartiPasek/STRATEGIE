@@ -4396,7 +4396,10 @@
     // zapise jen container header bez audio bytes pri rychlem stop.
     try { if (_voiceRecorder.state === 'recording') _voiceRecorder.requestData(); } catch (e) {}
     _voiceRecorder.onstop = () => {
-      const mime = _voiceMimeType || (_voiceRecorder && _voiceRecorder.mimeType) || 'audio/webm';
+      const rawMime = _voiceMimeType || (_voiceRecorder && _voiceRecorder.mimeType) || 'audio/webm';
+      // Faze 12b fix: ostrihat parametry (`audio/webm;codecs=opus` -> `audio/webm`).
+      // Backend MIME whitelist dela exact match -- s parametrem upload selze 415.
+      const mime = rawMime.split(';')[0].trim() || 'audio/webm';
       const blob = new Blob(_voiceChunks, { type: mime });
       const ext = _vmExtFromMime(mime);
       const ts = new Date().toISOString().replace(/[:.]/g, '-');

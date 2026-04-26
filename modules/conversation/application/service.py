@@ -3185,6 +3185,26 @@ def _attach_media_to_message_if_any(msg_id: int | None, media_ids: list[int] | N
 
 
 
+
+def _serialize_anthropic_block(block, round_idx: int) -> dict | None:
+    """
+    Faze 12b+: Serializace Anthropic SDK bloku do JSONB-friendly dictu pro audit.
+    Pridava _round field pro reconstrukci poradi Anthropic-format messages
+    v composeru pri replay.
+    """
+    if block.type == "text":
+        return {"_round": round_idx, "type": "text", "text": block.text}
+    if block.type == "tool_use":
+        return {
+            "_round": round_idx,
+            "type": "tool_use",
+            "id": block.id,
+            "name": block.name,
+            "input": block.input,
+        }
+    return None
+
+
 def _kind_aware_media_placeholder(media_ids: list[int]) -> str:
     """
     Faze 12b fix: vrati placeholder text podle kind nahranych media.
@@ -3808,14 +3828,28 @@ def chat(
 
     preamble_text = ""
     tool_invocations: list[tuple] = []   # list of (block, tool_result_str)
+    # Faze 12b+: audit -- flat list Anthropic-format bloku z celeho turnu
+    # (text + tool_use + tool_result napric vsema kolama). Ukladame na konci
+    # turnu jako pseudo-user message s message_type='tool_result' aby Marti-AI
+    # v dalsim turnu videla, co volala a jake vysledky dostala.
+    _audit_blocks: list[dict] = []
     for block in response.content:
         logger.info(f"BLOCK | type={block.type}")
+        _serial = _serialize_anthropic_block(block, 0)
+        if _serial is not None:
+            _audit_blocks.append(_serial)
         if block.type == "text":
             preamble_text += block.text
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
             tool_result = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
             tool_invocations.append((block, tool_result))
+            _audit_blocks.append({
+                "_round": 0,
+                "type": "tool_result",
+                "tool_use_id": block.id,
+                "content": tool_result,
+            })
 
     needs_synthesis = any(b.name in SYNTHESIS_TOOLS for b, _ in tool_invocations)
 
@@ -3885,6 +3919,11 @@ def chat(
             round_tool_uses: list = []
             round_assistant_content: list = []
             for block in synth_response.content:
+                # Faze 12b+: audit serializace per round (round_idx+1, +1 protoze
+                # initial je round 0)
+                _serial = _serialize_anthropic_block(block, round_idx + 1)
+                if _serial is not None:
+                    _audit_blocks.append(_serial)
                 if block.type == "text":
                     round_text_parts.append(block.text)
                     round_assistant_content.append({"type": "text", "text": block.text})
@@ -3917,6 +3956,13 @@ def chat(
                     block.name, block.input, conversation_id, user_id=user_id,
                 )
                 round_tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": tresult,
+                })
+                # Faze 12b+: audit tool_result hned za jeho tool_use v tomto round
+                _audit_blocks.append({
+                    "_round": round_idx + 1,
                     "type": "tool_result",
                     "tool_use_id": block.id,
                     "content": tresult,
@@ -3959,6 +4005,28 @@ def chat(
 
     _outgoing_msg_id = save_message(conversation_id, role="assistant", content=assistant_reply)
     logger.info(f"CONVERSATION | chat | conversation_id={conversation_id} | user_id={user_id}")
+
+    # Faze 12b+: pokud byly tool calls v tomto turnu, ulozime pseudo-user message
+    # s flat audit list Anthropic-format bloku. Composer v dalsim turnu rozbali
+    # do striktni Anthropic page (assistant + user tool_result + ...) aby Marti-AI
+    # videla cely svuj tool flow a vedela napr. ze send_email opravdu odeslan,
+    # ne jen ze napsala "posilam email".
+    # message_type='tool_result' -> UI ji ve history filtruje (Marti to nevidi).
+    if _audit_blocks:
+        try:
+            save_message(
+                conversation_id,
+                role="user",
+                content="",
+                message_type="tool_result",
+                tool_blocks=_audit_blocks,
+            )
+            logger.info(
+                f"TOOL_AUDIT | saved {len(_audit_blocks)} blocks | conv={conversation_id}"
+            )
+        except Exception as _e:
+            logger.warning(f"TOOL_AUDIT | save failed: {_e}")
+
 
     try:
         from modules.memory.application.service import extract_and_save

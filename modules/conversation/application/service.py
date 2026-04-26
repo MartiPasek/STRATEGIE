@@ -1370,39 +1370,47 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
     if tool_name == "read_sms":
         # Faze 12b+ pre-demo: full body SMS (list_sms_inbox vraci jen preview).
-        from modules.notifications.application.sms_service import (
-            mark_inbox_read as _mark_read_sms,
-        )
-        from modules.core.infrastructure.models_data import SmsInbox as _SI_rs
-        sms_id_raw = tool_input.get("sms_inbox_id")
-        if sms_id_raw is None:
-            return "❌ Chybi sms_inbox_id."
         try:
-            sms_id_int = int(sms_id_raw)
-        except (TypeError, ValueError):
-            return "❌ sms_inbox_id musi byt integer."
-        ds_rs = get_data_session()
-        try:
-            row = ds_rs.query(_SI_rs).filter_by(id=sms_id_int).first()
-            if row is None:
-                return f"❌ SMS id={sms_id_int} nenalezena."
-            ts = row.received_at.isoformat() if row.received_at else ""
-            from_phone = row.from_phone or "(neznamy)"
-            body = row.body or ""
-        finally:
-            ds_rs.close()
-        try:
-            _mark_read_sms(sms_id_int)
-        except Exception:
-            pass
-        return (
-            f"📱 SMS od **{from_phone}** ({ts}):\n\n"
-            f"{body}"
-        )
+            from modules.notifications.application.sms_service import (
+                mark_inbox_read as _mark_read_sms,
+            )
+            from modules.core.infrastructure.models_data import SmsInbox as _SI_rs
+            sms_id_raw = tool_input.get("sms_inbox_id")
+            if sms_id_raw is None:
+                return "❌ Chybi sms_inbox_id."
+            try:
+                sms_id_int = int(sms_id_raw)
+            except (TypeError, ValueError):
+                return "❌ sms_inbox_id musi byt integer."
+            ds_rs = get_data_session()
+            try:
+                row = ds_rs.query(_SI_rs).filter_by(id=sms_id_int).first()
+                if row is None:
+                    return f"❌ SMS id={sms_id_int} nenalezena."
+                ts = row.received_at.isoformat() if row.received_at else ""
+                from_phone = row.from_phone or "(neznamy)"
+                body = row.body or ""
+            finally:
+                ds_rs.close()
+            try:
+                _mark_read_sms(sms_id_int)
+            except Exception as _mre:
+                logger.warning(f"READ_SMS | mark_read failed | id={sms_id_int} | {_mre}")
+            return (
+                f"📱 SMS od **{from_phone}** ({ts}):\n\n"
+                f"{body}"
+            )
+        except Exception as _e_rs:
+            logger.exception(f"READ_SMS | failed | {_e_rs}")
+            return f"❌ Nelze precist SMS: {type(_e_rs).__name__}: {_e_rs}"
 
     if tool_name == "list_todos":
         # Faze 12b+ pre-demo: explicit list todo ukolu pro overview drill-down.
-        from modules.thoughts.application import service as _ts_lt
+        try:
+            from modules.thoughts.application import service as _ts_lt
+        except Exception as _imp_lt:
+            logger.exception(f"LIST_TODOS | import failed | {_imp_lt}")
+            return f"❌ Nelze nacist todo (import error): {_imp_lt}"
         limit_lt = int(tool_input.get("limit") or 10)
         limit_lt = max(1, min(limit_lt, 100))
         # Tenant scope -- aktualni user_id, ne rodicovsky bypass (todo jsou

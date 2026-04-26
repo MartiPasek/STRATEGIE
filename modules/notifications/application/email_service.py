@@ -337,7 +337,8 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
     if not moved:
         return {"ok": False, "message": "EWS move selhal", "email_inbox_id": email_inbox_id}
 
-    # Update meta
+    # Update meta + processed_at (Faze 12b+ pre-demo: archive = vyrizeno)
+    from datetime import datetime, timezone
     ds = get_data_session()
     try:
         row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
@@ -350,6 +351,14 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
                     meta_dict = {}
             meta_dict["archived_personal"] = True
             row.meta = _json.dumps(meta_dict, ensure_ascii=False)
+            # Faze 12b+: archive = email je vyrizeny (pres in Personal slozku
+            # v Exchange, tj. uz neni 'k reseni'). Bez tohoto by Marti-AI
+            # videla archived emaily porad v inboxu (filter_mode='new').
+            now_uc = datetime.now(timezone.utc)
+            if row.processed_at is None:
+                row.processed_at = now_uc
+            if row.read_at is None:
+                row.read_at = now_uc
             ds.commit()
     finally:
         ds.close()

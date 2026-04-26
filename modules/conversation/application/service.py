@@ -1894,6 +1894,29 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             finally:
                 ds.close()
 
+    if tool_name == "mark_email_processed":
+        # Faze 12b+ pre-demo: explicit oznaceni emailu jako vyrizeny.
+        # Bez tohoto Marti-AI po reply / projeti bez archive nemela tool jak
+        # email vyradit z 'novych' -> v dalsim turnu se znovu objevoval.
+        from modules.notifications.application.email_inbox_service import (
+            mark_inbox_processed as _mip,
+        )
+        eib_raw = tool_input.get("email_inbox_id")
+        if eib_raw is None:
+            return "❌ Chybi email_inbox_id."
+        try:
+            eib_int = int(eib_raw)
+        except (TypeError, ValueError):
+            return "❌ email_inbox_id musi byt integer."
+        try:
+            res = _mip(eib_int)
+        except Exception as _mip_e:
+            logger.exception(f"MARK_EMAIL_PROCESSED | failed | id={eib_int} | {_mip_e}")
+            return f"❌ Oznaceni selhalo: {_mip_e}"
+        if res is None:
+            return f"❌ Email id={eib_int} nenalezen."
+        return f"✅ Email id={eib_int} oznacen jako vyrizeny."
+
     if tool_name == "archive_email":
         from modules.notifications.application.email_service import (
             archive_email_inbox_to_personal,

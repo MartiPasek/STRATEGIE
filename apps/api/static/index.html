@@ -4237,12 +4237,16 @@
   }
 
   function _vmDetectMimeType() {
-    // iOS Safari nepodporuje webm. Najdeme prvni co browser umi.
+    // Faze 12b fix: poradi je kriticke. Chrome/Firefox/Edge `isTypeSupported('audio/mp4')`
+    // vraci true, ale Chrome MP4 zapis je experimentalni -- casto vyrobi jen container
+    // header bez audio dat (=> Whisper "too short", mutagen 2ms duration). Stabilni
+    // je WebM/Opus, ktery podporuji vsechny ne-Safari browsery. MP4 jen jako fallback
+    // pro iOS Safari (ktery webm neumi).
     const candidates = [
-      'audio/mp4',           // iOS Safari (AAC)
-      'audio/webm;codecs=opus',
-      'audio/webm',
-      'audio/ogg;codecs=opus',
+      'audio/webm;codecs=opus',   // Chrome, Firefox, Edge -- stabilni
+      'audio/webm',                // Chrome, Firefox -- fallback
+      'audio/ogg;codecs=opus',    // Firefox alternativa
+      'audio/mp4',                 // Safari (iOS) -- posledni resort, jinde nestabilni
     ];
     if (typeof MediaRecorder === 'undefined') return '';
     for (const t of candidates) {
@@ -4313,6 +4317,13 @@
       console.warn('[voice-memo] getUserMedia failed:', err);
       return;
     }
+    // Race fix: kdyz user pustil tlacitko BEHEM await getUserMedia (permission prompt),
+    // mouseup se vraci do 'idle' stavu. Recording uz nechceme zacinat -- pustime stream.
+    if (_voiceState === 'idle') {
+      try { _voiceStream.getTracks().forEach(t => t.stop()); } catch (e) {}
+      _voiceStream = null;
+      return;
+    }
     _vmHintDismiss();  // user ho objevil sam
     _voiceMimeType = _vmDetectMimeType();
     const opts = _voiceMimeType ? { mimeType: _voiceMimeType } : {};
@@ -4375,6 +4386,9 @@
   function _vmStopRecording(submit) {
     if (_voiceState !== 'recording' || !_voiceRecorder) return;
     const submitOnStop = !!submit;
+    // Force-flush pending data pred stop() -- bez tohoto Chrome/Firefox obcas
+    // zapise jen container header bez audio bytes pri rychlem stop.
+    try { if (_voiceRecorder.state === 'recording') _voiceRecorder.requestData(); } catch (e) {}
     _voiceRecorder.onstop = () => {
       const mime = _voiceMimeType || (_voiceRecorder && _voiceRecorder.mimeType) || 'audio/webm';
       const blob = new Blob(_voiceChunks, { type: mime });

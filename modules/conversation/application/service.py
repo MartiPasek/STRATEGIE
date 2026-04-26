@@ -1308,12 +1308,15 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                             _tenant_id_sa = _us.last_active_tenant_id
                     finally:
                         _css.close()
+                # Faze 14 prep #3: persona_id z aktivni konverzace -- 1 SIM = 1 persona.
+                _persona_id_sa = _active_persona_id_for_conversation(conversation_id)
                 try:
                     sms_res = _qs_auto(
                         to=sms_to, body=sms_body,
                         purpose="user_request",
                         user_id=user_id,
                         tenant_id=_tenant_id_sa,
+                        persona_id=_persona_id_sa,
                     )
                 except (_SRLE, _SVE, _SE) as _sms_err:
                     return f"❌ Auto-SMS selhala: {_sms_err}"

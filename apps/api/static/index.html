@@ -7044,7 +7044,8 @@
     // _consumePendingMediaIds naplni window._lastConsumedMediaItems s plnymi
     // objekty {id, kind, duration_ms, name} -- live render tim umi audio.
     const mediaIds = hasPendingMedia ? await window._consumePendingMediaIds() : [];
-    const mediaItems = window._lastConsumedMediaItems || [];
+    const mediaItems = hasPendingMedia ? (window._lastConsumedMediaItems || []) : [];
+    window._lastConsumedMediaItems = [];   // F12b fix: reset po consume, jinak dalsi text-only zprava zdedi audio bubble z predchozi
     addMessage('user', text, 'text', { mediaIds, mediaItems });
     const loadingMsg = addMessage('loading', '', 'loading');
     try {

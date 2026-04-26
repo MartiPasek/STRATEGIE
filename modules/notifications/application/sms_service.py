@@ -595,6 +595,13 @@ def list_inbox(
     Vrati prichozi SMS serazene od nejnovejsich. Pokud persona_id == None,
     vrati vsechno (admin view). Pro AI tool typicky passujeme persona_id
     aktivni persony.
+
+    Faze 12b+ pre-demo: sjednoceni semantiky s get_daily_overview.
+    Driv unread_only=True filtroval read_at IS NULL (jen 'user neoteveltl
+    v UI'). Overview ale pocita processed_at IS NULL (= jeste neni vyrizena).
+    Marti-AI dostavala count '1 SMS' v overview ale list_sms_inbox vracela
+    10 (protoze zadna nemela read_at set). Ted unread_only=True filtruje
+    processed_at IS NULL -- analogie list_email_inbox(filter_mode='new').
     """
     ds = get_data_session()
     try:
@@ -602,7 +609,8 @@ def list_inbox(
         if persona_id is not None:
             q = q.filter(SmsInbox.persona_id == persona_id)
         if unread_only:
-            q = q.filter(SmsInbox.read_at.is_(None))
+            # Faze 12b+: processed_at IS NULL (not yet handled), ne read_at
+            q = q.filter(SmsInbox.processed_at.is_(None))
         rows = (
             q.order_by(SmsInbox.received_at.desc())
             .limit(max(1, min(limit, 100)))

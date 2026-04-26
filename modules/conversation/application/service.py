@@ -3184,6 +3184,48 @@ def _attach_media_to_message_if_any(msg_id: int | None, media_ids: list[int] | N
         logger.warning(f"MEDIA | attach_to_message failed | msg_id={msg_id} | {_e_attach}")
 
 
+
+def _kind_aware_media_placeholder(media_ids: list[int]) -> str:
+    """
+    Faze 12b fix: vrati placeholder text podle kind nahranych media.
+
+    Driv (Phase 12a) bylo hardcoded "[obrázek]" pro vsechny media kindy.
+    Voice memo (kind=audio) pak mátlo Marti-AI -- halucinovala obrazek
+    a volala describe_image na audio. Ted lookup kind a vraceni typoveho
+    placeholderu.
+
+    image -> "[obrázek]"
+    audio -> "[hlasová zpráva]"
+    video -> "[video]"
+    mix nebo unknown -> "[příloha]"
+    """
+    if not media_ids:
+        return "[příloha]"
+    try:
+        from sqlalchemy import select as _select_kind
+        from modules.core.infrastructure.models_data import MediaFile as _MF_kind
+        from core.database import get_data_session as _gds_kind
+        ds = _gds_kind()
+        try:
+            kinds = ds.execute(
+                _select_kind(_MF_kind.kind).where(_MF_kind.id.in_(media_ids))
+            ).scalars().all()
+        finally:
+            ds.close()
+    except Exception:
+        return "[příloha]"
+    unique = set(k for k in kinds if k)
+    if len(unique) == 1:
+        kind = next(iter(unique))
+        if kind == "image":
+            return "[obrázek]"
+        if kind == "audio":
+            return "[hlasová zpráva]"
+        if kind == "video":
+            return "[video]"
+    return "[příloha]"
+
+
 def chat(
     conversation_id: int | None,
     user_message: str,
@@ -3307,13 +3349,16 @@ def chat(
         # Jinak (ano bez pendingu a bez email kontextu) = běžné potvrzení,
         # nechej to dojít k Claude standardní cestou.
 
-    # Faze 12a: pokud user poslal jen image bez textu (drag&drop avatar do
-    # textarea, klik Send), zaznamename placeholder content. Anthropic API
-    # odmita prazdne user messages (400 BadRequest), tohle to preventivne
-    # osetri uz v DB. Marti-AI v Dev View uvidi co user skutecne poslal.
+    # Faze 12a: pokud user poslal jen media bez textu (drag&drop, klik Send),
+    # zaznamename placeholder content. Anthropic API odmita prazdne user messages
+    # (400 BadRequest), tohle to preventivne osetri uz v DB. Marti-AI v Dev View
+    # uvidi co user skutecne poslal.
+    # Faze 12b fix: kind-aware placeholder. Driv hardcoded "[obrázek]" matlo
+    # Marti-AI u voice memo (audio kind) -- halucinovala obrazek a volala
+    # describe_image na audio media. Ted lookup kind -> spravny placeholder.
     _save_content = user_message
     if (not user_message or not user_message.strip()) and media_ids:
-        _save_content = "[obrázek]"
+        _save_content = _kind_aware_media_placeholder(media_ids)
     _user_msg_id = save_message(conversation_id, role="user", content=_save_content,
                                  author_type="human", author_user_id=user_id)
     # Faze 12a: Late-fill media_ids -> message_id (multimedia attachments).

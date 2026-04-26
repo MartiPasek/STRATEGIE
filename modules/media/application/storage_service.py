@@ -57,9 +57,17 @@ MIME_TO_EXT: dict[str, str] = {
 }
 
 # Images, kde umime detekovat width/height pres Pillow.
-# Audio dimension fields zustavaji NULL (duration_ms se plni v Faze 12b).
 IMAGE_MIME_TYPES = {
     "image/jpeg", "image/png", "image/webp", "image/gif",
+}
+
+# Audio MIME types, kde umime detekovat duration pres mutagen (Faze 12b).
+AUDIO_MIME_TYPES = {
+    "audio/mpeg", "audio/mp3",
+    "audio/m4a", "audio/mp4",
+    "audio/wav", "audio/x-wav",
+    "audio/ogg",
+    "audio/webm",
 }
 
 
@@ -163,6 +171,26 @@ def save_file(
                 f"sha256={sha256[:8]}... | {e}"
             )
 
+    # Audio duration detection (mutagen) -- Faze 12b
+    duration_ms: int | None = None
+    if mime_type in AUDIO_MIME_TYPES:
+        try:
+            from io import BytesIO
+            import mutagen
+            # Mutagen.File podporuje fileobj argument (cti z memory, ne z FS).
+            # Returns None pokud format neni rozeznatelny -- pak duration_ms
+            # zustane None (nullable v DB).
+            audio = mutagen.File(fileobj=BytesIO(content))
+            if audio is not None and getattr(audio, "info", None) is not None:
+                length_s = float(getattr(audio.info, "length", 0.0))
+                duration_ms = int(round(length_s * 1000))
+        except Exception as e:
+            # Detekce neni blocker -- soubor lze ulozit i bez duration metadata.
+            logger.warning(
+                f"MEDIA | audio duration detection failed | "
+                f"sha256={sha256[:8]}... | mime={mime_type} | {e}"
+            )
+
     # Atomic write (jen pokud uz neexistuje -- jinak je to dedup hit)
     if not deduplicated:
         abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -215,6 +243,7 @@ def save_file(
         "kind": kind,
         "width": width,
         "height": height,
+        "duration_ms": duration_ms,
         "deduplicated": deduplicated,
         "original_filename": original_filename,
     }

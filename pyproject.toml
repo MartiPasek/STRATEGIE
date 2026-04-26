@@ -29,6 +29,10 @@ python-multipart = "^0.0.10"
 # Markitdown uz nejakou Pillow ma jako tranzitivni dep, ale eager declarujeme
 # pro jistotu (verzi nezamykame -- Pillow je stable).
 Pillow = "^10.0.0"
+# Audio metadata extraction (duration, sample rate, codec) -- pure-Python,
+# zadne binarni dependencies (na rozdil od ffmpeg). Pouziva se v
+# storage_service._detect_audio_duration pro mp3/m4a/wav/ogg/webm.
+mutagen = "^1.47.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

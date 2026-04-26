@@ -166,6 +166,7 @@ def upload_media(
             original_filename=storage_meta.get("original_filename"),
             width=storage_meta.get("width"),
             height=storage_meta.get("height"),
+            duration_ms=storage_meta.get("duration_ms"),
         )
         ds.add(row)
         ds.commit()

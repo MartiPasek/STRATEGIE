@@ -244,12 +244,14 @@ def _lookup_llm_calls(message_ids: list[int]) -> dict[int, list[dict]]:
 
 def _lookup_message_media(message_ids: list[int]) -> dict[int, list[dict]]:
     """
-    Faze 12a multimedia: bulk lookup attached MediaFile per message.
+    Faze 12a/12b multimedia: bulk lookup attached MediaFile per message.
     Vraci {message_id: [{id, kind, mime_type, original_filename, width,
-                          height, description}, ...]}
+                          height, description, duration_ms, transcript,
+                          processing_error}, ...]}
     Soft-deleted (deleted_at IS NOT NULL) jsou vyjmuti.
-    Pouziva se v _serialize_messages -- UI podle toho rendruje obrazky
-    v message bubbles.
+    Pouziva se v _serialize_messages -- UI podle toho rendruje obrazky/audio
+    v message bubbles. Pro audio (kind='audio') UI pouzije <audio controls>
+    + transcript preview (ze save_transcript po Whisper completion).
     """
     if not message_ids:
         return {}
@@ -278,6 +280,10 @@ def _lookup_message_media(message_ids: list[int]) -> dict[int, list[dict]]:
                 "width": r.width,
                 "height": r.height,
                 "description": r.description,
+                # Faze 12b: audio metadata pro <audio> player + transcript preview
+                "duration_ms": r.duration_ms,
+                "transcript": r.transcript,
+                "processing_error": r.processing_error,
             })
         return by_msg
     finally:

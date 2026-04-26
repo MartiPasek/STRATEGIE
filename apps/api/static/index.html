@@ -1103,6 +1103,20 @@
     .msg-media-img { max-width: 240px; max-height: 240px; border-radius: 8px; cursor: zoom-in; border: 1px solid var(--border); display: block; transition: transform .15s; }
     .msg-media-img:hover { transform: scale(1.02); }
     .msg-media-desc { font-size: 11px; color: var(--muted); margin-top: 4px; font-style: italic; max-width: 240px; }
+    /* Faze 12b -- audio bubble v messages */
+    .msg-media-audio { width: 100%; max-width: 360px; min-width: 240px; height: 36px; outline: none; }
+    .msg-media-audio-name { font-size: 11px; color: var(--muted); margin-top: 4px; max-width: 360px; word-break: break-all; }
+    .msg-media-transcript { margin-top: 6px; max-width: 360px; font-size: 12px; }
+    .msg-media-transcript summary { cursor: pointer; color: var(--accent); user-select: none; padding: 2px 0; }
+    .msg-media-transcript summary:hover { text-decoration: underline; }
+    .msg-media-transcript-body { white-space: pre-wrap; padding: 6px 8px; margin-top: 4px; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); line-height: 1.4; max-height: 320px; overflow: auto; }
+    .msg-media-transcript-error { font-size: 11px; color: #c0392b; margin-top: 4px; max-width: 360px; }
+    /* Faze 12b -- audio thumbnail v media-preview-row pred odeslanim */
+    .media-preview-thumb.is-audio { width: auto; min-width: 120px; max-width: 220px; height: 64px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; }
+    .media-preview-thumb.is-audio .media-thumb-audio-icon { font-size: 24px; line-height: 1; flex-shrink: 0; }
+    .media-preview-thumb.is-audio .media-thumb-audio-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+    .media-preview-thumb.is-audio .media-thumb-audio-name { font-size: 11px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
+    .media-preview-thumb.is-audio .media-thumb-audio-size { font-size: 10px; color: var(--muted); }
 
     /* Lightbox */
     .lightbox-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.92); z-index: 1000; display: none; align-items: center; justify-content: center; cursor: zoom-out; }
@@ -1505,8 +1519,8 @@
         <!-- Faze 12a: Media preview row (thumbnaily nahranych obrazku pred odeslanim) -->
         <div class="media-preview-row" id="mediaPreviewRow"></div>
         <div class="input-row">
-          <button class="attach-btn" id="attachBtn" title="Pripojit obrazek (klik nebo prtahni mysi)" aria-label="Pripojit obrazek">📎</button>
-          <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/gif" style="display:none">
+          <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
+          <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/m4a,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm" style="display:none">
           <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="1"></textarea>
           <button class="send-btn" id="sendBtn">
             <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
@@ -1514,7 +1528,7 @@
         </div>
         <!-- Drag&drop overlay (zobrazi se pri drag enter, schova pri leave/drop) -->
         <div class="drop-overlay" id="dropOverlay">
-          <div>📷  Pusť obrázek sem</div>
+          <div>📷🎵  Pusť obrázek nebo audio sem</div>
         </div>
       </div>
     </div>
@@ -3920,8 +3934,16 @@
   // ── Faze 12a multimedia: image attachment + drag&drop + lightbox ──────────
 
   // Pending media items pred odeslanim. Format:
-  //   {tempId, file, mediaId?, status: 'uploading'|'done'|'error', errorMsg?}
+  //   {tempId, file, mediaId?, kind?, status: 'uploading'|'done'|'error', errorMsg?}
+  // kind je 'image' | 'audio' | ... (z file.type pri _addMediaFiles, pak
+  // potvrzeny serverem v _uploadMediaFile success).
   let _pendingMedia = [];
+
+  function _formatBytes(n) {
+    if (!n || n < 1024) return `${n||0} B`;
+    if (n < 1024*1024) return `${Math.round(n/1024)} KB`;
+    return `${(n/1024/1024).toFixed(1)} MB`;
+  }
 
   function _renderMediaPreview() {
     const row = document.getElementById('mediaPreviewRow');
@@ -3931,13 +3953,29 @@
       const thumb = document.createElement('div');
       thumb.className = 'media-preview-thumb';
       if (item.status === 'error') thumb.classList.add('is-error');
-      // Image preview z FileReader (rychlejsi nez cekat na server thumbnail)
-      const img = document.createElement('img');
-      img.alt = item.file.name || '';
-      const reader = new FileReader();
-      reader.onload = (ev) => { img.src = ev.target.result; };
-      reader.readAsDataURL(item.file);
-      thumb.appendChild(img);
+      const isAudio = (item.kind === 'audio') || (item.file && (item.file.type || '').startsWith('audio/'));
+      if (isAudio) {
+        // Audio preview -- ikonka + filename + size (zatim, server doplni duration)
+        thumb.classList.add('is-audio');
+        const icon = document.createElement('div');
+        icon.className = 'media-thumb-audio-icon';
+        icon.textContent = '🎵';
+        thumb.appendChild(icon);
+        const meta = document.createElement('div');
+        meta.className = 'media-thumb-audio-meta';
+        const name = (item.file && item.file.name) || 'audio';
+        const size = item.file ? _formatBytes(item.file.size) : '';
+        meta.innerHTML = `<div class="media-thumb-audio-name" title="${name.replace(/"/g,'&quot;')}">${name}</div><div class="media-thumb-audio-size">${size}</div>`;
+        thumb.appendChild(meta);
+      } else {
+        // Image preview z FileReader (rychlejsi nez cekat na server thumbnail)
+        const img = document.createElement('img');
+        img.alt = item.file.name || '';
+        const reader = new FileReader();
+        reader.onload = (ev) => { img.src = ev.target.result; };
+        reader.readAsDataURL(item.file);
+        thumb.appendChild(img);
+      }
       // Spinner pri uploadu
       if (item.status === 'uploading') {
         const sp = document.createElement('div');
@@ -3977,6 +4015,8 @@
       }
       const data = await r.json();
       item.mediaId = data.id;
+      item.kind = data.kind || item.kind;     // serverem potvrzeny kind
+      item.duration_ms = data.duration_ms || null;
       item.status = 'done';
       _renderMediaPreview();
     } catch (e) {
@@ -3990,17 +4030,20 @@
     const MAX = 5;
     for (const file of files) {
       if (_pendingMedia.length >= MAX) {
-        alert(`Max ${MAX} obrazku per zprava.`);
+        alert(`Max ${MAX} souboru per zprava.`);
         break;
       }
-      // Zatim podporujeme jen images. Audio v Fazi 12b.
-      if (!file.type.startsWith('image/')) {
-        alert(`Soubor "${file.name}" neni obrazek (${file.type}). Zatim umime jen obrazky.`);
+      const t = (file.type || '').toLowerCase();
+      const isImage = t.startsWith('image/');
+      const isAudio = t.startsWith('audio/');
+      if (!isImage && !isAudio) {
+        alert(`Soubor "${file.name}" nepodporujeme (${file.type || 'neznamy typ'}). Umime obrazky a audio.`);
         continue;
       }
       const item = {
         tempId: `m_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         file,
+        kind: isAudio ? 'audio' : 'image',   // optimistic, server potvrdi v response
         status: 'uploading',
       };
       _pendingMedia.push(item);
@@ -4054,6 +4097,10 @@
   }
 
   // Globalni helper -- send() ji vola pro vyber done media_ids
+  // Vraci array IDs (kompatibilni s backendem), navic naplni global
+  // _lastConsumedMediaItems s plnymi objekty {id, kind, duration_ms, name}
+  // pro live render audio/image bubbles bez druheho fetche.
+  window._lastConsumedMediaItems = [];
   window._consumePendingMediaIds = function() {
     // Cekej na vsechny uploady, pokud nektere jeste nejsou hotove (napr.
     // user pretahl soubor a hned kliknul Send)
@@ -4063,8 +4110,14 @@
       const check = () => {
         const stillUploading = _pendingMedia.some(m => m.status === 'uploading');
         if (!stillUploading || Date.now() - startTime > TIMEOUT) {
-          const ids = _pendingMedia.filter(m => m.status === 'done' && m.mediaId)
-                                    .map(m => m.mediaId);
+          const done = _pendingMedia.filter(m => m.status === 'done' && m.mediaId);
+          window._lastConsumedMediaItems = done.map(m => ({
+            id: m.mediaId,
+            kind: m.kind || 'image',
+            duration_ms: m.duration_ms || null,
+            name: (m.file && m.file.name) || null,
+          }));
+          const ids = done.map(m => m.mediaId);
           // Vycistit pending state -- zpravu posilame, dalsi by byl nove batch
           _pendingMedia = [];
           _renderMediaPreview();
@@ -6689,7 +6742,7 @@
     // System markery jako plain text (mají vlastní `🔄` apod.); jinak dle role.
     if (messageType === 'system') bubble.textContent = content;
     else setBubbleContent(bubble, content, role);
-    // Faze 12a: pripoj media (obrazky) z historie
+    // Faze 12a/12b: pripoj media (obrazky / audio) z historie
     if (Array.isArray(media) && media.length > 0) {
       const mediaWrap = document.createElement('div');
       mediaWrap.className = 'msg-media';
@@ -6708,8 +6761,39 @@
             descEl.textContent = m.description;
             mediaWrap.appendChild(descEl);
           }
+        } else if (m.kind === 'audio') {
+          // Faze 12b: native HTML5 audio prehrávač + filename + transcript snippet
+          const audio = document.createElement('audio');
+          audio.className = 'msg-media-audio';
+          audio.controls = true;
+          audio.preload = 'metadata';
+          audio.src = `/api/v1/media/${m.id}/raw`;
+          mediaWrap.appendChild(audio);
+          if (m.original_filename) {
+            const nameEl = document.createElement('div');
+            nameEl.className = 'msg-media-audio-name';
+            nameEl.textContent = m.original_filename;
+            mediaWrap.appendChild(nameEl);
+          }
+          if (m.transcript) {
+            // Sbalitelný preview: prvních ~200 znaků + odkaz "celý prepis"
+            const tWrap = document.createElement('details');
+            tWrap.className = 'msg-media-transcript';
+            const sum = document.createElement('summary');
+            sum.textContent = '📝 Přepis';
+            tWrap.appendChild(sum);
+            const p = document.createElement('div');
+            p.className = 'msg-media-transcript-body';
+            p.textContent = m.transcript;
+            tWrap.appendChild(p);
+            mediaWrap.appendChild(tWrap);
+          } else if (m.processing_error) {
+            const err = document.createElement('div');
+            err.className = 'msg-media-transcript-error';
+            err.textContent = `⚠ Přepis selhal: ${m.processing_error}`;
+            mediaWrap.appendChild(err);
+          }
         }
-        // Audio render se prida v Faze 12b
       }
       bubble.appendChild(mediaWrap);
     }
@@ -6784,20 +6868,44 @@
       // AI odpovědi přes markdown, user/loading jako plain text.
       setBubbleContent(bubble, content, role);
     }
-    // Faze 12a: pripoj media (obrazky) k user zprave (live, prave odeslane).
-    // Pro historicke zpravy se to dela v hydrate (viz renderHistoryMessage).
-    if (type !== 'loading' && type !== 'error' && Array.isArray(extras.mediaIds) && extras.mediaIds.length > 0) {
-      const mediaWrap = document.createElement('div');
-      mediaWrap.className = 'msg-media';
-      for (const mid of extras.mediaIds) {
-        const img = document.createElement('img');
-        img.className = 'msg-media-img';
-        img.src = `/api/v1/media/${mid}/preview`;
-        img.alt = 'Pripojeny obrazek';
-        img.addEventListener('click', () => window.openLightbox(mid));
-        mediaWrap.appendChild(img);
+    // Faze 12a/12b: pripoj media (obrazky / audio) k user zprave (live).
+    // extras.mediaItems = [{id, kind, duration_ms, name}, ...]
+    // extras.mediaIds = [int, ...]  (legacy, fallback ze pripravil send())
+    // Pro historicke zpravy hydrate -> renderHistoryMessage.
+    if (type !== 'loading' && type !== 'error') {
+      let items = Array.isArray(extras.mediaItems) ? extras.mediaItems : null;
+      if (!items && Array.isArray(extras.mediaIds) && extras.mediaIds.length > 0) {
+        // Fallback: jen IDs -- predpokladame image (back-compat).
+        items = extras.mediaIds.map(id => ({id, kind: 'image'}));
       }
-      bubble.appendChild(mediaWrap);
+      if (items && items.length > 0) {
+        const mediaWrap = document.createElement('div');
+        mediaWrap.className = 'msg-media';
+        for (const it of items) {
+          if (it.kind === 'audio') {
+            const audio = document.createElement('audio');
+            audio.className = 'msg-media-audio';
+            audio.controls = true;
+            audio.preload = 'metadata';
+            audio.src = `/api/v1/media/${it.id}/raw`;
+            mediaWrap.appendChild(audio);
+            if (it.name) {
+              const nameEl = document.createElement('div');
+              nameEl.className = 'msg-media-audio-name';
+              nameEl.textContent = it.name;
+              mediaWrap.appendChild(nameEl);
+            }
+          } else {
+            const img = document.createElement('img');
+            img.className = 'msg-media-img';
+            img.src = `/api/v1/media/${it.id}/preview`;
+            img.alt = 'Pripojeny obrazek';
+            img.addEventListener('click', () => window.openLightbox(it.id));
+            mediaWrap.appendChild(img);
+          }
+        }
+        bubble.appendChild(mediaWrap);
+      }
     }
     msg.appendChild(roleEl); msg.appendChild(bubble);
     // Timestamp pro non-loading/error live zpravy. liveCreatedAt jsme uz vytvorili
@@ -6863,9 +6971,12 @@
 
     sendBtn.disabled = true;
     inputEl.value = ''; inputEl.style.height = 'auto';
-    // Faze 12a: pripravime media_ids (cekame na uploady, vycisti _pendingMedia)
+    // Faze 12a/12b: pripravime media_ids (cekame na uploady, vycisti _pendingMedia).
+    // _consumePendingMediaIds naplni window._lastConsumedMediaItems s plnymi
+    // objekty {id, kind, duration_ms, name} -- live render tim umi audio.
     const mediaIds = hasPendingMedia ? await window._consumePendingMediaIds() : [];
-    addMessage('user', text, 'text', { mediaIds });
+    const mediaItems = window._lastConsumedMediaItems || [];
+    addMessage('user', text, 'text', { mediaIds, mediaItems });
     const loadingMsg = addMessage('loading', '', 'loading');
     try {
       // Pokud mame "pending" personu z UI (user ji vybral pred vznikem

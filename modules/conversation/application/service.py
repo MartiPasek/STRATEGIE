@@ -1370,11 +1370,14 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
     if tool_name == "read_sms":
         # Faze 12b+ pre-demo: full body SMS (list_sms_inbox vraci jen preview).
+        # Gotcha #7 (CLAUDE.md): get_data_session je dal v _handle_tool importovan
+        # lokalne -> Python vidi celou funkci jako shadow. Pouzivame alias.
         try:
             from modules.notifications.application.sms_service import (
                 mark_inbox_read as _mark_read_sms,
             )
             from modules.core.infrastructure.models_data import SmsInbox as _SI_rs
+            from core.database_data import get_data_session as _gds_rs
             sms_id_raw = tool_input.get("sms_inbox_id")
             if sms_id_raw is None:
                 return "❌ Chybi sms_inbox_id."
@@ -1382,7 +1385,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 sms_id_int = int(sms_id_raw)
             except (TypeError, ValueError):
                 return "❌ sms_inbox_id musi byt integer."
-            ds_rs = get_data_session()
+            ds_rs = _gds_rs()
             try:
                 row = ds_rs.query(_SI_rs).filter_by(id=sms_id_int).first()
                 if row is None:
@@ -1406,19 +1409,23 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
     if tool_name == "list_todos":
         # Faze 12b+ pre-demo: explicit list todo ukolu pro overview drill-down.
+        # Sjednoceno s build_daily_overview -- stejny query (type='todo' +
+        # tenant_scope), ne pres entity link (todos nemaji vzdy direct user link).
+        # Gotcha #7: aliasy importu kvuli local shadow v _handle_tool.
         try:
-            from modules.thoughts.application import service as _ts_lt
+            from sqlalchemy import or_ as _or_lt
+            from modules.core.infrastructure.models_data import Thought as _Th_lt
+            from core.database_data import get_data_session as _gds_lt
+            from core.database_core import get_core_session as _gcs_lt
+            from modules.core.infrastructure.models_core import User as _U_lt
         except Exception as _imp_lt:
             logger.exception(f"LIST_TODOS | import failed | {_imp_lt}")
             return f"❌ Nelze nacist todo (import error): {_imp_lt}"
         limit_lt = int(tool_input.get("limit") or 10)
         limit_lt = max(1, min(limit_lt, 100))
-        # Tenant scope -- aktualni user_id, ne rodicovsky bypass (todo jsou
-        # uzivatelsky scope -- 'co MAM JA').
+
         tenant_id_lt = None
         if user_id:
-            from core.database_core import get_core_session as _gcs_lt
-            from modules.core.infrastructure.models_core import User as _U_lt
             cs_lt = _gcs_lt()
             try:
                 u_lt = cs_lt.query(_U_lt).filter_by(id=user_id).first()
@@ -1426,31 +1433,50 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     tenant_id_lt = u_lt.last_active_tenant_id
             finally:
                 cs_lt.close()
+
         try:
-            # Filtruj thoughts type='todo' nedokoncene pro aktualniho usera
-            items_lt = _ts_lt.list_thoughts_for_entity(
-                entity_type="user",
-                entity_id=user_id,
-                status_filter=None,
-                limit=limit_lt,
-                tenant_scope=tenant_id_lt,
-                bypass_tenant_scope=False,
-            )
-            # Filtruj v Pythonu jen type='todo' a ne-done
-            todos = []
-            for it in items_lt:
-                if it.get("type") != "todo":
-                    continue
-                meta_str = it.get("meta") or ""
-                if isinstance(meta_str, dict):
-                    if meta_str.get("done"):
+            ds_lt = _gds_lt()
+            try:
+                tq_lt = (
+                    ds_lt.query(_Th_lt)
+                    .filter(_Th_lt.type == "todo")
+                    .filter(_Th_lt.deleted_at.is_(None))
+                )
+                if tenant_id_lt is not None:
+                    tq_lt = tq_lt.filter(
+                        _or_lt(
+                            _Th_lt.tenant_scope.is_(None),
+                            _Th_lt.tenant_scope == tenant_id_lt,
+                        )
+                    )
+                rows_lt = (
+                    tq_lt.order_by(_Th_lt.priority_score.desc(), _Th_lt.created_at.desc())
+                    .limit(limit_lt * 3)
+                    .all()
+                )
+                todos = []
+                for r in rows_lt:
+                    meta_v = r.meta
+                    is_done = False
+                    if isinstance(meta_v, dict) and meta_v.get("done"):
+                        is_done = True
+                    elif isinstance(meta_v, str) and '"done": true' in meta_v.lower():
+                        is_done = True
+                    if is_done:
                         continue
-                elif '"done": true' in str(meta_str).lower():
-                    continue
-                todos.append(it)
+                    todos.append({
+                        "id": r.id,
+                        "content": r.content or "",
+                        "priority": r.priority_score,
+                    })
+                    if len(todos) >= limit_lt:
+                        break
+            finally:
+                ds_lt.close()
         except Exception as e_lt:
-            logger.exception(f"LIST_TODOS | failed | {e_lt}")
-            return f"❌ Nelze nacist todo: {e_lt}"
+            logger.exception(f"LIST_TODOS | query failed | {e_lt}")
+            return f"❌ Nelze nacist todo: {type(e_lt).__name__}: {e_lt}"
+
         if not todos:
             return "📭 Zadne otevrene todo ukoly."
         lines_lt = ["📋 Moje todo ukoly:", ""]

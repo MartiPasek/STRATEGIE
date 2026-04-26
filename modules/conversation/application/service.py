@@ -3282,6 +3282,66 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     return ""
 
 
+
+def _wait_for_audio_transcripts(media_ids: list[int] | None, timeout_ms: int = 30_000) -> None:
+    """
+    Faze 12b+ pre-demo: synchronni cekani na Whisper transcript pred composer
+    + Anthropic call. Bez tohoto Marti-AI obcas dostala multimodal context
+    s audio note bez prepisu (Whisper task v workeru jeste nedobehl) -> halucinovala
+    (nepr. zavolat describe_image na audio, vymyslet obsah).
+
+    Logika: pollovani media_files.transcript IS NOT NULL nebo processing_error
+    IS NOT NULL pro vsechny audio media v `media_ids`. Sleep 500ms mezi pollu,
+    timeout default 30s (typicke Whisper trvani 5-15s pro 1-3 minutovou nahravku).
+
+    Pokud po timeout transcript stale chybi -> pokracujeme bez cekani (fallback).
+    Marti-AI potom uvidi audio note bez prepisu, ale aspon vi co se stalo.
+
+    Pro non-audio media (images) tato funkce nevadi -- skip.
+    """
+    if not media_ids:
+        return
+    import time
+    from sqlalchemy import select as _sel_wat
+    from modules.core.infrastructure.models_data import MediaFile as _MF_wat
+
+    poll_interval_ms = 500
+    deadline = time.monotonic() + (timeout_ms / 1000.0)
+    iteration = 0
+
+    while True:
+        iteration += 1
+        ds = get_data_session()
+        try:
+            rows = ds.execute(
+                _sel_wat(_MF_wat.id, _MF_wat.kind, _MF_wat.transcript, _MF_wat.processing_error)
+                .where(_MF_wat.id.in_(media_ids))
+            ).all()
+        finally:
+            ds.close()
+
+        # Audio media s pending transcript (transcript NULL a zaroven zadny error)
+        pending_audio = [
+            r.id for r in rows
+            if r.kind == "audio" and r.transcript is None and r.processing_error is None
+        ]
+        if not pending_audio:
+            if iteration > 1:
+                logger.info(
+                    f"AUDIO_WAIT | done | media_ids={media_ids} | iterations={iteration}"
+                )
+            return
+
+        if time.monotonic() >= deadline:
+            logger.warning(
+                f"AUDIO_WAIT | timeout | media_ids={pending_audio} | "
+                f"timeout_ms={timeout_ms} -- pokracujeme bez transcript"
+            )
+            return
+
+        time.sleep(poll_interval_ms / 1000.0)
+
+
 def _attach_media_to_message_if_any(msg_id: int | None, media_ids: list[int] | None):
     """
     Faze 12a: Late-fill pattern -- po save_message(user) doplnime message_id
@@ -3501,6 +3561,11 @@ def chat(
     # Volame okamzite po save, aby composer.build_prompt() v dalsim kroku
     # uz videl attached images.
     _attach_media_to_message_if_any(_user_msg_id, media_ids)
+    # Faze 12b+ pre-demo: pokud user nahral audio, pockame na Whisper transcript
+    # pred composer + Anthropic call. Bez tohoto Marti-AI obcas dostala audio
+    # bez prepisu -> halucinace (popis obrazku, vymyslen obsah). Cisty flow:
+    # transcript je vzdy v multimodal contextu pri zacatku turn.
+    _wait_for_audio_transcripts(media_ids, timeout_ms=30_000)
 
     # ── ČÍSLOVANÁ SELEKCE z předchozího seznamu ───────────────────────
     # Pokud je user_message jen číslo (případně s tečkou) a v pending_actions

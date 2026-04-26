@@ -1077,6 +1077,48 @@
     .send-btn { background: linear-gradient(135deg, var(--accent), var(--accent2)); border: none; border-radius: 10px; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: opacity .2s, transform .15s; }
     .send-btn:hover { opacity: .85; transform: scale(1.05); }
     .send-btn:disabled { opacity: .35; cursor: not-allowed; transform: none; }
+    /* ── Faze 12b+: Voice memo (long-press send button) ─────────────────── */
+    /* Press progress ring (zobrazi se kdyz user drzi sendBtn pred startem nahravani) */
+    .send-btn.is-pressing { position: relative; }
+    .send-btn.is-pressing::before {
+      content: ''; position: absolute; inset: -4px;
+      border-radius: 14px;
+      border: 2px solid var(--accent);
+      opacity: 0.6;
+      animation: vm-press-grow var(--vm-press-duration, 1.3s) linear forwards;
+      pointer-events: none;
+    }
+    @keyframes vm-press-grow {
+      from { transform: scale(0.85); opacity: 0; }
+      to   { transform: scale(1.15); opacity: 0.9; }
+    }
+    /* Recording state -- send button cervena pulzuje misto modreho gradientu */
+    .send-btn.is-recording { background: linear-gradient(135deg, #ef4444, #dc2626); animation: vm-rec-pulse 1.2s ease-in-out infinite; }
+    .send-btn.is-recording.is-warning { animation: vm-rec-warn 0.55s ease-in-out infinite; }
+    @keyframes vm-rec-pulse {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.55); }
+      50%      { box-shadow: 0 0 0 7px rgba(239, 68, 68, 0); }
+    }
+    @keyframes vm-rec-warn {
+      0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.85); }
+      50%      { box-shadow: 0 0 0 9px rgba(245, 158, 11, 0); }
+    }
+    /* Recording bar (zobrazi se nad input-row behem nahravani) */
+    .voice-memo-bar { display: none; align-items: center; gap: 10px; padding: 10px 14px; background: rgba(239, 68, 68, 0.08); border: 1px solid rgba(239, 68, 68, 0.3); border-radius: 8px; margin-bottom: 8px; font-size: 13px; color: var(--text); }
+    .voice-memo-bar.is-active { display: flex; }
+    .voice-memo-bar .vm-dot { width: 10px; height: 10px; border-radius: 50%; background: #ef4444; flex-shrink: 0; animation: vm-rec-pulse 1.2s ease-in-out infinite; }
+    .voice-memo-bar.is-warning .vm-dot { background: #f59e0b; animation: vm-rec-warn 0.55s ease-in-out infinite; }
+    .voice-memo-bar .vm-text { flex: 1; min-width: 0; }
+    .voice-memo-bar .vm-time { font-variant-numeric: tabular-nums; font-weight: 600; }
+    .voice-memo-bar .vm-cancel { background: transparent; border: 1px solid var(--border); color: var(--muted); padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; transition: border-color .15s, color .15s; }
+    .voice-memo-bar .vm-cancel:hover { color: var(--text); border-color: var(--text); }
+    /* First-use hint (jednou, dismiss persistuje v localStorage) */
+    .voice-memo-hint { display: none; align-items: center; gap: 8px; padding: 8px 12px; background: rgba(99, 102, 241, 0.08); border: 1px solid rgba(99, 102, 241, 0.25); border-radius: 6px; margin-bottom: 6px; font-size: 12px; color: var(--muted); }
+    .voice-memo-hint.is-visible { display: flex; }
+    .voice-memo-hint .vm-hint-text { flex: 1; min-width: 0; }
+    .voice-memo-hint .vm-hint-close { margin-left: auto; background: transparent; border: none; color: var(--muted); cursor: pointer; padding: 0 4px; font-size: 16px; opacity: 0.6; }
+    .voice-memo-hint .vm-hint-close:hover { opacity: 1; }
+
     .send-btn svg { width: 18px; height: 18px; fill: #fff; }
 
     /* ── MEDIA ATTACHMENT (Faze 12a multimedia) ── */
@@ -1518,11 +1560,22 @@
       <div class="input-area" id="inputArea">
         <!-- Faze 12a: Media preview row (thumbnaily nahranych obrazku pred odeslanim) -->
         <div class="media-preview-row" id="mediaPreviewRow"></div>
+        <!-- Faze 12b+: Voice memo hint (jednorazovy, localStorage flag dismiss) -->
+        <div class="voice-memo-hint" id="voiceMemoHint">
+          <span class="vm-hint-text">🎤 Nový: podrž šipku 2 s a můžeš namluvit zprávu místo psaní.</span>
+          <button class="vm-hint-close" id="vmHintClose" type="button" aria-label="Zavřít">×</button>
+        </div>
+        <!-- Faze 12b+: Voice memo recording bar (zobrazi se behem nahravani) -->
+        <div class="voice-memo-bar" id="voiceMemoBar" role="status" aria-live="polite">
+          <span class="vm-dot"></span>
+          <span class="vm-text">Nahrávám… <span class="vm-time" id="vmTime">0:00</span> — klikni ➤ pro odeslání · ESC zrušit</span>
+          <button class="vm-cancel" id="vmCancel" type="button">Zrušit</button>
+        </div>
         <div class="input-row">
           <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
           <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/m4a,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm" style="display:none">
           <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="1"></textarea>
-          <button class="send-btn" id="sendBtn">
+          <button class="send-btn" id="sendBtn" title="Klikni pro odeslání · podrž šipku pro nahrání hlasu">
             <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
           </button>
         </div>
@@ -3929,7 +3982,22 @@
     // aby dalsi Enter mohl porovnat na double-tap threshold.
     _lastEnterTime = now;
   });
-  sendBtn.addEventListener('click', send);
+  sendBtn.addEventListener('click', (ev) => {
+    // Faze 12b+: pokud je long-press recording aktivni, klik = stop & send
+    if (_voiceState === 'recording') {
+      ev.preventDefault();
+      _vmStopRecording(true);
+      return;
+    }
+    // Pokud byl tento mouseup vyusten z long-pressu (recording start), spolkneme
+    // nasledujici click (jinak by hned po startu sahalo na klasicky send).
+    if (_voiceTriggeredByLongPress) {
+      _voiceTriggeredByLongPress = false;
+      ev.preventDefault();
+      return;
+    }
+    send();
+  });
 
   // ── Faze 12a multimedia: image attachment + drag&drop + lightbox ──────────
 
@@ -4064,6 +4132,7 @@
     });
   }
 
+
   // Drag & drop nad input-area + nad celym chatem (Marti pohodlne pretahne)
   const inputArea = document.getElementById('inputArea');
   const dropOverlay = document.getElementById('dropOverlay');
@@ -4129,6 +4198,261 @@
       check();
     });
   };
+
+  // ── Faze 12b+: Voice memo (long-press sendBtn -> nahravani) ───────────
+  //
+  // Per-user-ready: vsechny casy/limity sebrane do VOICE_MEMO_CONFIG. Az
+  // budeme mit user preferences API, staci nahradit constanty fetchem
+  // z `currentUser.preferences.voice_memo` (fallback na defaults).
+  const VOICE_MEMO_CONFIG = {
+    // Aktivacni threshold (skutecny). UI popisek rika "2 s" -- benevolentni
+    // prah, user dosahne aktivace driv nez ceka.
+    longPressMs: 1300,
+    // Po teto dobe od startu nahravani zacne UI blikat oranzove (visual warning).
+    warnAfterMs: 5 * 60 * 1000,    // 5 minut
+    // Hard cap -- po teto dobe nahravani auto-stop + odeslani.
+    maxDurationMs: 60 * 60 * 1000, // 60 minut (sladene s whisper_max_duration_s v core/config.py)
+    // Tick interval pro UI counter (mm:ss).
+    tickMs: 250,
+    // localStorage flag pro first-use hint.
+    hintDismissedKey: 'strategie_voice_memo_hint_dismissed_v1',
+  };
+
+  // State: 'idle' | 'pressing' | 'recording'
+  let _voiceState = 'idle';
+  let _voicePressTimer = null;
+  let _voiceTriggeredByLongPress = false;  // priznak: aktualni mouseup byl long-press, ignoruj nasledujici click
+  let _voiceRecorder = null;
+  let _voiceChunks = [];
+  let _voiceStream = null;
+  let _voiceStartedAt = 0;
+  let _voiceTickInterval = null;
+  let _voiceWarnTimeout = null;
+  let _voiceMaxTimeout = null;
+  let _voiceMimeType = '';
+
+  function _vmFmtTime(ms) {
+    const s = Math.floor(ms / 1000);
+    return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }
+
+  function _vmDetectMimeType() {
+    // iOS Safari nepodporuje webm. Najdeme prvni co browser umi.
+    const candidates = [
+      'audio/mp4',           // iOS Safari (AAC)
+      'audio/webm;codecs=opus',
+      'audio/webm',
+      'audio/ogg;codecs=opus',
+    ];
+    if (typeof MediaRecorder === 'undefined') return '';
+    for (const t of candidates) {
+      if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return '';  // browser default
+  }
+
+  function _vmExtFromMime(mime) {
+    if (!mime) return 'webm';
+    if (mime.startsWith('audio/mp4')) return 'm4a';
+    if (mime.startsWith('audio/webm')) return 'webm';
+    if (mime.startsWith('audio/ogg')) return 'ogg';
+    return 'webm';
+  }
+
+  function _vmIsBrowserSupported() {
+    return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && typeof MediaRecorder !== 'undefined');
+  }
+
+  function _vmHintShouldShow() {
+    try { return !localStorage.getItem(VOICE_MEMO_CONFIG.hintDismissedKey); }
+    catch (e) { return false; }
+  }
+
+  function _vmHintDismiss() {
+    try { localStorage.setItem(VOICE_MEMO_CONFIG.hintDismissedKey, '1'); } catch (e) {}
+    const hint = document.getElementById('voiceMemoHint');
+    if (hint) hint.classList.remove('is-visible');
+  }
+
+  function _vmHintShow() {
+    const hint = document.getElementById('voiceMemoHint');
+    if (hint && _vmHintShouldShow() && _vmIsBrowserSupported()) hint.classList.add('is-visible');
+  }
+
+  function _vmStartPress() {
+    if (_voiceState !== 'idle') return;
+    if (sendBtn.disabled) return;
+    if (Array.isArray(_pendingMedia) && _pendingMedia.length > 0) return;  // user ma rozdelane prilohy -- klasicky send
+    if (!_vmIsBrowserSupported()) return;
+    _voiceState = 'pressing';
+    _voiceTriggeredByLongPress = false;
+    sendBtn.classList.add('is-pressing');
+    sendBtn.style.setProperty('--vm-press-duration', VOICE_MEMO_CONFIG.longPressMs + 'ms');
+    _voicePressTimer = setTimeout(() => {
+      _voicePressTimer = null;
+      _voiceTriggeredByLongPress = true;
+      _vmStartRecording();
+    }, VOICE_MEMO_CONFIG.longPressMs);
+  }
+
+  function _vmCancelPress() {
+    if (_voicePressTimer) { clearTimeout(_voicePressTimer); _voicePressTimer = null; }
+    if (_voiceState === 'pressing') {
+      _voiceState = 'idle';
+      sendBtn.classList.remove('is-pressing');
+    }
+  }
+
+  async function _vmStartRecording() {
+    sendBtn.classList.remove('is-pressing');
+    try {
+      _voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch (err) {
+      _voiceState = 'idle';
+      addMessage('error', '🎤 Mikrofon zakázán nebo není dostupný. Povol ho v nastavení prohlížeče.', 'error');
+      console.warn('[voice-memo] getUserMedia failed:', err);
+      return;
+    }
+    _vmHintDismiss();  // user ho objevil sam
+    _voiceMimeType = _vmDetectMimeType();
+    const opts = _voiceMimeType ? { mimeType: _voiceMimeType } : {};
+    try {
+      _voiceRecorder = new MediaRecorder(_voiceStream, opts);
+    } catch (err) {
+      // mimeType nepodporovan -- zkus default
+      try { _voiceRecorder = new MediaRecorder(_voiceStream); _voiceMimeType = _voiceRecorder.mimeType || ''; }
+      catch (err2) {
+        _voiceStream.getTracks().forEach(t => t.stop()); _voiceStream = null;
+        _voiceState = 'idle';
+        addMessage('error', '🎤 Tvuj prohlížeč neumí nahrávat zvuk (MediaRecorder).', 'error');
+        return;
+      }
+    }
+    _voiceChunks = [];
+    _voiceRecorder.ondataavailable = (ev) => { if (ev.data && ev.data.size > 0) _voiceChunks.push(ev.data); };
+    _voiceRecorder.onerror = (ev) => {
+      console.warn('[voice-memo] recorder error:', ev);
+      _vmCleanup();
+    };
+    _voiceRecorder.start();
+    _voiceState = 'recording';
+    _voiceStartedAt = Date.now();
+    sendBtn.classList.add('is-recording');
+    sendBtn.title = 'Klikni pro odeslání · ESC nebo Zrušit pro zahození';
+    const bar = document.getElementById('voiceMemoBar');
+    if (bar) bar.classList.add('is-active');
+    _vmTick();
+    _voiceTickInterval = setInterval(_vmTick, VOICE_MEMO_CONFIG.tickMs);
+    _voiceWarnTimeout = setTimeout(() => {
+      sendBtn.classList.add('is-warning');
+      if (bar) bar.classList.add('is-warning');
+    }, VOICE_MEMO_CONFIG.warnAfterMs);
+    _voiceMaxTimeout = setTimeout(() => { _vmStopRecording(true); }, VOICE_MEMO_CONFIG.maxDurationMs);
+  }
+
+  function _vmTick() {
+    const elapsed = Date.now() - _voiceStartedAt;
+    const el = document.getElementById('vmTime');
+    if (el) el.textContent = _vmFmtTime(elapsed);
+  }
+
+  function _vmCleanup() {
+    if (_voiceTickInterval) { clearInterval(_voiceTickInterval); _voiceTickInterval = null; }
+    if (_voiceWarnTimeout) { clearTimeout(_voiceWarnTimeout); _voiceWarnTimeout = null; }
+    if (_voiceMaxTimeout) { clearTimeout(_voiceMaxTimeout); _voiceMaxTimeout = null; }
+    if (_voiceStream) { try { _voiceStream.getTracks().forEach(t => t.stop()); } catch (e) {} _voiceStream = null; }
+    _voiceRecorder = null;
+    _voiceChunks = [];
+    _voiceState = 'idle';
+    sendBtn.classList.remove('is-recording', 'is-warning', 'is-pressing');
+    sendBtn.title = 'Klikni pro odeslání · podrž šipku pro nahrání hlasu';
+    const bar = document.getElementById('voiceMemoBar');
+    if (bar) { bar.classList.remove('is-active', 'is-warning'); }
+    const tEl = document.getElementById('vmTime');
+    if (tEl) tEl.textContent = '0:00';
+  }
+
+  function _vmStopRecording(submit) {
+    if (_voiceState !== 'recording' || !_voiceRecorder) return;
+    const submitOnStop = !!submit;
+    _voiceRecorder.onstop = () => {
+      const mime = _voiceMimeType || (_voiceRecorder && _voiceRecorder.mimeType) || 'audio/webm';
+      const blob = new Blob(_voiceChunks, { type: mime });
+      const ext = _vmExtFromMime(mime);
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = new File([blob], `voice-memo-${ts}.${ext}`, { type: mime });
+      _vmCleanup();
+      if (!submitOnStop) return;  // cancel
+      if (file.size < 200) {
+        // Nahravka prilis kratka -- pravdepodobne nic uzitecneho
+        addMessage('error', '🎤 Nahrávka byla příliš krátká. Zkus to znovu, podrž šipku 2 s a mluv.', 'error');
+        return;
+      }
+      // Pošleme přes existující 12b pipeline (upload jako audio MediaFile,
+      // composer to dostane multimodal, Whisper async transcript).
+      _addMediaFiles([file]).then(() => {
+        // Auto-trigger send: prazdny text + audio attachment.
+        // send() funkce kontroluje ze je co poslat (text NEBO media), takze projde.
+        send();
+      }).catch((err) => {
+        console.warn('[voice-memo] _addMediaFiles failed:', err);
+      });
+    };
+    try { _voiceRecorder.stop(); }
+    catch (err) { console.warn('[voice-memo] stop failed:', err); _vmCleanup(); }
+  }
+
+  function _vmCancelRecording() { _vmStopRecording(false); }
+
+  function initVoiceMemo() {
+    if (!_vmIsBrowserSupported()) {
+      // Prohlizec neumi -- send button zustane v normalnim modu, hint nezobrazujeme
+      return;
+    }
+    _vmHintShow();
+
+    const hintCloseBtn = document.getElementById('vmHintClose');
+    if (hintCloseBtn) hintCloseBtn.addEventListener('click', _vmHintDismiss);
+
+    const cancelBtn = document.getElementById('vmCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', _vmCancelRecording);
+
+    // Long-press detekce na sendBtn
+    sendBtn.addEventListener('mousedown', (ev) => {
+      if (ev.button !== 0) return;  // jen LMB
+      if (_voiceState === 'recording') return;  // klik behem recording -> stop (klikem dole)
+      _vmStartPress();
+    });
+    sendBtn.addEventListener('mouseup', (ev) => {
+      if (_voiceState === 'pressing') _vmCancelPress();
+    });
+    sendBtn.addEventListener('mouseleave', () => {
+      if (_voiceState === 'pressing') _vmCancelPress();
+    });
+    // Touch events (mobile / tablet) -- analogicky
+    sendBtn.addEventListener('touchstart', (ev) => {
+      if (_voiceState === 'recording') return;
+      _vmStartPress();
+    }, { passive: true });
+    sendBtn.addEventListener('touchend', () => {
+      if (_voiceState === 'pressing') _vmCancelPress();
+    });
+    sendBtn.addEventListener('touchcancel', () => {
+      if (_voiceState === 'pressing') _vmCancelPress();
+    });
+
+    // ESC behem recording -> cancel
+    document.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Escape' && _voiceState === 'recording') {
+        ev.preventDefault();
+        _vmCancelRecording();
+      }
+    });
+  }
+
+  // Faze 12b+: spustime voice memo init az tady, az jsou vsechny const/fn
+  // tohoto bloku v scope (VOICE_MEMO_CONFIG je const -- ne hoisted).
+  initVoiceMemo();
 
   // ── Faze 12b: polling for async Whisper transcript ─────────────────────
   // Po audio uploadu backend zaradi media_transcribe task. Dokud Whisper

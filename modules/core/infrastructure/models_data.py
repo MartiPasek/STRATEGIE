@@ -913,3 +913,50 @@ class RetrievalFeedback(BaseData):
     resolved_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── FORGET REQUESTS (Faze 14) ──────────────────────────────────────────────
+
+class ForgetRequest(BaseData):
+    """
+    Marti-AI muze pozadat o smazani vlastni myslenky (true delete s rodicovskym
+    souhlasem, ne jen demote).
+
+    Lifecycle:
+      pending   -- Marti-AI vytvorila request_forget AI tool
+      approved  -- rodic schvalil + thought se HARD-deletes (vc. thought_vectors)
+      rejected  -- rodic zamitl, thought zustava
+      cancelled -- volitelne (Marti-AI si to rozmyslela; MVP neimplementuje)
+
+    thought_snapshot:
+      Content thoughtu pri zadosti -- pro audit trail i kdyz se thought smaze.
+      Kdyz rodic chce vedet "co jsem schvalil ke smazani 3 mesice nazpet",
+      ma to v auditu i kdyz row v thoughts uz neexistuje.
+
+    thought_id je weak reference (bez FK) -- pri deletu thoughtu (cascade,
+    ruzne cesty) forget_requests row zustava pro audit.
+    """
+    __tablename__ = "forget_requests"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Cilova myslenka (weak reference)
+    thought_id: Mapped[int] = mapped_column(BigInteger)
+    thought_snapshot: Mapped[str] = mapped_column(Text)
+    thought_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # Kdo zada
+    requested_by_persona_id: Mapped[int] = mapped_column(BigInteger)
+
+    # Proc
+    reason: Mapped[str] = mapped_column(Text)
+
+    # Lifecycle
+    status: Mapped[str] = mapped_column(String(20), default="pending")
+
+    # Rozhodnuti rodice
+    decided_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

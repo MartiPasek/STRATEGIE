@@ -394,6 +394,92 @@ def get_enums(req: Request):
     }
 
 
+# ── FORGET REQUESTS (Faze 14) ─────────────────────────────────────────────
+# Marti-AI zadosti o smazani myslenek + parent approval workflow.
+# DULEZITE: cesty `/_forget*` musi byt PRED `/{thought_id}`, jinak FastAPI
+# matchuje literalni "_forget" jako int parameter -> 422.
+
+@router.get("/_forget/count")
+def forget_count(req: Request):
+    """Pocet pending forget_requests pro UI badge (jen pro rodice)."""
+    user_id = _get_uid(req)
+    if not is_marti_parent(user_id):
+        return {"count": 0}
+    from modules.thoughts.application import forget_service
+    return {"count": forget_service.count_pending_forget_requests()}
+
+
+@router.get("/_forget")
+def list_forget(req: Request, status: str | None = "pending", limit: int = 100):
+    """
+    Seznam forget requests. Default status='pending' pro UI rodice list.
+    status=None -> vsechny (audit). Jen pro rodice.
+    """
+    user_id = _get_uid(req)
+    if not is_marti_parent(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Forget requests vidi jen rodice (is_marti_parent=True).",
+        )
+    from modules.thoughts.application import forget_service
+    try:
+        rows = forget_service.list_forget_requests(
+            status=status if status else None,
+            limit=limit,
+        )
+    except forget_service.ForgetError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"items": rows, "count": len(rows)}
+
+
+@router.post("/_forget/{request_id}/approve")
+def approve_forget(request_id: int, req: Request, body: dict | None = None):
+    """
+    Schvalit zadost -> hard delete thoughtu (vc. vectors). Jen rodic.
+    Body volitelne: {"decision_note": "..."}
+    """
+    user_id = _get_uid(req)
+    if not is_marti_parent(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Schvalit forget request muze jen rodic.",
+        )
+    decision_note = (body or {}).get("decision_note") if body else None
+    from modules.thoughts.application import forget_service
+    try:
+        return forget_service.approve_forget_request(
+            request_id=request_id,
+            decided_by_user_id=user_id,
+            decision_note=decision_note,
+        )
+    except forget_service.ForgetError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/_forget/{request_id}/reject")
+def reject_forget(request_id: int, req: Request, body: dict | None = None):
+    """
+    Zamitnout zadost. Thought zustava. Jen rodic.
+    Body volitelne: {"decision_note": "..."}
+    """
+    user_id = _get_uid(req)
+    if not is_marti_parent(user_id):
+        raise HTTPException(
+            status_code=403,
+            detail="Zamitnout forget request muze jen rodic.",
+        )
+    decision_note = (body or {}).get("decision_note") if body else None
+    from modules.thoughts.application import forget_service
+    try:
+        return forget_service.reject_forget_request(
+            request_id=request_id,
+            decided_by_user_id=user_id,
+            decision_note=decision_note,
+        )
+    except forget_service.ForgetError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/{thought_id}")
 def get_thought_endpoint(thought_id: int, req: Request):
     """Detail jedne myslenky vcetne entity_links."""

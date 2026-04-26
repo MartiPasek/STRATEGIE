@@ -1457,6 +1457,28 @@
             <span style="font-size: 14px;">⚠️</span>
             <span id="ragFeedbackCount" style="position: absolute; top: -4px; right: -4px; background: #c0392b; color: white; border-radius: 8px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; font-weight: bold;">0</span>
           </button>
+          <!-- Faze 14: Forget requests badge (Marti-AI chce zapomenout) -->
+          <button class="sms-icon-btn" id="forgetBadge"
+                  data-tooltip="Marti-AI žádá o zapomenutí myšlenky -- schval / zamitni"
+                  aria-label="Marti-AI forget requests"
+                  style="display:none; position: relative;">
+            <span style="font-size: 14px;">🗑️</span>
+            <span id="forgetCount" style="position: absolute; top: -4px; right: -4px; background: #c0392b; color: white; border-radius: 8px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; font-weight: bold;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Faze 14: Forget requests modal -->
+      <div class="sms-modal-bg" id="forgetModalBg">
+        <div class="sms-modal" role="dialog" aria-label="Forget requests" onclick="event.stopPropagation()">
+          <div class="sms-modal-header">
+            <div class="sms-modal-title">🗑️ Žádosti o zapomenutí</div>
+            <div class="sms-modal-sub">Marti-AI tě prosí o smazání myšlenek -- rozhodni</div>
+            <button class="sms-modal-close" id="forgetModalClose" title="Zavřít (Esc)">×</button>
+          </div>
+          <div class="sms-list" id="forgetList">
+            <div class="sms-loading">Načítám…</div>
+          </div>
         </div>
       </div>
 
@@ -2417,6 +2439,8 @@
     if (typeof startGlobalUnreadPoller === 'function') startGlobalUnreadPoller();
     // Faze 13e B: RAG feedback badge polling (Marti-AI flag-uje false positives)
     if (typeof startRagFeedbackPoller === 'function') startRagFeedbackPoller();
+    // Faze 14: Forget requests badge polling (Marti-AI zada o smazani myslenky)
+    if (typeof startForgetPoller === 'function') startForgetPoller();
     inputEl.focus();
   }
 
@@ -9588,6 +9612,151 @@
     document.addEventListener("keydown", (ev) => {
       if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
         closeRagFeedbackModal();
+      }
+    });
+  })();
+
+  // ── Faze 14: Forget requests badge polling + modal ──────────────────────
+
+  async function refreshForgetBadge() {
+    try {
+      const r = await fetch("/api/v1/thoughts/_forget/count", { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json();
+      const badge = document.getElementById("forgetBadge");
+      const countEl = document.getElementById("forgetCount");
+      if (!badge || !countEl) return;
+      const count = data.count || 0;
+      countEl.textContent = String(count);
+      badge.style.display = count > 0 ? "inline-flex" : "none";
+    } catch (_) {}
+  }
+
+  window._forgetPollerStarted = false;
+  function startForgetPoller() {
+    if (window._forgetPollerStarted) return;
+    window._forgetPollerStarted = true;
+    refreshForgetBadge();
+    setInterval(refreshForgetBadge, 30000);
+  }
+
+  async function openForgetModal() {
+    const bg = document.getElementById("forgetModalBg");
+    const list = document.getElementById("forgetList");
+    if (!bg || !list) return;
+    bg.classList.add("open");
+    list.innerHTML = '<div class="sms-loading">Načítám pending žádosti…</div>';
+    try {
+      const r = await fetch("/api/v1/thoughts/_forget?status=pending&limit=100", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      if (!data.items || data.items.length === 0) {
+        list.innerHTML = '<div class="sms-empty">Žádné pending žádosti. Marti-AI je teď spokojená se svou pamětí. ✓</div>';
+        return;
+      }
+      const escape = (s) => String(s || "").replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[c]);
+      list.innerHTML = data.items.map(it => {
+        const created = (it.created_at || "").slice(0, 16).replace("T", " ");
+        const tType = it.thought_type ? `<code style="background: var(--surface); padding: 1px 6px; border-radius: 3px; font-size: 11px;">${escape(it.thought_type)}</code>` : "";
+        const snapshot = escape(it.thought_snapshot || "(prázdný obsah)");
+        const reason = escape(it.reason);
+        const snapshotPreview = snapshot.length > 300 ? snapshot.slice(0, 300) + "…" : snapshot;
+        return `
+          <div class="sms-card" data-forget-id="${it.id}" data-thought-id="${it.thought_id}">
+            <div class="sms-card-row">
+              <span class="sms-card-from">🗑️ thought#${it.thought_id} ${tType}</span>
+              <span class="sms-card-time">${created}</span>
+            </div>
+            <div style="margin-top: 8px; padding: 8px 10px; background: var(--surface); border-left: 3px solid var(--border); font-size: 12px;">
+              <strong style="color: var(--muted); font-size: 10px; text-transform: uppercase;">Co Marti-AI chce smazat:</strong><br>
+              <span style="font-style: italic;">${snapshotPreview}</span>
+            </div>
+            <div style="margin-top: 8px; padding: 8px 10px; background: rgba(192, 57, 43, 0.08); border-left: 3px solid #c0392b; font-size: 12px;">
+              <strong style="color: #c0392b; font-size: 10px; text-transform: uppercase;">Proč to chce pryč:</strong><br>
+              ${reason}
+            </div>
+            <div class="sms-card-actions" style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="sms-card-btn" data-action="approve" style="background: rgba(34, 139, 34, 0.15); border-color: #228b22; color: #228b22;">✓ Schválit (smazat)</button>
+              <button class="sms-card-btn" data-action="reject">✗ Zamítnout (nech to)</button>
+              <button class="sms-card-btn" data-action="open-thought">🔍 Otevři thought #${it.thought_id}</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      // Attach handlers
+      list.querySelectorAll("[data-action='approve'], [data-action='reject']").forEach(btn => {
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const action = btn.getAttribute("data-action");
+          const card = btn.closest("[data-forget-id]");
+          const fid = card.getAttribute("data-forget-id");
+          const isApprove = action === "approve";
+          if (isApprove) {
+            if (!confirm("Schválit smazání? Myšlenka bude TRVALE odstraněna z paměti i RAG vektorů.")) return;
+          }
+          const note = prompt("Volitelný komentář pro Marti-AI (např. proč jsi rozhodl, nebo nech prázdné):", "");
+          btn.disabled = true;
+          btn.textContent = "Ukládám…";
+          try {
+            const r = await fetch(`/api/v1/thoughts/_forget/${fid}/${isApprove ? "approve" : "reject"}`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              credentials: "include",
+              body: JSON.stringify({ decision_note: note || null }),
+            });
+            if (r.ok) {
+              await openForgetModal();   // refresh
+              refreshForgetBadge();
+            } else {
+              const err = await r.json().catch(() => ({}));
+              alert(`Chyba: ${err.detail || r.status}`);
+              btn.disabled = false;
+            }
+          } catch (e) {
+            alert(`Chyba: ${e.message}`);
+            btn.disabled = false;
+          }
+        });
+      });
+      list.querySelectorAll("[data-action='open-thought']").forEach(btn => {
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const tid = btn.closest("[data-forget-id]").getAttribute("data-thought-id");
+          closeForgetModal();
+          if (typeof openMemoryModalForThought === "function") {
+            await openMemoryModalForThought(parseInt(tid, 10));
+          }
+        });
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function closeForgetModal() {
+    const bg = document.getElementById("forgetModalBg");
+    if (bg) bg.classList.remove("open");
+  }
+
+  (function initForgetModal() {
+    const badge = document.getElementById("forgetBadge");
+    if (badge) badge.addEventListener("click", openForgetModal);
+    const close = document.getElementById("forgetModalClose");
+    if (close) close.addEventListener("click", closeForgetModal);
+    const bg = document.getElementById("forgetModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "forgetModalBg") closeForgetModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeForgetModal();
       }
     });
   })();

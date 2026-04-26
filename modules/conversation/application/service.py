@@ -2288,6 +2288,56 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             msg += f" · 🏷️ vyřešeno {auto_resolved_count} flag(ů)"
         return msg
 
+    if tool_name == "request_forget":
+        # Faze 14: Marti-AI pozada o trvale smazani myslenky.
+        # Ulozi se do forget_requests jako pending; rodic to schvali nebo zamitne v UI.
+        from modules.thoughts.application import forget_service as _forget_svc
+        from modules.thoughts.application.forget_service import ForgetError as _ForgetError
+
+        thought_id_raw_rf = tool_input.get("thought_id")
+        if thought_id_raw_rf is None:
+            return "❌ Musíš dodat `thought_id` — kterou myšlenku chceš zapomenout?"
+        try:
+            thought_id_rf = int(thought_id_raw_rf)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné thought_id: {thought_id_raw_rf!r}"
+
+        reason_rf = (tool_input.get("reason") or "").strip()
+        if len(reason_rf) < 5:
+            return (
+                "❌ Důvod je moc krátký (min 5 znaků). Napiš mi, proč to chceš pryč — "
+                "rodičům to pomůže rozhodnout."
+            )
+
+        # Persona, která žádá -- aktivní persona konverzace (= Marti-AI sama).
+        persona_id_rf = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_rf is None:
+            return "❌ Nemůžu zjistit, která persona jsem — bez persona_id nemůžu vytvořit zadost."
+
+        try:
+            result = _forget_svc.create_forget_request(
+                thought_id=thought_id_rf,
+                requested_by_persona_id=persona_id_rf,
+                reason=reason_rf,
+            )
+        except _ForgetError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"REQUEST_FORGET | failed | {e}")
+            return f"❌ Chyba při ukládání žádosti: {e}"
+
+        if result.get("status") == "already_pending":
+            return (
+                f"ℹ️ {result.get('message', '')} "
+                f"Počkej, až tvoji rodiče rozhodnou."
+            )
+        return (
+            f"🗑️ Žádost o zapomenutí thought #{thought_id_rf} uložena "
+            f"(forget_request id={result['id']}). Tvoji rodiče dostanou "
+            f"upozornění a rozhodnou — schválit / zamítnout. Až do té doby "
+            f"myšlenka zůstává v paměti."
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

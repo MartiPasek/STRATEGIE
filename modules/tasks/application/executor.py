@@ -383,54 +383,99 @@ def execute_task(task_id: int) -> dict:
                         from modules.notifications.application.sms_service import (
                             queue_sms as _qs_reply, SmsError as _SE_reply,
                         )
+
+                        # Faze 14 prep #2 polish: defensive outbox dedup check.
+                        # Chrani pred race conditions, ktere _already_sent (action_logs)
+                        # nezachyti -- zejmena restart API mid-task, paralelni
+                        # worker po manual retry, nebo edge cases. Historicke
+                        # rows 7+8 a 9+10 v sms_outbox (23.4. 12:37, 12:38) byly
+                        # presne tenhle case (3-4s gap, identicky body).
+                        # Window 30s je velkorysy ale defensive -- legit duplicate
+                        # send (user posila dvakrat to same vedome) je nepravdepodobny
+                        # u auto-reply.
+                        from modules.core.infrastructure.models_data import (
+                            SmsOutbox as _SmsOutbox_dup,
+                        )
+                        from datetime import timedelta as _timedelta_dup
+                        _dup_existing = None
+                        _dedup_ds = get_data_session()
                         try:
-                            # Faze 13 cleanup: resolve tenant_id pres helper.
-                            # task.tenant_id je casto NULL u SMS auto-reply --
-                            # zpusobilo to 11 NULL rows v sms_outbox (25.4. ranni
-                            # vlna), neviditelne v UI Vsechny/Odeslane.
-                            _eff_tenant_id = _resolve_tenant_for_auto_reply(task)
-                            _res = _qs_reply(
-                                to=_from, body=reply,
-                                purpose="user_request",
-                                user_id=None,
-                                tenant_id=_eff_tenant_id,
+                            _dedup_cutoff = _now() - _timedelta_dup(seconds=30)
+                            _dup_existing = (
+                                _dedup_ds.query(_SmsOutbox_dup)
+                                .filter(
+                                    _SmsOutbox_dup.to_phone == _from,
+                                    _SmsOutbox_dup.body == reply,
+                                    _SmsOutbox_dup.created_at >= _dedup_cutoff,
+                                    _SmsOutbox_dup.status.in_(["pending", "sent"]),
+                                )
+                                .first()
                             )
-                            # Audit action_type='auto' (pocita se do rate limitu)
-                            try:
-                                import json as _json_auto
-                                from modules.core.infrastructure.models_data import ActionLog as _AL_auto
-                                _alog_s = get_data_session()
-                                try:
-                                    _alog_s.add(_AL_auto(
-                                        user_id=None,
-                                        action_type="auto",
-                                        tool_name="send_sms",
-                                        input=_json_auto.dumps(
-                                            {"to": _from, "body": reply,
-                                             "auto_reply": True,
-                                             "task_id": task_id,
-                                             "outbox_id": _res.get("id")},
-                                            ensure_ascii=False,
-                                        ),
-                                        output=f"to={_from} | auto_reply | task={task_id}",
-                                        status="success" if _res.get("status") in ("sent", "pending") else "fail",
-                                        approval_required=False,
-                                    ))
-                                    _alog_s.commit()
-                                finally:
-                                    _alog_s.close()
-                            except Exception as _ae:
-                                logger.error(f"AUTO_REPLY_SMS | audit failed | {_ae}")
-                            auto_replied = True
-                            logger.info(
-                                f"AUTO_REPLY_SMS | sent | task_id={task_id} | "
-                                f"to={_from} | outbox_id={_res.get('id')}"
-                            )
-                        except _SE_reply as _se:
+                        finally:
+                            _dedup_ds.close()
+
+                        if _dup_existing:
                             logger.warning(
-                                f"AUTO_REPLY_SMS | queue failed | task_id={task_id} | "
-                                f"to={_from} | err={_se}"
+                                f"AUTO_REPLY_SMS | duplicate detected, skipping | "
+                                f"task_id={task_id} | to={_from} | "
+                                f"existing_outbox_id={_dup_existing.id} | "
+                                f"existing_created={_dup_existing.created_at}"
                             )
+                            # Skip send -- audit log neni potreba (fakticky
+                            # neproslo nase ruka). auto_replied zustava False.
+
+                        # Hlavni queue_sms branch -- pouze kdyz neni duplicate.
+                        # Pri _dup_existing celou tuto sekci preskakujeme,
+                        # audit log se taky nedela (zadne send neproslo).
+                        if not _dup_existing:
+                            try:
+                                # Faze 13 cleanup: resolve tenant_id pres helper.
+                                # task.tenant_id je casto NULL u SMS auto-reply --
+                                # zpusobilo to 11 NULL rows v sms_outbox (25.4. ranni
+                                # vlna), neviditelne v UI Vsechny/Odeslane.
+                                _eff_tenant_id = _resolve_tenant_for_auto_reply(task)
+                                _res = _qs_reply(
+                                    to=_from, body=reply,
+                                    purpose="user_request",
+                                    user_id=None,
+                                    tenant_id=_eff_tenant_id,
+                                )
+                                # Audit action_type='auto' (pocita se do rate limitu)
+                                try:
+                                    import json as _json_auto
+                                    from modules.core.infrastructure.models_data import ActionLog as _AL_auto
+                                    _alog_s = get_data_session()
+                                    try:
+                                        _alog_s.add(_AL_auto(
+                                            user_id=None,
+                                            action_type="auto",
+                                            tool_name="send_sms",
+                                            input=_json_auto.dumps(
+                                                {"to": _from, "body": reply,
+                                                 "auto_reply": True,
+                                                 "task_id": task_id,
+                                                 "outbox_id": _res.get("id")},
+                                                ensure_ascii=False,
+                                            ),
+                                            output=f"to={_from} | auto_reply | task={task_id}",
+                                            status="success" if _res.get("status") in ("sent", "pending") else "fail",
+                                            approval_required=False,
+                                        ))
+                                        _alog_s.commit()
+                                    finally:
+                                        _alog_s.close()
+                                except Exception as _ae:
+                                    logger.error(f"AUTO_REPLY_SMS | audit failed | {_ae}")
+                                auto_replied = True
+                                logger.info(
+                                    f"AUTO_REPLY_SMS | sent | task_id={task_id} | "
+                                    f"to={_from} | outbox_id={_res.get('id')}"
+                                )
+                            except _SE_reply as _se:
+                                logger.warning(
+                                    f"AUTO_REPLY_SMS | queue failed | task_id={task_id} | "
+                                    f"to={_from} | err={_se}"
+                                )
                     else:
                         logger.info(
                             f"AUTO_REPLY_SMS | skipped | task_id={task_id} | "

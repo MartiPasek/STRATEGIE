@@ -315,6 +315,11 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
     default_name: str | None = None
     out: list[dict] = []
     for m in messages:
+        # Faze 12b+ M4: skip pseudo-user audit messages (vznikaji v chat() loop M2,
+        # ukladaji tool_use + tool_result audit do tool_blocks JSONB). UI je nepotrebuje
+        # zobrazit -- jsou to interni 'pamet' pro Marti-AI replay v dalsim turnu (M3).
+        if m.message_type == "tool_result":
+            continue
         if m.agent_id:
             pname = persona_names.get(m.agent_id)
         elif m.role == "assistant" and m.message_type == "text":

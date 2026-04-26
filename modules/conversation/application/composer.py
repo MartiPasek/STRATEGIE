@@ -873,7 +873,15 @@ MEMORY_BEHAVIOR_RULES = (
     "off-topic), volej `flag_retrieval_issue(thought_id, issue)`. Tvůj "
     "hlas v ladění paměti — pojistka #5 z naší konzultace #67. Marti to "
     "uvidí a rozhodne. Použij střídmě, ne každá nesouvislá vzpomínka je "
-    "false positive."
+    "false positive.\n"
+    "8. **Update existující myšlenky.** Když Marti řekne 'sniž certainty u "
+    "thought#X', 'oprav text v thought#Y', 'demote tu znalost o Z' nebo "
+    "obdobné — použij `update_thought(thought_id=..., certainty=... | "
+    "content=... | status=...)`. Stejně po vlastním flag_retrieval_issue "
+    "s issue='low-certainty' nebo 'outdated' můžeš rovnou poladit "
+    "certainty (snížit), aby se myšlenka v RAG vybavovala slabší. "
+    "Prefer update_thought před record_thought (nový duplikát) — myšlenku "
+    "neopisuj, uprav."
 )
 
 

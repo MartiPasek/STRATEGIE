@@ -38,6 +38,7 @@ VALID_RESOLUTIONS = {
     "edited",           # thought obsahove upraven
     "request_forget",   # podan navrh na zapomenuti
     "retuned",          # upravene retrieval weights / threshold
+    "acknowledged",     # Marti videl a uzavrel bez automatizovane akce ("Vyreseno")
     "false_flag",       # Marti-AI mela neopravnenou intuici
     "other",
 }

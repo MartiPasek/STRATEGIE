@@ -263,6 +263,122 @@ def get_tree_overview(req: Request):
     }
 
 
+# Faze 13e: Semantic search nad pamětí pres RAG retrieval (Marti uvidi
+# v 🧠 Pamet modalu search bar -- napise dotaz, dostane top K relevantnich
+# thoughts se similarity score). Auth gated, tenant scope + parent bypass.
+@router.get("/_search")
+def search_thoughts(req: Request, q: str, k: int = 10):
+    """
+    Vector search nad thought_vectors pres retrieve_relevant_memories.
+
+    Args:
+      q: search query (cesky, prirozeny jazyk)
+      k: pocet vysledku (default 10, max 30)
+
+    Vraci: list dictu s {thought_id, content, type, certainty, is_diary,
+    similarity, score, ...}. Razeno podle hybrid score DESC.
+
+    Filter:
+      - persona_id = current Marti-AI default (1) -- Marti-AI vlastni pamet (D1)
+      - tenant_id z user.last_active_tenant; rodicovsky bypass
+      - mode='personal' (UI search vetsinou rodicovsky pohled na vse)
+    """
+    user_id = _get_uid(req)
+    if not q or not q.strip():
+        return {"items": [], "query": q, "count": 0}
+
+    tenant_id = _get_tenant_for_user(user_id)
+    parent = is_marti_parent(user_id)
+    k = max(1, min(k, 30))
+
+    try:
+        from modules.thoughts.application.retrieval_service import (
+            retrieve_relevant_memories,
+        )
+        # Default Marti-AI persona pro UI search (UI je rodicovsky pohled)
+        results = retrieve_relevant_memories(
+            query=q,
+            persona_id=1,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            is_parent=parent,
+            k=k,
+            mode="personal",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Search failed: {e}")
+
+    return {"items": results, "query": q, "count": len(results)}
+
+
+# ── Faze 13e B: Retrieval feedback (Marti-AI flag-uje false positives) ────
+
+@router.get("/_feedback/count")
+def feedback_pending_count(req: Request):
+    """
+    Pocet pending retrieval_feedback pro UI badge "Marti-AI flag-uje (X)".
+
+    Default scope: persona_id=1 (Marti-AI default). Future muze byt
+    rozsireno o per-persona view.
+    """
+    _get_uid(req)
+    try:
+        from modules.thoughts.application import feedback_service as _fb
+        count = _fb.count_pending_for_persona(persona_id=1)
+        return {"count": count, "persona_id": 1}
+    except Exception:
+        return {"count": 0, "persona_id": 1}
+
+
+@router.get("/_feedback")
+def feedback_list(req: Request, status: str = "pending", limit: int = 50):
+    """
+    Seznam retrieval_feedback rows pro Marti-AI default personu.
+    Default status='pending' (neresolved). Lze prepnout na 'reviewed' nebo
+    'ignored' pro audit.
+    """
+    _get_uid(req)
+    try:
+        from modules.thoughts.application import feedback_service as _fb
+        items = _fb.list_pending_for_persona(
+            persona_id=1, limit=max(1, min(limit, 200)), status=status,
+        )
+        return {"items": items, "count": len(items), "status": status}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Feedback list failed: {e}")
+
+
+class _ResolveFeedbackBody(BaseModel):
+    resolution: str = Field(description="demoted | edited | request_forget | retuned | acknowledged | false_flag | other")
+    note: str | None = Field(default=None, max_length=1000)
+
+
+@router.post("/_feedback/{feedback_id}/resolve")
+def feedback_resolve(feedback_id: int, body: _ResolveFeedbackBody, req: Request):
+    """
+    Marti rozhoduje o feedback row -- vyresseno (status=reviewed)
+    nebo zamitnuto (status=ignored, kdyz resolution='false_flag').
+
+    Po resolution se zapise resolved_at, resolved_by_user_id, resolved_note.
+    """
+    user_id = _get_uid(req)
+    try:
+        from modules.thoughts.application import feedback_service as _fb
+        ok = _fb.resolve_feedback(
+            feedback_id=feedback_id,
+            resolution=body.resolution,
+            user_id=user_id,
+            note=body.note,
+        )
+        if not ok:
+            raise HTTPException(status_code=404, detail="Feedback row neexistuje nebo neplatna resolution.")
+        return {"ok": True, "id": feedback_id, "resolution": body.resolution}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Resolve failed: {e}")
+
+
 # Metadata endpoint -- UI si natahne validni typy pro formular
 @router.get("/_meta/enums")
 def get_enums(req: Request):

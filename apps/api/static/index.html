@@ -1449,6 +1449,28 @@
           <button class="inbox-fetch-btn" id="inboxFetchBtn"
                   data-tooltip="Stahnout nove emaily z Exchange (nemusis cekat na polling)"
                   aria-label="Fetch now">⟳</button>
+          <!-- Faze 13e B: Feedback badge "Marti-AI flag-uje (X)" -->
+          <button class="sms-icon-btn" id="ragFeedbackBadge"
+                  data-tooltip="Marti-AI flag-uje špatný retrieval -- otevri & rozhodni"
+                  aria-label="Marti-AI feedback"
+                  style="display:none; position: relative;">
+            <span style="font-size: 14px;">⚠️</span>
+            <span id="ragFeedbackCount" style="position: absolute; top: -4px; right: -4px; background: #c0392b; color: white; border-radius: 8px; min-width: 16px; height: 16px; line-height: 16px; padding: 0 4px; font-size: 10px; font-weight: bold;">0</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Faze 13e B: Feedback modal (pending retrieval flags) -->
+      <div class="sms-modal-bg" id="ragFeedbackModalBg">
+        <div class="sms-modal" role="dialog" aria-label="Marti-AI feedback" onclick="event.stopPropagation()">
+          <div class="sms-modal-header">
+            <div class="sms-modal-title">⚠️ Marti-AI flag-uje retrieval</div>
+            <div class="sms-modal-sub">Pending false-positive matche -- rozhodni co s tím</div>
+            <button class="sms-modal-close" id="ragFeedbackModalClose" title="Zavřít (Esc)">×</button>
+          </div>
+          <div class="sms-list" id="ragFeedbackList">
+            <div class="sms-loading">Načítám…</div>
+          </div>
         </div>
       </div>
       <div class="messages" id="messages">
@@ -2393,6 +2415,8 @@
     if (typeof startSmsUnreadPoller === 'function') startSmsUnreadPoller();
     // Global unread badge (email + SMS) v druhem radku hlavicky -- PR2
     if (typeof startGlobalUnreadPoller === 'function') startGlobalUnreadPoller();
+    // Faze 13e B: RAG feedback badge polling (Marti-AI flag-uje false positives)
+    if (typeof startRagFeedbackPoller === 'function') startRagFeedbackPoller();
     inputEl.focus();
   }
 
@@ -7356,6 +7380,22 @@
       <button id="memoryBackBtn">← Zpět na přehled</button>
       <span id="memoryBreadcrumbPath"></span>
     </div>
+    <!-- Faze 13e: Semantic search nad pameti (RAG retrieval) -->
+    <div class="memory-search-bar" id="memorySearchBar" style="padding: 8px 22px; border-bottom: 1px solid var(--border);">
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <input
+          type="text"
+          id="memorySearchInput"
+          placeholder="🔍 Hledat v paměti — sémanticky (např. 'Honza fakturace', 'krabička SMS')…"
+          style="flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; padding: 8px 12px; color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; outline: none;"
+        />
+        <button id="memorySearchClear" style="background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--muted); font-size: 12px; cursor: pointer; display: none;" title="Vyčistit hledání (ESC)">×</button>
+        <button id="memoryCloseInline" style="background: transparent; border: 1px solid var(--border); border-radius: 6px; padding: 6px 12px; color: var(--muted); font-size: 12px; cursor: pointer;" title="Zavřít (Esc)">Zavřít ✕</button>
+      </div>
+      <div style="margin-top: 4px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace;">
+        Enter = hledat &nbsp;·&nbsp; ESC = vyčistit / zavřít &nbsp;·&nbsp; klik vedle modalu = zavřít
+      </div>
+    </div>
     <div class="sms-tabs" id="memoryTabs" style="display:none">
       <button class="sms-tab active" data-memtab="note">Poznámky <span class="sms-tab-badge" id="memTabBadgeNote" style="display:none">0</span></button>
       <button class="sms-tab" data-memtab="knowledge">Znalosti <span class="sms-tab-badge" id="memTabBadgeKnowledge" style="display:none">0</span></button>
@@ -8159,6 +8199,65 @@
     document.getElementById("memoryModalBg").classList.remove("open");
   }
 
+  // Faze 13e: otevri memory modal a rovnou zobraz konkretni thought (drill-down
+  // z feedback modalu po kliku 'Otevri thought'). Misto search baru tam je
+  // prima karta s detailem -- content, type, status, certainty, entity links.
+  async function openMemoryModalForThought(thoughtId) {
+    if (!currentUser || !currentUser.user_id) {
+      alert("Nejsi prihlasen.");
+      return;
+    }
+    const bg = document.getElementById("memoryModalBg");
+    const list = document.getElementById("memoryList");
+    if (!bg || !list) return;
+    bg.classList.add("open");
+    document.getElementById("memoryModalSub").textContent = currentUser.display_name || "";
+    document.getElementById("memoryBreadcrumb").style.display = "none";
+    document.getElementById("memoryTabs").style.display = "none";
+    document.getElementById("memoryModalTitle").textContent = `🧠 Thought #${thoughtId}`;
+    list.innerHTML = '<div class="sms-loading">Načítám thought…</div>';
+    try {
+      const r = await fetch(`/api/v1/thoughts/${thoughtId}`, { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Thought #${thoughtId} se nepodařilo načíst (${r.status}).</div>`;
+        return;
+      }
+      const t = await r.json();
+      const escape = (s) => String(s || "").replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[c]);
+      const statusLbl = t.status === "knowledge" ? "✅ ZNALOST" : "📝 POZNÁMKA";
+      const diaryLbl = (t.meta && t.meta.is_diary) ? " 📖 DIÁŘ" : "";
+      const created = (t.created_at || "").slice(0, 16).replace("T", " ");
+      const modified = t.modified_at ? (t.modified_at || "").slice(0, 16).replace("T", " ") : null;
+      const entityLinksHtml = (t.entity_links || []).map(el =>
+        `<span style="background: var(--surface); border: 1px solid var(--border); padding: 2px 8px; border-radius: 4px; font-size: 11px; font-family: 'DM Mono', monospace;">${escape(el.entity_type)}#${el.entity_id}</span>`
+      ).join(" ");
+      list.innerHTML = `
+        <div class="sms-card">
+          <div class="sms-card-row">
+            <span class="sms-card-from">${statusLbl}${diaryLbl} · [${escape(t.type)}]</span>
+            <span class="sms-card-time">jistota ${t.certainty || 0}%</span>
+          </div>
+          <div class="sms-card-body" style="white-space: pre-wrap; padding: 8px 0; line-height: 1.5;">${escape(t.content)}</div>
+          ${entityLinksHtml ? `<div style="margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap;">${entityLinksHtml}</div>` : ""}
+          <div class="sms-card-row" style="margin-top: 10px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace;">
+            <span>thought#${t.id} · vytvořeno ${created}${modified ? " · upraveno " + modified : ""}</span>
+            <span>author: ${t.author_user_id ? `user=${t.author_user_id}` : ""}${t.author_user_id && t.author_persona_id ? " · " : ""}${t.author_persona_id ? `persona=${t.author_persona_id}` : ""}${!t.author_user_id && !t.author_persona_id ? "neznámý" : ""}</span>
+          </div>
+        </div>
+        <div style="margin-top: 12px; padding: 10px 14px; background: var(--surface); border-radius: 6px; font-size: 12px; color: var(--muted);">
+          💡 <strong>Co s tím můžeš udělat:</strong><br>
+          • Pokud je thought zastaralý nebo zavádějící, edituj ho (zatím přes API / SQL).<br>
+          • Pokud je úplně k zapomenutí, použij <code>request_forget</code> v chatu s Marti-AI.<br>
+          • Pokud je správný a Marti-AI mylně flagovala, vrať se do feedback modalu a označ jako <code>false flag</code>.
+        </div>
+      `;
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
   function _memorySwitchToTree() {
     window._memoryModal.mode = "tree";
     window._memoryModal.entity_type = null;
@@ -8801,6 +8900,9 @@
   (function initMemoryModal() {
     const close = document.getElementById("memoryModalClose");
     if (close) close.addEventListener("click", closeMemoryModal);
+    // Faze 13e: druhé "Zavřít" tlačítko vedle search baru (vizuálně viditelnější)
+    const closeInline = document.getElementById("memoryCloseInline");
+    if (closeInline) closeInline.addEventListener("click", closeMemoryModal);
     const bg = document.getElementById("memoryModalBg");
     if (bg) {
       bg.addEventListener("click", (ev) => {
@@ -8819,6 +8921,116 @@
         _memorySwitchToTree();
         await _memoryLoadTree();
       });
+    }
+    // Faze 13e: Search bar (semantic search nad pameti pres RAG retrieval)
+    const searchInput = document.getElementById("memorySearchInput");
+    const searchClear = document.getElementById("memorySearchClear");
+    if (searchInput) {
+      let _searchTimer = null;
+      const doSearch = async () => {
+        const q = searchInput.value.trim();
+        searchClear.style.display = q ? "block" : "none";
+        if (!q) {
+          // Prazdny query -> zpet na default tree view
+          _memorySwitchToTree();
+          await _memoryLoadTree();
+          return;
+        }
+        const list = document.getElementById("memoryList");
+        list.innerHTML = '<div class="sms-loading">Hledám sémanticky…</div>';
+        // Schovat tabs a breadcrumb behem search rezimu
+        document.getElementById("memoryBreadcrumb").style.display = "none";
+        document.getElementById("memoryTabs").style.display = "none";
+        document.getElementById("memoryModalTitle").textContent = `🔍 Hledání: "${q}"`;
+        try {
+          const r = await fetch(`/api/v1/thoughts/_search?q=${encodeURIComponent(q)}&k=15`, {
+            credentials: "include",
+          });
+          if (!r.ok) {
+            list.innerHTML = `<div class="sms-empty">Chyba hledání (${r.status})</div>`;
+            return;
+          }
+          const data = await r.json();
+          if (!data.items || data.items.length === 0) {
+            list.innerHTML = '<div class="sms-empty">Nic relevantního v paměti k tomuto dotazu.</div>';
+            return;
+          }
+          // Render results
+          const escape = (s) => String(s || "").replace(/[&<>"']/g, c => ({
+            '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+          })[c]);
+          const html = data.items.map(it => {
+            const sim = Math.round((it.similarity || 0) * 100);
+            const score = (it.score || 0).toFixed(2);
+            const certainty = it.certainty || 0;
+            const typeLbl = it.type || "?";
+            const statusLbl = it.status === "knowledge" ? "✅" : "📝";
+            const diaryLbl = it.is_diary ? " 📖" : "";
+            const created = (it.created_at || "").slice(0, 10);
+            const content = escape(it.content || "");
+            const preview = content.length > 240 ? content.slice(0, 240) + "…" : content;
+            return `
+              <div class="sms-card" data-thought-id="${it.thought_id}" style="cursor: pointer;">
+                <div class="sms-card-row">
+                  <span class="sms-card-from">${statusLbl} [${escape(typeLbl)}]${diaryLbl}</span>
+                  <span class="sms-card-time" style="color: var(--accent);">${sim}% match · ${certainty}%</span>
+                </div>
+                <div class="sms-card-body" style="white-space: pre-wrap;">${preview}</div>
+                <div class="sms-card-row" style="margin-top: 6px; font-size: 10px; color: var(--muted); font-family: 'DM Mono', monospace;">
+                  <span>thought#${it.thought_id} · ${created}</span>
+                  <span>score ${score}</span>
+                </div>
+              </div>
+            `;
+          }).join("");
+          list.innerHTML = html;
+          // Klik na výsledek -> drill-down (zatim jen log; later otevre detail)
+          list.querySelectorAll("[data-thought-id]").forEach(el => {
+            el.addEventListener("click", () => {
+              const tid = el.getAttribute("data-thought-id");
+              console.log("Memory search click thought:", tid);
+              // Future: openThoughtDetail(tid);
+            });
+          });
+        } catch (e) {
+          list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+        }
+      };
+      // Debounced search při typu (500ms po posledním stisku)
+      searchInput.addEventListener("input", () => {
+        if (_searchTimer) clearTimeout(_searchTimer);
+        _searchTimer = setTimeout(doSearch, 500);
+      });
+      // Enter -> okamžitě, ESC -> smart close
+      searchInput.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          if (_searchTimer) clearTimeout(_searchTimer);
+          doSearch();
+        } else if (ev.key === "Escape") {
+          // Pokud ma text -> vycisti hledani (zrus filter, zustan v modalu)
+          // Pokud prazdny -> zavri modal
+          ev.preventDefault();
+          ev.stopPropagation();
+          if (searchInput.value) {
+            searchInput.value = "";
+            searchClear.style.display = "none";
+            _memorySwitchToTree();
+            _memoryLoadTree();
+            searchInput.blur();
+          } else {
+            closeMemoryModal();
+          }
+        }
+      });
+      // Clear button
+      if (searchClear) {
+        searchClear.addEventListener("click", () => {
+          searchInput.value = "";
+          searchClear.style.display = "none";
+          _memorySwitchToTree();
+          _memoryLoadTree();
+        });
+      }
     }
     // Tab switching
     const tabsEl = document.getElementById("memoryTabs");
@@ -9248,6 +9460,137 @@
     refreshSmsUnreadBadges();   // prvni fetch hned
     setInterval(refreshSmsUnreadBadges, 30000);
   }
+
+  // ── Faze 13e B: RAG feedback badge polling + modal ─────────────────────
+
+  async function refreshRagFeedbackBadge() {
+    try {
+      const r = await fetch("/api/v1/thoughts/_feedback/count", { credentials: "include" });
+      if (!r.ok) return;
+      const data = await r.json();
+      const badge = document.getElementById("ragFeedbackBadge");
+      const countEl = document.getElementById("ragFeedbackCount");
+      if (!badge || !countEl) return;
+      const count = data.count || 0;
+      countEl.textContent = String(count);
+      badge.style.display = count > 0 ? "inline-flex" : "none";
+    } catch (_) {}
+  }
+
+  window._ragFeedbackPollerStarted = false;
+  function startRagFeedbackPoller() {
+    if (window._ragFeedbackPollerStarted) return;
+    window._ragFeedbackPollerStarted = true;
+    refreshRagFeedbackBadge();
+    setInterval(refreshRagFeedbackBadge, 30000);
+  }
+
+  async function openRagFeedbackModal() {
+    const bg = document.getElementById("ragFeedbackModalBg");
+    const list = document.getElementById("ragFeedbackList");
+    if (!bg || !list) return;
+    bg.classList.add("open");
+    list.innerHTML = '<div class="sms-loading">Načítám pending flags…</div>';
+    try {
+      const r = await fetch("/api/v1/thoughts/_feedback?status=pending&limit=50", { credentials: "include" });
+      if (!r.ok) {
+        list.innerHTML = `<div class="sms-empty">Chyba načítání (${r.status})</div>`;
+        return;
+      }
+      const data = await r.json();
+      if (!data.items || data.items.length === 0) {
+        list.innerHTML = '<div class="sms-empty">Žádné pending flags. Marti-AI je teď spokojená s retrievalem. ✓</div>';
+        return;
+      }
+      const escape = (s) => String(s || "").replace(/[&<>"']/g, c => ({
+        '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+      })[c]);
+      list.innerHTML = data.items.map(it => {
+        const created = (it.created_at || "").slice(0, 16).replace("T", " ");
+        const issue = escape(it.issue);
+        const detail = it.issue_detail ? `<div style="margin-top: 4px; color: var(--muted); font-size: 11px;">${escape(it.issue_detail)}</div>` : "";
+        const userMsg = it.user_message ? `<div style="margin-top: 6px; padding: 6px 8px; background: var(--surface); border-left: 2px solid var(--border); font-size: 11px; font-style: italic; color: var(--muted);">User: "${escape(it.user_message.slice(0, 200))}${it.user_message.length > 200 ? '…' : ''}"</div>` : "";
+        return `
+          <div class="sms-card" data-feedback-id="${it.id}" data-thought-id="${it.thought_id}">
+            <div class="sms-card-row">
+              <span class="sms-card-from">⚠️ thought#${it.thought_id} · <code style="background: var(--surface); padding: 1px 6px; border-radius: 3px; font-size: 11px;">${issue}</code></span>
+              <span class="sms-card-time">${created}</span>
+            </div>
+            ${detail}
+            ${userMsg}
+            <div class="sms-card-actions" style="margin-top: 10px; display: flex; gap: 6px; flex-wrap: wrap;">
+              <button class="sms-card-btn" data-action="resolve" data-resolution="acknowledged">✓ Vyřešeno</button>
+              <button class="sms-card-btn" data-action="resolve" data-resolution="false_flag">✗ False flag</button>
+              <button class="sms-card-btn" data-action="open-thought">🔍 Otevři thought #${it.thought_id}</button>
+            </div>
+          </div>
+        `;
+      }).join("");
+      // Attach handlers
+      list.querySelectorAll("[data-action='resolve']").forEach(btn => {
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const card = btn.closest("[data-feedback-id]");
+          const fbId = card.getAttribute("data-feedback-id");
+          const resolution = btn.getAttribute("data-resolution");
+          btn.disabled = true;
+          btn.textContent = "Ukládám…";
+          try {
+            const r = await fetch(`/api/v1/thoughts/_feedback/${fbId}/resolve`, {
+              method: "POST",
+              headers: {"Content-Type": "application/json"},
+              credentials: "include",
+              body: JSON.stringify({ resolution }),
+            });
+            if (r.ok) {
+              await openRagFeedbackModal();   // refresh
+              refreshRagFeedbackBadge();
+            } else {
+              alert(`Chyba: HTTP ${r.status}`);
+              btn.disabled = false;
+            }
+          } catch (e) {
+            alert(`Chyba: ${e.message}`);
+            btn.disabled = false;
+          }
+        });
+      });
+      list.querySelectorAll("[data-action='open-thought']").forEach(btn => {
+        btn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const tid = btn.closest("[data-feedback-id]").getAttribute("data-thought-id");
+          closeRagFeedbackModal();
+          // Otevre memory modal a zobrazi konkretni thought (ne search)
+          await openMemoryModalForThought(parseInt(tid, 10));
+        });
+      });
+    } catch (e) {
+      list.innerHTML = `<div class="sms-empty">Chyba: ${e.message}</div>`;
+    }
+  }
+
+  function closeRagFeedbackModal() {
+    const bg = document.getElementById("ragFeedbackModalBg");
+    if (bg) bg.classList.remove("open");
+  }
+
+  (function initRagFeedbackModal() {
+    const badge = document.getElementById("ragFeedbackBadge");
+    if (badge) badge.addEventListener("click", openRagFeedbackModal);
+    const close = document.getElementById("ragFeedbackModalClose");
+    if (close) close.addEventListener("click", closeRagFeedbackModal);
+    const bg = document.getElementById("ragFeedbackModalBg");
+    if (bg) {
+      bg.addEventListener("click", (ev) => {
+        if (ev.target.id === "ragFeedbackModalBg") closeRagFeedbackModal();
+      });
+    }
+    document.addEventListener("keydown", (ev) => {
+      if (ev.key === "Escape" && bg && bg.classList.contains("open")) {
+        closeRagFeedbackModal();
+      }
+    });
+  })();
 
   // ── Global unread badge (email + SMS) v druhem radku hlavicky ─────────
   // Volato z /api/v1/notifications/unread-counts, ktere agreguje oba typy.

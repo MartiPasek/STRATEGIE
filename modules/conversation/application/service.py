@@ -2097,6 +2097,190 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         else:
             return f"⚠️ Myšlenka id={target_id} má po operaci status='{status_now}'."
 
+    if tool_name == "update_thought":
+        # Faze 13e+: Marti-AI muze rovnou snizit/zvysit certainty, demote
+        # do 'note', promote do 'knowledge' nebo opravit content. Pouziva
+        # se typicky po flag_retrieval_issue ('low-certainty' → snizim).
+        from modules.thoughts.application import service as _thoughts_service_u
+        from modules.thoughts.application.service import (
+            ThoughtValidationError as _ThoughtValidationError_u,
+        )
+
+        thought_id_raw = tool_input.get("thought_id")
+        if thought_id_raw is None:
+            return "❌ Musíš dodat `thought_id` — bez něj nevím, kterou myšlenku upravit."
+        try:
+            thought_id_u = int(thought_id_raw)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné thought_id: {thought_id_raw!r}"
+
+        new_content = tool_input.get("content")
+        if new_content is not None:
+            new_content = str(new_content).strip() or None
+
+        certainty_raw = tool_input.get("certainty")
+        new_certainty: int | None = None
+        if certainty_raw is not None:
+            try:
+                new_certainty = int(certainty_raw)
+            except (TypeError, ValueError):
+                return f"❌ Neplatná certainty: {certainty_raw!r} (musí být 0-100)."
+            if not (0 <= new_certainty <= 100):
+                return f"❌ Certainty mimo rozsah 0-100: {new_certainty}."
+
+        new_status = tool_input.get("status")
+        if new_status is not None:
+            new_status = str(new_status).strip().lower() or None
+            if new_status and new_status not in ("note", "knowledge"):
+                return (
+                    f"❌ Neznámý status '{new_status}'. "
+                    "Použij 'note' nebo 'knowledge'."
+                )
+
+        # Aspon jedno pole musi byt
+        if new_content is None and new_certainty is None and new_status is None:
+            return (
+                "❌ Nic k aktualizaci — dodaj alespoň jedno z `content`, "
+                "`certainty`, nebo `status`."
+            )
+
+        # Tenant izolace + rodicovsky bypass:
+        #  - bezny user: muze menit jen myslenky ze sveho aktualniho tenantu
+        #  - rodic (is_marti_parent): cross-tenant bypass (stejne jako pri
+        #    cteni pameti) -- vidi a uprav vse, vc. NULL tenant_scope myslenek
+        tenant_for_check_u: int | None = None
+        is_parent_u = False
+        if user_id:
+            from core.database_core import get_core_session as _gcs_u
+            from modules.core.infrastructure.models_core import User as _U_u
+            from modules.thoughts.application.service import (
+                is_marti_parent as _is_parent_u,
+            )
+            _cs_u = _gcs_u()
+            try:
+                _u_u = _cs_u.query(_U_u).filter_by(id=user_id).first()
+                if _u_u:
+                    tenant_for_check_u = _u_u.last_active_tenant_id
+            finally:
+                _cs_u.close()
+            try:
+                is_parent_u = _is_parent_u(user_id)
+            except Exception:
+                is_parent_u = False
+
+        # Nejdriv si nactu existujici myslenku (kvuli tenant_scope check)
+        existing = _thoughts_service_u.get_thought(thought_id_u)
+        if existing is None:
+            return f"❌ Myšlenka id={thought_id_u} neexistuje (nebo je smazaná)."
+
+        scope_existing = existing.get("tenant_scope")
+        if (
+            not is_parent_u
+            and scope_existing is not None
+            and tenant_for_check_u is not None
+            and scope_existing != tenant_for_check_u
+        ):
+            return (
+                f"❌ Myšlenka id={thought_id_u} nepatří do tvého tenantu — "
+                "nemůžu ji upravit."
+            )
+
+        # Provedu update
+        try:
+            result_u = _thoughts_service_u.update_thought(
+                thought_id_u,
+                content=new_content,
+                certainty=new_certainty,
+                status=new_status,
+            )
+        except _ThoughtValidationError_u as e:
+            return f"❌ Update selhal: {e}"
+        except Exception as e:
+            logger.error(f"TOOL | update_thought | error={e!r}", exc_info=True)
+            return "❌ Update selhal (chyba serveru — detail v logu)."
+
+        if result_u is None:
+            return f"❌ Myšlenka id={thought_id_u} neexistuje (nebo už byla smazána)."
+
+        # Pretty summary co se zmenilo
+        prev_certainty = existing.get("certainty")
+        prev_status = existing.get("status")
+        prev_content = (existing.get("content") or "")
+        new_content_actual = (result_u.get("content") or "")
+        cur_certainty = result_u.get("certainty")
+        cur_status = result_u.get("status")
+
+        changes = []
+        if new_content is not None and new_content_actual != prev_content:
+            preview = new_content_actual[:60] + ("…" if len(new_content_actual) > 60 else "")
+            changes.append(f'content → "{preview}"')
+        if new_certainty is not None and cur_certainty != prev_certainty:
+            changes.append(f"certainty {prev_certainty}→{cur_certainty}")
+        if cur_status != prev_status:
+            arrow = "⬆️" if cur_status == "knowledge" else "⬇️"
+            changes.append(f"{arrow} status {prev_status}→{cur_status}")
+
+        if not changes:
+            return f"ℹ️ Myšlenka id={thought_id_u} beze změny (hodnoty byly stejné)."
+
+        # Faze 13e+: Auto-resolve pending retrieval_feedback flagy pro tuto myslenku.
+        # Kdyz Marti-AI sama upravi thought (snizi certainty / uprav content / demote),
+        # tim "vyresila" svuj vlastni flag. Bez auto-resolve by flag svitil v UI dal,
+        # aniz by se neco delo => UX bug.
+        #
+        # Resolution pick:
+        #   - certainty was lowered             -> 'demoted'
+        #   - status changed knowledge -> note  -> 'demoted'
+        #   - content changed                   -> 'edited'
+        #   - jen promote (status -> knowledge) -> 'edited' (fallback)
+        auto_resolved_count = 0
+        try:
+            from modules.thoughts.application import feedback_service as _fb_u
+
+            # Vyber resolution podle typu zmeny
+            resolution_u = "edited"   # default fallback
+            if (
+                new_certainty is not None
+                and prev_certainty is not None
+                and cur_certainty is not None
+                and cur_certainty < prev_certainty
+            ):
+                resolution_u = "demoted"
+            elif (
+                cur_status == "note"
+                and prev_status == "knowledge"
+            ):
+                resolution_u = "demoted"
+
+            persona_for_fb = _active_persona_id_for_conversation(conversation_id) or 1
+
+            pending_flags = _fb_u.list_pending_for_persona(
+                persona_id=persona_for_fb, limit=200,
+            )
+            for flag_row in pending_flags:
+                if flag_row.get("thought_id") != thought_id_u:
+                    continue
+                ok = _fb_u.resolve_feedback(
+                    feedback_id=flag_row["id"],
+                    resolution=resolution_u,
+                    user_id=user_id or 1,
+                    note=f"Auto-resolved via update_thought ({', '.join(changes)})",
+                )
+                if ok:
+                    auto_resolved_count += 1
+            if auto_resolved_count > 0:
+                logger.info(
+                    f"FEEDBACK | auto-resolve | thought={thought_id_u} "
+                    f"resolved={auto_resolved_count} resolution={resolution_u}"
+                )
+        except Exception as _e_fb:
+            logger.warning(f"FEEDBACK | auto-resolve failed: {_e_fb}")
+
+        msg = f"✅ Myšlenka id={thought_id_u} upravena: " + ", ".join(changes)
+        if auto_resolved_count > 0:
+            msg += f" · 🏷️ vyřešeno {auto_resolved_count} flag(ů)"
+        return msg
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

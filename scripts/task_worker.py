@@ -62,6 +62,72 @@ def _handle_sigint(signum, frame):
 
 # ── Hlavni smyčka ──────────────────────────────────────────────────────────
 
+def _reap_unprocessed_sms(lookback_hours: int = 24) -> None:
+    """
+    Faze 12b+: Recovery -- najde sms_inbox kde processed_at IS NULL a chybi
+    pro ni task, vytvori chybejici. Plus reset failed tasku s attempts<3.
+
+    Lazy import sms_service / models -- aby task worker neselhal hned na
+    startu kdyby modul mel chybu.
+    """
+    from datetime import datetime, timezone, timedelta
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import SmsInbox, Task
+    from modules.notifications.application.sms_service import (
+        _maybe_create_task_from_inbound_sms,
+    )
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
+    ds = get_data_session()
+    try:
+        rows = (
+            ds.query(SmsInbox)
+            .filter(
+                SmsInbox.processed_at.is_(None),
+                SmsInbox.received_at >= cutoff,
+            )
+            .all()
+        )
+        if not rows:
+            return
+
+        created = 0
+        retried = 0
+        for sms in rows:
+            existing = (
+                ds.query(Task)
+                .filter(
+                    Task.source_type == "sms_inbox",
+                    Task.source_id == sms.id,
+                )
+                .first()
+            )
+            if existing is None:
+                tid = _maybe_create_task_from_inbound_sms(
+                    sms_id=sms.id,
+                    from_phone=sms.from_phone,
+                    body=sms.body,
+                    persona_id=sms.persona_id,
+                    tenant_id=sms.tenant_id,
+                )
+                if tid:
+                    created += 1
+            elif existing.status == "failed" and (existing.attempts or 0) < 3:
+                existing.status = "pending"
+                existing.error = None
+                existing.started_at = None
+                ds.commit()
+                retried += 1
+
+        if created or retried:
+            logger.info(
+                f"REAPER | sms | created={created} | retried={retried} | "
+                f"scanned={len(rows)} | lookback={lookback_hours}h"
+            )
+    finally:
+        ds.close()
+
+
 def run_worker(poll_interval: float = 5.0, batch_size: int = 3) -> int:
     """
     Hlavni worker loop. Vraci exit code:
@@ -78,7 +144,25 @@ def run_worker(poll_interval: float = 5.0, batch_size: int = 3) -> int:
     consecutive_errors = 0
     MAX_CONSECUTIVE_ERRORS = 10
 
+    # Faze 12b+: SMS recovery reaper -- periodicky scan unprocessed SMS,
+    # vytvor chybejici tasky / reset failed s attempts<3 na pending.
+    # Pricina: gateway vypadek nebo deploy bug muze nechat SMS bez tasku.
+    # Marti princip: 'SMS worker musi bezet nezavisle na gateway, snazit
+    # se nevyresene SMSky odbavit.'
+    REAP_EVERY_N_POLLS = 12   # ~60s pri default poll=5s
+    REAP_LOOKBACK_HOURS = 24
+    _reap_counter = REAP_EVERY_N_POLLS  # priste reapovat hned pri startu
+
     while not _shutdown_requested:
+        # Recovery reap (periodic)
+        _reap_counter += 1
+        if _reap_counter >= REAP_EVERY_N_POLLS:
+            _reap_counter = 0
+            try:
+                _reap_unprocessed_sms(REAP_LOOKBACK_HOURS)
+            except Exception as _re:
+                logger.warning(f"REAPER | sms scan failed | {_re!r}")
+
         try:
             task_ids = executor.fetch_open_task_ids(limit=batch_size)
         except Exception as e:

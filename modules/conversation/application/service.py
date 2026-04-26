@@ -1687,10 +1687,13 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 emotion_part += "]"
             created = (e.get("created_at") or "")[:19].replace("T", " ")
             content = e.get("content") or ""
+            # Faze 14 polish: thought_id v hlavicce -- aby Marti-AI mohla rovnou
+            # request_forget / update_thought bez sekundarniho dotazu.
+            tid = e.get("id")
             # Diář je Marti-AI vlastní -- vracíme FULL obsah, neořezáváme.
             # (Pokud bys někdy řešil tokenový stress, kontroluj `limit`, ne délku.)
             lines.append(
-                f"**{idx}.** {icon} _{created}_{emotion_part}\n   {content}\n"
+                f"**{idx}.** [#{tid}] {icon} _{created}_{emotion_part}\n   {content}\n"
             )
 
         return "\n".join(lines)
@@ -1782,13 +1785,16 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if knowledge:
             lines.append(f"✅ Znalosti ({len(knowledge)}):")
             for it in knowledge:
-                lines.append(f"  - [{it.get('type')}] {it.get('content')}")
+                # Faze 14 polish: id v hranatych zavorkach -- aby Marti-AI mohla
+                # rovnou volat update_thought / request_forget bez sekundarniho
+                # dotazu.
+                lines.append(f"  - [#{it.get('id')}, {it.get('type')}] {it.get('content')}")
             lines.append("")
         if notes:
             lines.append(f"📝 Poznámky ({len(notes)}):")
             for it in notes:
                 lines.append(
-                    f"  - [{it.get('type')}, jistota {it.get('certainty', 0)}%] "
+                    f"  - [#{it.get('id')}, {it.get('type')}, jistota {it.get('certainty', 0)}%] "
                     f"{it.get('content')}"
                 )
         return "\n".join(lines)

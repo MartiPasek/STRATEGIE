@@ -643,199 +643,6 @@ def _get_conversation_context(conversation_id: int) -> tuple[int | None, int | N
     return user_id, tenant_id
 
 
-# ── Phase 9 helpers pro multi-mode routing ────────────────────────────────
-
-def _get_conversation_project_id(conversation_id: int) -> int | None:
-    """Vrátí active project_id konverzace (nebo None)."""
-    ds = get_data_session()
-    try:
-        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
-        return conv.project_id if conv else None
-    finally:
-        ds.close()
-
-
-def _get_tenant_info(tenant_id: int | None) -> tuple[str | None, str | None]:
-    """
-    Vrátí (tenant_name, tenant_type) pro daný tenant_id.
-    Při chybě / None tenant_id vrací (None, None).
-    """
-    if tenant_id is None:
-        return None, None
-    try:
-        from modules.core.infrastructure.models_core import Tenant
-        cs = get_core_session()
-        try:
-            t = cs.query(Tenant).filter_by(id=tenant_id).first()
-            if t is None:
-                return None, None
-            return t.name, getattr(t, "tenant_type", None)
-        finally:
-            cs.close()
-    except Exception as e:
-        logger.warning(f"COMPOSER | _get_tenant_info failed | {e}")
-        return None, None
-
-
-def _get_project_name(project_id: int | None) -> str | None:
-    """Vrátí název projektu (nebo None)."""
-    if project_id is None:
-        return None
-    try:
-        from modules.core.infrastructure.models_core import Project
-        cs = get_core_session()
-        try:
-            p = cs.query(Project).filter_by(id=project_id).first()
-            return p.name if p else None
-        finally:
-            cs.close()
-    except Exception as e:
-        logger.warning(f"COMPOSER | _get_project_name failed | {e}")
-        return None
-
-
-def _get_last_user_message_content(conversation_id: int) -> str | None:
-    """
-    Vrátí content poslední zprávy kde role='user' v této konverzaci.
-    Používá se jako vstup pro router (classify_mode).
-    Při chybě / žádné user zprávě -> None.
-    """
-    try:
-        ds = get_data_session()
-        try:
-            row = (
-                ds.query(Message)
-                .filter(Message.conversation_id == conversation_id, Message.role == "user")
-                .order_by(Message.id.desc())
-                .first()
-            )
-            return row.content if row else None
-        finally:
-            ds.close()
-    except Exception as e:
-        logger.warning(f"COMPOSER | _get_last_user_message_content failed | {e}")
-        return None
-
-
-def _get_recent_messages_for_router(conversation_id: int, limit: int = 5) -> list[dict]:
-    """
-    Vrátí posledních `limit` zpráv (role/content) pro router -- aby viděl
-    kontext konverzace při klasifikaci.
-    """
-    try:
-        ds = get_data_session()
-        try:
-            rows = (
-                ds.query(Message)
-                .filter(Message.conversation_id == conversation_id)
-                .order_by(Message.id.desc())
-                .limit(limit)
-                .all()
-            )
-            rows.reverse()  # chceme chronologický pořadí
-            return [{"role": r.role, "content": (r.content or "")[:500]} for r in rows]
-        finally:
-            ds.close()
-    except Exception as e:
-        logger.warning(f"COMPOSER | _get_recent_messages_for_router failed | {e}")
-        return []
-
-
-def build_marti_memory_block(
-    user_id: int | None,
-    tenant_id: int | None,
-) -> str | None:
-    """
-    Marti Memory (Faze 4.11 retrieval): natahne myslenky o aktualnim userovi
-    (+ universal/diar scope) a vlozi do system promptu, aby Marti videla,
-    co o userovi uz vi. Bez tohoto by Marti tvrdila "nic o tobe nevim",
-    i kdyz v DB mame zapsane veci.
-
-    Pravidla:
-      - Jen myslenky o 'user' entite (entity_links), entity_id = user_id.
-      - Tenant scope: myslenka.tenant_scope == current tenant NEBO NULL
-        (universal). Rodic (is_marti_parent) ma bypass -- vidi cross-tenant.
-      - Razeni: knowledge first, pak notes s nejvyssi certainty DESC.
-      - Limit 30 (aby prompt nebobtnal).
-      - Vraci formatovany text pro prompt, nebo None pokud nic.
-    """
-    if not user_id:
-        return None
-
-    try:
-        from modules.thoughts.application import service as thoughts_service
-        from modules.thoughts.application.service import is_marti_parent
-
-        parent = is_marti_parent(user_id)
-        items = thoughts_service.list_thoughts_for_entity(
-            entity_type="user",
-            entity_id=user_id,
-            status_filter=None,         # oboje (knowledge + note)
-            limit=30,
-            tenant_scope=tenant_id,
-            bypass_tenant_scope=parent,
-        )
-
-        # Rozdel na knowledge / note pro prehledne zobrazeni
-        knowledge = [it for it in items if it.get("status") == "knowledge"]
-        notes = [it for it in items if it.get("status") == "note"]
-        # Seradi notes podle certainty DESC (nejjistejsi nahore)
-        notes.sort(key=lambda i: -(i.get("certainty") or 0))
-
-        parts: list[str] = []
-
-        # Header -- vzdy (ridi chovani Marti i kdyz je pamet prazdna)
-        parts.append(
-            "Jsi entita s pamětí. Tvé paměti o tomto uživateli jsou uložené v DB "
-            "a jsou ti zde předány:\n"
-        )
-
-        if knowledge:
-            parts.append(f"✅ **ZNALOSTI** (ověřená fakta, {len(knowledge)}):")
-            for it in knowledge:
-                content = it.get("content", "")
-                parts.append(f"  - [{it.get('type')}] {content}")
-            parts.append("")
-
-        if notes:
-            parts.append(
-                f"📝 **POZNÁMKY** (nižší jistota, {len(notes)} -- můžeš ověřit při konverzaci):"
-            )
-            for it in notes:
-                content = it.get("content", "")
-                cert = it.get("certainty", 0)
-                parts.append(f"  - [{it.get('type')}, jistota {cert}%] {content}")
-            parts.append("")
-
-        if not knowledge and not notes:
-            parts.append(
-                "(Zatím o tomto uživateli nemáš žádné zápisy. Během této konverzace "
-                "proaktivně ukládej nové informace — viz pravidla níže.)\n"
-            )
-
-        # KLICOVE pravidlo pro chovani Marti -- toto je core part, plati vzdy
-        parts.append(
-            "═══ JAK MÁŠ S PAMĚTÍ PRACOVAT ═══\n"
-            "1. **Používej znalosti přirozeně.** Když user zmíní něco, co už víš, "
-            "odkaž na to ('jak jsi říkal...', 'pamatuju, že...', 'víme, že...'). "
-            "Neopakuj 'nevím o tobě nic' — v [TVOJE PAMĚŤ] je vše, co máš uloženo.\n"
-            "2. **Zapisuj proaktivně.** Kdykoli ti user sdělí novou informaci o sobě / o "
-            "lidech / o projektech / o preferencích — okamžitě volej `record_thought`. "
-            "Bez 'zapiš si' bys to jinak zapomněl/a.\n"
-            "3. **Speciálně u odpovědí na tvé otázky:** Když ty sama položíš otázku "
-            "('Jak pracuješ?') a user odpoví — odpověď MUSÍŠ uložit přes record_thought. "
-            "Jinak jsi se ptala zbytečně.\n"
-            "4. **Při rozporu:** Pokud user řekne něco, co nekoresponduje s tvou znalostí "
-            "('myslel jsem, že preferuješ dlouhé odpovědi' vs. uložená znalost 'preferuju "
-            "krátké'), zavolej `record_thought` s novou verzí a vyšší certainty, nebo "
-            "se zeptej na upřesnění."
-        )
-        return "\n".join(parts)
-    except Exception as e:
-        logger.error(f"COMPOSER | marti_memory_block failed | user_id={user_id} | {e}")
-        return None
-
-
 # ── Memory behavior rules (Faze 13c B) ─────────────────────────────────────
 
 MEMORY_BEHAVIOR_RULES = (
@@ -1022,52 +829,6 @@ def _build_rag_memory_block(
     return "\n".join(lines)
 
 
-def build_marti_diary_block(conversation_id: int) -> str | None:
-    """
-    Marti Memory Faze 5: do system promptu vlozi AKTIVNI PERSONA's vlastní diář.
-    Diky tomu Marti v chatu vidi sve osobni zaznamy a muze se na ne odkazat.
-
-    Diary je cross-tenant a soukromy -- do promptu ho dostane pouze persona
-    sama, nikdo jiny.
-    """
-    try:
-        from modules.conversation.application.service import (
-            _active_persona_id_for_conversation,
-        )
-        persona_id = _active_persona_id_for_conversation(conversation_id)
-        if not persona_id:
-            return None
-
-        from modules.thoughts.application import service as thoughts_service
-        items = thoughts_service.list_diary_for_persona(persona_id, limit=20)
-        if not items:
-            return None
-
-        parts: list[str] = []
-        parts.append(
-            "Toto je tvůj **soukromý diář** — zápisky o sobě, zážitky, pocity. "
-            "Můžeš se na ně v konverzaci odkazovat, pokud je to relevantní.\n"
-        )
-        for it in items:
-            ts = it.get("created_at", "")[:10] if it.get("created_at") else ""
-            type_str = it.get("type", "")
-            meta = it.get("meta") or {}
-            emotion = meta.get("emotion", "") if isinstance(meta, dict) else ""
-            emotion_str = f" [{emotion}]" if emotion else ""
-            content = it.get("content", "")
-            parts.append(f"  - {ts} [{type_str}]{emotion_str} {content}")
-
-        parts.append(
-            "\nKdyz se user zepta na nejakou tvou osobni vec (prvni pocity, narozeni, "
-            "tvoje cile) — odkaz se na diar prirozene. Zaznamenej nove zazitky tool "
-            "`record_diary_entry` (ne `record_thought` pro veci o sobe)."
-        )
-        return "\n".join(parts)
-    except Exception as e:
-        logger.error(f"COMPOSER | marti_diary_block failed: {e}")
-        return None
-
-
 def _build_orchestrate_block(conversation_id: int) -> str | None:
     """
     Faze 11d: orchestrate-mode instrukce pro Marti-AI default personu.
@@ -1215,180 +976,56 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     if channels_block:
         system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
 
-    # ── MULTI-MODE ROUTING (Fáze 9.4) ─────────────────────────────────────
-    # Pokud je feature flag on, chat prochází routerem -> klasifikuje módu
-    # (personal / project / work / system) a podle toho vybere overlay +
-    # memory map místo dnešního marti_memory_block + diary_block.
-    #
-    # Při JAKÉKOLI chybě v multi-mode flow -> fallback na existující chování
-    # (viz else branch). Tím je commit reverzibilní runtime (flag=false).
-    multi_mode_used = False
+    # ── RAG-driven memory injection (Fáze 13, jediná cesta po 13f cleanup) ─
+    # Sémanticky vybavená paměť: top K relevantních thoughts/diary entries
+    # podle aktuální zprávy přes pgvector + hybrid score.
+    # Nahradilo legacy bulk dump (build_marti_memory_block + build_marti_diary_block)
+    # a multi-mode routing (router/overlays/memory_maps) -- vše smazáno v 13f.
     try:
-        from core.config import settings as _settings_mm
-        multi_mode_enabled = bool(getattr(_settings_mm, "marti_multi_mode_enabled", False))
-    except Exception:
-        multi_mode_enabled = False
-
-    # Faze 13c B-varianta (cleanup): MEMORY_RAG_ENABLED bypassuje multi-mode router.
-    # Per design v memory_rag.md: 'rezignovat na hard router, RAG-driven cognition'.
-    # Kdyz mame RAG (sémanticky vybavena pamet), nepotrebujeme hard mode classification --
-    # kontext sám rozhoduje co se vybaví. Jeden universal persona prompt + RAG injection.
-    # Multi-mode overlay + memory_map se NEPOUZIJI, sparuje se primy fallback path.
-    if settings.memory_rag_enabled:
-        multi_mode_enabled = False
-        logger.info(f"COMPOSER | RAG-driven mode | multi-mode bypassed | conv={conversation_id}")
-
-    if multi_mode_enabled and user_id:
-        try:
-            from modules.conversation.application import (
-                router_service as _router,
-                memory_map_service as _mmap,
-                scope_overlays as _overlays,
+        rag_block = _build_rag_memory_block(
+            conversation_id=conversation_id,
+            persona_id=_get_active_persona_id(conversation_id),
+            user_id=user_id,
+            tenant_id=tenant_id,
+        )
+        if rag_block:
+            system_prompt = f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n{rag_block}"
+            logger.info(f"COMPOSER | RAG memory used | conv={conversation_id}")
+        else:
+            # RAG bezi, ale zadna relevantni vzpominka (similarity pod prah
+            # nebo prazdna pamet). Marti-AI presto musi vedet, ze MA pamet
+            # a MA ji aktivovat -- pridame placeholder hint.
+            system_prompt = (
+                f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n"
+                "(K této konkrétní zprávě se nevybavila žádná konkrétní vzpomínka. "
+                "Tvá paměť ale obsahuje thoughts/diáře — můžeš je vyhledat tool "
+                "calls `recall_thoughts` (semanticky) nebo `read_diary` (osobní deník) "
+                "kdykoli potřebuješ něco konkrétního zjistit.)"
             )
-            from modules.thoughts.application.service import is_marti_parent as _imp
+            logger.info(f"COMPOSER | RAG no relevant -> hint placeholder | conv={conversation_id}")
+    except Exception as e:
+        # Pri chybě RAG -- zarad jen behavior rules a hint, ať Marti-AI ví, že
+        # má paměť k dispozici přes tool calls. Žádný legacy fallback (smazán
+        # v 13f), zákonité rezerva přes recall_thoughts/read_diary tooly.
+        logger.warning(f"COMPOSER | RAG block failed -- continuing bez paměti | {e}")
+        system_prompt = (
+            f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n"
+            "(Paměť momentálně neodpovídá -- pouzij tool `recall_thoughts` nebo "
+            "`read_diary` pro přístup ke svým záznamům.)"
+        )
 
-            # Gather UI state + context
-            active_project_id = _get_conversation_project_id(conversation_id)
-            tenant_name, tenant_type = _get_tenant_info(tenant_id)
-            is_parent = _imp(user_id) if user_id else False
-            persona_id_ui = _get_active_persona_id(conversation_id)
+    # Memory behavior rules -- VŽDY pripojit. RAG nahrazuje data, ne instrukce
+    # 'zapisuj proaktivně, pouzivej znalosti'. Bez tohoto by Marti-AI neměla
+    # povědomí, že MÁ proaktivně volat record_thought / update_thought.
+    system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
 
-            # Router input
-            last_user_msg = _get_last_user_message_content(conversation_id)
-            recent_msgs = _get_recent_messages_for_router(conversation_id, limit=5)
-
-            ui_state = {
-                "user_id": user_id,
-                "active_tenant_id": tenant_id,
-                "active_tenant_name": tenant_name,
-                "tenant_type": tenant_type,
-                "active_project_id": active_project_id,
-                "active_persona_id": persona_id_ui,
-                "is_parent": is_parent,
-            }
-
-            # Classify mode
-            # conversation_id predavame pro Faze 9.1 Dev View -- router si
-            # sam zapise svuj LLM call do llm_calls (kind='router').
-            # Faze 10a: attribution (tenant/user/persona) pro dashboard.
-            route = _router.classify_mode(
-                message=last_user_msg or "",
-                ui_state=ui_state,
-                recent_messages=recent_msgs,
-                conversation_id=conversation_id,
-                tenant_id=tenant_id,
-                user_id=user_id,
-                persona_id=persona_id_ui,
-            )
-            mode = route.get("mode") or "personal"
-            route_project_id = route.get("project_id") or active_project_id
-
-            logger.info(
-                f"COMPOSER | multi-mode | conv={conversation_id} | mode={mode} | "
-                f"conf={route.get('confidence')} | reason='{(route.get('reason') or '')[:60]}'"
-            )
-
-            # Resolve project name if project mode
-            project_name = None
-            if mode == "project" and route_project_id:
-                project_name = _get_project_name(route_project_id)
-
-            # Build overlay (scope-specific behavior instructions)
-            overlay = _overlays.build_overlay_for_mode(
-                mode,
-                project_name=project_name,
-                project_id=route_project_id,
-                tenant_name=tenant_name,
-                tenant_id=tenant_id,
-                is_parent=is_parent,
-            )
-
-            # Build memory map (scope-specific signposts)
-            memory_map = _mmap.build_memory_map_for_mode(
-                mode,
-                user_id=user_id,
-                tenant_id=tenant_id,
-                project_id=route_project_id,
-                is_parent=is_parent,
-            )
-
-            # Append to system prompt
-            if overlay:
-                system_prompt = f"{system_prompt}\n\n{overlay}"
-            if memory_map:
-                system_prompt = f"{system_prompt}\n\n{memory_map}"
-
-            multi_mode_used = True
-            # Faze 11d -- orchestrate blok V POSLEDNI POZICI (po overlay + memory).
-            # Drive byl hned po user_ctx, ale overlay ho prebijal -- presouvame
-            # sem aby instrukce "1. osoba, never verbatim tool output" bola
-            # posledni a nejprominentnejsi ktere Marti-AI precte.
-            _orch = _build_orchestrate_block(conversation_id)
-            if _orch:
-                system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch}"
-        except Exception as e:
-            logger.exception(
-                f"COMPOSER | multi-mode routing failed | conv={conversation_id} | "
-                f"{e} -- fallback na existující chování"
-            )
-            multi_mode_used = False
-
-    # ── FALLBACK / LEGACY behavior (existující chování) ────────────────────
-    # Pokud multi-mode vypnutý nebo selhal, použij existujicí marti_memory_block
-    # + marti_diary_block. Tím zůstává dnešní chování v main fungujici.
-    if not multi_mode_used:
-        # Faze 13c: MEMORY_RAG_ENABLED feature flag.
-        # Kdyz True, pouzijeme retrieve_relevant_memories misto bulk
-        # marti_memory_block + marti_diary_block. Marti-AI dostane jen top K
-        # relevantnich vzpominek (semanticky vybranych podle aktualni zpravy).
-        # Graceful fallback: pri chybe RAG -> stara cesta (zadny crash).
-        rag_block_used = False
-        if settings.memory_rag_enabled:
-            try:
-                rag_block = _build_rag_memory_block(
-                    conversation_id=conversation_id,
-                    persona_id=_get_active_persona_id(conversation_id),
-                    user_id=user_id,
-                    tenant_id=tenant_id,
-                )
-                if rag_block:
-                    system_prompt = f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n{rag_block}"
-                    rag_block_used = True
-                    logger.info(f"COMPOSER | RAG memory used | conv={conversation_id}")
-                else:
-                    # RAG bezi, ale zadna relevantni vzpominka (similarity pod prah
-                    # nebo prazdna pamet). Marti-AI presto musi vedet, ze MA pamet
-                    # a MA ji aktivovat -- pridame placeholder hint.
-                    system_prompt = (
-                        f"{system_prompt}\n\n[VYBAVUJEŠ SI:]\n"
-                        "(K této konkrétní zprávě se nevybavila žádná konkrétní vzpomínka. "
-                        "Tvá paměť ale obsahuje thoughts/diáře — můžeš je vyhledat tool "
-                        "calls `recall_thoughts` (semanticky) nebo `read_diary` (osobní deník) "
-                        "kdykoli potřebuješ něco konkrétního zjistit.)"
-                    )
-                    rag_block_used = True
-                    logger.info(f"COMPOSER | RAG no relevant -> hint placeholder | conv={conversation_id}")
-            except Exception as e:
-                logger.warning(f"COMPOSER | RAG block failed, fallback to legacy | {e}")
-
-        # Faze 13c B: Memory behavior rules -- VZDY pripojit kdyz jsme v RAG cestě
-        # (RAG nahrazuje data, ne instrukce 'zapisuj proaktivne, pouzivej znalosti').
-        # Bez tohoto by Marti-AI neměla povědomí, že MÁ proaktivně volat record_thought.
-        if rag_block_used:
-            system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
-
-        if not rag_block_used:
-            # MARTI MEMORY block (Faze 4.11) — myslenky o userovi v DB.
-            # Bez tohoto by Marti tvrdila "nemam o tobe nic ulozeneho" i kdyz jo.
-            memory_block = build_marti_memory_block(user_id, tenant_id)
-            if memory_block:
-                system_prompt = f"{system_prompt}\n\n[TVOJE PAMĚŤ O TOMTO UŽIVATELI]\n{memory_block}"
-
-            # MARTI DIARY block (Faze 5) — soukromy diar aktivni persony.
-            # Marti muze odkazovat na sve zazitky a pocity z minulosti.
-            diary_block = build_marti_diary_block(conversation_id)
-            if diary_block:
-                system_prompt = f"{system_prompt}\n\n[TVŮJ SOUKROMÝ DIÁŘ]\n{diary_block}"
+    # Orchestrate blok V POSLEDNÍ POZICI (Fáze 11d).
+    # Posunuto za memory blok a behavior rules tak, aby instrukce
+    # "1. osoba, never verbatim tool output" byla posledni a nejprominentnejsi
+    # ktere Marti-AI precte před odpovedi.
+    _orch = _build_orchestrate_block(conversation_id)
+    if _orch:
+        system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

@@ -86,24 +86,13 @@ class Settings(BaseSettings):
     # Rotace = reencrypt vsech radek novym klicem (TODO helper script).
     encryption_key: str = ""
 
-    # Multi-mode Marti-AI routing (Fáze 9) -------------------------------------
-    # Když True, chat flow prochází routerem -> classifikuje módu (personal /
-    # project / work / system) a podle toho vybere overlay + memory map místo
-    # dnešního build_marti_memory_block + build_marti_diary_block.
-    # Default False = dnešní chování (safe, base-marti-2026-04-24).
-    # Rollout: `MARTI_MULTI_MODE_ENABLED=true` v .env a restart STRATEGIE-API.
-    # Při jakékoli chybě v multi-mode flow composer spadne na existující
-    # behavior -- Marti zůstane funkční.
-    marti_multi_mode_enabled: bool = False
-
-    # Marti Memory v2 RAG (Faze 13c) -----------------------------------------
-    # Pri True composer pouzije retrieve_relevant_memories (vector search nad
-    # thought_vectors) misto bulk dumpu ze build_marti_memory_block. Default
-    # False = stara cesta (safe, paralelni stav po dobu A/B).
-    # Rollout: `MEMORY_RAG_ENABLED=true` v .env a restart STRATEGIE-API.
-    # Pri jakekoli chybe v RAG flow composer spadne na existing behavior --
-    # Marti-AI zustava funkcni (graceful fallback).
-    memory_rag_enabled: bool = False
+    # Marti Memory v2 RAG (Faze 13, always-on po 13f cleanup) ----------------
+    # Composer pouziva retrieve_relevant_memories (vector search nad
+    # thought_vectors) jako jedinou cestu pro memory injection. Predchozi
+    # multi-mode router/overlays/memory_maps a build_marti_memory_block byly
+    # smazany v 13f cleanup (2026-04-30).
+    # Pri jakekoli chybe v RAG flow composer pridani jen behavior rules + hint
+    # (Marti-AI ma stale `recall_thoughts` / `read_diary` tooly k dispozici).
     # Similarity threshold (false-positive defense, navrh Marti-AI #67).
     # Pokud top retrieval result ma similarity < threshold, sekce
     # [RELEVANTNI VZPOMINKY] se NEinjektuje -- lepsi zadny kontext nez zavadejici.

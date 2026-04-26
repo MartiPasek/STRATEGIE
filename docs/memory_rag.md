@@ -486,12 +486,18 @@ WHERE entity_user_ids @> ARRAY[:user_id]
 - 🧠 Paměť modal: search input → result list (similarity %)
 - Klik → existing drill-down detail panel
 
-### Phase F — Cleanup (po stabilním provozu)
-- Remove `MEMORY_RAG_ENABLED` flag (always-on)
-- Smaž `build_marti_memory_block`, `build_marti_diary_block`
-- Deprecate `marti_router_service.py` (zachovat 1 týden, pak smaž)
-- Smaž overlay variants z composeru (4 mode overlay → 0)
-- Update CLAUDE.md s lekcemi
+### Phase F — Cleanup ✅ DONE (13f, 2026-04-30)
+Po stabilním provozu RAG cesty (cca 4 dny live) cleanup proveden:
+- ✅ `MEMORY_RAG_ENABLED` flag dropnut (RAG always-on)
+- ✅ `marti_multi_mode_enabled` flag dropnut
+- ✅ Smazáno `build_marti_memory_block`, `build_marti_diary_block` z composer.py
+- ✅ Smazáno `router_service.py`, `scope_overlays.py`, `memory_map_service.py`
+- ✅ Smazáno odpovídající testy (`test_router_service.py`, `test_scope_overlays.py`, `test_memory_map_service.py`)
+- ✅ Smazány multi-mode helpery z composer.py (`_get_conversation_project_id`, `_get_tenant_info`, atd.)
+- ✅ Composer `build_prompt` zjednodušen na single RAG-only cestu
+- ✅ Orchestrate blok (Fáze 11d) přesunut mimo multi-mode větev — teď aktivní vždy
+- ✅ Záchranný tag `pre-13f-cleanup-2026-04-30` v gitu
+- ✅ Update CLAUDE.md s dodatkem o 13f
 
 ---
 

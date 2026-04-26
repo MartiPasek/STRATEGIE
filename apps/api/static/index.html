@@ -3983,17 +3983,23 @@
     _lastEnterTime = now;
   });
   sendBtn.addEventListener('click', (ev) => {
-    // Faze 12b+: pokud je long-press recording aktivni, klik = stop & send
-    if (_voiceState === 'recording') {
-      ev.preventDefault();
-      _vmStopRecording(true);
-      return;
-    }
-    // Pokud byl tento mouseup vyusten z long-pressu (recording start), spolkneme
-    // nasledujici click (jinak by hned po startu sahalo na klasicky send).
+    // Faze 12b+: gesture-aware click handling.
+    //
+    // PORADI JE KRITICKE -- mouseup po long-pressu (kdyz user drzel sipku
+    // a recording uz bezi) spousti `click` event. Bez tohoto flag check
+    // bychom recording HNED zastavili a poslali jen pul-sekundy audio.
+    //
+    // Klik #1 po long-pressu = ignore (jen release gesture, recording bezi dal).
+    // Klik #2 (samostatny click pozdeji) = stop & send.
     if (_voiceTriggeredByLongPress) {
       _voiceTriggeredByLongPress = false;
       ev.preventDefault();
+      return;
+    }
+    // Aktivni recording + samostatny klik (ne release-from-long-press) -> stop & send.
+    if (_voiceState === 'recording') {
+      ev.preventDefault();
+      _vmStopRecording(true);
       return;
     }
     send();

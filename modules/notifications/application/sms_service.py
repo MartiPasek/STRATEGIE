@@ -1065,15 +1065,21 @@ def get_unread_counts_per_persona(tenant_id: int) -> dict[int, int]:
     Vraci {persona_id: count_of_unprocessed_sms} pro vsechny persony tenantu.
     Pouziva se pro UI badge pri polling -- jedne DB volanim dostanes counts
     pro vsechny persony najednou (lepsi nez N+1 queries per persona).
+
+    Faze 12b+ pre-demo: tenant_id filter zahrnuje i NULL -- SMS na default
+    personu maji tenant_id=NULL (cross-tenant), badge by je nezapocital.
     """
-    from sqlalchemy import func
+    from sqlalchemy import func, or_
 
     ds = get_data_session()
     try:
         rows = (
             ds.query(SmsInbox.persona_id, func.count(SmsInbox.id))
             .filter(
-                SmsInbox.tenant_id == tenant_id,
+                or_(
+                    SmsInbox.tenant_id == tenant_id,
+                    SmsInbox.tenant_id.is_(None),
+                ),
                 SmsInbox.persona_id.isnot(None),
                 SmsInbox.processed_at.is_(None),
             )

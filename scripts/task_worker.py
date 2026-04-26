@@ -112,8 +112,10 @@ def _reap_unprocessed_sms(lookback_hours: int = 24) -> None:
                 )
                 if tid:
                     created += 1
-            elif existing.status == "failed" and (existing.attempts or 0) < 3:
-                existing.status = "pending"
+            elif existing.status in ("failed", "pending") and (existing.attempts or 0) < 3:
+                # Worker filtruje 'open' (standardni live status). 'pending'
+                # je legacy/zombie. Reset failed/pending -> 'open'.
+                existing.status = "open"
                 existing.error = None
                 existing.started_at = None
                 ds.commit()

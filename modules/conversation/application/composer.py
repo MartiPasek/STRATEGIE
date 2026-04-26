@@ -622,6 +622,53 @@ def _build_multimodal_content(text: str, images: list[dict], audios: list[dict] 
     return blocks
 
 
+
+def _expand_audit_to_anthropic_pages(audit_blocks: list[dict]) -> list[dict]:
+    """
+    Faze 12b+ M3: rozbal flat audit list do Anthropic-format messages list pro replay.
+
+    Audit struktura (z chat() M2):
+      [{_round: 0, type: tool_use, id, name, input},
+       {_round: 0, type: tool_result, tool_use_id, content},
+       {_round: 1, type: tool_use, ...}, ...]
+
+    Vraci paire pro Anthropic API:
+      [{role: assistant, content: [tool_use bloky z round 0]},
+       {role: user, content: [tool_result bloky z round 0]},
+       ...per round]
+
+    Text bloky z auditu se ZAHAZUJI -- finalni assistant text je v navazujici
+    DB messages.content (mass 1981 v naszem prikladu). Tim zabranujeme duplikatu.
+    """
+    if not isinstance(audit_blocks, list) or not audit_blocks:
+        return []
+
+    rounds: dict[int, dict] = {}
+    for blk in audit_blocks:
+        if not isinstance(blk, dict):
+            continue
+        r = blk.get("_round", 0)
+        if r not in rounds:
+            rounds[r] = {"tool_uses": [], "tool_results": []}
+        block_type = blk.get("type")
+        # Stripneme _round before passing to Anthropic
+        clean = {k: v for k, v in blk.items() if k != "_round"}
+        if block_type == "tool_use":
+            rounds[r]["tool_uses"].append(clean)
+        elif block_type == "tool_result":
+            rounds[r]["tool_results"].append(clean)
+        # text bloky preskakujeme (duplicita s navazujici msg.content)
+
+    pages: list[dict] = []
+    for r in sorted(rounds.keys()):
+        group = rounds[r]
+        if group["tool_uses"]:
+            pages.append({"role": "assistant", "content": group["tool_uses"]})
+        if group["tool_results"]:
+            pages.append({"role": "user", "content": group["tool_results"]})
+    return pages
+
+
 def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dict]:
     session = get_data_session()
     try:
@@ -645,20 +692,63 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
         msg_ids = [m.id for m in selected_msgs]
         media_by_msg = _load_attached_media(session, msg_ids)
 
-        # Build content (multimodal blocks pokud ma obrazky, jinak plain string)
-        # POZN: NIKDY ze sliding window neskipovat zpravy -- Anthropic by mohl
-        # vratit 400 'conversation must end with user message' kdybychom omylem
-        # skipli posledni user msg. Pokud je content prazdny, _build_multimodal_content
-        # uz vrati fallback "(zpráva bez textu)" misto "" -- ten Anthropic
-        # akceptuje. Lepsi mit v history hloupy placeholder nez crashnout chat.
+        # Faze 12b+ M3: iterace chronologicky (oldest first) s look-ahead pro audit
+        # pseudo-user messages. Audit msg (message_type='tool_result' s tool_blocks)
+        # rozbalime na Anthropic-format pary PRED jeho navazujici final assistant.
+        # Tim Marti-AI v history vidi: assistant: tool_use -> user: tool_result ->
+        # assistant: final text. Bez audit msg (legacy / orphaned) iterace pokracuje.
+        chronological = list(reversed(selected_msgs))   # oldest first
+
         selected: list[dict] = []
-        for msg in selected_msgs:
+        i = 0
+        while i < len(chronological):
+            msg = chronological[i]
+            next_msg = chronological[i + 1] if i + 1 < len(chronological) else None
+
+            # Look-ahead: tato assistant msg ma audit follow-up?
+            is_audit_followup = (
+                msg.role == "assistant"
+                and next_msg is not None
+                and next_msg.message_type == "tool_result"
+                and next_msg.tool_blocks
+                and isinstance(next_msg.tool_blocks, list)
+            )
+
+            if is_audit_followup:
+                # 1. Emit Anthropic pary z audit PRED finalni assistant
+                audit_pages = _expand_audit_to_anthropic_pages(next_msg.tool_blocks)
+                if audit_pages:
+                    selected.extend(audit_pages)
+                    logger.info(
+                        f"COMPOSER | audit replay | msg_id={msg.id} | "
+                        f"audit_msg_id={next_msg.id} | pages={len(audit_pages)}"
+                    )
+                # 2. Emit msg (finalni assistant text) -- pokracuje s normalnim build
+                bucket = media_by_msg.get(msg.id, {"images": [], "audios": []})
+                attached_images = bucket.get("images", [])
+                attached_audios = bucket.get("audios", [])
+                content = _build_multimodal_content(msg.content or "", attached_images, attached_audios)
+                if isinstance(content, str) and not content.strip():
+                    content = "(zpráva bez textu)"
+                elif isinstance(content, list) and len(content) == 0:
+                    content = "(zpráva bez textu)"
+                selected.append({"role": msg.role, "content": content})
+                i += 2   # skip audit msg
+                continue
+
+            # Skip orphaned audit msg (audit bez navazujici assistant -- legacy)
+            if msg.message_type == "tool_result":
+                logger.info(
+                    f"COMPOSER | skip orphaned audit | msg_id={msg.id} (no preceding assistant)"
+                )
+                i += 1
+                continue
+
+            # Normal msg (text user / assistant bez audit)
             bucket = media_by_msg.get(msg.id, {"images": [], "audios": []})
             attached_images = bucket.get("images", [])
             attached_audios = bucket.get("audios", [])
             content = _build_multimodal_content(msg.content or "", attached_images, attached_audios)
-            # Posledni safety net -- pro pripad ze _build_multimodal_content
-            # nejak vratil empty (napr. list s vyfiltovanymi failed images).
             if isinstance(content, str) and not content.strip():
                 content = "(zpráva bez textu)"
                 logger.warning(
@@ -670,8 +760,8 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
                     f"COMPOSER | empty multimodal fallback | msg_id={msg.id} | role={msg.role}"
                 )
             selected.append({"role": msg.role, "content": content})
+            i += 1
 
-        selected.reverse()
         return selected
     finally:
         session.close()

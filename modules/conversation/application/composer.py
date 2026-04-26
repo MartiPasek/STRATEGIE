@@ -475,13 +475,19 @@ def _get_latest_summary(conversation_id: int) -> ConversationSummary | None:
         session.close()
 
 
-def _load_attached_images(session, message_ids: list[int]) -> dict[int, list[dict]]:
+def _load_attached_media(session, message_ids: list[int]) -> dict[int, dict[str, list[dict]]]:
     """
-    Faze 12a: Bulk lookup attached images per message.
+    Faze 12a/12b: Bulk lookup attached media per message.
 
-    Vraci {message_id: [{mime_type, storage_path, id}, ...]} pro vsechny
-    nesoft-deleted obrazky pripnute k danym messages. Volame uvnitr
-    _get_messages a vystavime jako multimodal content blocks pro Anthropic API.
+    Vraci {message_id: {"images": [{mime_type, storage_path, id}, ...],
+                         "audios": [{id, original_filename, duration_ms,
+                                     transcript, processing_error}, ...]}}
+    pro vsechny nesoft-deleted media pripnute k danym messages.
+
+    Images jdou pres multimodal content blocks (Anthropic API).
+    Audio JESTE Anthropic nativne neumi -- predavame jako pre-text note
+    (jmeno + trvani + transcript pokud existuje) aby AI vedela ze byl
+    pripoj audio (jinak halucinuje "vidim obrazek" na audio bubble).
     """
     if not message_ids:
         return {}
@@ -493,41 +499,97 @@ def _load_attached_images(session, message_ids: list[int]) -> dict[int, list[dic
         session.query(MediaFile)
         .filter(
             MediaFile.message_id.in_(message_ids),
-            MediaFile.kind == "image",
+            MediaFile.kind.in_(["image", "audio"]),
             MediaFile.deleted_at.is_(None),
         )
         .order_by(MediaFile.id.asc())
         .all()
     )
-    by_msg: dict[int, list[dict]] = {}
+    by_msg: dict[int, dict[str, list[dict]]] = {}
     for r in rows:
-        by_msg.setdefault(r.message_id, []).append({
-            "id": r.id,
-            "mime_type": r.mime_type,
-            "storage_path": r.storage_path,
-        })
+        bucket = by_msg.setdefault(r.message_id, {"images": [], "audios": []})
+        if r.kind == "image":
+            bucket["images"].append({
+                "id": r.id,
+                "mime_type": r.mime_type,
+                "storage_path": r.storage_path,
+            })
+        elif r.kind == "audio":
+            bucket["audios"].append({
+                "id": r.id,
+                "original_filename": r.original_filename,
+                "duration_ms": r.duration_ms,
+                "transcript": r.transcript,
+                "processing_error": r.processing_error,
+            })
     return by_msg
 
 
-def _build_multimodal_content(text: str, images: list[dict]) -> list[dict] | str:
-    """
-    Faze 12a: Sestavi content pro Anthropic API podle pripevnenych obrazku.
+def _format_duration_ms(ms: int | None) -> str:
+    """0 -> '0:00', 285000 -> '4:45'. None -> '?:??'"""
+    if not ms or ms < 0:
+        return "?:??"
+    total_s = int(round(ms / 1000))
+    return f"{total_s // 60}:{total_s % 60:02d}"
 
-    - Bez obrazku -> vraci text jako plain string (zpetna kompatibilita).
-    - S obrazky -> vraci list content blocks: [image1, image2, ..., text].
+
+def _build_audio_note(audios: list[dict]) -> str:
+    """
+    Faze 12b: textovy note pro AI o pripevnenem audio. AI bez tohoto
+    halucinuje 'vidim obrazek' -- audio bubble vidi pouze user v UI,
+    LLM ho nedostane v multimodal contentu.
+
+    Format: jeden radek per audio. Pokud transcript existuje, vlozime ho
+    rovnou (AI s nim muze pracovat pres extract_from_audio nebo primo).
+    """
+    if not audios:
+        return ""
+    lines = ["[Pripojene audio od usera:]"]
+    for i, a in enumerate(audios, 1):
+        fname = a.get("original_filename") or f"audio_{a.get('id')}"
+        dur = _format_duration_ms(a.get("duration_ms"))
+        head = f"  {i}. \"{fname}\" ({dur}, media_id={a.get('id')})"
+        transcript = (a.get("transcript") or "").strip()
+        if transcript:
+            # Bez vytrhavani -- transcript pisi cely (AI si ho zkrati v hlave).
+            lines.append(head)
+            lines.append(f"     Prepis: {transcript}")
+        elif a.get("processing_error"):
+            lines.append(head + f" -- prepis selhal: {a['processing_error']}")
+        else:
+            lines.append(head + " -- bez prepisu (cekej na extract_from_audio nebo se zeptej, jestli tu je).")
+    return "\n".join(lines)
+
+
+def _build_multimodal_content(text: str, images: list[dict], audios: list[dict] | None = None) -> list[dict] | str:
+    """
+    Faze 12a/12b: Sestavi content pro Anthropic API podle pripevnenych media.
+
+    - Bez media -> vraci text jako plain string (zpetna kompatibilita).
+    - S images -> multimodal blocks [image1, image2, ..., text].
+    - S audio -> textova poznamka [Pripojene audio: ...] PRED user textem
+      (Anthropic API audio jeste neumi, takze jen note).
 
     Image bytes nacita z FS pres storage_service, base64 enkoduje. Pri
     selhani jednotlive image (FS missing, decode error) se ji vynecha
     a logne se warning -- composer nepadne.
     """
+    audios = audios or []
+    audio_note = _build_audio_note(audios)
+    text = text or ""
+    if audio_note:
+        # Pripojime audio note PRED user text (chronologicky: user pripojil
+        # audio, pak napsal text). AI to vidi jako "[Pripojene audio: ...]\n\n<user text>".
+        text = audio_note + ("\n\n" + text if text else "")
+
     if not images:
-        return text or ""
+        return text or "(zpráva bez textu)"
 
     import base64
     try:
         from modules.media.application import storage_service as _media_storage
     except ImportError:
-        return text or ""
+        return text or "(zpráva bez textu)"
 
     blocks: list[dict] = []
     for img in images:
@@ -579,9 +641,9 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
             selected_msgs.append(msg)
             used_tokens += tokens
 
-        # Faze 12a: Bulk lookup attached images pro vsechny vybrane msgs
+        # Faze 12a/12b: Bulk lookup attached media pro vsechny vybrane msgs
         msg_ids = [m.id for m in selected_msgs]
-        images_by_msg = _load_attached_images(session, msg_ids)
+        media_by_msg = _load_attached_media(session, msg_ids)
 
         # Build content (multimodal blocks pokud ma obrazky, jinak plain string)
         # POZN: NIKDY ze sliding window neskipovat zpravy -- Anthropic by mohl
@@ -591,8 +653,10 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
         # akceptuje. Lepsi mit v history hloupy placeholder nez crashnout chat.
         selected: list[dict] = []
         for msg in selected_msgs:
-            attached = images_by_msg.get(msg.id, [])
-            content = _build_multimodal_content(msg.content or "", attached)
+            bucket = media_by_msg.get(msg.id, {"images": [], "audios": []})
+            attached_images = bucket.get("images", [])
+            attached_audios = bucket.get("audios", [])
+            content = _build_multimodal_content(msg.content or "", attached_images, attached_audios)
             # Posledni safety net -- pro pripad ze _build_multimodal_content
             # nejak vratil empty (napr. list s vyfiltovanymi failed images).
             if isinstance(content, str) and not content.strip():

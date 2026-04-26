@@ -92,6 +92,7 @@ def save_message(
     author_user_id: int | None = None,
     agent_id: int | None = None,
     message_type: str = "text",
+    tool_blocks: list[dict] | None = None,
 ) -> int:
     """
     Uloží zprávu a zároveň aktualizuje denormalizovaná pole v konverzaci
@@ -121,6 +122,7 @@ def save_message(
             author_user_id=author_user_id,
             agent_id=effective_agent_id,
             message_type=message_type,
+            tool_blocks=tool_blocks,
         )
         session.add(message)
         session.flush()   # získá id před commitem

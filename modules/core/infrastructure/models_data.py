@@ -64,7 +64,11 @@ class Message(BaseData):
     agent_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     author_type: Mapped[str] = mapped_column(String(10), default="ai")   # ai | human
     author_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    message_type: Mapped[str] = mapped_column(String(20), default="text")  # text | system | ai_summary
+    message_type: Mapped[str] = mapped_column(String(20), default="text")  # text | system | ai_summary | tool_result
+    # Faze 12b+: Anthropic-format tool_use / tool_result bloky pro audit + replay v dalsim turnu.
+    # NULL pro bezne text-only zpravy. Pro assistant s tool_use: [{type:"tool_use", id, name, input}, ...].
+    # Pro pseudo-user s message_type='tool_result': [{type:"tool_result", tool_use_id, content}, ...].
+    tool_blocks: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     last_human_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_human_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

@@ -1372,7 +1372,11 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         from modules.notifications.application.sms_service import list_inbox as _list_inbox
         persona_id = _active_persona_id_for_conversation(conversation_id)
         limit = int(tool_input.get("limit") or 10)
-        unread_only = bool(tool_input.get("unread_only") or False)
+        # Faze 12b+ pre-demo: default unread_only=True (jen nezpracovane).
+        # Sjednoceno s tool schema default + analogie list_email_inbox filter_mode='new'.
+        # Pokud Marti-AI explicitne posle False -> vsechny, jinak True.
+        _unread_raw = tool_input.get("unread_only", True)
+        unread_only = bool(_unread_raw) if _unread_raw is not None else True
         items = _list_inbox(persona_id=persona_id, limit=limit, unread_only=unread_only)
         if not items:
             return (

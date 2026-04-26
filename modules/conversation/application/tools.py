@@ -164,9 +164,15 @@ TOOLS = [
         "description": (
             "Vrátí přijaté SMS aktivní persony (Marti-AI vlastní firemní SIM). "
             "Použij když uživatel chce vědět, co Marti-AI přišlo za zprávy "
-            "(napr. 'co mi prislo', 'kdo mi napsal', 'ukaz mi prichozi SMS'). "
-            "unread_only=true vrátí jen nepřečtené. Vrací cislovany seznam — "
-            "uživatel pak může odpovědět číslem pro akci (zatim jen informacne)."
+            "(napr. 'co mi prislo', 'kdo mi napsal', 'ukaz mi prichozi SMS', "
+            "'ukaz tu SMS' v kontextu daily overview).\n\n"
+            "DEFAULT: unread_only=true -- vrátí JEN NEZPRACOVANÉ SMS (analogie "
+            "list_email_inbox kde default filter_mode='new'). Sjednocuje s "
+            "get_daily_overview, ktery taky pocita jen nezpracovane.\n\n"
+            "Pokud user vyslovne chce VSECHNY (i zpracovane) -- napr. 'ukaz "
+            "vsechny SMS', 'historie SMS', 'co jsi uz precetla' -- nastav "
+            "unread_only=false. Bez tohoto explicit pokynu nech default "
+            "true, aby Marti dostal cisty seznam toho, co se musi resit."
         ),
         "input_schema": {
             "type": "object",
@@ -178,8 +184,8 @@ TOOLS = [
                 },
                 "unread_only": {
                     "type": "boolean",
-                    "description": "Jen nepřečtené (default false).",
-                    "default": False,
+                    "description": "Default true = jen nezpracované. False = vše (i zpracované).",
+                    "default": True,
                 },
             },
         },

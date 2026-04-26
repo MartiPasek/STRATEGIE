@@ -439,6 +439,7 @@ def execute_task(task_id: int) -> dict:
                                     purpose="user_request",
                                     user_id=None,
                                     tenant_id=_eff_tenant_id,
+                                    persona_id=task.persona_id,
                                 )
                                 # Audit action_type='auto' (pocita se do rate limitu)
                                 try:

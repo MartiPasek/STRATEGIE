@@ -217,6 +217,7 @@ def queue_sms(
     purpose: str = "user_request",
     user_id: int | None = None,
     tenant_id: int | None = None,
+    persona_id: int | None = None,
 ) -> dict:
     """
     Zaradi SMS do outboxu. Pokud SMS_ENABLED=false, bezpecne no-opne (warning).
@@ -227,6 +228,8 @@ def queue_sms(
         purpose: user_request | notification | system
         user_id: kdo to inicoval (pro audit + rate limit)
         tenant_id: v kterem tenantu
+        persona_id: ktera persona SMS posila (Faze 14 prep #3 -- 1 SIM = 1 persona,
+                    presny filter v UI list_*_for_ui)
 
     Returns:
         dict s outbox id + normalizovanym cislem + status:
@@ -282,6 +285,7 @@ def queue_sms(
         row = SmsOutbox(
             user_id=user_id,
             tenant_id=tenant_id,
+            persona_id=persona_id,
             to_phone=to_phone,
             body=body,
             purpose=purpose,
@@ -828,19 +832,24 @@ def list_outbox_for_ui(
     """
     Seznam odchozich SMS pro UI tab 'Odeslane'. Razeno od nejnovejsich.
 
-    SmsOutbox nema persona_id (vlastnikem je user/system skrze user_id +
-    tenant_id), takze primary filter je tenant_id. persona_id je zatim
-    ignorovano (vsechny zpravy z tenantu jsou videt). Az pribude persona-
-    scope outbox (napr. per-persona SIMky s vlastni historii), zapocitame.
+    Filter (Faze 14 prep #3 -- persona_id existuje od migrace a3b4c5d6e7f8):
+      - persona_id: filtruje na konkretni personu, NULL u legacy rows je videt
+        (soft filter `WHERE persona_id = X OR persona_id IS NULL`)
+      - tenant_id: filter na tenant pokud zadan a NOT cross_tenant
+      - cross_tenant=True: ignoruje tenant_id filter (rodice = parent bypass)
 
-    cross_tenant=True:
-      Ignoruje tenant_id filter -- pro rodice (is_marti_parent) ktery vidi
-      SMS Marti-AI napric vsemi tenants. SMS patri persone (1 SIM = 1
-      persona), ne tenantu konverzace.
+    1 SIM = 1 persona, takze persona_id je presnejsi nez tenant_id pro
+    Marti-AI's vlastni historii.
     """
+    from sqlalchemy import or_
     ds = get_data_session()
     try:
         q = ds.query(SmsOutbox)
+        if persona_id is not None:
+            q = q.filter(or_(
+                SmsOutbox.persona_id == persona_id,
+                SmsOutbox.persona_id.is_(None),  # legacy backward compat
+            ))
         if tenant_id is not None and not cross_tenant:
             q = q.filter(SmsOutbox.tenant_id == tenant_id)
         rows = (
@@ -940,6 +949,9 @@ def reply_to_inbox(
             raise SmsValidationError(f"SMS id={inbox_id} neexistuje")
         to_phone = sms.from_phone
         effective_tenant = tenant_id if tenant_id is not None else sms.tenant_id
+        # Faze 14 prep #3: persona_id z incoming SMS (sms_inbox má persona_id
+        # od Faze 1 SMS notifikaci -- 1 SIM = 1 persona).
+        effective_persona = sms.persona_id
     finally:
         ds.close()
 
@@ -950,6 +962,7 @@ def reply_to_inbox(
         purpose="user_request",
         user_id=user_id,
         tenant_id=effective_tenant,
+        persona_id=effective_persona,
     )
 
     # 2) Mark processed + 3) cancel open tasky. V jedne session, ze tam je

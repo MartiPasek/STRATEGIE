@@ -716,6 +716,9 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             finally:
                 _cs.close()
 
+        # Faze 14 prep #3: persona_id z aktivni konverzace pro presne filtrovani.
+        persona_id_sms = _active_persona_id_for_conversation(conversation_id)
+
         try:
             result = queue_sms(
                 to=to,
@@ -723,6 +726,7 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
                 purpose="user_request",
                 user_id=user_id,
                 tenant_id=tenant_id,
+                persona_id=persona_id_sms,
             )
         except SmsRateLimitError as e:
             _log_sms_action(to, body, "error", user_id, conversation_id, error=f"rate_limit: {e}")

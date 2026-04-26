@@ -239,6 +239,10 @@ class SmsOutbox(BaseData):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Faze 14 prep #3: persona_id (analog s email_outbox.persona_id).
+    # 1 SIM = 1 persona -- query po persona_id je presnejsi nez heuristika
+    # pres tenant_id + to_phone. NULL u legacy rows pred migraci a3b4c5d6e7f8.
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     to_phone: Mapped[str] = mapped_column(String(20))
     body: Mapped[str] = mapped_column(Text)
     purpose: Mapped[str] = mapped_column(String(30), default="user_request")

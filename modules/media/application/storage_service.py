@@ -36,6 +36,19 @@ from core.logging import get_logger
 
 logger = get_logger("media.storage")
 
+# Mutagen je optional dep -- pokud chybi v poetry env, audio upload pouze
+# nedoplni duration_ms (NULL v DB), zbytek pipeline funguje. Nemusime
+# blokovat upload jen protoze poetry lock je out of date.
+try:
+    import mutagen as _mutagen
+    _MUTAGEN_AVAILABLE = True
+except Exception as _e:  # pragma: no cover -- env-specific
+    _mutagen = None
+    _MUTAGEN_AVAILABLE = False
+    logger.warning(
+        f"MEDIA | mutagen not available, audio duration detection skipped: {_e}"
+    )
+
 
 # ── MIME -> extension mapping (pouze whitelist, ostatni rejectneme) ─────────
 
@@ -171,16 +184,16 @@ def save_file(
                 f"sha256={sha256[:8]}... | {e}"
             )
 
-    # Audio duration detection (mutagen) -- Faze 12b
+    # Audio duration detection (mutagen) -- Faze 12b. Optional dep:
+    # pokud mutagen v env neni, duration_ms zustane None a upload pokracuje.
     duration_ms: int | None = None
-    if mime_type in AUDIO_MIME_TYPES:
+    if mime_type in AUDIO_MIME_TYPES and _MUTAGEN_AVAILABLE:
         try:
             from io import BytesIO
-            import mutagen
             # Mutagen.File podporuje fileobj argument (cti z memory, ne z FS).
             # Returns None pokud format neni rozeznatelny -- pak duration_ms
             # zustane None (nullable v DB).
-            audio = mutagen.File(fileobj=BytesIO(content))
+            audio = _mutagen.File(fileobj=BytesIO(content))
             if audio is not None and getattr(audio, "info", None) is not None:
                 length_s = float(getattr(audio.info, "length", 0.0))
                 duration_ms = int(round(length_s * 1000))

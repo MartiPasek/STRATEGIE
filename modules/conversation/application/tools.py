@@ -12,6 +12,8 @@ ROZDELENI NASTROJU PODLE PERSONY:
 # Management nastroje — pristup jen z default persony (Marti-AI).
 # Ostatni persony je neuvidi v tool schematu pri LLM volani.
 MANAGEMENT_TOOL_NAMES = {
+    "read_sms",
+    "list_todos",
     "mark_email_processed",
     "set_user_contact",
     "invite_user",
@@ -187,6 +189,54 @@ TOOLS = [
                     "type": "boolean",
                     "description": "Default true = jen nezpracované. False = vše (i zpracované).",
                     "default": True,
+                },
+            },
+        },
+    },
+    {
+        "name": "read_sms",
+        "description": (
+            "Otevre a precte CELY text prichozi SMS. Pouzij kdyz user chce slyset "
+            "obsah konkretni SMS po list_sms_inbox -- 'precti mi tu prvni', "
+            "'co tam pise', 'otevri tu od Kristy'. list_sms_inbox vraci jen "
+            "preview (100 znaku); pro plny text musis volat tento tool.\n\n"
+            "Side-effect: pokud SMS jeste nebyla precteno (read_at IS NULL), "
+            "tool ji oznaci jako precteno (mark_read).\n\n"
+            "ID JE DB ID, NE POZICE V LISTU. Kdyz list_sms_inbox vypise '1. SMS' "
+            "s id=12, volej read_sms(sms_inbox_id=12), NE read_sms(sms_inbox_id=1)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["sms_inbox_id"],
+            "properties": {
+                "sms_inbox_id": {
+                    "type": "integer",
+                    "description": "ID prichozi SMS z list_sms_inbox.",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_todos",
+        "description": (
+            "Vrati nezdokoncene todo ukoly aktivniho uzivatele. Pouzij kdyz user "
+            "rekne 'ukaz mi todo', 'co mam za ukoly', 'co treba todo' v "
+            "kontextu daily overview, nebo kdyz po 'pojdeme na todo' Marti-AI "
+            "chce nabidnout konkretni ukoly k projeti.\n\n"
+            "Vraci cislovany seznam s content (text ukolu) a created_at. Default "
+            "scope = aktualni user (Marti). Pro vsechny v tenantu / cross-tenant "
+            "pouzij dalsi parametry recall_thoughts (rodicovsky bypass).\n\n"
+            "ROZDIL od recall_thoughts: list_todos filtruje TYPE='todo' a NOT done. "
+            "recall_thoughts hleda paměť o entitě (Petrovi, projektu) -- pro projeti "
+            "todo listu je tento tool primarni."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max pocet todo (default 10).",
+                    "default": 10,
                 },
             },
         },

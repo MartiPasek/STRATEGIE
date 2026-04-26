@@ -1368,6 +1368,92 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             body=sms_body,
         )
 
+    if tool_name == "read_sms":
+        # Faze 12b+ pre-demo: full body SMS (list_sms_inbox vraci jen preview).
+        from modules.notifications.application.sms_service import (
+            mark_inbox_read as _mark_read_sms,
+        )
+        from modules.core.infrastructure.models_data import SmsInbox as _SI_rs
+        sms_id_raw = tool_input.get("sms_inbox_id")
+        if sms_id_raw is None:
+            return "❌ Chybi sms_inbox_id."
+        try:
+            sms_id_int = int(sms_id_raw)
+        except (TypeError, ValueError):
+            return "❌ sms_inbox_id musi byt integer."
+        ds_rs = get_data_session()
+        try:
+            row = ds_rs.query(_SI_rs).filter_by(id=sms_id_int).first()
+            if row is None:
+                return f"❌ SMS id={sms_id_int} nenalezena."
+            ts = row.received_at.isoformat() if row.received_at else ""
+            from_phone = row.from_phone or "(neznamy)"
+            body = row.body or ""
+        finally:
+            ds_rs.close()
+        try:
+            _mark_read_sms(sms_id_int)
+        except Exception:
+            pass
+        return (
+            f"📱 SMS od **{from_phone}** ({ts}):\n\n"
+            f"{body}"
+        )
+
+    if tool_name == "list_todos":
+        # Faze 12b+ pre-demo: explicit list todo ukolu pro overview drill-down.
+        from modules.thoughts.application import service as _ts_lt
+        limit_lt = int(tool_input.get("limit") or 10)
+        limit_lt = max(1, min(limit_lt, 100))
+        # Tenant scope -- aktualni user_id, ne rodicovsky bypass (todo jsou
+        # uzivatelsky scope -- 'co MAM JA').
+        tenant_id_lt = None
+        if user_id:
+            from core.database_core import get_core_session as _gcs_lt
+            from modules.core.infrastructure.models_core import User as _U_lt
+            cs_lt = _gcs_lt()
+            try:
+                u_lt = cs_lt.query(_U_lt).filter_by(id=user_id).first()
+                if u_lt:
+                    tenant_id_lt = u_lt.last_active_tenant_id
+            finally:
+                cs_lt.close()
+        try:
+            # Filtruj thoughts type='todo' nedokoncene pro aktualniho usera
+            items_lt = _ts_lt.list_thoughts_for_entity(
+                entity_type="user",
+                entity_id=user_id,
+                status_filter=None,
+                limit=limit_lt,
+                tenant_scope=tenant_id_lt,
+                bypass_tenant_scope=False,
+            )
+            # Filtruj v Pythonu jen type='todo' a ne-done
+            todos = []
+            for it in items_lt:
+                if it.get("type") != "todo":
+                    continue
+                meta_str = it.get("meta") or ""
+                if isinstance(meta_str, dict):
+                    if meta_str.get("done"):
+                        continue
+                elif '"done": true' in str(meta_str).lower():
+                    continue
+                todos.append(it)
+        except Exception as e_lt:
+            logger.exception(f"LIST_TODOS | failed | {e_lt}")
+            return f"❌ Nelze nacist todo: {e_lt}"
+        if not todos:
+            return "📭 Zadne otevrene todo ukoly."
+        lines_lt = ["📋 Moje todo ukoly:", ""]
+        for i, it in enumerate(todos, start=1):
+            content = (it.get("content") or "").strip().replace("\n", " ")
+            if len(content) > 200:
+                content = content[:200] + "…"
+            tid = it.get("id")
+            lines_lt.append(f"{i}. [#{tid}] {content}")
+        return "\n".join(lines_lt)
+
     if tool_name == "list_sms_inbox":
         from modules.notifications.application.sms_service import list_inbox as _list_inbox
         persona_id = _active_persona_id_for_conversation(conversation_id)

@@ -2014,6 +2014,33 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             finally:
                 ds.close()
 
+    if tool_name == "mark_sms_processed":
+        # Faze 12b+ pre-demo: explicit oznaceni SMS jako vyrizene.
+        # Sjednoceni s mark_email_processed -- analogicky tool.
+        # Gotcha #7 prevention: aliasy importu.
+        try:
+            from modules.notifications.application.sms_service import (
+                mark_inbox_processed as _msp_mark,
+            )
+        except Exception as _imp_msp:
+            logger.exception(f"MARK_SMS_PROCESSED | import failed | {_imp_msp}")
+            return f"❌ Import error: {_imp_msp}"
+        sms_id_raw_msp = tool_input.get("sms_inbox_id")
+        if sms_id_raw_msp is None:
+            return "❌ Chybi sms_inbox_id."
+        try:
+            sms_id_msp = int(sms_id_raw_msp)
+        except (TypeError, ValueError):
+            return "❌ sms_inbox_id musi byt integer."
+        try:
+            res_msp = _msp_mark(sms_id_msp)
+        except Exception as _e_msp:
+            logger.exception(f"MARK_SMS_PROCESSED | failed | id={sms_id_msp} | {_e_msp}")
+            return f"❌ Oznaceni selhalo: {type(_e_msp).__name__}: {_e_msp}"
+        if res_msp is None:
+            return f"❌ SMS id={sms_id_msp} nenalezena."
+        return f"✅ SMS id={sms_id_msp} oznacena jako vyrizena."
+
     if tool_name == "mark_email_processed":
         # Faze 12b+ pre-demo: explicit oznaceni emailu jako vyrizeny.
         # Bez tohoto Marti-AI po reply / projeti bez archive nemela tool jak
@@ -4161,6 +4188,13 @@ def chat(
         # 'V inboxu mam X emailu...' refraseuje vlastnimi slovy s vokativem
         # ('Marti, vidim X emailu...'), misto opisu doslova s preamble slepenym.
         "get_daily_overview",
+        # Faze 12b+ pre-demo: dismiss/mark tools v synth -- aby raw response
+        # ('Preskocime dnes: sms #1. Priorita klesla z 100 na 70.') neleakovalo
+        # do chatu. Marti-AI po vykonani uctive shrnuti vlastnimi slovy.
+        "dismiss_item", "mark_sms_processed", "mark_email_processed",
+        # Plus list_todos -- po dostani 'Moje todo ukoly: 1. [#X] ...' refraseuje
+        # bez doslova opisu.
+        "list_todos",
     }
 
     preamble_text = ""

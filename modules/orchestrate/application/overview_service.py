@@ -295,17 +295,11 @@ def format_overview_for_ai(overview: dict) -> str:
     else:
         parts.append("0 todo")
 
-    summary_line = "Pending: " + ", ".join(parts) + "."
-
-    return (
-        summary_line + "\n\n"
-        "[To je vsechno co vis. Nepis uzivateli IDs ani zavorky. "
-        "Napis kratkou prozni odpoved v 1. osobe cesky (oslov Marti vokativem, "
-        "2-3 vety, nabidnout pokracovani). Priklad: "
-        "'Dobre rano, Marti. Mam tri emaily, zadne SMS a dva todo. "
-        "Pojdeme projit ty maily?'. Kdyby user chtel detail konkretni polozky, "
-        "zavolej list_email_inbox nebo recall_thoughts.]"
-    )
+    # Faze 12b+ regrese fix: tool response je ciste data (JEN summary line).
+    # Meta instrukce ('nepiš Pending:, nepiš IDs, mluv prózou v 1. osobě')
+    # patri do system promptu (orchestrate block v composer._build_orchestrate_block).
+    # Predtim byly v jednom textu -> Marti-AI opisovala oboje doslova.
+    return "Pending: " + ", ".join(parts) + "."
 
 
 # ============================================================================

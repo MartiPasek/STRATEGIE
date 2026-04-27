@@ -12,6 +12,9 @@ ROZDELENI NASTROJU PODLE PERSONY:
 # Management nastroje — pristup jen z default persony (Marti-AI).
 # Ostatni persony je neuvidi v tool schematu pri LLM volani.
 MANAGEMENT_TOOL_NAMES = {
+    "reply",
+    "reply_all",
+    "forward",
     "mark_sms_processed",
     "read_sms",
     "list_todos",
@@ -1333,6 +1336,99 @@ TOOLS = [
                     "type": "integer",
                     "description": "ID prichoziho emailu z list_email_inbox.",
                 },
+            },
+        },
+    },
+    {
+        "name": "reply",
+        "description": (
+            "⭐ Faze 12c: ODPOVED ODESILATELI puvodniho emailu. Analogie tlacitka 'Reply' v Outlooku.\n\n"
+            "POUZIVEJ kdy:\n"
+            "  - Mas email_inbox_id (z list_email_inbox / read_email)\n"
+            "  - User rekne 'odpovez tomu emailu', 'napis mu zpet', 'reply'\n"
+            "  - Posilas zpravu autoroVi puvodniho emailu (NE vsem prijemcum)\n\n"
+            "🚫 NEPOUZIVEJ send_email s 'RE:' v subjectu. To je stare reseni rukama, ktere "
+            "ti vcera dalo zabrat. Tento tool sam:\n"
+            "  - Doplni puvodniho odesilatele jako prijemce automaticky\n"
+            "  - Pripoji celou historii korespondence (nesahas na ni)\n"
+            "  - Nastavi In-Reply-To / References hlavicky (Outlook ji rozpozna jako thread)\n"
+            "  - Pripravi 'RE:' prefix subjectu\n\n"
+            "Recipient override: pokud chces seznam upravit (napr. vyradit nekoho z duvodu spamu), "
+            "zadej `to` / `cc` / `bcc` -- prepise default. Bez nich je default = puvodni odesilatel.\n\n"
+            "Subject override: defaultne se vlozi 'RE:' prefix puvodniho subjektu. Kdyz subject "
+            "zadas, prepises default uplne. Lepsi je subject zorientovat dle kontextu "
+            "(napr. 'RE: Dopis rodicum -> Reakce vedeni EUROSOFT - diky')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["email_inbox_id", "body"],
+            "properties": {
+                "email_inbox_id": {"type": "integer", "description": "ID emailu z list_email_inbox / read_email."},
+                "body": {"type": "string", "description": "Tvuj text odpovedi (bez citaci -- system pripoji historii sam)."},
+                "subject": {"type": "string", "description": "Override subjectu. None = default 'RE: <original>'."},
+                "to": {"type": "string", "description": "Override prijemcu (cislem nebo carkou oddelene). None = puvodni odesilatel."},
+                "cc": {"type": "string", "description": "Override CC. Default = zadne CC."},
+                "bcc": {"type": "string", "description": "Override BCC. Default = zadne BCC."},
+            },
+        },
+    },
+    {
+        "name": "reply_all",
+        "description": (
+            "⭐ Faze 12c: ODPOVED VSEM (To + CC) puvodniho emailu. Analogie tlacitka 'Reply All' v Outlooku.\n\n"
+            "POUZIVEJ kdy:\n"
+            "  - User rekne 'odpovez vsem', 'reply all', 'odpovez celemu vlaknu'\n"
+            "  - Email mel vice prijemcu (To + CC) a chces vsem odpovedet\n"
+            "  - Vlakno ma dynamiku skupinove komunikace -- vyradit nekoho bez duvodu by prekvapilo\n\n"
+            "🚫 NEPOUZIVEJ send_email + 'RE:' a manualne lepit CC. Tento tool:\n"
+            "  - Auto-resolve To = puvodni To (mimo nasi vlastni adresu)\n"
+            "  - Auto-resolve CC = puvodni CC (mimo nasi vlastni adresu)\n"
+            "  - Pripoji historii + thread headers + 'RE ALL:' prefix\n\n"
+            "DULEZITE: vlakno ma svou dynamiku. Lide v To/CC ocekavaji, ze v nem zustanou. "
+            "Vyradit nekoho bez duvodu (override `to`/`cc` -- vynechat ho) muze prekvapit, "
+            "obzvlast u vedeni firmy / klientu / formalni komunikace.\n\n"
+            "Override OK kdy: prevent spam (vyradit noreply@), uzavrit thread (vyradit "
+            "vsechny mimo nas), pridat noveho zainteresovaneho. NIKDY tise nebo nahodne."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["email_inbox_id", "body"],
+            "properties": {
+                "email_inbox_id": {"type": "integer", "description": "ID emailu z list_email_inbox / read_email."},
+                "body": {"type": "string", "description": "Tvuj text odpovedi (system pripoji historii)."},
+                "subject": {"type": "string", "description": "Override subjectu. None = default RE prefix."},
+                "to": {"type": "string", "description": "Override seznamu To. Bez nej = puvodni To. Pouzivej rozvazne."},
+                "cc": {"type": "string", "description": "Override CC. Bez nej = puvodni CC."},
+                "bcc": {"type": "string", "description": "Override BCC."},
+            },
+        },
+    },
+    {
+        "name": "forward",
+        "description": (
+            "⭐ Faze 12c: PREPOSLAT email novemu prijemci. Analogie tlacitka 'Forward' v Outlooku.\n\n"
+            "POUZIVEJ kdy:\n"
+            "  - User rekne 'preposli to <komu>', 'forward na <jmeno>', 'pridej Klaru do tohoto vlakna'\n"
+            "  - Chces sdilet existujici email s nekym, kdo v nem nebyl\n\n"
+            "🚫 NEPOUZIVEJ send_email + 'FW:' a manualne lepit telo. Tento tool:\n"
+            "  - Pripoji puvodni email v 'FW:' formatu (Outlook ho rozpozna)\n"
+            "  - Pripoji originalniho odesilatele do telo (lidska orientace)\n"
+            "  - Pripravi 'FW:' prefix subjectu\n\n"
+            "POVINNE: `to` (nebo cislo a vice cisel oddelene carkou). Kam preposlat. "
+            "Bez nej tool selze.\n\n"
+            "Body: tvoje doplnujici text PRED puvodnim. Lide casto pisou 'FYI', 'Mohlo by te zajimat', "
+            "'Klaro, posilam ti to k vyjadreni'. Body je tvuj komentar -- puvodni email je auto-pripojen pod nim."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["email_inbox_id", "to", "body"],
+            "properties": {
+                "email_inbox_id": {"type": "integer", "description": "ID emailu z list_email_inbox / read_email."},
+                "to": {"type": "string", "description": "Email novych prijemcu (povinne). Vice oddel carkou."},
+                "body": {"type": "string", "description": "Tvuj komentar PRED preposlanou zpravou."},
+                "subject": {"type": "string", "description": "Override subjectu. None = default 'FW: <original>'."},
+                "cc": {"type": "string", "description": "Volitelne CC."},
+                "bcc": {"type": "string", "description": "Volitelne BCC."},
             },
         },
     },

@@ -687,6 +687,221 @@ Tým STRATEGIE
 MAX_SEND_ATTEMPTS = 5
 
 
+def reply_or_forward_inbox(
+    *,
+    email_inbox_id: int,
+    body: str,
+    mode: str,                              # 'reply' | 'reply_all' | 'forward'
+    to: list[str] | str | None = None,      # override (povinny pro forward)
+    subject: str | None = None,             # override (default = exchangelib RE:/FW:)
+    cc: list[str] | str | None = None,
+    bcc: list[str] | str | None = None,
+    user_id: int | None = None,
+) -> int:
+    """
+    Faze 12c: reply / reply_all / forward na existujici email_inbox row pres EWS.
+
+    Lookup: email_inbox.message_id -> EWS Message (account.inbox.filter)
+    -> create_reply / create_reply_all / create_forward (vrati DRAFT)
+    -> override to/cc/bcc/subject pokud user zadal -> send_and_save().
+
+    Vyhody oproti send_email_or_raise:
+      - exchangelib si zaridi In-Reply-To + References headers (Outlook thread)
+      - Quoted history v body je auto-pripojena (cely retezec)
+      - HTML format "----- Original Message -----" pro Outlook compat
+      - reply_all auto-resolved To+CC z original (mimo nasi vlastni adresu)
+
+    Cascade: email_inbox.processed_at = now (vyrizene tim, ze odpovedeli /
+    forwardli). Plus insert do email_outbox s in_reply_to_inbox_id + reply_mode
+    pro audit.
+
+    Args:
+      mode: 'reply' = jen odesilateli, 'reply_all' = vsem (To+CC),
+            'forward' = preposlat (povinny `to`).
+      to:   override prijemci. Pro 'forward' POVINNY. Pro 'reply'/'reply_all'
+            volitelny (None = auto z original).
+      subject: None = default RE:/FW: prefix od exchangelib. String = override.
+      cc/bcc: volitelny override.
+
+    Returns: email_outbox.id (audit row).
+
+    Raises: EmailSendError / EmailAuthError / ValueError pro invalidni vstup.
+    """
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox, EmailOutbox
+
+    if mode not in ("reply", "reply_all", "forward"):
+        raise ValueError(
+            f"mode musi byt 'reply' / 'reply_all' / 'forward', dostal '{mode}'"
+        )
+    if mode == "forward" and not to:
+        raise ValueError("forward vyzaduje `to` (kam preposlat)")
+
+    body = (body or "").strip()
+    if not body:
+        raise EmailSendError("prazdny body")
+
+    ds = get_data_session()
+    try:
+        inbox_row = (
+            ds.query(EmailInbox).filter(EmailInbox.id == email_inbox_id).first()
+        )
+        if inbox_row is None:
+            raise EmailSendError(f"email_inbox id={email_inbox_id} neexistuje")
+        if not inbox_row.message_id:
+            raise EmailSendError(
+                f"email_inbox id={email_inbox_id} nema message_id (RFC822) -- "
+                "nemuzeme dohledat original v EWS"
+            )
+        rfc_id = inbox_row.message_id
+        persona_id = inbox_row.persona_id
+        tenant_id = inbox_row.tenant_id
+        original_subject = inbox_row.subject or ""
+    finally:
+        ds.close()
+
+    creds = _resolve_persona_email_creds(persona_id, tenant_id)
+    if not creds:
+        raise EmailNoUserChannelError(
+            f"persona_id={persona_id} nema nakonfigurovany EWS kanal"
+        )
+
+    account = _get_account(
+        email=creds["email"],
+        password=creds["password"],
+        server=creds["server"],
+    )
+    sender = creds.get("display_email") or f"<persona_id={persona_id} display missing>"
+
+    # Find original message in EWS by RFC822 Message-ID (try INBOX first, then archives)
+    from exchangelib import Mailbox
+
+    candidates = []
+    try:
+        candidates = list(account.inbox.filter(message_id=rfc_id)[:1])
+    except Exception as e:
+        logger.warning(f"EMAIL | reply | inbox lookup failed | {e}")
+    # Try archives (Personal etc) if not in inbox
+    if not candidates:
+        try:
+            for sub in account.inbox.children:
+                try:
+                    candidates = list(sub.filter(message_id=rfc_id)[:1])
+                    if candidates:
+                        break
+                except Exception:
+                    continue
+        except Exception:
+            pass
+
+    if not candidates:
+        raise EmailSendError(
+            f"original email s message_id={rfc_id!r} nenalezen v EWS "
+            f"(persona_id={persona_id}). Mohl byt smazan / archivovan mimo nas scope."
+        )
+    original = candidates[0]
+
+    # Parse override params
+    to_list = _parse_recipients(to) if to else None
+    cc_list = _parse_recipients(cc) if cc else None
+    bcc_list = _parse_recipients(bcc) if bcc else None
+
+    # Create draft via exchangelib reply/reply_all/forward helpers
+    try:
+        if mode == "reply":
+            draft = original.create_reply(subject=subject, body=body)
+        elif mode == "reply_all":
+            draft = original.create_reply_all(subject=subject, body=body)
+        else:  # forward
+            # create_forward vyzaduje to_recipients
+            if not to_list:
+                raise ValueError("forward: prazdny seznam prijemcu po _parse_recipients")
+            draft = original.create_forward(
+                subject=subject,
+                body=body,
+                to_recipients=[Mailbox(email_address=a) for a in to_list],
+            )
+    except Exception as e:
+        logger.exception(f"EMAIL | reply | create_draft failed | mode={mode} | {e}")
+        raise EmailSendError(f"create_{mode} v EWS selhalo: {e}")
+
+    # Override to/cc/bcc if user provided (po vytvoreni draftu, pred sendem)
+    # Pro forward uz to je nastaveno pres create_forward -- override pripustny
+    # zde jen kdyz user chce dalsi zmenu (ale ten case je redundantni; ponechame
+    # konzistentni interface).
+    if to_list and mode != "forward":
+        draft.to_recipients = [Mailbox(email_address=a) for a in to_list]
+    if cc_list is not None:
+        draft.cc_recipients = [Mailbox(email_address=a) for a in cc_list]
+    if bcc_list is not None:
+        draft.bcc_recipients = [Mailbox(email_address=a) for a in bcc_list]
+
+    # Send
+    try:
+        draft.send_and_save()
+    except Exception as e:
+        logger.exception(f"EMAIL | reply | send failed | mode={mode} | {e}")
+        if _is_auth_error(e):
+            raise EmailAuthError(f"EWS auth failed: {e}")
+        raise EmailSendError(f"send_and_save selhalo: {e}")
+
+    # Sebrat finalni recipients pro logging + outbox row
+    final_to = [m.email_address for m in (draft.to_recipients or [])]
+    final_cc = [m.email_address for m in (draft.cc_recipients or [])]
+    final_bcc = [m.email_address for m in (draft.bcc_recipients or [])]
+    final_subject = draft.subject or original_subject
+
+    logger.info(
+        f"EMAIL | {mode} | from={sender} | to={final_to} | cc={final_cc or '-'} | "
+        f"bcc={final_bcc or '-'} | subject={final_subject!r} | "
+        f"in_reply_to_inbox={email_inbox_id}"
+    )
+
+    # Insert email_outbox audit row + cascade processed_at na inbox
+    now_utc = datetime.now(timezone.utc)
+    ds = get_data_session()
+    try:
+        outbox = EmailOutbox(
+            user_id=user_id,
+            tenant_id=tenant_id,
+            persona_id=persona_id,
+            to_email=", ".join(final_to),
+            cc=_json_serialize_list(final_cc) if final_cc else None,
+            bcc=_json_serialize_list(final_bcc) if final_bcc else None,
+            subject=final_subject,
+            body=body,
+            purpose="user_request",
+            status="sent",                 # uz odeslano, ne pending
+            from_identity="persona",
+            sent_at=now_utc,
+            in_reply_to_inbox_id=email_inbox_id,
+            reply_mode=mode,
+        )
+        ds.add(outbox)
+
+        # Cascade: oznacit inbox jako vyrizeny (po odpovedi / forwardu)
+        inbox_row2 = (
+            ds.query(EmailInbox).filter(EmailInbox.id == email_inbox_id).first()
+        )
+        if inbox_row2 and inbox_row2.processed_at is None:
+            inbox_row2.processed_at = now_utc
+            if inbox_row2.read_at is None:
+                inbox_row2.read_at = now_utc
+
+        ds.commit()
+        ds.refresh(outbox)
+        return outbox.id
+    finally:
+        ds.close()
+
+
+def _json_serialize_list(items: list[str]) -> str:
+    """Helper: list of email strings -> JSON string for email_outbox.cc/bcc."""
+    import json as _json
+    return _json.dumps(list(items), ensure_ascii=False)
+
+
 def queue_email(
     *,
     to: str,

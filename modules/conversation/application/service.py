@@ -2041,6 +2041,13 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ SMS id={sms_id_msp} nenalezena."
         return f"✅ SMS id={sms_id_msp} oznacena jako vyrizena."
 
+    if tool_name == "reply":
+        return _handle_email_reply_or_forward(tool_input, mode="reply", user_id=user_id)
+    if tool_name == "reply_all":
+        return _handle_email_reply_or_forward(tool_input, mode="reply_all", user_id=user_id)
+    if tool_name == "forward":
+        return _handle_email_reply_or_forward(tool_input, mode="forward", user_id=user_id)
+
     if tool_name == "mark_email_processed":
         # Faze 12b+ pre-demo: explicit oznaceni emailu jako vyrizeny.
         # Bez tohoto Marti-AI po reply / projeti bez archive nemela tool jak
@@ -3536,6 +3543,69 @@ def _attach_media_to_message_if_any(msg_id: int | None, media_ids: list[int] | N
 
 
 
+def _handle_email_reply_or_forward(tool_input: dict, *, mode: str, user_id: int | None) -> str:
+    """
+    Faze 12c: dispatch helper pro AI tools reply / reply_all / forward.
+    Wraps email_service.reply_or_forward_inbox + standardni error handling.
+    """
+    try:
+        from modules.notifications.application.email_service import (
+            reply_or_forward_inbox as _rof,
+            EmailAuthError as _EAE,
+            EmailSendError as _ESE,
+            EmailNoUserChannelError as _ENUC,
+        )
+    except Exception as _imp:
+        logger.exception(f"REPLY_FW | import failed | {_imp}")
+        return f"❌ Import error: {_imp}"
+
+    eib_raw = tool_input.get("email_inbox_id")
+    if eib_raw is None:
+        return "❌ Chybi email_inbox_id."
+    try:
+        eib = int(eib_raw)
+    except (TypeError, ValueError):
+        return "❌ email_inbox_id musi byt integer."
+
+    body = (tool_input.get("body") or "").strip()
+    if not body:
+        return "❌ Body nemuze byt prazdne."
+
+    to = tool_input.get("to")
+    cc = tool_input.get("cc")
+    bcc = tool_input.get("bcc")
+    subject = tool_input.get("subject")
+
+    if mode == "forward" and not to:
+        return "❌ Forward vyzaduje `to` (kam preposlat) -- chybi."
+
+    try:
+        outbox_id = _rof(
+            email_inbox_id=eib,
+            body=body,
+            mode=mode,
+            to=to,
+            subject=subject,
+            cc=cc,
+            bcc=bcc,
+            user_id=user_id,
+        )
+    except _ENUC as e:
+        return f"❌ Persona nema EWS kanal: {e}"
+    except _EAE as e:
+        return f"❌ EWS auth selhal: {e}"
+    except _ESE as e:
+        return f"❌ Odeslani selhalo: {e}"
+    except ValueError as e:
+        return f"❌ Spatny vstup: {e}"
+    except Exception as e:
+        logger.exception(f"REPLY_FW | failed | mode={mode} | inbox_id={eib} | {e}")
+        return f"❌ Chyba: {type(e).__name__}: {e}"
+
+    label = {"reply": "odpoved", "reply_all": "odpoved vsem", "forward": "preposlani"}[mode]
+    return f"✅ Email odeslan ({label}). Outbox id={outbox_id}, puvodni inbox #{eib} oznacen jako vyrizen."
+
+
 def _serialize_anthropic_block(block, round_idx: int) -> dict | None:
     """
     Faze 12b+: Serializace Anthropic SDK bloku do JSONB-friendly dictu pro audit.
@@ -4192,6 +4262,10 @@ def chat(
         # ('Preskocime dnes: sms #1. Priorita klesla z 100 na 70.') neleakovalo
         # do chatu. Marti-AI po vykonani uctive shrnuti vlastnimi slovy.
         "dismiss_item", "mark_sms_processed", "mark_email_processed",
+        # Faze 12c: reply / reply_all / forward v synth -- aby Marti-AI po
+        # ✅ Email odeslan rephrazovala lidskou odpoved ('Hotovo, posila se ti
+        # to.') misto opisovani.
+        "reply", "reply_all", "forward",
         # Plus list_todos -- po dostani 'Moje todo ukoly: 1. [#X] ...' refraseuje
         # bez doslova opisu.
         "list_todos",

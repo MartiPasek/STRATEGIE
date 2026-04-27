@@ -1281,6 +1281,27 @@ def _build_project_context_block(conversation_id: int) -> str:
     )
 
 
+def _build_inbox_documents_block(tenant_id: int | None) -> str:
+    """
+    REST-Doc-Triage: vrati "[INBOX DOKUMENTY: N caka na zarazeni]" blok
+    pokud tenantov INBOX ma >= 1 dokument. Marti-AI v overview muze
+    proaktivne nabidnout triage ("Marti, mam X dokumentu k roztrideni").
+
+    Returns "" pokud inbox prazdny nebo tenant_id None.
+    """
+    if tenant_id is None:
+        return ""
+    try:
+        from modules.rag.application import triage_service as _ts
+        count = _ts.count_inbox_documents(tenant_id=tenant_id)
+    except Exception as e:
+        logger.warning(f"COMPOSER | inbox docs count failed: {e}")
+        return ""
+    if count <= 0:
+        return ""
+    return f"[INBOX DOKUMENTY: {count} čeká na zařazení do projektů]"
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1343,6 +1364,17 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             logger.info(f"COMPOSER | project context injected | conv={conversation_id}")
     except Exception as _pc_err:
         logger.warning(f"COMPOSER | project context block failed: {_pc_err}")
+
+    # ── REST-Doc-Triage: Inbox documents block ─────────────────────────────
+    # Pokud tenant ma >= 1 dokument v INBOXu (project_id IS NULL), Marti-AI
+    # to vidi v promptu a v overview muze proaktivne nabidnout triage.
+    try:
+        inbox_block = _build_inbox_documents_block(tenant_id)
+        if inbox_block:
+            system_prompt = f"{system_prompt}\n\n{inbox_block}"
+            logger.info(f"COMPOSER | inbox docs injected | tenant={tenant_id}")
+    except Exception as _ib_err:
+        logger.warning(f"COMPOSER | inbox docs block failed: {_ib_err}")
 
     # ── RAG-driven memory injection (Fáze 13, jediná cesta po 13f cleanup) ─
     # Sémanticky vybavená paměť: top K relevantních thoughts/diary entries

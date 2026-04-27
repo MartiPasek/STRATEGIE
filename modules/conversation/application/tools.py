@@ -56,6 +56,10 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 15e: Hard delete tools
     "confirm_hard_delete_conversation",
     "list_pending_hard_delete",
+    # REST-Doc-Triage: Marti-AI document kustod
+    "list_inbox_documents",
+    "suggest_document_move",
+    "apply_document_move",
 }
 
 
@@ -2214,6 +2218,68 @@ TOOLS = [
         "input_schema": {
             "type": "object",
             "properties": {},
+        },
+    },
+    {
+        "name": "list_inbox_documents",
+        "description": (
+            "REST-Doc-Triage: Vrati seznam dokumentu v INBOXu tenantu "
+            "(project_id IS NULL). Pouzij kdyz Marti chce projit "
+            "neroztridene dokumenty -- napr. po bulk upload slozky, "
+            "nebo kdyz se Marti pta 'co mi chodi do inboxu?'. "
+            "Vrati: id, name, file_type, file_size_bytes, created_at "
+            "pro kazdy dokument. Marti-AI pak za kazdy dokument navrhne "
+            "suggest_document_move s konkretnim cilovym projektem."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+            },
+        },
+    },
+    {
+        "name": "suggest_document_move",
+        "description": (
+            "REST-Doc-Triage: Navrhni Marti, do ktereho projektu by mel "
+            "dokument patrit. SUGGESTION ONLY -- ulozi do tool response, "
+            "Marti potvrdi v chatu (\"ano premysle\"), pak Marti-AI volá "
+            "apply_document_move. "
+            "Na zaklade jmena souboru a kontextu rozpoznas tema (TISAX, "
+            "pravo, smlouvy, ...) a najdes nejlepsi projektove zarazeni. "
+            "Pokud zadny existujici projekt nesedi, navrhni Martimu "
+            "vytvoreni noveho (analog suggest_create_project z 15c). "
+            "Pred volanim si zjisti dostupne projekty pres list_projects."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["document_id", "target_project_id", "reason"],
+            "properties": {
+                "document_id": {"type": "integer"},
+                "target_project_id": {"type": "integer", "description": "ID cilového projektu"},
+                "reason": {"type": "string", "description": "Proc do tohoto projektu (1-2 vety)"},
+            },
+        },
+    },
+    {
+        "name": "apply_document_move",
+        "description": (
+            "REST-Doc-Triage: Aplikuj presun dokumentu do projektu PO "
+            "Marti's confirm v chatu (\"ano premysle\" / \"ano do TISAX\"). "
+            "Pred timto musi byt suggest_document_move. Po apply se "
+            "dokument zobrazuje pod novym projektem v UI listu (a Marti-AI "
+            "ho v RAG dohleda pres project filter)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["document_id", "target_project_id"],
+            "properties": {
+                "document_id": {"type": "integer"},
+                "target_project_id": {
+                    "type": "integer",
+                    "description": "ID cilového projektu (musi sedet s suggest_document_move).",
+                },
+            },
         },
     },
 ]

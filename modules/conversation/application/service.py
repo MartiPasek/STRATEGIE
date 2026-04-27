@@ -3439,6 +3439,111 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         lines.append("Pro kazdou: 'smaz trvale konv #X' nebo 'prodluz, vrat do archive'.")
         return chr(10).join(lines)
 
+    # ─────────────────────────────────────────────────────────────────────
+    # REST-Doc-Triage: Marti-AI document kustod handlers
+    # ─────────────────────────────────────────────────────────────────────
+    if tool_name == "list_inbox_documents":
+        from modules.rag.application import triage_service as _ts_li
+
+        # Tenant: aktivni Marti's tenant z User table
+        if user_id is None:
+            return "❌ Bez user_id nelze list inbox."
+        try:
+            from core.database_core import get_core_session as _gcs_li
+            from modules.core.infrastructure.models_core import User as _U_li
+            _cs_li = _gcs_li()
+            try:
+                _u_li = _cs_li.query(_U_li).filter_by(id=user_id).first()
+                _tenant_id_li = _u_li.last_active_tenant_id if _u_li else None
+            finally:
+                _cs_li.close()
+        except Exception as e:
+            return f"❌ Tenant lookup failed: {e}"
+
+        if _tenant_id_li is None:
+            return "❌ User nemá aktivní tenant."
+
+        limit_li = tool_input.get("limit", 50)
+        try:
+            limit_li = max(1, min(int(limit_li), 100))
+        except (TypeError, ValueError):
+            limit_li = 50
+
+        try:
+            docs = _ts_li.list_inbox_documents(tenant_id=_tenant_id_li, limit=limit_li)
+        except Exception as e:
+            logger.exception(f"DOC_TRIAGE | list_inbox | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        if not docs:
+            return "📥 Inbox je prázdný — žádné neroztříděné dokumenty."
+
+        lines = [f"📥 Inbox ({len(docs)} dokumenty čekají na zařazení):"]
+        for d in docs[:30]:
+            size_kb = (d.get("file_size_bytes") or 0) // 1024
+            ftype = d.get("file_type") or "?"
+            name = d.get("name") or f"doc#{d['id']}"
+            lines.append(f"  - #{d['id']} \"{name}\" ({ftype}, {size_kb} kB)")
+        if len(docs) > 30:
+            lines.append(f"  ... a dalších {len(docs) - 30}")
+        lines.append("")
+        lines.append("Pro každý zvaž `suggest_document_move(document_id, target_project_id, reason)`.")
+        return "\n".join(lines)
+
+    if tool_name == "suggest_document_move":
+        document_id_sm = tool_input.get("document_id")
+        target_pid_sm = tool_input.get("target_project_id")
+        if document_id_sm is None or target_pid_sm is None:
+            return "❌ Musíš dodat `document_id` a `target_project_id`."
+        try:
+            document_id_sm = int(document_id_sm)
+            target_pid_sm = int(target_pid_sm)
+        except (TypeError, ValueError):
+            return "❌ Neplatné ID."
+
+        reason_sm = (tool_input.get("reason") or "").strip()
+        if len(reason_sm) < 5:
+            return "❌ Důvod je moc krátký (min 5 znaků)."
+
+        # Tato je jen suggestion -- vraci formatovanou zpravu pro Marti
+        return (
+            f"📂 Navrhuju přesun dokumentu #{document_id_sm} do projektu "
+            f"#{target_pid_sm}. Důvod: {reason_sm} "
+            f"Pověz Marti — potvrdí v chatu (\"ano přesuň\"), pak zavolám "
+            f"`apply_document_move({document_id_sm}, {target_pid_sm})`."
+        )
+
+    if tool_name == "apply_document_move":
+        from modules.rag.application import triage_service as _ts_am
+
+        document_id_am = tool_input.get("document_id")
+        target_pid_am = tool_input.get("target_project_id")
+        if document_id_am is None or target_pid_am is None:
+            return "❌ Musíš dodat `document_id` a `target_project_id`."
+        try:
+            document_id_am = int(document_id_am)
+            target_pid_am = int(target_pid_am)
+        except (TypeError, ValueError):
+            return "❌ Neplatné ID."
+
+        if user_id is None:
+            return "❌ Bez user_id nelze apply."
+
+        try:
+            result_am = _ts_am.apply_document_move(
+                document_id=document_id_am,
+                target_project_id=target_pid_am,
+                user_id=user_id,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"DOC_TRIAGE | apply_move | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        name = result_am.get("name") or f"doc#{document_id_am}"
+        return f"📂 Dokument \"{name}\" přesunut do projektu #{target_pid_am} ✅"
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

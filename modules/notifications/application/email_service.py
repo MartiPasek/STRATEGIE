@@ -837,14 +837,40 @@ def reply_or_forward_inbox(
     if bcc_list is not None:
         draft.bcc_recipients = [Mailbox(email_address=a) for a in bcc_list]
 
-    # Send
+    # Faze 12c fix: strip attachments pro reply/reply_all (sterilni text reply).
+    # Exchange auto-pribaluje inline images (cid: refs) z podpisu puvodniho
+    # emailu jako attachments. V Outlooku se pak zobrazuje 'Prilohy' panel
+    # i kdyz jsou jen v podpisu odesilatele. Pro reply/reply_all to nedava
+    # smysl -- chceme cisty text + thread headers + quoted history.
+    # Pro FORWARD attachments ZACHOVAT -- user typicky forwarduje s prilohami
+    # (faktura, dokument, fotka).
+    if mode in ("reply", "reply_all"):
+        try:
+            existing_atts = list(draft.attachments) if draft.attachments else []
+            if existing_atts:
+                for att in existing_atts:
+                    try:
+                        draft.attachments.remove(att)
+                    except Exception:
+                        pass
+                logger.info(
+                    f"EMAIL | {mode} | stripped {len(existing_atts)} attachments "
+                    f"(inline images z podpisu puvodniho emailu)"
+                )
+        except Exception as _strip_err:
+            logger.warning(f"EMAIL | {mode} | attachment strip failed | {_strip_err}")
+
+    # Send. POZOR: create_reply / create_reply_all / create_forward vraci
+    # ReplyToItem / ForwardItem (subclass ResponseObject), ne Message. Ty maji
+    # jen .send() (Exchange auto-ulozi do Sent Items po sendu), NE .send_and_save().
+    # Pouziti send_and_save() spadne s AttributeError.
     try:
-        draft.send_and_save()
+        draft.send()
     except Exception as e:
         logger.exception(f"EMAIL | reply | send failed | mode={mode} | {e}")
         if _is_auth_error(e):
             raise EmailAuthError(f"EWS auth failed: {e}")
-        raise EmailSendError(f"send_and_save selhalo: {e}")
+        raise EmailSendError(f"send selhalo: {e}")
 
     # Sebrat finalni recipients pro logging + outbox row
     final_to = [m.email_address for m in (draft.to_recipients or [])]

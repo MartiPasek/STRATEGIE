@@ -3366,6 +3366,79 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "↩️ Lifecycle suggestion zamítnuto, konverzace zůstává aktivní."
         return "ℹ️ Žádný pending lifecycle suggestion k zamítnutí."
 
+    if tool_name == "confirm_hard_delete_conversation":
+        from modules.notebook.application import lifecycle_service as _ls_hd
+
+        target_cid = tool_input.get("target_conversation_id")
+        if target_cid is None:
+            return "[ERR] Musis dodat `target_conversation_id`."
+        try:
+            target_cid = int(target_cid)
+        except (TypeError, ValueError):
+            return f"[ERR] Neplatne target_conversation_id: {target_cid!r}"
+
+        confirm_phrase = (tool_input.get("confirm_phrase") or "").strip()
+        if len(confirm_phrase) < 5:
+            return "[ERR] confirm_phrase je moc kratky (min 5 znaku) -- audit trail."
+
+        if user_id is None:
+            return "[ERR] Bez user_id nelze hard delete."
+
+        try:
+            from modules.thoughts.application.service import is_marti_parent as _is_parent_hd
+            is_parent_hd = _is_parent_hd(user_id)
+        except Exception:
+            is_parent_hd = False
+
+        if not is_parent_hd:
+            return (
+                "[ERR] Trvale smazani konverzace muze provest jen rodicovsky "
+                "user (is_marti_parent=True)."
+            )
+
+        try:
+            result_hd = _ls_hd.hard_delete_conversation(
+                conversation_id=target_cid,
+                deleted_by_user_id=user_id,
+                require_pending_state=True,
+            )
+        except ValueError as e:
+            return f"[ERR] {e}"
+        except Exception as e:
+            logger.exception(f"LIFECYCLE | hard_delete | failed: {e}")
+            return f"[ERR] Chyba: {e}"
+
+        cascade = result_hd.get("cascaded", {})
+        return (
+            f"[OK] Konverzace #{target_cid} **trvale smazana**. "
+            f"Cascade: {cascade.get('notes', 0)} poznamek, "
+            f"{cascade.get('messages', 0)} zprav. Reverze neni mozna."
+        )
+
+    if tool_name == "list_pending_hard_delete":
+        from modules.notebook.application import lifecycle_service as _ls_lp
+
+        persona_id_lp = _active_persona_id_for_conversation(conversation_id)
+
+        try:
+            rows = _ls_lp.list_pending_hard_delete(persona_id=persona_id_lp)
+        except Exception as e:
+            logger.exception(f"LIFECYCLE | list_pending | failed: {e}")
+            return f"[ERR] Chyba: {e}"
+
+        if not rows:
+            return "[OK] Zadne konverzace nejsou ve stavu pending_hard_delete."
+
+        lines = [f"[INFO] {len(rows)} konverzaci ceka na finalni rozhodnuti:"]
+        for r in rows[:10]:
+            title = r.get("title") or f"konv #{r['id']}"
+            lines.append(f"  - #{r['id']} {title!r} (archivovano {r.get('archived_at', '?')})")
+        if len(rows) > 10:
+            lines.append(f"  ... a dalsich {len(rows) - 10}")
+        lines.append("")
+        lines.append("Pro kazdou: 'smaz trvale konv #X' nebo 'prodluz, vrat do archive'.")
+        return chr(10).join(lines)
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

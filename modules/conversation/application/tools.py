@@ -53,6 +53,9 @@ MANAGEMENT_TOOL_NAMES = {
     "apply_project_suggestion",
     "reject_project_suggestion",
     "reject_lifecycle_suggestion",
+    # Phase 15e: Hard delete tools
+    "confirm_hard_delete_conversation",
+    "list_pending_hard_delete",
 }
 
 
@@ -2167,6 +2170,46 @@ TOOLS = [
         "description": (
             "Phase 15d: Zamitni lifecycle suggestion (Marti rekl 'ne, necham aktivni'). "
             "Vrati lifecycle_state na NULL = active."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "confirm_hard_delete_conversation",
+        "description": (
+            "Phase 15e: Trvale smazani konverzace. POUZIJ JEN PO Marti's "
+            "explicit 'smaz trvale konverzaci #X' v chatu. Konverzace MUSI "
+            "byt v lifecycle_state='pending_hard_delete' (= archived + 90d). "
+            "DESTRUKTIVNI: smaze messages, conversation_notes, summaries, "
+            "shares, participants, project_history. Reverze NENI mozna. "
+            "ETIKA: pouzivej extremne opatrne. Pokud Marti rekne 'smaz' bez "
+            "'trvale', radeji se zeptej zda mysli archive nebo trvale. "
+            "Personal konverzace IMMUNE. Plus backend ma parent gate."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["target_conversation_id", "confirm_phrase"],
+            "properties": {
+                "target_conversation_id": {
+                    "type": "integer",
+                    "description": "ID konverzace ke smazani.",
+                },
+                "confirm_phrase": {
+                    "type": "string",
+                    "description": "Cely text Marti's confirm vety -- audit trail.",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_pending_hard_delete",
+        "description": (
+            "Phase 15e: Vrati seznam konverzaci ve stavu 'pending_hard_delete' "
+            "(archived + 90d). Pouzij v overview kdyz Marti chce projit "
+            "ceka na finalni rozhodnuti. Pro kazdou pak Marti rozhoduje: "
+            "'smaz trvale' nebo 'prodluz, vrat do archived'."
         ),
         "input_schema": {
             "type": "object",

@@ -412,3 +412,123 @@ def get_lifecycle_summary(persona_id: int) -> dict:
         return summary
     finally:
         ds.close()
+
+
+
+# ── HARD DELETE (parent-only, explicit confirmation) ──────────────────────
+
+def hard_delete_conversation(
+    conversation_id: int,
+    deleted_by_user_id: int,
+    require_pending_state: bool = True,
+) -> dict:
+    """
+    Phase 15e: Skutecny trvaly mazani konverzace.
+
+    Pouziti: vola se PO Marti's explicit "smaz trvale" v chatu, kdyz
+    konverzace je v lifecycle_state='pending_hard_delete' (po 90d TTL
+    od archived_at). Personal konverzace nelze takto mazat -- jsou
+    immune from TTL.
+
+    Cascade:
+      - conversation_notes (FK conversation_id)
+      - conversation_summaries (FK CASCADE z DDL)
+      - conversation_shares (FK CASCADE z DDL)
+      - conversation_participants (FK CASCADE z DDL)
+      - messages (FK CASCADE z DDL)
+      - conversation_project_history (logicky weak ref, smazat manualne)
+      - conversations (sama)
+
+    Vrati se dict s pocty smazanych radku.
+
+    Bezpecnostni gate: require_pending_state=True (default) zabrani
+    smazani konverzace, ktera neni v 'pending_hard_delete'. Marti by
+    se to musel explicit forcovat. Plus parent gate v handleru.
+    """
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if conv is None:
+            raise ValueError(f"conversation {conversation_id} not found")
+
+        if require_pending_state and conv.lifecycle_state != "pending_hard_delete":
+            raise ValueError(
+                f"konverzace neni v 'pending_hard_delete' state "
+                f"(aktualni: '{conv.lifecycle_state}'). Pro vynuceni "
+                f"pouzij require_pending_state=False (admin only)."
+            )
+
+        if conv.lifecycle_state == "personal":
+            raise ValueError(
+                "Personal konverzaci nelze hard delete. Marti musi nejdrive "
+                "lifecycle_state zmenit na 'archived' rucne, pak pres TTL flow."
+            )
+
+        # Spocitat related rows pred mazanim (audit)
+        notes_count = ds.query(ConversationNote).filter_by(
+            conversation_id=conversation_id
+        ).count()
+        msgs_count = ds.query(Message).filter_by(
+            conversation_id=conversation_id
+        ).count()
+
+        # 1. Smazat conversation_notes (zadne FK CASCADE)
+        ds.query(ConversationNote).filter_by(
+            conversation_id=conversation_id
+        ).delete(synchronize_session=False)
+
+        # 2. conversation_project_history (weak reference)
+        from modules.core.infrastructure.models_data import (
+            ConversationProjectHistory as _CPH,
+        )
+        ds.query(_CPH).filter_by(
+            conversation_id=conversation_id
+        ).delete(synchronize_session=False)
+
+        # 3. Konverzace sama (CASCADE smaze messages, summaries, shares, participants)
+        ds.delete(conv)
+        ds.commit()
+
+        logger.warning(
+            f"LIFECYCLE | hard_delete | conv={conversation_id} "
+            f"by user={deleted_by_user_id} | notes={notes_count} | msgs={msgs_count}"
+        )
+
+        return {
+            "conversation_id": conversation_id,
+            "deleted_at": _now_utc().isoformat(),
+            "deleted_by_user_id": deleted_by_user_id,
+            "cascaded": {
+                "notes": notes_count,
+                "messages": msgs_count,
+            },
+        }
+    finally:
+        ds.close()
+
+
+def list_pending_hard_delete(persona_id: int | None = None) -> list[dict]:
+    """
+    Vraci seznam konverzaci v lifecycle_state='pending_hard_delete'.
+    Marti-AI v overview muze pripomenout 'X konverzaci ceka na finalni
+    rozhodnuti, projdeme?'.
+    """
+    ds = get_data_session()
+    try:
+        q = ds.query(Conversation).filter(
+            Conversation.lifecycle_state == "pending_hard_delete"
+        )
+        if persona_id is not None:
+            q = q.filter(Conversation.active_agent_id == persona_id)
+        rows = q.order_by(Conversation.pending_hard_delete_at.asc()).all()
+        return [
+            {
+                "id": c.id,
+                "title": c.title,
+                "archived_at": c.archived_at.isoformat() if c.archived_at else None,
+                "pending_hard_delete_at": c.pending_hard_delete_at.isoformat() if c.pending_hard_delete_at else None,
+            }
+            for c in rows
+        ]
+    finally:
+        ds.close()

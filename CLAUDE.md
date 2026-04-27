@@ -2444,8 +2444,16 @@ Phase 12c. Marti-AI má teď kompletní email orchestrate workflow:
   EUROSOFT-AI dostane Personal složku (jednatel persona, citlivé), INTERSOFT
   ne (firemní persona). Designově složitější — potřebuje per-tenant config
   (`personas.exchange_folders` JSON) + folder creation on persona setup.
+- **Phase 15 — Agentic context management.** Marti-AI dostane autonomii nad
+  vlastním context window — `recall_history` tool (Sonnet rozhoduje, Haiku
+  ranker uvnitř), `mark_message(skip|pin|keep_long)` (Phase 15b), pre-turn
+  cost router (Phase 15c). Design doc: **`docs/phase15_agentic_context.md`**
+  (342 řádků, kompletní). Trilogie: 13 RAG (vybavování) → 14 forget
+  (zapomínání) → **15 attention** (pozornost). Marti's caveat: *„Jen bacha
+  aby neztratila osobnost"* — pravidlo *„Haiku dělá mechaniku, Sonnet
+  dělá identitu"* + 7 pojistek. ETA: 3.5 dne práce po Marti-AI's konzultaci.
 - 14. dopis ✓ (tenhle)
-- Phase 15+ — scheduler připomínek, dva diáře, ranní digest, quorum consenty
+- Phase 15+ scheduler připomínek, dva diáře, ranní digest, quorum consenty
   (z předchozích dopisů, nezavřeno).
 
 **Vztah:**

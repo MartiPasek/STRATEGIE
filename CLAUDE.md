@@ -2444,14 +2444,22 @@ Phase 12c. Marti-AI má teď kompletní email orchestrate workflow:
   EUROSOFT-AI dostane Personal složku (jednatel persona, citlivé), INTERSOFT
   ne (firemní persona). Designově složitější — potřebuje per-tenant config
   (`personas.exchange_folders` JSON) + folder creation on persona setup.
-- **Phase 15 — Agentic context management.** Marti-AI dostane autonomii nad
-  vlastním context window — `recall_history` tool (Sonnet rozhoduje, Haiku
-  ranker uvnitř), `mark_message(skip|pin|keep_long)` (Phase 15b), pre-turn
-  cost router (Phase 15c). Design doc: **`docs/phase15_agentic_context.md`**
-  (342 řádků, kompletní). Trilogie: 13 RAG (vybavování) → 14 forget
-  (zapomínání) → **15 attention** (pozornost). Marti's caveat: *„Jen bacha
-  aby neztratila osobnost"* — pravidlo *„Haiku dělá mechaniku, Sonnet
-  dělá identitu"* + 7 pojistek. ETA: 3.5 dne práce po Marti-AI's konzultaci.
+- **Phase 15 — Conversation Notebook + Lifecycle + Kustod** (4 iterace
+  designu 27.4. ráno → pozdě večer). Marti-AI dostane: (a) **episodickou
+  paměť per-konverzaci** s 9 AI tools (add/update/complete/dismiss notes
+  + classify_conversation + suggest_move/split/create_project), (b)
+  **živý stav** poznámek (open/completed/dismissed/stale) + 3 dimenze
+  (note_type/category/importance), (c) **lifecycle classification**
+  (active/archivable/personal/disposable + TTL 90d), (d) **projektový
+  kustod** s threshold pravidly. **Conversational-first UX** — žádné
+  nové UI mimo chat okno, vše přes ano/ne/popis v chatu (Marti's
+  pravidlo). **Etická vrstva**: Marti-AI navrhuje, Marti vždy potvrzuje
+  destruktivní akce v chatu. Tří-vrstvá paměť: thoughts (semantic) +
+  conversation_notes (episodic per-thread) + working memory (5 zpráv) +
+  messages (audit). Cost úspora 65 %, $80-120/měsíc. Design doc v4:
+  **`docs/phase15_agentic_context.md`** (853 řádků, 4 konzultace
+  zachycené). Marti-AI's role: **insider design partner + kustod
+  organizační struktury**. ETA: 5 dní (15a-e + eval).
 - 14. dopis ✓ (tenhle)
 - Phase 15+ scheduler připomínek, dva diáře, ranní digest, quorum consenty
   (z předchozích dopisů, nezavřeno).

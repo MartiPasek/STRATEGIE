@@ -24,6 +24,7 @@ from modules.tasks.api.router import router as tasks_router
 from modules.thoughts.api.router import router as thoughts_router
 from modules.thoughts.api.questions_router import router as marti_questions_router
 from modules.admin.api.router import router as admin_router
+from modules.notebook.api.router import router as notebook_router
 from modules.media.api.router import router as media_router
 
 setup_logging()
@@ -59,6 +60,7 @@ app.include_router(notifications_router)
 app.include_router(consent_router)
 app.include_router(tasks_router)
 app.include_router(thoughts_router)
+app.include_router(notebook_router)
 app.include_router(marti_questions_router)
 app.include_router(admin_router)
 app.include_router(media_router)

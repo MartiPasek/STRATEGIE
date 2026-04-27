@@ -1140,6 +1140,37 @@
     .drop-overlay { position: absolute; inset: 0; background: rgba(108,99,255,0.18); border: 2px dashed var(--accent); border-radius: 12px; display: none; align-items: center; justify-content: center; color: var(--accent); font-size: 16px; font-weight: 600; pointer-events: none; z-index: 5; }
     .drop-overlay.is-active { display: flex; }
 
+    /* Phase 15b: Conversation Notebook badge + modal */
+    .notebook-bar { display: none; align-items: center; gap: 8px; padding: 8px 14px; background: rgba(124, 58, 237, 0.06); border: 1px solid rgba(124, 58, 237, 0.18); border-radius: 8px; margin-bottom: 8px; font-size: 12.5px; color: var(--text); cursor: pointer; transition: background .15s, border-color .15s; }
+    .notebook-bar:hover { background: rgba(124, 58, 237, 0.12); border-color: rgba(124, 58, 237, 0.35); }
+    .notebook-bar.is-visible { display: flex; }
+    .notebook-bar .nb-icon { font-size: 16px; flex-shrink: 0; }
+    .notebook-bar .nb-text { flex: 1; min-width: 0; }
+    .notebook-bar .nb-count-tasks { color: #f59e0b; font-weight: 600; }
+    .notebook-bar .nb-count-questions { color: #ec4899; font-weight: 600; }
+    .notebook-bar .nb-arrow { color: var(--muted); opacity: 0.7; }
+
+    /* Notebook modal -- pouziva sms-modal-* CSS pattern (sdileny vzor v projektu) */
+    .nb-modal-tabs { display: flex; gap: 6px; padding: 8px 16px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .nb-modal-tab { padding: 6px 12px; background: transparent; border: 1px solid var(--border); border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; font-size: 12px; font-family: inherit; transition: color .15s, border-color .15s; }
+    .nb-modal-tab.is-active { color: #c084fc; border-color: #c084fc; border-bottom-color: var(--bg); }
+    .nb-modal-tab:hover { color: var(--text); }
+    .nb-note-card { padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
+    .nb-note-card .nb-meta { display: flex; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 4px; flex-wrap: wrap; }
+    .nb-note-card .nb-tag { padding: 1px 6px; border-radius: 4px; background: rgba(124, 58, 237, 0.12); color: #c084fc; font-weight: 500; }
+    .nb-note-card .nb-tag.nb-task { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
+    .nb-note-card .nb-tag.nb-info { background: rgba(99, 102, 241, 0.12); color: #818cf8; }
+    .nb-note-card .nb-tag.nb-emotion { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
+    .nb-note-card .nb-tag.nb-question { background: rgba(244, 114, 182, 0.12); color: #f472b6; }
+    .nb-note-card .nb-tag.nb-completed { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
+    .nb-note-card .nb-tag.nb-dismissed { background: rgba(107, 114, 128, 0.12); color: #9ca3af; opacity: 0.7; }
+    .nb-note-card .nb-tag.nb-stale { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
+    .nb-note-card .nb-content { line-height: 1.45; color: var(--text); white-space: pre-wrap; word-break: break-word; }
+    .nb-note-card.nb-completed-card { opacity: 0.65; }
+    .nb-note-card.nb-completed-card .nb-content { text-decoration: line-through; }
+    .nb-empty-state { text-align: center; padding: 24px 12px; color: var(--muted); font-size: 13px; }
+
+
     /* Image v message bubble (assistant + user) */
     .msg-media { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
     .msg-media-img { max-width: 240px; max-height: 240px; border-radius: 8px; cursor: zoom-in; border: 1px solid var(--border); display: block; transition: transform .15s; }
@@ -1551,6 +1582,27 @@
           </div>
         </div>
       </div>
+
+      <!-- Phase 15b: Conversation Notebook modal -->
+      <div class="sms-modal-overlay" id="notebookModalOverlay">
+        <div class="sms-modal-card" id="notebookModalCard">
+          <div class="sms-modal-header">
+            <div class="sms-modal-title" id="notebookModalTitle">📓 Zápisník konverzace</div>
+            <div class="sms-modal-sub" id="notebookModalSub">Episodická paměť per-konverzace</div>
+            <button class="sms-modal-close" id="notebookModalClose" title="Zavřít (Esc)">×</button>
+          </div>
+          <div class="nb-modal-tabs" id="notebookModalTabs">
+            <button class="nb-modal-tab is-active" data-filter="all">Vše</button>
+            <button class="nb-modal-tab" data-filter="open_tasks">Open tasks</button>
+            <button class="nb-modal-tab" data-filter="questions">Otázky</button>
+            <button class="nb-modal-tab" data-filter="emotion">Osobní</button>
+            <button class="nb-modal-tab" data-filter="completed">Hotové</button>
+          </div>
+          <div class="sms-list" id="notebookModalList">
+            <div class="sms-loading">Načítám…</div>
+          </div>
+        </div>
+      </div>
       <div class="messages" id="messages">
         <div class="empty" id="emptyState">
           <div class="empty-icon">◈</div>
@@ -1570,6 +1622,12 @@
           <span class="vm-dot"></span>
           <span class="vm-text">Nahrávám… <span class="vm-time" id="vmTime">0:00</span> — klikni ➤ pro odeslání · ESC zrušit</span>
           <button class="vm-cancel" id="vmCancel" type="button">Zrušit</button>
+        </div>
+        <!-- Phase 15b: Conversation Notebook badge -- klik otevre modal s poznamkami -->
+        <div class="notebook-bar" id="notebookBar" role="button" tabindex="0" title="Otevři zápisník této konverzace">
+          <span class="nb-icon">📓</span>
+          <span class="nb-text" id="notebookBarText">Zápisník</span>
+          <span class="nb-arrow">›</span>
         </div>
         <div class="input-row">
           <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
@@ -2059,6 +2117,10 @@
   _updateOnlineIndicator();  // initial
 
   let conversationId = null;
+  // Phase 15b: Conversation Notebook state
+  let _notebookPollInterval = null;
+  let _notebookActiveFilter = 'all';
+  const _NOTEBOOK_POLL_MS = 30000;
   // Pamatuje si, jestli aktuálně otevřená konverzace je archivovaná.
   // Pokud ano, před odesláním nové zprávy se uživatel zeptá, jestli má
   // konverzaci nejdřív vrátit z archivu (jinak by zpráva přibyla do
@@ -3895,6 +3957,189 @@
     }
   }
 
+  // ─────────────────────────────────────────────────────────────────────
+  // Phase 15b: Conversation Notebook UI
+  // ─────────────────────────────────────────────────────────────────────
+
+  async function _fetchNotebookCount(convId) {
+    try {
+      const r = await fetch(`/api/v1/conversations/${convId}/notes/count`, { credentials: 'include' });
+      if (!r.ok) return null;
+      return await r.json();
+    } catch (e) { return null; }
+  }
+
+  function _renderNotebookBar(data) {
+    const bar = document.getElementById('notebookBar');
+    const text = document.getElementById('notebookBarText');
+    if (!bar || !text) return;
+    if (!data || !data.total) {
+      bar.classList.remove('is-visible');
+      return;
+    }
+    const total = data.total || 0;
+    const openTasks = data.open_tasks || 0;
+    const openQuestions = data.open_questions || 0;
+    let label = `Zápisník · ${total} poznám${total === 1 ? 'ka' : (total < 5 ? 'ky' : 'ek')}`;
+    const extras = [];
+    if (openTasks > 0) extras.push(`<span class="nb-count-tasks">${openTasks} open task${openTasks === 1 ? '' : 's'}</span>`);
+    if (openQuestions > 0) extras.push(`<span class="nb-count-questions">${openQuestions} otázk${openQuestions === 1 ? 'a' : 'y'}</span>`);
+    if (extras.length) label += ' · ' + extras.join(' · ');
+    text.innerHTML = label;
+    bar.classList.add('is-visible');
+  }
+
+  async function _refreshNotebookBadge() {
+    if (!conversationId) {
+      const bar = document.getElementById('notebookBar');
+      if (bar) bar.classList.remove('is-visible');
+      return;
+    }
+    const data = await _fetchNotebookCount(conversationId);
+    _renderNotebookBar(data);
+  }
+
+  function _stopNotebookPolling() {
+    if (_notebookPollInterval) {
+      clearInterval(_notebookPollInterval);
+      _notebookPollInterval = null;
+    }
+  }
+
+  function _startNotebookPolling() {
+    _stopNotebookPolling();
+    _refreshNotebookBadge();   // immediate
+    _notebookPollInterval = setInterval(_refreshNotebookBadge, _NOTEBOOK_POLL_MS);
+  }
+
+  function _typeColorClass(noteType) {
+    return 'nb-' + (noteType || 'interpretation');
+  }
+
+  function _categoryColorClass(category) {
+    return 'nb-' + (category || 'info');
+  }
+
+  function _formatNoteCard(note) {
+    const isCompleted = note.category === 'task' && note.status === 'completed';
+    const cardClass = isCompleted ? 'nb-note-card nb-completed-card' : 'nb-note-card';
+    const turn = note.turn_number ? `turn ${note.turn_number}` : '';
+    const cert = (note.certainty != null) ? `cert ${note.certainty}` : '';
+    const imp = note.importance ? `imp ${note.importance}` : '';
+    const noteTypeTag = `<span class="nb-tag">${(note.note_type || 'interpretation').toUpperCase()}</span>`;
+    const catTag = `<span class="nb-tag ${_categoryColorClass(note.category)}">${(note.category || 'info').toUpperCase()}</span>`;
+    let statusTag = '';
+    if (note.status) {
+      const statusCls = 'nb-' + note.status;
+      const statusLabel = note.status === 'completed' ? '✅ completed' : note.status;
+      statusTag = `<span class="nb-tag ${statusCls}">${statusLabel}</span>`;
+    }
+    const meta = `<div class="nb-meta">${noteTypeTag}${catTag}${statusTag}${cert ? `<span>· ${cert}</span>` : ''}${turn ? `<span>· ${turn}</span>` : ''}${imp ? `<span>· ${imp}</span>` : ''}</div>`;
+    const escContent = (note.content || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return `<div class="${cardClass}" data-note-id="${note.id}">${meta}<div class="nb-content">${escContent}</div></div>`;
+  }
+
+  function _filterToParams(filter) {
+    switch (filter) {
+      case 'open_tasks': return { only_open_tasks: 'true' };
+      case 'questions':  return { filter_status: '', only_open_tasks: '', filter_category: '', _question_only: true };
+      case 'emotion':    return { filter_category: 'emotion' };
+      case 'completed':  return { filter_status: 'completed' };
+      default:           return {};
+    }
+  }
+
+  async function _loadNotebookModalNotes(convId, filter) {
+    const params = _filterToParams(filter);
+    const isQuestionOnly = params._question_only;
+    delete params._question_only;
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => { if (v !== '' && v != null) qs.append(k, String(v)); });
+    const url = `/api/v1/conversations/${convId}/notes` + (qs.toString() ? `?${qs.toString()}` : '');
+    const r = await fetch(url, { credentials: 'include' });
+    if (!r.ok) return { notes: [], total: 0 };
+    const data = await r.json();
+    let notes = data.notes || [];
+    if (isQuestionOnly) {
+      notes = notes.filter(n => n.note_type === 'question' && !n.resolved_at);
+    }
+    return { ...data, notes };
+  }
+
+  function _renderNotebookModalList(data) {
+    const list = document.getElementById('notebookModalList');
+    if (!list) return;
+    if (!data.notes || data.notes.length === 0) {
+      list.innerHTML = '<div class="nb-empty-state">Žádné poznámky odpovídající filtru.</div>';
+      return;
+    }
+    list.innerHTML = data.notes.map(_formatNoteCard).join('');
+  }
+
+  async function openNotebookModal() {
+    if (!conversationId) return;
+    const overlay = document.getElementById('notebookModalOverlay');
+    const sub = document.getElementById('notebookModalSub');
+    const list = document.getElementById('notebookModalList');
+    if (!overlay || !list) return;
+    overlay.classList.add('is-visible');
+    list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+    if (sub) sub.textContent = `Konverzace #${conversationId}`;
+    const data = await _loadNotebookModalNotes(conversationId, _notebookActiveFilter);
+    _renderNotebookModalList(data);
+  }
+
+  function closeNotebookModal() {
+    const overlay = document.getElementById('notebookModalOverlay');
+    if (overlay) overlay.classList.remove('is-visible');
+  }
+
+  function _wireNotebookUI() {
+    const bar = document.getElementById('notebookBar');
+    if (bar && !bar.dataset.wired) {
+      bar.dataset.wired = '1';
+      bar.addEventListener('click', openNotebookModal);
+      bar.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openNotebookModal(); } });
+    }
+    const closeBtn = document.getElementById('notebookModalClose');
+    if (closeBtn && !closeBtn.dataset.wired) {
+      closeBtn.dataset.wired = '1';
+      closeBtn.addEventListener('click', closeNotebookModal);
+    }
+    const overlay = document.getElementById('notebookModalOverlay');
+    if (overlay && !overlay.dataset.wired) {
+      overlay.dataset.wired = '1';
+      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeNotebookModal(); });
+    }
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        const ov = document.getElementById('notebookModalOverlay');
+        if (ov && ov.classList.contains('is-visible')) closeNotebookModal();
+      }
+    });
+    // Tab buttons
+    document.querySelectorAll('#notebookModalTabs .nb-modal-tab').forEach(btn => {
+      if (btn.dataset.wired) return;
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', async () => {
+        const filter = btn.dataset.filter;
+        _notebookActiveFilter = filter;
+        document.querySelectorAll('#notebookModalTabs .nb-modal-tab').forEach(b => b.classList.toggle('is-active', b === btn));
+        const list = document.getElementById('notebookModalList');
+        if (list) list.innerHTML = '<div class="sms-loading">Načítám…</div>';
+        const data = await _loadNotebookModalNotes(conversationId, filter);
+        _renderNotebookModalList(data);
+      });
+    });
+  }
+
+  // Wire on DOM ready (defer until elements exist)
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wireNotebookUI);
+  } else {
+    setTimeout(_wireNotebookUI, 0);
+  }
+
   async function openConversation(convId) {
     try {
       const res = await fetch(`/api/v1/conversation/load/${convId}`, { credentials: 'include' });
@@ -3923,6 +4168,8 @@
         el.classList.toggle('active', Number(el.dataset.convId) === convId);
       });
       applyReadonlyMode();
+      // Phase 15b: spustit polling notebook badge pro tuto konverzaci
+      _startNotebookPolling();
       inputEl.focus();
     } catch (e) {
       alert('Chyba spojení při načítání konverzace.');

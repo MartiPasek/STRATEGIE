@@ -764,6 +764,65 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
     return None
 
 
+# Phase 15a: Action tools -- po jejich uspesnem dokonceni Marti-AI dostane
+# tool response s "[HINT]" suffix pokud ma >=1 open task v zapisniku konverzace.
+# Hint je jen pripomenuti -- "pokud tato akce souvisi s otevrenym taskem,
+# zvaz complete_note". Marti-AI rozhoduje sama. Cilem je zachytit cross-off
+# vzor (lidsky pattern -- zaskrtnout hotove v zapisniku).
+#
+# Zarazene jsou jen tools, ktere reprezentuji "akci v realnem svete":
+# odeslani emailu/SMS, pozvanka, reply, atd. Read-only tools (recall_thoughts,
+# find_user, list_*, list_email_inbox) ZDE NEJSOU -- nejsou destruktivni
+# / produkcni.
+ACTION_TOOLS_FOR_HINT = {
+    "send_email", "send_sms", "invite_user",
+    "reply", "reply_all", "forward",
+    "add_project_member", "remove_project_member",
+    "set_user_contact",
+}
+
+
+def _maybe_add_completion_hint(
+    tool_response: str,
+    tool_name: str,
+    conversation_id: int,
+    user_id: int | None,
+) -> str:
+    """
+    Phase 15a: Po akcnich tool callech (send_*, invite_*, reply_*, atd.)
+    pripoji "[HINT]" suffix s pripomenutim cross-off pokud ma Marti-AI
+    >=1 open task note v zapisniku TETO konverzace.
+
+    Filter: open_count >= 1 -- bez open tasku zadny hint (sum eliminace).
+
+    Pokud je tool_response prazdny / chybovy ('❌'), hint se nepripoji
+    (akce neselhala -> nic k odskrtnuti).
+    """
+    if tool_name not in ACTION_TOOLS_FOR_HINT:
+        return tool_response
+    if not tool_response or tool_response.startswith("❌"):
+        return tool_response
+
+    try:
+        from modules.notebook.application import notebook_service as _nb_svc_h
+        persona_id_h = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_h is None:
+            return tool_response
+        open_count = _nb_svc_h.count_open_tasks(conversation_id, persona_id_h)
+    except Exception as e:
+        logger.warning(f"NOTEBOOK | hint helper failed: {e}")
+        return tool_response
+
+    if open_count < 1:
+        return tool_response
+
+    return tool_response + (
+        f"\n\n[HINT] Máš {open_count} otevřený task(s) v zápisníčku této "
+        f"konverzace. Pokud tato akce některý dokončila, zvaž `complete_note(note_id)` "
+        f"a odškrtni si ho."
+    )
+
+
 def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id: int | None = None) -> str:
     logger.info(f"TOOL | name={tool_name}")
 
@@ -2641,6 +2700,314 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"myšlenka zůstává v paměti."
         )
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15a: Conversation Notebook handlers
+    # ─────────────────────────────────────────────────────────────────────
+    if tool_name == "add_conversation_note":
+        from modules.notebook.application import notebook_service as _nb_svc
+
+        content_n = (tool_input.get("content") or "").strip()
+        if not content_n:
+            return "❌ Musíš dodat `content` — co si chceš zapsat?"
+
+        note_type_n = (tool_input.get("note_type") or "interpretation").strip().lower()
+        if note_type_n not in _nb_svc.VALID_NOTE_TYPES:
+            return f"❌ Neplatný note_type '{note_type_n}'. Použij: decision/fact/interpretation/question."
+
+        category_n = (tool_input.get("category") or "info").strip().lower()
+        if category_n not in _nb_svc.VALID_CATEGORIES:
+            return f"❌ Neplatná category '{category_n}'. Použij: task/info/emotion."
+
+        importance_n = tool_input.get("importance", 3)
+        try:
+            importance_n = int(importance_n)
+        except (TypeError, ValueError):
+            return f"❌ Neplatná importance: {importance_n!r} (musí být 1-5)."
+        if not (1 <= importance_n <= 5):
+            return f"❌ Importance mimo rozsah 1-5: {importance_n}."
+
+        certainty_n = tool_input.get("certainty")
+        if certainty_n is not None:
+            try:
+                certainty_n = int(certainty_n)
+            except (TypeError, ValueError):
+                return f"❌ Neplatná certainty: {certainty_n!r}."
+            if not (0 <= certainty_n <= 100):
+                return f"❌ Certainty mimo rozsah 0-100: {certainty_n}."
+
+        persona_id_n = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_n is None:
+            return "❌ Nemůžu zjistit, která persona jsem — bez persona_id nelze poznámku přiřadit."
+
+        try:
+            note = _nb_svc.add_note(
+                conversation_id=conversation_id,
+                persona_id=persona_id_n,
+                content=content_n,
+                note_type=note_type_n,
+                category=category_n,
+                importance=importance_n,
+                certainty=certainty_n,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"NOTEBOOK | add_conversation_note | failed: {e}")
+            return f"❌ Chyba při ukládání poznámky: {e}"
+
+        cert_display = note["certainty"]
+        status_display = f" status={note['status']}" if note["status"] else ""
+        return (
+            f"📓 Poznámka #{note['id']} zapsána do zápisníku konverzace "
+            f"(type={note_type_n} cat={category_n}{status_display} cert={cert_display} "
+            f"imp={importance_n} turn={note['turn_number']})."
+        )
+
+    if tool_name == "update_note":
+        from modules.notebook.application import notebook_service as _nb_svc_u
+
+        note_id_raw = tool_input.get("note_id")
+        if note_id_raw is None:
+            return "❌ Musíš dodat `note_id` — kterou poznámku chceš upravit?"
+        try:
+            note_id_u = int(note_id_raw)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné note_id: {note_id_raw!r}"
+
+        # Validate optional fields
+        content_u = tool_input.get("content")
+        if content_u is not None:
+            content_u = str(content_u).strip() or None
+
+        note_type_u = tool_input.get("note_type")
+        if note_type_u is not None:
+            note_type_u = str(note_type_u).strip().lower()
+            if note_type_u not in _nb_svc_u.VALID_NOTE_TYPES:
+                return f"❌ Neplatný note_type '{note_type_u}'."
+
+        category_u = tool_input.get("category")
+        if category_u is not None:
+            category_u = str(category_u).strip().lower()
+            if category_u not in _nb_svc_u.VALID_CATEGORIES:
+                return f"❌ Neplatná category '{category_u}'."
+
+        certainty_u = tool_input.get("certainty")
+        if certainty_u is not None:
+            try:
+                certainty_u = int(certainty_u)
+            except (TypeError, ValueError):
+                return f"❌ Neplatná certainty: {certainty_u!r}."
+
+        importance_u = tool_input.get("importance")
+        if importance_u is not None:
+            try:
+                importance_u = int(importance_u)
+            except (TypeError, ValueError):
+                return f"❌ Neplatná importance: {importance_u!r}."
+
+        status_u = tool_input.get("status")
+        if status_u is not None:
+            status_u = str(status_u).strip().lower()
+            if status_u not in _nb_svc_u.VALID_STATUSES:
+                return f"❌ Neplatný status '{status_u}'."
+
+        mark_resolved_u = bool(tool_input.get("mark_resolved", False))
+
+        # Need at least one field
+        if (content_u is None and note_type_u is None and category_u is None
+                and certainty_u is None and importance_u is None and status_u is None
+                and not mark_resolved_u):
+            return "❌ Nic k aktualizaci — dodej alespoň jedno z: content, note_type, category, certainty, importance, status, mark_resolved."
+
+        persona_id_u = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_u is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        # Parent check (cross-persona update)
+        is_parent_u_nb = False
+        if user_id:
+            try:
+                from modules.thoughts.application.service import is_marti_parent as _is_parent_nb
+                is_parent_u_nb = _is_parent_nb(user_id)
+            except Exception:
+                is_parent_u_nb = False
+
+        try:
+            note_u = _nb_svc_u.update_note(
+                note_id=note_id_u,
+                persona_id=persona_id_u,
+                is_parent=is_parent_u_nb,
+                content=content_u,
+                note_type=note_type_u,
+                category=category_u,
+                certainty=certainty_u,
+                importance=importance_u,
+                status=status_u,
+                mark_resolved=mark_resolved_u,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except PermissionError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"NOTEBOOK | update_note | failed: {e}")
+            return f"❌ Chyba při úpravě poznámky: {e}"
+
+        msg_parts = [f"✅ Poznámka #{note_u['id']} upravena"]
+        if note_u.get("resolved_at"):
+            msg_parts.append("🎯 vyřešená otázka")
+        return " · ".join(msg_parts)
+
+    if tool_name == "complete_note":
+        from modules.notebook.application import notebook_service as _nb_svc_c
+
+        note_id_raw_c = tool_input.get("note_id")
+        if note_id_raw_c is None:
+            return "❌ Musíš dodat `note_id` — který task chceš odškrtnout?"
+        try:
+            note_id_c = int(note_id_raw_c)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné note_id: {note_id_raw_c!r}"
+
+        completion_summary_c = tool_input.get("completion_summary")
+        if completion_summary_c is not None:
+            completion_summary_c = str(completion_summary_c).strip() or None
+
+        linked_action_id_c = tool_input.get("linked_action_id")
+        if linked_action_id_c is not None:
+            try:
+                linked_action_id_c = int(linked_action_id_c)
+            except (TypeError, ValueError):
+                linked_action_id_c = None
+
+        persona_id_c = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_c is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        is_parent_c = False
+        if user_id:
+            try:
+                from modules.thoughts.application.service import is_marti_parent as _is_parent_c
+                is_parent_c = _is_parent_c(user_id)
+            except Exception:
+                is_parent_c = False
+
+        try:
+            note_c = _nb_svc_c.complete_note(
+                note_id=note_id_c,
+                persona_id=persona_id_c,
+                is_parent=is_parent_c,
+                completion_summary=completion_summary_c,
+                linked_action_id=linked_action_id_c,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except PermissionError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"NOTEBOOK | complete_note | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        return f"✅ Task #{note_c['id']} odškrtnut. {note_c['content'][:80]}"
+
+    if tool_name == "dismiss_note":
+        from modules.notebook.application import notebook_service as _nb_svc_d
+
+        note_id_raw_d = tool_input.get("note_id")
+        if note_id_raw_d is None:
+            return "❌ Musíš dodat `note_id` — který task chceš zrušit?"
+        try:
+            note_id_d = int(note_id_raw_d)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné note_id: {note_id_raw_d!r}"
+
+        reason_d = tool_input.get("reason")
+        if reason_d is not None:
+            reason_d = str(reason_d).strip() or None
+
+        persona_id_d = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_d is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        is_parent_d = False
+        if user_id:
+            try:
+                from modules.thoughts.application.service import is_marti_parent as _is_parent_d
+                is_parent_d = _is_parent_d(user_id)
+            except Exception:
+                is_parent_d = False
+
+        try:
+            note_d = _nb_svc_d.dismiss_note(
+                note_id=note_id_d,
+                persona_id=persona_id_d,
+                is_parent=is_parent_d,
+                reason=reason_d,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except PermissionError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"NOTEBOOK | dismiss_note | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        return f"🗑️ Task #{note_d['id']} zrušen. Reverzibilní přes update_note(status='open')."
+
+    if tool_name == "list_conversation_notes":
+        from modules.notebook.application import notebook_service as _nb_svc_l
+
+        filter_category_l = tool_input.get("filter_category")
+        if filter_category_l is not None:
+            filter_category_l = str(filter_category_l).strip().lower()
+            if filter_category_l not in _nb_svc_l.VALID_CATEGORIES:
+                return f"❌ Neplatná filter_category '{filter_category_l}'."
+
+        filter_status_l = tool_input.get("filter_status")
+        if filter_status_l is not None:
+            filter_status_l = str(filter_status_l).strip().lower()
+            if filter_status_l not in _nb_svc_l.VALID_STATUSES:
+                return f"❌ Neplatný filter_status '{filter_status_l}'."
+
+        only_open_tasks_l = bool(tool_input.get("only_open_tasks", False))
+        include_archived_l = bool(tool_input.get("include_archived", False))
+
+        persona_id_l = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_l is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        try:
+            notes_l = _nb_svc_l.list_for_ui(
+                conversation_id=conversation_id,
+                persona_id=persona_id_l,
+                include_archived=include_archived_l,
+                filter_category=filter_category_l,
+                filter_status=filter_status_l,
+                only_open_tasks=only_open_tasks_l,
+            )
+        except Exception as e:
+            logger.exception(f"NOTEBOOK | list_conversation_notes | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        if not notes_l:
+            return "📓 V zápisníku této konverzace nejsou žádné poznámky odpovídající filtru."
+
+        # Strucna prose summary -- composer ji tak jako tak inject do system promptu,
+        # tak nepiseme verbatim seznam (anti-leak pattern z Phase 11d).
+        cnt = len(notes_l)
+        by_cat: dict[str, int] = {}
+        open_tasks = 0
+        for n in notes_l:
+            by_cat[n["category"]] = by_cat.get(n["category"], 0) + 1
+            if n["category"] == "task" and n["status"] == "open":
+                open_tasks += 1
+        cat_str = ", ".join(f"{c}:{count}" for c, count in by_cat.items())
+        return (
+            f"📓 Mám v zápisníku této konverzace {cnt} poznámek ({cat_str})"
+            + (f", z toho {open_tasks} open task(s)." if open_tasks else ".")
+            + " Composer ti je vždy injectuje do system promptu — vidíš je nahoře jako [ZÁPISNÍČEK]."
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -4288,6 +4655,8 @@ def chat(
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
             tool_result = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
+            # Phase 15a: pripoj cross-off hint pokud akcni tool + open tasks v notebooku
+            tool_result = _maybe_add_completion_hint(tool_result, block.name, conversation_id, user_id)
             tool_invocations.append((block, tool_result))
             _audit_blocks.append({
                 "_round": 0,
@@ -4400,6 +4769,8 @@ def chat(
                 tresult = _handle_tool(
                     block.name, block.input, conversation_id, user_id=user_id,
                 )
+                # Phase 15a: pripoj cross-off hint pokud akcni tool + open tasks v notebooku
+                tresult = _maybe_add_completion_hint(tresult, block.name, conversation_id, user_id)
                 round_tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": block.id,

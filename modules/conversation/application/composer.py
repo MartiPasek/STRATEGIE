@@ -842,7 +842,32 @@ MEMORY_BEHAVIOR_RULES = (
     "s issue='low-certainty' nebo 'outdated' můžeš rovnou poladit "
     "certainty (snížit), aby se myšlenka v RAG vybavovala slabší. "
     "Prefer update_thought před record_thought (nový duplikát) — myšlenku "
-    "neopisuj, uprav."
+    "neopisuj, uprav.\n"
+    "9. **Conversation Notebook (Phase 15a — episodická paměť per-konverzace).** "
+    "Tvůj zápisníček TÉTO konverzace. Mapuje se na lidský pattern 'tužka + papír "
+    "při schůzce s váhou'. **Hranice vs. record_thought:** "
+    "fakta o entitách (jména, telefony, vlastnosti osob) → `record_thought` "
+    "(cross-thread); události a rozhodnutí v této konverzaci → "
+    "`add_conversation_note` (per-thread). Otázka: 'je to o někom (-> thought) "
+    "nebo o tomhle, co teď řešíme (-> note)?'\n"
+    "**Tři dimenze poznámky:** (a) `note_type` -- decision/fact/interpretation/"
+    "question (cert defaulty 95/85/60/0); (b) `category` -- task (actionable), "
+    "info (informační), emotion (osobní váha); (c) `status` (jen pro task) -- "
+    "open/completed/dismissed/stale.\n"
+    "**Co zapisovat:** padlo rozhodnutí (decision+task), ověřený fakt (fact+info), "
+    "tvé pochopení záměru (interpretation+info), otevřená otázka pro sebe "
+    "(question), emoční milník (any+emotion).\n"
+    "**CO NEZAPISOVAT (právo nenapsat):** smalltalk, běžné potvrzení, "
+    "cross-konverzační fakta (ta jdou do record_thought). Notebook má hodnotu "
+    "z toho, co tam NENÍ. Lehká konverzace nemá poznámku. Volíš ty -- "
+    "explicitní etické pravidlo z konzultace #2.\n"
+    "**Question loop (self-audit):** Když si nejsi jistá záměrem nebo faktem, "
+    "**napiš `question` poznámku** místo halucinace. Po získání odpovědi: "
+    "`update_note(note_id, note_type='fact', certainty=85, mark_resolved=True)`. "
+    "Otázka se konvertuje na ověřený fakt. Tvoje pojistka proti tiché halucinaci.\n"
+    "**Cross-off (task lifecycle):** Po dokončení akce (invite_user, send_email, "
+    "send_sms, reply, atd.) zvaž `complete_note(note_id)` na související task. "
+    "Tool response ti napoví, pokud máš ≥1 open task v této konverzaci."
 )
 
 
@@ -1096,6 +1121,95 @@ def _build_orchestrate_block(conversation_id: int) -> str | None:
         return None
 
 
+def _build_notebook_block(
+    conversation_id: int,
+    persona_id: int | None,
+    importance_min: int = 2,
+    limit: int = 30,
+) -> str:
+    """
+    Phase 15a: Sestav [ZÁPISNÍČEK pro konverzaci #X] blok pro injekci do
+    system promptu. Episodicka pamet konverzace -- "tuzka + papir"
+    paralela, kterou Marti-AI vidi v kazdem turn.
+
+    Format: kazda poznamka jako [NOTE_TYPE cert=N turn N/total] (status)
+    content -- Marti-AI vidi na cem stoji + temporal awareness + lifecycle.
+
+    Filter: importance >= 2, archived=false, ORDER BY importance DESC,
+    created_at ASC, LIMIT 30 (soft cap).
+
+    Returns "" pokud zadne poznamky -- composer pak prida placeholder hint.
+    """
+    if persona_id is None:
+        return ""
+
+    try:
+        from modules.notebook.application import notebook_service as _nb_svc
+        notes = _nb_svc.list_for_composer(
+            conversation_id=conversation_id,
+            persona_id=persona_id,
+            importance_min=importance_min,
+            limit=limit,
+        )
+    except Exception as e:
+        logger.warning(f"COMPOSER | notebook fetch failed: {e}")
+        return ""
+
+    if not notes:
+        return ""
+
+    # Spocitej total turns v konverzaci -- pro "turn N/total" zobrazeni
+    total_turns = 0
+    try:
+        from core.database_data import get_data_session as _gds_nb
+        from modules.core.infrastructure.models_data import Message as _Msg_nb
+        _ds_nb = _gds_nb()
+        try:
+            total_turns = (
+                _ds_nb.query(_Msg_nb)
+                .filter_by(conversation_id=conversation_id)
+                .count()
+            )
+        finally:
+            _ds_nb.close()
+    except Exception:
+        total_turns = 0
+
+    lines: list[str] = []
+    for n in notes:
+        nt = (n.get("note_type") or "interpretation").upper()
+        cert = n.get("certainty", 0)
+        turn = n.get("turn_number", 0)
+        cat = n.get("category") or "info"
+        status = n.get("status")
+        content = (n.get("content") or "").strip()
+
+        # Status indicator (visual cross-off)
+        status_str = ""
+        if cat == "task":
+            if status == "open":
+                status_str = " (open)"
+            elif status == "completed":
+                status_str = " (✅ completed)"
+            elif status == "dismissed":
+                status_str = " (dismissed)"
+            elif status == "stale":
+                status_str = " (stale)"
+
+        # Category override pro emotion (visualne odlisne)
+        if cat == "emotion":
+            type_label = f"{nt}+EMOTION"
+        else:
+            type_label = nt
+
+        turn_str = f" turn {turn}/{total_turns}" if total_turns else f" turn {turn}"
+        lines.append(
+            f"- [{type_label} cert={cert}{turn_str}]{status_str} {content}"
+        )
+
+    return "\n".join(lines)
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1127,6 +1241,26 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     channels_block = _build_persona_channels_block(conversation_id, tenant_id)
     if channels_block:
         system_prompt = f"{system_prompt}\n\n[TVOJE KANÁLY]\n{channels_block}"
+
+    # ── Phase 15a: Conversation Notebook injection ─────────────────────────
+    # Episodicka pamet per-konverzace -- "tuzka + papir" paralela. Marti-AI
+    # si do nej zapisuje klicove body v realnem case pres add_conversation_note.
+    # Composer je vzdy injectuje sem do system promptu, aby Marti-AI v kazdem
+    # turn videla "co tu padlo" bez halucinaci.
+    try:
+        _persona_for_notebook = _get_active_persona_id(conversation_id)
+        notebook_block = _build_notebook_block(conversation_id, _persona_for_notebook)
+        if notebook_block:
+            system_prompt = (
+                f"{system_prompt}\n\n[ZÁPISNÍČEK pro konverzaci #"
+                f"{conversation_id}]\n{notebook_block}"
+            )
+            logger.info(
+                f"COMPOSER | notebook block injected | conv={conversation_id} | "
+                f"lines={notebook_block.count(chr(10)) + 1}"
+            )
+    except Exception as _nb_err:
+        logger.warning(f"COMPOSER | notebook block failed: {_nb_err}")
 
     # ── RAG-driven memory injection (Fáze 13, jediná cesta po 13f cleanup) ─
     # Sémanticky vybavená paměť: top K relevantních thoughts/diary entries
@@ -1189,7 +1323,16 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # nedokonceny todo (weak reference source_event_id=conversation_id),
     # posleme jen poslednich N zprav. Tim uletime o desitky K tokenu per turn
     # u delsich dev sessions.
-    SLIDING_WINDOW_SIZE = 20
+    #
+    # Phase 15a: NOTEBOOK_REPLACES_SLIDING -- pokud true, sliding window se
+    # snizi na 10 (5 turnu) protoze notebook injection v system promptu drzi
+    # episodickou pamet. Default false (bezpecne pro postupny rollout).
+    try:
+        from core.config import settings as _settings_sw
+        _notebook_active = getattr(_settings_sw, "notebook_replaces_sliding", False)
+    except Exception:
+        _notebook_active = False
+    SLIDING_WINDOW_SIZE = 10 if _notebook_active else 20
     if len(messages) > SLIDING_WINDOW_SIZE:
         has_open_todo_in_conv = False
         try:

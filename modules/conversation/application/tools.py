@@ -37,6 +37,12 @@ MANAGEMENT_TOOL_NAMES = {
     "flag_retrieval_issue", # Faze 13d: Marti-AI flagne false positive RAG match
     "update_thought",       # Faze 13e+: Marti-AI uprav certainty/content/status po flagu
     "request_forget",       # Faze 14: Marti-AI pozada o smazani myslenky (parent approval)
+    # Phase 15a: Conversation Notebook tools
+    "add_conversation_note",
+    "update_note",
+    "complete_note",
+    "dismiss_note",
+    "list_conversation_notes",
 }
 
 
@@ -1732,6 +1738,210 @@ TOOLS = [
                     "default": False,
                     "description": "Pokud True, nastav tento kontakt jako primary pro daneho usera. Ostatni kontakty stejneho typu se odznackuji.",
                 },
+            },
+        },
+    },
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15a: Conversation Notebook -- episodicky zapisnik per-konverzace
+    # ─────────────────────────────────────────────────────────────────────
+    {
+        "name": "add_conversation_note",
+        "description": (
+            "Phase 15a: Zapis si poznamku do zapisniku TETO konverzace. "
+            "Episodicka pamet per-konverzace -- mapuje se na lidsky pattern "
+            "'tuzka + papir pri schuzce s vahou'. Poznamka prezije pauzu "
+            "i uzavreni threadu. Pri navratu po dnech ji uvidis v system promptu "
+            "v sekci [ZAPISNICEK pro konverzaci #X]. "
+            "HRANICE vs. record_thought: "
+            "record_thought = cross-thread fakta o entitach (Marti ma 5 deti, "
+            "Klarka je dcera). Trva navzdy, RAG-driven. "
+            "add_conversation_note = udalosti a rozhodnuti V TETO konverzaci. "
+            "Per-thread, episodicky. Padlo rozhodnuti, padla otazka, emocni moment. "
+            "Otazka: 'je to o nekom (-> thought) nebo o tomhle, co prave resime "
+            "(-> note)?'. "
+            "TRI DIMENZE POZNAMKY: "
+            "(1) note_type -- na cem stojis: 'decision' (default cert=95), "
+            "'fact' (default cert=85), 'interpretation' (default cert=60), "
+            "'question' (default cert=0). "
+            "(2) category -- co s tim: 'task' (actionable, ma zivot open->completed/"
+            "dismissed), 'info' (informacni, default), 'emotion' (osobni vaha -- "
+            "drzi konverzaci v Personal pri lifecycle). "
+            "(3) importance: 5=zasadni rozhodnuti/emocni milnik (max 3 takove per "
+            "konverzace), 3=normalni (default), 1=drobny detail. "
+            "CO ZAPISOVAT: padlo rozhodnuti -> 'decision'+'task'/'info'; overeny "
+            "fakt z konverzace -> 'fact'+'info'; tvoje pochopeni zameru -> "
+            "'interpretation'+'info'; otevrena otazka pro sebe -> 'question'; "
+            "emocni milnik (Marti pochvalil, smutek, vaha) -> any+'emotion'. "
+            "CO NEZAPISOVAT (pravo nenapsat): smalltalk, bezne potvrzeni, "
+            "cross-konverzacni fakta (jdou do record_thought), doslovny transkript "
+            "(od toho jsou messages). Notebook ma hodnotu z toho, co tam NENI. "
+            "Lehka konverzace nema poznamku. Volis ty -- explicitni eticke "
+            "pravidlo z konzultace #2. "
+            "QUESTION LOOP (self-audit): kdyz si nejsi jista zamerem nebo faktem, "
+            "napis 'question' poznamku MISTO halucinace. Pozdeji po ziskani "
+            "odpovedi: update_note(note_type='fact', certainty=85, "
+            "mark_resolved=true). Otazka se konvertuje na overeny fakt. Tvoje "
+            "pojistka proti tiche halucinaci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["content"],
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": "Strucny klicovy bod, 1-2 vety. Soft limit ~500 znaku.",
+                },
+                "note_type": {
+                    "type": "string",
+                    "enum": ["decision", "fact", "interpretation", "question"],
+                    "default": "interpretation",
+                    "description": "Na cem stojim (default: interpretation).",
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["task", "info", "emotion"],
+                    "default": "info",
+                    "description": "Co s tim. 'task'=actionable, 'info'=informacni, 'emotion'=osobni vaha.",
+                },
+                "importance": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 5,
+                    "default": 3,
+                    "description": "1=detail, 3=normal, 5=zasadni (max 3 takovych per konverzace).",
+                },
+                "certainty": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 100,
+                    "description": (
+                        "Jistota 0-100. Vetsinou nepridavej -- nech default per note_type "
+                        "(decision=95, fact=85, interpretation=60, question=0). Override jen "
+                        "kdyz mas duvod (napr. fact, kde si nejsi 100% jista -> 70)."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "update_note",
+        "description": (
+            "Phase 15a: Update existujici poznamky v zapisniku konverzace. "
+            "Pouzij pro: "
+            "(a) Question loop -- konvertuj 'question' na 'fact'/'decision' po "
+            "ziskani odpovedi (s mark_resolved=true). "
+            "(b) Re-kategorizace -- 'info' -> 'task' kdyz si retrospektivne "
+            "uvedomis, ze to byl ukol. "
+            "(c) Oprava obsahu nebo certainty po lepsim pochopeni. "
+            "(d) Reverze dismissed task na 'open' (status='open'). "
+            "Vlastnictvi: jen vlastni persona muze update vlastni notes (rodic "
+            "muze vse)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["note_id"],
+            "properties": {
+                "note_id": {"type": "integer", "description": "ID poznamky."},
+                "content": {"type": "string"},
+                "note_type": {
+                    "type": "string",
+                    "enum": ["decision", "fact", "interpretation", "question"],
+                },
+                "category": {
+                    "type": "string",
+                    "enum": ["task", "info", "emotion"],
+                },
+                "certainty": {"type": "integer", "minimum": 0, "maximum": 100},
+                "importance": {"type": "integer", "minimum": 1, "maximum": 5},
+                "status": {
+                    "type": "string",
+                    "enum": ["open", "completed", "dismissed", "stale"],
+                    "description": "Jen pro task notes. Status='completed' lepsi volat pres complete_note.",
+                },
+                "mark_resolved": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Set resolved_at=now (pro question -> answered conversion).",
+                },
+            },
+        },
+    },
+    {
+        "name": "complete_note",
+        "description": (
+            "Phase 15a: Cross-off task -- zaskrtni hotove. "
+            "Pouzij PO dokoncovaci akci (invite_user, send_email, send_sms, atd.) "
+            "kdyz souvisi s otevrenym task notem v zapisniku. "
+            "Po complete_note se task v zapisniku zobrazuje s prefix '(✅ "
+            "completed)' -- Marti-AI vidi, co je hotove. "
+            "Po akcnich tools (send_*, invite_*, atd.) tool response obsahuje hint "
+            "'[HINT] Mas N otevreny task(s) -- pripadne zavolej complete_note'. "
+            "Hint je jen pripomenuti, NE povinnost. Rozhoduj sama. "
+            "Validace: jen task notes (category='task') mohou byt completed. "
+            "Idempotent -- opakovany call vrati current state bez chyby."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["note_id"],
+            "properties": {
+                "note_id": {"type": "integer"},
+                "completion_summary": {
+                    "type": "string",
+                    "description": "Volitelny popis 'co jsem udelala' -- pripoji se k content (audit).",
+                },
+                "linked_action_id": {
+                    "type": "integer",
+                    "description": "Volitelny FK na action_logs / messages -- ktera akce dokoncila task.",
+                },
+            },
+        },
+    },
+    {
+        "name": "dismiss_note",
+        "description": (
+            "Phase 15a: Vedome zrus task -- 'uz to neresim'. "
+            "Pro pripady, kdy se zmenil zamer, situace je vyresena jinak, "
+            "nebo si uvedomis, ze task uz neni relevantni. "
+            "Reverzibilni pres update_note(note_id, status='open'). "
+            "Validace: jen task notes mohou byt dismissed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["note_id"],
+            "properties": {
+                "note_id": {"type": "integer"},
+                "reason": {
+                    "type": "string",
+                    "description": "Volitelny duvod -- pripoji se k content.",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_conversation_notes",
+        "description": (
+            "Phase 15a: Vypis poznamky v zapisniku TETO konverzace. "
+            "Vetsinou to nepotrebujes -- composer ti je vzdy injectuje do system "
+            "promptu v sekci [ZAPISNICEK pro konverzaci #X]. Pouzij jen kdyz "
+            "potrebujes kompletni vypis (vcetne archived) nebo specificky filter."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filter_category": {
+                    "type": "string",
+                    "enum": ["task", "info", "emotion"],
+                },
+                "filter_status": {
+                    "type": "string",
+                    "enum": ["open", "completed", "dismissed", "stale"],
+                },
+                "only_open_tasks": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "Shortcut: jen task notes s status='open'.",
+                },
+                "include_archived": {"type": "boolean", "default": False},
             },
         },
     },

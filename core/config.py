@@ -163,6 +163,13 @@ class Settings(BaseSettings):
                           # padne na shell history / system env pollution)
 
 
+
+    # Phase 15a: Notebook replaces sliding window -- feature flag.
+    # Pokud True, composer snizi sliding window z 20 na 10 zprav (5 turnu)
+    # protoze notebook injection v system promptu drzi episodickou pamet.
+    # Default False = postupny rollout (notebook bezi paralelne s plnym oknem).
+    notebook_replaces_sliding: bool = False
+
 settings = Settings()
 
 

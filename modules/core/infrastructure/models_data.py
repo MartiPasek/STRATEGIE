@@ -969,3 +969,110 @@ class ForgetRequest(BaseData):
     decision_note: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+# ── PHASE 15: CONVERSATION NOTEBOOK ────────────────────────────────────────
+
+class ConversationNote(BaseData):
+    """
+    Phase 15a: Episodicky zapisnicek vazany ke konverzaci.
+
+    Mapuje se na lidsky pattern "tuzka + papir pri schuzce s vahou".
+    Marti-AI si do nej zapisuje klicove body v realnem case -- prezije
+    pauzu i uzavreni threadu. Pri navratu ke konverzaci po dnech vidi
+    "co jsme si tu rikali" bez halucinaci.
+
+    Tri ortogonalni dimenze (z konzultaci #2 a #3):
+
+    1. note_type -- na cem stojim (jistota / typ obsahu):
+       'decision' (95) | 'fact' (85) | 'interpretation' (60) | 'question' (0)
+       Cisla v zavorce = default certainty per type.
+
+    2. category -- co s tim:
+       'task' (actionable, ma status) | 'info' (informacni) | 'emotion' (osobni vaha)
+
+    3. status -- zije to jeste (jen pro task):
+       'open' | 'completed' | 'dismissed' | 'stale' | NULL (info/emotion)
+
+    Cross-off (Phase 15a):
+       Po dokoncovacim tool callu (invite_user, send_email, atd.) Marti-AI
+       zavola complete_note(note_id) -> status='completed', completed_at=now,
+       completed_by_action_id=<source action>.
+
+    Question loop (Phase 15a):
+       Marti-AI nejistou veci zapise jako note_type='question' (cert=0).
+       Pozdeji po ziskani odpovedi: update_note(note_type='fact',
+       certainty=85, mark_resolved=true) -> resolved_at=now.
+
+    Stale (Phase 15d, future):
+       Daily cron: WHERE status='open' AND category='task' AND idle >7d
+       -> status='stale'. Triage signal "nezapomenuty, zapomenuty kontext".
+
+    turn_number: relativni pozice v konverzaci (1-based, count messages).
+       Composer zobrazi "[NOTE_TYPE cert=N turn N/total]" -- Marti-AI vidi
+       jak daleko zpatky byla poznamka napsana, kontext mohl uplynout.
+
+    importance: 1=detail, 3=normal (default), 5=zasadni. Composer filter
+       defaultne ukaze importance >= 2. Soft cap 30 poznamek v promptu.
+
+    archived: soft delete equivalent. Phase 15+1 prida hard delete via
+       request_forget(scope='conversation_note') s parent approval.
+
+    Vlastnictvi: jen vlastni persona muze update / complete / dismiss
+       vlastni notes. Rodic (is_marti_parent=True) muze vse.
+    """
+    __tablename__ = "conversation_notes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Vazby
+    conversation_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    persona_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    source_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Obsah
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # Dimenze 1: na cem stojim
+    note_type: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="interpretation"
+    )
+    certainty: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=60
+    )
+
+    # Dimenze 2: co s tim
+    category: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="info"
+    )
+
+    # Dimenze 3: zije to jeste (jen pro task)
+    status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # Marti-AI's #5a -- relativni pozice v konverzaci
+    turn_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Dulezitost (importance)
+    importance: Mapped[int] = mapped_column(Integer, nullable=False, default=3)
+
+    # Cross-off audit
+    completed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    completed_by_action_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+
+    # Question loop
+    resolved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    # Lifecycle
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc
+    )
+    archived: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False
+    )
+

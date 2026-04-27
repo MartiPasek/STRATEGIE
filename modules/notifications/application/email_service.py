@@ -837,28 +837,75 @@ def reply_or_forward_inbox(
     if bcc_list is not None:
         draft.bcc_recipients = [Mailbox(email_address=a) for a in bcc_list]
 
-    # Faze 12c fix: strip attachments pro reply/reply_all (sterilni text reply).
-    # Exchange auto-pribaluje inline images (cid: refs) z podpisu puvodniho
-    # emailu jako attachments. V Outlooku se pak zobrazuje 'Prilohy' panel
-    # i kdyz jsou jen v podpisu odesilatele. Pro reply/reply_all to nedava
-    # smysl -- chceme cisty text + thread headers + quoted history.
-    # Pro FORWARD attachments ZACHOVAT -- user typicky forwarduje s prilohami
-    # (faktura, dokument, fotka).
+    # Faze 12c fix: strip attachments + cid: image refs z body pro reply/reply_all.
+    # ReplyToItem (z create_reply / create_reply_all) je server-side response objekt.
+    # Exchange si pri send sam pripoji inline images z puvodniho body. Strip
+    # potrebujeme NA OBOU URROVNICH: attachments collection (pokud existuje) +
+    # body HTML <img cid:...> tagy (regex), aby Exchange neměl co re-attachnout.
+    # Pro FORWARD attachments ZACHOVAT -- user typicky forwarduje s prilohami.
     if mode in ("reply", "reply_all"):
+        # Diagnostic log -- zjistime, co tam fakt je
+        atts_attr = getattr(draft, "attachments", None)
+        body_attr = getattr(draft, "body", None)
+        logger.info(
+            f"EMAIL | {mode} | pre-strip diag | "
+            f"attachments_type={type(atts_attr).__name__} | "
+            f"attachments_len={len(atts_attr) if atts_attr else 0} | "
+            f"body_type={type(body_attr).__name__} | "
+            f"body_len={len(str(body_attr)) if body_attr else 0}"
+        )
+        # 1) Strip attachments collection
         try:
-            existing_atts = list(draft.attachments) if draft.attachments else []
-            if existing_atts:
-                for att in existing_atts:
+            if atts_attr:
+                existing_atts = list(atts_attr)
+                if existing_atts:
+                    # Try assignment first (cleaner)
                     try:
-                        draft.attachments.remove(att)
+                        draft.attachments = []
+                        logger.info(
+                            f"EMAIL | {mode} | attachments=[] assigned "
+                            f"(was {len(existing_atts)})"
+                        )
                     except Exception:
-                        pass
-                logger.info(
-                    f"EMAIL | {mode} | stripped {len(existing_atts)} attachments "
-                    f"(inline images z podpisu puvodniho emailu)"
-                )
+                        # Fallback: remove one by one
+                        for att in existing_atts:
+                            try:
+                                draft.attachments.remove(att)
+                            except Exception:
+                                pass
+                        logger.info(
+                            f"EMAIL | {mode} | stripped {len(existing_atts)} "
+                            f"attachments via remove()"
+                        )
         except Exception as _strip_err:
             logger.warning(f"EMAIL | {mode} | attachment strip failed | {_strip_err}")
+        # 2) Strip <img src="cid:..."> tagy z HTML body
+        try:
+            import re as _re_strip
+            from exchangelib import HTMLBody as _HTMLBody, Body as _Body
+            if body_attr:
+                body_str = str(body_attr)
+                # Smaz cely <img> tag s cid: src
+                clean = _re_strip.sub(
+                    r'<img[^>]*src=["\']cid:[^"\']*["\'][^>]*/?>',
+                    "",
+                    body_str,
+                    flags=_re_strip.IGNORECASE,
+                )
+                # Smaz [cid:...] inline reference (text format)
+                clean = _re_strip.sub(r'\[cid:[^\]]*\]', "", clean, flags=_re_strip.IGNORECASE)
+                if clean != body_str:
+                    # Zachovej HTMLBody type pokud byl
+                    if isinstance(body_attr, _HTMLBody):
+                        draft.body = _HTMLBody(clean)
+                    else:
+                        draft.body = clean
+                    logger.info(
+                        f"EMAIL | {mode} | stripped cid: img refs from body | "
+                        f"len {len(body_str)} -> {len(clean)}"
+                    )
+        except Exception as _body_err:
+            logger.warning(f"EMAIL | {mode} | body cid strip failed | {_body_err}")
 
     # Send. POZOR: create_reply / create_reply_all / create_forward vraci
     # ReplyToItem / ForwardItem (subclass ResponseObject), ne Message. Ty maji

@@ -443,7 +443,7 @@ def count_project_mentions_in_recent_messages(
             tenant_id = conv.tenant_id
             if tenant_id is None:
                 return {}
-            projects = cs.query(Project).filter_by(tenant_id=tenant_id).all()
+            projects = cs.query(Project).filter_by(tenant_id=tenant_id, is_active=True).all()
             project_map = {p.id: p.name for p in projects}
         finally:
             cs.close()

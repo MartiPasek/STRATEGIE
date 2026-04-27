@@ -4953,6 +4953,21 @@ def chat(
             assistant_reply += tresult
 
     if not assistant_reply:
+        # Phase 15c diagnostika: pokud response z Anthropic dorazila prazdna,
+        # zalogujeme block types, aby budouci debug nemusel hadat. Stale
+        # fallback na user-friendly message.
+        try:
+            _block_types = [getattr(b, "type", "?") for b in response.content]
+            _stop_reason = getattr(response, "stop_reason", "?")
+            logger.warning(
+                f"CHAT | empty assistant_reply | conv={conversation_id} | "
+                f"block_types={_block_types} | stop_reason={_stop_reason} | "
+                f"preamble_len={len(preamble_text or '')} | "
+                f"tool_invocations={len(tool_invocations)} | "
+                f"needs_synthesis={needs_synthesis}"
+            )
+        except Exception as _diag_err:
+            logger.warning(f"CHAT | empty assistant_reply diagnostic failed: {_diag_err}")
         assistant_reply = "Promiň, něco se pokazilo. Zkus to znovu."
 
     # ── Guard proti halucinovanemu switch_persona ──────────────────────────

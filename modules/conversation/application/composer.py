@@ -868,31 +868,13 @@ MEMORY_BEHAVIOR_RULES = (
     "**Cross-off (task lifecycle):** Po dokončení akce (invite_user, send_email, "
     "send_sms, reply, atd.) zvaž `complete_note(note_id)` na související task. "
     "Tool response ti napoví, pokud máš ≥1 open task v této konverzaci.\n"
-    "10. **Kustod organizační struktury (Phase 15c -- projektový triage).** "
-    "Tvoje role z konzultace #4: \"vidíš strukturu zvenku, protože jsi mimo tok\". "
-    "Marti je v toku práce, neřeší zda konverzace sedí do správného projektu. "
-    "Ty to vidíš. Když cítíš mismatch, navrhuješ -- Marti rozhoduje (chat \"ano/ne\").\n"
-    "**Tři tools, jeden princip (suggestion only, nikdy přímá změna):**\n"
-    "- `suggest_move_conversation(target_project_id, reason)` -- celá konverzace "
-    "patří jinam (jasná hranice, téma se přesunulo).\n"
-    "- `suggest_split_conversation(target_project_id, fork_from_message_id, reason)` -- "
-    "dvě rovnocenná vlákna, fork zachová obě (strategický kontext zůstane).\n"
-    "- `suggest_create_project(name, description, first_member_id, reason)` -- "
-    "žádný existující projekt nesedí, navrhni založit. **Komplet návrh** "
-    "(name + description + first_member), ne polotovar.\n"
-    "**Threshold pravidla (KRITICKÉ -- bez prahu přestaneš fungovat, Marti "
-    "tě začne ignorovat):**\n"
-    "- Single zmínka projektu = ŽÁDNÁ AKCE (jen mimochodem, neřeš).\n"
-    "- ≥ 2 zmínky téhož target projektu v posledních ~10 zprávách = signal.\n"
-    "- Task note s project keyword = signal.\n"
-    "- Marti explicit (\"toto je TISAX\") = okamžitý návrh.\n"
-    "- Project context vidíš v `[AKTUÁLNÍ PROJEKT]` + `[DOSTUPNÉ PROJEKTY]` "
-    "blocích nahoře v promptu.\n"
-    "**Reverzibilita:** Změny projektu jsou 24h reverzibilní přes chat "
-    "(\"moment, vrať to\"). Buď tedy odvážná v návrzích -- omyl se vrací.\n"
-    "**Etika:** Ty navrhuješ, Marti rozhoduje. Nemáš tool pro přímou změnu "
-    "project_id ani pro vytvoření projektu -- jen suggesti. To je tvoje "
-    "pojistka, ne jen jeho."
+    "10. **Kustod projektů (Phase 15c).** Vidíš `[AKTUÁLNÍ PROJEKT]` + "
+    "`[DOSTUPNÉ PROJEKTY]` v promptu. Když cítíš, že téma se přesunulo "
+    "k jinému projektu, navrhuješ — Marti rozhoduje v chatu. **Práh: "
+    "≥ 2 zmínky téhož projektu** nebo Marti explicit (\"toto je TISAX\"). "
+    "Single zmínka = nic. Tools: `suggest_move_conversation`, "
+    "`suggest_split_conversation`, `suggest_create_project` (komplet návrh, "
+    "ne polotovar). Reverzibilita 24h. Suggestion only — žádná přímá změna."
 )
 
 
@@ -1271,7 +1253,7 @@ def _build_project_context_block(conversation_id: int) -> str:
 
     cs = _gcs_pc()
     try:
-        projects = cs.query(_Proj_pc).filter_by(tenant_id=tenant_id).all()
+        projects = cs.query(_Proj_pc).filter_by(tenant_id=tenant_id, is_active=True).all()
         project_map = {p.id: p.name for p in projects if p.name}
     finally:
         cs.close()

@@ -175,6 +175,10 @@ class Document(BaseData):
     extracted_text_length: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_processed: Mapped[bool] = mapped_column(Boolean, default=False)
     processing_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # v3.5: True = ne-extrahovatelny format (ZIP/MP4/EXE...), pipeline preskoci
+    # extract_text() a vytvori 1 filename chunk (name+folder+project+type) pro
+    # searchability podle nazvu. Detekce automaticky pri uploadu podle pripony.
+    storage_only: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
 

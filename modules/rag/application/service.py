@@ -149,8 +149,20 @@ def process_document(document_id: int) -> None:
         if not doc.storage_path:
             raise ValueError(f"Document {document_id} nema storage_path")
         storage_path = doc.storage_path
+        # v3.5-c: pro storage_only nacti i metadata pro filename chunk
+        is_storage_only = bool(doc.storage_only)
+        doc_name = doc.name or doc.original_filename or f"doc#{document_id}"
+        doc_ext = doc.file_type or ""
+        doc_project_id = doc.project_id
     finally:
         session.close()
+
+    # v3.5-c: storage_only -> preskoc extract_text/chunk, vyrob 1 filename chunk
+    # pro searchability podle nazvu/slozky/projektu/typu (nepodporovane formaty:
+    # ZIP, RAR, MP4 bez audio, EXE, ...).
+    if is_storage_only:
+        _process_storage_only(document_id, doc_name, doc_ext, doc_project_id)
+        return
 
     # 1) Extract text -- nejdele trvajici krok pro velke PDF (vteriny az desitky)
     logger.info(f"RAG | extracting text | document_id={document_id} | path={storage_path}")
@@ -208,6 +220,104 @@ def process_document(document_id: int) -> None:
         logger.info(
             f"RAG | processing done | document_id={document_id} | "
             f"chunks={len(chunks)} | text_len={len(text_content)}"
+        )
+    finally:
+        session.close()
+
+
+def _process_storage_only(
+    document_id: int,
+    doc_name: str,
+    doc_ext: str,
+    doc_project_id: int | None,
+) -> None:
+    """
+    v3.5-c: Pipeline pro ne-extrahovatelne formaty (storage_only=True).
+
+    Misto extract_text + chunking vytvori 1 'filename chunk' s popisem
+    souboru -- nazev, slozka, typ, projekt -- a embedduje ho. Document
+    pak je dohledatelny pres semantic search podle jmena (napr. uzivatel
+    napise 'kde mam ten zip s fotkami z Vanoc' a najde se podle nazvu).
+
+    Nedotyka se file_bytes na disku -- ZIP/MP4/EXE zustavaji v uschove.
+    """
+    logger.info(
+        f"RAG | storage_only -> filename chunk | document_id={document_id}"
+        f" | name={doc_name!r}"
+    )
+
+    # Sestav filename chunk: oddel slozku/jmeno (display_name muze obsahovat
+    # 'slozka/soubor.ext' z bulk uploadu).
+    slash_idx = doc_name.rfind("/")
+    if slash_idx > 0:
+        folder_part = doc_name[:slash_idx]
+        base_part = doc_name[slash_idx + 1:]
+    else:
+        folder_part = ""
+        base_part = doc_name
+
+    project_part = ""
+    if doc_project_id:
+        try:
+            from core.database_core import get_core_session
+            from modules.core.infrastructure.models_core import Project
+            cs = get_core_session()
+            try:
+                p = cs.query(Project).filter_by(id=doc_project_id).first()
+                if p:
+                    project_part = p.name
+            finally:
+                cs.close()
+        except Exception as e:
+            logger.warning(f"RAG | nelze nacist projekt #{doc_project_id}: {e}")
+
+    fn_chunk_text = (
+        f"Soubor: {base_part}\n"
+        f"Slozka: {folder_part or '(bez slozky)'}\n"
+        f"Typ: {doc_ext or '?'}\n"
+        f"Projekt: {project_part or '(neprirazeno)'}\n"
+        f"Poznamka: Tento soubor je v uschove, jeho obsah neni indexovan"
+        f" (nepodporovany format pro extrakci textu). Searchable je podle"
+        f" nazvu, slozky a projektu."
+    )
+
+    # Embed (Voyage). Pokud spadne -> RuntimeError -> caller (upload_document)
+    # to chyti pres _mark_processing_error.
+    try:
+        embedding = embed_documents([fn_chunk_text])[0]
+    except Exception as e:
+        raise RuntimeError(f"Embedding filename chunk selhal: {e}")
+
+    session = get_data_session()
+    try:
+        doc = session.query(Document).filter_by(id=document_id).first()
+        if not doc:
+            raise ValueError(f"Document {document_id} mezitim smazan")
+        doc.extracted_text_length = len(fn_chunk_text)
+
+        dc = DocumentChunk(
+            document_id=document_id,
+            content=fn_chunk_text,
+            chunk_index=0,
+            token_count=max(1, len(fn_chunk_text) // 4),
+            char_start=0,
+            char_end=len(fn_chunk_text),
+        )
+        session.add(dc)
+        session.flush()
+        dv = DocumentVector(
+            chunk_id=dc.id,
+            embedding=embedding,
+            model=VOYAGE_MODEL,
+        )
+        session.add(dv)
+
+        doc.is_processed = True
+        doc.processing_error = None
+        session.commit()
+        logger.info(
+            f"RAG | storage_only processing done | document_id={document_id}"
+            f" | filename chunk len={len(fn_chunk_text)}"
         )
     finally:
         session.close()

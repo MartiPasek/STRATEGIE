@@ -472,6 +472,11 @@ class EmailOutbox(BaseData):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Faze 12c: audit reply / forward -- vazba na email_inbox.id (puvodni zdroj)
+    # plus rezim (reply / reply_all / forward / NULL=fresh send). Pouzivane
+    # AI tools `reply`, `reply_all`, `forward`.
+    in_reply_to_inbox_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reply_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 # ── MARTI MEMORY: THOUGHTS + ENTITY LINKS ──────────────────────────────────

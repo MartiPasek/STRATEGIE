@@ -38,6 +38,40 @@ from modules.rag.application.storage import save_upload, delete_document_file
 logger = get_logger("rag.service")
 
 
+# ── EXTRACTION WHITELIST (v3.5) ───────────────────────────────────────────
+# Formaty, ze kterych umime vytahnout text -- markitdown podporuje nase
+# manualni bypass v extraction.py (txt/md/csv/log primym readem).
+#
+# Vsechno OSTATNI -> storage_only=True pri uploadu. Pipeline preskoci
+# extract_text() a misto toho vyrobi 1 'filename chunk' (nazev + slozka +
+# projekt + typ) pro semantic search dohledani podle jmena.
+EXTRACTABLE_EXTENSIONS: frozenset[str] = frozenset({
+    # plain text family
+    "txt", "md", "csv", "log", "json", "xml", "yaml", "yml", "sql", "ini",
+    # rich text
+    "rtf", "html", "htm",
+    # office (Microsoft + LibreOffice)
+    "pdf", "docx", "xlsx", "pptx", "doc", "xls", "ppt",
+    "odt", "ods", "odp",
+    # ebook
+    "epub",
+    # email (markitdown msg/eml support)
+    "msg", "eml",
+    # images (OCR)
+    "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp",
+    # audio (whisper transcription)
+    "mp3", "wav", "m4a", "wma", "ogg", "flac", "aac", "mp4",
+    # poznamka mp4 -- markitdown vytahne audio track + transcribe;
+    # video bez audio vrati prazdny string -> processing_error a fallback
+    # rucne nebo pres backfill na storage_only=True.
+})
+
+
+def is_extractable(extension: str) -> bool:
+    """True pokud markitdown / nas extraction.py umi extrahovat text z formatu."""
+    return (extension or "").lower().lstrip(".") in EXTRACTABLE_EXTENSIONS
+
+
 # ── UPLOAD + PROCESSING ───────────────────────────────────────────────────
 
 def upload_document(
@@ -57,6 +91,11 @@ def upload_document(
     ext = detect_file_type(filename)
     name = (display_name or filename or "Bez názvu").strip()
 
+    # v3.5: detekuj jestli je format extrahovatelny (markitdown-supported).
+    # Pokud ne -> storage_only=True, pipeline pak preskoci extract_text() a
+    # misto toho vytvori filename chunk pro searchability podle jmena.
+    storage_only_flag = not is_extractable(ext)
+
     session = get_data_session()
     try:
         doc = Document(
@@ -68,6 +107,7 @@ def upload_document(
             file_type=ext,
             file_size_bytes=len(file_bytes),
             is_processed=False,
+            storage_only=storage_only_flag,
             created_at=datetime.now(timezone.utc),
         )
         session.add(doc)

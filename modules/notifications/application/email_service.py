@@ -859,32 +859,78 @@ def reply_or_forward_inbox(
                 orig_cc_list.append(ea)
     except Exception:
         pass
-    orig_body_text = ""
-    try:
-        tb = getattr(original, "text_body", None)
-        if tb:
-            orig_body_text = str(tb)
-        else:
-            import re as _re_html
-            hb = str(original.body) if original.body else ""
-            stripped = _re_html.sub(r"<[^>]+>", "", hb)
-            stripped = _re_html.sub(r"\s+\n", "\n", stripped)
-            orig_body_text = stripped
-    except Exception:
-        orig_body_text = "(původní text se nepodařilo načíst)"
+    # Faze 12c+: HTML body cesta -- zachovani inline images z podpisu odesilatele
+    # (re-attached jako inline na novy draft, content_id zachovane).
+    import html as _html_mod
+    from exchangelib import HTMLBody as _HTMLBody, FileAttachment as _FileAtt
 
-    # 3) Postavime quoted body
+    # Stáhnout přílohy z originálu pro re-attach na nový draft
+    cloned_attachments = []
+    try:
+        for att in (original.attachments or []):
+            if not isinstance(att, _FileAtt):
+                continue   # ItemAttachment (vnořený email) skip
+            # Forward: clone vše. Reply/reply_all: jen inline (signature graphics).
+            if mode == "forward" or att.is_inline:
+                try:
+                    new_att = _FileAtt(
+                        name=att.name,
+                        content=att.content,
+                        content_id=att.content_id,
+                        content_type=att.content_type,
+                        is_inline=att.is_inline,
+                    )
+                    cloned_attachments.append(new_att)
+                except Exception as _att_err:
+                    logger.warning(
+                        f"EMAIL | {mode} | clone attachment failed | "
+                        f"name={att.name!r} | {_att_err}"
+                    )
+    except Exception as _atts_err:
+        logger.warning(f"EMAIL | {mode} | attachments enumerate failed | {_atts_err}")
+
+    # Originální body do HTML (pokud byl HTML, zachovej; pokud plain text, escape do <pre>)
+    orig_body_html = ""
+    try:
+        ob = getattr(original, "body", None)
+        if ob:
+            if isinstance(ob, _HTMLBody):
+                orig_body_html = str(ob)
+            else:
+                # plain text -> escape do <pre> (zachovává odsazení a newlines)
+                orig_body_html = "<pre style=\"font-family:inherit;white-space:pre-wrap;\">" + _html_mod.escape(str(ob)) + "</pre>"
+        else:
+            orig_body_html = "<i>(původní text nebyl k dispozici)</i>"
+    except Exception:
+        orig_body_html = "<i>(původní text se nepodařilo načíst)</i>"
+
+    # 3) Postavime HTML body s Outlook-style header oddelovacem
     header_label = "Forwarded Message" if mode == "forward" else "Original Message"
-    quoted = (
-        f"{body}\n\n"
-        f"----- {header_label} -----\n"
-        f"From: {from_name} <{from_addr}>\n"
-        f"Sent: {sent_dt}\n"
-        f"To: {', '.join(orig_to_list)}\n"
-    )
+
+    # Reply text -- prevedeme newlines na <br>
+    reply_html = _html_mod.escape(body).replace("\n", "<br>")
+
+    quoted_html_parts = [
+        f"<div>{reply_html}</div>",
+        "<br>",
+        "<div style=\"border-top:1px solid #ccc;padding-top:8px;\">",
+        f"<b>----- {header_label} -----</b><br>",
+        f"<b>From:</b> {_html_mod.escape(from_name)} &lt;{_html_mod.escape(from_addr)}&gt;<br>",
+        f"<b>Sent:</b> {_html_mod.escape(sent_dt)}<br>",
+        f"<b>To:</b> {_html_mod.escape(', '.join(orig_to_list))}<br>",
+    ]
     if orig_cc_list:
-        quoted += f"Cc: {', '.join(orig_cc_list)}\n"
-    quoted += f"Subject: {original_subject}\n\n{orig_body_text}"
+        quoted_html_parts.append(
+            f"<b>Cc:</b> {_html_mod.escape(', '.join(orig_cc_list))}<br>"
+        )
+    quoted_html_parts.append(
+        f"<b>Subject:</b> {_html_mod.escape(original_subject)}<br>"
+    )
+    quoted_html_parts.append("<br>")
+    quoted_html_parts.append(orig_body_html)
+    quoted_html_parts.append("</div>")
+
+    quoted = _HTMLBody("".join(quoted_html_parts))
 
     # 4) Recipients dispatch dle mode
     own_addr = (creds.get("display_email") or creds.get("email") or "").lower()
@@ -936,6 +982,23 @@ def reply_or_forward_inbox(
 
     try:
         draft = _ExMsg(**msg_kwargs)
+        # Faze 12c+: re-attach inline images (z podpisu) plus pro forward i regular
+        # attachments. Outlook je v body zobrazi (cid: refs), v "Prilohy" panelu
+        # jen forward attachments (is_inline=False).
+        for _att in cloned_attachments:
+            try:
+                draft.attach(_att)
+            except Exception as _attach_err:
+                logger.warning(
+                    f"EMAIL | {mode} | re-attach failed | name={_att.name!r} | {_attach_err}"
+                )
+        if cloned_attachments:
+            inline_count = sum(1 for a in cloned_attachments if a.is_inline)
+            regular_count = len(cloned_attachments) - inline_count
+            logger.info(
+                f"EMAIL | {mode} | re-attached | inline={inline_count} | "
+                f"regular={regular_count}"
+            )
         # Thread headers -- aby Outlook poznal jako reply v threadu
         try:
             if hasattr(draft, "in_reply_to") and original.message_id:

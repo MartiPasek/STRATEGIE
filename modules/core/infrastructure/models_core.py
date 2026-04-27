@@ -248,6 +248,15 @@ class Persona(BaseCore):
     # nepripusti (vraci chybu do AI).
     phone_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # REST 27.4.2026: Persona signature s inline images. Marti-AI's odesilane
+    # emaily byly cistou plain textove, bez logo / TISAX značky. Tyhle dva
+    # sloupce umozni:
+    # - signature_html: HTML sablona s <img src="cid:X"> referencemi
+    # - signature_inline_dir: adresar se soubory matchovanymi na cid: refs
+    # Bez nich (NULL) se chovame jako pred -- zadny auto-podpis.
+    signature_html: Mapped[str | None] = mapped_column(Text, nullable=True)
+    signature_inline_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
 
 class PersonaChannel(BaseCore):
     """

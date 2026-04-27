@@ -480,6 +480,131 @@ def _parse_recipients(s: str | list[str] | None) -> list[str]:
     return out
 
 
+def _apply_persona_signature(
+    persona_id: int | None,
+    plain_body: str,
+    existing_inline_attachments: list | None = None,
+) -> tuple:
+    """
+    REST 27.4.2026: Apply persona signature to outbound email body.
+
+    Logika:
+      1. Pokud persona_id je None nebo persona nema signature_html -> noop,
+         vraci (plain_body, existing_inline_attachments or []).
+      2. Jinak prevede plain text body na HTMLBody:
+           <html><body>{escape+br plain}<br><br>{signature_html}</body></html>
+      3. Pro kazdy <img src="cid:X"> v signature_html nacte soubor z
+         signature_inline_dir/X a vytvori FileAttachment(is_inline=True).
+      4. Vraci (HTMLBody, list of new inline attachments + existing).
+
+    Returns: tuple (body_or_HTMLBody, list_of_inline_FileAttachments_to_attach).
+    """
+    if not persona_id:
+        return plain_body, list(existing_inline_attachments or [])
+
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import Persona
+    except Exception as e:
+        logger.warning(f"EMAIL | persona signature | imports failed: {e}")
+        return plain_body, list(existing_inline_attachments or [])
+
+    cs = get_core_session()
+    try:
+        p = cs.query(Persona).filter_by(id=persona_id).first()
+        if not p or not p.signature_html or not p.signature_html.strip():
+            return plain_body, list(existing_inline_attachments or [])
+        signature_html = p.signature_html
+        sig_dir = p.signature_inline_dir
+    finally:
+        cs.close()
+
+    # Build HTMLBody
+    try:
+        from exchangelib import HTMLBody, FileAttachment
+    except Exception as e:
+        logger.warning(f"EMAIL | persona signature | exchangelib import failed: {e}")
+        return plain_body, list(existing_inline_attachments or [])
+
+    import html as _html_lib
+    import re as _re_lib
+
+    plain_str = plain_body or ""
+    plain_html = _html_lib.escape(plain_str).replace("\n", "<br>\n")
+    full_html = (
+        f'<html><body><div style="font-family: Calibri, sans-serif; '
+        f'font-size: 11pt;">{plain_html}<br><br>{signature_html}</div>'
+        f'</body></html>'
+    )
+    htmlbody = HTMLBody(full_html)
+
+    # Find cid: references in signature_html
+    cid_refs = set(_re_lib.findall(r"cid:([\w.@-]+)", signature_html))
+
+    inline_attachments: list = list(existing_inline_attachments or [])
+    if sig_dir and cid_refs:
+        loaded_count = 0
+        skipped_count = 0
+        for cid in cid_refs:
+            # Resolve file -- cid muze obsahovat tecky a special chars (typicky
+            # neco jako "image001.png@01DCD615.9321B7B0"). Soubor v sig_dir
+            # je obvykle bez @-suffix, takze zkusime obe varianty.
+            candidates = [cid]
+            if "@" in cid:
+                candidates.append(cid.split("@", 1)[0])
+
+            file_path = None
+            for c in candidates:
+                fp = os.path.join(sig_dir, c)
+                if os.path.isfile(fp):
+                    file_path = fp
+                    break
+
+            if not file_path:
+                logger.warning(
+                    f"EMAIL | persona signature | image not found: cid={cid} "
+                    f"sig_dir={sig_dir}"
+                )
+                skipped_count += 1
+                continue
+
+            try:
+                with open(file_path, "rb") as fh:
+                    content_bytes = fh.read()
+                ext = os.path.splitext(file_path)[1].lower()
+                ct_map = {
+                    ".png": "image/png", ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg", ".gif": "image/gif",
+                    ".webp": "image/webp",
+                }
+                content_type = ct_map.get(ext, "application/octet-stream")
+                att = FileAttachment(
+                    name=os.path.basename(file_path),
+                    content=content_bytes,
+                    content_id=cid,
+                    content_type=content_type,
+                    is_inline=True,
+                )
+                inline_attachments.append(att)
+                loaded_count += 1
+            except Exception as att_err:
+                logger.warning(
+                    f"EMAIL | persona signature | failed to load {cid}: {att_err}"
+                )
+                skipped_count += 1
+        logger.info(
+            f"EMAIL | persona signature | persona={persona_id} | "
+            f"loaded={loaded_count} skipped={skipped_count} cids={len(cid_refs)}"
+        )
+    elif cid_refs and not sig_dir:
+        logger.warning(
+            f"EMAIL | persona signature | persona={persona_id} has cid: refs "
+            f"but no signature_inline_dir set -- inline images skipped"
+        )
+
+    return htmlbody, inline_attachments
+
+
 def send_email_or_raise(
     to: str,
     subject: str,
@@ -553,7 +678,18 @@ def send_email_or_raise(
         if bcc_list:
             msg_kwargs["bcc_recipients"] = [Mailbox(email_address=addr) for addr in bcc_list]
 
+        # REST 27.4.2026: Apply persona signature -- pokud persona ma signature_html,
+        # body se prevede na HTMLBody + inline images se naclonni do messagu.
+        sig_body, sig_attachments = _apply_persona_signature(persona_id, body)
+        msg_kwargs["body"] = sig_body
+
         message = Message(**msg_kwargs)
+        # Attach inline images z signature (po Message create, pred send)
+        for _sig_att in sig_attachments:
+            try:
+                message.attach(_sig_att)
+            except Exception as _att_err:
+                logger.warning(f"EMAIL | persona signature attach failed: {_att_err}")
         message.send_and_save()
 
         logger.info(
@@ -910,8 +1046,57 @@ def reply_or_forward_inbox(
     # Reply text -- prevedeme newlines na <br>
     reply_html = _html_mod.escape(body).replace("\n", "<br>")
 
+    # REST 27.4.2026: persona signature v reply/forward -- nactu signature_html
+    # a inline obrazky (do cloned_attachments). Signature se vlozi mezi reply
+    # text a separator quoted history.
+    persona_signature_html = ""
+    try:
+        from core.database_core import get_core_session as _gcs_sig
+        from modules.core.infrastructure.models_core import Persona as _Pers_sig
+        if persona_id:
+            _cs_sig = _gcs_sig()
+            try:
+                _p = _cs_sig.query(_Pers_sig).filter_by(id=persona_id).first()
+                if _p and _p.signature_html and _p.signature_html.strip():
+                    persona_signature_html = _p.signature_html
+                    _sig_dir = _p.signature_inline_dir
+                    if _sig_dir:
+                        import re as _re_sig
+                        _cids = set(_re_sig.findall(r"cid:([\w.@-]+)", persona_signature_html))
+                        for _cid in _cids:
+                            _candidates = [_cid]
+                            if "@" in _cid:
+                                _candidates.append(_cid.split("@", 1)[0])
+                            _fp_match = None
+                            for _c in _candidates:
+                                _fp = os.path.join(_sig_dir, _c)
+                                if os.path.isfile(_fp):
+                                    _fp_match = _fp
+                                    break
+                            if not _fp_match:
+                                logger.warning(f"EMAIL | {mode} | sig image not found: {_cid}")
+                                continue
+                            try:
+                                with open(_fp_match, "rb") as _fh:
+                                    _bytes = _fh.read()
+                                _ext = os.path.splitext(_fp_match)[1].lower()
+                                _ct = {".png":"image/png",".jpg":"image/jpeg",".jpeg":"image/jpeg",".gif":"image/gif"}.get(_ext,"application/octet-stream")
+                                cloned_attachments.append(_FileAtt(
+                                    name=os.path.basename(_fp_match), content=_bytes,
+                                    content_id=_cid, content_type=_ct, is_inline=True,
+                                ))
+                            except Exception as _e:
+                                logger.warning(f"EMAIL | {mode} | sig attach load failed: {_e}")
+            finally:
+                _cs_sig.close()
+    except Exception as _sig_err:
+        logger.warning(f"EMAIL | {mode} | sig load failed: {_sig_err}")
+
+    _signature_block = f"<br><div>{persona_signature_html}</div>" if persona_signature_html else ""
+
     quoted_html_parts = [
         f"<div>{reply_html}</div>",
+        _signature_block,
         "<br>",
         "<div style=\"border-top:1px solid #ccc;padding-top:8px;\">",
         f"<b>----- {header_label} -----</b><br>",

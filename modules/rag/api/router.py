@@ -143,6 +143,25 @@ def list_endpoint(req: Request, project_id: int | None = None) -> dict:
     return {"documents": docs, "count": len(docs)}
 
 
+# ── INBOX COUNT (UI badge na 📁 ikone v chat input) ───────────────────────
+
+@router.get("/inbox/count")
+def inbox_count_endpoint(req: Request) -> dict:
+    """
+    Vraci pocet dokumentu v osobnim inboxu (per user + current tenant).
+    Inbox = documents s project_id IS NULL pro current user (uploadnute,
+    cekaji na zarazeni do projektu pres Marti-AI document kustod).
+
+    UI ho vola pri loaded + 30s polling -> badge na 📁 ikone v chat input.
+    """
+    from modules.rag.application import triage_service
+    user_id, tenant_id = _get_user_context(req)
+    count = triage_service.count_inbox_documents(
+        user_id=user_id, tenant_id=tenant_id,
+    )
+    return {"count": count}
+
+
 # ── DELETE ────────────────────────────────────────────────────────────────
 
 @router.delete("/{document_id}")

@@ -352,6 +352,9 @@
     .inbox-badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 7px; border-radius: 6px; font-size: 17px; line-height: 1.2; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(100, 116, 139, 0.10); color: var(--muted); border: 1px solid rgba(100, 116, 139, 0.3); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
     .inbox-badge.show { background: rgba(59, 130, 246, 0.12); color: #3b82f6; border-color: rgba(59, 130, 246, 0.45); }
     .inbox-badge:hover { background: rgba(59, 130, 246, 0.22); border-color: rgba(59, 130, 246, 0.7); color: #3b82f6; }
+    /* REST-Doc-Triage v2: 📁 ikona wrapper + badge s poctem souboru v inboxu */
+    .doc-inbox-wrap { position: relative; display: inline-flex; align-items: center; margin-right: 4px; }
+    .doc-inbox-badge { position: absolute; top: -3px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #3b82f6; color: #fff; font-size: 10px; font-weight: 600; line-height: 1; display: inline-flex; align-items: center; justify-content: center; pointer-events: none; border: 1.5px solid var(--bg, #0f1116); box-sizing: border-box; }
     /* Permanent SMS entry point - vedle emailu, symetrie */
     .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s; }
     .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; }
@@ -1624,7 +1627,10 @@
         </div>
 <div class="input-row">
           <!-- REST-Doc-Triage v2: 📁 dokument upload do per-user inboxu -->
-          <button class="attach-btn" id="docInboxBtn" title="Nahrát dokumenty do osobního inboxu (Marti-AI je pak roztřídí do projektů). Klik pro výběr složky/souborů, nebo přetáhnout sem." aria-label="Nahrát dokumenty do inboxu" style="margin-right:4px">📁</button>
+          <span class="doc-inbox-wrap">
+            <button class="attach-btn" id="docInboxBtn" title="Nahrát dokumenty do osobního inboxu (Marti-AI je pak roztřídí do projektů). Klik pro výběr složky/souborů, nebo přetáhnout sem." aria-label="Nahrát dokumenty do inboxu">📁</button>
+            <span id="docInboxBadge" class="doc-inbox-badge" style="display:none" title="Počet souborů v inboxu čekajících na zařazení">0</span>
+          </span>
           <input type="file" id="docInboxFileInput" multiple style="display:none">
           <input type="file" id="docInboxFolderInput" webkitdirectory directory multiple style="display:none">
           <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
@@ -3771,6 +3777,11 @@
       countEl.textContent = `${done} / ${items.length}`;
     }
 
+    // REST-Doc-Triage v2: refresh badge na 📁 ikone po dokoncenem batch uploadu
+    if (typeof window._refreshDocInboxBadge === 'function') {
+      try { window._refreshDocInboxBadge(); } catch (e) { /* ignore */ }
+    }
+
     // Final state
     if (errors.length === 0) {
       msg.style.color = '#7cd99e';
@@ -3925,6 +3936,39 @@
   } else {
     setTimeout(_wireDocInboxBtn, 0);
   }
+
+  // REST-Doc-Triage v2: badge na 📁 ikone -- pocet souboru v inboxu (per user + tenant).
+  // Endpoint /api/v1/documents/inbox/count vraci {count: N}. Initial fetch + 30s polling
+  // + invokace po batch upload (viz _uploadDocument). Pri 0 souborech badge skryt.
+  async function _refreshDocInboxBadge() {
+    const badge = document.getElementById('docInboxBadge');
+    if (!badge) return;
+    try {
+      const res = await fetch('/api/v1/documents/inbox/count', { credentials: 'include' });
+      if (!res.ok) {
+        badge.style.display = 'none';
+        return;
+      }
+      const data = await res.json();
+      const n = data && typeof data.count === 'number' ? data.count : 0;
+      if (n > 0) {
+        badge.textContent = n > 99 ? '99+' : String(n);
+        badge.style.display = 'inline-flex';
+      } else {
+        badge.style.display = 'none';
+      }
+    } catch (e) {
+      badge.style.display = 'none';
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _refreshDocInboxBadge);
+  } else {
+    setTimeout(_refreshDocInboxBadge, 100);
+  }
+  setInterval(_refreshDocInboxBadge, 30000);
+  // Expose pro callsity (po upload / apply_move / delete -- ad-hoc refresh)
+  window._refreshDocInboxBadge = _refreshDocInboxBadge;
 
   function _wireDocumentsDropZone() {
     const dz = document.getElementById('documentsDropZone');

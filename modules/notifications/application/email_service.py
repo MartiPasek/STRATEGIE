@@ -943,8 +943,8 @@ def reply_or_forward_inbox(
         except Exception:
             pass
         try:
-            if hasattr(draft, "references"):
-                draft.references = [original.message_id] if original.message_id else []
+            if hasattr(draft, "references") and original.message_id:
+                draft.references = original.message_id   # exchangelib chce string, ne list
         except Exception:
             pass
     except Exception as e:

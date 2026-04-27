@@ -807,117 +807,165 @@ def reply_or_forward_inbox(
     cc_list = _parse_recipients(cc) if cc else None
     bcc_list = _parse_recipients(bcc) if bcc else None
 
-    # Create draft via exchangelib reply/reply_all/forward helpers
+    # Faze 12c (Plan E): manualni Message construction.
+    # ReplyToItem / ForwardItem v teto verzi exchangelib NEMA pristupna pole
+    # (attachments, body = None -- diagnostiky to potvrdily). Exchange si
+    # server-side resi obsah + pribali inline images z puvodniho podpisu jako
+    # attachments. Bez pristupu k draftu nemuzeme ovlivnit. Resime: stavime
+    # Message rucne s thread headers + quoted body v plain text formatu
+    # (zadne <img cid:> tagy = zadne attachments leak).
+
+    # 1) Subject (RE:/FW: prefix s deduplikaci)
+    if subject:
+        final_subject = subject
+    else:
+        prefix = "FW: " if mode == "forward" else "RE: "
+        orig_sub = original_subject or ""
+        existing_lower = orig_sub.lower()
+        if mode == "forward" and existing_lower.startswith(("fw:", "fwd:")):
+            final_subject = orig_sub
+        elif mode != "forward" and existing_lower.startswith(("re:", "odp:")):
+            final_subject = orig_sub
+        else:
+            final_subject = prefix + orig_sub
+
+    # 2) Sebrat metadata z originalu pro quoted body + recipient resolution
+    from_name = ""
+    from_addr = ""
     try:
-        if mode == "reply":
-            draft = original.create_reply(subject=subject, body=body)
-        elif mode == "reply_all":
-            draft = original.create_reply_all(subject=subject, body=body)
-        else:  # forward
-            # create_forward vyzaduje to_recipients
-            if not to_list:
-                raise ValueError("forward: prazdny seznam prijemcu po _parse_recipients")
-            draft = original.create_forward(
-                subject=subject,
-                body=body,
-                to_recipients=[Mailbox(email_address=a) for a in to_list],
-            )
-    except Exception as e:
-        logger.exception(f"EMAIL | reply | create_draft failed | mode={mode} | {e}")
-        raise EmailSendError(f"create_{mode} v EWS selhalo: {e}")
-
-    # Override to/cc/bcc if user provided (po vytvoreni draftu, pred sendem)
-    # Pro forward uz to je nastaveno pres create_forward -- override pripustny
-    # zde jen kdyz user chce dalsi zmenu (ale ten case je redundantni; ponechame
-    # konzistentni interface).
-    if to_list and mode != "forward":
-        draft.to_recipients = [Mailbox(email_address=a) for a in to_list]
-    if cc_list is not None:
-        draft.cc_recipients = [Mailbox(email_address=a) for a in cc_list]
-    if bcc_list is not None:
-        draft.bcc_recipients = [Mailbox(email_address=a) for a in bcc_list]
-
-    # Faze 12c fix: strip attachments + cid: image refs z body pro reply/reply_all.
-    # ReplyToItem (z create_reply / create_reply_all) je server-side response objekt.
-    # Exchange si pri send sam pripoji inline images z puvodniho body. Strip
-    # potrebujeme NA OBOU URROVNICH: attachments collection (pokud existuje) +
-    # body HTML <img cid:...> tagy (regex), aby Exchange neměl co re-attachnout.
-    # Pro FORWARD attachments ZACHOVAT -- user typicky forwarduje s prilohami.
-    if mode in ("reply", "reply_all"):
-        # Diagnostic log -- zjistime, co tam fakt je
-        atts_attr = getattr(draft, "attachments", None)
-        body_attr = getattr(draft, "body", None)
-        logger.info(
-            f"EMAIL | {mode} | pre-strip diag | "
-            f"attachments_type={type(atts_attr).__name__} | "
-            f"attachments_len={len(atts_attr) if atts_attr else 0} | "
-            f"body_type={type(body_attr).__name__} | "
-            f"body_len={len(str(body_attr)) if body_attr else 0}"
-        )
-        # 1) Strip attachments collection
-        try:
-            if atts_attr:
-                existing_atts = list(atts_attr)
-                if existing_atts:
-                    # Try assignment first (cleaner)
-                    try:
-                        draft.attachments = []
-                        logger.info(
-                            f"EMAIL | {mode} | attachments=[] assigned "
-                            f"(was {len(existing_atts)})"
-                        )
-                    except Exception:
-                        # Fallback: remove one by one
-                        for att in existing_atts:
-                            try:
-                                draft.attachments.remove(att)
-                            except Exception:
-                                pass
-                        logger.info(
-                            f"EMAIL | {mode} | stripped {len(existing_atts)} "
-                            f"attachments via remove()"
-                        )
-        except Exception as _strip_err:
-            logger.warning(f"EMAIL | {mode} | attachment strip failed | {_strip_err}")
-        # 2) Strip <img src="cid:..."> tagy z HTML body
-        try:
-            import re as _re_strip
-            from exchangelib import HTMLBody as _HTMLBody, Body as _Body
-            if body_attr:
-                body_str = str(body_attr)
-                # Smaz cely <img> tag s cid: src
-                clean = _re_strip.sub(
-                    r'<img[^>]*src=["\']cid:[^"\']*["\'][^>]*/?>',
-                    "",
-                    body_str,
-                    flags=_re_strip.IGNORECASE,
-                )
-                # Smaz [cid:...] inline reference (text format)
-                clean = _re_strip.sub(r'\[cid:[^\]]*\]', "", clean, flags=_re_strip.IGNORECASE)
-                if clean != body_str:
-                    # Zachovej HTMLBody type pokud byl
-                    if isinstance(body_attr, _HTMLBody):
-                        draft.body = _HTMLBody(clean)
-                    else:
-                        draft.body = clean
-                    logger.info(
-                        f"EMAIL | {mode} | stripped cid: img refs from body | "
-                        f"len {len(body_str)} -> {len(clean)}"
-                    )
-        except Exception as _body_err:
-            logger.warning(f"EMAIL | {mode} | body cid strip failed | {_body_err}")
-
-    # Send. POZOR: create_reply / create_reply_all / create_forward vraci
-    # ReplyToItem / ForwardItem (subclass ResponseObject), ne Message. Ty maji
-    # jen .send() (Exchange auto-ulozi do Sent Items po sendu), NE .send_and_save().
-    # Pouziti send_and_save() spadne s AttributeError.
+        if original.sender:
+            from_name = getattr(original.sender, "name", "") or ""
+            from_addr = getattr(original.sender, "email_address", "") or ""
+    except Exception:
+        pass
+    sent_dt = ""
     try:
-        draft.send()
+        sent_dt = original.datetime_sent.strftime("%Y-%m-%d %H:%M:%S") if original.datetime_sent else ""
+    except Exception:
+        pass
+    orig_to_list = []
+    try:
+        for r in (original.to_recipients or []):
+            ea = getattr(r, "email_address", "") or ""
+            if ea:
+                orig_to_list.append(ea)
+    except Exception:
+        pass
+    orig_cc_list = []
+    try:
+        for r in (original.cc_recipients or []):
+            ea = getattr(r, "email_address", "") or ""
+            if ea:
+                orig_cc_list.append(ea)
+    except Exception:
+        pass
+    orig_body_text = ""
+    try:
+        tb = getattr(original, "text_body", None)
+        if tb:
+            orig_body_text = str(tb)
+        else:
+            import re as _re_html
+            hb = str(original.body) if original.body else ""
+            stripped = _re_html.sub(r"<[^>]+>", "", hb)
+            stripped = _re_html.sub(r"\s+\n", "\n", stripped)
+            orig_body_text = stripped
+    except Exception:
+        orig_body_text = "(původní text se nepodařilo načíst)"
+
+    # 3) Postavime quoted body
+    header_label = "Forwarded Message" if mode == "forward" else "Original Message"
+    quoted = (
+        f"{body}\n\n"
+        f"----- {header_label} -----\n"
+        f"From: {from_name} <{from_addr}>\n"
+        f"Sent: {sent_dt}\n"
+        f"To: {', '.join(orig_to_list)}\n"
+    )
+    if orig_cc_list:
+        quoted += f"Cc: {', '.join(orig_cc_list)}\n"
+    quoted += f"Subject: {original_subject}\n\n{orig_body_text}"
+
+    # 4) Recipients dispatch dle mode
+    own_addr = (creds.get("display_email") or creds.get("email") or "").lower()
+    if mode == "reply":
+        if to_list:
+            to_recips = [Mailbox(email_address=a) for a in to_list]
+        else:
+            if not from_addr:
+                raise EmailSendError("reply: puvodni email nema sender, nelze odpovedet")
+            to_recips = [Mailbox(email_address=from_addr)]
+        cc_recips = [Mailbox(email_address=a) for a in (cc_list or [])]
+    elif mode == "reply_all":
+        if to_list:
+            to_recips = [Mailbox(email_address=a) for a in to_list]
+        else:
+            to_recips_addrs = [a for a in orig_to_list if a and a.lower() != own_addr]
+            if from_addr and from_addr.lower() != own_addr and from_addr not in to_recips_addrs:
+                to_recips_addrs.insert(0, from_addr)
+            if not to_recips_addrs:
+                raise EmailSendError("reply_all: po vyradeni nasi adresy je prazdny seznam To")
+            to_recips = [Mailbox(email_address=a) for a in to_recips_addrs]
+        if cc_list is not None:
+            cc_recips = [Mailbox(email_address=a) for a in cc_list]
+        else:
+            cc_recips = [
+                Mailbox(email_address=a) for a in orig_cc_list
+                if a and a.lower() != own_addr
+            ]
+    else:  # forward
+        if not to_list:
+            raise ValueError("forward vyzaduje `to`")
+        to_recips = [Mailbox(email_address=a) for a in to_list]
+        cc_recips = [Mailbox(email_address=a) for a in (cc_list or [])]
+
+    bcc_recips = [Mailbox(email_address=a) for a in (bcc_list or [])]
+
+    # 5) Sestavime Message rucne (full API -- send_and_save funguje)
+    from exchangelib import Message as _ExMsg
+    msg_kwargs = dict(
+        account=account,
+        subject=final_subject,
+        body=quoted,
+        to_recipients=to_recips,
+    )
+    if cc_recips:
+        msg_kwargs["cc_recipients"] = cc_recips
+    if bcc_recips:
+        msg_kwargs["bcc_recipients"] = bcc_recips
+
+    try:
+        draft = _ExMsg(**msg_kwargs)
+        # Thread headers -- aby Outlook poznal jako reply v threadu
+        try:
+            if hasattr(draft, "in_reply_to") and original.message_id:
+                draft.in_reply_to = original.message_id
+        except Exception:
+            pass
+        try:
+            if hasattr(draft, "references"):
+                draft.references = [original.message_id] if original.message_id else []
+        except Exception:
+            pass
     except Exception as e:
-        logger.exception(f"EMAIL | reply | send failed | mode={mode} | {e}")
+        logger.exception(f"EMAIL | {mode} | message build failed | {e}")
+        raise EmailSendError(f"build Message v {mode} mode selhalo: {e}")
+
+    logger.info(
+        f"EMAIL | {mode} | manual draft built | subject={final_subject!r} | "
+        f"to={[m.email_address for m in to_recips]} | "
+        f"cc={[m.email_address for m in cc_recips] or '-'} | "
+        f"in_reply_to={original.message_id!r}"
+    )
+
+    # 6) Send (manualni Message ma plne API)
+    try:
+        draft.send_and_save()
+    except Exception as e:
+        logger.exception(f"EMAIL | {mode} | send failed | {e}")
         if _is_auth_error(e):
             raise EmailAuthError(f"EWS auth failed: {e}")
-        raise EmailSendError(f"send selhalo: {e}")
+        raise EmailSendError(f"send_and_save selhalo: {e}")
 
     # Sebrat finalni recipients pro logging + outbox row
     final_to = [m.email_address for m in (draft.to_recipients or [])]

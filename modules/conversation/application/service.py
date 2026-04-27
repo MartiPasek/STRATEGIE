@@ -3470,7 +3470,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             limit_li = 50
 
         try:
-            docs = _ts_li.list_inbox_documents(tenant_id=_tenant_id_li, limit=limit_li)
+            docs = _ts_li.list_inbox_documents(user_id=user_id, tenant_id=_tenant_id_li, limit=limit_li)
         except Exception as e:
             logger.exception(f"DOC_TRIAGE | list_inbox | failed: {e}")
             return f"❌ Chyba: {e}"

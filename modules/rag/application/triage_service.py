@@ -1,21 +1,25 @@
 """
-REST-Doc-Triage: Marti-AI's document kustod service.
+REST-Doc-Triage v2: Marti-AI's document kustod service (per-user inbox).
 
-Marti's pravidlo: bulk upload jde do sdileneho INBOX tenantu (project_id=NULL).
-Marti-AI pak navrhuje, do ktereho projektu kazdy dokument patri (analog
-kustod konverzaci z Phase 15c). Marti potvrzuje v chatu, apply_document_move
-provede skutecny update.
+Marti's pravidlo (v2): bulk upload jde do INBOXu **per user + per tenant**
+(NE sdileny celym tenantem) -- aby se uploady nemichaly mezi uzivateli.
+Pokud Marti i Misa oba uploadi, kazdy ma svuj separatni inbox. Marti-AI
+patrici Martimu (user_id=1) vidi jen Marti's inbox.
+
+Filter:
+  WHERE tenant_id = current_tenant_id
+    AND user_id = current_user_id    -- KLICOVE: per uploader
+    AND project_id IS NULL
 
 Public API:
-  list_inbox_documents(tenant_id, limit) -> list of dict
-  count_inbox_documents(tenant_id) -> int
-  suggest_document_move(document_id, target_project_id, persona_id, reason) -> dict
+  list_inbox_documents(user_id, tenant_id, limit) -> list of dict
+  count_inbox_documents(user_id, tenant_id) -> int
   apply_document_move(document_id, target_project_id, user_id) -> dict
-  reject_document_suggestion(document_id) -> bool
 
 Eticka vrstva (analog Phase 15c):
-  Marti-AI tools jsou suggestion only. Skutecna zmena project_id pres
-  apply_document_move vyzaduje user_id (Marti's confirm).
+  Marti-AI's tools jsou suggestion only. apply_document_move vyzaduje
+  user_id ownership (per-user inbox isolation -- nikdo nesmi presouvat
+  cizi dokumenty).
 """
 from __future__ import annotations
 
@@ -33,15 +37,19 @@ def _now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-# ── INBOX LIST ────────────────────────────────────────────────────────────
+# ── INBOX LIST (per user + tenant) ────────────────────────────────────────
 
 def list_inbox_documents(
+    user_id: int,
     tenant_id: int,
     limit: int = 50,
 ) -> list[dict]:
     """
-    Vrati seznam dokumentu v INBOXu (project_id=NULL) pro current tenant.
-    Sorted by created_at DESC -- nejnovejsi nahore.
+    Vrati seznam dokumentu v INBOXu pro daneho usera v tenantu.
+    Filter: tenant_id + user_id + project_id IS NULL.
+
+    Marti's pravidlo v2: per-user, per-tenant -- aby se neuploady ruznych
+    uzivatelu nemichaly.
     """
     ds = get_data_session()
     try:
@@ -49,6 +57,7 @@ def list_inbox_documents(
             ds.query(Document)
             .filter(
                 Document.tenant_id == tenant_id,
+                Document.user_id == user_id,
                 Document.project_id.is_(None),
             )
             .order_by(Document.created_at.desc())
@@ -60,14 +69,15 @@ def list_inbox_documents(
         ds.close()
 
 
-def count_inbox_documents(tenant_id: int) -> int:
-    """Pro UI badge a composer block."""
+def count_inbox_documents(user_id: int, tenant_id: int) -> int:
+    """Pro UI badge a composer block. Per user + tenant."""
     ds = get_data_session()
     try:
         return (
             ds.query(Document)
             .filter(
                 Document.tenant_id == tenant_id,
+                Document.user_id == user_id,
                 Document.project_id.is_(None),
             )
             .count()
@@ -84,14 +94,23 @@ def apply_document_move(
     user_id: int,
 ) -> dict:
     """
-    Provede skutecny presun dokumentu do projektu (po Marti's confirm v chatu).
+    Provede skutecny presun dokumentu do projektu (po Marti's confirm).
     target_project_id=None -> ponecha v inboxu (= reverze).
+
+    Validace: user_id musi byt vlastnik dokumentu. Per-user isolation --
+    nikdo nesmi presouvat dokumenty jinych userov.
     """
     ds = get_data_session()
     try:
         doc = ds.query(Document).filter_by(id=document_id).first()
         if doc is None:
             raise ValueError(f"document {document_id} not found")
+
+        if doc.user_id != user_id:
+            raise PermissionError(
+                f"document {document_id} patri jinemu userovi (#{doc.user_id}) "
+                f"-- ty jsi #{user_id}. Per-user inbox isolation."
+            )
 
         old_project = doc.project_id
         doc.project_id = target_project_id

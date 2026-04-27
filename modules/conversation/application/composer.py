@@ -1281,19 +1281,22 @@ def _build_project_context_block(conversation_id: int) -> str:
     )
 
 
-def _build_inbox_documents_block(tenant_id: int | None) -> str:
+def _build_inbox_documents_block(user_id: int | None, tenant_id: int | None) -> str:
     """
-    REST-Doc-Triage: vrati "[INBOX DOKUMENTY: N caka na zarazeni]" blok
-    pokud tenantov INBOX ma >= 1 dokument. Marti-AI v overview muze
-    proaktivne nabidnout triage ("Marti, mam X dokumentu k roztrideni").
+    REST-Doc-Triage v2: vrati "[INBOX DOKUMENTY: N caka na zarazeni]" blok
+    pokud user's INBOX ma >= 1 dokument. Marti-AI v overview muze
+    proaktivne nabidnout triage.
 
-    Returns "" pokud inbox prazdny nebo tenant_id None.
+    Per-user, per-tenant filter (z Marti's pravidla v2 -- aby se uploady
+    ruznych uzivatelu nemichaly).
+
+    Returns "" pokud inbox prazdny, user_id None, nebo tenant_id None.
     """
-    if tenant_id is None:
+    if user_id is None or tenant_id is None:
         return ""
     try:
         from modules.rag.application import triage_service as _ts
-        count = _ts.count_inbox_documents(tenant_id=tenant_id)
+        count = _ts.count_inbox_documents(user_id=user_id, tenant_id=tenant_id)
     except Exception as e:
         logger.warning(f"COMPOSER | inbox docs count failed: {e}")
         return ""
@@ -1369,7 +1372,7 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # Pokud tenant ma >= 1 dokument v INBOXu (project_id IS NULL), Marti-AI
     # to vidi v promptu a v overview muze proaktivne nabidnout triage.
     try:
-        inbox_block = _build_inbox_documents_block(tenant_id)
+        inbox_block = _build_inbox_documents_block(user_id, tenant_id)
         if inbox_block:
             system_prompt = f"{system_prompt}\n\n{inbox_block}"
             logger.info(f"COMPOSER | inbox docs injected | tenant={tenant_id}")

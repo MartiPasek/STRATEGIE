@@ -1623,6 +1623,10 @@
           <button class="vm-cancel" id="vmCancel" type="button">Zrušit</button>
         </div>
 <div class="input-row">
+          <!-- REST-Doc-Triage v2: 📁 dokument upload do per-user inboxu -->
+          <button class="attach-btn" id="docInboxBtn" title="Nahrát dokumenty do osobního inboxu (Marti-AI je pak roztřídí do projektů). Klik pro výběr složky/souborů, nebo přetáhnout sem." aria-label="Nahrát dokumenty do inboxu" style="margin-right:4px">📁</button>
+          <input type="file" id="docInboxFileInput" multiple style="display:none">
+          <input type="file" id="docInboxFolderInput" webkitdirectory directory multiple style="display:none">
           <button class="attach-btn" id="attachBtn" title="Pripojit obrazek nebo audio (klik nebo prtahni mysi)" aria-label="Pripojit obrazek nebo audio">📎</button>
           <input type="file" id="fileInput" multiple accept="image/jpeg,image/png,image/webp,image/gif,audio/mpeg,audio/mp3,audio/m4a,audio/mp4,audio/wav,audio/x-wav,audio/ogg,audio/webm" style="display:none">
           <textarea id="inputText" placeholder="Jsem tu, tak povídej…" rows="1"></textarea>
@@ -3805,6 +3809,58 @@
       return all;
     }
     return [];
+  }
+
+    // REST-Doc-Triage v2: 📁 ikona v input-row (vlevo od 📎) -- otevre menu
+  // pro folder nebo file upload do osobniho inboxu. Routuje na _uploadDocument
+  // (existing bulk upload logic, zaroven pres /api/v1/documents/upload).
+  function _wireDocInboxBtn() {
+    const btn = document.getElementById('docInboxBtn');
+    const fileInput = document.getElementById('docInboxFileInput');
+    const folderInput = document.getElementById('docInboxFolderInput');
+    if (!btn || btn.dataset.wired) return;
+    btn.dataset.wired = '1';
+
+    // Klik na 📁 -- nabidneme volbu File vs Folder pres prompt menu
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      // Single-click prompt: File or Folder?
+      const choice = window.confirm(
+        "📁 Nahrát do inboxu (Marti-AI roztřídí):\n\n" +
+        "OK = vybrat soubory\n" +
+        "Cancel = vybrat složku"
+      );
+      if (choice) {
+        fileInput.click();
+      } else {
+        folderInput.click();
+      }
+    });
+
+    // Po výběru -- delegate na _uploadDocument
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        if (typeof _uploadDocument === 'function') {
+          _uploadDocument(fileInput.files);
+        }
+        fileInput.value = '';
+      }
+    });
+    folderInput.addEventListener('change', () => {
+      if (folderInput.files && folderInput.files.length > 0) {
+        if (typeof _uploadDocument === 'function') {
+          _uploadDocument(folderInput.files);
+        }
+        folderInput.value = '';
+      }
+    });
+  }
+
+  // Wire on DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wireDocInboxBtn);
+  } else {
+    setTimeout(_wireDocInboxBtn, 0);
   }
 
   function _wireDocumentsDropZone() {

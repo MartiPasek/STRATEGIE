@@ -3008,6 +3008,151 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             + " Composer ti je vždy injectuje do system promptu — vidíš je nahoře jako [ZÁPISNÍČEK]."
         )
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15c: Kustod / project triage handlers
+    # ─────────────────────────────────────────────────────────────────────
+    if tool_name == "suggest_move_conversation":
+        from modules.notebook.application import kustod_service as _ks_m
+
+        target_pid = tool_input.get("target_project_id")
+        if target_pid is None:
+            return "❌ Musíš dodat `target_project_id` -- kam navrhuješ přesun?"
+        try:
+            target_pid = int(target_pid)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné target_project_id: {target_pid!r}"
+
+        reason_m = (tool_input.get("reason") or "").strip()
+        if len(reason_m) < 5:
+            return "❌ Důvod je moc krátký (min 5 znaků). Napiš proč navrhuješ přesun."
+
+        persona_id_m = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_m is None:
+            return "❌ Nemůžu zjistit, která persona jsem -- bez persona_id nelze suggest."
+
+        try:
+            result = _ks_m.suggest_move_conversation(
+                conversation_id=conversation_id,
+                target_project_id=target_pid,
+                persona_id=persona_id_m,
+                reason=reason_m,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"KUSTOD | suggest_move | failed: {e}")
+            return f"❌ Chyba při ukládání návrhu: {e}"
+
+        return (
+            f"📦 Navrhuju přesun této konverzace do projektu #{target_pid}. "
+            f"Pověz Marti -- on potvrdí v chatu (\"ano přesuň\" nebo \"ne nech\")."
+        )
+
+    if tool_name == "suggest_split_conversation":
+        from modules.notebook.application import kustod_service as _ks_s
+
+        target_pid_s = tool_input.get("target_project_id")
+        if target_pid_s is None:
+            return "❌ Musíš dodat `target_project_id`."
+        try:
+            target_pid_s = int(target_pid_s)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné target_project_id: {target_pid_s!r}"
+
+        fork_msg_id = tool_input.get("fork_from_message_id")
+        if fork_msg_id is None:
+            return "❌ Musíš dodat `fork_from_message_id` -- od které zprávy splittnout."
+        try:
+            fork_msg_id = int(fork_msg_id)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné fork_from_message_id: {fork_msg_id!r}"
+
+        reason_s = (tool_input.get("reason") or "").strip()
+        if len(reason_s) < 5:
+            return "❌ Důvod je moc krátký (min 5 znaků)."
+
+        persona_id_s = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_s is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        try:
+            result_s = _ks_s.suggest_split_conversation(
+                conversation_id=conversation_id,
+                target_project_id=target_pid_s,
+                fork_from_message_id=fork_msg_id,
+                persona_id=persona_id_s,
+                reason=reason_s,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"KUSTOD | suggest_split | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        return (
+            f"🔀 Navrhuju split od zprávy #{fork_msg_id} do projektu #{target_pid_s}. "
+            f"Strategický kontext zůstane, nové vlákno dostane vlastní konverzaci. "
+            f"Pověz Marti -- potvrdí v chatu."
+        )
+
+    if tool_name == "suggest_create_project":
+        from modules.notebook.application import kustod_service as _ks_c
+
+        proposed_name_c = (tool_input.get("proposed_name") or "").strip()
+        if len(proposed_name_c) < 3:
+            return "❌ proposed_name je moc krátký (min 3 znaky)."
+
+        proposed_desc_c = (tool_input.get("proposed_description") or "").strip()
+        if len(proposed_desc_c) < 5:
+            return "❌ proposed_description je moc krátký (min 5 znaků) -- 1 věta o účelu."
+
+        first_member = tool_input.get("proposed_first_member_id")
+        if first_member is None:
+            return "❌ Musíš dodat `proposed_first_member_id` -- defaultně current Marti."
+        try:
+            first_member = int(first_member)
+        except (TypeError, ValueError):
+            return f"❌ Neplatné proposed_first_member_id: {first_member!r}"
+
+        target_conv_c = tool_input.get("target_conversation_id")
+        if target_conv_c is not None:
+            try:
+                target_conv_c = int(target_conv_c)
+            except (TypeError, ValueError):
+                target_conv_c = None
+        # Default = current konverzace
+        if target_conv_c is None:
+            target_conv_c = conversation_id
+
+        reason_c = (tool_input.get("reason") or "").strip()
+        if len(reason_c) < 5:
+            return "❌ reason je moc krátký (min 5 znaků)."
+
+        persona_id_c = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_c is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        try:
+            result_c = _ks_c.suggest_create_project(
+                proposed_name=proposed_name_c,
+                proposed_description=proposed_desc_c,
+                proposed_first_member_id=first_member,
+                target_conversation_id=target_conv_c,
+                persona_id=persona_id_c,
+                reason=reason_c,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"KUSTOD | suggest_create_project | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        return (
+            f"🆕 Navrhuju založit projekt **{proposed_name_c}** -- {proposed_desc_c} "
+            f"(první člen #{first_member}). Pověz Marti -- potvrdí v chatu "
+            f"(\"ano založ\" nebo \"ne\"), backend pak vytvoří projekt + přesune konverzaci."
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

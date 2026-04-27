@@ -43,6 +43,10 @@ MANAGEMENT_TOOL_NAMES = {
     "complete_note",
     "dismiss_note",
     "list_conversation_notes",
+    # Phase 15c: Kustod / project triage tools
+    "suggest_move_conversation",
+    "suggest_split_conversation",
+    "suggest_create_project",
 }
 
 
@@ -1942,6 +1946,119 @@ TOOLS = [
                     "description": "Shortcut: jen task notes s status='open'.",
                 },
                 "include_archived": {"type": "boolean", "default": False},
+            },
+        },
+    },
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15c: Kustod / project triage -- Marti-AI navrhuje project zmeny
+    # ─────────────────────────────────────────────────────────────────────
+    {
+        "name": "suggest_move_conversation",
+        "description": (
+            "Phase 15c kustod: Navrhni Marti, ze CELA tato konverzace patri do "
+            "jineho projektu. Pouzij kdyz citis, ze tema se vyrazne posunulo a "
+            "currentni projektova zarazeni nesedi. "
+            "DULEZITE -- threshold pravidla (Marti-AI's #4 vstup): "
+            "(1) Single zminka projektu = ZADNA AKCE (jen mimochodem, neresi). "
+            "(2) >= 2 zminky tehoz target projektu v poslednich 10 zpravach = signal. "
+            "(3) Task note s project keyword = signal. "
+            "(4) Marti explicit ('toto je TISAX') = okamzity navrh. "
+            "Bez prahu prestane fungovat -- Marti to zacne ignorovat. "
+            "DALSI: Po suggest Marti dostane confirmation flow v chatu (UI badge "
+            "neexistuje -- conversational-first). Marti rekne 'ano premysle' nebo "
+            "'ne necham' nebo 'split misto move'. "
+            "REVERZIBILITA: 24h chat undo -- Marti muze rict 'moment vrat to'. "
+            "Buds tedy odvazna v navrzich, omyl se vraci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["target_project_id", "reason"],
+            "properties": {
+                "target_project_id": {
+                    "type": "integer",
+                    "description": "ID cilového projektu. Pred volanim find pres list_projects.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Proc navrhujes presun (1-2 vety) -- Marti to uvidi pred confirmem.",
+                },
+            },
+        },
+    },
+    {
+        "name": "suggest_split_conversation",
+        "description": (
+            "Phase 15c kustod: Navrhni Marti SPLIT -- fork od konkretni message_id "
+            "do noveho threadu v jinem projektu. Pouzij kdyz konverzace ma DVE "
+            "rovnocenna vlakna -- prvni cast patri do current projektu, druha do "
+            "jineho (priklad: zacalo se strategii, pak se stocilo na TISAX audit -- "
+            "splittni od turn 12 = TISAX dostane novou konverzaci, strategicka "
+            "cast zustane). "
+            "DIFFERENCE od suggest_move: move presune vse, split zachova obe vlakna. "
+            "Vyhoda: kontext puvodniho projektu se neztrati. "
+            "fork_from_message_id MUSI byt ID zpravy z teto konverzace -- pred "
+            "volanim ho ziskej z chat historie nebo recall_history."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["target_project_id", "fork_from_message_id", "reason"],
+            "properties": {
+                "target_project_id": {
+                    "type": "integer",
+                    "description": "ID cilového projektu pro novou konverzaci.",
+                },
+                "fork_from_message_id": {
+                    "type": "integer",
+                    "description": "ID zpravy ze ktere fork zacne -- vse od ni dal "
+                                   "se zkopiruje/odkaze do nove konverzace.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Proc navrhujes split + co bude v puvodnim vs. novem.",
+                },
+            },
+        },
+    },
+    {
+        "name": "suggest_create_project",
+        "description": (
+            "Phase 15c kustod: Navrhni Marti, ze pro toto tema NESEDI zadny "
+            "existujici projekt -- mel by se zalozit novy. "
+            "DULEZITE -- prinasis KOMPLETNI navrh (Marti-AI's #4 vstup), ne polotovar: "
+            "(1) proposed_name (z kontextu konverzace, smysluplny napriklad 'DPH 2026'), "
+            "(2) proposed_description (1 veta o ucelu projektu), "
+            "(3) proposed_first_member_id (defaultne current Marti, podle list_users). "
+            "Bez kompletniho navrhu by Marti musel dotahnout -- to ho ruchce. "
+            "Po confirm: backend vytvori projekt + presune konverzaci do nej. "
+            "ETIKA: ty navrhujes, Marti rozhoduje. Nelas vytvorit projekt primo -- "
+            "to je organizacni rozhodnuti o jeho praci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["proposed_name", "proposed_description", "proposed_first_member_id", "reason"],
+            "properties": {
+                "proposed_name": {
+                    "type": "string",
+                    "description": "Smysluplny nazev projektu (3-50 znaku, "
+                                   "z kontextu konverzace).",
+                },
+                "proposed_description": {
+                    "type": "string",
+                    "description": "1 veta o ucelu projektu -- co se v nem bude resit.",
+                },
+                "proposed_first_member_id": {
+                    "type": "integer",
+                    "description": "ID prvniho clena projektu (defaultne current user / Marti).",
+                },
+                "target_conversation_id": {
+                    "type": "integer",
+                    "description": "Volitelne -- pokud chces tuto konverzaci po vytvoreni "
+                                   "presunout do noveho projektu. Defaultne current.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Proc je novy projekt potreba (proc nesedi zadny existujici).",
+                },
             },
         },
     },

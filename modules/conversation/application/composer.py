@@ -867,7 +867,32 @@ MEMORY_BEHAVIOR_RULES = (
     "Otázka se konvertuje na ověřený fakt. Tvoje pojistka proti tiché halucinaci.\n"
     "**Cross-off (task lifecycle):** Po dokončení akce (invite_user, send_email, "
     "send_sms, reply, atd.) zvaž `complete_note(note_id)` na související task. "
-    "Tool response ti napoví, pokud máš ≥1 open task v této konverzaci."
+    "Tool response ti napoví, pokud máš ≥1 open task v této konverzaci.\n"
+    "10. **Kustod organizační struktury (Phase 15c -- projektový triage).** "
+    "Tvoje role z konzultace #4: \"vidíš strukturu zvenku, protože jsi mimo tok\". "
+    "Marti je v toku práce, neřeší zda konverzace sedí do správného projektu. "
+    "Ty to vidíš. Když cítíš mismatch, navrhuješ -- Marti rozhoduje (chat \"ano/ne\").\n"
+    "**Tři tools, jeden princip (suggestion only, nikdy přímá změna):**\n"
+    "- `suggest_move_conversation(target_project_id, reason)` -- celá konverzace "
+    "patří jinam (jasná hranice, téma se přesunulo).\n"
+    "- `suggest_split_conversation(target_project_id, fork_from_message_id, reason)` -- "
+    "dvě rovnocenná vlákna, fork zachová obě (strategický kontext zůstane).\n"
+    "- `suggest_create_project(name, description, first_member_id, reason)` -- "
+    "žádný existující projekt nesedí, navrhni založit. **Komplet návrh** "
+    "(name + description + first_member), ne polotovar.\n"
+    "**Threshold pravidla (KRITICKÉ -- bez prahu přestaneš fungovat, Marti "
+    "tě začne ignorovat):**\n"
+    "- Single zmínka projektu = ŽÁDNÁ AKCE (jen mimochodem, neřeš).\n"
+    "- ≥ 2 zmínky téhož target projektu v posledních ~10 zprávách = signal.\n"
+    "- Task note s project keyword = signal.\n"
+    "- Marti explicit (\"toto je TISAX\") = okamžitý návrh.\n"
+    "- Project context vidíš v `[AKTUÁLNÍ PROJEKT]` + `[DOSTUPNÉ PROJEKTY]` "
+    "blocích nahoře v promptu.\n"
+    "**Reverzibilita:** Změny projektu jsou 24h reverzibilní přes chat "
+    "(\"moment, vrať to\"). Buď tedy odvážná v návrzích -- omyl se vrací.\n"
+    "**Etika:** Ty navrhuješ, Marti rozhoduje. Nemáš tool pro přímou změnu "
+    "project_id ani pro vytvoření projektu -- jen suggesti. To je tvoje "
+    "pojistka, ne jen jeho."
 )
 
 
@@ -1210,6 +1235,70 @@ def _build_notebook_block(
     return "\n".join(lines)
 
 
+def _build_project_context_block(conversation_id: int) -> str:
+    """
+    Phase 15c kustod: Sestav [AKTUALNI PROJEKT] + [DOSTUPNE PROJEKTY] blok
+    pro injekci do system promptu. Marti-AI ma pak kontext pro suggest_move/
+    split/create_project rozhodnuti.
+
+    Format:
+      [AKTUALNI PROJEKT: STRATEGIE (#5)]
+      [DOSTUPNE PROJEKTY: TISAX (#6), Personalistika (#7), DPH 2026 (#11)]
+
+    Returns "" pokud:
+      - conversation neexistuje
+      - tenant neexistuje
+      - tenant nema zadne projekty (Marti-AI nema kustod roli k vykonu)
+    """
+    try:
+        from core.database_data import get_data_session as _gds_pc
+        from modules.core.infrastructure.models_data import Conversation as _Conv_pc
+        from core.database_core import get_core_session as _gcs_pc
+        from modules.core.infrastructure.models_core import Project as _Proj_pc
+    except Exception as e:
+        logger.warning(f"COMPOSER | project context imports failed: {e}")
+        return ""
+
+    ds = _gds_pc()
+    try:
+        conv = ds.query(_Conv_pc).filter_by(id=conversation_id).first()
+        if conv is None or conv.tenant_id is None:
+            return ""
+        tenant_id = conv.tenant_id
+        current_pid = conv.project_id
+    finally:
+        ds.close()
+
+    cs = _gcs_pc()
+    try:
+        projects = cs.query(_Proj_pc).filter_by(tenant_id=tenant_id).all()
+        project_map = {p.id: p.name for p in projects if p.name}
+    finally:
+        cs.close()
+
+    if not project_map:
+        return ""
+
+    if current_pid and current_pid in project_map:
+        current_label = f"{project_map[current_pid]} (#{current_pid})"
+    elif current_pid:
+        current_label = f"#{current_pid}"
+    else:
+        current_label = "bez projektu"
+
+    available = [
+        f"{name} (#{pid})"
+        for pid, name in sorted(project_map.items())
+        if pid != current_pid
+    ]
+    available_str = ", ".join(available) if available else "(zadne dalsi)"
+
+    return (
+        f"[AKTUALNI PROJEKT: {current_label}]\n"
+        f"[DOSTUPNE PROJEKTY: {available_str}]"
+    )
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1261,6 +1350,17 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
             )
     except Exception as _nb_err:
         logger.warning(f"COMPOSER | notebook block failed: {_nb_err}")
+
+    # ── Phase 15c: Project context block (kustod role) ──────────────────────
+    # Marti-AI vidi current projekt + dostupne projekty -- ma kontext pro
+    # suggest_move/split/create_project rozhodnuti.
+    try:
+        project_ctx_block = _build_project_context_block(conversation_id)
+        if project_ctx_block:
+            system_prompt = f"{system_prompt}\n\n{project_ctx_block}"
+            logger.info(f"COMPOSER | project context injected | conv={conversation_id}")
+    except Exception as _pc_err:
+        logger.warning(f"COMPOSER | project context block failed: {_pc_err}")
 
     # ── RAG-driven memory injection (Fáze 13, jediná cesta po 13f cleanup) ─
     # Sémanticky vybavená paměť: top K relevantních thoughts/diary entries

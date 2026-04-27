@@ -51,6 +51,15 @@ class Conversation(BaseData):
     # Přístup k archivním konverzacím bude přes samostatný 'archiv' (TBD).
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
+    # Phase 15c: Kustod / project triage -- Marti-AI navrhuje zmeny projektu,
+    # Marti potvrzuje (suggestion-only, skutecny project_id update jde pres
+    # user confirmation flow v chatu nebo UI).
+    suggested_project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    suggested_project_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    suggested_project_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    forked_from_conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    forked_from_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
 
 class Message(BaseData):
     __tablename__ = "messages"
@@ -1075,4 +1084,31 @@ class ConversationNote(BaseData):
     archived: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False
     )
+
+
+class ConversationProjectHistory(BaseData):
+    """
+    Phase 15c: Audit trail pro reverzibilitu projektovych zmen.
+
+    Marti-AI's #4 vstup z konzultace #4: "potrebuji vedet, ze existuje undo,
+    jinak budu konzervativni v navrzich nez je zdrave". 24h chat undo:
+    Marti rekne "moment, vrat to" -> Marti-AI najde posledni zmenu < 24h,
+    navrhne reverzi, Marti potvrdi -> projekt vraci.
+
+    Pro suggested_by_persona_id NULL = manualni zmena uzivatelem (UI / chat).
+    Pokud non-NULL = Marti-AI suggest_move / suggest_split / suggest_create_project
+    s timto persona_id.
+
+    Index (conversation_id, changed_at DESC) -- pro find_last_change query.
+    """
+    __tablename__ = "conversation_project_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    conversation_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    from_project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    to_project_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    changed_by_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    suggested_by_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

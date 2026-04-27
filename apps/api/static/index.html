@@ -4000,10 +4000,31 @@
     }
   }
 
+  // Phase 15b-fix2: globalni poller -- bezi vzdy, na kazdem ticku zkontroluje
+  // conversationId. Pri zmene conversationId ze rozumeho stavu na ne-rozumeny
+  // (uzavreni konverzace) nezapne, ale pri prechodu null->X spusti immediate
+  // refresh. Eliminuje race conditions s openConversation timing.
+  let _lastPolledConvId = null;
+  function _globalNotebookTick() {
+    if (conversationId !== _lastPolledConvId) {
+      _lastPolledConvId = conversationId;
+      _refreshNotebookBadge();   // immediate na change
+    } else if (conversationId) {
+      _refreshNotebookBadge();   // periodicky refresh
+    }
+  }
+
   function _startNotebookPolling() {
     _stopNotebookPolling();
     _refreshNotebookBadge();   // immediate
-    _notebookPollInterval = setInterval(_refreshNotebookBadge, _NOTEBOOK_POLL_MS);
+    _notebookPollInterval = setInterval(_globalNotebookTick, _NOTEBOOK_POLL_MS);
+  }
+
+  // Always-on global poller -- spusti se pri loadu DOM bez ohledu na to,
+  // jestli openConversation jiz bezel. Detekuje zmenu conversationId
+  // automaticky a refreshuje badge.
+  if (!window._notebookGlobalPoller) {
+    window._notebookGlobalPoller = setInterval(_globalNotebookTick, _NOTEBOOK_POLL_MS);
   }
 
   function _typeColorClass(noteType) {
@@ -4127,10 +4148,20 @@
   }
 
   // Wire on DOM ready (defer until elements exist)
+  function _wireAndKick() {
+    _wireNotebookUI();
+    // Phase 15b-fix2: vzdy spustit immediate refresh -- conversationId
+    // se vyhodnoti uvnitr _refreshNotebookBadge (pokud null, schova badge).
+    // Plus _globalNotebookTick uz bezi na pozadi.
+    _refreshNotebookBadge();
+    if (conversationId) {
+      _startNotebookPolling();
+    }
+  }
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', _wireNotebookUI);
+    document.addEventListener('DOMContentLoaded', _wireAndKick);
   } else {
-    setTimeout(_wireNotebookUI, 0);
+    setTimeout(_wireAndKick, 0);
   }
 
   async function openConversation(convId) {
@@ -7674,6 +7705,9 @@
         conversationId = data.conversation_id;
         pendingPersonaId = null;   // uz aplikovano backendem pri create
         convIdLabel.textContent = `#${conversationId}`;
+        // Phase 15b-fix2: po kazde odpovedi obnov notebook badge
+        // (Marti-AI mozna prave zapsala novou poznamku pres add_conversation_note)
+        if (typeof _startNotebookPolling === 'function') _startNotebookPolling();
         // aktualizuj jméno persony DŘÍVE než vykreslíme bubble,
         // ať má popisek zprávy správnou identitu (např. Klára-AI vs Marti-AI)
         if (data.active_persona) {

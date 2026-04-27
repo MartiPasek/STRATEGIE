@@ -1584,7 +1584,7 @@
       </div>
 
       <!-- Phase 15b: Conversation Notebook modal -->
-      <div class="sms-modal-overlay" id="notebookModalOverlay">
+      <div class="sms-modal-bg" id="notebookModalBg">
         <div class="sms-modal-card" id="notebookModalCard">
           <div class="sms-modal-header">
             <div class="sms-modal-title" id="notebookModalTitle">📓 Zápisník konverzace</div>
@@ -4078,11 +4078,11 @@
 
   async function openNotebookModal() {
     if (!conversationId) return;
-    const overlay = document.getElementById('notebookModalOverlay');
+    const bg = document.getElementById('notebookModalBg');
     const sub = document.getElementById('notebookModalSub');
     const list = document.getElementById('notebookModalList');
-    if (!overlay || !list) return;
-    overlay.classList.add('is-visible');
+    if (!bg || !list) return;
+    bg.classList.add('open');
     list.innerHTML = '<div class="sms-loading">Načítám…</div>';
     if (sub) sub.textContent = `Konverzace #${conversationId}`;
     const data = await _loadNotebookModalNotes(conversationId, _notebookActiveFilter);
@@ -4090,8 +4090,8 @@
   }
 
   function closeNotebookModal() {
-    const overlay = document.getElementById('notebookModalOverlay');
-    if (overlay) overlay.classList.remove('is-visible');
+    const bg = document.getElementById('notebookModalBg');
+    if (bg) bg.classList.remove('open');
   }
 
   function _wireNotebookUI() {
@@ -4106,15 +4106,15 @@
       closeBtn.dataset.wired = '1';
       closeBtn.addEventListener('click', closeNotebookModal);
     }
-    const overlay = document.getElementById('notebookModalOverlay');
-    if (overlay && !overlay.dataset.wired) {
-      overlay.dataset.wired = '1';
-      overlay.addEventListener('click', (e) => { if (e.target === overlay) closeNotebookModal(); });
+    const bg = document.getElementById('notebookModalBg');
+    if (bg && !bg.dataset.wired) {
+      bg.dataset.wired = '1';
+      bg.addEventListener('click', (e) => { if (e.target === bg) closeNotebookModal(); });
     }
     document.addEventListener('keydown', (e) => {
       if (e.key === 'Escape') {
-        const ov = document.getElementById('notebookModalOverlay');
-        if (ov && ov.classList.contains('is-visible')) closeNotebookModal();
+        const ov = document.getElementById('notebookModalBg');
+        if (ov && ov.classList.contains('open')) closeNotebookModal();
       }
     });
     // Tab buttons

@@ -56,10 +56,15 @@ async def upload_endpoint(
     file: UploadFile = File(...),
     project_id: int | None = Form(default=None),
     display_name: str | None = Form(default=None),
+    relative_path: str | None = Form(default=None),
 ) -> dict:
     """
     Upload souboru (multipart/form-data). Pripoji se do current tenantu,
     optional project_id pro project-scoped dokument. Processing je sync v MVP.
+
+    REST-Bulk: relative_path -- pro bulk upload slozky se zachovanim
+    podadresarove struktury (napr. "TISAX/audit_2026/cert.pdf"). Backend
+    ho prepne do display_name (pokud display_name neni explicit dany).
     """
     user_id, tenant_id = _get_user_context(req)
 
@@ -74,6 +79,16 @@ async def upload_endpoint(
             status_code=413,
             detail=f"Soubor je větší než {MAX_UPLOAD_MB} MB.",
         )
+
+    # REST-Bulk: pokud klient poslal relative_path (z folder upload)
+    # a nedal explicit display_name, pouzijeme path jako display_name
+    # pro zachovani slozkove struktury v UI listu.
+    if relative_path and not display_name:
+        # Sanitize -- jen alphanum, slash, dot, dash, underscore, mezery
+        import re
+        safe = re.sub(r"[^\w\s./\-]", "_", relative_path.strip().lstrip("/"))
+        if safe and len(safe) <= 500:
+            display_name = safe
 
     from modules.audit.application.service import log_event
     ip = req.client.host if req.client else None

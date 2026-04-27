@@ -1721,11 +1721,32 @@
     <div class="modal-box modal-box-wide">
       <div class="modal-title">DOKUMENTY</div>
       <div class="modal-text" id="documentsModalSub">
-        Nahraj PDF, DOCX, XLSX nebo text. AI je pak umí prohledat. Scope: aktuální tenant (a projekt, pokud ho máš zvolený).
+        Nahraj PDF, DOCX, XLSX nebo text — vše jde do sdíleného INBOXU tenantu. Marti-AI je pak roztřídí do správných projektů (kustod dokumentů). AI je pak umí prohledat.
       </div>
-      <div style="display:flex;gap:8px;align-items:center;margin:12px 0;flex-wrap:wrap">
-        <input type="file" id="documentsFileInput" style="flex:1;min-width:200px" />
-        <button class="modal-btn modal-btn-primary" id="documentsUploadBtn" style="font-size:12px">Nahrát</button>
+      <div style="margin:12px 0">
+        <!-- REST-Bulk: drop zone podporuje jednotlivé soubory i složky -->
+        <div id="documentsDropZone" style="border:2px dashed var(--border);border-radius:8px;padding:20px;text-align:center;color:var(--muted);cursor:pointer;transition:border-color .15s,background .15s;font-size:12.5px">
+          <div style="font-size:24px;margin-bottom:6px">📁</div>
+          <div><strong>Přetáhni složku nebo soubory sem</strong></div>
+          <div style="margin-top:4px;opacity:0.7">Vše jde do sdíleného inboxu — Marti-AI to pak roztřídí do projektů</div>
+          <div style="margin-top:10px;display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+            <button class="modal-btn modal-btn-secondary" id="documentsPickFilesBtn" style="font-size:12px" type="button">📄 Vybrat soubory</button>
+            <button class="modal-btn modal-btn-secondary" id="documentsPickFolderBtn" style="font-size:12px" type="button">📁 Vybrat složku</button>
+          </div>
+        </div>
+        <input type="file" id="documentsFileInput" multiple style="display:none" />
+        <input type="file" id="documentsFolderInput" webkitdirectory directory multiple style="display:none" />
+        <!-- Progress bar -->
+        <div id="documentsBulkProgress" style="display:none;margin-top:10px;padding:10px;border:1px solid var(--border);border-radius:6px;background:var(--bg-elev)">
+          <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:6px">
+            <span id="documentsBulkLabel">Nahrávám…</span>
+            <span id="documentsBulkCount">0 / 0</span>
+          </div>
+          <div style="height:6px;background:var(--border);border-radius:3px;overflow:hidden">
+            <div id="documentsBulkBar" style="height:100%;width:0%;background:#7c3aed;transition:width .2s"></div>
+          </div>
+          <div id="documentsBulkErrors" style="font-size:11px;color:#e07070;margin-top:6px"></div>
+        </div>
       </div>
       <div id="documentsUploadMsg" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>
       <div class="archive-list" id="documentsList">
@@ -3584,7 +3605,6 @@
     document.getElementById('documentsModalClose').addEventListener('click', () => {
       document.getElementById('documentsModal').style.display = 'none';
     });
-    document.getElementById('documentsUploadBtn').addEventListener('click', _uploadDocument);
   }
 
   async function _refreshDocumentsList() {
@@ -3667,47 +3687,198 @@
     });
   }
 
-  async function _uploadDocument() {
-    const fileInput = document.getElementById('documentsFileInput');
-    const msg = document.getElementById('documentsUploadMsg');
-    const btn = document.getElementById('documentsUploadBtn');
-    msg.style.color = ''; msg.textContent = '';
-
-    const file = fileInput.files && fileInput.files[0];
-    if (!file) { msg.style.color = '#e07070'; msg.textContent = 'Vyber soubor.'; return; }
-    if (file.size > 50 * 1024 * 1024) { msg.style.color = '#e07070'; msg.textContent = 'Soubor je větší než 50 MB.'; return; }
-
-    btn.disabled = true;
-    msg.style.color = 'var(--muted)';
-    msg.textContent = `Nahrávám „${file.name}" (${(file.size / 1024).toFixed(0)} kB)… může to chvilku trvat (extrakce + embeddings).`;
-
+  async function _uploadOneDocument(file, relativePath) {
+    // REST-Bulk: NEPOSILAME project_id -- bulk upload jde do sdileneho
+    // tenant INBOX. Marti-AI pak rozhodne, do ktereho projektu kazdy
+    // dokument patri (analog kustod konverzaci z Phase 15c). Cilem je
+    // zabranit, aby uzivatele delali bordel primo v projektech.
     const fd = new FormData();
     fd.append('file', file);
-    if (currentUser && currentUser.project_id) {
-      fd.append('project_id', String(currentUser.project_id));
+    if (relativePath) {
+      fd.append('relative_path', relativePath);
     }
-    try {
-      const r = await fetch('/api/v1/documents/upload', {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
-      });
+    const r = await fetch('/api/v1/documents/upload', {
+      method: 'POST', credentials: 'include', body: fd,
+    });
+    if (!r.ok) {
       const d = await r.json().catch(() => ({}));
-      if (!r.ok) {
-        msg.style.color = '#e07070';
-        msg.textContent = d.detail || `Chyba ${r.status}`;
+      throw new Error(d.detail || `HTTP ${r.status}`);
+    }
+    return await r.json();
+  }
+
+  async function _uploadDocument(filesArg) {
+    // REST-Bulk: prijima vice forem vstupu:
+    // - bez argumentu: pouzije documentsFileInput.files
+    // - argument FileList nebo Array<{file, relativePath}>: bulk upload
+    const msg = document.getElementById('documentsUploadMsg');
+    const progressEl = document.getElementById('documentsBulkProgress');
+    const labelEl = document.getElementById('documentsBulkLabel');
+    const countEl = document.getElementById('documentsBulkCount');
+    const barEl = document.getElementById('documentsBulkBar');
+    const errEl = document.getElementById('documentsBulkErrors');
+
+    // Build file list -- normalizuj na [{file, relativePath}, ...]
+    let items = [];
+    if (filesArg && Array.isArray(filesArg)) {
+      items = filesArg;   // already normalized
+    } else if (filesArg && filesArg.length !== undefined) {
+      // FileList from webkitdirectory: each file ma webkitRelativePath
+      for (let i = 0; i < filesArg.length; i++) {
+        const f = filesArg[i];
+        items.push({ file: f, relativePath: f.webkitRelativePath || f.name });
+      }
+    } else {
+      // Default: single file from fileInput
+      const fileInput = document.getElementById('documentsFileInput');
+      if (!fileInput || !fileInput.files || fileInput.files.length === 0) {
+        msg.style.color = 'var(--muted)';
+        msg.textContent = 'Vyber nebo přetáhni soubor / složku.';
         return;
       }
-      msg.style.color = '#7cd99e';
-      msg.textContent = `✓ Nahráno (id ${d.document_id}). Zpracovávám…`;
-      fileInput.value = '';
-      _refreshDocumentsList();
-    } catch (e) {
-      msg.style.color = '#e07070';
-      msg.textContent = 'Chyba spojení nebo serveru.';
-    } finally {
-      btn.disabled = false;
+      for (let i = 0; i < fileInput.files.length; i++) {
+        items.push({ file: fileInput.files[i], relativePath: fileInput.files[i].name });
+      }
     }
+
+    if (items.length === 0) {
+      msg.textContent = 'Nic k nahrání.';
+      return;
+    }
+
+    // Show progress
+    progressEl.style.display = 'block';
+    labelEl.textContent = items.length === 1 ? 'Nahrávám…' : `Nahrávám ${items.length} souborů…`;
+    msg.textContent = '';
+    errEl.textContent = '';
+    barEl.style.width = '0%';
+
+    let done = 0;
+    let errors = [];
+    for (const item of items) {
+      countEl.textContent = `${done} / ${items.length} · ${item.relativePath}`;
+      try {
+        await _uploadOneDocument(item.file, item.relativePath);
+      } catch (e) {
+        errors.push(`${item.relativePath}: ${e.message}`);
+      }
+      done++;
+      barEl.style.width = `${(done / items.length * 100).toFixed(0)}%`;
+      countEl.textContent = `${done} / ${items.length}`;
+    }
+
+    // Final state
+    if (errors.length === 0) {
+      msg.style.color = '#7cd99e';
+      msg.textContent = `✓ ${done} ${done === 1 ? 'soubor' : (done < 5 ? 'soubory' : 'souborů')} nahráno.`;
+    } else {
+      msg.style.color = '#e07070';
+      msg.textContent = `${done - errors.length} OK, ${errors.length} selhalo.`;
+      errEl.innerHTML = '<strong>Chyby:</strong><br>' + errors.slice(0, 5).map(e => '• ' + e).join('<br>') + (errors.length > 5 ? `<br>... a dalších ${errors.length - 5}` : '');
+    }
+    setTimeout(() => { progressEl.style.display = 'none'; }, errors.length === 0 ? 2000 : 8000);
+
+    // Clear inputs + refresh list
+    const fi = document.getElementById('documentsFileInput');
+    const di = document.getElementById('documentsFolderInput');
+    if (fi) fi.value = '';
+    if (di) di.value = '';
+    if (typeof _refreshDocumentsList === 'function') _refreshDocumentsList();
+  }
+
+  // REST-Bulk: drop zone wiring -- accepts files and folders (rekurzivni walk)
+  async function _readEntriesRecursive(entry, prefix) {
+    // Recursively walk DataTransferItem entry (file or directory).
+    // Returns array of {file, relativePath}.
+    if (entry.isFile) {
+      const file = await new Promise((resolve, reject) => entry.file(resolve, reject));
+      return [{ file, relativePath: prefix + file.name }];
+    } else if (entry.isDirectory) {
+      const reader = entry.createReader();
+      const entries = await new Promise((resolve, reject) => reader.readEntries(resolve, reject));
+      const subDir = prefix + entry.name + '/';
+      const all = [];
+      for (const e of entries) {
+        const subItems = await _readEntriesRecursive(e, subDir);
+        all.push(...subItems);
+      }
+      return all;
+    }
+    return [];
+  }
+
+  function _wireDocumentsDropZone() {
+    const dz = document.getElementById('documentsDropZone');
+    const fileInput = document.getElementById('documentsFileInput');
+    const folderInput = document.getElementById('documentsFolderInput');
+    const pickFilesBtn = document.getElementById('documentsPickFilesBtn');
+    const pickFolderBtn = document.getElementById('documentsPickFolderBtn');
+    if (!dz || dz.dataset.wired) return;
+    dz.dataset.wired = '1';
+
+    if (pickFilesBtn) pickFilesBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      fileInput.click();
+    });
+    if (pickFolderBtn) pickFolderBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      folderInput.click();
+    });
+    dz.addEventListener('click', () => fileInput.click());
+
+    fileInput.addEventListener('change', () => {
+      if (fileInput.files && fileInput.files.length > 0) {
+        _uploadDocument(fileInput.files);
+      }
+    });
+    folderInput.addEventListener('change', () => {
+      if (folderInput.files && folderInput.files.length > 0) {
+        _uploadDocument(folderInput.files);
+      }
+    });
+
+    // Drag & drop
+    dz.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      dz.style.borderColor = '#7c3aed';
+      dz.style.background = 'rgba(124, 58, 237, 0.06)';
+    });
+    dz.addEventListener('dragleave', (e) => {
+      e.preventDefault();
+      dz.style.borderColor = 'var(--border)';
+      dz.style.background = '';
+    });
+    dz.addEventListener('drop', async (e) => {
+      e.preventDefault();
+      dz.style.borderColor = 'var(--border)';
+      dz.style.background = '';
+      const dt = e.dataTransfer;
+      if (!dt) return;
+      const items = dt.items;
+      if (items && items.length > 0 && items[0].webkitGetAsEntry) {
+        // Modern browsers: walk entries (supports folders)
+        const all = [];
+        for (let i = 0; i < items.length; i++) {
+          const entry = items[i].webkitGetAsEntry();
+          if (entry) {
+            const subItems = await _readEntriesRecursive(entry, '');
+            all.push(...subItems);
+          }
+        }
+        if (all.length > 0) _uploadDocument(all);
+      } else {
+        // Fallback: just files (no folder support)
+        const files = dt.files;
+        if (files && files.length > 0) _uploadDocument(files);
+      }
+    });
+  }
+
+  // Wire on DOM ready
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _wireDocumentsDropZone);
+  } else {
+    setTimeout(_wireDocumentsDropZone, 0);
   }
 
   async function openArchiveModal() {

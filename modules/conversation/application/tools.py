@@ -47,6 +47,12 @@ MANAGEMENT_TOOL_NAMES = {
     "suggest_move_conversation",
     "suggest_split_conversation",
     "suggest_create_project",
+    # Phase 15d: Lifecycle classification + chat-confirm apply tools
+    "classify_conversation",
+    "apply_lifecycle_change",
+    "apply_project_suggestion",
+    "reject_project_suggestion",
+    "reject_lifecycle_suggestion",
 }
 
 
@@ -2060,6 +2066,111 @@ TOOLS = [
                     "description": "Proc je novy projekt potreba (proc nesedi zadny existujici).",
                 },
             },
+        },
+    },
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15d: Lifecycle classification + chat-confirm apply tools
+    # ─────────────────────────────────────────────────────────────────────
+    {
+        "name": "classify_conversation",
+        "description": (
+            "Phase 15d: Navrhni Marti, ze tato konverzace by mela zmenit lifecycle "
+            "stav -- archivable / personal / disposable. SUGGESTION ONLY -- ulozi "
+            "lifecycle_state='X_suggested', ceka Marti's confirm v chatu. "
+            "POUZIJ KDYZ: "
+            "(1) Konverzace je idle >7 dni a ma jen completed tasks -> 'archivable'. "
+            "(2) Konverzace ma emotion poznamky importance >= 4 -> 'personal' "
+            "(napriklad emocialni milnik, dopis tatínkovi, mily moment). "
+            "(3) Konverzace nema zadne poznamky a je idle -> 'disposable'. "
+            "PRAH (KRITICKE -- z konzultace #3): zminuj v chatu jen kdyz Marti "
+            "explicit pozada ('projdeme stare?'), nebo v daily overview kdyz "
+            "kandidatu je nad prah (>= 10 archivable / >= 10 disposable / >= 5 stale). "
+            "Pod prahem MLC -- jinak overview prestane byt prehledne."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["suggested_state", "reason"],
+            "properties": {
+                "suggested_state": {
+                    "type": "string",
+                    "enum": ["archivable", "personal", "disposable"],
+                    "description": "Cilovy stav (suggestion).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Proc navrhujes (1-2 vety).",
+                },
+            },
+        },
+    },
+    {
+        "name": "apply_lifecycle_change",
+        "description": (
+            "Phase 15d: Aplikuj lifecycle prechod PO Marti's confirm v chatu. "
+            "Vola se kdyz Marti explicit potvrdil ('ano archivuj', 'ulozit jako "
+            "personal', 'smaz', 'ne necham'). "
+            "Hodnoty target_state: 'archived' | 'personal' | 'pending_hard_delete' "
+            "| 'active' (= reverze). "
+            "Eticka vrstva: ty volas tool po Marti's chat 'ano X' -- nikdy bez "
+            "explicit potvrzeni. Hard delete (pending_hard_delete) jen kdyz "
+            "Marti explicit rekne 'smaz trvale'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["target_state"],
+            "properties": {
+                "target_state": {
+                    "type": "string",
+                    "enum": ["archived", "personal", "pending_hard_delete", "active"],
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Volitelny zaznamovaci duvod (Marti's puvodni request).",
+                },
+            },
+        },
+    },
+    {
+        "name": "apply_project_suggestion",
+        "description": (
+            "Phase 15c+15d: Aplikuj project zmenu PO Marti's confirm v chatu. "
+            "Pouzij kdyz Marti rekl 'ano premisle' / 'ano splittni' / 'ano zaloz "
+            "projekt' na tvuj predchozi suggest_move/split/create_project navrh. "
+            "Backend si ze suggested_project_reason rozparsuje mode (move/split/"
+            "create_project) a provede skutecnou zmenu (apply_project_change "
+            "nebo fork_conversation nebo create_project + apply). "
+            "Po uspechu se suggested_project_* fields vyclear."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "confirm_reason": {
+                    "type": "string",
+                    "description": "Volitelny zaznamovaci komentar (napr. 'Marti potvrdil v chatu').",
+                },
+            },
+        },
+    },
+    {
+        "name": "reject_project_suggestion",
+        "description": (
+            "Phase 15c: Zamitni project suggestion (Marti rekl 'ne, necham'). "
+            "Vyclear suggested_project_id + reason + at."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "reject_lifecycle_suggestion",
+        "description": (
+            "Phase 15d: Zamitni lifecycle suggestion (Marti rekl 'ne, necham aktivni'). "
+            "Vrati lifecycle_state na NULL = active."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
         },
     },
 ]

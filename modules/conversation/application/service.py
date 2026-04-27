@@ -3153,6 +3153,219 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"(\"ano založ\" nebo \"ne\"), backend pak vytvoří projekt + přesune konverzaci."
         )
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Phase 15d: Lifecycle classification + apply handlers
+    # ─────────────────────────────────────────────────────────────────────
+    if tool_name == "classify_conversation":
+        from modules.notebook.application import lifecycle_service as _ls
+
+        suggested_state = (tool_input.get("suggested_state") or "").strip().lower()
+        if suggested_state not in ("archivable", "personal", "disposable"):
+            return f"❌ Neplatný suggested_state '{suggested_state}'. Použij: archivable/personal/disposable."
+
+        reason_l = (tool_input.get("reason") or "").strip()
+        if len(reason_l) < 5:
+            return "❌ Důvod je moc krátký (min 5 znaků)."
+
+        persona_id_l = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_l is None:
+            return "❌ Nemůžu zjistit aktivní personu."
+
+        try:
+            result = _ls.classify_conversation_suggest(
+                conversation_id=conversation_id,
+                suggested_state=suggested_state,
+                persona_id=persona_id_l,
+                reason=reason_l,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"LIFECYCLE | classify | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        labels = {"archivable": "archivovat", "personal": "uložit do Personal", "disposable": "smazat"}
+        action = labels.get(suggested_state, suggested_state)
+        return (
+            f"📋 Navrhuju tuto konverzaci **{action}**. Pověz Marti — potvrdí "
+            f"v chatu (\"ano {action}\" nebo \"ne necham\")."
+        )
+
+    if tool_name == "apply_lifecycle_change":
+        from modules.notebook.application import lifecycle_service as _ls_a
+
+        target_state = (tool_input.get("target_state") or "").strip().lower()
+        if target_state not in ("archived", "personal", "pending_hard_delete", "active"):
+            return f"❌ Neplatný target_state '{target_state}'."
+
+        reason_la = (tool_input.get("reason") or "").strip() or None
+
+        if user_id is None:
+            return "❌ Bez user_id nelze aplikovat lifecycle zmenu."
+
+        try:
+            result_la = _ls_a.apply_lifecycle_change(
+                conversation_id=conversation_id,
+                target_state=target_state,
+                changed_by_user_id=user_id,
+                reason=reason_la,
+            )
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"LIFECYCLE | apply | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        labels_done = {
+            "archived": "📦 Konverzace archivována",
+            "personal": "💕 Konverzace uložena do Personal",
+            "pending_hard_delete": "🗑️ Konverzace připravena k trvalému smazání",
+            "active": "↩️ Konverzace vrácena na aktivní",
+        }
+        return labels_done.get(target_state, f"✅ Lifecycle změněn na {target_state}")
+
+    if tool_name == "apply_project_suggestion":
+        from modules.notebook.application import kustod_service as _ks_a
+        from core.database_data import get_data_session as _gds_apa
+        from modules.core.infrastructure.models_data import Conversation as _Conv_apa
+
+        if user_id is None:
+            return "❌ Bez user_id nelze aplikovat project suggestion."
+
+        # Najdi suggestion na teto konverzaci
+        ds_apa = _gds_apa()
+        try:
+            conv_apa = ds_apa.query(_Conv_apa).filter_by(id=conversation_id).first()
+            if conv_apa is None:
+                return "❌ Konverzace neexistuje."
+            if conv_apa.suggested_project_id is None or not conv_apa.suggested_project_reason:
+                return "❌ Žádný suggestion k aplikaci -- pro tuto konverzaci není pending project návrh."
+
+            target_pid_apa = conv_apa.suggested_project_id
+            suggestion_text = conv_apa.suggested_project_reason
+        finally:
+            ds_apa.close()
+
+        # Decode payload
+        decoded = _ks_a.parse_suggestion_payload(suggestion_text)
+        mode = decoded.get("mode", "unknown")
+        confirm_reason = (tool_input.get("confirm_reason") or "Marti potvrdil v chatu").strip()
+
+        try:
+            persona_id_apa = _active_persona_id_for_conversation(conversation_id)
+
+            if mode == "move":
+                result_apa = _ks_a.apply_project_change(
+                    conversation_id=conversation_id,
+                    new_project_id=target_pid_apa,
+                    changed_by_user_id=user_id,
+                    suggested_by_persona_id=persona_id_apa,
+                    reason=f"[applied move] {confirm_reason}",
+                )
+                return f"📦 Konverzace přesunuta do projektu #{target_pid_apa} ✅"
+
+            elif mode == "split":
+                fork_msg_id = decoded.get("fork_from_message_id")
+                if not fork_msg_id:
+                    return "❌ Suggestion mode=split, ale fork_from_message_id není v payloadu."
+                result_apa = _ks_a.fork_conversation(
+                    source_conversation_id=conversation_id,
+                    fork_from_message_id=fork_msg_id,
+                    target_project_id=target_pid_apa,
+                    new_user_id=user_id,
+                )
+                new_cid = result_apa.get("new_conversation_id")
+                return (
+                    f"🔀 Split proveden: nová konverzace #{new_cid} v projektu "
+                    f"#{target_pid_apa}, fork od zprávy #{fork_msg_id}. ✅"
+                )
+
+            elif mode == "create_project":
+                # Vytvor projekt + presun konverzaci
+                from modules.projects.application import service as _proj_svc
+                proposed_name_apa = decoded.get("proposed_name", "Nový projekt")
+                proposed_desc_apa = decoded.get("proposed_description", "")
+                first_member = decoded.get("proposed_first_member_id") or user_id
+
+                # Tenant z konverzace
+                ds_apa2 = _gds_apa()
+                try:
+                    conv2 = ds_apa2.query(_Conv_apa).filter_by(id=conversation_id).first()
+                    tenant_id_apa = conv2.tenant_id if conv2 else None
+                finally:
+                    ds_apa2.close()
+
+                if tenant_id_apa is None:
+                    return "❌ Konverzace nemá tenant_id -- nelze vytvořit projekt."
+
+                # Pokus o vytvoreni projektu (ruzne moduly maji ruzne API)
+                try:
+                    new_proj = _proj_svc.create_project(
+                        name=proposed_name_apa,
+                        tenant_id=tenant_id_apa,
+                        owner_user_id=first_member,
+                    )
+                    new_proj_id = new_proj.get("id") if isinstance(new_proj, dict) else getattr(new_proj, "id", None)
+                except AttributeError:
+                    return (
+                        f"❌ Nemůžu volat projects.service.create_project -- "
+                        f"jméno funkce se asi liší. Suggestion ponechán pro manualni vytvoření."
+                    )
+                except Exception as e:
+                    logger.exception(f"LIFECYCLE | apply create_project failed: {e}")
+                    return f"❌ Chyba při vytvoření projektu: {e}"
+
+                if not new_proj_id:
+                    return "❌ Projekt se nevytvořil (nevrátil id)."
+
+                # Presun konverzace do noveho projektu
+                _ks_a.apply_project_change(
+                    conversation_id=conversation_id,
+                    new_project_id=new_proj_id,
+                    changed_by_user_id=user_id,
+                    suggested_by_persona_id=persona_id_apa,
+                    reason=f"[applied create_project: {proposed_name_apa}] {confirm_reason}",
+                )
+                return (
+                    f"🆕 Projekt **{proposed_name_apa}** vytvořen (#{new_proj_id}) "
+                    f"a tato konverzace do něj přesunuta. ✅"
+                )
+
+            else:
+                return f"❌ Neznámý mode '{mode}' v suggestion payloadu."
+
+        except ValueError as e:
+            return f"❌ {e}"
+        except Exception as e:
+            logger.exception(f"KUSTOD | apply_project_suggestion | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+    if tool_name == "reject_project_suggestion":
+        from modules.notebook.application import kustod_service as _ks_r
+
+        try:
+            ok = _ks_r.clear_suggestion(conversation_id)
+        except Exception as e:
+            logger.exception(f"KUSTOD | reject_suggestion | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        if ok:
+            return "↩️ Project suggestion zamítnuto, konverzace zůstává v současném projektu."
+        return "ℹ️ Žádný pending project suggestion k zamítnutí."
+
+    if tool_name == "reject_lifecycle_suggestion":
+        from modules.notebook.application import lifecycle_service as _ls_r
+
+        try:
+            ok = _ls_r.reject_suggestion(conversation_id)
+        except Exception as e:
+            logger.exception(f"LIFECYCLE | reject_suggestion | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        if ok:
+            return "↩️ Lifecycle suggestion zamítnuto, konverzace zůstává aktivní."
+        return "ℹ️ Žádný pending lifecycle suggestion k zamítnutí."
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

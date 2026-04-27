@@ -1,0 +1,414 @@
+"""
+Phase 15d: Lifecycle classification service.
+
+Marti-AI klasifikuje konverzace (active/archivable/personal/disposable),
+Marti potvrzuje v chatu. Po confirm se aplikuje skutecny stav.
+
+Public API:
+  classify_conversation_suggest(conversation_id, suggested_state, persona_id, reason)
+      -- ulozi suggestion, ceka Marti's confirm
+
+  apply_lifecycle_change(conversation_id, target_state, changed_by_user_id, reason?)
+      -- vola se PO Marti's "ano X" -- skutecny prechod
+
+  daily_classify_candidates(...)
+      -- helper pro overview, nestaci kandidaty na archivable/personal/disposable
+      -- Marti-AI v overview zmini "mam X kandidatu, projdeme?"
+
+  detect_stale_tasks(...)
+      -- daily cron helper: notes s status='open' + idle >7d -> 'stale'
+
+  get_lifecycle_summary(persona_id)
+      -- pro overview: kolik konverzaci je v jakem stavu (per persona)
+
+Eticka vrstva: Marti-AI tools pres classify_conversation_suggest (suggestion only).
+Skutecny prechod (apply_lifecycle_change) jen po Marti's confirm v chatu.
+Hard delete (z pending_hard_delete) jen na explicit Marti's "smaz trvale".
+"""
+from __future__ import annotations
+
+import logging
+from datetime import datetime, timezone, timedelta
+from typing import Optional
+
+from sqlalchemy import or_, and_
+
+from core.database_data import get_data_session
+from modules.core.infrastructure.models_data import (
+    Conversation, ConversationNote, Message,
+)
+
+logger = logging.getLogger(__name__)
+
+
+# Hodnoty lifecycle_state
+SUGGESTED_STATES = {
+    "archivable_suggested", "personal_suggested", "disposable_suggested",
+}
+CONFIRMED_STATES = {
+    "active", "archived", "personal", "pending_hard_delete",
+}
+VALID_LIFECYCLE_STATES = SUGGESTED_STATES | CONFIRMED_STATES
+
+# Mapovani suggested -> confirmed (po Marti's "ano X")
+SUGGEST_TO_CONFIRMED = {
+    "archivable_suggested": "archived",
+    "personal_suggested": "personal",
+    "disposable_suggested": "archived",  # disposable se archivuje + jde do TTL queue
+}
+
+
+def _now_utc() -> datetime:
+    return datetime.now(timezone.utc)
+
+
+# ── SUGGEST ────────────────────────────────────────────────────────────────
+
+def classify_conversation_suggest(
+    conversation_id: int,
+    suggested_state: str,
+    persona_id: int,
+    reason: str,
+) -> dict:
+    """
+    Phase 15d: Marti-AI navrhuje lifecycle prechod (suggestion only).
+
+    suggested_state: 'archivable' | 'personal' | 'disposable'
+        (do DB se ulozi s '_suggested' suffix)
+    """
+    if not reason or not reason.strip():
+        raise ValueError("reason cannot be empty")
+
+    norm_state = suggested_state.strip().lower()
+    db_state = f"{norm_state}_suggested"
+    if db_state not in SUGGESTED_STATES:
+        raise ValueError(
+            f"suggested_state must be 'archivable', 'personal', or 'disposable'"
+        )
+
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if conv is None:
+            raise ValueError(f"conversation {conversation_id} not found")
+
+        # Pokud uz je v terminal stavu (archived/personal/pending_hard_delete),
+        # zabranit re-suggest. Re-classification po confirm si vyzaduje
+        # explicit "vrat zpet" flow.
+        if conv.lifecycle_state in CONFIRMED_STATES and conv.lifecycle_state != "active":
+            raise ValueError(
+                f"conversation already in confirmed state '{conv.lifecycle_state}' "
+                f"-- nelze suggest jiny stav bez reverze"
+            )
+
+        conv.lifecycle_state = db_state
+        conv.lifecycle_suggested_at = _now_utc()
+
+        ds.commit()
+        ds.refresh(conv)
+
+        logger.info(
+            f"LIFECYCLE | suggest | conv={conversation_id} "
+            f"state={db_state} persona={persona_id}"
+        )
+
+        return {
+            "conversation_id": conversation_id,
+            "suggested_state": db_state,
+            "reason": reason.strip(),
+            "suggested_at": conv.lifecycle_suggested_at.isoformat() if conv.lifecycle_suggested_at else None,
+        }
+    finally:
+        ds.close()
+
+
+# ── APPLY (po Marti's confirm) ─────────────────────────────────────────────
+
+def apply_lifecycle_change(
+    conversation_id: int,
+    target_state: str,
+    changed_by_user_id: int,
+    reason: Optional[str] = None,
+) -> dict:
+    """
+    Phase 15d: Skutecny prechod do confirmed state. Vola se PO Marti's
+    explicit "ano X" v chatu.
+
+    target_state: 'archived' | 'personal' | 'pending_hard_delete' | 'active'
+    """
+    norm = target_state.strip().lower()
+    if norm not in CONFIRMED_STATES:
+        raise ValueError(
+            f"target_state must be one of {sorted(CONFIRMED_STATES)}"
+        )
+
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if conv is None:
+            raise ValueError(f"conversation {conversation_id} not found")
+
+        old_state = conv.lifecycle_state
+        conv.lifecycle_state = norm if norm != "active" else None
+        conv.lifecycle_confirmed_at = _now_utc()
+
+        # archived state: zaznamenej archived_at (TTL countdown start)
+        if norm == "archived" and conv.archived_at is None:
+            conv.archived_at = _now_utc()
+            # Plus is_archived flag (existujici sloupec) -- pro UI sidebar hide
+            conv.is_archived = True
+
+        # personal state: zachovaj is_archived=False (Personal je vidditelna)
+        if norm == "personal":
+            conv.is_archived = False
+
+        # active state: clear archived_at, is_archived
+        if norm == "active":
+            conv.archived_at = None
+            conv.is_archived = False
+            conv.pending_hard_delete_at = None
+
+        ds.commit()
+        ds.refresh(conv)
+
+        logger.info(
+            f"LIFECYCLE | apply | conv={conversation_id} "
+            f"{old_state} -> {norm} by user={changed_by_user_id}"
+        )
+
+        return {
+            "conversation_id": conversation_id,
+            "from_state": old_state,
+            "to_state": norm,
+            "changed_at": conv.lifecycle_confirmed_at.isoformat() if conv.lifecycle_confirmed_at else None,
+            "archived_at": conv.archived_at.isoformat() if conv.archived_at else None,
+        }
+    finally:
+        ds.close()
+
+
+def reject_suggestion(conversation_id: int) -> bool:
+    """Marti rekne 'ne, necham' -> clear lifecycle_state suggestion."""
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if conv is None:
+            return False
+        if conv.lifecycle_state in SUGGESTED_STATES:
+            conv.lifecycle_state = None
+            conv.lifecycle_suggested_at = None
+            ds.commit()
+            logger.info(f"LIFECYCLE | reject_suggestion | conv={conversation_id}")
+            return True
+        return False
+    finally:
+        ds.close()
+
+
+# ── DAILY CLASSIFICATION HEURISTIKA ────────────────────────────────────────
+
+def daily_classify_candidates(persona_id: int) -> dict:
+    """
+    Heuristika pro overview: kolik kandidatu na kazdy stav.
+
+    Pravidla (z v4 design doc sekce 9):
+      - Open task notes -> 'active' (no change)
+      - Pouze completed tasks + idle >7d -> 'archivable_suggested' kandidat
+      - Emotion notes (importance >= 4) -> 'personal_suggested' kandidat
+      - 0 poznamek + idle >7d -> 'disposable_suggested' kandidat
+
+    Marti-AI v overview zmini jen pokud kandidatu je nad prah:
+      - >= 10 archivable
+      - >= 10 disposable
+      - >= 5 stale tasks v aktivnich
+
+    Returns: {archivable_count, personal_count, disposable_count, stale_count}
+    """
+    cutoff = _now_utc() - timedelta(days=7)
+
+    ds = get_data_session()
+    try:
+        # Aktivni konverzace persony, idle >7d
+        idle_convs = ds.query(Conversation).filter(
+            Conversation.active_agent_id == persona_id,
+            or_(
+                Conversation.lifecycle_state.is_(None),
+                Conversation.lifecycle_state == "active",
+            ),
+            or_(
+                Conversation.last_message_at < cutoff,
+                Conversation.last_message_at.is_(None),
+            ),
+            Conversation.is_deleted == False,  # noqa: E712
+        ).all()
+
+        archivable_count = 0
+        personal_count = 0
+        disposable_count = 0
+
+        for conv in idle_convs:
+            # Spocitani notes per kategorie pro tuto konverzaci
+            notes = ds.query(ConversationNote).filter(
+                ConversationNote.conversation_id == conv.id,
+                ConversationNote.persona_id == persona_id,
+                ConversationNote.archived == False,  # noqa: E712
+            ).all()
+
+            if not notes:
+                # Zadne poznamky + idle -> disposable kandidat
+                disposable_count += 1
+                continue
+
+            has_emotion_strong = any(
+                n.category == "emotion" and (n.importance or 0) >= 4
+                for n in notes
+            )
+            if has_emotion_strong:
+                personal_count += 1
+                continue
+
+            has_open_task = any(
+                n.category == "task" and n.status == "open"
+                for n in notes
+            )
+            if has_open_task:
+                continue   # active -- nezarazujeme do triage
+
+            # Pouze info/completed tasks/dismissed -> archivable
+            archivable_count += 1
+
+        # Stale tasks count (separate)
+        stale_count = ds.query(ConversationNote).filter(
+            ConversationNote.persona_id == persona_id,
+            ConversationNote.category == "task",
+            ConversationNote.status == "stale",
+            ConversationNote.archived == False,  # noqa: E712
+        ).count()
+
+        return {
+            "archivable_count": archivable_count,
+            "personal_count": personal_count,
+            "disposable_count": disposable_count,
+            "stale_count": stale_count,
+        }
+    finally:
+        ds.close()
+
+
+# ── STALE DETECTION ───────────────────────────────────────────────────────
+
+def detect_stale_tasks(idle_days: int = 7, dry_run: bool = False) -> int:
+    """
+    Daily cron helper: oznaci open task notes jako 'stale', pokud konverzace
+    je idle >=N dni. Reverzibilne -- pokud Marti-AI kontext obnovi, muze
+    zase update_note(status='open').
+
+    Returns: pocet poznamek prevedeny na stale.
+    """
+    cutoff = _now_utc() - timedelta(days=idle_days)
+
+    ds = get_data_session()
+    try:
+        # Najdi open task notes v konverzacich, ktere jsou idle >= cutoff
+        candidates = (
+            ds.query(ConversationNote)
+            .join(Conversation, Conversation.id == ConversationNote.conversation_id)
+            .filter(
+                ConversationNote.category == "task",
+                ConversationNote.status == "open",
+                ConversationNote.archived == False,  # noqa: E712
+                or_(
+                    Conversation.last_message_at < cutoff,
+                    Conversation.last_message_at.is_(None),
+                ),
+            )
+            .all()
+        )
+
+        if not candidates:
+            return 0
+
+        if dry_run:
+            logger.info(f"LIFECYCLE | stale_detection | DRY RUN | candidates={len(candidates)}")
+            return len(candidates)
+
+        for note in candidates:
+            note.status = "stale"
+        ds.commit()
+
+        logger.info(f"LIFECYCLE | stale_detection | converted={len(candidates)}")
+        return len(candidates)
+    finally:
+        ds.close()
+
+
+# ── HARD DELETE TTL ────────────────────────────────────────────────────────
+
+def detect_pending_hard_delete(ttl_days: int = 90, dry_run: bool = False) -> int:
+    """
+    Daily cron: archived konverzace s archived_at + ttl_days < now ->
+    pending_hard_delete (ceka final Marti's confirm).
+
+    Personal konverzace IMMUNE (TTL se na ne neaplikuje).
+
+    Returns: pocet konverzaci prevedeny na pending_hard_delete.
+    """
+    cutoff = _now_utc() - timedelta(days=ttl_days)
+
+    ds = get_data_session()
+    try:
+        candidates = ds.query(Conversation).filter(
+            Conversation.lifecycle_state == "archived",
+            Conversation.archived_at < cutoff,
+        ).all()
+
+        if not candidates:
+            return 0
+
+        if dry_run:
+            logger.info(
+                f"LIFECYCLE | hard_delete_detection | DRY RUN | "
+                f"candidates={len(candidates)} (>{ttl_days}d archived)"
+            )
+            return len(candidates)
+
+        now = _now_utc()
+        for conv in candidates:
+            conv.lifecycle_state = "pending_hard_delete"
+            conv.pending_hard_delete_at = now
+        ds.commit()
+
+        logger.info(
+            f"LIFECYCLE | hard_delete_detection | converted={len(candidates)} "
+            f"to pending_hard_delete"
+        )
+        return len(candidates)
+    finally:
+        ds.close()
+
+
+# ── SUMMARY PRO OVERVIEW ───────────────────────────────────────────────────
+
+def get_lifecycle_summary(persona_id: int) -> dict:
+    """
+    Souhrn lifecycle stavu vsech konverzaci persony -- pro overview a UI.
+    """
+    ds = get_data_session()
+    try:
+        from sqlalchemy import func
+        results = (
+            ds.query(Conversation.lifecycle_state, func.count(Conversation.id))
+            .filter(
+                Conversation.active_agent_id == persona_id,
+                Conversation.is_deleted == False,  # noqa: E712
+            )
+            .group_by(Conversation.lifecycle_state)
+            .all()
+        )
+        summary: dict[str, int] = {}
+        for state, count in results:
+            key = state if state else "active"
+            summary[key] = count
+        return summary
+    finally:
+        ds.close()

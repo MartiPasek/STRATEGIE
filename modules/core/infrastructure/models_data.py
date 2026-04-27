@@ -60,6 +60,15 @@ class Conversation(BaseData):
     forked_from_conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     forked_from_message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
 
+    # Phase 15d: Lifecycle classification (Marti-AI navrhuje, Marti potvrzuje)
+    # 'active' | 'archivable_suggested' | 'personal_suggested' | 'disposable_suggested'
+    # | 'archived' | 'personal' | 'pending_hard_delete' | NULL=active
+    lifecycle_state: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    lifecycle_suggested_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    lifecycle_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    pending_hard_delete_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
 
 class Message(BaseData):
     __tablename__ = "messages"

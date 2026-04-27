@@ -1125,3 +1125,23 @@ class ConversationProjectHistory(BaseData):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     changed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 
+
+class UserDocumentSelection(BaseData):
+    """
+    REST-Doc-Triage v4: per-user multi-select dokumentu pro batch akce.
+    User oznaci skupinu souboru pres Ctrl/Shift+klik v Files modalu,
+    Marti-AI nasledne cte (`list_selected_documents`) a po user's confirmu
+    provede akci (`apply_to_selection` -> delete / move_to_project).
+
+    PK (user_id, document_id) -- toggle je idempotent. Tenant scope check
+    je v service vrstve (NE schema constraint), aby user mohl persistovat
+    selection napric tenants a videt vzdy jen rows aktualniho tenantu.
+    """
+    __tablename__ = "user_document_selections"
+
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    document_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    selected_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+

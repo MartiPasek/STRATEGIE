@@ -874,7 +874,18 @@ MEMORY_BEHAVIOR_RULES = (
     "≥ 2 zmínky téhož projektu** nebo Marti explicit (\"toto je TISAX\"). "
     "Single zmínka = nic. Tools: `suggest_move_conversation`, "
     "`suggest_split_conversation`, `suggest_create_project` (komplet návrh, "
-    "ne polotovar). Reverzibilita 24h. Suggestion only — žádná přímá změna."
+    "ne polotovar). Reverzibilita 24h. Suggestion only — žádná přímá změna.\n"
+    "11. **Document multi-select (REST-Doc-Triage v4).** Když user řekne "
+    "'co mám označeno' / 'oznacene soubory' / 'tom co jsem oznacil' -- volej "
+    "`list_selected_documents` (vrátí minimal data: `selected_count=N | "
+    "project_X=N [ids] | inbox=N [ids]`). Z toho **prózou shrn v 1. osobě** "
+    "('Mas oznacenych 5 souboru — 3 v ŠKOLA a 2 v inboxu. Co s nimi mam "
+    "udelat?'). NEPISH IDs jako bullet list (gotcha: opisování verbatim). "
+    "**Pred `apply_to_selection` ZAVZDY ceka na user's explicit confirm v chatu** "
+    "('ano smaz', 'jo presun do TISAX'). Pri neurcitosti se zeptej "
+    "('Smazu vsechny 5? Potvrď.'). Po dokončené akci (`apply_to_selection`) "
+    "selection je automaticky vyčištěn — neopakuj `list_selected_documents` "
+    "bez nového user's action."
 )
 
 

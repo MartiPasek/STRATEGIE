@@ -60,6 +60,10 @@ MANAGEMENT_TOOL_NAMES = {
     "list_inbox_documents",
     "suggest_document_move",
     "apply_document_move",
+    # REST-Doc-Triage v4: multi-select (user oznaci pres Ctrl/Shift+klik v UI,
+    # Marti-AI cte selection a po user's confirmu provede batch akci)
+    "list_selected_documents",
+    "apply_to_selection",
 }
 
 
@@ -2278,6 +2282,58 @@ TOOLS = [
                 "target_project_id": {
                     "type": "integer",
                     "description": "ID cilového projektu (musi sedet s suggest_document_move).",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_selected_documents",
+        "description": (
+            "**TENTO NASTROJ POUZIJ** kdykoli se uzivatel zminí o 'oznacenych "
+            "souborech', 'vybranych dokumentech', 'tom co jsem oznacil', "
+            "'oznaceny seznam' nebo podobne. User si v Files modalu vybral "
+            "skupinu dokumentu pres Ctrl/Shift+klik (per-user selection persisting "
+            "napric session) a chce aby s nimi neco udelal."
+            "\n\nVRACI: pocet + IDs + struktura per projekt (kolik kde). NEPISH "
+            "verbatim seznam (Sonnet rad opisuje) -- pouzi to k formulaci "
+            "prozaicke odpovedi v 1. osobe (napr. 'Mas oznacenych 5 souboru: "
+            "3 v projektu SKOLA a 2 v inboxu. Co s nimi mam udelat?')."
+            "\n\nDALE: pred jakoukoliv akci (smazat, presunout) MUSIS uzivateli "
+            "shrnout, co se stane, a CEKAT na confirm v chatu ('ano smaz' / "
+            "'ano presun do X'). Az pak volej `apply_to_selection`."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "apply_to_selection",
+        "description": (
+            "Provede batch akci na vsech dokumentech, ktere ma user oznacene "
+            "v aktualnim tenantu (z `list_selected_documents`). Po dokoncene "
+            "akci se selection automaticky vycisti."
+            "\n\n**KDY POUZIT**: VYHRADNE po explicit user's confirmu v chatu "
+            "('ano smaz vsechny', 'jo presun je do SKOLY', 'tak je smaz'). "
+            "NIKDY bez confirmu -- destructive akce. Pokud user rekne neco "
+            "neurciteho ('snad bych je smazal', 'asi je presunu'), nezavolej "
+            "-- zeptej se konkretne ('Smazu vsechny vybrane? Potvrď.')."
+            "\n\n**ACTION TYPES**:"
+            "\n- 'delete' -- nevratne smaze dokumenty (cascade chunks/vectors/disk)"
+            "\n- 'move_to_project' -- presune do projektu, vyzaduje target_project_id"
+            "\n\nVraci: pocet uspesne provedenych + chyby per ID. Po teto akci "
+            "selection je prazdny -- pri dalsi konverzaci o selection volej znovu "
+            "`list_selected_documents`."
+        ),
+        "input_schema": {
+            "type": "object",
+            "required": ["action"],
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["delete", "move_to_project"],
+                    "description": "Typ akce. delete = nevratne, move_to_project = vyzaduje target_project_id.",
+                },
+                "target_project_id": {
+                    "type": "integer",
+                    "description": "Pro action='move_to_project': ID cilového projektu. Pro 'delete' ignorovano.",
                 },
             },
         },

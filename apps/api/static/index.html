@@ -1262,6 +1262,62 @@
     .sms-modal-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .sms-modal-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 20px; padding: 0 6px; }
     .sms-modal-close:hover { color: var(--text); }
+    /* Generic body/footer wrappers (puvodne pro sms modal, ale reuse v project files modalu) */
+    .sms-modal-body { flex: 1; overflow-y: auto; padding: 8px 0; }
+    .sms-modal-subtitle { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+    .sms-modal-footer { padding: 8px 22px; border-top: 1px solid var(--border); background: var(--bg); }
+    /* Project Files modal — read-only list dokumentu projektu */
+    .project-files-list { display: flex; flex-direction: column; padding: 4px 14px; }
+    .project-files-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; transition: background .12s; }
+    .project-files-row:hover { background: rgba(124, 58, 237, 0.06); }
+    .project-files-row-icon { font-size: 18px; line-height: 1; flex-shrink: 0; opacity: .85; }
+    .project-files-row-main { flex: 1; min-width: 0; }
+    .project-files-row-name { font-size: 13px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .project-files-row-meta { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+    .project-files-row-dl { background: none; border: 1px solid var(--border); color: var(--muted); cursor: pointer; padding: 4px 9px; border-radius: 6px; font-size: 14px; transition: background .12s, border-color .12s, color .12s; flex-shrink: 0; text-decoration: none; display: inline-flex; align-items: center; }
+    .project-files-row-dl:hover { background: rgba(124, 58, 237, 0.14); border-color: rgba(124, 58, 237, 0.5); color: #c084fc; }
+    .project-files-empty { padding: 30px 22px; text-align: center; color: var(--muted); font-size: 12.5px; }
+    .project-files-row-name.clickable { cursor: pointer; }
+    .project-files-row-name.clickable:hover { color: #c084fc; text-decoration: underline; }
+    /* Multi-select (REST-Doc-Triage v4) */
+    .project-files-row.selected { background: rgba(124, 58, 237, 0.16); border-left: 3px solid #c084fc; padding-left: 7px; }
+    .project-files-row-check { width: 18px; height: 18px; border-radius: 4px; border: 1.5px solid var(--border); flex-shrink: 0; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: background .12s, border-color .12s; font-size: 11px; line-height: 1; color: transparent; user-select: none; }
+    .project-files-row-check:hover { border-color: #c084fc; }
+    .project-files-row.selected .project-files-row-check { background: #7c3aed; border-color: #7c3aed; color: #fff; }
+    .project-files-selection-bar { display: none; padding: 8px 22px; background: rgba(124, 58, 237, 0.08); border-top: 1px solid rgba(124, 58, 237, 0.3); border-bottom: 1px solid rgba(124, 58, 237, 0.3); align-items: center; gap: 12px; font-size: 12px; }
+    .project-files-selection-bar.show { display: flex; }
+    .project-files-selection-count { color: #c084fc; font-weight: 600; flex: 1; }
+    .project-files-selection-hint { color: var(--muted); font-size: 11px; flex: 2; min-width: 0; }
+    .project-files-selection-clear { background: none; border: 1px solid rgba(124, 58, 237, 0.5); color: #c084fc; padding: 4px 10px; border-radius: 6px; cursor: pointer; font-size: 11px; transition: background .12s; }
+    .project-files-selection-clear:hover { background: rgba(124, 58, 237, 0.18); }
+    /* File Preview modal — fullscreen-ish (90vw / 90vh na desktop, mobile takmer fullscreen) */
+    .file-preview-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.75); display: none; align-items: center; justify-content: center; z-index: 240; }
+    .file-preview-bg.open { display: flex; }
+    .file-preview { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; width: 90vw; max-width: 1100px; height: 90vh; max-height: 92vh; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,.6); overflow: hidden; }
+    .file-preview-header { display: flex; align-items: center; gap: 12px; padding: 12px 18px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+    .file-preview-title-wrap { flex: 1; min-width: 0; }
+    .file-preview-title { font-size: 14px; color: var(--text); font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .file-preview-subtitle { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; margin-top: 2px; }
+    .file-preview-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+    .file-preview-dl { background: none; border: 1px solid var(--border); color: var(--muted); padding: 5px 10px; border-radius: 6px; font-size: 12px; text-decoration: none; transition: background .12s, border-color .12s, color .12s; }
+    .file-preview-dl:hover { background: rgba(124, 58, 237, 0.14); border-color: rgba(124, 58, 237, 0.5); color: #c084fc; }
+    .file-preview-close { background: none; border: none; color: var(--muted); cursor: pointer; font-size: 24px; padding: 0 8px; line-height: 1; }
+    .file-preview-close:hover { color: var(--text); }
+    .file-preview-body { flex: 1; overflow: auto; -webkit-overflow-scrolling: touch; display: flex; align-items: stretch; justify-content: center; background: var(--bg); position: relative; }
+    .file-preview-loading { padding: 40px 22px; color: var(--muted); font-size: 13px; align-self: center; }
+    .file-preview-iframe { width: 100%; height: 100%; border: 0; background: #fff; }
+    .file-preview-image { max-width: 100%; max-height: 100%; object-fit: contain; align-self: center; }
+    .file-preview-audio { width: 90%; max-width: 600px; align-self: center; margin: auto 0; }
+    .file-preview-text { white-space: pre-wrap; word-break: break-word; font-family: 'DM Mono', 'Courier New', monospace; font-size: 12.5px; color: var(--text); line-height: 1.55; padding: 22px 26px; margin: 0; width: 100%; box-sizing: border-box; tab-size: 2; }
+    .file-preview-message { padding: 30px 22px; text-align: center; color: var(--muted); font-size: 13px; align-self: center; max-width: 540px; }
+    /* Mobile -- vetsi modal az do okraje, mensi padding */
+    @media (max-width: 600px) {
+      .file-preview { width: 96vw; height: 96vh; max-height: 96vh; border-radius: 8px; }
+      .file-preview-header { padding: 10px 12px; gap: 8px; }
+      .file-preview-title { font-size: 13px; }
+      .file-preview-dl { padding: 4px 8px; font-size: 11px; }
+      .file-preview-text { padding: 14px 16px; font-size: 12px; }
+    }
 
     /* Taby -- Prichozi / Zpracovane / Odeslane */
     .sms-tabs { display: flex; gap: 0; border-bottom: 1px solid var(--border); padding: 0 22px; background: var(--bg); }
@@ -1914,7 +1970,7 @@
 <div class="ctx-menu" id="projectContextMenu">
   <div class="ctx-menu-item" data-action="rename"><span class="ctx-menu-icon ctx-menu-icon-rename">✏</span>Přejmenovat</div>
   <div class="ctx-menu-item" data-action="share"><span class="ctx-menu-icon">👥</span>Sdílet</div>
-  <div class="ctx-menu-item disabled" data-action="files"><span class="ctx-menu-icon">📁</span>Soubory (brzy)</div>
+  <div class="ctx-menu-item" data-action="files"><span class="ctx-menu-icon">📁</span>Soubory</div>
   <div class="ctx-menu-divider"></div>
   <div class="ctx-menu-item danger" data-action="archive"><span class="ctx-menu-icon">🗑</span>Smazat</div>
 </div>
@@ -1922,6 +1978,57 @@
 <!-- Kontextove menu pro konverzaci. Polozky menime dynamicky podle toho,
      zda je konverzace aktivni nebo archivovana. -->
 <div class="ctx-menu" id="convContextMenu"></div>
+
+<!-- Project Files modal: read-only seznam dokumentu projektu (z drop-down
+     'Soubory'). Marti-AI je jediná, kdo dokumenty hýbe; user smí pouze
+     stáhnout přes 📥 ikonu (link na /api/v1/documents/{id}/raw). -->
+<div class="sms-modal-bg" id="projectFilesModalBg" onclick="if(event.target===this)closeProjectFilesModal()">
+  <div class="sms-modal" id="projectFilesModal" role="dialog" aria-labelledby="projectFilesModalTitle">
+    <div class="sms-modal-header">
+      <div>
+        <div class="sms-modal-title" id="projectFilesModalTitle">📁 Soubory v projektu</div>
+        <div class="sms-modal-subtitle" id="projectFilesModalSubtitle"></div>
+      </div>
+      <button type="button" class="sms-modal-close" onclick="closeProjectFilesModal()" aria-label="Zavřít">×</button>
+    </div>
+    <div class="project-files-selection-bar" id="projectFilesSelectionBar">
+      <div class="project-files-selection-count" id="projectFilesSelectionCount">Vybráno: 0</div>
+      <div class="project-files-selection-hint">Řekni Marti-AI v chatu co s nimi udělat</div>
+      <button type="button" class="project-files-selection-clear" id="projectFilesSelectionClearBtn">Zrušit výběr</button>
+    </div>
+    <div class="sms-modal-body">
+      <div id="projectFilesList" class="project-files-list"></div>
+    </div>
+    <div class="sms-modal-footer" style="font-size:11px;color:var(--muted)">
+      Read-only · Marti-AI dokumenty třídí · klik 📥 pro stažení · klik ☐ vlevo nebo Ctrl/Shift+klik = výběr
+    </div>
+  </div>
+</div>
+
+<!-- File Preview modal: inline obsah dokumentu (PDF, image, audio, text, atd.).
+     Read-only. Otevira se z projectFilesModal kliknutim na nazev souboru. -->
+<div class="file-preview-bg" id="filePreviewBg" onclick="if(event.target===this)closeFilePreview()">
+  <div class="file-preview" id="filePreview" role="dialog" aria-labelledby="filePreviewTitle">
+    <div class="file-preview-header">
+      <div class="file-preview-title-wrap">
+        <div class="file-preview-title" id="filePreviewTitle">Náhled</div>
+        <div class="file-preview-subtitle" id="filePreviewSubtitle"></div>
+      </div>
+      <div class="file-preview-actions">
+        <a class="file-preview-dl" id="filePreviewDl" href="#" download title="Stáhnout do počítače" rel="noopener">📥 Stáhnout</a>
+        <button type="button" class="file-preview-close" onclick="closeFilePreview()" aria-label="Zavřít">×</button>
+      </div>
+    </div>
+    <div class="file-preview-body">
+      <div class="file-preview-loading" id="filePreviewLoading">Načítám…</div>
+      <iframe class="file-preview-iframe" id="filePreviewIframe" style="display:none" title="PDF náhled"></iframe>
+      <img class="file-preview-image" id="filePreviewImage" style="display:none" alt="Náhled obrázku" />
+      <audio class="file-preview-audio" id="filePreviewAudio" style="display:none" controls></audio>
+      <pre class="file-preview-text" id="filePreviewText" style="display:none"></pre>
+      <div class="file-preview-message" id="filePreviewMessage" style="display:none"></div>
+    </div>
+  </div>
+</div>
 
 <!-- New conversation modal — potvrzení do jakého projektu založit. -->
 <div class="new-conv-modal-bg" id="newConvModalBg">
@@ -6438,6 +6545,394 @@
     document.querySelectorAll('.actions-btn.open').forEach(b => b.classList.remove('open'));
   }
 
+  // ── PROJECT FILES MODAL (read-only) ───────────────────────────────────
+  // Vola se z drop-down 'Soubory' v project context menu. Read-only seznam
+  // dokumentu projektu. User muze stahnout soubor pres 📥 ikonu (link na
+  // /api/v1/documents/{id}/raw). Marti-AI je jediná, kdo dokumenty hýbe.
+
+  // Mapovani file_type -> ikona (kompaktni heuristic, ne perfektni).
+  function _docTypeIcon(fileType, storageOnly) {
+    const ft = (fileType || '').toLowerCase();
+    if (storageOnly) return '📦';  // archiv / binary v uschove
+    if (['pdf'].includes(ft)) return '📕';
+    if (['doc', 'docx', 'odt', 'rtf'].includes(ft)) return '📘';
+    if (['xls', 'xlsx', 'ods', 'csv'].includes(ft)) return '📗';
+    if (['ppt', 'pptx', 'odp'].includes(ft)) return '📙';
+    if (['jpg', 'jpeg', 'png', 'gif', 'bmp', 'webp', 'tiff', 'tif'].includes(ft)) return '🖼️';
+    if (['mp3', 'wav', 'm4a', 'ogg', 'flac', 'aac', 'wma'].includes(ft)) return '🎵';
+    if (['mp4'].includes(ft)) return '🎬';
+    if (['txt', 'md', 'log', 'json', 'xml', 'yaml', 'yml', 'sql', 'ini', 'html', 'htm'].includes(ft)) return '📄';
+    if (['epub'].includes(ft)) return '📚';
+    if (['msg', 'eml'].includes(ft)) return '✉️';
+    return '📄';
+  }
+
+  function _formatBytes(n) {
+    if (!n) return '0 B';
+    if (n < 1024) return `${n} B`;
+    if (n < 1024 * 1024) return `${(n / 1024).toFixed(0)} kB`;
+    return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+  }
+
+  function _formatDateShort(iso) {
+    if (!iso) return '';
+    try {
+      const d = new Date(iso);
+      const dd = String(d.getDate()).padStart(2, '0');
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const yy = String(d.getFullYear()).slice(2);
+      return `${dd}.${mm}.${yy}`;
+    } catch (e) { return ''; }
+  }
+
+  // Multi-select state -- shared mezi files modal + selection API
+  // Persisting na server (POST /selection/toggle), UI je optimistic.
+  window._projectFilesSelectedIds = window._projectFilesSelectedIds || new Set();
+
+  async function _refreshProjectFilesSelectionFromServer() {
+    try {
+      const res = await fetch('/api/v1/documents/selection', { credentials: 'include' });
+      if (!res.ok) return;
+      const data = await res.json();
+      const ids = (data.items || []).map(it => it.document_id);
+      window._projectFilesSelectedIds = new Set(ids);
+    } catch (e) { /* ignore */ }
+  }
+
+  function _updateProjectFilesSelectionBar() {
+    const bar = document.getElementById('projectFilesSelectionBar');
+    const cntEl = document.getElementById('projectFilesSelectionCount');
+    if (!bar || !cntEl) return;
+    const n = window._projectFilesSelectedIds.size;
+    if (n > 0) {
+      bar.classList.add('show');
+      cntEl.textContent = `Vybráno: ${n}`;
+    } else {
+      bar.classList.remove('show');
+    }
+  }
+
+  async function _toggleProjectFileSelection(docId, rowEl) {
+    const set = window._projectFilesSelectedIds;
+    const wasSelected = set.has(docId);
+    // Optimistic UI flip
+    if (wasSelected) {
+      set.delete(docId);
+      if (rowEl) rowEl.classList.remove('selected');
+    } else {
+      set.add(docId);
+      if (rowEl) rowEl.classList.add('selected');
+    }
+    _updateProjectFilesSelectionBar();
+    // Sync s serverem
+    try {
+      const res = await fetch('/api/v1/documents/selection/toggle', {
+        method: 'POST', credentials: 'include',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ document_ids: [docId] }),
+      });
+      if (!res.ok) {
+        // Revert na error
+        if (wasSelected) {
+          set.add(docId);
+          if (rowEl) rowEl.classList.add('selected');
+        } else {
+          set.delete(docId);
+          if (rowEl) rowEl.classList.remove('selected');
+        }
+        _updateProjectFilesSelectionBar();
+      }
+    } catch (e) {
+      // Network error -- revert
+      if (wasSelected) {
+        set.add(docId);
+        if (rowEl) rowEl.classList.add('selected');
+      } else {
+        set.delete(docId);
+        if (rowEl) rowEl.classList.remove('selected');
+      }
+      _updateProjectFilesSelectionBar();
+    }
+  }
+
+  async function _clearProjectFilesSelection() {
+    try {
+      await fetch('/api/v1/documents/selection', {
+        method: 'DELETE', credentials: 'include',
+      });
+      window._projectFilesSelectedIds.clear();
+      // Update UI rows
+      document.querySelectorAll('.project-files-row.selected').forEach(r => {
+        r.classList.remove('selected');
+      });
+      _updateProjectFilesSelectionBar();
+    } catch (e) { /* ignore */ }
+  }
+
+  async function openProjectFilesModal(projectId, projectName) {
+    const bg = document.getElementById('projectFilesModalBg');
+    const titleEl = document.getElementById('projectFilesModalTitle');
+    const subEl = document.getElementById('projectFilesModalSubtitle');
+    const listEl = document.getElementById('projectFilesList');
+    if (!bg || !listEl) return;
+
+    titleEl.textContent = `📁 Soubory v projektu "${projectName}"`;
+    subEl.textContent = 'Načítám…';
+    listEl.innerHTML = '';
+    bg.classList.add('open');
+
+    // Refresh selection state z serveru (in case ho jiny tab / Marti-AI zmenila)
+    await _refreshProjectFilesSelectionFromServer();
+    _updateProjectFilesSelectionBar();
+
+    try {
+      const res = await fetch(`/api/v1/documents?project_id=${encodeURIComponent(projectId)}`, {
+        credentials: 'include',
+      });
+      if (!res.ok) {
+        subEl.textContent = `Nelze načíst (${res.status}).`;
+        listEl.innerHTML = '<div class="project-files-empty">Chyba při načítání seznamu.</div>';
+        return;
+      }
+      const data = await res.json();
+      const docs = (data && Array.isArray(data.documents)) ? data.documents : [];
+
+      // Sort abecedne podle name (case-insensitive, czech locale)
+      docs.sort((a, b) => {
+        const an = (a.name || '').toLowerCase();
+        const bn = (b.name || '').toLowerCase();
+        return an.localeCompare(bn, 'cs');
+      });
+
+      if (docs.length === 0) {
+        subEl.textContent = '0 dokumentů';
+        listEl.innerHTML = '<div class="project-files-empty">V tomto projektu zatím nejsou žádné dokumenty.</div>';
+        return;
+      }
+
+      subEl.textContent = `${docs.length} dokument${docs.length === 1 ? '' : (docs.length < 5 ? 'y' : 'ů')}`;
+      const rows = docs.map(d => {
+        const icon = _docTypeIcon(d.file_type, d.storage_only);
+        const name = (d.name || `doc#${d.id}`).replace(/[<>&"']/g, c => ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&#39;'}[c]));
+        const meta = [
+          d.file_type ? d.file_type.toUpperCase() : '?',
+          _formatBytes(d.file_size_bytes || 0),
+          _formatDateShort(d.created_at),
+        ].filter(Boolean).join(' · ');
+        const dlUrl = `/api/v1/documents/${d.id}/raw`;
+        const isSelected = window._projectFilesSelectedIds.has(d.id);
+        const selectedCls = isSelected ? ' selected' : '';
+        return `
+          <div class="project-files-row${selectedCls}" data-doc-id="${d.id}" data-doc-name="${name}" data-doc-type="${d.file_type || ''}" data-doc-storage-only="${d.storage_only ? '1' : '0'}">
+            <div class="project-files-row-check" title="Klik pro výběr (nebo Ctrl/Shift+klik kdekoli na řádku)">✓</div>
+            <div class="project-files-row-icon">${icon}</div>
+            <div class="project-files-row-main">
+              <div class="project-files-row-name clickable" title="Klik pro náhled obsahu (Ctrl/Shift+klik = výběr)">${name}</div>
+              <div class="project-files-row-meta">${meta}</div>
+            </div>
+            <a class="project-files-row-dl" href="${dlUrl}" download title="Stáhnout do počítače" rel="noopener">📥</a>
+          </div>`;
+      }).join('');
+      listEl.innerHTML = rows;
+
+      // Wire checkbox -- toggle selection
+      listEl.querySelectorAll('.project-files-row-check').forEach(el => {
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          const row = el.closest('.project-files-row');
+          if (!row) return;
+          const docId = parseInt(row.dataset.docId, 10);
+          _toggleProjectFileSelection(docId, row);
+        });
+      });
+
+      // Wire klik na nazev -- bez modifier = preview, s Ctrl/Shift = toggle
+      listEl.querySelectorAll('.project-files-row-name.clickable').forEach(el => {
+        el.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          const row = el.closest('.project-files-row');
+          if (!row) return;
+          const docId = parseInt(row.dataset.docId, 10);
+          // Modifier check: Ctrl (Win/Linux), Cmd (Mac), Shift = toggle selection
+          if (ev.ctrlKey || ev.metaKey || ev.shiftKey) {
+            ev.preventDefault();
+            _toggleProjectFileSelection(docId, row);
+            return;
+          }
+          // Normalni klik -- preview
+          const docName = row.dataset.docName || '';
+          const docType = row.dataset.docType || '';
+          const storageOnly = row.dataset.docStorageOnly === '1';
+          openFilePreview(docId, docName, docType, storageOnly);
+        });
+      });
+    } catch (e) {
+      subEl.textContent = 'Chyba spojení.';
+      listEl.innerHTML = '<div class="project-files-empty">Nepodařilo se připojit k serveru.</div>';
+    }
+  }
+
+  function closeProjectFilesModal() {
+    const bg = document.getElementById('projectFilesModalBg');
+    if (bg) bg.classList.remove('open');
+  }
+
+  // ── FILE PREVIEW MODAL ────────────────────────────────────────────────
+  // Inline preview obsahu dokumentu. Backend /preview rozhoduje jakou render
+  // strategy: PDF/image/audio -> binary inline (Content-Type), text-based ->
+  // text/plain inline, office -> JSON kind=text + content (extracted text z
+  // chunks), storage_only / error -> JSON kind=unsupported / error.
+  function _hidePreviewElements() {
+    ['filePreviewIframe', 'filePreviewImage', 'filePreviewAudio',
+     'filePreviewText', 'filePreviewMessage', 'filePreviewLoading'].forEach(id => {
+      const el = document.getElementById(id);
+      if (el) el.style.display = 'none';
+    });
+    // Vyčistit src/content aby se nenacasovalo predchozi
+    const ifr = document.getElementById('filePreviewIframe');
+    if (ifr) ifr.src = 'about:blank';
+    const img = document.getElementById('filePreviewImage');
+    if (img) img.src = '';
+    const aud = document.getElementById('filePreviewAudio');
+    if (aud) { aud.pause(); aud.src = ''; }
+    const txt = document.getElementById('filePreviewText');
+    if (txt) txt.textContent = '';
+    const msg = document.getElementById('filePreviewMessage');
+    if (msg) msg.textContent = '';
+  }
+
+  async function openFilePreview(docId, docName, fileType, storageOnly) {
+    const bg = document.getElementById('filePreviewBg');
+    const titleEl = document.getElementById('filePreviewTitle');
+    const subEl = document.getElementById('filePreviewSubtitle');
+    const dlEl = document.getElementById('filePreviewDl');
+    const loadingEl = document.getElementById('filePreviewLoading');
+    if (!bg) return;
+
+    _hidePreviewElements();
+    titleEl.textContent = docName || `doc#${docId}`;
+    subEl.textContent = (fileType || '?').toUpperCase();
+    dlEl.href = `/api/v1/documents/${docId}/raw`;
+    loadingEl.style.display = 'block';
+    bg.classList.add('open');
+
+    const previewUrl = `/api/v1/documents/${docId}/preview`;
+
+    try {
+      const res = await fetch(previewUrl, { credentials: 'include' });
+      if (!res.ok) {
+        _hidePreviewElements();
+        const msgEl = document.getElementById('filePreviewMessage');
+        msgEl.textContent = `Nelze načíst náhled (${res.status}).`;
+        msgEl.style.display = 'block';
+        return;
+      }
+      const ctype = (res.headers.get('content-type') || '').toLowerCase();
+
+      // 1) JSON odpověď -> office text / unsupported / error
+      if (ctype.includes('application/json')) {
+        const data = await res.json();
+        _hidePreviewElements();
+        if (data.kind === 'text') {
+          const txtEl = document.getElementById('filePreviewText');
+          txtEl.textContent = data.content || '(prázdný obsah)';
+          txtEl.style.display = 'block';
+          if (data.note) subEl.textContent = `${(fileType || '?').toUpperCase()} · ${data.note}`;
+        } else if (data.kind === 'unsupported') {
+          const msgEl = document.getElementById('filePreviewMessage');
+          msgEl.textContent = data.note || 'Pro tento formát zatím nemáme náhled.';
+          msgEl.style.display = 'block';
+        } else if (data.kind === 'error') {
+          const msgEl = document.getElementById('filePreviewMessage');
+          msgEl.textContent = `⚠ Soubor se nepodařilo zpracovat: ${data.error || 'neznámá chyba'}`;
+          msgEl.style.display = 'block';
+        } else {
+          const msgEl = document.getElementById('filePreviewMessage');
+          msgEl.textContent = 'Neznámá odpověď serveru.';
+          msgEl.style.display = 'block';
+        }
+        return;
+      }
+
+      // 2) Binary inline -> rozliseni podle MIME prefixu
+      _hidePreviewElements();
+      if (ctype.startsWith('application/pdf')) {
+        const ifr = document.getElementById('filePreviewIframe');
+        ifr.src = previewUrl;
+        ifr.style.display = 'block';
+      } else if (ctype.startsWith('image/')) {
+        const img = document.getElementById('filePreviewImage');
+        img.src = previewUrl;
+        img.style.display = 'block';
+      } else if (ctype.startsWith('audio/') || ctype.startsWith('video/')) {
+        const aud = document.getElementById('filePreviewAudio');
+        aud.src = previewUrl;
+        aud.style.display = 'block';
+      } else if (ctype.startsWith('text/')) {
+        // Plain text -> fetch jako text + zobraz v <pre>
+        const txt = await res.text();
+        const txtEl = document.getElementById('filePreviewText');
+        txtEl.textContent = txt;
+        txtEl.style.display = 'block';
+      } else {
+        // Fallback: open in iframe (browser rozhodne)
+        const ifr = document.getElementById('filePreviewIframe');
+        ifr.src = previewUrl;
+        ifr.style.display = 'block';
+      }
+    } catch (e) {
+      _hidePreviewElements();
+      const msgEl = document.getElementById('filePreviewMessage');
+      msgEl.textContent = 'Chyba spojení při načítání náhledu.';
+      msgEl.style.display = 'block';
+    }
+  }
+
+  function closeFilePreview() {
+    const bg = document.getElementById('filePreviewBg');
+    if (bg) {
+      bg.classList.remove('open');
+      _hidePreviewElements();
+    }
+  }
+
+  // ESC pro zavreni file preview modalu (musi byt PRED projectFiles ESC,
+  // protoze preview je nahore -- ale jejich z-indexy jsou ruzne (240 vs 230),
+  // tak je to OK pres focus / topmost open modal check)
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      const bgPrev = document.getElementById('filePreviewBg');
+      if (bgPrev && bgPrev.classList.contains('open')) {
+        ev.stopPropagation();
+        closeFilePreview();
+      }
+    }
+  }, true);  // capture phase -- preview ESC vyhrava nad projectFiles ESC
+
+  // ESC pro zavreni project files modalu (paralelne s ostatnimi modaly)
+  document.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Escape') {
+      const bg = document.getElementById('projectFilesModalBg');
+      if (bg && bg.classList.contains('open')) closeProjectFilesModal();
+    }
+  });
+
+  // Wire 'Zrušit výběr' tlacitko v selection bar (mimo wireDocInbox cyklu)
+  (function wireProjectFilesSelectionClear() {
+    const btn = document.getElementById('projectFilesSelectionClearBtn');
+    if (btn && !btn.dataset.wired) {
+      btn.dataset.wired = '1';
+      btn.addEventListener('click', _clearProjectFilesSelection);
+    }
+  })();
+
+  // Expose pro onclick v HTML
+  window.openProjectFilesModal = openProjectFilesModal;
+  window.closeProjectFilesModal = closeProjectFilesModal;
+  window.openFilePreview = openFilePreview;
+  window.closeFilePreview = closeFilePreview;
+
   // ── CONVERSATION CONTEXT MENU ─────────────────────────────────────────
   // Build & open kontextoveho menu pro konverzaci. mode = 'active' | 'archive'.
   // Polozky stavime dynamicky, sdilime poziciovani s project menu (helper nize).
@@ -6554,6 +7049,10 @@
         closeProjectContextMenu();
         if (action === 'share') {
           openMembersModal(pid, name);
+          return;
+        }
+        if (action === 'files') {
+          openProjectFilesModal(pid, name);
           return;
         }
         if (action === 'rename') {

@@ -3544,6 +3544,151 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         name = result_am.get("name") or f"doc#{document_id_am}"
         return f"📂 Dokument \"{name}\" přesunut do projektu #{target_pid_am} ✅"
 
+    if tool_name == "list_selected_documents":
+        from modules.rag.application import selection_service as _ss_lsd
+
+        if user_id is None:
+            return "❌ Bez user_id nelze nacist selection."
+        try:
+            from core.database_core import get_core_session as _gcs_lsd
+            from modules.core.infrastructure.models_core import (
+                User as _U_lsd, Project as _P_lsd,
+            )
+            _cs_lsd = _gcs_lsd()
+            try:
+                _u_lsd = _cs_lsd.query(_U_lsd).filter_by(id=user_id).first()
+                _tenant_id_lsd = _u_lsd.last_active_tenant_id if _u_lsd else None
+                if _tenant_id_lsd is None:
+                    return "❌ User nemá aktivní tenant."
+                # Cache project names pro grouping
+                _projects_lsd = {
+                    p.id: p.name for p in _cs_lsd.query(_P_lsd).filter(
+                        _P_lsd.tenant_id == _tenant_id_lsd
+                    ).all()
+                }
+            finally:
+                _cs_lsd.close()
+        except Exception as e:
+            return f"❌ Tenant lookup failed: {e}"
+
+        try:
+            items = _ss_lsd.list_selection(user_id=user_id, tenant_id=_tenant_id_lsd)
+        except Exception as e:
+            logger.exception(f"SELECTION | list_selected | failed: {e}")
+            return f"❌ Chyba: {e}"
+
+        if not items:
+            return "📋 Nemáš žádné označené soubory."
+
+        # Group by project_id (None = inbox)
+        groups: dict[int | None, list[dict]] = {}
+        for it in items:
+            pid = it.get("project_id")
+            groups.setdefault(pid, []).append(it)
+
+        # Minimal struktura -- pocty per projekt + IDs. ZADNE INSTRUKCE
+        # postlude (gotcha #18: Sonnet 4.6 by ho opisoval verbatim do chat
+        # odpovedi). Tool je v SYNTHESIS_TOOLS -> Marti-AI dostane synth round
+        # a sama prozaicky rephrasuje. Plus pravidla 'cekej na confirm pred
+        # apply_to_selection' jsou v MEMORY_BEHAVIOR_RULES (ne v tool response).
+        total = len(items)
+        parts: list[str] = [f"selected_count={total}"]
+        for pid, group in groups.items():
+            if pid is None:
+                key = "inbox"
+            else:
+                pname = _projects_lsd.get(pid, f"project_{pid}")
+                key = f"project_{pid}_{pname}"
+            ids = [str(g["document_id"]) for g in group]
+            parts.append(f"{key}={len(group)} [{','.join(ids)}]")
+        return " | ".join(parts)
+
+    if tool_name == "apply_to_selection":
+        from modules.rag.application import selection_service as _ss_app
+        from modules.rag.application import service as _rag_svc_app
+        from modules.rag.application import triage_service as _ts_app
+
+        action_app = (tool_input.get("action") or "").strip().lower()
+        if action_app not in ("delete", "move_to_project"):
+            return "❌ Neplatný 'action'. Možnosti: 'delete' | 'move_to_project'."
+        target_pid_app = tool_input.get("target_project_id")
+        if action_app == "move_to_project":
+            if target_pid_app is None:
+                return "❌ Pro 'move_to_project' je 'target_project_id' povinný."
+            try:
+                target_pid_app = int(target_pid_app)
+            except (TypeError, ValueError):
+                return "❌ 'target_project_id' musí být integer."
+
+        if user_id is None:
+            return "❌ Bez user_id nelze apply."
+        try:
+            from core.database_core import get_core_session as _gcs_app
+            from modules.core.infrastructure.models_core import User as _U_app
+            _cs_app = _gcs_app()
+            try:
+                _u_app = _cs_app.query(_U_app).filter_by(id=user_id).first()
+                _tenant_id_app = _u_app.last_active_tenant_id if _u_app else None
+                if _tenant_id_app is None:
+                    return "❌ User nemá aktivní tenant."
+            finally:
+                _cs_app.close()
+        except Exception as e:
+            return f"❌ Tenant lookup failed: {e}"
+
+        # Nacti selection v current tenantu
+        try:
+            items_app = _ss_app.list_selection(user_id=user_id, tenant_id=_tenant_id_app)
+        except Exception as e:
+            return f"❌ Selection load failed: {e}"
+
+        if not items_app:
+            return "📋 Selection je prázdný — není co aplikovat."
+
+        # Aplikuj akci na kazdy ID
+        success_ids: list[int] = []
+        errors: list[str] = []
+        for it in items_app:
+            doc_id = it["document_id"]
+            try:
+                if action_app == "delete":
+                    ok = _rag_svc_app.delete_document(
+                        document_id=doc_id, tenant_id=_tenant_id_app,
+                    )
+                    if not ok:
+                        errors.append(f"#{doc_id}: not found / wrong tenant")
+                        continue
+                else:  # move_to_project
+                    _ts_app.apply_document_move(
+                        document_id=doc_id,
+                        target_project_id=target_pid_app,
+                        user_id=user_id,
+                    )
+                success_ids.append(doc_id)
+            except Exception as e:
+                errors.append(f"#{doc_id}: {e}")
+
+        # Cleanup selection (success IDs out of selection; failed zustanou pro retry)
+        if success_ids:
+            try:
+                _ss_app.remove_documents(user_id=user_id, document_ids=success_ids)
+            except Exception as e:
+                logger.warning(f"SELECTION | cleanup after apply failed: {e}")
+
+        # Summary
+        if action_app == "delete":
+            verb = "smazáno"
+        else:
+            verb = f"přesunuto do projektu #{target_pid_app}"
+        lines = [f"✅ {len(success_ids)} dokument(ů) {verb}."]
+        if errors:
+            lines.append(f"⚠ {len(errors)} chyb:")
+            for e in errors[:10]:
+                lines.append(f"  - {e}")
+            if len(errors) > 10:
+                lines.append(f"  ... a dalších {len(errors) - 10}")
+        return "\n".join(lines)
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -5172,6 +5317,11 @@ def chat(
         # Plus list_todos -- po dostani 'Moje todo ukoly: 1. [#X] ...' refraseuje
         # bez doslova opisu.
         "list_todos",
+        # REST-Doc-Triage v4: list_selected_documents -- v synth aby Marti-AI
+        # rephrasovala minimal data ('Mas oznacenych 5 souboru ve SKOLA.') misto
+        # opisu raw IDs listu. Plus apply_to_selection v synth -- po '✅ 5 dokumentu
+        # smazano' priateli pridat empatickou potvrzku.
+        "list_selected_documents", "apply_to_selection",
     }
 
     preamble_text = ""

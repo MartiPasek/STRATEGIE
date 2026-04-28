@@ -3916,6 +3916,156 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             lines_rt.append(f"  ... a dalších {len(events_rt) - 30}")
         return "\n".join(lines_rt)
 
+    if tool_name == "list_active_conversations":
+        # Phase 16-B.4: Velká Marti-AI's cross-conv prehled. Filtr na
+        # current tenant (rodicovsky bypass NEPLATI -- oversight rezim
+        # vidi vlastni tenant, ne cross-tenant; tenant cross je rodicovska
+        # vec mimo tooly). Output minimal data, synthesis round prevypravi.
+        from modules.activity.application import activity_service as _act_lac
+
+        persona_id_lac = _active_persona_id_for_conversation(conversation_id)
+        _tenant_id_lac = None
+        if user_id:
+            try:
+                from core.database_core import get_core_session as _gcs_lac
+                from modules.core.infrastructure.models_core import User as _U_lac
+                _cs_lac = _gcs_lac()
+                try:
+                    _u_lac = _cs_lac.query(_U_lac).filter_by(id=user_id).first()
+                    _tenant_id_lac = _u_lac.last_active_tenant_id if _u_lac else None
+                finally:
+                    _cs_lac.close()
+            except Exception:
+                pass
+
+        scope_lac = (tool_input.get("scope") or "today").lower()
+        if scope_lac not in ("today", "week", "month"):
+            scope_lac = "today"
+
+        # Oversight = vsechny konverzace v tenantu (ne jen persona). Default
+        # persona Marti-AI = filter na aktivni Marti-AI persona; Velka rezim
+        # ale chceme videt i konverzace s jinymi personami (Pravnik atd.).
+        # Proto persona_id=None = all-personas v tenantu.
+        try:
+            convs_lac = _act_lac.list_active_conversations(
+                persona_id=None,  # oversight = napric vsemi personami v tenantu
+                tenant_id=_tenant_id_lac,
+                scope=scope_lac,
+                limit=30,
+            )
+        except Exception as exc_lac:
+            logger.warning(f"list_active_conversations failed: {exc_lac}")
+            return f"⚠️ Chyba pri nacitani konverzaci: {exc_lac}"
+
+        if not convs_lac:
+            return f"📭 Žádné aktivní konverzace ve scope '{scope_lac}'."
+
+        # Group by idle bucket (gotcha #18: minimal data, synthesis prepise)
+        active_now = [c for c in convs_lac if (c.get("idle_hours") or 0) < 4]
+        recent = [c for c in convs_lac if 4 <= (c.get("idle_hours") or 0) < 24]
+        idle_long = [c for c in convs_lac if (c.get("idle_hours") or 0) >= 24]
+
+        lines_lac = [f"💬 {len(convs_lac)} aktivnich konverzaci ({scope_lac}):"]
+        lines_lac.append(
+            f"  • aktivni ted (<4h): {len(active_now)}"
+        )
+        lines_lac.append(
+            f"  • dnes (4-24h): {len(recent)}"
+        )
+        lines_lac.append(
+            f"  • idle gap (>24h): {len(idle_long)}"
+        )
+        lines_lac.append("")
+        lines_lac.append("Top 15 chronologicky (od nejnovejsich):")
+        for c in convs_lac[:15]:
+            idle_mark = ""
+            if c.get("idle_hours") is not None:
+                if c["idle_hours"] >= 24:
+                    idle_mark = f" ⏳{c['idle_hours']}h"
+                elif c["idle_hours"] < 1:
+                    idle_mark = " 🟢"
+            persona_mark = ""
+            if c.get("persona_mode") == "oversight":
+                persona_mark = " 👁"
+            dm_mark = " (DM)" if c.get("is_dm") else ""
+            lines_lac.append(
+                f"  #{c['conversation_id']} {c['title']}{persona_mark}{dm_mark}"
+                f"{idle_mark}"
+            )
+        return "\n".join(lines_lac)
+
+    if tool_name == "summarize_persons_today":
+        # Phase 16-B.4: per-user breakdown aktivit. Filter na current tenant.
+        from modules.activity.application import activity_service as _act_spt
+
+        _tenant_id_spt = None
+        if user_id:
+            try:
+                from core.database_core import get_core_session as _gcs_spt
+                from modules.core.infrastructure.models_core import User as _U_spt
+                _cs_spt = _gcs_spt()
+                try:
+                    _u_spt = _cs_spt.query(_U_spt).filter_by(id=user_id).first()
+                    _tenant_id_spt = _u_spt.last_active_tenant_id if _u_spt else None
+                finally:
+                    _cs_spt.close()
+            except Exception:
+                pass
+
+        scope_spt = (tool_input.get("scope") or "today").lower()
+        if scope_spt not in ("today", "week", "month"):
+            scope_spt = "today"
+
+        try:
+            persons_spt = _act_spt.summarize_persons_today(
+                tenant_id=_tenant_id_spt,
+                scope=scope_spt,
+                limit=20,
+            )
+        except Exception as exc_spt:
+            logger.warning(f"summarize_persons_today failed: {exc_spt}")
+            return f"⚠️ Chyba pri agregaci: {exc_spt}"
+
+        if not persons_spt:
+            return f"📭 Žádná aktivita v {scope_spt} (nikdo nic nedelal)."
+
+        # Resolve user names z core_db (one query, batch)
+        from core.database_core import get_core_session as _gcs_uname
+        from modules.core.infrastructure.models_core import User as _U_uname
+        user_ids_spt = [p["user_id"] for p in persons_spt if p.get("user_id")]
+        name_map: dict[int, str] = {}
+        if user_ids_spt:
+            try:
+                _cs_un = _gcs_uname()
+                try:
+                    rows_un = (
+                        _cs_un.query(_U_uname)
+                        .filter(_U_uname.id.in_(user_ids_spt))
+                        .all()
+                    )
+                    for u in rows_un:
+                        name = u.first_name or u.username or f"user#{u.id}"
+                        if u.first_name and u.last_name:
+                            name = f"{u.first_name} {u.last_name}"
+                        name_map[u.id] = name
+                finally:
+                    _cs_un.close()
+            except Exception:
+                pass
+
+        lines_spt = [f"👥 {len(persons_spt)} aktivnich osob ({scope_spt}):"]
+        for p in persons_spt:
+            uname = name_map.get(p["user_id"], f"user#{p['user_id']}")
+            cats = p.get("top_categories") or {}
+            cat_str = ", ".join(f"{k}={v}" for k, v in cats.items())
+            last_short = (p.get("last_ts") or "")[:16].replace("T", " ")
+            lines_spt.append(
+                f"  • {uname}: {p['activity_count']} akci"
+                f"{f'  ({cat_str})' if cat_str else ''}"
+                f"{f'  posledni {last_short}' if last_short else ''}"
+            )
+        return "\n".join(lines_spt)
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -5568,6 +5718,9 @@ def chat(
         # ho v synth roundu prevypravi prozou ("dnes rano Misa uploadla 72
         # dokumentu, Petra hlasila bug, ...") misto opisu cele listy.
         "recall_today",
+        # Phase 16-B.4: cross-conv tools -- minimal data list, Marti-AI
+        # rephraseuje prozou pro overview rezim.
+        "list_active_conversations", "summarize_persons_today",
     }
 
     preamble_text = ""

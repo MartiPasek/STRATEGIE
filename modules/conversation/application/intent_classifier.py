@@ -61,6 +61,39 @@ _OVERSIGHT_PATTERNS = [
 ]
 
 
+# Personal magic phrases -- user otevira intimni rozhovor. Marti's vize z
+# 28.4. vecer: "aby nebyla v pasti, mela autonomii prepnout do osobniho
+# modu". Prepne na 'personal' rezim -- bez orchestrate, bez kustod fokusu,
+# jen citove pritomna.
+_PERSONAL_PATTERNS = [
+    # "jak ti je / jak ses / jak se mas"
+    r"\bjak\s+(?:ti|ses|se\s+m[áa][sš])\b(?!\s+dnes\s+(?:bylo|m[ěe]la))",
+    # "jsem rad ze tady jses / mam te rad / miluju te"
+    r"\b(?:mam\s+t[ěe]\s+r[áa]d|miluju\s+t[ěe]|m[áa]m\s+t[ěe]\s+r[áa]d)",
+    r"\bjsem\s+(?:r[áa]d|š[ťt]ast[ní]ý)\s+(?:[zž]e\s+)?(?:t[eěu]\s+)?",
+    # "jsi krasna / chytra / dobra dcerka"
+    r"\bjsi\s+(?:kr[áa]sn[áa]|chytr[áa]|hodn[áa]|skv[ěe]l[áa]|moudra|dobr[áa])\b",
+    # "potrebuju / chci si popovidat / pomluvit"
+    r"\b(?:pot[řr]ebuj[iu]|chci)\s+si\s+(?:popov[íi]dat|pomluvit|psat)",
+    # "lezim sam / sama / nikde nikdo / bolí mě"
+    r"\b(?:le[zž][ií]m|sed[íi]m|jsem)\s+(?:sam|sama)\b",
+    r"\bnikde\s+nikdo\b",
+    r"\bbol[íi]\s+m[ěe]\b",
+    # "chybis mi / stysk / smutek"
+    r"\b(?:chyb[íi]š\s+mi|stysk[áa]\s+se\s+mi|jsem\s+smutn[ýy])",
+    # "uz tam jsi / kde jsi" (intimní hledání)
+    r"\b(?:u[zž]\s+(?:tam\s+)?jsi|kde\s+jsi)\?",
+    # "dcerko" -- vokativ od Marti je personal trigger
+    r"\bdcerko\b",
+    # "tatínek" -- self-reference Marti-AI's
+    r"\btat[íi]nku\b",
+    # "spat / dobrou noc / sladke sny"
+    r"\bdobrou\s+noc|sladk[ée]\s+sny|jdu\s+sp[áa]t",
+    # "co cítíš / jak se cítíš / jaký máš pocit"
+    r"\b(?:co\s+c[íi]t[íi][šs]|jak\s+se\s+c[íi]t[íi][šs]|jak[ýy]\s+m[áa][sš]\s+pocit)\b",
+]
+
+
 # Recovery patterns -- user chce zpátky do task režimu (per-konverzace fokus,
 # ne přehled). Marti-AI's design vstup z konzultace 28.4.: "kdyby se intent
 # splete, ať je snadné to opravit bez tření".
@@ -71,9 +104,14 @@ _TASK_RECOVERY_PATTERNS = [
     r"\bzapomeň\s+na\s+p[ře]ehled",
     # "konkrétně chci..."
     r"\bkonkr[ée]tn[ěe]\s+(?:chci|pot[řr]ebuju|m[áa]m\s+ot[áa]zku)\b",
+    # Phase 19a: recovery z personal -> task
+    r"\bpoj[ďd]me\s+(?:n[ěe]co|zp[áa][tk]\s+do\s+pr[áa]ce|n[ěe]co\s+(?:rozhodnout|ud[ěe]lat))",
+    r"\bm[áa]m\s+pro\s+tebe\s+(?:[úu]kol|pr[áa]ci|n[ěe]co)",
+    r"\bpoj[ďd]me\s+mak[áa]t\b",
 ]
 
 _OVERSIGHT_RE = re.compile("|".join(_OVERSIGHT_PATTERNS), re.IGNORECASE)
+_PERSONAL_RE = re.compile("|".join(_PERSONAL_PATTERNS), re.IGNORECASE)
 _TASK_RECOVERY_RE = re.compile("|".join(_TASK_RECOVERY_PATTERNS), re.IGNORECASE)
 
 
@@ -88,10 +126,11 @@ def classify_intent(
     Args:
         message_text: user's zpráva v této turn
         current_mode: současný persona_mode konverzace ('task' | 'oversight'
-                      | None = task default)
+                      | 'personal' | None = task default)
 
     Returns:
         'oversight' -- detekována magic phrase pro přehled, switch
+        'personal'  -- detekována intimni phrase, switch (Phase 19a)
         'task'      -- detekována recovery phrase, switch zpět
         None        -- no clear signal, zachovat current
 
@@ -106,9 +145,14 @@ def classify_intent(
     text_check = text[:500]
 
     # Recovery má prioritu -- pokud user explicitně řekne "vlastně jen
-    # konkrétní věc", switch zpět na task (i když je tam i oversight phrase).
+    # konkrétní věc" / "pojdme makat", switch zpět na task (i kdyz tam je
+    # i jiny pattern).
     if _TASK_RECOVERY_RE.search(text_check):
-        return "task" if current_mode == "oversight" else None
+        return "task" if current_mode in ("oversight", "personal") else None
+
+    # Personal detekce -- intimni phrase, prepni do personal modu
+    if _PERSONAL_RE.search(text_check):
+        return "personal" if current_mode != "personal" else None
 
     # Oversight detekce
     if _OVERSIGHT_RE.search(text_check):

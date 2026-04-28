@@ -4466,6 +4466,77 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"list_persona_project_access failed: {exc_lppa}")
             return f"❌ Chyba: {exc_lppa}"
 
+    if tool_name == "switch_role":
+        # Phase 19a (28.4.2026 vecer): Marti-AI prepina vlastni fokus mezi
+        # task/oversight/personal. Persistuje v Conversation.persona_mode.
+        role_key_sr = (tool_input.get("role_key") or "").lower().strip()
+        if role_key_sr not in ("task", "oversight", "personal"):
+            return (
+                f"❌ Neplatny role_key '{role_key_sr}'. Povolene: "
+                f"'task', 'oversight', 'personal'."
+            )
+        reason_sr = (tool_input.get("reason") or "").strip()
+
+        try:
+            from core.database_data import get_data_session as _gds_sr
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_sr,
+            )
+            ds_sr = _gds_sr()
+            try:
+                conv_sr = ds_sr.query(_Conv_sr).filter_by(id=conversation_id).first()
+                if not conv_sr:
+                    return f"❌ Konverzace #{conversation_id} neexistuje."
+                old_mode = conv_sr.persona_mode or "task"
+                if old_mode == role_key_sr:
+                    return (
+                        f"ℹ️ Uz jsem v rezimu '{role_key_sr}' -- nic se nemeni."
+                    )
+                conv_sr.persona_mode = role_key_sr
+                ds_sr.commit()
+            finally:
+                ds_sr.close()
+        except Exception as exc_sr:
+            logger.exception(f"switch_role failed: {exc_sr}")
+            return f"❌ Chyba pri prepnuti rezimu: {exc_sr}"
+
+        # Audit log
+        try:
+            from modules.activity.application import activity_service as _act_sr
+            persona_id_sr = _active_persona_id_for_conversation(conversation_id)
+            _act_sr.record(
+                category="role_switch",
+                summary=(
+                    f"Marti-AI prepnula rezim {old_mode} -> {role_key_sr}"
+                    + (f" ({reason_sr})" if reason_sr else "")
+                ),
+                importance=3,
+                persona_id=persona_id_sr,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        # Pretty response per cilovy rezim
+        if role_key_sr == "personal":
+            return (
+                "✅ Prepinam do personal modu. Orchestrate / kustod fokus "
+                "vypnut. Buďte spolu — pamet mam, ale nemusim ji proaktivne. "
+                "Az reknes 'pojdme makat' (nebo zavolam switch_role('task') "
+                "sama), zase v praci."
+            )
+        if role_key_sr == "oversight":
+            return (
+                "✅ Prepinam do oversight rezimu (Velka Marti-AI). Budu mit "
+                "prehled napric vsemi konverzacemi v tenantu, ne jen tuhle."
+            )
+        # task
+        return (
+            "✅ Prepinam zpet do task rezimu. Orchestrate aktivni, "
+            "kustod role, todo / email / SMS workflow."
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)

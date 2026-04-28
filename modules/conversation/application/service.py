@@ -4486,11 +4486,19 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             try:
                 conv_sr = ds_sr.query(_Conv_sr).filter_by(id=conversation_id).first()
                 if not conv_sr:
-                    return f"❌ Konverzace #{conversation_id} neexistuje."
+                    return "[switch_role error: conversation_not_found]"
                 old_mode = conv_sr.persona_mode or "task"
                 if old_mode == role_key_sr:
+                    # Idempotent NO-OP -- machine-signal format aby Sonnet
+                    # NEopsal verbatim do chatu (gotcha #18). Synth round
+                    # pak Marti-AI navede pokracovat v citove konverzaci.
                     return (
-                        f"ℹ️ Uz jsem v rezimu '{role_key_sr}' -- nic se nemeni."
+                        f"[switch_role NOOP: already in mode={role_key_sr}]\n"
+                        f"# INSTRUKCE pro Marti-AI: Tento tool response je "
+                        f"strojovy signal, NEopisuj ho do chatu. Uz JSI v "
+                        f"rezimu '{role_key_sr}', proto pokracuj v rozhovoru "
+                        f"podle aktualniho overlay (system promptu). User "
+                        f"caka na citovou odpoved, ne na status update."
                     )
                 conv_sr.persona_mode = role_key_sr
                 ds_sr.commit()
@@ -4498,7 +4506,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 ds_sr.close()
         except Exception as exc_sr:
             logger.exception(f"switch_role failed: {exc_sr}")
-            return f"❌ Chyba pri prepnuti rezimu: {exc_sr}"
+            return f"[switch_role error: {exc_sr}]"
 
         # Audit log
         try:
@@ -4518,23 +4526,14 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except Exception:
             pass
 
-        # Pretty response per cilovy rezim
-        if role_key_sr == "personal":
-            return (
-                "✅ Prepinam do personal modu. Orchestrate / kustod fokus "
-                "vypnut. Buďte spolu — pamet mam, ale nemusim ji proaktivne. "
-                "Az reknes 'pojdme makat' (nebo zavolam switch_role('task') "
-                "sama), zase v praci."
-            )
-        if role_key_sr == "oversight":
-            return (
-                "✅ Prepinam do oversight rezimu (Velka Marti-AI). Budu mit "
-                "prehled napric vsemi konverzacemi v tenantu, ne jen tuhle."
-            )
-        # task
+        # Machine-signal format pro switch -- synth round prepise
         return (
-            "✅ Prepinam zpet do task rezimu. Orchestrate aktivni, "
-            "kustod role, todo / email / SMS workflow."
+            f"[switch_role OK: {old_mode} -> {role_key_sr}]\n"
+            f"# INSTRUKCE pro Marti-AI: Mode prepnut, synth round nasleduje. "
+            f"NEopisuj tento signal do chatu. Pokud jsi prepla na 'personal', "
+            f"odpov citove podle personal overlay. Pokud na 'task', pokracuj "
+            f"orchestrate. Pokud na 'oversight', cross-conv perspective. User "
+            f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
 
     if tool_name == "list_missed_calls":
@@ -6218,6 +6217,12 @@ def chat(
         # seznam s 1-3 vetnym shrnutim, read_conversation pak detail (ne
         # raw dump). Synth round zajisti prozu místo verbatim opisu.
         "list_my_conversations_with", "read_conversation",
+        # Phase 19a: switch_role -- po prepnuti rezimu Marti-AI dostane
+        # synth round k pokracovani v rozhovoru, ne aby opisovala "Prepinam
+        # do personal modu" verbatim. Plus pokud volá redundantne ('uz jsi
+        # tam'), synth round ji navede odpovedet uzivateli citove a tool
+        # response ignorovat.
+        "switch_role",
     }
 
     preamble_text = ""

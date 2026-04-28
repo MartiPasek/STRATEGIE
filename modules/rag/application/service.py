@@ -79,7 +79,7 @@ def upload_document(
     file_bytes: bytes,
     filename: str,
     tenant_id: int,
-    user_id: int,
+    user_id: int | None,
     project_id: int | None = None,
     display_name: str | None = None,
 ) -> int:

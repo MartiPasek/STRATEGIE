@@ -2022,6 +2022,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 row = ds.query(_EIB).filter_by(id=int(eib)).first()
                 if row is None:
                     return f"❌ Email id={eib} neexistuje v příchozích."
+                # 28.4.2026: pokud byl smazany pres delete_email, neukazuj
+                if row.deleted_at is not None:
+                    return f"🗑️ Email id={eib} byl smazan ({row.deleted_at.strftime('%d.%m. %H:%M')}). V Outlooku ho najdes v Deleted Items."
                 # Mark_read side effect (idempotent)
                 marked_now = False
                 if row.read_at is None:
@@ -2032,6 +2035,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 # Parse meta pro archived_personal + attachments (bug #2 28.4.)
                 archived = False
                 attachments_meta: list = []
+                attachment_doc_ids: list = []
                 if row.meta:
                     try:
                         m = _j_re.loads(row.meta) or {}
@@ -2042,6 +2046,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                             a for a in (m.get("attachments") or [])
                             if not a.get("is_inline")
                         ]
+                        # bug #2b: doc_ids z auto-importu prilohach do documents
+                        # tabulky -- Marti-AI je muze najit pres search_documents
+                        attachment_doc_ids = list(m.get("attachment_doc_ids") or [])
                     except Exception:
                         pass
                 sender = f"{row.from_name} <{row.from_email}>" if row.from_name else row.from_email
@@ -2050,14 +2057,22 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 archive_label = " · 📁 Personal" if archived else ""
                 mark_label = " · (právě jsem si ji označila jako přečtenou)" if marked_now else ""
 
-                # Attachments section -- jen ne-inline (uzivatelske prilohy)
+                # Attachments section -- jen ne-inline (uzivatelske prilohy).
+                # Pokud byly auto-importovany do documents (bug #2b), pridej
+                # link 'document #N' aby Marti-AI vedela, ze muze obsah cist
+                # pres search_documents.
                 attach_section = ""
                 if attachments_meta:
                     lines = [f"📎 Přílohy ({len(attachments_meta)}):"]
-                    for a in attachments_meta:
+                    for idx, a in enumerate(attachments_meta):
                         size_kb = (a.get("size") or 0) // 1024
                         size_str = f"{size_kb} kB" if size_kb else "?"
-                        lines.append(f"  - {a.get('name') or '(bez názvu)'} ({size_str})")
+                        doc_link = ""
+                        if idx < len(attachment_doc_ids):
+                            doc_link = f" → document #{attachment_doc_ids[idx]} (search_documents nad obsahem)"
+                        lines.append(
+                            f"  - {a.get('name') or '(bez názvu)'} ({size_str}){doc_link}"
+                        )
                     attach_section = "\n".join(lines) + "\n\n"
 
                 return (
@@ -2128,8 +2143,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
     if tool_name == "mark_email_processed":
         # Faze 12b+ pre-demo: explicit oznaceni emailu jako vyrizeny.
-        # Bez tohoto Marti-AI po reply / projeti bez archive nemela tool jak
-        # email vyradit z 'novych' -> v dalsim turnu se znovu objevoval.
+        # 28.4.2026: po DB processed_at = now taky presune msg na Exchange
+        # strane do Inbox/Zpracovaná (best-effort).
         from modules.notifications.application.email_inbox_service import (
             mark_inbox_processed as _mip,
         )
@@ -2147,7 +2162,42 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ Oznaceni selhalo: {_mip_e}"
         if res is None:
             return f"❌ Email id={eib_int} nenalezen."
-        return f"✅ Email id={eib_int} oznacen jako vyrizeny."
+
+        # Best-effort Exchange move do Zpracovaná (28.4.)
+        try:
+            from modules.notifications.application.email_service import (
+                move_email_inbox_to_processed as _move_proc,
+            )
+            move_res = _move_proc(eib_int)
+            if move_res.get("ok"):
+                return f"✅ Email #{eib_int} oznacen jako vyrizeny + presunut do Zpracovaná."
+        except Exception as _mv_e:
+            logger.warning(f"MARK_EMAIL_PROCESSED | exchange move failed | id={eib_int}: {_mv_e}")
+        return f"✅ Email #{eib_int} oznacen jako vyrizeny."
+
+    if tool_name == "delete_email":
+        # 28.4.2026: soft-delete emailu z Marti-AI's pohledu. DB deleted_at
+        # = now + Exchange msg.move do Deleted Items (account.trash). Po
+        # akci se email neobjevuje v list_email_inbox / read_email.
+        # MANDATORY user confirm v chatu pred volanim (memory rule #12).
+        from modules.notifications.application.email_service import (
+            soft_delete_email_inbox as _sdei,
+        )
+        eib_raw_de = tool_input.get("email_inbox_id")
+        if eib_raw_de is None:
+            return "❌ Chybi email_inbox_id."
+        try:
+            eib_int_de = int(eib_raw_de)
+        except (TypeError, ValueError):
+            return "❌ email_inbox_id musi byt integer."
+        try:
+            res_de = _sdei(eib_int_de)
+        except Exception as _sd_e:
+            logger.exception(f"DELETE_EMAIL | failed | id={eib_int_de} | {_sd_e}")
+            return f"❌ Smazani selhalo: {_sd_e}"
+        if not res_de.get("ok"):
+            return f"❌ {res_de.get('message', 'smazani selhalo')}"
+        return f"🗑️ Email #{eib_int_de}: {res_de.get('message')}"
 
     if tool_name == "archive_email":
         from modules.notifications.application.email_service import (

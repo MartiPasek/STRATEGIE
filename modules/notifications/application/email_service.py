@@ -137,26 +137,67 @@ def _is_auth_error(exc: Exception) -> bool:
 
 
 _PERSONAL_FOLDER_NAME = "Personal"   # Nazev slozky pro Martiho osobni archiv
+_PROCESSED_FOLDER_NAME = "Zpracovaná"  # 28.4.2026: vyrizene emaily po mark_email_processed
+
+
+def _get_mailbox_root(account):
+    """
+    Vraci 'Top of Information Store' root, pod kterym jsou Inbox, Sent
+    Items, Deleted Items a custom folders na Marti's-vize root urovni
+    (Personal, Zpracovaná). Lidsky vidi v Outlooku jako root-level slozky
+    sourozenec Inboxu.
+
+    Pouziva se misto puvodniho `account.root` pattern -- exchangelib
+    `account.root` je technicky kontejner, my ale chceme `msg_folder_root`
+    coz je primarni mailbox root (pod kterym Outlook vidi vse).
+    """
+    return getattr(account, "msg_folder_root", None) or account.root
+
+
+def _ensure_processed_folder(account) -> "Any":
+    """
+    Zajistí, že existuje slozka `Zpracovaná` na root urovni (sourozenec
+    Inboxu). Marti's vize 28.4.2026: lidsky mental model je root-level
+    slozky, ne subfoldery Inboxu. Idempotent.
+
+    Vraci folder object, nebo None kdyz selze (neshazuje volajici).
+    """
+    try:
+        from exchangelib import Folder
+        root = _get_mailbox_root(account)
+        if root is None:
+            return None
+        # Hledame existujici (case-sensitive match na nazev)
+        for f in root.children:
+            if f.name == _PROCESSED_FOLDER_NAME:
+                return f
+        folder = Folder(parent=root, name=_PROCESSED_FOLDER_NAME)
+        folder.save()
+        logger.info(f"EMAIL | processed folder created at root level")
+        return folder
+    except Exception as e:
+        logger.warning(f"EMAIL | processed folder ensure failed: {e}")
+        return None
 
 
 def _ensure_personal_folder(account) -> "Any":
     """
-    Zajistí, že existuje složka `Personal` pod Inbox. Pokud ne, vytvoří ji.
-    Idempotent — pri opakovanem volani jen vrati existujici.
-    Pouziva se pro Marti Memory Faze 6 (soukromy email archiv).
+    Zajistí, že existuje slozka `Personal` na root urovni (sourozenec
+    Inboxu). Marti's vize 28.4.2026: lidsky mental model. Idempotent.
 
-    Vraci folder object, nebo None kdyz selze (neshazuje operaci).
+    Vraci folder object, nebo None kdyz selze.
     """
     try:
         from exchangelib import Folder
-        # Nejdriv zkus najit existujici
-        for f in account.inbox.children:
+        root = _get_mailbox_root(account)
+        if root is None:
+            return None
+        for f in root.children:
             if f.name == _PERSONAL_FOLDER_NAME:
                 return f
-        # Neexistuje -- vytvor
-        folder = Folder(parent=account.inbox, name=_PERSONAL_FOLDER_NAME)
+        folder = Folder(parent=root, name=_PERSONAL_FOLDER_NAME)
         folder.save()
-        logger.info(f"EMAIL | personal folder created under Inbox for account")
+        logger.info(f"EMAIL | personal folder created at root level")
         return folder
     except Exception as e:
         logger.warning(f"EMAIL | personal folder ensure failed: {e}")
@@ -196,13 +237,44 @@ def move_inbox_message_to_personal(
         if folder is None:
             return False
 
-        # Najdi zpravu v Inbox podle message_id
-        matches = list(account.inbox.filter(message_id=message_id)[:1])
-        if not matches:
-            logger.warning(f"EMAIL | personal archive | message_id not found in Inbox: {message_id[:60]}")
+        # 28.4.2026: hledame v Inbox + root-level Zpracovaná + legacy
+        # subfolderech Inboxu (pred refactorem).
+        msg = None
+        search_folders = [account.inbox]
+        try:
+            root = _get_mailbox_root(account)
+            if root is not None:
+                for f in root.children:
+                    if f.name == _PERSONAL_FOLDER_NAME:
+                        continue
+                    if f.id == account.inbox.id:
+                        continue
+                    search_folders.append(f)
+        except Exception:
+            pass
+        try:
+            for sub in account.inbox.children:
+                if sub.name == _PERSONAL_FOLDER_NAME:
+                    continue
+                search_folders.append(sub)
+        except Exception:
+            pass
+
+        for fldr in search_folders:
+            try:
+                matches = list(fldr.filter(message_id=message_id)[:1])
+                if matches:
+                    msg = matches[0]
+                    break
+            except Exception:
+                continue
+
+        if msg is None:
+            logger.warning(
+                f"EMAIL | personal archive | message_id not found anywhere: {message_id[:60]}"
+            )
             return False
 
-        msg = matches[0]
         msg.move(to_folder=folder)
         logger.info(
             f"EMAIL | archived to Personal | message_id={message_id[:60]}"
@@ -213,6 +285,159 @@ def move_inbox_message_to_personal(
             f"EMAIL | personal archive (inbound) failed | message_id={message_id[:60]}: {e}",
             exc_info=True,
         )
+        return False
+
+
+def move_inbox_message_to_processed(
+    creds: dict[str, str],
+    message_id: str,
+) -> bool:
+    """
+    28.4.2026: Presune zpravu z Inbox do Inbox/Zpracovaná. Volano po
+    `mark_email_processed` AI tool aby Marti v Outlooku videl, ze email
+    je vyrizeny. Best-effort -- selhani Exchange move neshazuje DB processed
+    flag.
+    """
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(
+                username=creds["email"],
+                password=creds["password"],
+            ),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        folder = _ensure_processed_folder(account)
+        if folder is None:
+            return False
+
+        # Hledame v Inbox + root-level Personal + legacy subfoldech Inboxu
+        # (Inbox/Personal, Inbox/Zpracovaná) -- pro emaily ktere byly
+        # archivovany pred 28.4.2026 refactorem na root level.
+        msg = None
+        search_folders = [account.inbox]
+        try:
+            root = _get_mailbox_root(account)
+            if root is not None:
+                for f in root.children:
+                    # Cilova slozka neni v search
+                    if f.name == _PROCESSED_FOLDER_NAME:
+                        continue
+                    if f.id == account.inbox.id:
+                        continue  # uz mame Inbox
+                    search_folders.append(f)
+        except Exception:
+            pass
+        # Plus legacy subfolders Inboxu (před refactorem)
+        try:
+            for sub in account.inbox.children:
+                if sub.name == _PROCESSED_FOLDER_NAME:
+                    continue
+                search_folders.append(sub)
+        except Exception:
+            pass
+
+        for fldr in search_folders:
+            try:
+                matches = list(fldr.filter(message_id=message_id)[:1])
+                if matches:
+                    msg = matches[0]
+                    break
+            except Exception:
+                continue
+
+        if msg is None:
+            logger.warning(
+                f"EMAIL | processed move | message_id not found anywhere: {message_id[:60]}"
+            )
+            return False
+
+        msg.move(to_folder=folder)
+        logger.info(f"EMAIL | moved to Zpracovaná | message_id={message_id[:60]}")
+        return True
+    except Exception as e:
+        logger.warning(f"EMAIL | processed move failed: {e}")
+        return False
+
+
+def move_inbox_message_to_trash(
+    creds: dict[str, str],
+    message_id: str,
+) -> bool:
+    """
+    28.4.2026: Presune zpravu z Inbox do Exchange built-in Deleted Items
+    (account.trash). Volano po `delete_email` AI tool pro soft delete.
+    Best-effort -- selhani Exchange move neshazuje DB deleted_at flag.
+
+    Vraci True pokud msg byl uspesne presunut.
+    """
+    try:
+        from exchangelib import Credentials, Account, Configuration, DELEGATE
+        import urllib3
+        urllib3.disable_warnings()
+
+        server = (creds.get("server") or "").replace("https://", "").replace("http://", "")
+        config = Configuration(
+            server=server,
+            credentials=Credentials(
+                username=creds["email"],
+                password=creds["password"],
+            ),
+        )
+        account = Account(
+            primary_smtp_address=creds["email"],
+            config=config,
+            autodiscover=False,
+            access_type=DELEGATE,
+        )
+
+        # Built-in Exchange Deleted Items folder
+        trash_folder = account.trash
+        if trash_folder is None:
+            logger.warning("EMAIL | trash move | account.trash is None")
+            return False
+
+        # Hledame v Inbox + ve vsech subfoldech (Personal, Zpracovaná) -- Marti
+        # muze chtit smazat i vec co se uz presunula do Personal nebo Zpracovaná.
+        msg = None
+        search_folders = [account.inbox]
+        try:
+            for sub in account.inbox.children:
+                search_folders.append(sub)
+        except Exception:
+            pass
+
+        for fldr in search_folders:
+            try:
+                matches = list(fldr.filter(message_id=message_id)[:1])
+                if matches:
+                    msg = matches[0]
+                    break
+            except Exception:
+                continue
+
+        if msg is None:
+            logger.warning(
+                f"EMAIL | trash move | message_id not found anywhere: {message_id[:60]}"
+            )
+            return False
+
+        msg.move(to_folder=trash_folder)
+        logger.info(f"EMAIL | moved to Deleted Items | message_id={message_id[:60]}")
+        return True
+    except Exception as e:
+        logger.warning(f"EMAIL | trash move failed: {e}")
         return False
 
 
@@ -365,6 +590,99 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
         ds.close()
 
     return {"ok": True, "message": "archivováno do Personal", "email_inbox_id": email_inbox_id}
+
+
+def move_email_inbox_to_processed(email_inbox_id: int) -> dict:
+    """
+    28.4.2026: Po `mark_email_processed` (DB processed_at = now) presune
+    zpravu na Exchange strane do Inbox/Zpracovaná. Best-effort -- selhani
+    Exchange neshazuje uz nastaveny processed_at flag.
+
+    Vraci {"ok": bool, "message": str, "email_inbox_id": int}.
+    """
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row is None:
+            return {"ok": False, "message": "neexistuje", "email_inbox_id": email_inbox_id}
+        persona_id = row.persona_id
+        message_id = row.message_id
+    finally:
+        ds.close()
+
+    if not persona_id:
+        return {"ok": False, "message": "chybi persona_id", "email_inbox_id": email_inbox_id}
+
+    from modules.notifications.application.persona_channel_service import (
+        get_email_credentials,
+    )
+    creds = get_email_credentials(persona_id)
+    if not creds:
+        return {"ok": False, "message": "persona nema email channel", "email_inbox_id": email_inbox_id}
+
+    moved = move_inbox_message_to_processed(creds, message_id)
+    if not moved:
+        return {"ok": False, "message": "EWS move selhal (msg uz mozna byl presunut)", "email_inbox_id": email_inbox_id}
+    return {"ok": True, "message": "presunuto do Zpracovaná", "email_inbox_id": email_inbox_id}
+
+
+def soft_delete_email_inbox(email_inbox_id: int) -> dict:
+    """
+    28.4.2026: Soft-delete emailu z Marti-AI's perspektivy:
+      1. DB: email_inbox.deleted_at = now (list_email_inbox/read_email
+         filtruji `deleted_at IS NULL`)
+      2. Exchange: msg.move(to_folder=account.trash) -- pres Outlook
+         standard Deleted Items folder
+
+    Best-effort Exchange move -- pokud selze, deleted_at zustane (smazani
+    z Marti-AI's pohledu) ale msg zustane v Inbox / Personal / Zpracovaná
+    fyzicky. User to vidi dvojakem stavu (DB hidden, Outlook visible).
+
+    Vraci {"ok": bool, "message": str, "email_inbox_id": int}.
+    """
+    from datetime import datetime, timezone
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox
+
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row is None:
+            return {"ok": False, "message": "neexistuje", "email_inbox_id": email_inbox_id}
+        if row.deleted_at is not None:
+            return {"ok": True, "message": "uz bylo smazano", "email_inbox_id": email_inbox_id}
+        persona_id = row.persona_id
+        message_id = row.message_id
+    finally:
+        ds.close()
+
+    # Step 1: Exchange move (best-effort, prvni protoze pri uspesnem move
+    # potrebuje msg jeste byt findable -- po DB delete by orphan)
+    moved = False
+    if persona_id and message_id:
+        from modules.notifications.application.persona_channel_service import (
+            get_email_credentials,
+        )
+        creds = get_email_credentials(persona_id)
+        if creds:
+            moved = move_inbox_message_to_trash(creds, message_id)
+
+    # Step 2: DB soft delete (vzdy proved, i pokud Exchange selhal)
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
+        if row and row.deleted_at is None:
+            row.deleted_at = datetime.now(timezone.utc)
+            ds.commit()
+    finally:
+        ds.close()
+
+    if moved:
+        return {"ok": True, "message": "smazano (DB + Exchange Deleted Items)", "email_inbox_id": email_inbox_id}
+    return {"ok": True, "message": "smazano z Marti-AI's pohledu (DB), Exchange move selhal", "email_inbox_id": email_inbox_id}
 
 
 def archive_email_outbox_to_personal(email_outbox_id: int) -> dict:

@@ -443,6 +443,10 @@ class EmailInbox(BaseData):
     received_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     read_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     processed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # 28.4.2026: soft delete -- delete_email AI tool nastavi a presunul do
+    # Exchange Deleted Items. list_email_inbox / read_email pak filtruji
+    # `deleted_at IS NULL`, aby smazane emaily nebyly v workflow.
+    deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # Faze 11a: orchestrate priorita (100 default, -10 odloz, -30 neres).
     priority_score: Mapped[int] = mapped_column(Integer, default=100, nullable=False)
     stored_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)

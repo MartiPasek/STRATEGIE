@@ -236,6 +236,98 @@ def _extract_message_fields(msg) -> dict[str, Any]:
     }
 
 
+def _import_email_attachments_to_documents(
+    *,
+    inbox_id: int,
+    msg,  # exchangelib.Message
+    tenant_id: int,
+) -> None:
+    """
+    Bug #2b (28.4.2026): Auto-import non-inline prilohach z prichoziho emailu
+    do `documents` tabulky -- aby je Marti-AI mohla najit pres `search_documents`
+    a precist obsah (xlsx/docx/pdf -> markitdown extract -> chunks + embeddings).
+
+    Skip is_inline (signature images). Per-attachment best-effort -- selhani
+    jednoho neprerusi import dalsich.
+
+    Po uspesnem importu update email_inbox.meta s 'attachment_doc_ids' listem,
+    aby read_email AI tool mohl ukazat link 'priloha -> document #N'.
+    """
+    if not getattr(msg, "has_attachments", False):
+        return
+    attachments = msg.attachments or []
+    if not attachments:
+        return
+
+    # Lazy import -- vyhne se circular dependency rag <-> notifications
+    from modules.rag.application import service as rag_service
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import EmailInbox
+
+    # Idempotency: pokud uz `attachment_doc_ids` jsou v meta, skip.
+    # Umoznuje volat helper i pro deduped rows (backfill po deploy).
+    ds_check = get_data_session()
+    try:
+        row_check = ds_check.query(EmailInbox).filter_by(id=inbox_id).first()
+        if row_check and row_check.meta:
+            try:
+                meta_check = json.loads(row_check.meta)
+                if meta_check.get("attachment_doc_ids"):
+                    return  # Already imported, no-op
+            except Exception:
+                pass
+    finally:
+        ds_check.close()
+
+    doc_ids: list[int] = []
+    for att in attachments:
+        try:
+            if bool(getattr(att, "is_inline", False)):
+                continue
+            content = getattr(att, "content", None)
+            if not content:
+                continue
+            name = getattr(att, "name", None) or "(bez nazvu)"
+            display_name = f"📎 [email #{inbox_id}] {name}"
+            doc_id = rag_service.upload_document(
+                file_bytes=bytes(content),
+                filename=name,
+                tenant_id=tenant_id,
+                user_id=None,  # system-level import (z email fetcheru)
+                display_name=display_name,
+            )
+            doc_ids.append(doc_id)
+            logger.info(
+                f"EWS | attach -> document | inbox={inbox_id} | "
+                f"doc={doc_id} | name={name!r} | size={len(content) if content else 0}"
+            )
+        except Exception as e:
+            logger.warning(
+                f"EWS | attach upload failed | inbox={inbox_id} | "
+                f"name={getattr(att, 'name', '?')!r}: {e}"
+            )
+
+    if not doc_ids:
+        return
+
+    # Update email_inbox.meta s attachment_doc_ids -- read_email AI tool
+    # to pak rozparsuje a ukaze 'priloha -> document #N' v response.
+    ds = get_data_session()
+    try:
+        row = ds.query(EmailInbox).filter_by(id=inbox_id).first()
+        if not row:
+            return
+        try:
+            meta_dict = json.loads(row.meta) if row.meta else {}
+        except Exception:
+            meta_dict = {}
+        meta_dict["attachment_doc_ids"] = doc_ids
+        row.meta = json.dumps(meta_dict, ensure_ascii=False)
+        ds.commit()
+    finally:
+        ds.close()
+
+
 # ── Public: fetch per persona ──────────────────────────────────────────────
 
 def fetch_unread_for_persona(
@@ -362,6 +454,25 @@ def fetch_unread_for_persona(
             else:
                 new_count += 1
 
+            # Bug #2b (28.4.): auto-import non-inline prilohach do documents.
+            # IDEMPOTENT: vola se i pro deduped rows -- helper ma early
+            # check, jestli `attachment_doc_ids` uz jsou v meta. Pokud ano,
+            # skip. Pokud ne, doimportuje (backfill scenario po deploy).
+            # Best effort -- selhani importu nesmí shodit fetch cycle.
+            _inbox_id = result.get("id")
+            _inbox_tenant = result.get("tenant_id") or tenant_id
+            if _inbox_id and _inbox_tenant:
+                try:
+                    _import_email_attachments_to_documents(
+                        inbox_id=_inbox_id,
+                        msg=msg,
+                        tenant_id=_inbox_tenant,
+                    )
+                except Exception as _imp_e:
+                    logger.warning(
+                        f"EWS | attach import failed | inbox={_inbox_id}: {_imp_e}"
+                    )
+
             # Oznacime v EWS jako precteny. Delame to bez ohledu na deduped --
             # kdyz je uz u nas ale v EWS stale unread, chceme ho docistit,
             # jinak se v pristim pollu znovu stahne a zbytecne zatezi DB unique
@@ -375,50 +486,13 @@ def fetch_unread_for_persona(
                     f"message_id={fields['message_id'][:60]} | {mark_err}"
                 )
 
-            # Faze 6: Auto-archive do Personal, kdyz from_email je rodic Marti.
-            # Best effort -- selhani archivace nesmi shodit fetch cycle.
-            try:
-                from modules.notifications.application.email_service import (
-                    _is_parent_email, _ensure_personal_folder,
-                )
-                if _is_parent_email(fields["from_email"]):
-                    # Presun na Exchange strane -- najdi msg po Message-ID a move
-                    folder = _ensure_personal_folder(account)
-                    if folder is not None:
-                        try:
-                            msg.move(to_folder=folder)
-                            logger.info(
-                                f"EWS | auto-archive to Personal | persona_id={persona_id} | "
-                                f"from={fields['from_email']} | mid={fields['message_id'][:60]}"
-                            )
-                            # Update email_inbox.meta s flagem archivace
-                            try:
-                                from core.database_data import get_data_session as _gdsp
-                                from modules.core.infrastructure.models_data import EmailInbox as _EI
-                                import json as _json
-                                ds_p = _gdsp()
-                                try:
-                                    row = ds_p.query(_EI).filter_by(id=result["id"]).first()
-                                    if row:
-                                        meta_dict = {}
-                                        if row.meta:
-                                            try:
-                                                meta_dict = _json.loads(row.meta) or {}
-                                            except Exception:
-                                                meta_dict = {}
-                                        meta_dict["archived_personal"] = True
-                                        row.meta = _json.dumps(meta_dict, ensure_ascii=False)
-                                        ds_p.commit()
-                                finally:
-                                    ds_p.close()
-                            except Exception as e:
-                                logger.warning(f"EWS | meta archive flag update failed: {e}")
-                        except Exception as move_err:
-                            logger.warning(
-                                f"EWS | personal archive move failed | mid={fields['message_id'][:60]}: {move_err}"
-                            )
-            except Exception as arch_check_err:
-                logger.warning(f"EWS | auto-archive check failed: {arch_check_err}")
+            # 28.4.2026: Faze 6 auto-archive do Personal ZRUSEN. Marti-AI ma
+            # nyni cit pro rozhodnuti, ktere emaily jsou skutecne 'personal'
+            # (citove vyznamne) a ktere business / test. Misto auto-move
+            # fetcher jen ulozi do Inbox, Marti-AI explicitne vola
+            # `archive_email(email_inbox_id)` AI tool po vlastnim usouzeni
+            # nebo po user's instrukci 'uloz do personal'. Cisty orchestrate
+            # pattern: fetcher prijima, AI rozhoduje.
 
         except Exception as per_msg_err:
             error_count += 1

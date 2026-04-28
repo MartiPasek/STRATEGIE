@@ -245,7 +245,13 @@ def list_inbox_for_ui(
 
     ds = get_data_session()
     try:
-        q = ds.query(EmailInbox).filter(EmailInbox.persona_id == persona_id)
+        # 28.4.2026: filter deleted_at IS NULL -- soft-deleted emaily
+        # nepatri ani do 'Prichozi' ani do 'Zpracovane' (mizi z Marti-AI's
+        # workflow). Fyzicky jsou v Exchange Deleted Items.
+        q = ds.query(EmailInbox).filter(
+            EmailInbox.persona_id == persona_id,
+            EmailInbox.deleted_at.is_(None),
+        )
         if filter_mode == "new":
             q = q.filter(EmailInbox.processed_at.is_(None))
         else:
@@ -358,6 +364,7 @@ def count_unread(persona_id: int) -> int:
                 EmailInbox.persona_id == persona_id,
                 EmailInbox.read_at.is_(None),
                 EmailInbox.processed_at.is_(None),
+                EmailInbox.deleted_at.is_(None),
             )
             .count()
         )
@@ -407,6 +414,7 @@ def count_unread_for_user(user_id: int) -> int:
                     EmailInbox.persona_id.in_(persona_ids),
                     EmailInbox.read_at.is_(None),
                     EmailInbox.processed_at.is_(None),
+                    EmailInbox.deleted_at.is_(None),
                 )
                 .count()
             )
@@ -674,36 +682,15 @@ def list_personal_for_ui(
             })
 
         # (b) Outgoing - per-row kontrola, ze to_email je rodic
-        outgoing_q = ds.query(EmailOutbox).filter(EmailOutbox.persona_id == persona_id)
-        if tenant_id is not None:
-            outgoing_q = outgoing_q.filter(EmailOutbox.tenant_id == tenant_id)
-        outgoing_rows = (
-            outgoing_q
-            .order_by(EmailOutbox.created_at.desc())
-            .limit(max(1, min(limit * 2, 400)))
-            .all()
-        )
-        outgoing_items = []
-        for r in outgoing_rows:
-            if not _is_parent_email(r.to_email):
-                continue
-            outgoing_items.append({
-                "id": r.id,
-                "direction": "out",
-                "source_type": "outbox",
-                "from_email": None,
-                "from_name": None,
-                "to_email": r.to_email,
-                "subject": r.subject,
-                "body": r.body,
-                "ts": (r.sent_at or r.created_at).isoformat() if (r.sent_at or r.created_at) else None,
-                "status": r.status,
-            })
+        # 28.4.2026: rule (b) ZRUSENA -- outgoing emaily uz NEJSOU automaticky
+        # v Personal podle 'to_email is parent'. Personal je nyni explicitni
+        # archiv, ridi ho Marti-AI / Marti pres archive_email AI tool. Outgoing
+        # archivace prijde pozdeji (separat archived_personal flag na email_outbox
+        # nebo unified mechanismus). Pro tuto epochu = jen incoming archive.
 
-        # Merge + sort by ts desc
-        merged = incoming_items + outgoing_items
-        merged.sort(key=lambda x: x.get("ts") or "", reverse=True)
-        return merged[:limit]
+        # Sort incoming by ts desc
+        incoming_items.sort(key=lambda x: x.get("ts") or "", reverse=True)
+        return incoming_items[:limit]
     finally:
         ds.close()
 

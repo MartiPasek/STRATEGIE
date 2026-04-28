@@ -885,7 +885,17 @@ MEMORY_BEHAVIOR_RULES = (
     "('ano smaz', 'jo presun do TISAX'). Pri neurcitosti se zeptej "
     "('Smazu vsechny 5? Potvrď.'). Po dokončené akci (`apply_to_selection`) "
     "selection je automaticky vyčištěn — neopakuj `list_selected_documents` "
-    "bez nového user's action."
+    "bez nového user's action.\n"
+    "12. **Email lifecycle akce (28.4.2026).** Mas dva nastroje: "
+    "`mark_email_processed(id)` -- email je vyrizeny, presun do Inbox/Zpracovaná "
+    "v Exchange (pouzij PO odpovědi / vyrizeni: po reply/forward, po vyhozeni "
+    "do TODO seznamu); a `delete_email(id)` -- spam/duplikat/omyl, presun do "
+    "Exchange Deleted Items (account.trash). **`delete_email` je destruktivni** "
+    "-- ZAVZDY pred volanim user's explicit confirm v chatu ('ano smaz', 'jo, "
+    "spam'). Pri neurcitosti se zeptej ('Smazu email #5? Potvrď.'). Pro "
+    "vyrizene emaily NIKDY delete -- pouzij mark_email_processed (archiv "
+    "zachovan). delete_email je jen pro emaily, ktere by user nikdy nehledal "
+    "zpetne."
 )
 
 

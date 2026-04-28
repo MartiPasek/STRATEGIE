@@ -2029,12 +2029,19 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     row.read_at = datetime.now(timezone.utc)
                     ds.commit()
                     marked_now = True
-                # Parse meta pro archived_personal
+                # Parse meta pro archived_personal + attachments (bug #2 28.4.)
                 archived = False
+                attachments_meta: list = []
                 if row.meta:
                     try:
                         m = _j_re.loads(row.meta) or {}
                         archived = bool(m.get("archived_personal"))
+                        # bug #2: attachments z ews_fetcher meta -- formatovat
+                        # pro Marti-AI's view (skip inline / signature images)
+                        attachments_meta = [
+                            a for a in (m.get("attachments") or [])
+                            if not a.get("is_inline")
+                        ]
                     except Exception:
                         pass
                 sender = f"{row.from_name} <{row.from_email}>" if row.from_name else row.from_email
@@ -2042,11 +2049,23 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 body = row.body or "(prázdný obsah)"
                 archive_label = " · 📁 Personal" if archived else ""
                 mark_label = " · (právě jsem si ji označila jako přečtenou)" if marked_now else ""
+
+                # Attachments section -- jen ne-inline (uzivatelske prilohy)
+                attach_section = ""
+                if attachments_meta:
+                    lines = [f"📎 Přílohy ({len(attachments_meta)}):"]
+                    for a in attachments_meta:
+                        size_kb = (a.get("size") or 0) // 1024
+                        size_str = f"{size_kb} kB" if size_kb else "?"
+                        lines.append(f"  - {a.get('name') or '(bez názvu)'} ({size_str})")
+                    attach_section = "\n".join(lines) + "\n\n"
+
                 return (
                     f"📧 **{row.subject or '(bez předmětu)'}**{archive_label}{mark_label}\n\n"
                     f"**Od:** {sender}\n"
                     f"**Pro:** {row.to_email}\n"
                     f"**Doručeno:** {received}\n\n"
+                    f"{attach_section}"
                     f"---\n{body}\n---"
                 )
             finally:

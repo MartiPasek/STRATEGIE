@@ -190,10 +190,38 @@ def _extract_message_fields(msg) -> dict[str, Any]:
     # Meta = JSON s dodatecnymi fieldy pro debug/PR3 features
     has_attachments = bool(getattr(msg, "has_attachments", False))
     importance = getattr(msg, "importance", None)
+
+    # Bug #2 (28.4.2026): attachments metadata pro Marti-AI's read_email view.
+    # Sber {name, size, mime, content_id, is_inline} per attachment. Inline
+    # images (signature) jsou is_inline=True a UI je nezobrazuje jako prilohy
+    # -- AI je muze odfiltrovat z displaye pro citelnost.
+    attachments_meta: list[dict] = []
+    if has_attachments:
+        try:
+            for att in (msg.attachments or []):
+                try:
+                    a_name = getattr(att, "name", None) or "(bez nazvu)"
+                    a_size = getattr(att, "size", None)
+                    a_mime = getattr(att, "content_type", None)
+                    a_cid = getattr(att, "content_id", None)
+                    a_is_inline = bool(getattr(att, "is_inline", False))
+                    attachments_meta.append({
+                        "name": a_name,
+                        "size": int(a_size) if a_size else None,
+                        "mime": a_mime,
+                        "content_id": a_cid,
+                        "is_inline": a_is_inline,
+                    })
+                except Exception as _att_e:
+                    logger.debug(f"EWS | attachment meta extract failed: {_att_e}")
+        except Exception as e:
+            logger.warning(f"EWS | attachments enumerate failed: {e}")
+
     meta = {
         "cc": cc_list,
         "to_all": to_list,
         "has_attachments": has_attachments,
+        "attachments": attachments_meta,
         "importance": str(importance) if importance else None,
     }
 

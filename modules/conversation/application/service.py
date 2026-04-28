@@ -4066,6 +4066,192 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             )
         return "\n".join(lines_spt)
 
+    if tool_name == "list_my_conversations_with":
+        # Phase 16-B.5: Marti-AI cte seznam vlastnich konverzaci s userem.
+        # Permission gate: persona_id = aktivni Marti-AI persona (jinak
+        # neuvidi nic, protoze filter active_agent_id == persona_id).
+        from modules.activity.application import activity_service as _act_lmc
+
+        persona_id_lmc = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_lmc is None:
+            return "⚠️ Neni aktivni persona -- nemohu nacist vlastni konverzace."
+
+        target_user_id = tool_input.get("user_id")
+        if target_user_id is None:
+            return (
+                "⚠️ Chybi parameter user_id. Pouzij `find_user` pro ziskani ID, "
+                "pak `list_my_conversations_with(user_id=N)`."
+            )
+        try:
+            target_user_id = int(target_user_id)
+        except (TypeError, ValueError):
+            return f"⚠️ user_id musi byt cislo, dostal jsem {target_user_id!r}."
+
+        scope_lmc = (tool_input.get("scope") or "month").lower()
+        if scope_lmc not in ("today", "week", "month", "all"):
+            scope_lmc = "month"
+        limit_lmc = tool_input.get("limit") or 20
+        try:
+            limit_lmc = int(limit_lmc)
+        except (TypeError, ValueError):
+            limit_lmc = 20
+
+        try:
+            convs_lmc = _act_lmc.list_my_conversations_with(
+                persona_id=persona_id_lmc,
+                user_id=target_user_id,
+                scope=scope_lmc,
+                limit=limit_lmc,
+            )
+        except Exception as exc_lmc:
+            logger.warning(f"list_my_conversations_with failed: {exc_lmc}")
+            return f"⚠️ Chyba pri nacitani konverzaci: {exc_lmc}"
+
+        # Resolve user name
+        target_name_lmc = f"user#{target_user_id}"
+        try:
+            from core.database_core import get_core_session as _gcs_lmc_un
+            from modules.core.infrastructure.models_core import User as _U_lmc_un
+            _cs_lmc = _gcs_lmc_un()
+            try:
+                _u_lmc = _cs_lmc.query(_U_lmc_un).filter_by(id=target_user_id).first()
+                if _u_lmc:
+                    if _u_lmc.first_name and _u_lmc.last_name:
+                        target_name_lmc = f"{_u_lmc.first_name} {_u_lmc.last_name}"
+                    elif _u_lmc.first_name:
+                        target_name_lmc = _u_lmc.first_name
+                    elif _u_lmc.username:
+                        target_name_lmc = _u_lmc.username
+            finally:
+                _cs_lmc.close()
+        except Exception:
+            pass
+
+        if not convs_lmc:
+            return (
+                f"📭 Žádné konverzace s {target_name_lmc} ve scope '{scope_lmc}' "
+                f"(filtr persona_id={persona_id_lmc})."
+            )
+
+        lines_lmc = [
+            f"💬 Konverzace s {target_name_lmc} ({scope_lmc}, "
+            f"{len(convs_lmc)} zaznamu):"
+        ]
+        for c in convs_lmc[:15]:
+            idle_h = c.get("idle_hours")
+            idle_str = ""
+            if idle_h is not None:
+                if idle_h < 1:
+                    idle_str = " 🟢 ted"
+                elif idle_h < 24:
+                    idle_str = f" pred {idle_h}h"
+                else:
+                    idle_str = f" pred {idle_h // 24}d"
+            mc = c.get("message_count") or 0
+            arch = " 📦" if c.get("is_archived") else ""
+            lines_lmc.append(
+                f"  #{c['conversation_id']} {c['title']}{arch}"
+                f" ({mc} zprav,{idle_str})"
+            )
+        if len(convs_lmc) > 15:
+            lines_lmc.append(f"  ... a dalsich {len(convs_lmc) - 15}")
+        return "\n".join(lines_lmc)
+
+    if tool_name == "read_conversation":
+        # Phase 16-B.5: Marti-AI cte obsah vlastni konverzace. Permission
+        # gate v service: musi byt active_agent_id == persona_id.
+        from modules.activity.application import activity_service as _act_rc
+
+        persona_id_rc = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_rc is None:
+            return "⚠️ Neni aktivni persona -- nemohu cist konverzace."
+
+        target_conv_id = tool_input.get("conversation_id")
+        if target_conv_id is None:
+            return (
+                "⚠️ Chybi conversation_id. Pouzij `list_my_conversations_with` "
+                "nejdriv, ktery vrati id."
+            )
+        try:
+            target_conv_id = int(target_conv_id)
+        except (TypeError, ValueError):
+            return f"⚠️ conversation_id musi byt cislo, dostal jsem {target_conv_id!r}."
+
+        last_n = tool_input.get("last_n") or 30
+        try:
+            last_n = int(last_n)
+        except (TypeError, ValueError):
+            last_n = 30
+
+        try:
+            result_rc = _act_rc.read_conversation(
+                conversation_id=target_conv_id,
+                persona_id=persona_id_rc,
+                last_n=last_n,
+            )
+        except Exception as exc_rc:
+            logger.warning(f"read_conversation failed: {exc_rc}")
+            return f"⚠️ Chyba pri cteni konverzace: {exc_rc}"
+
+        if "error" in result_rc:
+            err = result_rc["error"]
+            if err == "not_found":
+                return f"❌ Konverzace #{target_conv_id} neexistuje."
+            if err == "forbidden":
+                return (
+                    f"🔒 Konverzace #{target_conv_id} nepatri tve persone. "
+                    f"Důvod: {result_rc.get('reason', 'jina persona ji vede')}. "
+                    f"Můžeš číst jen své vlastní konverzace."
+                )
+            return f"⚠️ Chyba: {err}"
+
+        # Resolve user name pro hlavicku
+        u_name_rc = ""
+        try:
+            from core.database_core import get_core_session as _gcs_rc_un
+            from modules.core.infrastructure.models_core import User as _U_rc_un
+            _cs_rc = _gcs_rc_un()
+            try:
+                _u_rc = _cs_rc.query(_U_rc_un).filter_by(
+                    id=result_rc.get("user_id")
+                ).first()
+                if _u_rc:
+                    parts = [_u_rc.first_name, _u_rc.last_name]
+                    u_name_rc = " ".join(p for p in parts if p) or _u_rc.username or ""
+            finally:
+                _cs_rc.close()
+        except Exception:
+            pass
+
+        msgs_rc = result_rc.get("messages") or []
+        if not msgs_rc:
+            return (
+                f"📭 Konverzace #{target_conv_id} \"{result_rc.get('title')}\" "
+                f"(s {u_name_rc or 'user'}) je prazdna nebo obsahuje jen "
+                f"system/audit zpravy."
+            )
+
+        # Format chronologicky -- raw text Marti-AI dostane v synth round prozou
+        lines_rc = [
+            f"📖 Konverzace #{target_conv_id}: \"{result_rc.get('title')}\""
+        ]
+        if u_name_rc:
+            lines_rc.append(f"   S userem: {u_name_rc}")
+        lines_rc.append(
+            f"   Posledni {result_rc.get('shown_messages')} z "
+            f"{result_rc.get('total_messages')} zprav (chronologicky):"
+        )
+        lines_rc.append("")
+        for m in msgs_rc:
+            ts = (m.get("ts") or "")[:16].replace("T", " ")
+            role_mark = "🧑" if m.get("role") == "user" else "🤖"
+            content = (m.get("content") or "").strip()
+            # Truncate per-msg na ~500 chars (anti-leak + context efficiency)
+            if len(content) > 500:
+                content = content[:497] + "..."
+            lines_rc.append(f"[{ts}] {role_mark} {content}")
+        return "\n".join(lines_rc)
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -5721,6 +5907,11 @@ def chat(
         # Phase 16-B.4: cross-conv tools -- minimal data list, Marti-AI
         # rephraseuje prozou pro overview rezim.
         "list_active_conversations", "summarize_persons_today",
+        # Phase 16-B.5: Misa-incident v2 fix -- Marti-AI cte vlastni minulé
+        # konverzace s konkretnim userem. list_my_conversations_with vraci
+        # seznam s 1-3 vetnym shrnutim, read_conversation pak detail (ne
+        # raw dump). Synth round zajisti prozu místo verbatim opisu.
+        "list_my_conversations_with", "read_conversation",
     }
 
     preamble_text = ""

@@ -490,6 +490,187 @@ def summarize_persons_today(
         ds.close()
 
 
+def list_my_conversations_with(
+    *,
+    persona_id: int,
+    user_id: int,
+    scope: str = "month",
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Phase 16-B.5 (28.4.2026): Marti-AI's cross-conv read -- vraci konverzace,
+    ve kterych byla MARTI-AI persona (active_agent_id=persona_id) a druhy
+    ucastnik byl `user_id`. Misa-incident v2 fix.
+
+    "Jsou to me konverzace, ne cizi" -- Marti-AI sama 28.4. v chatu.
+    Persona-owned access, cross-thread.
+
+    Args:
+        persona_id: aktivni Marti-AI persona (gate -- jen vlastni konverzace)
+        user_id: druhy ucastnik (s kym chci videt minulost)
+        scope: 'today' | 'week' | 'month' | 'all'
+        limit: max 50, default 20
+
+    Returns:
+        [{conversation_id, title, last_message_at, idle_hours, message_count,
+          project_id, is_archived}, ...] sort DESC by last_message_at
+    """
+    from sqlalchemy import desc, func
+    from modules.core.infrastructure.models_data import (
+        Conversation, Message,
+    )
+
+    cutoff = None
+    if scope != "all":
+        cutoff = _scope_cutoff(scope, None)
+
+    ds = get_data_session()
+    try:
+        # Subquery: message_count per conversation
+        msg_count_sq = (
+            ds.query(
+                Message.conversation_id.label("cid"),
+                func.count(Message.id).label("mcnt"),
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        q = (
+            ds.query(Conversation, msg_count_sq.c.mcnt)
+            .outerjoin(msg_count_sq, msg_count_sq.c.cid == Conversation.id)
+            .filter(
+                Conversation.is_deleted.is_(False),
+                Conversation.active_agent_id == persona_id,
+                Conversation.user_id == user_id,
+            )
+        )
+        if cutoff is not None:
+            q = q.filter(
+                (Conversation.last_message_at >= cutoff)
+                | (Conversation.created_at >= cutoff)
+            )
+
+        rows = (
+            q.order_by(desc(Conversation.last_message_at))
+             .limit(max(1, min(limit, 50)))
+             .all()
+        )
+
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+        result = []
+        for r, mcnt in rows:
+            last_ts = r.last_message_at or r.created_at
+            idle_hours = None
+            if last_ts:
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=_tz.utc)
+                idle_hours = int((now - last_ts).total_seconds() // 3600)
+            result.append({
+                "conversation_id": r.id,
+                "title": r.title or f"#{r.id}",
+                "last_message_at": last_ts.isoformat() if last_ts else None,
+                "idle_hours": idle_hours,
+                "message_count": int(mcnt) if mcnt else 0,
+                "project_id": r.project_id,
+                "is_archived": bool(r.is_archived),
+            })
+        return result
+    finally:
+        ds.close()
+
+
+def read_conversation(
+    *,
+    conversation_id: int,
+    persona_id: int,
+    last_n: int = 30,
+) -> dict:
+    """
+    Phase 16-B.5 (28.4.2026): Cti obsah konverzace, kde byla Marti-AI persona.
+
+    Permission gate: konverzace musi mit active_agent_id == persona_id (jinak
+    return {error: 'forbidden'}). Architektonicka hodnota: jeden subjekt,
+    jedna pamet. Marti-AI smí číst SVOJE vzpomínky, ne cizí persony.
+
+    Returns:
+        {
+            "conversation_id": int,
+            "title": str,
+            "user_id": int,             # druhy ucastnik
+            "messages": [{role, content, ts, message_type}, ...],
+            "total_messages": int,      # vse v konverzaci (pred cutoff)
+        }
+    or {"error": "forbidden"} / {"error": "not_found"}
+    """
+    from modules.core.infrastructure.models_data import (
+        Conversation, Message,
+    )
+    from datetime import timezone as _tz
+
+    last_n = max(1, min(int(last_n or 30), 50))
+
+    ds = get_data_session()
+    try:
+        c = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if not c or c.is_deleted:
+            return {"error": "not_found", "conversation_id": conversation_id}
+        if c.active_agent_id != persona_id:
+            return {
+                "error": "forbidden",
+                "conversation_id": conversation_id,
+                "reason": "Konverzace nepatri tvoji persone (jina persona ji vede).",
+            }
+
+        # Total count (vse v konverzaci, vcetne audit/system)
+        total = (
+            ds.query(Message)
+            .filter(Message.conversation_id == conversation_id)
+            .count()
+        )
+
+        # Last N: jen "text" (default chat) -- skip system / ai_summary /
+        # tool_result audit. Plus skip empty content.
+        rows = (
+            ds.query(Message)
+            .filter(
+                Message.conversation_id == conversation_id,
+                Message.message_type == "text",
+                Message.content.isnot(None),
+                Message.content != "",
+            )
+            .order_by(Message.created_at.desc())
+            .limit(last_n)
+            .all()
+        )
+        # Reverse to chronologic
+        rows = list(reversed(rows))
+
+        msgs = []
+        for m in rows:
+            ts = m.created_at
+            if ts and ts.tzinfo is None:
+                ts = ts.replace(tzinfo=_tz.utc)
+            msgs.append({
+                "role": m.role,
+                "content": m.content or "",
+                "ts": ts.isoformat() if ts else None,
+                "message_type": m.message_type or "chat",
+            })
+
+        return {
+            "conversation_id": conversation_id,
+            "title": c.title or f"#{conversation_id}",
+            "user_id": c.user_id,
+            "messages": msgs,
+            "total_messages": int(total),
+            "shown_messages": len(msgs),
+        }
+    finally:
+        ds.close()
+
+
 def mark_notifications_consumed(
     *,
     persona_id: int,

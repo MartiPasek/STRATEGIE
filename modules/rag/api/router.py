@@ -132,14 +132,30 @@ async def upload_endpoint(
 # ── LIST ──────────────────────────────────────────────────────────────────
 
 @router.get("")
-def list_endpoint(req: Request, project_id: int | None = None) -> dict:
+def list_endpoint(
+    req: Request,
+    project_id: int | None = None,
+    include_inbox: bool = False,
+) -> dict:
     """
     Vypis dokumentu v current tenant/project scope.
-    Query param project_id=N -> vraci project docs + tenant-global.
-    Bez project_id -> vraci jen tenant-global (project_id IS NULL).
+
+    Query params:
+      project_id=N  -> vraci dokumenty projektu N
+      project_id=None  -> vraci INBOX (project_id IS NULL)
+      include_inbox=true (jen s project_id) -> mixovany pohled (project + inbox)
+
+    Phase 16-B.8 (28.4.2026 odpoledne): Default include_inbox=False.
+    Predtim mixoval inbox docs do project_id=N pohledu (UI Files modal pro
+    TISAX ukazoval 106 inbox docs jako "TISAX docs"). Inbox ma vlastni
+    pohled (📁 ikona v chat input s count badge).
     """
     user_id, tenant_id = _get_user_context(req)
-    docs = rag_service.list_documents(tenant_id=tenant_id, project_id=project_id)
+    docs = rag_service.list_documents(
+        tenant_id=tenant_id,
+        project_id=project_id,
+        include_tenant_global=include_inbox,
+    )
     return {"documents": docs, "count": len(docs)}
 
 

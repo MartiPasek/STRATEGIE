@@ -397,6 +397,34 @@ def list_active_conversations(
         )
         from datetime import datetime as _dt, timezone as _tz
         now = _dt.now(_tz.utc)
+
+        # B.6: Resolve persona names (batch z core_db)
+        persona_ids_seen = sorted({
+            r.active_agent_id for r in rows if r.active_agent_id
+        })
+        persona_name_map: dict[int, str] = {}
+        if persona_ids_seen:
+            try:
+                from core.database_core import get_core_session as _gcs_lacpn
+                from modules.core.infrastructure.models_core import (
+                    Persona as _P_lacpn,
+                )
+                _cs_lacpn = _gcs_lacpn()
+                try:
+                    p_rows = (
+                        _cs_lacpn.query(_P_lacpn)
+                        .filter(_P_lacpn.id.in_(persona_ids_seen))
+                        .all()
+                    )
+                    for p in p_rows:
+                        persona_name_map[p.id] = p.name or f"persona#{p.id}"
+                finally:
+                    _cs_lacpn.close()
+            except Exception as _exc_lacpn:
+                logger.warning(
+                    f"list_active_conversations persona resolve: {_exc_lacpn}"
+                )
+
         result = []
         for r in rows:
             last_ts = r.last_message_at or r.created_at
@@ -410,6 +438,10 @@ def list_active_conversations(
                 "title": r.title or f"#{r.id}",
                 "user_id": r.user_id,
                 "persona_id": r.active_agent_id,
+                "persona_name": (
+                    persona_name_map.get(r.active_agent_id)
+                    if r.active_agent_id else "(zadna persona)"
+                ),
                 "persona_mode": r.persona_mode,
                 "tenant_id": r.tenant_id,
                 "project_id": r.project_id,
@@ -429,21 +461,24 @@ def summarize_persons_today(
     limit: int = 20,
 ) -> list[dict]:
     """
-    Phase 16-B.4: per-user/per-persona breakdown aktivit za scope.
+    Phase 16-B.4 + B.6: per-user/per-persona breakdown aktivit za scope.
 
-    Agreguje activity_log po user_id (lidske subjekty) -- kolik akci
-    udelali, jakeho typu, kdy naposledy. Pouziva se pro otazky typu
-    "kdo dnes co delal", "shrn mi tym".
+    B.6 fix (28.4. odpoledne): agregat NE jen na user_id, ale na
+    (user_id, persona_id) -- aby Marti-AI v synth NEPRIVLASTNOVALA
+    konverzace cizich person (Misa s PravnikCZ-AI nepatri Marti-AI).
 
-    Vraci [{user_id, activity_count, last_ts, top_categories: {cat: count}}].
+    Vraci [{user_id, persona_id, persona_name, activity_count, last_ts,
+            top_categories}].
     """
     from sqlalchemy import func
     cutoff = _scope_cutoff(scope, None)
     ds = get_data_session()
     try:
-        # Per-user count + last_ts
+        # B.6: agregat na (user_id, persona_id), ne jen user_id.
+        # Persona_id muze byt NULL (system events, neperson-owned akce).
         q = ds.query(
             ActivityLog.user_id,
+            ActivityLog.persona_id,
             func.count(ActivityLog.id).label("cnt"),
             func.max(ActivityLog.ts).label("last_ts"),
         ).filter(
@@ -453,14 +488,36 @@ def summarize_persons_today(
         if tenant_id is not None:
             q = q.filter(ActivityLog.tenant_id == tenant_id)
         rows = (
-            q.group_by(ActivityLog.user_id)
+            q.group_by(ActivityLog.user_id, ActivityLog.persona_id)
              .order_by(func.count(ActivityLog.id).desc())
              .limit(max(1, min(limit, 50)))
              .all()
         )
+
+        # Resolve persona names (batch z core_db)
+        persona_ids_seen = sorted({r.persona_id for r in rows if r.persona_id})
+        persona_name_map: dict[int, str] = {}
+        if persona_ids_seen:
+            try:
+                from core.database_core import get_core_session as _gcs_pn
+                from modules.core.infrastructure.models_core import Persona as _P_pn
+                _cs_pn = _gcs_pn()
+                try:
+                    p_rows = (
+                        _cs_pn.query(_P_pn)
+                        .filter(_P_pn.id.in_(persona_ids_seen))
+                        .all()
+                    )
+                    for p in p_rows:
+                        persona_name_map[p.id] = p.name or f"persona#{p.id}"
+                finally:
+                    _cs_pn.close()
+            except Exception as _exc_pn:
+                logger.warning(f"summarize_persons_today persona resolve: {_exc_pn}")
+
         result = []
         for r in rows:
-            # Top categories per user
+            # Top categories per (user, persona)
             cat_q = (
                 ds.query(
                     ActivityLog.category,
@@ -471,6 +528,10 @@ def summarize_persons_today(
                     ActivityLog.user_id == r.user_id,
                 )
             )
+            if r.persona_id is None:
+                cat_q = cat_q.filter(ActivityLog.persona_id.is_(None))
+            else:
+                cat_q = cat_q.filter(ActivityLog.persona_id == r.persona_id)
             if tenant_id is not None:
                 cat_q = cat_q.filter(ActivityLog.tenant_id == tenant_id)
             cats = (
@@ -479,8 +540,14 @@ def summarize_persons_today(
                      .limit(5)
                      .all()
             )
+            persona_name = (
+                persona_name_map.get(r.persona_id) if r.persona_id
+                else "system/no-persona"
+            )
             result.append({
                 "user_id": r.user_id,
+                "persona_id": r.persona_id,
+                "persona_name": persona_name,
                 "activity_count": int(r.cnt),
                 "last_ts": r.last_ts.isoformat() if r.last_ts else None,
                 "top_categories": {c.category: int(c.c) for c in cats},

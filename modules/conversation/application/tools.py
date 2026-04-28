@@ -2304,17 +2304,17 @@ TOOLS = [
     {
         "name": "list_active_conversations",
         "description": (
-            "Phase 16-B.4: Velká Marti-AI's cross-conv přehled. Vrací aktivní "
-            "konverzace v current tenantu se základními metadaty (kdo s ní "
-            "mluvil, kdy naposledy, kolik hodin idle, typ DM/AI, přiřazený "
-            "projekt). **Pouzij** v oversight režimu na otázky typu 'kdo "
-            "s tebou dnes mluvil', 'kde to vázne', 'co se posouvá', 'kolik "
-            "konverzací mám'."
-            "\n\n**Scope**: 'today' (aktivita od půlnoci, default), 'week', "
-            "'month'."
-            "\n\n**JAK ZPRACOVAT**: shrň prózou v 1. osobě (ne bullet list), "
-            "ukaž stav rytmu týmu (kdo aktivní, kdo odsouvá, kde idle gap >24h). "
-            "Vyřízené detaily nech být -- high-level."
+            "Phase 16-B.4 + B.6: cross-conv přehled aktivnich konverzaci v "
+            "tenantu, kazda s persona_name (kdo ji vede). **Pouzij** v "
+            "oversight režimu na 'kdo s kym dnes mluvil', 'kde to vazne', 'co "
+            "se posouva', 'kolik konverzaci mam'."
+            "\n\n**Vystup ma markery [TY] (tva persona) vs [Persona-Name] "
+            "(cizi persona). Anti-privlastnovaci pravidlo (B.6).**"
+            "\n\n**Scope**: 'today' (default), 'week', 'month'."
+            "\n\n**JAK ZPRACOVAT**: proza v 1. osobe POUZE pro [TY] konverzace. "
+            "Pro cizi pouzij persona name ('PravnikCZ-AI vede 2 konverzace s "
+            "Misou' misto 'mam 2 konverzace s Misou'). Stav rytmu tymu, idle "
+            "gaps, high-level. NE bullet list verbatim."
         ),
         "input_schema": {
             "type": "object",
@@ -2330,13 +2330,18 @@ TOOLS = [
     {
         "name": "summarize_persons_today",
         "description": (
-            "Phase 16-B.4: Per-user breakdown aktivit za scope. Vrací počet "
-            "akcí na osobu a top kategorie (email_in, doc_upload, sms_in, "
-            "atd.). **Pouzij** v oversight režimu na otázky typu 'co kdo "
-            "dnes dělal', 'shrn mi co tým rozjel'."
-            "\n\n**JAK ZPRACOVAT**: shrň prózou per-osoba ('Marti dnes "
-            "uploadl 3 dokumenty a 2× psal SMS, Misa nahrála 72 souborů, "
-            "Petra hlásila 1 bug...'). Vždy v 1. osobě, ne tabulka."
+            "Phase 16-B.4 + B.6: Per-(user, persona) breakdown aktivit za scope. "
+            "Vraci pocty akci NA KOMBINACI uzivatel × persona, plus persona_name. "
+            "**Pouzij** v oversight režimu na otázky typu 'co kdo dnes dělal', "
+            "'shrn mi co tym rozjel'."
+            "\n\n**Vystup obsahuje markery [TY] (tva persona) a [Persona-Name] "
+            "(cizi persona).**"
+            "\n\n**JAK ZPRACOVAT** (anti-přivlastňovací pravidlo, B.6):"
+            "\n  ✅ 'Misa dnes resila TISAX s PravnikCZ-AI v 1 konverzaci'"
+            "\n  ✅ 'Marti uploadl 3 doc se mnou, plus poslal SMS Honzou-AI'"
+            "\n  ❌ NIKDY: 'mluvily jsme s Misou' kdyz mluvila s cizi personou"
+            "\n  Persona context je posvatny -- cizi konverzace nikdy v 1. osobe."
+            "\nShrn proza per-osoba s person markery."
         ),
         "input_schema": {
             "type": "object",

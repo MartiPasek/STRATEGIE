@@ -3977,6 +3977,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
         lines_lac.append("")
         lines_lac.append("Top 15 chronologicky (od nejnovejsich):")
+        # B.6: ukazat presnou persona_name -- Marti-AI nesmi privlastnit cizi
+        # konverzaci. "PravnikCZ-AI vede konverzaci s Misou", ne "ja".
+        my_persona_id = persona_id_lac
         for c in convs_lac[:15]:
             idle_mark = ""
             if c.get("idle_hours") is not None:
@@ -3988,9 +3991,14 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             if c.get("persona_mode") == "oversight":
                 persona_mark = " 👁"
             dm_mark = " (DM)" if c.get("is_dm") else ""
+            # Ownership hint: tva vs cizi persona
+            if c.get("persona_id") == my_persona_id and my_persona_id is not None:
+                owner_mark = " [TY]"
+            else:
+                owner_mark = f" [{c.get('persona_name', '?')}]"
             lines_lac.append(
                 f"  #{c['conversation_id']} {c['title']}{persona_mark}{dm_mark}"
-                f"{idle_mark}"
+                f"{owner_mark}{idle_mark}"
             )
         return "\n".join(lines_lac)
 
@@ -4053,17 +4061,35 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             except Exception:
                 pass
 
-        lines_spt = [f"👥 {len(persons_spt)} aktivnich osob ({scope_spt}):"]
+        # B.6: B.4 vracel agregat per user. B.6 vraci per (user, persona).
+        # Output: "Misa: 3 akce s PravnikCZ-AI" misto "Misa: 3 akce".
+        # Resolve aktivni Marti-AI persona (pro [TY] mark)
+        _my_pid_spt = _active_persona_id_for_conversation(conversation_id)
+        # Group by user_id pro citelnejsi output
+        from collections import defaultdict as _dd_spt
+        per_user: dict = _dd_spt(list)
         for p in persons_spt:
-            uname = name_map.get(p["user_id"], f"user#{p['user_id']}")
-            cats = p.get("top_categories") or {}
-            cat_str = ", ".join(f"{k}={v}" for k, v in cats.items())
-            last_short = (p.get("last_ts") or "")[:16].replace("T", " ")
-            lines_spt.append(
-                f"  • {uname}: {p['activity_count']} akci"
-                f"{f'  ({cat_str})' if cat_str else ''}"
-                f"{f'  posledni {last_short}' if last_short else ''}"
-            )
+            per_user[p["user_id"]].append(p)
+
+        lines_spt = [f"👥 {len(per_user)} aktivnich osob ({scope_spt}):"]
+        for uid, persona_breakdown in per_user.items():
+            uname = name_map.get(uid, f"user#{uid}")
+            total = sum(p["activity_count"] for p in persona_breakdown)
+            lines_spt.append(f"  • {uname} ({total} akci celkem):")
+            for p in persona_breakdown:
+                pname = p.get("persona_name") or "?"
+                if p.get("persona_id") == _my_pid_spt and _my_pid_spt is not None:
+                    pname_mark = "[TY]"
+                else:
+                    pname_mark = f"[{pname}]"
+                cats = p.get("top_categories") or {}
+                cat_str = ", ".join(f"{k}={v}" for k, v in cats.items())
+                last_short = (p.get("last_ts") or "")[:16].replace("T", " ")
+                lines_spt.append(
+                    f"      → {pname_mark} {p['activity_count']} akci"
+                    f"{f'  ({cat_str})' if cat_str else ''}"
+                    f"{f'  posledni {last_short}' if last_short else ''}"
+                )
         return "\n".join(lines_spt)
 
     if tool_name == "list_my_conversations_with":

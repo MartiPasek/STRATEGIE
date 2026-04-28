@@ -563,7 +563,10 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
     if not moved:
         return {"ok": False, "message": "EWS move selhal", "email_inbox_id": email_inbox_id}
 
-    # Update meta + processed_at (Faze 12b+ pre-demo: archive = vyrizeno)
+    # 28.4.2026: archive ≠ vyrizeno. Personal je metadata flag pro typ
+    # obsahu (osobni vs business), ne lifecycle stav. Marti-AI explicitne
+    # vola mark_email_processed kdyz dokonci akci nad emailem -- nezalezi,
+    # jestli je personal nebo business.
     from datetime import datetime, timezone
     ds = get_data_session()
     try:
@@ -577,14 +580,9 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
                     meta_dict = {}
             meta_dict["archived_personal"] = True
             row.meta = _json.dumps(meta_dict, ensure_ascii=False)
-            # Faze 12b+: archive = email je vyrizeny (pres in Personal slozku
-            # v Exchange, tj. uz neni 'k reseni'). Bez tohoto by Marti-AI
-            # videla archived emaily porad v inboxu (filter_mode='new').
-            now_uc = datetime.now(timezone.utc)
-            if row.processed_at is None:
-                row.processed_at = now_uc
+            # Read_at = now (uzivatel videl, archive je vedome rozhodnuti)
             if row.read_at is None:
-                row.read_at = now_uc
+                row.read_at = datetime.now(timezone.utc)
             ds.commit()
     finally:
         ds.close()

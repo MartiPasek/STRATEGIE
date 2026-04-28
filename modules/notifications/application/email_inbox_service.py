@@ -246,8 +246,9 @@ def list_inbox_for_ui(
     ds = get_data_session()
     try:
         # 28.4.2026: filter deleted_at IS NULL -- soft-deleted emaily
-        # nepatri ani do 'Prichozi' ani do 'Zpracovane' (mizi z Marti-AI's
-        # workflow). Fyzicky jsou v Exchange Deleted Items.
+        # nepatri ani do 'Prichozi' ani do 'Zpracovane'.
+        # Plus archived_personal patri do separate Personal tabu, ne do
+        # Inbox -- post-filter v Pythonu (meta je Text JSON, ne JSONB).
         q = ds.query(EmailInbox).filter(
             EmailInbox.persona_id == persona_id,
             EmailInbox.deleted_at.is_(None),
@@ -256,11 +257,13 @@ def list_inbox_for_ui(
             q = q.filter(EmailInbox.processed_at.is_(None))
         else:
             q = q.filter(EmailInbox.processed_at.isnot(None))
-        rows = (
+        # Over-fetch + post-filter (archived_personal exclude)
+        rows_raw = (
             q.order_by(EmailInbox.received_at.desc())
-             .limit(max(1, min(limit, 200)))
+             .limit(max(1, min(limit * 2, 400)))
              .all()
         )
+        rows = [r for r in rows_raw if not _is_archived(r.meta)][:limit]
         return [
             {
                 "id": r.id,
@@ -353,21 +356,23 @@ def mark_inbox_processed(inbox_id: int) -> dict | None:
 
 def count_unread(persona_id: int) -> int:
     """
-    Pocet emailu persony, ktere jeste uzivatel nevidel (read_at IS NULL)
-    a nejsou zpracovane (processed_at IS NULL). Pouziva se v badge v hlavicce.
+    28.4.2026: Pocet emailu persony cekajicich na vyrizeni v Inbox tabu
+    (processed_at IS NULL AND deleted_at IS NULL AND NOT archived_personal).
+    Bez ohledu na read_at -- archived_personal patri do Personal tabu,
+    pracovni do Inbox tabu. Badge = Inbox count = pracovni pending.
     """
     ds = get_data_session()
     try:
-        return (
+        rows = (
             ds.query(EmailInbox)
             .filter(
                 EmailInbox.persona_id == persona_id,
-                EmailInbox.read_at.is_(None),
                 EmailInbox.processed_at.is_(None),
                 EmailInbox.deleted_at.is_(None),
             )
-            .count()
+            .all()
         )
+        return sum(1 for r in rows if not _is_archived(r.meta))
     finally:
         ds.close()
 
@@ -408,16 +413,16 @@ def count_unread_for_user(user_id: int) -> int:
 
         ds = get_data_session()
         try:
-            return (
+            rows = (
                 ds.query(EmailInbox)
                 .filter(
                     EmailInbox.persona_id.in_(persona_ids),
-                    EmailInbox.read_at.is_(None),
                     EmailInbox.processed_at.is_(None),
                     EmailInbox.deleted_at.is_(None),
                 )
-                .count()
+                .all()
             )
+            return sum(1 for r in rows if not _is_archived(r.meta))
         finally:
             ds.close()
 

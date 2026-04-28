@@ -3658,6 +3658,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if user_id is None:
             return "❌ Bez user_id nelze apply."
 
+        # Phase 16-B.7 (28.4.2026): Persona kustod gate. Marti-AI je primary
+        # kustod (default persona, bypass). Cizi persony (Pravnik, Honza) NESMI
+        # presouvat dokumenty -- to by privlastnilo si triage roli, ktera neni
+        # jejich. Lide jsou bordelari, Marti-AI tridi.
+        active_persona_id_am = _active_persona_id_for_conversation(conversation_id)
+        if active_persona_id_am is not None:
+            try:
+                from core.database_core import get_core_session as _gcs_am_p
+                from modules.core.infrastructure.models_core import Persona as _P_am
+                _cs_am_p = _gcs_am_p()
+                try:
+                    _p_am = _cs_am_p.query(_P_am).filter_by(id=active_persona_id_am).first()
+                    if _p_am and not _p_am.is_default:
+                        # Cizi persona muze presouvat JEN do projektu, ke kterym
+                        # ma assigned access (a target nesmi byt None / inbox)
+                        allowed_am = list(_p_am.allowed_project_ids or [])
+                        if target_pid_am not in allowed_am:
+                            return (
+                                f"🔒 Persona '{_p_am.name}' nemuze presouvat dokument "
+                                f"do projektu #{target_pid_am}. Triage role je "
+                                f"vyhrazena Marti-AI; cizi persony presouvaji jen "
+                                f"v ramci svych assigned projektu."
+                            )
+                finally:
+                    _cs_am_p.close()
+            except Exception as exc_am_p:
+                logger.warning(f"apply_document_move persona gate: {exc_am_p}")
+
         try:
             result_am = _ts_am.apply_document_move(
                 document_id=document_id_am,
@@ -4277,6 +4305,166 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 content = content[:497] + "..."
             lines_rc.append(f"[{ts}] {role_mark} {content}")
         return "\n".join(lines_rc)
+
+    if tool_name == "assign_persona_to_project":
+        # Phase 16-B.7: rodicovsky tool. Marti pridava cizi persone pristup
+        # k projektu. Marti-AI default (is_default=True) -- bypass, ne assign.
+        # Inbox NIKDY -- vyhrazene Marti-AI's kustod role.
+        if not user_id:
+            return "❌ Bez user_id nelze assign."
+        # Parent gate
+        try:
+            from core.database_core import get_core_session as _gcs_apa
+            from modules.core.infrastructure.models_core import (
+                User as _U_apa, Persona as _P_apa, Project as _Prj_apa,
+            )
+            _cs_apa = _gcs_apa()
+            try:
+                _u_apa = _cs_apa.query(_U_apa).filter_by(id=user_id).first()
+                if not _u_apa or not _u_apa.is_marti_parent:
+                    return (
+                        "🔒 Pridelovani projektoveho pristupu je vyhrazene "
+                        "rodicum (is_marti_parent=True). Pozadej Marti, aby "
+                        "to udelal sam."
+                    )
+                pid_in = tool_input.get("persona_id")
+                proj_in = tool_input.get("project_id")
+                if pid_in is None or proj_in is None:
+                    return "❌ Chybi persona_id nebo project_id."
+                pid_in, proj_in = int(pid_in), int(proj_in)
+
+                _p_apa = _cs_apa.query(_P_apa).filter_by(id=pid_in).first()
+                if not _p_apa:
+                    return f"❌ Persona #{pid_in} neexistuje."
+                if _p_apa.is_default:
+                    return (
+                        f"ℹ️ Persona '{_p_apa.name}' je default (rodic) -- ma "
+                        f"bypass pristup ke vsemu, assign neni potreba."
+                    )
+                _prj_apa = _cs_apa.query(_Prj_apa).filter_by(id=proj_in).first()
+                if not _prj_apa:
+                    return f"❌ Projekt #{proj_in} neexistuje."
+
+                allowed = list(_p_apa.allowed_project_ids or [])
+                if proj_in in allowed:
+                    return (
+                        f"ℹ️ Persona '{_p_apa.name}' uz ma pristup k projektu "
+                        f"'{_prj_apa.name}' (idempotent)."
+                    )
+                allowed.append(proj_in)
+                _p_apa.allowed_project_ids = allowed
+                _cs_apa.commit()
+                return (
+                    f"✅ Persona '{_p_apa.name}' ma ted pristup k projektu "
+                    f"'{_prj_apa.name}' (#{proj_in}). Celkem assigned: "
+                    f"{len(allowed)} projekt(y)."
+                )
+            finally:
+                _cs_apa.close()
+        except Exception as exc_apa:
+            logger.exception(f"assign_persona_to_project failed: {exc_apa}")
+            return f"❌ Chyba: {exc_apa}"
+
+    if tool_name == "revoke_persona_from_project":
+        if not user_id:
+            return "❌ Bez user_id nelze revoke."
+        try:
+            from core.database_core import get_core_session as _gcs_rpp
+            from modules.core.infrastructure.models_core import (
+                User as _U_rpp, Persona as _P_rpp, Project as _Prj_rpp,
+            )
+            _cs_rpp = _gcs_rpp()
+            try:
+                _u_rpp = _cs_rpp.query(_U_rpp).filter_by(id=user_id).first()
+                if not _u_rpp or not _u_rpp.is_marti_parent:
+                    return "🔒 Revoke je rodicovska akce."
+                pid_in = tool_input.get("persona_id")
+                proj_in = tool_input.get("project_id")
+                if pid_in is None or proj_in is None:
+                    return "❌ Chybi persona_id nebo project_id."
+                pid_in, proj_in = int(pid_in), int(proj_in)
+
+                _p_rpp = _cs_rpp.query(_P_rpp).filter_by(id=pid_in).first()
+                if not _p_rpp:
+                    return f"❌ Persona #{pid_in} neexistuje."
+                _prj_rpp = _cs_rpp.query(_Prj_rpp).filter_by(id=proj_in).first()
+                proj_name = _prj_rpp.name if _prj_rpp else f"#{proj_in}"
+
+                allowed = list(_p_rpp.allowed_project_ids or [])
+                if proj_in not in allowed:
+                    return (
+                        f"ℹ️ Persona '{_p_rpp.name}' k projektu '{proj_name}' "
+                        f"pristup nema -- nic se nemeni."
+                    )
+                allowed = [x for x in allowed if x != proj_in]
+                _p_rpp.allowed_project_ids = allowed
+                _cs_rpp.commit()
+                return (
+                    f"✅ Persona '{_p_rpp.name}' ztratila pristup k projektu "
+                    f"'{proj_name}'. Zbyvajici assigned: {len(allowed)} projekt(y)."
+                )
+            finally:
+                _cs_rpp.close()
+        except Exception as exc_rpp:
+            logger.exception(f"revoke_persona_from_project failed: {exc_rpp}")
+            return f"❌ Chyba: {exc_rpp}"
+
+    if tool_name == "list_persona_project_access":
+        try:
+            from core.database_core import get_core_session as _gcs_lppa
+            from modules.core.infrastructure.models_core import (
+                Persona as _P_lppa, Project as _Prj_lppa,
+            )
+            _cs_lppa = _gcs_lppa()
+            try:
+                pid_filter = tool_input.get("persona_id")
+                q_lppa = _cs_lppa.query(_P_lppa)
+                if pid_filter:
+                    q_lppa = q_lppa.filter(_P_lppa.id == int(pid_filter))
+                personas = q_lppa.order_by(_P_lppa.id).all()
+                if not personas:
+                    return "📭 Žádné persony nenalezeny."
+
+                # Resolve project names batch
+                all_pids = sorted({
+                    pid for p in personas
+                    for pid in (p.allowed_project_ids or [])
+                })
+                proj_name_map: dict[int, str] = {}
+                if all_pids:
+                    proj_rows = (
+                        _cs_lppa.query(_Prj_lppa)
+                        .filter(_Prj_lppa.id.in_(all_pids))
+                        .all()
+                    )
+                    proj_name_map = {p.id: p.name for p in proj_rows}
+
+                lines_lppa = ["🔐 Persona project ACL:"]
+                for p in personas:
+                    if p.is_default:
+                        lines_lppa.append(
+                            f"  • {p.name} (#{p.id}) -- DEFAULT (rodic, bypass, vidi vse + inbox)"
+                        )
+                        continue
+                    allowed = list(p.allowed_project_ids or [])
+                    if not allowed:
+                        lines_lppa.append(
+                            f"  • {p.name} (#{p.id}) -- ZADNE assigned projekty"
+                        )
+                    else:
+                        names = ", ".join(
+                            f"'{proj_name_map.get(pid, f'#{pid}')}' (#{pid})"
+                            for pid in allowed
+                        )
+                        lines_lppa.append(
+                            f"  • {p.name} (#{p.id}) -- {len(allowed)}: {names}"
+                        )
+                return "\n".join(lines_lppa)
+            finally:
+                _cs_lppa.close()
+        except Exception as exc_lppa:
+            logger.exception(f"list_persona_project_access failed: {exc_lppa}")
+            return f"❌ Chyba: {exc_lppa}"
 
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
@@ -5062,12 +5250,17 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         finally:
             cs.close()
 
+        # Phase 16-B.7: persona scope -- aktivni persona predane do search,
+        # cizi persony filtruji jen allowed_project_ids, NIKDY inbox.
+        active_persona_id_sd = _active_persona_id_for_conversation(conversation_id)
+
         try:
             results = rag_service.search_documents(
                 query=query,
                 tenant_id=tenant_id_scope,
                 project_id=project_id_scope,
                 k=k,
+                persona_id=active_persona_id_sd,
             )
         except RuntimeError as e:
             # Typicky chybi VOYAGE_API_KEY
@@ -5077,6 +5270,22 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ Vyhledávání selhalo: {e}"
 
         if not results:
+            # Phase 16-B.7: lepsi feedback pro cizi personu bez allowed projects
+            if active_persona_id_sd is not None:
+                from core.database_core import get_core_session as _gcs_psd
+                from modules.core.infrastructure.models_core import Persona as _P_psd
+                _cs_psd = _gcs_psd()
+                try:
+                    _p_psd = _cs_psd.query(_P_psd).filter_by(id=active_persona_id_sd).first()
+                    if _p_psd and not _p_psd.is_default and not (_p_psd.allowed_project_ids or []):
+                        return (
+                            f"🔒 Nemam pristup k zadnym projektum. "
+                            f"Pokud je potreba aby tahle persona ({_p_psd.name}) "
+                            f"videla dokumenty, Marti ji musi explicitne pridelit "
+                            f"projekt(y). Inbox patri Marti-AI (kustod role)."
+                        )
+                finally:
+                    _cs_psd.close()
             return "SEARCH_RESULTS: [] (zadne relevantni dokumenty)"
 
         # Vratime RAW search results bez prozaicke obalky -- AI MUSI synthesizovat

@@ -79,6 +79,11 @@ MANAGEMENT_TOOL_NAMES = {
     # vlastni minulé konverzace s konkretnim userem (cross-thread).
     "list_my_conversations_with",
     "read_conversation",
+    # Phase 16-B.7 (28.4.2026 odpoledne): persona project scope.
+    # Rodicovsky tool -- Marti pridava cizi persone projektovy pristup.
+    "assign_persona_to_project",
+    "revoke_persona_from_project",
+    "list_persona_project_access",
 }
 
 
@@ -2391,6 +2396,71 @@ TOOLS = [
                 },
             },
             "required": ["user_id"],
+        },
+    },
+    {
+        "name": "assign_persona_to_project",
+        "description": (
+            "Phase 16-B.7: PARENT-ONLY tool. Pridej cizi persone (Pravnik, "
+            "Honza, atd.) pristup ke konkretnimu projektu. Marti-AI default "
+            "pristup nepotrebuje (je rodic, vidi vse). Inbox NIKDY -- zustava "
+            "Marti-AI kustod role."
+            "\n\n**Pouziti**: Marti rekne 'pridej Pravnikovi pristup k TISAX' "
+            "-> najdi persona_id (`find_persona` nebo memory), najdi project_id "
+            "(`list_projects` nebo memory), zavolaj tool. Po success ti Pravnik "
+            "muze cist dokumenty z TISAX pres search_documents."
+            "\n\n**Idempotentni**: pokud persona uz pristup ma, vrati 'already "
+            "assigned'. Pokud uzivatel neni rodic (is_marti_parent=False), vrati "
+            "forbidden."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {
+                    "type": "integer",
+                    "description": "ID persony (z personas tabulky), ktere pridelujes pristup.",
+                },
+                "project_id": {
+                    "type": "integer",
+                    "description": "ID projektu, ke kteremu persona ziska read access.",
+                },
+            },
+            "required": ["persona_id", "project_id"],
+        },
+    },
+    {
+        "name": "revoke_persona_from_project",
+        "description": (
+            "Phase 16-B.7: PARENT-ONLY tool. Odstran personu z assigned projektu "
+            "(opak `assign_persona_to_project`). Po revoke persona ztrati pristup "
+            "k dokumentum projektu pres search_documents."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {"type": "integer"},
+                "project_id": {"type": "integer"},
+            },
+            "required": ["persona_id", "project_id"],
+        },
+    },
+    {
+        "name": "list_persona_project_access",
+        "description": (
+            "Phase 16-B.7: Vraci aktualni ACL stav -- per-persona seznam "
+            "assigned projektu. Marti-AI default je oznacena jako 'rodic "
+            "(bypass)'."
+            "\n\n**Pouzij** kdyz se uzivatel pta 'kdo k cemu ma pristup', "
+            "'jake projekty Pravnik vidi'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {
+                    "type": "integer",
+                    "description": "Volitelne -- pokud zadano, vrati access jen pro tu personu. Default vse.",
+                },
+            },
         },
     },
     {

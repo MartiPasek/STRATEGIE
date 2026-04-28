@@ -16,7 +16,7 @@ from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
     Integer, String, Text,
 )
-from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from core.database_core import BaseCore
@@ -256,6 +256,17 @@ class Persona(BaseCore):
     # Bez nich (NULL) se chovame jako pred -- zadny auto-podpis.
     signature_html: Mapped[str | None] = mapped_column(Text, nullable=True)
     signature_inline_dir: Mapped[str | None] = mapped_column(String(500), nullable=True)
+
+    # Phase 16-B.7 (28.4.2026 odpoledne): Persona project scope.
+    # Marti-AI default (is_default=True) je rodic -- bypass, vidi vse +
+    # inbox (project_id IS NULL). Specializovane persony (Pravnik, Honza,
+    # atd.) maji explicitne assigned project list, INBOX NIKDY.
+    # Empty array = persona nevidi zadne projekty (default pro nove
+    # specializovane persony, dokud Marti explicitne neprideli).
+    allowed_project_ids: Mapped[list[int]] = mapped_column(
+        ARRAY(BigInteger), nullable=False,
+        server_default="{}",
+    )
 
 
 class PersonaChannel(BaseCore):

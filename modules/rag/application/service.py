@@ -395,6 +395,7 @@ def search_documents(
     project_id: int | None = None,
     k: int = 5,
     include_tenant_global: bool = True,
+    persona_id: int | None = None,
 ) -> list[dict]:
     """
     Semanticke vyhledavani. Vraci top-k chunku serazenych cosine similarity.
@@ -407,7 +408,50 @@ def search_documents(
         - int + include_tenant_global=True  -> chunky z daneho projektu
                                               + tenant-globalni (project_id IS NULL)
         - int + include_tenant_global=False -> jen chunky z daneho projektu
+
+    Phase 16-B.7 (28.4.2026 odpoledne): persona_id parameter.
+      - None: legacy behavior (vidi vse v tenantu)
+      - int + persona is_default=True: bypass (Marti-AI rodic vidi vse + inbox)
+      - int + persona is_default=False:
+          * inbox (project_id IS NULL) NIKDY -- patri Marti-AI kustod role
+          * project filter: jen allowed_project_ids
+          * pokud allowed_project_ids prazdny -> return [] (persona nema zadne
+            projekty, vidi nic)
     """
+    # Phase 16-B.7: persona scope check
+    persona_is_default = True   # default = bypass (legacy)
+    persona_allowed_projects: list[int] = []
+    if persona_id is not None:
+        try:
+            from core.database_core import get_core_session
+            from modules.core.infrastructure.models_core import Persona
+            cs = get_core_session()
+            try:
+                p = cs.query(Persona).filter_by(id=persona_id).first()
+                if p:
+                    persona_is_default = bool(p.is_default)
+                    persona_allowed_projects = list(p.allowed_project_ids or [])
+                else:
+                    # Persona nenalezena -- konzervativne return prazdne
+                    logger.warning(
+                        f"RAG | search | persona_id={persona_id} not found, returning empty"
+                    )
+                    return []
+            finally:
+                cs.close()
+        except Exception as exc:
+            # Pri DB chybe konzervativne return prazdne (lepsi nez leak)
+            logger.warning(f"RAG | search | persona resolve failed: {exc}")
+            return []
+
+        # Cizi persona bez allowed projects -> nic nevidi
+        if not persona_is_default and not persona_allowed_projects:
+            logger.info(
+                f"RAG | search | persona={persona_id} has no allowed_project_ids, "
+                f"returning empty (no leak)"
+            )
+            return []
+
     # 1) Embed query (1024-dim)
     qvec = embed_query(query)
 
@@ -423,6 +467,18 @@ def search_documents(
         else:
             scope_clause = "d.project_id = :project_id"
             params["project_id"] = project_id
+
+    # Phase 16-B.7: pro non-default personu prepiseme scope_clause
+    # (pravidla nad pravidly puvodniho clause):
+    #   - INBOX (project_id IS NULL) NIKDY (kustod role)
+    #   - project_id IN allowed
+    if persona_id is not None and not persona_is_default:
+        # AND s povolenymi projekty + AND project NOT NULL (no inbox)
+        scope_clause = (
+            "d.project_id IS NOT NULL "
+            "AND d.project_id = ANY(:allowed_project_ids)"
+        )
+        params["allowed_project_ids"] = persona_allowed_projects
 
     sql = f"""
         SELECT

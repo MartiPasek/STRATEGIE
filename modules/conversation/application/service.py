@@ -4982,28 +4982,14 @@ def chat(
             tenant_id=active_tenant_id,
             project_id=effective_project_id,
         )
-        # Priorita pro pocatecni personu nove konverzace:
+        # 28.4.2026: Projekt NIKDY neurcuje default personu (Marti's pravidlo).
+        # Persona se meni jen per-konverzaci uzivatelovou volbou v UI nebo
+        # explicit switch tlacitkem. Project.default_persona_id field zustava
+        # v DB schema legacy, ale logika ho ignoruje.
+        # Priorita:
         #   1. preferred_persona_id  (user vybral v UI pred prvni zpravou)
-        #   2. project.default_persona_id  (projektovy override)
-        #   3. NULL -> composer pouzije globalni default (Marti-AI)
+        #   2. NULL -> composer pouzije globalni default (Marti-AI)
         effective_persona_id = preferred_persona_id
-        if effective_persona_id is None and effective_project_id:
-            try:
-                from core.database_core import get_core_session as _gcs_pp
-                from modules.core.infrastructure.models_core import Project as _ProjP
-                _c = _gcs_pp()
-                try:
-                    _proj = _c.query(_ProjP).filter_by(id=effective_project_id).first()
-                    if _proj and _proj.default_persona_id:
-                        effective_persona_id = _proj.default_persona_id
-                        logger.info(
-                            f"CONVERSATION | project default persona | "
-                            f"proj={effective_project_id} | persona_id={effective_persona_id}"
-                        )
-                finally:
-                    _c.close()
-            except Exception as e:
-                logger.error(f"CONVERSATION | project default persona lookup failed: {e}")
 
         if effective_persona_id:
             try:
@@ -5446,6 +5432,35 @@ def chat(
     except Exception as _e:
         logger.warning(f"TELEMETRY | begin_chat_trace failed: {_e}")
         _telemetry = None
+
+    # Phase 16-B.3 (28.4.2026): magic intent classifier -- detekce v user message
+    # zda chce 'oversight' režim (přehled napříč konverzacemi). Bidirectional:
+    # 'vlastně jen konkrétní věc' -> reset na 'task'. Persistuje v DB tak
+    # aby ChatResponse + UI signal sedeli.
+    try:
+        from modules.conversation.application.intent_classifier import classify_intent
+        from core.database_data import get_data_session as _gds_pm
+        from modules.core.infrastructure.models_data import Conversation as _Conv_pm
+        _ds_pm = _gds_pm()
+        try:
+            _conv_pm = _ds_pm.query(_Conv_pm).filter_by(id=conversation_id).first()
+            _current_pm = _conv_pm.persona_mode if _conv_pm else None
+            _new_pm = classify_intent(user_message, _current_pm)
+            logger.info(
+                f"INTENT | classify | conv={conversation_id} | "
+                f"input={user_message[:80]!r} | current={_current_pm} | new={_new_pm}"
+            )
+            if _new_pm and _new_pm != _current_pm and _conv_pm:
+                _conv_pm.persona_mode = _new_pm
+                _ds_pm.commit()
+                logger.info(
+                    f"INTENT | persona_mode | conv={conversation_id} | "
+                    f"{_current_pm} -> {_new_pm}"
+                )
+        finally:
+            _ds_pm.close()
+    except Exception as _intent_e:
+        logger.warning(f"INTENT | classifier failed: {_intent_e}")
 
     system_prompt, messages = build_prompt(conversation_id)
 

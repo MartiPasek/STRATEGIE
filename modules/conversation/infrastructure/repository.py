@@ -624,6 +624,7 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         conv_id_val = conversation.id
         conv_is_archived = bool(conversation.is_archived)
         conv_owner_id = conversation.user_id
+        conv_persona_mode = conversation.persona_mode  # Phase 16-B
         msg_rows = _serialize_messages(messages)
     finally:
         session.close()
@@ -648,4 +649,5 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         "owner_name": owner_name,
         "shares_count": shares_count,
         "messages": msg_rows,
+        "persona_mode": conv_persona_mode,
     }

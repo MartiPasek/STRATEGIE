@@ -68,6 +68,11 @@ class Conversation(BaseData):
     lifecycle_confirmed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     pending_hard_delete_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Phase 16-B (28.4.2026): Marti-AI dva režimy -- 'task' (default, běžná
+    # konverzace) vs 'oversight' (Velká Marti-AI, cross-conv přehled, orchestrace
+    # týmu person). Magic intent classifier detekuje při zahájení konverzace.
+    # NULL = task default. UI: zelený text label pro 'oversight'.
+    persona_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
 
 class Message(BaseData):

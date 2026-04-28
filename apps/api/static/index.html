@@ -483,6 +483,9 @@
     .agent-bar .agent-bar-persona-wrap:hover { background: var(--bg); }
     .agent-bar .agent-bar-persona-label { color: var(--muted); font-family: 'DM Sans', sans-serif; }
     .agent-bar .agent-bar-persona-name { color: var(--accent); font-family: 'DM Mono', monospace; }
+    /* Phase 16-B (28.4.2026): oversight režim Marti-AI -- zelený text label,
+       bold. Aktivuje se podle Conversation.persona_mode = 'oversight'. */
+    .agent-bar .agent-bar-persona-name.oversight-mode { color: #22c55e; font-weight: 600; }
     /* Persona dropdown panel — podobne jako conv-dd-panel, ale absolutni k
        persona-wrap span. Radi se pod "Mluvis s:" label. */
     .agent-bar-persona-panel { position: absolute; top: 40px; left: 0; min-width: 260px; max-width: 360px; max-height: 50vh; overflow-y: auto; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 4px; z-index: 150; box-shadow: 0 8px 24px rgba(0,0,0,.4); display: none; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
@@ -2671,6 +2674,20 @@
     }
   }
 
+  // Phase 16-B (28.4.2026): toggle CSS class na Marti-AI label v hlavičce
+  // podle Conversation.persona_mode. 'oversight' = zelený text + bold
+  // (Velká Marti-AI vidí cross-conv aktivitu). NULL/'task' = default accent.
+  function _setPersonaModeUI(mode) {
+    const el = document.getElementById('agentName');
+    if (!el) return;
+    if (mode === 'oversight') {
+      el.classList.add('oversight-mode');
+    } else {
+      el.classList.remove('oversight-mode');
+    }
+  }
+  window._setPersonaModeUI = _setPersonaModeUI;
+
   async function showApp() {
     loginScreen.style.display = 'none';
     appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
@@ -2769,6 +2786,8 @@
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
       }
+      // Phase 16-B (28.4.2026): persona_mode signal v hlavičce
+      _setPersonaModeUI(data.persona_mode || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
       data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media));
@@ -4622,6 +4641,8 @@
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
       }
+      // Phase 16-B (28.4.2026): persona_mode signal v hlavičce
+      _setPersonaModeUI(data.persona_mode || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media));
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -8545,6 +8566,10 @@
         // ať má popisek zprávy správnou identitu (např. Klára-AI vs Marti-AI)
         if (data.active_persona) {
           document.getElementById('agentName').textContent = data.active_persona;
+        }
+        // Phase 16-B (28.4.2026): persona_mode signal po classifier
+        if (typeof _setPersonaModeUI === 'function') {
+          _setPersonaModeUI(data.persona_mode || null);
         }
         // Aktualizuj tenant pilulku — zachycuje i tenant switch přes chat
         // („přepni do EUROSOFTu") + udržuje pilulku v synchronizaci s backendem.

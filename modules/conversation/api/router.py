@@ -121,6 +121,20 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         # Aktuální projekt po této zprávě (zachycuje i project switch v chatu)
         project_id, project_name = _get_current_project_for_user(user_id)
 
+        # Phase 16-B (28.4.2026): persona_mode po této zprávě (po classifier)
+        _persona_mode = None
+        try:
+            from core.database_data import get_data_session as _gds_pm_r
+            from modules.core.infrastructure.models_data import Conversation as _Conv_r
+            _ds_pm_r = _gds_pm_r()
+            try:
+                _conv_r = _ds_pm_r.query(_Conv_r).filter_by(id=conversation_id).first()
+                _persona_mode = _conv_r.persona_mode if _conv_r else None
+            finally:
+                _ds_pm_r.close()
+        except Exception:
+            pass
+
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
@@ -132,6 +146,7 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             tenant_name=tenant_name,
             tenant_code=tenant_code,
             display_name=display_name,
+            persona_mode=_persona_mode,
             project_id=project_id,
             project_name=project_name,
         )
@@ -360,6 +375,9 @@ def load_user_conversation(conversation_id: int, req: Request):
         active_persona=persona_name,
         is_archived=result.get("is_archived", False),
         my_role=result.get("my_role"),
+        owner_name=result.get("owner_name"),
+        shares_count=result.get("shares_count", 0),
+        persona_mode=result.get("persona_mode"),
     )
 
 

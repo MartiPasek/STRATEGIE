@@ -41,6 +41,10 @@ class ChatResponse(BaseModel):
     # currentUser.project_id a pokud se liší, refreshne /me.
     project_id: int | None = None
     project_name: str | None = None
+    # Phase 16-B (28.4.2026): Marti-AI režim po této zprávě -- 'task' (default,
+    # NULL) vs 'oversight'. Magic intent classifier ho mění v turn dle
+    # user's záměru. Frontend toggle CSS class v hlavičce.
+    persona_mode: str | None = None
 
 
 class HistoryMessage(BaseModel):
@@ -91,6 +95,9 @@ class LastConversationResponse(BaseModel):
     owner_name: str | None = None
     # Počet sdílení této konverzace (pro owner banner "Sdíleno s 2 lidmi").
     shares_count: int = 0
+    # Phase 16-B (28.4.2026): Marti-AI režim -- 'task' (default, NULL) vs
+    # 'oversight' (Velká Marti-AI s cross-conv viewí). UI signal v hlavičce.
+    persona_mode: str | None = None
 
 
 class ConversationListItem(BaseModel):

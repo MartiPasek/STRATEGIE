@@ -288,6 +288,12 @@ class PersonaChannel(BaseCore):
     server: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_primary: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     is_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # 28.4.2026: timestamp-based fetcher production mode. Polling fetcher
+    # filtruje datetime_received > last_inbox_fetch_at (vc. read), misto
+    # is_read=False. NULL pri cold start -> cutoff = 7 dni zpatky (env override).
+    last_inbox_fetch_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

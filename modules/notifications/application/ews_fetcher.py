@@ -406,18 +406,44 @@ def fetch_unread_for_persona(
     deduped_count = 0
     error_count = 0
 
+    # 28.4.2026: timestamp-based fetcher. Filter `datetime_received >
+    # last_inbox_fetch_at` misto `is_read=False` -- zachytava i emaily
+    # oznacene jako read v Outlooku predtim, nez fetcher poll'oval. Cold
+    # start (NULL) = 7 dni zpatky default.
+    from datetime import timedelta as _td_lf
+    from core.database_core import get_core_session as _gcs_lf
+    from modules.core.infrastructure.models_core import PersonaChannel as _PC_lf
+    cs_lf = _gcs_lf()
     try:
-        # Unread messages, od nejstarsich (aby kdyz je jich vic nez limit,
-        # ostatni prijdou v dalsich pollech, ale uz videli starsi).
-        unread_qs = (
+        ch_lf = (
+            cs_lf.query(_PC_lf)
+            .filter(
+                _PC_lf.persona_id == persona_id,
+                _PC_lf.channel_type == "email",
+                _PC_lf.is_enabled == True,
+            )
+            .first()
+        )
+        last_fetch_at = ch_lf.last_inbox_fetch_at if ch_lf else None
+        ch_id_lf = ch_lf.id if ch_lf else None
+    finally:
+        cs_lf.close()
+
+    if last_fetch_at is None:
+        last_fetch_at = datetime.now(timezone.utc) - _td_lf(days=7)
+        logger.info(
+            f"EWS | fetch | persona_id={persona_id} | cold start cutoff = "
+            f"{last_fetch_at.isoformat()} (7d ago)"
+        )
+
+    try:
+        msgs_qs = (
             account.inbox
-            .filter(is_read=False)
+            .filter(datetime_received__gt=last_fetch_at)
             .order_by("datetime_received")
         )
-        # .filter / .order_by / [:limit] je lazy -- limit slicing pouzijeme.
-        messages = list(unread_qs[:limit])
+        messages = list(msgs_qs[:limit])
     except Exception as e:
-        # Login UPN do logu NEPATRI (chran credential) -- jen display + persona_id.
         logger.error(
             f"EWS | fetch failed | persona_id={persona_id} | display={display} | {e}",
             exc_info=True,
@@ -433,7 +459,7 @@ def fetch_unread_for_persona(
 
     logger.info(
         f"EWS | fetch | persona_id={persona_id} | display={display} | "
-        f"unread_found={len(messages)}"
+        f"found={len(messages)} (cutoff={last_fetch_at.isoformat()})"
     )
 
     for msg in messages:
@@ -507,6 +533,9 @@ def fetch_unread_for_persona(
         f"deduped={deduped_count} | errors={error_count}"
     )
 
+    # 28.4.2026: posun cutoff timestampu pro pristi poll cycle
+    _update_last_inbox_fetch_at(ch_id_lf, messages)
+
     return {
         "persona_id": persona_id,
         "new": new_count,
@@ -515,6 +544,39 @@ def fetch_unread_for_persona(
         "status": "ok",
         "detail": None,
     }
+
+
+def _update_last_inbox_fetch_at(channel_id, messages):
+    """28.4.2026: update last_inbox_fetch_at na max(datetime_received) ze
+    zpracovanych zprav (chrani race -- email prichozi behem fetchu chytne
+    dalsi poll). Pokud zadne zpravy, posun na now-1s. Best-effort."""
+    if not channel_id:
+        return
+    try:
+        from datetime import timedelta
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import PersonaChannel
+        cs = get_core_session()
+        try:
+            ch = cs.query(PersonaChannel).filter_by(id=channel_id).first()
+            if ch:
+                if messages:
+                    max_dt = max(
+                        (m.datetime_received for m in messages
+                         if getattr(m, "datetime_received", None)),
+                        default=None,
+                    )
+                    if max_dt:
+                        ch.last_inbox_fetch_at = max_dt - timedelta(seconds=1)
+                else:
+                    ch.last_inbox_fetch_at = (
+                        datetime.now(timezone.utc) - timedelta(seconds=1)
+                    )
+                cs.commit()
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"EWS | last_fetch_at update failed | channel={channel_id}: {e}")
 
 
 # ── Public: fetch all active personas ──────────────────────────────────────

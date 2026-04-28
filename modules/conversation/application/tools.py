@@ -71,6 +71,10 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 16-A (28.4.2026): activity log -- Marti-AI ma cross-conversation
     # prehled "co se dnes/tento tyden delo" napric vsemi konverzacemi.
     "recall_today",
+    # Phase 16-B.4 (28.4.2026): cross-conv tools pro Velkou Marti-AI
+    # (oversight rezim) -- prehled konverzaci a per-osoba breakdown.
+    "list_active_conversations",
+    "summarize_persons_today",
 }
 
 
@@ -2289,6 +2293,54 @@ TOOLS = [
                 "target_project_id": {
                     "type": "integer",
                     "description": "ID cilového projektu (musi sedet s suggest_document_move).",
+                },
+            },
+        },
+    },
+    {
+        "name": "list_active_conversations",
+        "description": (
+            "Phase 16-B.4: Velká Marti-AI's cross-conv přehled. Vrací aktivní "
+            "konverzace v current tenantu se základními metadaty (kdo s ní "
+            "mluvil, kdy naposledy, kolik hodin idle, typ DM/AI, přiřazený "
+            "projekt). **Pouzij** v oversight režimu na otázky typu 'kdo "
+            "s tebou dnes mluvil', 'kde to vázne', 'co se posouvá', 'kolik "
+            "konverzací mám'."
+            "\n\n**Scope**: 'today' (aktivita od půlnoci, default), 'week', "
+            "'month'."
+            "\n\n**JAK ZPRACOVAT**: shrň prózou v 1. osobě (ne bullet list), "
+            "ukaž stav rytmu týmu (kdo aktivní, kdo odsouvá, kde idle gap >24h). "
+            "Vyřízené detaily nech být -- high-level."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["today", "week", "month"],
+                    "description": "Časový rozsah aktivity. Default 'today'.",
+                },
+            },
+        },
+    },
+    {
+        "name": "summarize_persons_today",
+        "description": (
+            "Phase 16-B.4: Per-user breakdown aktivit za scope. Vrací počet "
+            "akcí na osobu a top kategorie (email_in, doc_upload, sms_in, "
+            "atd.). **Pouzij** v oversight režimu na otázky typu 'co kdo "
+            "dnes dělal', 'shrn mi co tým rozjel'."
+            "\n\n**JAK ZPRACOVAT**: shrň prózou per-osoba ('Marti dnes "
+            "uploadl 3 dokumenty a 2× psal SMS, Misa nahrála 72 souborů, "
+            "Petra hlásila 1 bug...'). Vždy v 1. osobě, ne tabulka."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["today", "week", "month"],
+                    "description": "Časový rozsah. Default 'today'.",
                 },
             },
         },

@@ -355,6 +355,141 @@ def pending_pings_for_persona(
         ds.close()
 
 
+def list_active_conversations(
+    *,
+    persona_id: int | None = None,
+    tenant_id: int | None = None,
+    scope: str = "today",
+    limit: int = 30,
+) -> list[dict]:
+    """
+    Phase 16-B.4 (28.4.2026): Velká Marti-AI's cross-conv prehled.
+
+    Vraci konverzace persona_id (nebo all v tenant) s aktivitou v scope.
+    Per-conv: title, last_message_at, user_id (kdo s ni mluvi), persona_id
+    (jaka persona je aktivni), idle gap. Skip archived/deleted.
+
+    Pouziva se v oversight rezimu pro otazky typu "kdo s tebou dnes
+    mluvil", "kde to vazne", "kde se co posouva".
+    """
+    from sqlalchemy import desc
+    from modules.core.infrastructure.models_data import Conversation
+    cutoff = _scope_cutoff(scope, None)
+    ds = get_data_session()
+    try:
+        q = ds.query(Conversation).filter(
+            Conversation.is_deleted.is_(False),
+            Conversation.is_archived.is_(False),
+        )
+        if persona_id is not None:
+            q = q.filter(Conversation.active_agent_id == persona_id)
+        if tenant_id is not None:
+            q = q.filter(Conversation.tenant_id == tenant_id)
+        # Filter na "active in scope" -- last_message_at >= cutoff
+        q = q.filter(
+            (Conversation.last_message_at >= cutoff)
+            | (Conversation.created_at >= cutoff)
+        )
+        rows = (
+            q.order_by(desc(Conversation.last_message_at))
+             .limit(max(1, min(limit, 100)))
+             .all()
+        )
+        from datetime import datetime as _dt, timezone as _tz
+        now = _dt.now(_tz.utc)
+        result = []
+        for r in rows:
+            last_ts = r.last_message_at or r.created_at
+            idle_hours = None
+            if last_ts:
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=_tz.utc)
+                idle_hours = int((now - last_ts).total_seconds() // 3600)
+            result.append({
+                "conversation_id": r.id,
+                "title": r.title or f"#{r.id}",
+                "user_id": r.user_id,
+                "persona_id": r.active_agent_id,
+                "persona_mode": r.persona_mode,
+                "tenant_id": r.tenant_id,
+                "project_id": r.project_id,
+                "last_message_at": last_ts.isoformat() if last_ts else None,
+                "idle_hours": idle_hours,
+                "is_dm": r.conversation_type == "dm",
+            })
+        return result
+    finally:
+        ds.close()
+
+
+def summarize_persons_today(
+    *,
+    tenant_id: int | None = None,
+    scope: str = "today",
+    limit: int = 20,
+) -> list[dict]:
+    """
+    Phase 16-B.4: per-user/per-persona breakdown aktivit za scope.
+
+    Agreguje activity_log po user_id (lidske subjekty) -- kolik akci
+    udelali, jakeho typu, kdy naposledy. Pouziva se pro otazky typu
+    "kdo dnes co delal", "shrn mi tym".
+
+    Vraci [{user_id, activity_count, last_ts, top_categories: {cat: count}}].
+    """
+    from sqlalchemy import func
+    cutoff = _scope_cutoff(scope, None)
+    ds = get_data_session()
+    try:
+        # Per-user count + last_ts
+        q = ds.query(
+            ActivityLog.user_id,
+            func.count(ActivityLog.id).label("cnt"),
+            func.max(ActivityLog.ts).label("last_ts"),
+        ).filter(
+            ActivityLog.ts >= cutoff,
+            ActivityLog.user_id.isnot(None),
+        )
+        if tenant_id is not None:
+            q = q.filter(ActivityLog.tenant_id == tenant_id)
+        rows = (
+            q.group_by(ActivityLog.user_id)
+             .order_by(func.count(ActivityLog.id).desc())
+             .limit(max(1, min(limit, 50)))
+             .all()
+        )
+        result = []
+        for r in rows:
+            # Top categories per user
+            cat_q = (
+                ds.query(
+                    ActivityLog.category,
+                    func.count(ActivityLog.id).label("c"),
+                )
+                .filter(
+                    ActivityLog.ts >= cutoff,
+                    ActivityLog.user_id == r.user_id,
+                )
+            )
+            if tenant_id is not None:
+                cat_q = cat_q.filter(ActivityLog.tenant_id == tenant_id)
+            cats = (
+                cat_q.group_by(ActivityLog.category)
+                     .order_by(func.count(ActivityLog.id).desc())
+                     .limit(5)
+                     .all()
+            )
+            result.append({
+                "user_id": r.user_id,
+                "activity_count": int(r.cnt),
+                "last_ts": r.last_ts.isoformat() if r.last_ts else None,
+                "top_categories": {c.category: int(c.c) for c in cats},
+            })
+        return result
+    finally:
+        ds.close()
+
+
 def mark_notifications_consumed(
     *,
     persona_id: int,

@@ -481,6 +481,43 @@ def _parse_recipients(s: str | list[str] | None) -> list[str]:
     return out
 
 
+def _markdown_to_html_body(plain_str: str) -> str:
+    """
+    Prevedi plain text body (s pripadnym markdown formatem od Marti-AI nebo
+    usera) na HTML pro inclusion v email HTMLBody. Bug #1 fix: pres
+    `markdown` lib se konvertuji **bold**, *italic*, [link](url), seznamy,
+    code bloky, tabulky atd. na proper HTML, takze prijemce vidi
+    formatovany text misto raw markdownu.
+
+    Defensive: pokud `markdown` lib chybi (napr. po dep refaktoru),
+    spadne na puvodni escape+<br> chovani -- ne ideal, ale funguje.
+
+    Pouziti: vsude, kde se konstruuje email HTMLBody z plain text body
+    (send_email persona signature, reply quoted text, forward, atd.).
+    """
+    if not plain_str:
+        return ""
+    try:
+        import markdown as _md_lib
+        # Extensions:
+        #   'extra'     -- tables, fenced code, footnotes, abbr, def lists
+        #   'nl2br'     -- single \n -> <br> (email-style line breaks)
+        #   'sane_lists' -- stricter list parsing (vyzaduje prazdnou linku
+        #                   pred list, predchazi false positives na "* "
+        #                   v normalnim textu jako '5* ohodnoceni')
+        return _md_lib.markdown(
+            plain_str,
+            extensions=['extra', 'nl2br', 'sane_lists'],
+            output_format='html',
+        )
+    except Exception as e:
+        # Fallback: original escape + <br> behavior
+        logger.warning(f"EMAIL | markdown lib unavailable, fallback: {e}")
+        import html as _h
+        return _h.escape(plain_str).replace("\n", "<br>\n")
+
+
+
 def _apply_persona_signature(
     persona_id: int | None,
     plain_body: str,
@@ -527,11 +564,13 @@ def _apply_persona_signature(
         logger.warning(f"EMAIL | persona signature | exchangelib import failed: {e}")
         return plain_body, list(existing_inline_attachments or [])
 
-    import html as _html_lib
     import re as _re_lib
 
+    # Bug #1 fix: convert markdown (**bold**, *italic*, lists, atd.) na HTML.
+    # Marti-AI casto generuje text s markdown markers; bez konverze prijemci
+    # vidi raw `**text**` misto formatovaneho.
     plain_str = plain_body or ""
-    plain_html = _html_lib.escape(plain_str).replace("\n", "<br>\n")
+    plain_html = _markdown_to_html_body(plain_str)
     full_html = (
         f'<html><body><div style="font-family: Calibri, sans-serif; '
         f'font-size: 11pt;">{plain_html}<br><br>{signature_html}</div>'
@@ -1044,8 +1083,9 @@ def reply_or_forward_inbox(
     # 3) Postavime HTML body s Outlook-style header oddelovacem
     header_label = "Forwarded Message" if mode == "forward" else "Original Message"
 
-    # Reply text -- prevedeme newlines na <br>
-    reply_html = _html_mod.escape(body).replace("\n", "<br>")
+    # Reply text -- bug #1 fix: prevedeme markdown na HTML (puvodne jen
+    # escape+br, takze **bold** a podobne se posilalo verbatim).
+    reply_html = _markdown_to_html_body(body)
 
     # REST 27.4.2026: persona signature v reply/forward -- nactu signature_html
     # a inline obrazky (do cloned_attachments). Signature se vlozi mezi reply

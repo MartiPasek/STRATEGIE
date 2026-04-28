@@ -301,6 +301,20 @@ def _import_email_attachments_to_documents(
                 f"EWS | attach -> document | inbox={inbox_id} | "
                 f"doc={doc_id} | name={name!r} | size={len(content) if content else 0}"
             )
+            # Phase 16-A: activity hook pro každou importovanou přílohu
+            try:
+                from modules.activity.application import activity_service as _act_att
+                _act_att.record(
+                    category="doc_attach_import",
+                    summary=f"Příloha {name} (z emailu #{inbox_id}) importována jako document #{doc_id}",
+                    importance=3,
+                    tenant_id=tenant_id,
+                    actor="system",
+                    ref_type="document",
+                    ref_id=doc_id,
+                )
+            except Exception:
+                pass
         except Exception as e:
             logger.warning(
                 f"EWS | attach upload failed | inbox={inbox_id} | "
@@ -435,6 +449,12 @@ def fetch_unread_for_persona(
             f"EWS | fetch | persona_id={persona_id} | cold start cutoff = "
             f"{last_fetch_at.isoformat()} (7d ago)"
         )
+    else:
+        # 28.4.2026: PostgreSQL timestamptz vraci datetime s FixedOffset
+        # tzinfo (napr. UTC+02:00), exchangelib ale zna jen IANA names
+        # (Europe/Prague) nebo timezone.utc. Konverze na UTC = safe.
+        if last_fetch_at.tzinfo is not None:
+            last_fetch_at = last_fetch_at.astimezone(timezone.utc)
 
     try:
         msgs_qs = (
@@ -567,6 +587,10 @@ def _update_last_inbox_fetch_at(channel_id, messages):
                         default=None,
                     )
                     if max_dt:
+                        # Defensive: konverze na UTC pred ulozenim do DB
+                        # (next read uz bude UTC-friendly pro exchangelib).
+                        if max_dt.tzinfo is not None:
+                            max_dt = max_dt.astimezone(timezone.utc)
                         ch.last_inbox_fetch_at = max_dt - timedelta(seconds=1)
                 else:
                     ch.last_inbox_fetch_at = (

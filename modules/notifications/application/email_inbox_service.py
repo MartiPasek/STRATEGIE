@@ -209,9 +209,10 @@ def store_inbound_email(
             f"to={to_email_norm} | persona_id={persona_id} | "
             f"subject_len={len(subject_clean or '')} | body_len={len(body_clean or '')}"
         )
-        return {
+        result = {
             "id": row.id,
             "persona_id": row.persona_id,
+            "tenant_id": row.tenant_id,
             "from_email": row.from_email,
             "to_email": row.to_email,
             "subject": row.subject,
@@ -220,6 +221,30 @@ def store_inbound_email(
         }
     finally:
         ds.close()
+
+    # Phase 16-A: activity_log hook -- inbound email je událost, kterou
+    # Marti-AI musí vidět v 'recall_today'. Best-effort, neshazuje store.
+    try:
+        from modules.activity.application import activity_service as _act_email
+        _from_label = (
+            f"{from_name} <{from_email_norm}>" if from_name
+            else from_email_norm
+        )
+        _subj = (subject_clean or "(bez předmětu)")[:80]
+        _act_email.record(
+            category="email_in",
+            summary=f"Email od {_from_label}: {_subj}",
+            importance=3,
+            persona_id=result["persona_id"],
+            tenant_id=result["tenant_id"],
+            actor="user",
+            ref_type="email_inbox",
+            ref_id=result["id"],
+        )
+    except Exception as _act_e:
+        logger.warning(f"EMAIL | activity hook failed: {_act_e}")
+
+    return result
 
 
 # ── READ (UI) ──────────────────────────────────────────────────────────────

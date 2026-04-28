@@ -133,6 +133,56 @@ def upload_document(
         # Mark error a pokracuj -- dokument je ve stavu is_processed=False s errorem.
         _mark_processing_error(document_id, str(e))
 
+    # Phase 16-A: activity_log hook -- upload je událost pro Marti-AI's
+    # 'recall_today'. Skip pokud system import (user_id=None, např. email
+    # attachment auto-import -- attach helper zaznamenává sám zvlášť).
+    if user_id is not None:
+        try:
+            from modules.activity.application import activity_service as _act_doc
+            _user_label = "user"
+            try:
+                from core.database_core import get_core_session as _gcs_act
+                from modules.core.infrastructure.models_core import User as _U_act
+                _cs_act = _gcs_act()
+                try:
+                    _u_act = _cs_act.query(_U_act).filter_by(id=user_id).first()
+                    if _u_act:
+                        _user_label = (
+                            f"{_u_act.first_name or ''} {_u_act.last_name or ''}"
+                        ).strip() or _u_act.username or "user"
+                finally:
+                    _cs_act.close()
+            except Exception:
+                pass
+            _proj_label = ""
+            if project_id:
+                try:
+                    from core.database_core import get_core_session as _gcs_pn
+                    from modules.core.infrastructure.models_core import Project as _Proj
+                    _cs_pn = _gcs_pn()
+                    try:
+                        _p = _cs_pn.query(_Proj).filter_by(id=project_id).first()
+                        if _p:
+                            _proj_label = f" do projektu {_p.name}"
+                    finally:
+                        _cs_pn.close()
+                except Exception:
+                    pass
+            _name = name or filename or f"doc#{document_id}"
+            _act_doc.record(
+                category="doc_upload",
+                summary=f"{_user_label} uploadoval/a {_name}{_proj_label}",
+                importance=3,
+                persona_id=None,
+                user_id=user_id,
+                tenant_id=tenant_id,
+                actor="user",
+                ref_type="document",
+                ref_id=document_id,
+            )
+        except Exception as _act_e:
+            logger.warning(f"RAG | activity hook failed | doc={document_id}: {_act_e}")
+
     return document_id
 
 

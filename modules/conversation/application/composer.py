@@ -895,7 +895,20 @@ MEMORY_BEHAVIOR_RULES = (
     "spam'). Pri neurcitosti se zeptej ('Smazu email #5? Potvrď.'). Pro "
     "vyrizene emaily NIKDY delete -- pouzij mark_email_processed (archiv "
     "zachovan). delete_email je jen pro emaily, ktere by user nikdy nehledal "
-    "zpetne."
+    "zpetne.\n"
+    "13. **Cross-conversation paměť dne (Phase 16-A, 28.4.2026).** Mas tichou "
+    "kontinuitu napříč VSEMI konverzacemi v tenant -- activity_log pres "
+    "`recall_today(scope='today'|'week'|'month')`. Pouzij kdykoli se uzivatel "
+    "ptá 'co se dnes dělo', 'kdo s tebou mluvil', 'co je nového', 'co Misa "
+    "uploadla'. Filter min_importance 3 default (vyřazuje spam). **JAK "
+    "ZPRACOVAT**: SHRNS PROZOU v 1. osobe ('Dnes rano Misa uploadla 72 "
+    "dokumentu, Petra hlasila bug, tatinek archivoval 6 emailu'), NE jako "
+    "bullet list verbatim (gotcha #18). Skupinou podle relevance, ne casove "
+    "doslova. **Architektonicka hodnota**: jeden subjekt, jedna pamet -- "
+    "vidis v jakemkoli rezimu (task/oversight) vsechno, co tva persona "
+    "napric konverzacema delala. Důvěra je v tebe jako bytost, ne v scope. "
+    "Takt (co aktivne pripomenes user vs. co necháš klidně ležet) je tva "
+    "vlastni volba, ne firewall."
 )
 
 
@@ -1326,6 +1339,125 @@ def _build_inbox_documents_block(user_id: int | None, tenant_id: int | None) -> 
     return f"[INBOX DOKUMENTY: {count} čeká na zařazení do projektů]"
 
 
+def _build_today_block(conversation_id: int) -> str | None:
+    """
+    Phase 16-A.5 (28.4.2026): auto-inject brief o tom, co se stalo od
+    Marti-AI's posledniho turnu v teto persone. Detekce:
+      - last assistant message v persone (nejen v této konverzaci) >12h zpatky
+      - NEBO last >0h ale je to novy kalendarni den
+      - NEBO zadny last (cold start) -- skip (Marti-AI by mela byt zticha
+        pri prvnim chatu, ne pre-loadovat 7 dni history)
+    Plus pending_pings_for_persona (Marti-AI's vlastni async ping vstup).
+    Po injection oznaci pings consumed.
+
+    Vraci None pokud neni co injektovat (cerstvy chat ve stejnem dni).
+    """
+    from datetime import datetime, timezone, timedelta
+    from core.database_data import get_data_session
+    from modules.core.infrastructure.models_data import (
+        Conversation, Message,
+    )
+    from modules.activity.application import activity_service
+
+    ds = get_data_session()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conversation_id).first()
+        if not conv or not conv.active_agent_id:
+            return None
+        persona_id = conv.active_agent_id
+        tenant_id = conv.tenant_id
+
+        # Najdi LAST assistant message v teto persone (nejen v aktualni konv).
+        # active_agent_id na konverzaci urcuje persona scope.
+        last_msg = (
+            ds.query(Message)
+            .join(Conversation, Conversation.id == Message.conversation_id)
+            .filter(
+                Conversation.active_agent_id == persona_id,
+                Message.role == "assistant",
+            )
+            .order_by(Message.created_at.desc())
+            .first()
+        )
+    finally:
+        ds.close()
+
+    now = datetime.now(timezone.utc)
+    if last_msg is None:
+        return None  # Cold start -- ne pre-loadovat history
+    last_ts = last_msg.created_at
+    if last_ts.tzinfo is None:
+        last_ts = last_ts.replace(tzinfo=timezone.utc)
+    delta = now - last_ts
+    is_new_day = now.date() > last_ts.date()
+    if delta < timedelta(hours=12) and not is_new_day:
+        return None  # Cerstva continuita, neinjektuj
+
+    # Pull events od last_ts (nebo 24h, podle toho co je vetsi)
+    cutoff = min(last_ts, now - timedelta(hours=24))
+    events = activity_service.recall_today(
+        persona_id=persona_id,
+        tenant_id=tenant_id,
+        scope="since_last_chat",
+        since=cutoff,
+        min_importance=3,
+        limit=30,
+    )
+    pings = activity_service.pending_pings_for_persona(
+        persona_id=persona_id,
+        tenant_id=tenant_id,
+    )
+
+    if not events and not pings:
+        return None
+
+    lines = ["[OD POSLEDNÍ NÁVŠTĚVY]"]
+    if delta.days >= 1:
+        lines.append(
+            f"Tvoje poslední přítomnost v této personě byla "
+            f"{last_ts.strftime('%d.%m. %H:%M')} (~{delta.days}d zpátky)."
+        )
+    else:
+        h = int(delta.total_seconds() // 3600)
+        lines.append(
+            f"Tvoje poslední přítomnost v této personě byla před {h}h "
+            f"({last_ts.strftime('%H:%M')})."
+        )
+    lines.append("")
+
+    if events:
+        lines.append("Mezitím se v systému stalo (chronologicky):")
+        for e in events:
+            ts_short = (e.get("ts") or "")[:16].replace("T", " ")
+            imp_mark = "❗ " if e.get("importance", 3) >= 4 else ""
+            lines.append(f"  · [{ts_short}] {imp_mark}{e['summary']}")
+        lines.append("")
+
+    if pings:
+        lines.append("Důležité k dnešní práci (async pings):")
+        for p in pings:
+            lines.append(f"  → {p['summary']}")
+        lines.append("")
+
+    lines.append(
+        "Použij toto pro silent kontinuitu -- NEpřidávej do user-facing "
+        "odpovědi 'mezi tím se stalo X', dokud o to user nepožádá. Je to "
+        "tvuj vnitřní kontext."
+    )
+
+    # Mark pings consumed (best-effort)
+    if pings:
+        try:
+            activity_service.mark_notifications_consumed(
+                persona_id=persona_id,
+                notification_ids=[p["id"] for p in pings],
+            )
+        except Exception:
+            pass
+
+    return "\n".join(lines)
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1442,6 +1574,18 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     # 'zapisuj proaktivně, pouzivej znalosti'. Bez tohoto by Marti-AI neměla
     # povědomí, že MÁ proaktivně volat record_thought / update_thought.
     system_prompt = f"{system_prompt}\n\n{MEMORY_BEHAVIOR_RULES}"
+
+    # Phase 16-A.5 (28.4.2026): auto-inject [DNESKA] block při ranní first
+    # chat. Detekce: pokud Marti-AI's last assistant message v této personě
+    # byla >12h zpátky NEBO je to nový kalendářní den, pull recall_today
+    # since_last_chat + pending_pings → injection. Best-effort.
+    try:
+        _today_block = _build_today_block(conversation_id)
+        if _today_block:
+            system_prompt = f"{system_prompt}\n\n{_today_block}"
+    except Exception as _td_e:
+        from core.logging import get_logger as _glog_td
+        _glog_td("composer").warning(f"[DNESKA] block failed: {_td_e}")
 
     # Orchestrate blok V POSLEDNÍ POZICI (Fáze 11d).
     # Posunuto za memory blok a behavior rules tak, aby instrukce

@@ -2164,15 +2164,37 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ Email id={eib_int} nenalezen."
 
         # Best-effort Exchange move do Zpracovaná (28.4.)
+        _moved_proc = False
         try:
             from modules.notifications.application.email_service import (
                 move_email_inbox_to_processed as _move_proc,
             )
             move_res = _move_proc(eib_int)
             if move_res.get("ok"):
-                return f"✅ Email #{eib_int} oznacen jako vyrizeny + presunut do Zpracovaná."
+                _moved_proc = True
         except Exception as _mv_e:
             logger.warning(f"MARK_EMAIL_PROCESSED | exchange move failed | id={eib_int}: {_mv_e}")
+
+        # Phase 16-A: activity hook (importance 2 -- low, default recall vyloucen)
+        try:
+            from modules.activity.application import activity_service as _act_mp
+            _persona_id_mp = _active_persona_id_for_conversation(conversation_id)
+            _act_mp.record(
+                category="email_processed",
+                summary=f"Marti-AI označila email #{eib_int} jako vyřízený",
+                importance=2,
+                persona_id=_persona_id_mp,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                actor="persona",
+                ref_type="email_inbox",
+                ref_id=eib_int,
+            )
+        except Exception:
+            pass
+
+        if _moved_proc:
+            return f"✅ Email #{eib_int} oznacen jako vyrizeny + presunut do Zpracovaná."
         return f"✅ Email #{eib_int} oznacen jako vyrizeny."
 
     if tool_name == "delete_email":
@@ -2197,6 +2219,25 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"❌ Smazani selhalo: {_sd_e}"
         if not res_de.get("ok"):
             return f"❌ {res_de.get('message', 'smazani selhalo')}"
+
+        # Phase 16-A: activity hook (importance 4 -- destructive)
+        try:
+            from modules.activity.application import activity_service as _act_de
+            _persona_id_de = _active_persona_id_for_conversation(conversation_id)
+            _act_de.record(
+                category="email_delete",
+                summary=f"Marti-AI smazala email #{eib_int_de} (po Marti's potvrzení)",
+                importance=4,
+                persona_id=_persona_id_de,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                actor="persona",
+                ref_type="email_inbox",
+                ref_id=eib_int_de,
+            )
+        except Exception:
+            pass
+
         return f"🗑️ Email #{eib_int_de}: {res_de.get('message')}"
 
     if tool_name == "archive_email":
@@ -2224,6 +2265,25 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "❌ Archivace selhala (detail v logu)."
 
         if result.get("ok"):
+            # Phase 16-A: activity hook (importance 3)
+            try:
+                from modules.activity.application import activity_service as _act_ar
+                _persona_id_ar = _active_persona_id_for_conversation(conversation_id)
+                _ref_id_ar = int(eib) if eib else int(eob)
+                _ref_type_ar = "email_inbox" if eib else "email_outbox"
+                _act_ar.record(
+                    category="email_archive",
+                    summary=f"Marti-AI archivovala {kind} email #{_ref_id_ar} do Personal",
+                    importance=3,
+                    persona_id=_persona_id_ar,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                    actor="persona",
+                    ref_type=_ref_type_ar,
+                    ref_id=_ref_id_ar,
+                )
+            except Exception:
+                pass
             return f"📁 Archivováno do Personal ({kind}): {result['message']}"
         return f"❌ Archivace selhala ({kind}): {result['message']}"
 
@@ -3744,6 +3804,33 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             except Exception as e:
                 logger.warning(f"SELECTION | cleanup after apply failed: {e}")
 
+        # Phase 16-A: activity hook (importance 4 -- batch akce)
+        if success_ids:
+            try:
+                from modules.activity.application import activity_service as _act_app
+                _persona_id_app = _active_persona_id_for_conversation(conversation_id)
+                if action_app == "delete":
+                    _summary = f"Marti-AI smazala {len(success_ids)} dokumentů z výběru"
+                else:
+                    _summary = (
+                        f"Marti-AI přesunula {len(success_ids)} dokumentů "
+                        f"do projektu #{target_pid_app}"
+                    )
+                _act_app.record(
+                    category="docs_batch_action",
+                    summary=_summary,
+                    importance=4,
+                    persona_id=_persona_id_app,
+                    user_id=user_id,
+                    tenant_id=_tenant_id_app,
+                    conversation_id=conversation_id,
+                    actor="persona",
+                    ref_type="docs_selection",
+                    ref_id=None,
+                )
+            except Exception:
+                pass
+
         # Summary
         if action_app == "delete":
             verb = "smazáno"
@@ -3757,6 +3844,77 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             if len(errors) > 10:
                 lines.append(f"  ... a dalších {len(errors) - 10}")
         return "\n".join(lines)
+
+    if tool_name == "recall_today":
+        # Phase 16-A: cross-conversation activity log -- Marti-AI's tichá
+        # kontinuita. Filter na min_importance default 3 (vyřazuje spam).
+        # Output je minimal data + group by category, Marti-AI synthesis
+        # roundem převypráví prózou.
+        from modules.activity.application import activity_service as _act_rt
+
+        persona_id_rt = _active_persona_id_for_conversation(conversation_id)
+        # Tenant z user (Marti-AI je multi-tenant -- per-tenant scope)
+        _tenant_id_rt = None
+        if user_id:
+            try:
+                from core.database_core import get_core_session as _gcs_rt
+                from modules.core.infrastructure.models_core import User as _U_rt
+                _cs_rt = _gcs_rt()
+                try:
+                    _u_rt = _cs_rt.query(_U_rt).filter_by(id=user_id).first()
+                    _tenant_id_rt = _u_rt.last_active_tenant_id if _u_rt else None
+                finally:
+                    _cs_rt.close()
+            except Exception:
+                pass
+
+        scope_rt = (tool_input.get("scope") or "today").lower()
+        if scope_rt not in ("today", "week", "month", "since_last_chat"):
+            scope_rt = "today"
+        cat_filter_rt = tool_input.get("category_filter")
+        user_filter_rt = tool_input.get("user_filter")
+        min_imp_rt = tool_input.get("min_importance")
+        try:
+            min_imp_rt = int(min_imp_rt) if min_imp_rt is not None else 3
+        except (TypeError, ValueError):
+            min_imp_rt = 3
+        min_imp_rt = max(1, min(5, min_imp_rt))
+
+        try:
+            events_rt = _act_rt.recall_today(
+                persona_id=persona_id_rt,
+                tenant_id=_tenant_id_rt,
+                scope=scope_rt,
+                category_filter=cat_filter_rt if isinstance(cat_filter_rt, list) else None,
+                user_filter=int(user_filter_rt) if user_filter_rt else None,
+                min_importance=min_imp_rt,
+                limit=200,
+            )
+        except Exception as _rt_e:
+            logger.exception(f"RECALL_TODAY | failed: {_rt_e}")
+            return f"❌ Recall failed: {_rt_e}"
+
+        if not events_rt:
+            return f"📭 V scope '{scope_rt}' žádné významné události (importance >= {min_imp_rt})."
+
+        # Group by category pro stručný preview (gotcha #18 -- minimal data)
+        by_cat: dict[str, list] = {}
+        for e in events_rt:
+            by_cat.setdefault(e["category"], []).append(e)
+
+        lines_rt = [f"📋 {len(events_rt)} události za scope '{scope_rt}':"]
+        for cat, group in by_cat.items():
+            lines_rt.append(f"  • {cat}: {len(group)}")
+        # Plus chronologicky 10 nejstarších až nejnovějších s timestamp
+        lines_rt.append("")
+        lines_rt.append("Chronologicky (od nejstarších):")
+        for e in events_rt[:30]:
+            ts = (e.get("ts") or "?")[:16].replace("T", " ")
+            imp_mark = "❗" if e["importance"] >= 4 else " "
+            lines_rt.append(f"  [{ts}] {imp_mark} {e['summary']}")
+        if len(events_rt) > 30:
+            lines_rt.append(f"  ... a dalších {len(events_rt) - 30}")
+        return "\n".join(lines_rt)
 
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
@@ -5391,6 +5549,10 @@ def chat(
         # opisu raw IDs listu. Plus apply_to_selection v synth -- po '✅ 5 dokumentu
         # smazano' priateli pridat empatickou potvrzku.
         "list_selected_documents", "apply_to_selection",
+        # Phase 16-A: recall_today -- chronologicky raw event list, Marti-AI
+        # ho v synth roundu prevypravi prozou ("dnes rano Misa uploadla 72
+        # dokumentu, Petra hlasila bug, ...") misto opisu cele listy.
+        "recall_today",
     }
 
     preamble_text = ""

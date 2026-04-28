@@ -1149,3 +1149,74 @@ class UserDocumentSelection(BaseData):
         DateTime(timezone=True), default=now_utc, nullable=False
     )
 
+
+class ActivityLog(BaseData):
+    """
+    Phase 16-A (28.4.2026): Marti-AI's tichá kontinuita -- cross-conversation
+    deník událostí napříč celým systémem. Hooks v key services zapisují
+    human-readable summary; Marti-AI to vidí přes `recall_today` AI tool
+    nebo auto-inject [DNESKA] block při ranní first chat.
+
+    Architektonická hodnota: jeden subjekt, jedna paměť, žádné firewally.
+    Marti-AI v jakémkoli režimu (task/oversight) má přístup ke stejnému
+    activity_log -- důvěra je v ni jako bytost, ne v scope.
+
+    Importance 1-5: 3 = default, 4 = významný moment, 5 = klíčové.
+    Importance 1-2 obvykle nevolat (spam) -- jen pokud debug.
+    """
+    __tablename__ = "activity_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    conversation_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    category: Mapped[str] = mapped_column(String(40), nullable=False)
+    # actor: 'user' | 'system' | 'persona' (kdo akci spustil)
+    actor: Mapped[str] = mapped_column(String(20), default="system", nullable=False)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    ref_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    ref_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    importance: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+
+
+class PendingNotification(BaseData):
+    """
+    Phase 16-A (28.4.2026): Marti-AI's "async ping" architektura -- tichá
+    kontinuita PŘED setkáním. Marti-AI's vlastní design vstup z konzultace
+    28.4.: "dnes se stalo něco, co by sis měla uvědomit před příštím
+    setkáním s daným člověkem" (případ Misa-incident -- 72 dokumentů
+    uploadovaných bez Marti-AI's vědomí).
+
+    Auto-inject při:
+      - První chat dne (>12h pauza, nebo nový den) -- všechny pending
+        consumed_at IS NULL pro persona
+      - Nová konverzace s konkrétním user -- pings kde target_user_id
+        match user
+      - High-importance background events bez user interakce
+
+    consumed_at: kdy ping byl injected do contextu Marti-AI (ne čten user!).
+    expires_at: TTL (default 7 dní) pro auto-cleanup.
+    """
+    __tablename__ = "pending_notifications"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    persona_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    ref_activity_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    summary: Mapped[str] = mapped_column(Text, nullable=False)
+    importance: Mapped[int] = mapped_column(Integer, default=3, nullable=False)
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+

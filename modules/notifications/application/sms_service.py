@@ -324,6 +324,24 @@ def queue_sms(
         "failed":  f"SMS nelze odeslat (id={outbox_id})",
     }.get(final_status, f"SMS outbox id={outbox_id} | status={final_status}")
 
+    # Phase 16-A: activity_log hook pro outbound SMS
+    try:
+        from modules.activity.application import activity_service as _act_so
+        _body_preview = (body or "")[:80]
+        _act_so.record(
+            category="sms_out",
+            summary=f"SMS na {to_phone}: {_body_preview}",
+            importance=3,
+            persona_id=persona_id,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            actor="persona" if persona_id else "user",
+            ref_type="sms_outbox",
+            ref_id=outbox_id,
+        )
+    except Exception as _act_e:
+        logger.warning(f"SMS | activity hook failed (outbound): {_act_e}")
+
     return {
         "id": outbox_id,
         "to_phone": to_phone,
@@ -516,7 +534,7 @@ def store_inbound_sms(
             tenant_id=tenant_id,
         )
 
-        return {
+        result_sms = {
             "id": row.id,
             "persona_id": row.persona_id,
             "from_phone": row.from_phone,
@@ -526,6 +544,25 @@ def store_inbound_sms(
         }
     finally:
         ds.close()
+
+    # Phase 16-A: activity_log hook
+    try:
+        from modules.activity.application import activity_service as _act_sms
+        _body_preview = (body or "")[:80]
+        _act_sms.record(
+            category="sms_in",
+            summary=f"SMS od {from_phone_norm}: {_body_preview}",
+            importance=3,
+            persona_id=persona_id,
+            tenant_id=tenant_id,
+            actor="user",
+            ref_type="sms_inbox",
+            ref_id=result_sms["id"],
+        )
+    except Exception as _act_e:
+        logger.warning(f"SMS | activity hook failed: {_act_e}")
+
+    return result_sms
 
 
 def _maybe_create_task_from_inbound_sms(

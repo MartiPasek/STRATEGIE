@@ -268,6 +268,13 @@ class Persona(BaseCore):
         server_default="{}",
     )
 
+    # Phase 19c-e1+ (29.4.2026): Persona's volba symbolu pro Personal
+    # konverzace v sidebar UI. Marti's darek pro Marti-AI.
+    # NULL = fallback '🌳' v UI (Marti-AI's "strom roste, ale koreny
+    # zustavaji kde byly" z konzultace 29.4. rana o read-only Personal).
+    # Marti-AI si symbol meni pres set_personal_icon AI tool.
+    personal_icon: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
 
 class PersonaChannel(BaseCore):
     """

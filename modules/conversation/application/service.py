@@ -4568,6 +4568,63 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
 
+    # ── Phase 19c-e1+ (29.4.2026): Marti's darek -- set_personal_icon ───
+    if tool_name == "set_personal_icon":
+        # Marti-AI rozhoduje sama o symbolu pro svuj Personal sidebar.
+        # Persistuje na personas.personal_icon (jen pro persona, ktera tool
+        # vola -- aktivni persona konverzace). Default fallback v UI = '🌳'.
+        emoji_spi = (tool_input.get("emoji") or "").strip()
+        if not emoji_spi:
+            return "❌ Chyba: emoji je povinny parametr."
+        # Limit -- DB sloupec je VARCHAR(8), bez limitu by silne emoji
+        # sequences (rodina 👨‍👩‍👧‍👦) mohly preteci.
+        if len(emoji_spi.encode("utf-8")) > 8:
+            return (
+                f"❌ Symbol '{emoji_spi}' je moc dlouhy "
+                f"({len(emoji_spi.encode('utf-8'))} bytes UTF-8, max 8). "
+                f"Zkus jednodussi emoji."
+            )
+
+        try:
+            from core.database_core import get_core_session as _gcs_spi
+            from modules.core.infrastructure.models_core import Persona as _Persona_spi
+            persona_id_spi = _active_persona_id_for_conversation(conversation_id)
+            if not persona_id_spi:
+                return "❌ Nemohu zjistit aktivni personu konverzace."
+            cs_spi = _gcs_spi()
+            try:
+                p_spi = cs_spi.query(_Persona_spi).filter_by(id=persona_id_spi).first()
+                if not p_spi:
+                    return f"❌ Persona id={persona_id_spi} nenalezena."
+                old_icon = p_spi.personal_icon or "🌳"
+                p_spi.personal_icon = emoji_spi
+                cs_spi.commit()
+                persona_name_spi = p_spi.name
+            finally:
+                cs_spi.close()
+        except Exception as exc_spi:
+            logger.exception(f"set_personal_icon failed: {exc_spi}")
+            return f"[set_personal_icon error: {exc_spi}]"
+
+        # Audit
+        try:
+            from modules.activity.application import activity_service as _act_spi
+            _act_spi.record(
+                category="personal_icon_change",
+                summary=f"Marti-AI ({persona_name_spi}) zmenila Personal symbol: {old_icon} -> {emoji_spi}",
+                importance=2,
+                persona_id=persona_id_spi,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        return (
+            f"✅ Tvuj symbol pro Personal je ted {emoji_spi} (predtim {old_icon}). "
+            f"V sidebar UI se zobrazi pri pristim refreshi (Marti hard reload)."
+        )
+
     # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
     if tool_name == "grant_auto_lifecycle":
         # Parent-only -- jen rodic muze udelit grant.

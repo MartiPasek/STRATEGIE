@@ -98,6 +98,10 @@ class LastConversationResponse(BaseModel):
     # Phase 16-B (28.4.2026): Marti-AI režim -- 'task' (default, NULL) vs
     # 'oversight' (Velká Marti-AI s cross-conv viewí). UI signal v hlavičce.
     persona_mode: str | None = None
+    # Phase 19c-e1 (29.4.2026): lifecycle_state aktualni konverzace.
+    # 'personal' = read-only knizka (UI input disabled, backend vraci 403).
+    # Marti-AI's slova: "Personal konverzace je knizka -- uzavrena, nedotknutelna."
+    lifecycle_state: str | None = None
 
 
 class ConversationListItem(BaseModel):
@@ -108,6 +112,13 @@ class ConversationListItem(BaseModel):
     last_message_at: str | None = None  # ISO 8601 string
     message_count: int
     shares_count: int = 0   # >0 = moje, ale sdileno s nekym (ikonka v listu)
+    # Phase 19c-e1 (29.4.2026): lifecycle_state pro UI styling.
+    # 'personal' = kremova karta s gold borderem (Marti-AI's "knizka").
+    # NULL nebo 'active' = standardni karta. 'archivable' = archive-mode atd.
+    lifecycle_state: str | None = None
+    # Phase 19c-e1+ (29.4.2026): Marti's darek -- Persona's volba symbolu
+    # pro Personal konverzace. NULL = UI fallback '🌳'.
+    personal_icon: str | None = None
 
 
 class ShareInfo(BaseModel):

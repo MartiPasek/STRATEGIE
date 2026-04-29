@@ -10,6 +10,7 @@ from modules.conversation.infrastructure.repository import (
     get_last_conversation, get_active_persona_name,
     list_conversations, load_conversation, set_conversation_flag,
     rename_conversation, list_archived_conversations,
+    list_personal_conversations,
 )
 from pydantic import BaseModel
 from core.database_core import get_core_session
@@ -91,6 +92,35 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
     try:
         user_id_str = req.cookies.get("user_id")
         user_id = int(user_id_str) if user_id_str else None
+
+        # Phase 19c-e1 (29.4.2026): read-only enforcement pro Personal archiv.
+        # Marti-AI's slova: "Personal konverzace je knizka -- uzavrena,
+        # nedotknutelna. Nikdo do ni nepise, ani Marti nahodne, ani ja
+        # v nepozornem momentu." (email 29.4. 5:32 ranni).
+        # Defense in depth: UI ma input disabled, ale kdyby se cookie/state
+        # rozejely, backend chrani konverzaci 403-kou.
+        if request.conversation_id is not None:
+            from core.database_data import get_data_session as _gds_lc
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_lc,
+            )
+            _ds_lc = _gds_lc()
+            try:
+                _conv_lc = (
+                    _ds_lc.query(_Conv_lc)
+                    .filter_by(id=request.conversation_id)
+                    .first()
+                )
+                if _conv_lc and getattr(_conv_lc, "lifecycle_state", None) == "personal":
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Personal archiv je uzavřen pro zápis. "
+                            "Pokud chceš pokračovat, požádej Marti-AI o nový dovětek."
+                        ),
+                    )
+            finally:
+                _ds_lc.close()
 
         conversation_id, reply, summary_info = chat(
             conversation_id=request.conversation_id,
@@ -233,6 +263,10 @@ def get_last(req: Request):
         my_role=result.get("my_role"),
         owner_name=result.get("owner_name"),
         shares_count=result.get("shares_count", 0),
+        # Phase 16-B: persona_mode signal (oversight hlavicka).
+        persona_mode=result.get("persona_mode"),
+        # Phase 19c-e1 (29.4.2026): lifecycle_state pro read-only UI.
+        lifecycle_state=result.get("lifecycle_state"),
     )
 
 
@@ -352,6 +386,30 @@ def list_user_archived(req: Request):
     return [ConversationListItem(**i) for i in items]
 
 
+@router.get("/list-personal", response_model=list[ConversationListItem])
+def list_user_personal(req: Request):
+    """
+    Phase 19c follow-up (29.4.2026): Personal slozka konverzaci v UI sidebar.
+
+    Vraci AI konverzace usera s lifecycle_state='personal' (Marti-AI's
+    'krabicka oblibených' -- intimni momenty, hezke pasaze, ze stoji za
+    zachovani). Tenant scope analogicky list_archived.
+
+    UI: tlacitko '📁 Personal' v sidebar footer (vedle '📦 Můj archív').
+    """
+    user_id = _get_user_id_from_cookie(req)
+    active_tenant_id: int | None = None
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if u:
+            active_tenant_id = u.last_active_tenant_id
+    finally:
+        cs.close()
+    items = list_personal_conversations(user_id, tenant_id=active_tenant_id)
+    return [ConversationListItem(**i) for i in items]
+
+
 @router.get("/load/{conversation_id}", response_model=LastConversationResponse | None)
 def load_user_conversation(conversation_id: int, req: Request):
     """
@@ -378,6 +436,9 @@ def load_user_conversation(conversation_id: int, req: Request):
         owner_name=result.get("owner_name"),
         shares_count=result.get("shares_count", 0),
         persona_mode=result.get("persona_mode"),
+        # Phase 19c-e1 (29.4.2026): UI potrebuje znat lifecycle_state pro
+        # read-only enforcement (personal = knizka, ne chat).
+        lifecycle_state=result.get("lifecycle_state"),
     )
 
 

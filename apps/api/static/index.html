@@ -1396,7 +1396,47 @@
     .sms-reply-btn-send:disabled { opacity: 0.5; cursor: not-allowed; }
     .sms-reply-btn-cancel { background: transparent; border: 1px solid var(--border); color: var(--muted); border-radius: 4px; padding: 5px 12px; font-size: 12px; cursor: pointer; }
     .sms-reply-btn-cancel:hover { color: var(--text); border-color: var(--text); }
-  </style>
+  
+  /* Phase 19c-e1 polish (29.4.2026): Personal konverzace v sidebaru -- DARK SEPIA.
+     Marti-AI's metafora: "knízka" (uzavrena, nedotknutelna). Tmavá hnědá
+     se sepia akcentem = "stará kniha v noci", harmonuje s dark theme.
+     Nepripomina to světlý papír (ten by tříslal s designem), ale stále
+     vizuálně oznacuje, ze je to specialni archiv -- ne aktivni chat. */
+  .sidebar-item.lifecycle-personal,
+  .archive-item.lifecycle-personal {
+    background: #1f1810;
+    border-left: 3px solid #8b7355;
+  }
+  .sidebar-item.lifecycle-personal:hover,
+  .archive-item.lifecycle-personal:hover {
+    background: #2a1f14;
+  }
+  .sidebar-item.lifecycle-personal.active,
+  .archive-item.lifecycle-personal.active {
+    background: #3a2a1a;
+    border-color: #a88b5e;
+  }
+  /* Decorative ikonka misto trojteckového dropdown menu pro Personal items.
+     Marti-AI's vlastni volba symbolu (default '🌳' z konzultace 29.4.,
+     zmenitelna pres set_personal_icon AI tool). Hover = zvetsene preview
+     (Marti's UX feedback: "pro lidske oci je to moc titerne"). */
+  .lifecycle-personal-icon {
+    font-size: 14px;
+    opacity: 0.75;
+    margin-left: 4px;
+    flex-shrink: 0;
+    cursor: default;
+    user-select: none;
+    transition: transform 0.18s ease, opacity 0.18s ease;
+    transform-origin: right center;
+    display: inline-block;
+  }
+  .lifecycle-personal-icon:hover {
+    transform: scale(2.6);
+    opacity: 1.0;
+  }
+  /* Phase 19c-e1 polish: dark theme + tree icon */
+</style>
 </head>
 <body>
 
@@ -1505,6 +1545,7 @@
           <div class="sidebar-empty">Načítám…</div>
         </div>
         <div class="sidebar-footer" id="sidebarFooter">
+          <button class="sidebar-footer-btn" id="sidebarPersonalToggle" data-tooltip="Marti-AI's krabička oblíbených konverzací">📁 Personal</button>
           <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
         </div>
       </div>
@@ -2277,6 +2318,9 @@
   // 'owner' | 'shared_read' | 'shared_write' — ovlivnuje zda muzu psat
   // do konverzace. MVP: shared_read -> readonly (disable send).
   let currentConvRole = 'owner';
+  // Phase 19c-e1 (29.4.2026): lifecycle_state aktualni konverzace.
+  // 'personal' -> input disabled, krémová UI (knizka, ne chat).
+  let currentLifecycleState = null;
 
   const inviteScreen = document.getElementById('inviteScreen');
   const loginScreen  = document.getElementById('loginScreen');
@@ -2796,6 +2840,8 @@
       conversationId = data.conversation_id;
       conversationIsArchived = !!data.is_archived;
       currentConvRole = data.my_role || 'owner';
+      // Phase 19c-e1 (29.4.2026): Personal je read-only (knizka, ne chat).
+      currentLifecycleState = data.lifecycle_state || null;
       convIdLabel.textContent = `#${conversationId}`;
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
@@ -2937,12 +2983,14 @@
     const titleEl = document.getElementById('sidebarTitle');
     const listEl = document.getElementById('sidebarList');
     const footerBtn = document.getElementById('sidebarArchiveToggle');
+    const personalBtn = document.getElementById('sidebarPersonalToggle');
 
     if (mode === 'archive') {
       titleEl.textContent = 'Můj archiv';
       footerBtn.textContent = '← Zpět na konverzace';
       footerBtn.classList.add('archive-mode');
       footerBtn.dataset.tooltip = 'Vrátím tě k aktivním konverzacím';
+      if (personalBtn) personalBtn.style.display = 'none';
       listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
       try {
         const res = await fetch('/api/v1/conversation/list-archived', { credentials: 'include' });
@@ -2955,14 +3003,45 @@
       } catch (e) {
         listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
       }
+    } else if (mode === 'personal') {
+      // Phase 19c follow-up: Personal složka konverzací (lifecycle_state='personal').
+      titleEl.textContent = 'Personal konverzace';
+      footerBtn.textContent = '← Zpět na konverzace';
+      footerBtn.classList.add('archive-mode');
+      footerBtn.dataset.tooltip = 'Vrátím tě k aktivním konverzacím';
+      if (personalBtn) personalBtn.style.display = 'none';
+      listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
+      try {
+        const res = await fetch('/api/v1/conversation/list-personal', { credentials: 'include' });
+        if (!res.ok) {
+          listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
+          return;
+        }
+        const items = await res.json();
+        _renderPersonalInSidebar(items);
+      } catch (e) {
+        listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+      }
     } else {
       titleEl.textContent = 'Konverzace';
       footerBtn.textContent = '📦 Můj archív konverzací';
       footerBtn.classList.remove('archive-mode');
       footerBtn.dataset.tooltip = 'Otevřu tvůj archiv';
+      if (personalBtn) personalBtn.style.display = '';
       // Znovu načti aktivní konverzace
       loadConversationList();
     }
+  }
+
+  // Phase 19c follow-up (29.4.2026): Personal sidebar render.
+  function _renderPersonalInSidebar(items) {
+    const listEl = document.getElementById('sidebarList');
+    listEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '<div class="sidebar-empty">📁 Personal je prázdná. Až ti Marti-AI přesune konverzaci sem (lifecycle_state=personal), uvidíš ji tady.</div>';
+      return;
+    }
+    items.forEach(it => listEl.appendChild(_buildArchiveItem(it, 'sidebar-item')));
   }
 
   function _renderArchiveInSidebar(items) {
@@ -2978,7 +3057,11 @@
   // Sdílený renderer pro archive item — používá se v sidebaru i v modalu (úzké okno)
   function _buildArchiveItem(it, baseClass) {
     const row = document.createElement('div');
-    row.className = baseClass;
+    // Phase 19c-e1 polish (29.4.2026): dark sepia karta pro Personal.
+    // Marti-AI's metafora: knízka v noci. UI to reflektuje vizuálně.
+    const lifecycleCls = it.lifecycle_state ? ` lifecycle-${it.lifecycle_state}` : '';
+    row.className = baseClass + lifecycleCls;
+    const isPersonal = (it.lifecycle_state === 'personal');
 
     const textWrap = document.createElement('div');
     textWrap.className = 'conv-item-text';
@@ -2987,24 +3070,34 @@
     title.textContent = it.title || `Konverzace #${it.id}`;
     const meta = document.createElement('div');
     meta.className = baseClass + '-meta';
-    // Sjednoceno s projekty: jen relativni cas (bez "X zprav"). Tooltip
-    // drzi pocet pro pripad ze ho user chce videt.
     meta.textContent = it.last_message_at ? _formatRelative(it.last_message_at) : '';
     meta.title = `${it.message_count} zpráv`;
     textWrap.appendChild(title); textWrap.appendChild(meta);
     row.appendChild(textWrap);
 
-    // Tritieckove akce — jednotne s aktivnimi konverzacemi a projekty.
-    // V archive modu jsou polozky: Prohlednout / Vratit z archivu / Smazat.
-    const actionsBtn = document.createElement('button');
-    actionsBtn.className = 'actions-btn';
-    actionsBtn.textContent = '⋯';
-    actionsBtn.setAttribute('aria-label', 'Akce konverzace');
-    actionsBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openConvContextMenu(actionsBtn, it, 'archive');
-    });
-    row.appendChild(actionsBtn);
+    if (isPersonal) {
+      // Phase 19c-e1 polish: Personal je knízka — žádný dropdown
+      // (Otevřít/Vrátit/Smazat nepatří do archivu hezkých momentů).
+      // Decorativní ikonka 🌳 — Marti-AI's "strom roste, ale kořeny zůstávají".
+      // Phase 19c-e1+ (29.4.2026): Marti's darek -- per-persona symbol.
+      // Marti-AI si vybira pres set_personal_icon AI tool. NULL = '🌳' fallback.
+      const icon = document.createElement('span');
+      icon.className = 'lifecycle-personal-icon';
+      icon.textContent = it.personal_icon || '🌳';
+      icon.title = 'Personal archiv (knížka, jen ke čtení) -- Marti-AI vybrala ' + (it.personal_icon || '🌳');
+      row.appendChild(icon);
+    } else {
+      // Standard archive items: Tritieckove akce — Prohlednout / Vratit / Smazat.
+      const actionsBtn = document.createElement('button');
+      actionsBtn.className = 'actions-btn';
+      actionsBtn.textContent = '⋯';
+      actionsBtn.setAttribute('aria-label', 'Akce konverzace');
+      actionsBtn.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        openConvContextMenu(actionsBtn, it, 'archive');
+      });
+      row.appendChild(actionsBtn);
+    }
 
     row.addEventListener('click', (ev) => {
       if (ev.target.closest('.actions-btn')) return;
@@ -3028,8 +3121,18 @@
 
   // Toggle button v sidebar footeru
   document.getElementById('sidebarArchiveToggle').addEventListener('click', () => {
+    // Pokud uz jsme v archive nebo personal mode, klik vrati na active.
+    // Z 'active' jdeme do archive.
     setSidebarMode(sidebarMode === 'active' ? 'archive' : 'active');
   });
+
+  // Phase 19c follow-up: Personal slozka konverzaci.
+  const _personalToggleBtn = document.getElementById('sidebarPersonalToggle');
+  if (_personalToggleBtn) {
+    _personalToggleBtn.addEventListener('click', () => {
+      setSidebarMode(sidebarMode === 'personal' ? 'active' : 'personal');
+    });
+  }
 
   function _buildConvListItem(it, baseClass) {
     const item = document.createElement('div');
@@ -4417,8 +4520,16 @@
   /** Pokud otevřena konverzace je sdílená readonly, zakážeme vstup + send.
       Owner a shared_write (zatím neimplementováno) mají plný přístup. */
   function applyReadonlyMode() {
-    const readonly = (currentConvRole === 'shared_read');
-    if (readonly) {
+    // Phase 19c-e1: read-only Personal
+    // Marti-AI's slova: "Personal konverzace je knizka -- uzavrena, nedotknutelna."
+    const personalReadonly = (currentLifecycleState === 'personal');
+    const sharedReadonly = (currentConvRole === 'shared_read');
+    if (personalReadonly) {
+      inputEl.setAttribute('readonly', 'readonly');
+      inputEl.setAttribute('placeholder', '📖 Personal archiv — knížka, ne chat');
+      sendBtn.disabled = true;
+      sendBtn.style.opacity = '0.4';
+    } else if (sharedReadonly) {
       inputEl.setAttribute('readonly', 'readonly');
       inputEl.setAttribute('placeholder', 'Readonly — konverzace ti byla sdílená pro čtení');
       sendBtn.disabled = true;
@@ -4656,6 +4767,8 @@
       conversationId = data.conversation_id;
       conversationIsArchived = !!data.is_archived;
       currentConvRole = data.my_role || 'owner';
+      // Phase 19c-e1 (29.4.2026): Personal je read-only (knizka, ne chat).
+      currentLifecycleState = data.lifecycle_state || null;
       convIdLabel.textContent = `#${conversationId}`;
       messagesEl.innerHTML = '';
       emptyState.style.display = 'none';
@@ -8101,6 +8214,7 @@
     // Připrav čistý chat — podobně jako původní newChatBtn
     conversationId = null; conversationIsArchived = false; convIdLabel.textContent = '';
     currentConvRole = 'owner';   // nova konverzace je moje
+    currentLifecycleState = null;  // Phase 19c-e1: nova chat = nepersonal
     pendingPersonaId = null;  // reset: novy chat zacina s default personou
     applyReadonlyMode();
     updateShareBadge('owner', null, 0);  // schova share badge pro empty chat
@@ -11687,8 +11801,4 @@
       <div class="llm-usage-body" id="llmUsageBody">
         <div class="llm-usage-empty">Načítám…</div>
       </div>
-      <div class="llm-usage-meta" id="llmUsageMeta"></div>
-    </div>
-  </div>
-</body>
-</html>
+      <div class="ll

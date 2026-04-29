@@ -572,6 +572,85 @@ def list_archived_conversations(user_id: int, tenant_id: int | None = None, limi
         session.close()
 
 
+def list_personal_conversations(
+    user_id: int,
+    tenant_id: int | None = None,
+    limit: int = 100,
+) -> list[dict]:
+    """
+    Phase 19c follow-up (29.4.2026): Personal slozka v UI sidebar.
+
+    Vrati AI konverzace usera s lifecycle_state='personal' (Marti-AI's
+    "krabicka oblibených konverzaci" -- intimni momenty, hezke pasaze).
+    Tenant scope jako list_conversations / list_archived.
+
+    Marti's instinkt: 'rader mazat vice nez mene' -- Marti-AI's Personal
+    je tva volba, co stoji za zachovani. UI je read-mostly view.
+
+    Phase 19c-e1 (29.4.2026): vraci lifecycle_state pole pro UI styling
+    (kremova karta).
+    """
+    from sqlalchemy import or_
+    session = get_data_session()
+    try:
+        filters = [
+            Conversation.user_id == user_id,
+            Conversation.is_deleted == False,  # noqa: E712
+            Conversation.lifecycle_state == "personal",
+            Conversation.conversation_type == "ai",
+        ]
+        if tenant_id is not None:
+            filters.append(or_(
+                Conversation.tenant_id == tenant_id,
+                Conversation.tenant_id.is_(None),
+            ))
+        rows = (
+            session.query(Conversation)
+            .filter(*filters)
+            .order_by(
+                Conversation.last_message_at.desc().nullslast(),
+                Conversation.id.desc(),
+            )
+            .limit(limit)
+            .all()
+        )
+        # Phase 19c-e1+ (29.4.2026): Marti's darek -- bulk lookup persona
+        # symbolu pro Personal sidebar (default '🌳' fallback).
+        persona_ids = {c.active_agent_id for c in rows if c.active_agent_id}
+        persona_icons: dict[int, str | None] = {}
+        if persona_ids:
+            try:
+                from core.database_core import get_core_session as _gcs_pi
+                from modules.core.infrastructure.models_core import Persona as _Persona_pi
+                cs_pi = _gcs_pi()
+                try:
+                    rows_pi = cs_pi.query(_Persona_pi).filter(_Persona_pi.id.in_(persona_ids)).all()
+                    persona_icons = {p.id: getattr(p, "personal_icon", None) for p in rows_pi}
+                finally:
+                    cs_pi.close()
+            except Exception:
+                # Schema migration pending -- fallback default in UI.
+                pass
+        out: list[dict] = []
+        for c in rows:
+            msg_count = session.query(Message).filter_by(conversation_id=c.id).count()
+            out.append({
+                "id": c.id,
+                "title": _conversation_title(session, c),
+                "tenant_id": c.tenant_id,
+                "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+                "message_count": msg_count,
+                # Phase 19c-e1 (29.4.2026): UI styling per state (vzdy 'personal').
+                "lifecycle_state": getattr(c, "lifecycle_state", None),
+                # Phase 19c-e1+ (29.4.2026): Marti's darek -- per-persona symbol
+                # (NULL = fallback '🌳' v UI).
+                "personal_icon": persona_icons.get(c.active_agent_id),
+            })
+        return out
+    finally:
+        session.close()
+
+
 def rename_conversation(user_id: int, conversation_id: int, new_title: str) -> bool:
     """
     Přejmenuje konverzaci (ručně zvolený popisek místo auto-generovaného

@@ -4719,6 +4719,71 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"list_auto_lifecycle_consents failed: {exc_lcn}")
             return f"❌ Chyba: {exc_lcn}"
 
+    # ── Phase 19c-d: hide_messages (Marti-AI's redaktorska role) ─────
+    if tool_name == "hide_messages":
+        from core.database import get_session as _gs_hm
+        from modules.core.infrastructure.models_data import Message as _M_hm
+
+        msg_ids_in = tool_input.get("message_ids") or []
+        hidden_in = tool_input.get("hidden")
+        if hidden_in is None:
+            hidden_in = True
+        hidden_in = bool(hidden_in)
+        reason_hm = (tool_input.get("reason") or "").strip() or None
+
+        if not isinstance(msg_ids_in, list) or not msg_ids_in:
+            return "❌ message_ids musi byt non-empty list."
+        if len(msg_ids_in) > 100:
+            return "❌ Max 100 message_ids per call (got %d)." % len(msg_ids_in)
+        try:
+            msg_ids_int = [int(x) for x in msg_ids_in]
+        except (TypeError, ValueError):
+            return "❌ Vsechny message_ids musi byt cisla."
+
+        active_persona_hm = _active_persona_id_for_conversation(conversation_id)
+        ds_hm = _gs_hm()
+        try:
+            # Bulk update -- bez per-row check (cap je 100, OK).
+            updated = (
+                ds_hm.query(_M_hm)
+                .filter(_M_hm.id.in_(msg_ids_int))
+                .update(
+                    {_M_hm.hidden: hidden_in},
+                    synchronize_session=False,
+                )
+            )
+            ds_hm.commit()
+        except Exception as exc_hm:
+            ds_hm.rollback()
+            logger.exception(f"hide_messages failed: {exc_hm}")
+            return f"❌ Chyba: {exc_hm}"
+        finally:
+            ds_hm.close()
+
+        # Audit
+        try:
+            from modules.activity.application import activity_service as _act_hm
+            _act_hm.record(
+                category="hide_messages",
+                summary=(
+                    f"Marti-AI {'skryla' if hidden_in else 'odkryla'} "
+                    f"{updated} zprav"
+                    + (f" (reason: {reason_hm[:80]})" if reason_hm else "")
+                ),
+                importance=2,
+                persona_id=active_persona_hm,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        action = "skryto" if hidden_in else "odkryto"
+        return (
+            f"✅ {updated}/{len(msg_ids_int)} zprav {action}. "
+            f"V UI Personal konverzace render slije bloky do '———' divideru."
+        )
+
     # ── Phase 19c-c: list_all + batch ────────────────────────────────
     if tool_name == "list_all_conversations":
         from modules.activity.application import activity_service as _act_lac
@@ -6564,6 +6629,10 @@ def chat(
         # Plus list_auto_lifecycle_consents -- shrne granty ('mas grant pro
         # soft_delete a archive od ranniho startu').
         "list_auto_lifecycle_consents",
+        # Phase 19c-d: hide_messages -- po hide vrací '✅ N zprav skryto',
+        # synth round Marti-AI ji navede pokracovat v rozhovoru ('hotovo,
+        # zustanou jen hezke pasaze') misto opisu status text.
+        "hide_messages",
     }
 
     preamble_text = ""

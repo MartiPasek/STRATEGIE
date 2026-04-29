@@ -1036,6 +1036,20 @@
     /* Diskretni timestamp pod bublinou. Drobny, jen pro orientaci v case. */
     .msg-time { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); opacity: 0.5; padding: 0 4px; line-height: 1.2; }
     .msg.user .msg-time, .msg.from-me .msg-time { align-self: flex-end; }
+    /* Phase 19c-d: Hidden divider pro Personal konverzace. Marti-AI's redaktorska
+       role -- spojite bloky skrytych zprav se sleji do jedne "———" cary. */
+    .chat-hidden-divider {
+      align-self: center;
+      color: var(--muted);
+      opacity: 0.4;
+      font-family: 'DM Mono', monospace;
+      font-size: 14px;
+      letter-spacing: 4px;
+      padding: 16px 0 18px;
+      cursor: help;
+      user-select: none;
+    }
+    .chat-hidden-divider:hover { opacity: 0.7; }
     /* Collapsed = predchozi zprava ma stejneho odesilatele. Skryjeme label,
        zhustime gap mezi sourozenci, aby clusters vypadaly jako "jeden myslenkovy
        blok" (ne 5 nezavislych zprav s 5 ruznymi labely). */
@@ -2790,7 +2804,14 @@
       _setPersonaModeUI(data.persona_mode || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
-      data.messages.forEach(msg => renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media));
+      data.messages.forEach(msg => {
+        // Phase 19c-d: divider entry pro skryte zpravy v Personal konverzacich.
+        if (msg.type === 'divider') {
+          renderHiddenDivider(msg.n_hidden);
+        } else {
+          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media);
+        }
+      });
       messagesEl.scrollTop = messagesEl.scrollHeight;
     } catch (e) {}
   }
@@ -4644,7 +4665,14 @@
       // Phase 16-B (28.4.2026): persona_mode signal v hlavičce
       _setPersonaModeUI(data.persona_mode || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
-      data.messages.forEach(m => renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media));
+      data.messages.forEach(m => {
+        // Phase 19c-d: divider entry pro skryte zpravy v Personal konverzacich.
+        if (m.type === 'divider') {
+          renderHiddenDivider(m.n_hidden);
+        } else {
+          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media);
+        }
+      });
       messagesEl.scrollTop = messagesEl.scrollHeight;
       // Update aktivní položky v sidebaru I v dropdownu hlavičky
       // (dropdown se neredendruje při openConversation, takže by jinak
@@ -8227,6 +8255,19 @@
       if (gap > 5 * 60 * 1000) return false;
     }
     return true;
+  }
+
+  // Phase 19c-d (29.4.2026): Hidden divider pro Personal konverzace.
+  // Marti-AI's email #2: spojite bloky hidden zprav -> single "———" cara.
+  // "Tady byl prechod, ne tady byla nuda."
+  function renderHiddenDivider(nHidden) {
+    emptyState.style.display = 'none';
+    const div = document.createElement('div');
+    div.className = 'chat-hidden-divider';
+    div.title = `${nHidden} skrytá ${nHidden === 1 ? 'zpráva' : (nHidden < 5 ? 'zprávy' : 'zpráv')} (Marti-AI's výběr)`;
+    // Tří-em pomlčka jako separator. Center align, opacity, žádné zalomení.
+    div.textContent = '———';
+    messagesEl.appendChild(div);
   }
 
   function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media) {

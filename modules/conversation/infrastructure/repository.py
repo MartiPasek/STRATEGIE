@@ -292,7 +292,10 @@ def _lookup_message_media(message_ids: list[int]) -> dict[int, list[dict]]:
         session.close()
 
 
-def _serialize_messages(messages: list[Message]) -> list[dict]:
+def _serialize_messages(
+    messages: list[Message],
+    conversation: Conversation | None = None,
+) -> list[dict]:
     """Serializace listu Message ORM -> dict pro API. Pridava persona_name
     pres bulk JOIN s personas tabulkou (1 query pro N zprav) a created_at
     ve formatu ISO 8601 (frontend si format upravuje sam).
@@ -301,6 +304,13 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
     jmeno default persony -- tim se nesmazanemu labelu zabrani zobrazit
     aktualni personu konverzace (CURRENT agent label), ktera nemusi odpovidat
     puvodnimu autorovi.
+
+    Phase 19c-d (29.4.2026): Marti-AI's redaktorska role v Personal konverzacich.
+    Pokud conversation.lifecycle_state='personal', spojite bloky zprav s
+    hidden=True se sleji do single divider entry {type: 'divider', n_hidden: N}.
+    UI pak render '———' caru. Render-level filter, storage zachovan -- Marti-AI
+    v RAG / paměti hidden zpravy stale vidi. V task/oversight rezimu je hidden
+    flag ignorovan.
     """
     agent_ids = {m.agent_id for m in messages if m.agent_id}
     persona_names = _resolve_persona_names(agent_ids)
@@ -313,13 +323,42 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
     # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
     # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
     default_name: str | None = None
+
+    # Phase 19c-d: hidden flag aplikujeme jen v Personal konverzacich.
+    is_personal = (
+        conversation is not None
+        and getattr(conversation, "lifecycle_state", None) == "personal"
+    )
+
     out: list[dict] = []
+    pending_hidden_block: list[int] = []  # accumulator pro divider
+
+    def _flush_hidden_block():
+        """Pokud je v accumulatoru >=1 hidden message, push divider."""
+        if pending_hidden_block:
+            n = len(pending_hidden_block)
+            out.append({
+                "type": "divider",
+                "n_hidden": n,
+                "hidden_message_ids": list(pending_hidden_block),
+            })
+            pending_hidden_block.clear()
+
     for m in messages:
         # Faze 12b+ M4: skip pseudo-user audit messages (vznikaji v chat() loop M2,
         # ukladaji tool_use + tool_result audit do tool_blocks JSONB). UI je nepotrebuje
         # zobrazit -- jsou to interni 'pamet' pro Marti-AI replay v dalsim turnu (M3).
         if m.message_type == "tool_result":
             continue
+
+        # Phase 19c-d: hidden block accumulator (jen v Personal)
+        if is_personal and getattr(m, "hidden", False):
+            pending_hidden_block.append(m.id)
+            continue
+
+        # Visible message -- nejdriv flush pending hidden block
+        _flush_hidden_block()
+
         if m.agent_id:
             pname = persona_names.get(m.agent_id)
         elif m.role == "assistant" and m.message_type == "text":
@@ -345,6 +384,9 @@ def _serialize_messages(messages: list[Message]) -> list[dict]:
             # pro render obrazku v message bubble + lightbox.
             "media": media_by_id.get(m.id, []),
         })
+
+    # Final flush -- pokud konverzace konci hidden blokem
+    _flush_hidden_block()
     return out
 
 
@@ -388,7 +430,8 @@ def get_last_conversation(user_id: int) -> dict | None:
             .filter_by(conversation_id=conversation.id)
             .count()
         )
-        msg_rows = _serialize_messages(messages)
+        # Phase 19c-d: predame conversation pro hidden block render v Personal.
+        msg_rows = _serialize_messages(messages, conversation=conversation)
     finally:
         session.close()
 
@@ -625,7 +668,8 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         conv_is_archived = bool(conversation.is_archived)
         conv_owner_id = conversation.user_id
         conv_persona_mode = conversation.persona_mode  # Phase 16-B
-        msg_rows = _serialize_messages(messages)
+        # Phase 19c-d: predame conversation pro hidden block render v Personal.
+        msg_rows = _serialize_messages(messages, conversation=conversation)
     finally:
         session.close()
 

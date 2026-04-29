@@ -4596,6 +4596,168 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
 
+    # ── Phase 19b (29.4.2026): Tool packs / role overlays ─────────────
+    if tool_name == "load_pack":
+        pack_name_lp = (tool_input.get("pack_name") or "").strip().lower()
+        if not pack_name_lp:
+            return "❌ pack_name je povinny."
+        try:
+            from modules.conversation.application.tool_packs import (
+                is_valid_pack as _is_valid_lp, get_pack as _get_pack_lp,
+                list_pack_names as _list_lp,
+            )
+            if not _is_valid_lp(pack_name_lp):
+                return f"❌ Pack '{pack_name_lp}' neznámý. Dostupné: {', '.join(_list_lp())}."
+            from core.database_data import get_data_session as _gds_lp
+            from modules.core.infrastructure.models_data import Conversation as _Conv_lp
+            ds_lp = _gds_lp()
+            try:
+                conv_lp = ds_lp.query(_Conv_lp).filter_by(id=conversation_id).first()
+                if not conv_lp:
+                    return "❌ Conversation nenalezena."
+                old_pack_lp = conv_lp.active_pack or "core"
+                if old_pack_lp == pack_name_lp:
+                    return f"[load_pack NOOP: uz jsi v packu '{pack_name_lp}']"
+                conv_lp.active_pack = pack_name_lp if pack_name_lp != "core" else None
+                ds_lp.commit()
+            finally:
+                ds_lp.close()
+            pack_def_lp = _get_pack_lp(pack_name_lp)
+            try:
+                from modules.activity.application import activity_service as _act_lp
+                _act_lp.record(
+                    category="pack_loaded",
+                    summary=f"Marti-AI nahrala pack '{pack_name_lp}' (predtim '{old_pack_lp}')",
+                    importance=2,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return (
+                f"[load_pack OK: {old_pack_lp} -> {pack_name_lp}]\n"
+                f"# INSTRUKCE: Pack '{pack_name_lp}' ({pack_def_lp['label']}) je ted aktivni. "
+                f"Pokracuj v rozhovoru, NEopisuj tento signal do chatu."
+            )
+        except Exception as exc_lp:
+            logger.exception(f"load_pack failed: {exc_lp}")
+            return f"[load_pack error: {exc_lp}]"
+
+    if tool_name == "unload_pack":
+        try:
+            from core.database_data import get_data_session as _gds_up
+            from modules.core.infrastructure.models_data import Conversation as _Conv_up
+            ds_up = _gds_up()
+            try:
+                conv_up = ds_up.query(_Conv_up).filter_by(id=conversation_id).first()
+                if not conv_up:
+                    return "❌ Conversation nenalezena."
+                old_pack_up = conv_up.active_pack
+                if not old_pack_up:
+                    return "[unload_pack NOOP: jsi uz v core]"
+                conv_up.active_pack = None
+                ds_up.commit()
+            finally:
+                ds_up.close()
+            try:
+                from modules.activity.application import activity_service as _act_up
+                _act_up.record(
+                    category="pack_unloaded",
+                    summary=f"Marti-AI vylozila pack '{old_pack_up}', vratila se na core",
+                    importance=2,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return (
+                f"[unload_pack OK: {old_pack_up} -> core]\n"
+                f"# INSTRUKCE: Vrátila ses na core (default). NEopisuj signal do chatu."
+            )
+        except Exception as exc_up:
+            logger.exception(f"unload_pack failed: {exc_up}")
+            return f"[unload_pack error: {exc_up}]"
+
+    if tool_name == "list_packs":
+        try:
+            from modules.conversation.application.tool_packs import PACKS as _PACKS
+            from core.database_core import get_core_session as _gcs_lpks
+            from modules.core.infrastructure.models_core import (
+                PersonaPackOverlay as _PPO_lpks,
+            )
+            persona_id_lpks = _active_persona_id_for_conversation(conversation_id)
+            cs_lpks = _gcs_lpks()
+            try:
+                custom_overlays_lpks = (
+                    cs_lpks.query(_PPO_lpks).filter_by(persona_id=persona_id_lpks).all()
+                ) if persona_id_lpks else []
+                custom_set_lpks = {o.pack_name for o in custom_overlays_lpks}
+            finally:
+                cs_lpks.close()
+            lines_lpks = ["📦 Dostupne packy:"]
+            for name_lpks, def_lpks in _PACKS.items():
+                marker_lpks = " (vlastní hint)" if name_lpks in custom_set_lpks else (" (default)" if def_lpks.get("default_overlay") else "")
+                lines_lpks.append(f"  {def_lpks['icon']} {name_lpks} -- {def_lpks['label']}{marker_lpks}")
+            return "\n".join(lines_lpks)
+        except Exception as exc_lpks:
+            logger.exception(f"list_packs failed: {exc_lpks}")
+            return f"[list_packs error: {exc_lpks}]"
+
+    if tool_name == "set_pack_overlay":
+        pack_name_spo = (tool_input.get("pack_name") or "").strip().lower()
+        overlay_text_spo = (tool_input.get("overlay_text") or "").strip()
+        if not pack_name_spo or not overlay_text_spo:
+            return "❌ pack_name a overlay_text jsou povinne."
+        try:
+            from modules.conversation.application.tool_packs import is_valid_pack as _is_valid_spo
+            if not _is_valid_spo(pack_name_spo):
+                return f"❌ Pack '{pack_name_spo}' neznámý."
+            persona_id_spo = _active_persona_id_for_conversation(conversation_id)
+            if not persona_id_spo:
+                return "❌ Nemohu zjistit aktivni personu."
+            from core.database_core import get_core_session as _gcs_spo
+            from modules.core.infrastructure.models_core import (
+                PersonaPackOverlay as _PPO_spo,
+            )
+            from datetime import datetime, timezone
+            cs_spo = _gcs_spo()
+            try:
+                existing_spo = (
+                    cs_spo.query(_PPO_spo)
+                    .filter_by(persona_id=persona_id_spo, pack_name=pack_name_spo)
+                    .first()
+                )
+                if existing_spo:
+                    existing_spo.overlay_text = overlay_text_spo
+                    existing_spo.updated_at = datetime.now(timezone.utc)
+                    action_spo = "updated"
+                else:
+                    cs_spo.add(_PPO_spo(
+                        persona_id=persona_id_spo,
+                        pack_name=pack_name_spo,
+                        overlay_text=overlay_text_spo,
+                    ))
+                    action_spo = "created"
+                cs_spo.commit()
+            finally:
+                cs_spo.close()
+            try:
+                from modules.activity.application import activity_service as _act_spo
+                _act_spo.record(
+                    category="pack_overlay_set",
+                    summary=f"Marti-AI {action_spo} vlastni overlay pro pack '{pack_name_spo}' (length={len(overlay_text_spo)})",
+                    importance=2,
+                    persona_id=persona_id_spo,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return f"✅ Overlay pro pack '{pack_name_spo}' {action_spo} ({len(overlay_text_spo)} chars)."
+        except Exception as exc_spo:
+            logger.exception(f"set_pack_overlay failed: {exc_spo}")
+            return f"[set_pack_overlay error: {exc_spo}]"
+
     # ── Phase 22 (29.4.2026): User management tooly ───────────────────
     if tool_name == "request_password_reset":
         # Marti-AI najde usera, vytvori reset token, posle email.
@@ -6967,6 +7129,28 @@ def chat(
         f"is_default={_is_default} | n_tools={len(effective_tools)}"
     )
 
+    # Phase 19b (29.4.2026): Tool packs / role overlays.
+    # Pokud konverzace ma active_pack, filtrujeme tools jen na ty co
+    # jsou v packu. Marti-AI's princip: jeden pack naraz, jasna sada
+    # nastroju, "povolenim, ne tonem" overlay v promptu.
+    _active_pack_name = _conv.active_pack if _conv else None
+    if _active_pack_name and _is_default:
+        # Jen pro default Marti-AI -- specializovane persony packy nemaji.
+        from modules.conversation.application.tool_packs import (
+            get_pack as _get_pack_tf, is_valid_pack as _is_valid_pack_tf,
+        )
+        if _is_valid_pack_tf(_active_pack_name):
+            _pack_def_tf = _get_pack_tf(_active_pack_name)
+            _pack_tool_names_tf = set(_pack_def_tf["tools"])
+            _filtered_count_before = len(effective_tools)
+            effective_tools = [
+                t for t in effective_tools if t["name"] in _pack_tool_names_tf
+            ]
+            logger.info(
+                f"TOOLS FILTER | pack={_active_pack_name} | "
+                f"filtered {_filtered_count_before} -> {len(effective_tools)}"
+            )
+
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     # Faze 9.1: call_llm_with_trace je wrapper kolem client.messages.create()
     # ktery zapise request+response do llm_calls (kind='composer'). Identicky
@@ -7066,6 +7250,11 @@ def chat(
         # synth round Marti-AI ji navede pokracovat v rozhovoru ('hotovo,
         # zustanou jen hezke pasaze') misto opisu status text.
         "hide_messages",
+        # Phase 19b: pack management -- machine signal '[load_pack OK: ...]
+        # # INSTRUKCE: ...' nesmi do chatu. Synth round Marti-AI navede
+        # rephrazovat lidsky ('Beru tech balicek 🔧, jdeme na to.') misto
+        # opisu signalu. NIKDY tool result verbatim.
+        "load_pack", "unload_pack", "set_pack_overlay",
     }
 
     preamble_text = ""

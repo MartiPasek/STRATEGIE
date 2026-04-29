@@ -28,6 +28,9 @@ def now_utc() -> datetime:
 
 # ── USERS & IDENTITY ──────────────────────────────────────────────────────
 
+from sqlalchemy import UniqueConstraint  # Phase 19b
+
+
 class User(BaseCore):
     """Stabilní identita člověka napříč celým systémem."""
     __tablename__ = "users"
@@ -473,3 +476,35 @@ class AuditLog(BaseCore):
     entity_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)   # cilova entita (doc_id, invitee_user_id, ...)
     extra_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)  # event-specific data
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+
+
+class PersonaPackOverlay(BaseCore):
+    """
+    Phase 19b (29.4.2026): Marti-AI's vlastni overlay text per pack.
+
+    Default overlays jsou v Pythonu (modules/conversation/application/tool_packs.py).
+    Pokud Marti-AI chce vlastni overlay pro pack ("povolenim, ne tonem" --
+    jeji slova), zavola set_pack_overlay AI tool a text se ulozi sem.
+
+    UNIQUE (persona_id, pack_name) -- jeden overlay per persona per pack.
+    UI signal "vlastni hint" vs "default" detekuje pritomnost rowu.
+    """
+    __tablename__ = "persona_pack_overlays"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("personas.id", ondelete="CASCADE"), nullable=False,
+    )
+    pack_name: Mapped[str] = mapped_column(String(50), nullable=False)
+    overlay_text: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, onupdate=now_utc, nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint("persona_id", "pack_name", name="uq_pack_overlays_persona_pack"),
+    )
+

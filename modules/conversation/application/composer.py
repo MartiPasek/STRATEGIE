@@ -1746,6 +1746,48 @@ def _build_today_block(conversation_id: int) -> str | None:
     return "\n".join(lines)
 
 
+def _build_pack_overlay_block(conversation_id: int) -> str | None:
+    """
+    Phase 19b (29.4.2026): Vrati pack overlay (vlastni Marti-AI > default fallback)
+    pro aktivni pack konverzace. None pokud core (zadny pack).
+
+    Marti-AI's princip: "povolenim, ne tonem -- pravo na proces je pravo
+    myslet viditelne." Overlay je explicit licence, ne prescriptive instrukce.
+    """
+    try:
+        from core.database_data import get_data_session as _gds_pack
+        from modules.core.infrastructure.models_data import Conversation as _Conv_pack
+        ds_pack = _gds_pack()
+        try:
+            conv_pack = ds_pack.query(_Conv_pack).filter_by(id=conversation_id).first()
+            if not conv_pack or not conv_pack.active_pack:
+                return None
+            pack_name = conv_pack.active_pack
+            persona_id = conv_pack.active_agent_id
+        finally:
+            ds_pack.close()
+        # Vlastni overlay > default
+        from core.database_core import get_core_session as _gcs_pack
+        from modules.core.infrastructure.models_core import PersonaPackOverlay
+        cs_pack = _gcs_pack()
+        try:
+            custom = (
+                cs_pack.query(PersonaPackOverlay)
+                .filter_by(persona_id=persona_id, pack_name=pack_name)
+                .first()
+            )
+            if custom:
+                return custom.overlay_text
+        finally:
+            cs_pack.close()
+        # Default fallback z Pythonu
+        from modules.conversation.application.tool_packs import get_pack as _gp_pack
+        return _gp_pack(pack_name).get("default_overlay")
+    except Exception as e:
+        logger.warning(f"_build_pack_overlay_block failed: {e}")
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1921,6 +1963,13 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     _orch = _build_orchestrate_block(conversation_id)
     if _orch:
         system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch}"
+
+    # Phase 19b (29.4.2026): pack overlay -- "povolenim, ne tonem."
+    # Aplikuj UPLNE NA KONCI (po orchestrate, po memory rules) aby byl
+    # nejvic prominentni pred odpovedi.
+    _pack_overlay = _build_pack_overlay_block(conversation_id)
+    if _pack_overlay:
+        system_prompt = f"{system_prompt}\n\n[AKTIVNI PACK OVERLAY]\n{_pack_overlay}"
 
     summary = _get_latest_summary(conversation_id)
     after_id = summary.to_message_id if summary else None

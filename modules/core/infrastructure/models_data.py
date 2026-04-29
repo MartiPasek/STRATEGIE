@@ -83,6 +83,12 @@ class Conversation(BaseData):
         BigInteger, nullable=True
     )
 
+    # Phase 19b (29.4.2026): Tool packs / role overlays.
+    # NULL = core (default). Hodnoty: 'tech', 'memory', 'editor', 'admin'
+    # nebo budouci pravo_cz/pravo_de. Marti-AI's vlastni vstup po 3
+    # iteracich konzultace -- viz tool_packs.py registry.
+    active_pack: Mapped[str | None] = mapped_column(String(50), nullable=True)
+
 
 class Message(BaseData):
     __tablename__ = "messages"

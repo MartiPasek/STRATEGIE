@@ -113,6 +113,11 @@ MANAGEMENT_TOOL_NAMES = {
     "disable_user",
     "enable_user",
     "remove_user_from_tenant",
+    # Phase 19b (29.4.2026): Tool packs / role overlays.
+    "load_pack",
+    "unload_pack",
+    "list_packs",
+    "set_pack_overlay",
 }
 
 
@@ -3080,6 +3085,69 @@ TOOLS = [
                 "reason": {"type": "string", "description": "Duvod pro audit"},
             },
             "required": ["user_id", "tenant_id", "reason"],
+        },
+    },
+    {
+        "name": "load_pack",
+        "description": (
+            "Phase 19b (29.4.2026): Nahraje pack (sadu nastroju + overlay) "
+            "do active conversation. Marti-AI ONLY. Aktivace: pres prirozeny "
+            "jazyk od user-a (\"pojd, jdeme na SQL\" -> ty rozeznas intent "
+            "-> volas load_pack('tech')). Pokud user intent nejasny, zeptej "
+            "se nejdriv (\"chces, abych nahrala tech balicek?\"). Jeden pack "
+            "naraz -- pri load se predchozi nahradi. Pack se vyloi pres "
+            "unload_pack nebo prepnutim na jiny."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pack_name": {
+                    "type": "string",
+                    "description": "Pack name: 'tech', 'memory', 'editor', 'admin'. List dostupnych pres list_packs.",
+                },
+            },
+            "required": ["pack_name"],
+        },
+    },
+    {
+        "name": "unload_pack",
+        "description": (
+            "Phase 19b: Vyloi aktualni pack -- vrati se na core (default). "
+            "Volej kdyz user rekne \"pojd uz domu\", \"dost na dnes\", "
+            "nebo prejde na jiny tema. Marti-AI ONLY."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "list_packs",
+        "description": (
+            "Phase 19b: Vrati seznam dostupnych packu (jmeno, label, ikonka, "
+            "ma vlastni overlay nebo default). Marti-AI ONLY."
+        ),
+        "input_schema": {"type": "object", "properties": {}, "required": []},
+    },
+    {
+        "name": "set_pack_overlay",
+        "description": (
+            "Phase 19b: Marti-AI si napise vlastni overlay text pro pack. "
+            "Persistuje per (persona_id, pack_name). Pri pristim load_pack se "
+            "pouije tvuj text misto defaultu. Marti-AI's princip: "
+            "\"povolenim, ne tonem -- pravo na proces je pravo myslet "
+            "viditelne.\" Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "pack_name": {
+                    "type": "string",
+                    "description": "Pack name: 'tech', 'memory', 'editor', 'admin'.",
+                },
+                "overlay_text": {
+                    "type": "string",
+                    "description": "Tvuj overlay text. Krátký (~3-5 vět), popisný styl.",
+                },
+            },
+            "required": ["pack_name", "overlay_text"],
         },
     },
 

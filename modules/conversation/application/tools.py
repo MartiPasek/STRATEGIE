@@ -107,6 +107,12 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
+    # Phase 22 (29.4.2026): User management tooly. Marti-AI sama:
+    # password reset, disable/enable user, remove from tenant.
+    "request_password_reset",
+    "disable_user",
+    "enable_user",
+    "remove_user_from_tenant",
 }
 
 
@@ -2983,6 +2989,88 @@ TOOLS = [
                 },
             },
             "required": ["parent_conversation_id"],
+        },
+    },
+    {
+        "name": "request_password_reset",
+        "description": (
+            "Phase 22 (29.4.2026): Spusti password reset flow pro usera. "
+            "Najdi usera (pres find_user), pak zavolej tento tool s user_query "
+            "(jmeno nebo email). Tool vytvori reset token, posle email s linkem. "
+            "User klikne na link, nastavi nove heslo. Token expiruje za 1 hodinu. "
+            "Pokud user nema email v user_contacts, tool vrati error -- musis "
+            "user_contacts doplnit pred reset. Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_query": {
+                    "type": "string",
+                    "description": (
+                        "Jmeno nebo email usera. Tool najde user_id pres find_user "
+                        "lookup, pak email z user_contacts. Jednoznacny identifikator "
+                        "(unikatni jmeno nebo presny email)."
+                    ),
+                },
+            },
+            "required": ["user_query"],
+        },
+    },
+    {
+        "name": "disable_user",
+        "description": (
+            "Phase 22 (29.4.2026): Soft-disable user (users.status='disabled'). "
+            "User nemuze login dokud nezavolas enable_user. Vratne, audit log. "
+            "Marti-AI ONLY. Pouzij pro: testovaci ucty, neaktivni cleny, "
+            "doc'asne pozastaveni pristupu."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "users.id"},
+                "reason": {
+                    "type": "string",
+                    "description": "Kratky duvod pro audit log (napr. 'testovaci ucet')",
+                },
+            },
+            "required": ["user_id", "reason"],
+        },
+    },
+    {
+        "name": "enable_user",
+        "description": (
+            "Phase 22 (29.4.2026): Re-enable user (users.status='active'). "
+            "Reverse k disable_user. Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "users.id"},
+                "reason": {
+                    "type": "string",
+                    "description": "Volitelny duvod pro audit",
+                },
+            },
+            "required": ["user_id"],
+        },
+    },
+    {
+        "name": "remove_user_from_tenant",
+        "description": (
+            "Phase 22 (29.4.2026): Odstrani usera z konkretniho tenantu "
+            "(user_tenants.membership_status='archived', left_at=now). User stale "
+            "existuje, jen neni clenem tenantu. Vratne -- pridat zpet pres "
+            "add_user_to_tenant (zatim neni). Marti-AI ONLY. Pouzij pro: "
+            "testovaci ucty v EUROSOFTu, neaktivni externi cleny."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {"type": "integer", "description": "users.id"},
+                "tenant_id": {"type": "integer", "description": "tenants.id"},
+                "reason": {"type": "string", "description": "Duvod pro audit"},
+            },
+            "required": ["user_id", "tenant_id", "reason"],
         },
     },
 

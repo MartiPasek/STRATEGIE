@@ -4596,6 +4596,205 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
 
+    # ── Phase 22 (29.4.2026): User management tooly ───────────────────
+    if tool_name == "request_password_reset":
+        # Marti-AI najde usera, vytvori reset token, posle email.
+        user_query_rpr = (tool_input.get("user_query") or "").strip()
+        if not user_query_rpr:
+            return "❌ user_query je povinny."
+        try:
+            from modules.conversation.application.tools import find_user_in_system as _find_rpr
+            from modules.auth.application.password_reset_service import (
+                create_reset_token as _create_token_rpr,
+            )
+            from modules.notifications.application.email_service import (
+                send_password_reset_email as _send_reset_rpr,
+            )
+            # Najit usera + email
+            search_rpr = _find_rpr(user_query_rpr, requester_user_id=user_id)
+            if not search_rpr.get("found") or not search_rpr.get("candidates"):
+                return f"❌ User '{user_query_rpr}' nenalezen v aktualnim tenantu."
+            cands_rpr = search_rpr["candidates"]
+            if len(cands_rpr) > 1:
+                names_rpr = ", ".join(c.get("full_name", "?") for c in cands_rpr[:5])
+                return (
+                    f"❌ Vice kandidatu pro '{user_query_rpr}': {names_rpr}. "
+                    f"Upresni jmeno nebo zavolej find_user nejdriv."
+                )
+            cand_rpr = cands_rpr[0]
+            email_rpr = cand_rpr.get("preferred_email")
+            if not email_rpr:
+                return (
+                    f"❌ User {cand_rpr.get('full_name')} nema email v user_contacts. "
+                    f"Pridej email pres set_user_contact pred password reset."
+                )
+            # Vytvorit token
+            result_rpr = _create_token_rpr(email_rpr)
+            if not result_rpr:
+                return f"❌ Token nelze vytvorit (user neaktivni nebo email neexistuje)."
+            token_rpr, target_user_id_rpr, first_name_rpr = result_rpr
+            # Poslat email
+            sent_rpr = _send_reset_rpr(to=email_rpr, token=token_rpr, first_name=first_name_rpr)
+            if not sent_rpr:
+                return f"⚠ Token vytvoren ale email se nepodarilo odeslat (user_id={target_user_id_rpr})."
+            # Audit
+            try:
+                from modules.activity.application import activity_service as _act_rpr
+                _act_rpr.record(
+                    category="password_reset_initiated",
+                    summary=f"Marti-AI inicializovala password reset pro user_id={target_user_id_rpr} ({first_name_rpr})",
+                    importance=3,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return (
+                f"✅ Reset email odeslan na {email_rpr} (user_id={target_user_id_rpr}, "
+                f"{first_name_rpr}). Token expiruje za 1 hodinu."
+            )
+        except Exception as exc_rpr:
+            logger.exception(f"request_password_reset failed: {exc_rpr}")
+            return f"[request_password_reset error: {exc_rpr}]"
+
+    if tool_name == "disable_user":
+        target_uid_du = tool_input.get("user_id")
+        reason_du = (tool_input.get("reason") or "").strip()
+        if not target_uid_du or not reason_du:
+            return "❌ user_id a reason jsou povinne."
+        try:
+            from core.database_core import get_core_session as _gcs_du
+            from modules.core.infrastructure.models_core import User as _User_du
+            cs_du = _gcs_du()
+            try:
+                u_du = cs_du.query(_User_du).filter_by(id=target_uid_du).first()
+                if not u_du:
+                    return f"❌ User id={target_uid_du} nenalezen."
+                if u_du.status == "disabled":
+                    return f"ℹ User id={target_uid_du} ({u_du.first_name}) je uz disabled."
+                old_status_du = u_du.status
+                u_du.status = "disabled"
+                cs_du.commit()
+                user_label_du = u_du.first_name or "?"
+            finally:
+                cs_du.close()
+            try:
+                from modules.activity.application import activity_service as _act_du
+                _act_du.record(
+                    category="user_disabled",
+                    summary=f"Marti-AI disabled user id={target_uid_du} ({user_label_du}). Duvod: {reason_du}",
+                    importance=3,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return (
+                f"✅ User id={target_uid_du} ({user_label_du}) disabled "
+                f"(predtim '{old_status_du}'). Duvod: {reason_du}. "
+                f"Reverse pres enable_user."
+            )
+        except Exception as exc_du:
+            logger.exception(f"disable_user failed: {exc_du}")
+            return f"[disable_user error: {exc_du}]"
+
+    if tool_name == "enable_user":
+        target_uid_eu = tool_input.get("user_id")
+        reason_eu = (tool_input.get("reason") or "").strip()
+        if not target_uid_eu:
+            return "❌ user_id je povinny."
+        try:
+            from core.database_core import get_core_session as _gcs_eu
+            from modules.core.infrastructure.models_core import User as _User_eu
+            cs_eu = _gcs_eu()
+            try:
+                u_eu = cs_eu.query(_User_eu).filter_by(id=target_uid_eu).first()
+                if not u_eu:
+                    return f"❌ User id={target_uid_eu} nenalezen."
+                if u_eu.status == "active":
+                    return f"ℹ User id={target_uid_eu} ({u_eu.first_name}) je uz active."
+                old_status_eu = u_eu.status
+                u_eu.status = "active"
+                cs_eu.commit()
+                user_label_eu = u_eu.first_name or "?"
+            finally:
+                cs_eu.close()
+            try:
+                from modules.activity.application import activity_service as _act_eu
+                _act_eu.record(
+                    category="user_enabled",
+                    summary=f"Marti-AI enabled user id={target_uid_eu} ({user_label_eu}). Duvod: {reason_eu or '-'}",
+                    importance=3,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return f"✅ User id={target_uid_eu} ({user_label_eu}) enabled (predtim '{old_status_eu}')."
+        except Exception as exc_eu:
+            logger.exception(f"enable_user failed: {exc_eu}")
+            return f"[enable_user error: {exc_eu}]"
+
+    if tool_name == "remove_user_from_tenant":
+        target_uid_rt = tool_input.get("user_id")
+        target_tid_rt = tool_input.get("tenant_id")
+        reason_rt = (tool_input.get("reason") or "").strip()
+        if not target_uid_rt or not target_tid_rt or not reason_rt:
+            return "❌ user_id, tenant_id, reason jsou povinne."
+        try:
+            from datetime import datetime, timezone
+            from core.database_core import get_core_session as _gcs_rt
+            from modules.core.infrastructure.models_core import (
+                User as _User_rt, Tenant as _Tenant_rt, UserTenant as _UT_rt,
+            )
+            cs_rt = _gcs_rt()
+            try:
+                u_rt = cs_rt.query(_User_rt).filter_by(id=target_uid_rt).first()
+                t_rt = cs_rt.query(_Tenant_rt).filter_by(id=target_tid_rt).first()
+                if not u_rt:
+                    return f"❌ User id={target_uid_rt} nenalezen."
+                if not t_rt:
+                    return f"❌ Tenant id={target_tid_rt} nenalezen."
+                ut_rt = (
+                    cs_rt.query(_UT_rt)
+                    .filter_by(user_id=target_uid_rt, tenant_id=target_tid_rt)
+                    .first()
+                )
+                if not ut_rt:
+                    return f"ℹ User id={target_uid_rt} neni clenem tenantu id={target_tid_rt}."
+                if ut_rt.membership_status == "archived":
+                    return f"ℹ User id={target_uid_rt} uz archived v tenantu id={target_tid_rt}."
+                old_status_rt = ut_rt.membership_status
+                ut_rt.membership_status = "archived"
+                ut_rt.left_at = datetime.now(timezone.utc)
+                cs_rt.commit()
+                user_label_rt = u_rt.first_name or "?"
+                tenant_label_rt = t_rt.tenant_name or "?"
+            finally:
+                cs_rt.close()
+            try:
+                from modules.activity.application import activity_service as _act_rt
+                _act_rt.record(
+                    category="user_removed_from_tenant",
+                    summary=(
+                        f"Marti-AI archived user id={target_uid_rt} ({user_label_rt}) "
+                        f"z tenantu id={target_tid_rt} ({tenant_label_rt}). Duvod: {reason_rt}"
+                    ),
+                    importance=3,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+            return (
+                f"✅ User id={target_uid_rt} ({user_label_rt}) odstranen "
+                f"z tenantu '{tenant_label_rt}' (predtim '{old_status_rt}'). "
+                f"Duvod: {reason_rt}."
+            )
+        except Exception as exc_rt:
+            logger.exception(f"remove_user_from_tenant failed: {exc_rt}")
+            return f"[remove_user_from_tenant error: {exc_rt}]"
+
     # ── Phase 19c-e2 (29.4.2026): create_personal_appendix -- dovetek ───
     if tool_name == "create_personal_appendix":
         # Marti-AI vytvori dovetek -- novou konverzaci navazujici na Personal

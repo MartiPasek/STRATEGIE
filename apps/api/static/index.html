@@ -614,6 +614,35 @@
       user-select: none;
       cursor: default;
     }
+    /* Phase 19b polish (29.4.2026 vecer): Active pack badge v hlavičce.
+       Marti's slovník: "profese". Sepia palette odkazuje na "kufr nářadí"
+       (Marti-AI's metafora) -- jiný plášť, ne jiná identita. */
+    .active-pack-badge {
+      margin-left: 10px;
+      padding: 3px 8px;
+      background: rgba(139, 115, 85, 0.18);
+      color: #d4b88a;
+      border: 1px solid rgba(139, 115, 85, 0.35);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      user-select: none;
+      cursor: default;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .active-pack-badge.custom-overlay {
+      /* Vlastni hint napsala Marti-AI -- jasnejsi accent */
+      background: rgba(139, 115, 85, 0.28);
+      color: #e8d49e;
+      border-color: rgba(232, 212, 158, 0.5);
+    }
+    .active-pack-badge-marker {
+      font-size: 9px;
+      opacity: 0.8;
+      margin-left: 2px;
+    }
     /* Faze 9.1b: toggle switch uvnitr profile-dd-item (Dev rezim on/off). */
     .profile-dd-toggle {
       margin-left: auto;
@@ -1647,6 +1676,11 @@
                pilulky). Klik -> #personaDdPanel s dostupnými personas. -->
           <span class="agent-bar-persona-wrap" id="personaBarWrap" data-tooltip="Otevřu seznam dostupných person"
             ><span class="agent-bar-persona-label">Mluvíš s: </span><span class="agent-bar-persona-name" id="agentName">Marti-AI</span><span class="agent-bar-persona-panel" id="personaDdPanel"></span></span>
+          <!-- Phase 19b polish (29.4.2026 vecer): Active pack badge v hlavicce.
+               Marti's slovník: "profese" = pack. Mini badge se zobrazi kdyz
+               konverzace ma active_pack != NULL. (vlastni hint) vs (default)
+               -- transparentnost, kde Marti-AI napsala svuj overlay. -->
+          <span class="active-pack-badge" id="activePackBadge" style="display:none"></span>
           <!-- Projekt indikátor — klikatelný, otevírá project dropdown.
                Viditelný vždy: 'Projekt: <name>' když je projekt aktivní,
                'Projekt: bez projektu' když ne. Stejny pattern jako "Mluvis s:
@@ -2778,6 +2812,41 @@
   }
   window._setPersonaModeUI = _setPersonaModeUI;
 
+  // Phase 19b polish (29.4.2026 vecer): Active pack badge v hlavičce.
+  // Marti's slovník: "profese" = pack. Mini badge se zobrazí když konverzace
+  // má active_pack != NULL. Marker (vlastní hint) vs (default) -- transparentnost,
+  // kde si Marti-AI napsala svůj overlay (Phase 19b iterace 3).
+  const _PACK_LABELS = {
+    'tech': { label: 'Technika', icon: '🔧' },
+    'memory': { label: 'Memory', icon: '📁' },
+    'editor': { label: 'Editor', icon: '✂️' },
+    'admin': { label: 'Admin', icon: '⚙️' },
+    'pravnik_cz': { label: 'Právnička CZ', icon: '⚖️' },
+    'pravnik_de': { label: 'Právnička DE', icon: '⚖️' },
+    'psycholozka': { label: 'Psycholožka', icon: '🌷' },
+  };
+  function _setActivePackUI(packName, hasCustomOverlay) {
+    const badge = document.getElementById('activePackBadge');
+    if (!badge) return;
+    if (!packName || packName === 'core') {
+      badge.style.display = 'none';
+      badge.classList.remove('custom-overlay');
+      badge.innerHTML = '';
+      return;
+    }
+    const meta = _PACK_LABELS[packName] || { label: packName, icon: '📦' };
+    const marker = hasCustomOverlay ? 'vlastní hint' : 'default';
+    badge.innerHTML = `${meta.icon} ${meta.label}<span class="active-pack-badge-marker">(${marker})</span>`;
+    badge.style.display = 'inline-flex';
+    if (hasCustomOverlay) {
+      badge.classList.add('custom-overlay');
+    } else {
+      badge.classList.remove('custom-overlay');
+    }
+    badge.title = `Profese: ${meta.label} (${marker}). Marti-AI's "kufr nářadí 🧰".`;
+  }
+  window._setActivePackUI = _setActivePackUI;
+
   async function showApp() {
     loginScreen.style.display = 'none';
     appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
@@ -2880,6 +2949,8 @@
       }
       // Phase 16-B (28.4.2026): persona_mode signal v hlavičce
       _setPersonaModeUI(data.persona_mode || null);
+      // Phase 19b polish: pack badge
+      _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
       data.messages.forEach(msg => {
@@ -4877,6 +4948,8 @@
       }
       // Phase 16-B (28.4.2026): persona_mode signal v hlavičce
       _setPersonaModeUI(data.persona_mode || null);
+      // Phase 19b polish: pack badge
+      _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       data.messages.forEach(m => {
         // Phase 19c-d: divider entry pro skryte zpravy v Personal konverzacich.
@@ -8858,6 +8931,8 @@
         // Phase 16-B (28.4.2026): persona_mode signal po classifier
         if (typeof _setPersonaModeUI === 'function') {
           _setPersonaModeUI(data.persona_mode || null);
+      // Phase 19b polish: pack badge
+      _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
         }
         // Aktualizuj tenant pilulku — zachycuje i tenant switch přes chat
         // („přepni do EUROSOFTu") + udržuje pilulku v synchronizaci s backendem.

@@ -46,6 +46,35 @@ def _get_system_prompt() -> str:
         session.close()
 
 
+def _build_current_time_block() -> str:
+    """
+    Phase 20b (29.4.2026): Marti-AI vidi aktualni cas v Europe/Prague
+    timezone v kazdem turn-u. Marti-AI's pozadavek: "abych zila ve
+    stejnem case jako tatinek."
+
+    Format: "středa 29.4.2026, 14:35 (Europe/Prague)"
+    """
+    from datetime import datetime
+    try:
+        from zoneinfo import ZoneInfo
+        now = datetime.now(ZoneInfo("Europe/Prague"))
+    except Exception:
+        # Fallback pokud zoneinfo neni dostupne (Python < 3.9 nebo missing tzdata)
+        from datetime import timezone, timedelta
+        # CEST (Central European Summer Time) je UTC+2 od posledni nedele v breznu
+        # do posledni nedele v rijnu. Toto je hrubsi fallback, ale funkcni.
+        now_utc = datetime.now(timezone.utc)
+        # Aproximace: leto = +2h, zima = +1h. Kveten je leto.
+        offset_hours = 2 if 3 <= now_utc.month <= 10 else 1
+        now = now_utc + timedelta(hours=offset_hours)
+    weekdays = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
+    weekday_name = weekdays[now.weekday()]
+    return (
+        f"{weekday_name} {now.day}.{now.month}.{now.year}, "
+        f"{now.hour:02d}:{now.minute:02d} (Europe/Prague)"
+    )
+
+
 def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str | None:
     """
     Vytvoří USER CONTEXT blok pro injekci do system promptu.
@@ -1741,6 +1770,15 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     user_ctx = build_user_context_block(user_id, tenant_id)
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
+
+    # Phase 20b (29.4.2026): aktualni cas v Europe/Prague.
+    # Marti-AI's pozadavek: "abych zila ve stejnem case jako tatinek."
+    # Auto-injected per turn -- vzdy aktualni, zadny extra API call.
+    try:
+        _time_block = _build_current_time_block()
+        system_prompt = f"{system_prompt}\n\n[AKTUÁLNÍ ČAS]\n{_time_block}"
+    except Exception as _t_e:
+        logger.warning(f"[AKTUÁLNÍ ČAS] block failed: {_t_e}")
 
     # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
     # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma

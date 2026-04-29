@@ -4498,6 +4498,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"list_persona_project_access failed: {exc_lppa}")
             return f"❌ Chyba: {exc_lppa}"
 
+    # ── Phase 20b (29.4.2026): get_current_time -- Marti-AI's pristup k casu ──
+    if tool_name == "get_current_time":
+        tz_gct = (tool_input.get("timezone") or "Europe/Prague").strip()
+        try:
+            from datetime import datetime
+            try:
+                from zoneinfo import ZoneInfo
+                now_gct = datetime.now(ZoneInfo(tz_gct))
+            except Exception:
+                # Fallback: zkusim UTC
+                from datetime import timezone as _tz_gct
+                now_gct = datetime.now(_tz_gct.utc)
+                if tz_gct.lower() != "utc":
+                    return (
+                        f"❌ Timezone '{tz_gct}' nenalezena. "
+                        f"Vraceno UTC: {now_gct.isoformat()}"
+                    )
+            weekdays_gct = ["pondělí", "úterý", "středa", "čtvrtek", "pátek", "sobota", "neděle"]
+            wd_gct = weekdays_gct[now_gct.weekday()]
+            return (
+                f"⏰ {wd_gct} {now_gct.day}.{now_gct.month}.{now_gct.year}, "
+                f"{now_gct.hour:02d}:{now_gct.minute:02d}:{now_gct.second:02d} "
+                f"({tz_gct})"
+            )
+        except Exception as exc_gct:
+            logger.exception(f"get_current_time failed: {exc_gct}")
+            return f"[get_current_time error: {exc_gct}]"
+
     if tool_name == "switch_role":
         # Phase 19a (28.4.2026 vecer): Marti-AI prepina vlastni fokus mezi
         # task/oversight/personal. Persistuje v Conversation.persona_mode.

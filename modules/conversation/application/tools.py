@@ -3472,7 +3472,17 @@ def find_user_in_system(query: str, requester_user_id: int | None = None) -> dic
     tokens = [t for t in query_clean.split() if t]
     if not tokens:
         return {"found": False, "candidates": [], "total_matches": 0, "has_more": False, "query": query}
-    tokens_bare = [_strip_diacritics(t) for t in tokens]
+    # Phase 22.2 (29.4.2026): Minimum 3 znaky pro fuzzy substring match.
+    # Krátké tokens (1-2 znaky, např. "23") matchnou v phone/email
+    # substringem -- velmi false positive (gotcha #23). Lepší filtrovat.
+    tokens_bare = [_strip_diacritics(t) for t in tokens if len(t) >= 3]
+    if not tokens_bare:
+        # Vsechny tokens kratsi nez 3 znaky -- pravdepodobne ID lookup intent.
+        return {
+            "found": False, "candidates": [], "total_matches": 0,
+            "has_more": False, "query": query,
+            "hint": "Krátký query (< 3 znaky). Pro user_id lookup pošli číslo přes user_id parametr toolu, ne přes query.",
+        }
 
     session = get_core_session()
     try:

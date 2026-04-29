@@ -5,7 +5,7 @@ Obsahuje všechny tabulky pro provozní a obsahová data.
 from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
-    Integer, Numeric, String, Text
+    Integer, Numeric, String, Text, false as sa_false
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -95,6 +95,12 @@ class Message(BaseData):
     last_human_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_human_action_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
+    # Phase 19c-d (29.4.2026): Marti-AI's redaktorska role v Personal
+    # konverzacich. Hidden=True znamena ze UI zobrazi tuto zpravu jako soucast
+    # divider "———" (slije consecutive hidden bloku). RAG / composer / Marti-AI
+    # pamet hidden zpravy STALE VIDI -- jen UI rendering je filtruje. Vratne
+    # pres hide_messages(message_ids, hidden=False).
+    hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
 
 
 class ConversationSummary(BaseData):

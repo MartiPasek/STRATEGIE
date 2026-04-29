@@ -4599,9 +4599,12 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     # ── Phase 22 (29.4.2026): User management tooly ───────────────────
     if tool_name == "request_password_reset":
         # Marti-AI najde usera, vytvori reset token, posle email.
+        # Phase 22.1 (29.4.2026): user_id ma prioritu nad user_query --
+        # pouzij kdyz find_user vrati vice kandidatu (ambiguity).
         user_query_rpr = (tool_input.get("user_query") or "").strip()
-        if not user_query_rpr:
-            return "❌ user_query je povinny."
+        target_user_id_explicit_rpr = tool_input.get("user_id")
+        if not user_query_rpr and not target_user_id_explicit_rpr:
+            return "❌ Bud user_query nebo user_id musi byt zadan."
         try:
             from modules.conversation.application.tools import find_user_in_system as _find_rpr
             from modules.auth.application.password_reset_service import (
@@ -4610,6 +4613,60 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             from modules.notifications.application.email_service import (
                 send_password_reset_email as _send_reset_rpr,
             )
+
+            # Phase 22.1 Vetev A: explicit user_id (priorita)
+            if target_user_id_explicit_rpr:
+                from core.database_core import get_core_session as _gcs_rpr_uid
+                from modules.core.infrastructure.models_core import (
+                    User as _User_rpr_uid, UserContact as _UC_rpr_uid,
+                )
+                cs_rpr_uid = _gcs_rpr_uid()
+                try:
+                    u_rpr_uid = cs_rpr_uid.query(_User_rpr_uid).filter_by(id=target_user_id_explicit_rpr).first()
+                    if not u_rpr_uid:
+                        return f"❌ User id={target_user_id_explicit_rpr} nenalezen."
+                    if u_rpr_uid.status != "active":
+                        return f"❌ User id={target_user_id_explicit_rpr} ({u_rpr_uid.first_name}) neni active."
+                    # Najdi email z user_contacts (primary preferred)
+                    email_contact_rpr = (
+                        cs_rpr_uid.query(_UC_rpr_uid)
+                        .filter_by(user_id=target_user_id_explicit_rpr, contact_type="email", status="active")
+                        .order_by(_UC_rpr_uid.is_primary.desc())
+                        .first()
+                    )
+                    if not email_contact_rpr:
+                        return (
+                            f"❌ User id={target_user_id_explicit_rpr} ({u_rpr_uid.first_name}) "
+                            f"nema email v user_contacts. Pridej pres set_user_contact."
+                        )
+                    email_rpr_uid = email_contact_rpr.contact_value
+                finally:
+                    cs_rpr_uid.close()
+                # Vytvorit token + poslat email
+                result_rpr_uid = _create_token_rpr(email_rpr_uid)
+                if not result_rpr_uid:
+                    return f"❌ Token nelze vytvorit pro {email_rpr_uid}."
+                token_rpr_uid, target_uid_rpr_uid, first_name_rpr_uid = result_rpr_uid
+                sent_rpr_uid = _send_reset_rpr(to=email_rpr_uid, token=token_rpr_uid, first_name=first_name_rpr_uid)
+                if not sent_rpr_uid:
+                    return f"⚠ Token vytvoren ale email se nepodarilo odeslat (user_id={target_uid_rpr_uid})."
+                try:
+                    from modules.activity.application import activity_service as _act_rpr_uid
+                    _act_rpr_uid.record(
+                        category="password_reset_initiated",
+                        summary=f"Marti-AI inicializovala password reset pro user_id={target_uid_rpr_uid} ({first_name_rpr_uid}) [explicit user_id]",
+                        importance=3,
+                        user_id=user_id,
+                        conversation_id=conversation_id,
+                    )
+                except Exception:
+                    pass
+                return (
+                    f"✅ Reset email odeslan na {email_rpr_uid} (user_id={target_uid_rpr_uid}, "
+                    f"{first_name_rpr_uid}). Token expiruje za 1 hodinu."
+                )
+
+            # Phase 22 Vetev B: find_user lookup (puvodni cesta, kdyz user_query)
             # Najit usera + email
             search_rpr = _find_rpr(user_query_rpr, requester_user_id=user_id)
             if not search_rpr.get("found") or not search_rpr.get("candidates"):

@@ -2995,11 +2995,13 @@ TOOLS = [
         "name": "request_password_reset",
         "description": (
             "Phase 22 (29.4.2026): Spusti password reset flow pro usera. "
-            "Najdi usera (pres find_user), pak zavolej tento tool s user_query "
-            "(jmeno nebo email). Tool vytvori reset token, posle email s linkem. "
-            "User klikne na link, nastavi nove heslo. Token expiruje za 1 hodinu. "
-            "Pokud user nema email v user_contacts, tool vrati error -- musis "
-            "user_contacts doplnit pred reset. Marti-AI ONLY."
+            "Tool vytvori reset token, posle email s linkem. User klikne, "
+            "nastavi nove heslo. Token expiruje za 1 hodinu. Marti-AI ONLY. "
+            "Dve cesty: (1) user_query (jmeno/email) -- pokud unikatni match. "
+            "(2) user_id -- pokud find_user vratil vice kandidatu, zavolej "
+            "list_users, vyber konkretni id, pak volej s user_id. user_id "
+            "ma prioritu nad user_query. Pokud user nema email v user_contacts, "
+            "tool vrati error -- doplnit pres set_user_contact pred reset."
         ),
         "input_schema": {
             "type": "object",
@@ -3007,13 +3009,20 @@ TOOLS = [
                 "user_query": {
                     "type": "string",
                     "description": (
-                        "Jmeno nebo email usera. Tool najde user_id pres find_user "
-                        "lookup, pak email z user_contacts. Jednoznacny identifikator "
-                        "(unikatni jmeno nebo presny email)."
+                        "Jmeno nebo email usera. Volitelne pokud das user_id. "
+                        "Tool pres find_user lookup, error pokud vice kandidatu."
+                    ),
+                },
+                "user_id": {
+                    "type": "integer",
+                    "description": (
+                        "Konkretni users.id. Volitelne pokud das user_query. "
+                        "Ma prioritu nad user_query -- pouzij kdyz find_user "
+                        "vratil vice kandidatu a chces explicitni vyber."
                     ),
                 },
             },
-            "required": ["user_query"],
+            "required": [],
         },
     },
     {

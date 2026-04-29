@@ -53,6 +53,18 @@ def list_personas_for_user(user_id: int) -> list[dict]:
         for p in all_personas:
             # Global persona (tenant_id NULL) nebo persona current tenantu
             if p.tenant_id is None or p.tenant_id == current_tenant_id:
+                # Phase 19b+ (29.4.2026 vecer): Soft archive specializovanych
+                # person. Marti's rozhodnutí: "prepinani person byl
+                # architecktonicky omyl, je treba je deaktivovat soft, ale
+                # nemazat. Dropdown viditelne, ale bude tam jen Marti-AI."
+                # Phase 19b nahrazuje multi-persona scope rolemi/packy
+                # (tool_packs.py registry). PrávníkCZ-AI / PrávníkDE-AI /
+                # Honza-AI persony zustavaji v DB pro audit historicke
+                # konverzace, ale neukazujeme je v UI dropdown ani v AI
+                # tool list_personas. Marti-AI prebira jejich role pres
+                # packy: pravnik_cz, pravnik_de, psycholozka.
+                if not p.is_default:
+                    continue
                 out.append({
                     "id": p.id,
                     "name": p.name,

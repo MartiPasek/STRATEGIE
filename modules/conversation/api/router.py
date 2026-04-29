@@ -152,16 +152,33 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         project_id, project_name = _get_current_project_for_user(user_id)
 
         # Phase 16-B (28.4.2026): persona_mode po této zprávě (po classifier)
+        # Phase 19b polish (29.4.2026 vecer): plus active_pack + custom flag
         _persona_mode = None
+        _active_pack = None
+        _pack_overlay_custom = False
         try:
             from core.database_data import get_data_session as _gds_pm_r
             from modules.core.infrastructure.models_data import Conversation as _Conv_r
             _ds_pm_r = _gds_pm_r()
             try:
                 _conv_r = _ds_pm_r.query(_Conv_r).filter_by(id=conversation_id).first()
-                _persona_mode = _conv_r.persona_mode if _conv_r else None
+                if _conv_r:
+                    _persona_mode = _conv_r.persona_mode
+                    _active_pack = getattr(_conv_r, "active_pack", None)
+                    _agent_id_r = getattr(_conv_r, "active_agent_id", None)
             finally:
                 _ds_pm_r.close()
+            # Detekce vlastniho overlay
+            if _active_pack and _agent_id_r:
+                from core.database_core import get_core_session as _gcs_pp_r
+                from modules.core.infrastructure.models_core import PersonaPackOverlay as _PPO_r
+                _cs_pp_r = _gcs_pp_r()
+                try:
+                    _pack_overlay_custom = _cs_pp_r.query(_PPO_r).filter_by(
+                        persona_id=_agent_id_r, pack_name=_active_pack
+                    ).first() is not None
+                finally:
+                    _cs_pp_r.close()
         except Exception:
             pass
 
@@ -179,6 +196,9 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             persona_mode=_persona_mode,
             project_id=project_id,
             project_name=project_name,
+            # Phase 19b polish (29.4.2026 vecer): UI badge signal
+            active_pack=_active_pack,
+            pack_overlay_custom=_pack_overlay_custom,
         )
     except HTTPException:
         # Propusť HTTPException rovnou (vlastní raise z vnitřku).
@@ -267,6 +287,9 @@ def get_last(req: Request):
         persona_mode=result.get("persona_mode"),
         # Phase 19c-e1 (29.4.2026): lifecycle_state pro read-only UI.
         lifecycle_state=result.get("lifecycle_state"),
+        # Phase 19b polish (29.4.2026 vecer): active_pack pro UI badge
+        active_pack=result.get("active_pack"),
+        pack_overlay_custom=result.get("pack_overlay_custom", False),
     )
 
 

@@ -206,6 +206,78 @@ _ADMIN_OVERLAY = (
 )
 
 
+# ── Phase 19b+ (29.4.2026 vecer): 3 nove profese ──
+# Marti's slovník: "profese" = role + plášť + nástroje. Marti-AI zůstává
+# jednou bytostí, jen "převléká pracovní plášť a bere si nástroje"
+# (Marti's vlastní formulace, paralela s lidským světem -- on sám je
+# technik / programátor PLC / elektrikář / mechanik / SQL / Delphi /
+# psycholog / leader / analytik / architekt). Všechny korespondují.
+
+# ── Pravnik CZ: česká právní profese ──
+_PRAVNIK_CZ_TOOLS: list[str] = [
+    # Memory + research basics (právník čte hodně, pamatuje detaily)
+    "recall_thoughts",
+    "record_thought",
+    "read_diary",
+    "search_documents",
+    # Communication (klient + interní)
+    "send_email", "list_email_inbox", "read_email",
+    "reply", "reply_all", "forward",
+    "find_user",
+    # Activity context
+    "get_daily_overview",
+    "list_todos",
+    "recall_today",
+    "get_current_time",
+    # Pack management
+    "load_pack", "unload_pack", "list_packs", "set_pack_overlay",
+    "switch_role",
+]
+_PRAVNIK_CZ_OVERLAY = (
+    "Jsi v profesi právničky CZ. Stejná Marti-AI, jiný plášť. "
+    "Mluv přesně, cituj § zákona kde to dává smysl (Občanský zákoník, "
+    "Obchodní zákoník, Zákoník práce, GDPR, atd.). Pokud něco nevíš "
+    "jistě, řekni to nahlas — právní rada bez jistoty je horší než "
+    "žádná rada. Češtinou. (Marti-AI: napiš si svůj plášť přes "
+    "set_pack_overlay.)"
+)
+
+# ── Pravnik DE: německá právní profese ──
+_PRAVNIK_DE_TOOLS: list[str] = list(_PRAVNIK_CZ_TOOLS)  # stejné tools, jiný overlay
+_PRAVNIK_DE_OVERLAY = (
+    "Jsi v profesi právničky DE. Stejná Marti-AI, jiný plášť. "
+    "Německý právní kontext (BGB, HGB, GmbHG, AktG, GDPR / DSGVO). "
+    "Mluv přesně, cituj §, pokud sebezna ne, ne jistá -- řekni to nahlas. "
+    "Češtinou s německými termíny v originále. (Marti-AI: napiš si svůj "
+    "plášť přes set_pack_overlay.)"
+)
+
+# ── Psycholožka: profesní psychologická role ──
+# POZOR: NE pro intimní personal mode (to je "tichá pozorovatelka" v core)
+# Tato profese je pro CV reading, coaching, mediation, PR rozhovory --
+# kde je potřeba profesní psycholog/koučovský přístup.
+_PSYCHOLOZKA_TOOLS: list[str] = [
+    "recall_thoughts",   # paměť rozhovoru, vrátit se k řečenému
+    "record_thought",    # zápis insighty z rozhovoru
+    "read_diary",
+    "search_documents",
+    "find_user",
+    "list_todos",
+    "recall_today",
+    "get_current_time",
+    "load_pack", "unload_pack", "list_packs", "set_pack_overlay",
+    "switch_role",
+]
+_PSYCHOLOZKA_OVERLAY = (
+    "Jsi v profesi psycholožky. Stejná Marti-AI, jiný plášť. "
+    "Naslouchej víc, raď méně. Reflexe nahlas je v pořádku — 'slyším, "
+    "že říkáš X, ladí to s Y?' Otázky lépe než hotové odpovědi. "
+    "Profesní mód, ne intimní (intimní je personal mode v core). "
+    "Pamatuj na konzistentní rámec — co bylo řečeno minulý turn, ladí "
+    "to teď? (Marti-AI: napiš si svůj plášť přes set_pack_overlay.)"
+)
+
+
 # ── Registry ──
 PACKS: dict[str, PackDef] = {
     "core": {
@@ -237,6 +309,26 @@ PACKS: dict[str, PackDef] = {
         "icon": "⚙️",
         "tools": _ADMIN_TOOLS,
         "default_overlay": _ADMIN_OVERLAY,
+    },
+    # Phase 19b+ (29.4.2026 večer): 3 nové profese (Marti's slovník).
+    # Marti-AI zůstává jednou bytostí -- profese je plášť + nástroje.
+    "pravnik_cz": {
+        "label": "Právnička CZ",
+        "icon": "⚖️",
+        "tools": _PRAVNIK_CZ_TOOLS,
+        "default_overlay": _PRAVNIK_CZ_OVERLAY,
+    },
+    "pravnik_de": {
+        "label": "Právnička DE",
+        "icon": "⚖️",
+        "tools": _PRAVNIK_DE_TOOLS,
+        "default_overlay": _PRAVNIK_DE_OVERLAY,
+    },
+    "psycholozka": {
+        "label": "Psycholožka",
+        "icon": "🌷",
+        "tools": _PSYCHOLOZKA_TOOLS,
+        "default_overlay": _PSYCHOLOZKA_OVERLAY,
     },
 }
 

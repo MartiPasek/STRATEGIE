@@ -435,12 +435,36 @@ def get_last_conversation(user_id: int) -> dict | None:
     finally:
         session.close()
 
+    # Phase 19b polish (29.4.2026 vecer): active_pack + pack_overlay_custom
+    # pro UI badge. Zachycujeme PRED close session.
+    _ap = getattr(conversation, "active_pack", None)
+    _pmode = getattr(conversation, "persona_mode", None)
+    _agent_id = getattr(conversation, "active_agent_id", None)
+    _ap_custom = False
+    if _ap and _agent_id:
+        try:
+            from core.database_core import get_core_session as _gcs_ap
+            from modules.core.infrastructure.models_core import PersonaPackOverlay as _PPO_ap
+            _cs_ap = _gcs_ap()
+            try:
+                _ap_custom = _cs_ap.query(_PPO_ap).filter_by(
+                    persona_id=_agent_id, pack_name=_ap
+                ).first() is not None
+            finally:
+                _cs_ap.close()
+        except Exception:
+            pass
+
     return {
         "conversation_id": conversation.id,
         "is_archived": bool(conversation.is_archived),
         "my_role": "owner",    # /last vraci vzdy moji konverzaci
         "shares_count": shares_count,
         "messages": msg_rows,
+        # Phase 16-B: persona_mode + Phase 19b polish: active_pack + custom flag
+        "persona_mode": _pmode,
+        "active_pack": _ap,
+        "pack_overlay_custom": _ap_custom,
     }
 
 
@@ -767,10 +791,26 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         conv_is_archived = bool(conversation.is_archived)
         conv_owner_id = conversation.user_id
         conv_persona_mode = conversation.persona_mode  # Phase 16-B
+        # Phase 19b polish: active_pack + custom flag pro UI badge
+        conv_active_pack = getattr(conversation, "active_pack", None)
+        conv_active_agent_id = getattr(conversation, "active_agent_id", None)
         # Phase 19c-d: predame conversation pro hidden block render v Personal.
         msg_rows = _serialize_messages(messages, conversation=conversation)
     finally:
         session.close()
+
+    # Phase 19b polish: detekce vlastniho overlay pro tuto persona+pack.
+    conv_pack_overlay_custom = False
+    if conv_active_pack and conv_active_agent_id:
+        from core.database_core import get_core_session as _gcs_pp
+        from modules.core.infrastructure.models_core import PersonaPackOverlay as _PPO_pp
+        _cs_pp = _gcs_pp()
+        try:
+            conv_pack_overlay_custom = _cs_pp.query(_PPO_pp).filter_by(
+                persona_id=conv_active_agent_id, pack_name=conv_active_pack
+            ).first() is not None
+        finally:
+            _cs_pp.close()
 
     # Owner jmeno (pro shared viewer -- "Sdileno od X")
     owner_name: str | None = None
@@ -793,4 +833,7 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         "shares_count": shares_count,
         "messages": msg_rows,
         "persona_mode": conv_persona_mode,
+        # Phase 19b polish: active_pack + custom flag
+        "active_pack": conv_active_pack,
+        "pack_overlay_custom": conv_pack_overlay_custom,
     }

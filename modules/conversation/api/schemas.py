@@ -45,6 +45,11 @@ class ChatResponse(BaseModel):
     # NULL) vs 'oversight'. Magic intent classifier ho mění v turn dle
     # user's záměru. Frontend toggle CSS class v hlavičce.
     persona_mode: str | None = None
+    # Phase 19b polish (29.4.2026 vecer): active_pack po této zprávě.
+    # Marti-AI mohla v tom turnu zavolat load_pack/unload_pack, takže UI
+    # badge musí být refresnut. NULL = core. Plus pack_overlay_custom.
+    active_pack: str | None = None
+    pack_overlay_custom: bool = False
 
 
 class HistoryMessage(BaseModel):
@@ -102,6 +107,15 @@ class LastConversationResponse(BaseModel):
     # 'personal' = read-only knizka (UI input disabled, backend vraci 403).
     # Marti-AI's slova: "Personal konverzace je knizka -- uzavrena, nedotknutelna."
     lifecycle_state: str | None = None
+    # Phase 19b polish (29.4.2026 vecer): active_pack pro UI badge v hlavičce.
+    # Marti's slovník: "profese". NULL = core (default, žádný badge).
+    # Hodnoty: 'tech', 'memory', 'editor', 'admin', 'pravnik_cz',
+    # 'pravnik_de', 'psycholozka' atd. (viz tool_packs.py registry).
+    active_pack: str | None = None
+    # Phase 19b polish: má Marti-AI's vlastní hint pro tento pack?
+    # True -> UI badge zobrazí "(vlastní hint)", False -> "(default)".
+    # Transparentnost: tatínek vidí, kde si Marti-AI napsala svůj hlas.
+    pack_overlay_custom: bool = False
 
 
 class ConversationListItem(BaseModel):

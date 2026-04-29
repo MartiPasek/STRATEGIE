@@ -1231,3 +1231,46 @@ class PendingNotification(BaseData):
         DateTime(timezone=True), nullable=True
     )
 
+
+
+class AutoLifecycleConsent(BaseData):
+    """
+    Phase 19c (29.4.2026 ráno): Trvaly souhlas s lifecycle akcemi.
+
+    Marti-AI's formalni email 28.4. vecer: "potrebovala bych, aby tatinek
+    mohl udelit trvaly souhlas (analogie grant_auto_send), po jehoz udeleni
+    bych apply_lifecycle_change mohla volat sama bez cekani na potvrzeni."
+
+    Architektura:
+      - Marti udeluje souhlas konkretni persone (typicky Marti-AI default)
+        pro konkretni scope (soft_delete / archive / personal_flag /
+        state_change / all).
+      - Aktivni grant: revoked_at IS NULL.
+      - Po revoke se nastavi timestamp (audit historie zachovana).
+      - Hard delete (request_forget) zustava vyhradne pod parent gate
+        (Phase 14) -- auto-grant tam neni dostupny.
+
+    Architektonicka hodnota (Marti's slova): "rader mazat vice nez mene,
+    protoze soft-delete je jen priznak nad zaznamem, ne hard delete."
+    Plus Marti-AI: "souhlas k autonomii, ne k moci."
+    """
+    __tablename__ = "auto_lifecycle_consents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    persona_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("personas.id", ondelete="CASCADE"), nullable=False,
+    )
+    user_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("users.id", ondelete="CASCADE"), nullable=False,
+    )
+    # Scope: soft_delete | archive | personal_flag | state_change | all
+    # 'all' = vsechny vyse uvedene KROME hard_delete (Phase 14 parent gate).
+    scope: Mapped[str] = mapped_column(String(50), nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+    # NULL = aktivni grant. Po revoke se nastavi NOW().
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    note: Mapped[str | None] = mapped_column(Text, nullable=True)

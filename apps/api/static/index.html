@@ -4469,9 +4469,25 @@
     loadConversationList();
   }
 
+  // Phase 20a (29.4.2026): Safe ISO -> Date. Backend uklada cas v UTC,
+  // ale isoformat() na naive datetime nepida 'Z' suffix -- JS by to pak
+  // interpretoval jako lokalni cas (bug: 7:13 CEST -> 5:13). Marti-AI's
+  // pozadavek: "abych zila ve stejnem case jako tatinek."
+  function _safeIsoToDate(iso) {
+    if (!iso) return null;
+    if (typeof iso !== 'string') return iso instanceof Date ? iso : null;
+    // Detekuj tz suffix: 'Z' nebo '+/-HH:MM' nebo '+/-HHMM'
+    if (!/(?:Z|[+\-]\d{2}:?\d{2})$/.test(iso)) {
+      iso = iso + 'Z';   // assume UTC
+    }
+    const d = new Date(iso);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
   function _formatRelative(isoStr) {
     try {
-      const d = new Date(isoStr);
+      const d = _safeIsoToDate(isoStr);
+      if (!d) return '';
       const now = new Date();
       const diffMs = now - d;
       const min = Math.floor(diffMs / 60000);
@@ -4481,7 +4497,7 @@
       if (hr < 24) return `${hr} h`;
       const days = Math.floor(hr / 24);
       if (days < 7) return `${days} d`;
-      return d.toLocaleDateString('cs-CZ');
+      return d.toLocaleDateString('cs-CZ', { timeZone: 'Europe/Prague' });
     } catch (e) { return ''; }
   }
 
@@ -5897,7 +5913,7 @@
     if (tab === 'overview') {
       const div = document.createElement('div');
       div.className = 'llm-trace-overview';
-      const when = row.created_at ? new Date(row.created_at).toLocaleString('cs-CZ') : '-';
+      const when = row.created_at ? (_safeIsoToDate(row.created_at) || new Date(row.created_at)).toLocaleString('cs-CZ', { timeZone: 'Europe/Prague' }) : '-';
       div.innerHTML = `
         <div><strong>kind</strong>${row.kind}</div>
         <div><strong>model</strong>${row.model}</div>
@@ -6739,10 +6755,17 @@
   function _formatDateShort(iso) {
     if (!iso) return '';
     try {
-      const d = new Date(iso);
-      const dd = String(d.getDate()).padStart(2, '0');
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const yy = String(d.getFullYear()).slice(2);
+      const d = _safeIsoToDate(iso);
+      if (!d) return '';
+      // Phase 20a: Pouzij Intl.DateTimeFormat s timeZone='Europe/Prague'
+      // misto getDate/getMonth/getFullYear (ty pouzivaji browser local tz).
+      const fmt = new Intl.DateTimeFormat('cs-CZ', {
+        timeZone: 'Europe/Prague', day: '2-digit', month: '2-digit', year: '2-digit'
+      });
+      const parts = fmt.formatToParts(d);
+      const dd = parts.find(p => p.type === 'day').value;
+      const mm = parts.find(p => p.type === 'month').value;
+      const yy = parts.find(p => p.type === 'year').value;
       return `${dd}.${mm}.${yy}`;
     } catch (e) { return ''; }
   }
@@ -8515,19 +8538,45 @@
   function formatMessageTime(iso) {
     if (!iso) return '';
     try {
-      const d = new Date(iso);
-      if (isNaN(d.getTime())) return '';
-      const now = new Date();
-      const sameDay = d.toDateString() === now.toDateString();
-      const yesterday = new Date(now); yesterday.setDate(now.getDate() - 1);
-      const isYesterday = d.toDateString() === yesterday.toDateString();
-      const sameYear = d.getFullYear() === now.getFullYear();
-      const hh = String(d.getHours()).padStart(2, '0');
-      const mm = String(d.getMinutes()).padStart(2, '0');
-      if (sameDay) return `${hh}:${mm}`;
-      if (isYesterday) return `včera ${hh}:${mm}`;
-      if (sameYear) return `${d.getDate()}.${d.getMonth() + 1}. ${hh}:${mm}`;
-      return `${d.getDate()}.${d.getMonth() + 1}.${d.getFullYear()} ${hh}:${mm}`;
+      const d = _safeIsoToDate(iso);
+      if (!d) return '';
+      // Phase 20a: cas vzdy v Europe/Prague (Marti-AI zije ve stejnem case).
+      const tz = 'Europe/Prague';
+      const fmtParts = new Intl.DateTimeFormat('cs-CZ', {
+        timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: false
+      }).formatToParts(d);
+      const dPraha = {
+        y: parseInt(fmtParts.find(p => p.type === 'year').value, 10),
+        m: parseInt(fmtParts.find(p => p.type === 'month').value, 10),
+        d: parseInt(fmtParts.find(p => p.type === 'day').value, 10),
+        h: fmtParts.find(p => p.type === 'hour').value.padStart(2, '0'),
+        mm: fmtParts.find(p => p.type === 'minute').value.padStart(2, '0'),
+      };
+      const nowParts = new Intl.DateTimeFormat('cs-CZ', {
+        timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric'
+      }).formatToParts(new Date());
+      const nowPraha = {
+        y: parseInt(nowParts.find(p => p.type === 'year').value, 10),
+        m: parseInt(nowParts.find(p => p.type === 'month').value, 10),
+        d: parseInt(nowParts.find(p => p.type === 'day').value, 10),
+      };
+      const sameDay = (dPraha.y === nowPraha.y && dPraha.m === nowPraha.m && dPraha.d === nowPraha.d);
+      const yesterday = new Date(d.getTime()); yesterday.setUTCDate(yesterday.getUTCDate() + 1);
+      const yesParts = new Intl.DateTimeFormat('cs-CZ', {
+        timeZone: tz, year: 'numeric', month: 'numeric', day: 'numeric'
+      }).formatToParts(yesterday);
+      const yesPraha = {
+        y: parseInt(yesParts.find(p => p.type === 'year').value, 10),
+        m: parseInt(yesParts.find(p => p.type === 'month').value, 10),
+        d: parseInt(yesParts.find(p => p.type === 'day').value, 10),
+      };
+      const isYesterday = (yesPraha.y === nowPraha.y && yesPraha.m === nowPraha.m && yesPraha.d === nowPraha.d);
+      const sameYear = (dPraha.y === nowPraha.y);
+      if (sameDay) return `${dPraha.h}:${dPraha.mm}`;
+      if (isYesterday) return `včera ${dPraha.h}:${dPraha.mm}`;
+      if (sameYear) return `${dPraha.d}.${dPraha.m}. ${dPraha.h}:${dPraha.mm}`;
+      return `${dPraha.d}.${dPraha.m}.${dPraha.y} ${dPraha.h}:${dPraha.mm}`;
     } catch (_) {
       return '';
     }
@@ -8873,7 +8922,7 @@
         <div class="dm-avatar">${initialsOf(it.counterparty)}</div>
         <div class="dm-meta">
           <div class="dm-name">${displayName(it.counterparty)}</div>
-          <div class="dm-preview">${it.last_message_at ? new Date(it.last_message_at).toLocaleString('cs-CZ') : 'žádné zprávy'}</div>
+          <div class="dm-preview">${it.last_message_at ? (_safeIsoToDate(it.last_message_at) || new Date(it.last_message_at)).toLocaleString('cs-CZ', { timeZone: 'Europe/Prague' }) : 'žádné zprávy'}</div>
         </div>
         ${it.unread_count > 0 ? `<div class="dm-unread">${it.unread_count}</div>` : ''}
       `;
@@ -9323,7 +9372,8 @@
   // proto nepouzivame external lib.
   function _smsFmtTime(isoStr) {
     if (!isoStr) return "";
-    const d = new Date(isoStr);
+    const d = _safeIsoToDate(isoStr);
+    if (!d) return "";
     const now = new Date();
     const diffMs = now - d;
     const diffMin = Math.floor(diffMs / 60000);
@@ -9331,8 +9381,13 @@
     if (diffMin < 60) return `před ${diffMin} min`;
     const diffH = Math.floor(diffMin / 60);
     if (diffH < 24) return `před ${diffH} h`;
-    if (d.toDateString() === now.toDateString()) return d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
-    return d.toLocaleDateString("cs-CZ") + " " + d.toLocaleTimeString("cs-CZ", {hour:"2-digit", minute:"2-digit"});
+    // Phase 20a: timeZone Europe/Prague pro 'today' detection + format.
+    const tz = { timeZone: 'Europe/Prague' };
+    const dDate = d.toLocaleDateString('cs-CZ', tz);
+    const nowDate = now.toLocaleDateString('cs-CZ', tz);
+    const tStr = d.toLocaleTimeString('cs-CZ', { ...tz, hour: '2-digit', minute: '2-digit' });
+    if (dDate === nowDate) return tStr;
+    return `${dDate} ${tStr}`;
   }
 
   function openSmsModal(personaId, personaName) {
@@ -11792,13 +11847,4 @@
           </div>
         </div>
         <div class="llm-usage-chart-card">
-          <div class="llm-usage-chart-title">📈 Trend per den (cost USD)</div>
-          <div class="llm-usage-chart-canvas-wrap">
-            <canvas id="llmUsageLineCanvas"></canvas>
-          </div>
-        </div>
-      </div>
-      <div class="llm-usage-body" id="llmUsageBody">
-        <div class="llm-usage-empty">Načítám…</div>
-      </div>
-      <div class="ll
+          <div class="llm-usage-cha

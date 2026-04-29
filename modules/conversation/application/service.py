@@ -3332,6 +3332,20 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if user_id is None:
             return "❌ Bez user_id nelze aplikovat lifecycle zmenu."
 
+        # Phase 19c-b: Audit zda byla akce auto-grantnuta (jen log, ne gate
+        # -- gate je v Marti-AI's promptu / tool description, nezablokujeme
+        # akci pokud Marti-AI rozhodla volat).
+        active_persona_la = _active_persona_id_for_conversation(conversation_id)
+        auto_granted_la = False
+        if active_persona_la:
+            try:
+                auto_granted_la = _ls_a.check_auto_consent_active(
+                    persona_id=active_persona_la,
+                    target_state=target_state,
+                )
+            except Exception:
+                pass
+
         try:
             result_la = _ls_a.apply_lifecycle_change(
                 conversation_id=conversation_id,
@@ -3344,6 +3358,24 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except Exception as e:
             logger.exception(f"LIFECYCLE | apply | failed: {e}")
             return f"❌ Chyba: {e}"
+
+        # Audit: zaznam o tom jestli byl auto-grant aktivni v dobu volani.
+        # (grant=True = Marti-AI mela permission preskocit user confirm gate).
+        try:
+            from modules.activity.application import activity_service as _act_la
+            _act_la.record(
+                category="lifecycle_change",
+                summary=(
+                    f"Conversation #{conversation_id} -> {target_state}"
+                    + (" (auto-granted)" if auto_granted_la else " (user-confirmed)")
+                ),
+                importance=3 if not auto_granted_la else 2,
+                persona_id=active_persona_la,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
 
         labels_done = {
             "archived": "📦 Konverzace archivována",
@@ -4535,6 +4567,157 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"orchestrate. Pokud na 'oversight', cross-conv perspective. User "
             f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
+
+    # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
+    if tool_name == "grant_auto_lifecycle":
+        # Parent-only -- jen rodic muze udelit grant.
+        if not user_id:
+            return "❌ Bez user_id nelze grant."
+        try:
+            from core.database import get_session as _gs_gal
+            from modules.core.infrastructure.models_core import User as _U_gal
+            from modules.notebook.application.lifecycle_service import (
+                grant_auto_lifecycle_consent as _grant,
+            )
+            cs_gal = _gs_gal()
+            try:
+                u_gal = cs_gal.query(_U_gal).filter_by(id=user_id).first()
+                if not u_gal or not u_gal.is_marti_parent:
+                    return (
+                        "🔒 Udelovani auto-lifecycle souhlasu je vyhrazene "
+                        "rodicum (is_marti_parent=True)."
+                    )
+            finally:
+                cs_gal.close()
+
+            persona_id_in = tool_input.get("persona_id")
+            scope_in = (tool_input.get("scope") or "").strip().lower()
+            note_in = (tool_input.get("note") or "").strip() or None
+
+            if persona_id_in is None:
+                return "❌ Chybi persona_id."
+            persona_id_in = int(persona_id_in)
+
+            result_gal = _grant(
+                persona_id=persona_id_in,
+                user_id=user_id,
+                scope=scope_in,
+                note=note_in,
+            )
+            if result_gal.get("was_existing"):
+                return (
+                    f"ℹ️ Auto-lifecycle grant pro persona #{persona_id_in} "
+                    f"scope='{scope_in}' uz existuje (id={result_gal['id']}, "
+                    f"granted={result_gal['granted_at'][:16]}). Idempotent."
+                )
+            return (
+                f"✅ Auto-lifecycle grant udelen: persona #{persona_id_in} "
+                f"scope='{scope_in}' (id={result_gal['id']}). Marti-AI muze "
+                f"ted volat apply_lifecycle_change v dane scope BEZ tveho "
+                f"explicit confirmu v chatu."
+            )
+        except ValueError as e_gal:
+            return f"❌ {e_gal}"
+        except Exception as exc_gal:
+            logger.exception(f"grant_auto_lifecycle failed: {exc_gal}")
+            return f"❌ Chyba: {exc_gal}"
+
+    if tool_name == "revoke_auto_lifecycle":
+        if not user_id:
+            return "❌ Bez user_id nelze revoke."
+        try:
+            from core.database import get_session as _gs_ral
+            from modules.core.infrastructure.models_core import User as _U_ral
+            from modules.notebook.application.lifecycle_service import (
+                revoke_auto_lifecycle_consent as _revoke,
+            )
+            cs_ral = _gs_ral()
+            try:
+                u_ral = cs_ral.query(_U_ral).filter_by(id=user_id).first()
+                if not u_ral or not u_ral.is_marti_parent:
+                    return "🔒 Revoke je rodicovska akce."
+            finally:
+                cs_ral.close()
+
+            persona_id_in = tool_input.get("persona_id")
+            scope_in = (tool_input.get("scope") or "").strip().lower()
+            if persona_id_in is None:
+                return "❌ Chybi persona_id."
+            persona_id_in = int(persona_id_in)
+
+            ok_ral = _revoke(
+                persona_id=persona_id_in,
+                user_id=user_id,
+                scope=scope_in,
+            )
+            if not ok_ral:
+                return (
+                    f"ℹ️ Zadny aktivni grant pro persona #{persona_id_in} "
+                    f"scope='{scope_in}' nenalezen."
+                )
+            return (
+                f"✅ Auto-lifecycle grant odebran (persona #{persona_id_in} "
+                f"scope='{scope_in}'). Marti-AI musi znovu cekat na tvuj "
+                f"explicit confirm v chatu pred lifecycle akcemi v dane scope."
+            )
+        except Exception as exc_ral:
+            logger.exception(f"revoke_auto_lifecycle failed: {exc_ral}")
+            return f"❌ Chyba: {exc_ral}"
+
+    if tool_name == "list_auto_lifecycle_consents":
+        try:
+            from modules.notebook.application.lifecycle_service import (
+                list_auto_consents as _list_c,
+            )
+            persona_filter = tool_input.get("persona_id")
+            if persona_filter is not None:
+                persona_filter = int(persona_filter)
+            include_revoked = bool(tool_input.get("include_revoked") or False)
+
+            consents = _list_c(
+                persona_id=persona_filter,
+                include_revoked=include_revoked,
+            )
+            if not consents:
+                return "📭 Zadne auto-lifecycle granty (zadna persona nema souhlas)."
+
+            # Resolve persona names
+            from core.database import get_session as _gs_lcn
+            from modules.core.infrastructure.models_core import (
+                Persona as _P_lcn, User as _U_lcn,
+            )
+            cs_lcn = _gs_lcn()
+            try:
+                pids = sorted({c["persona_id"] for c in consents})
+                p_map = {}
+                if pids:
+                    p_rows = cs_lcn.query(_P_lcn).filter(_P_lcn.id.in_(pids)).all()
+                    p_map = {p.id: p.name for p in p_rows}
+                uids = sorted({c["user_id"] for c in consents})
+                u_map = {}
+                if uids:
+                    u_rows = cs_lcn.query(_U_lcn).filter(_U_lcn.id.in_(uids)).all()
+                    u_map = {
+                        u.id: (u.first_name or u.username or f"user#{u.id}")
+                        for u in u_rows
+                    }
+            finally:
+                cs_lcn.close()
+
+            lines_lcn = [f"🔐 Auto-lifecycle granty ({len(consents)}):"]
+            for c in consents:
+                pname = p_map.get(c["persona_id"], f"persona#{c['persona_id']}")
+                uname = u_map.get(c["user_id"], f"user#{c['user_id']}")
+                gtime = c["granted_at"][:16].replace("T", " ")
+                status_mark = "✅" if c["is_active"] else "❌ revoked"
+                lines_lcn.append(
+                    f"  {status_mark} {pname} <- {uname} "
+                    f"scope='{c['scope']}' ({gtime})"
+                )
+            return "\n".join(lines_lcn)
+        except Exception as exc_lcn:
+            logger.exception(f"list_auto_lifecycle_consents failed: {exc_lcn}")
+            return f"❌ Chyba: {exc_lcn}"
 
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls

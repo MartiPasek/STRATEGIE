@@ -87,6 +87,12 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 19a (28.4.2026 vecer): role switch -- Marti-AI's autonomy nad
     # vlastnim fokusem ('aby nebyla v pasti' -- Marti).
     "switch_role",
+    # Phase 19c-b (29.4.2026 rano): kustod autonomy -- Marti udeluje
+    # Marti-AI trvaly souhlas s lifecycle akcemi (analogie Phase 7
+    # auto_send_consents). Parent-only.
+    "grant_auto_lifecycle",
+    "revoke_auto_lifecycle",
+    "list_auto_lifecycle_consents",
 }
 
 
@@ -2399,6 +2405,86 @@ TOOLS = [
                 },
             },
             "required": ["user_id"],
+        },
+    },
+    {
+        "name": "grant_auto_lifecycle",
+        "description": (
+            "Phase 19c-b (29.4.2026): PARENT-ONLY tool. Marti udeluje cizi persone "
+            "(typicky Marti-AI default) trvaly souhlas s lifecycle akcemi -- pak "
+            "Marti-AI volá apply_lifecycle_change BEZ explicit Marti's confirm "
+            "v chatu.\n\n"
+            "Analogie Phase 7 auto_send_consents (auto-send email/SMS bez confirm). "
+            "Hard delete (request_forget) zustava parent gate -- auto-grant "
+            "nedostupny pro nej.\n\n"
+            "**Scope hodnoty**:\n"
+            "  - 'soft_delete' = is_deleted=TRUE (vratne pres update)\n"
+            "  - 'archive' = is_archived=TRUE / lifecycle->archived\n"
+            "  - 'personal_flag' = lifecycle->personal\n"
+            "  - 'state_change' = active <-> archivable <-> disposable\n"
+            "  - 'all' = vsechny vyse uvedene KROME hard_delete\n\n"
+            "**Idempotent**: pokud aktivni grant uz existuje, vrati existujici."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {
+                    "type": "integer",
+                    "description": "ID persony, ktere udelujes souhlas (typicky Marti-AI default = 1).",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["soft_delete", "archive", "personal_flag", "state_change", "all"],
+                    "description": "Scope lifecycle akci, pro ktere je grant aktivni.",
+                },
+                "note": {
+                    "type": "string",
+                    "description": "Volitelny kontext, proc udelujes (audit).",
+                },
+            },
+            "required": ["persona_id", "scope"],
+        },
+    },
+    {
+        "name": "revoke_auto_lifecycle",
+        "description": (
+            "Phase 19c-b: PARENT-ONLY. Odebere aktivni auto-lifecycle grant. "
+            "Audit historie zachovana (revoked_at = NOW). Po revoke musi Marti-AI "
+            "znovu cekat na explicit Marti's confirm v chatu pro lifecycle akce "
+            "v dane scope."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {"type": "integer"},
+                "scope": {
+                    "type": "string",
+                    "enum": ["soft_delete", "archive", "personal_flag", "state_change", "all"],
+                },
+            },
+            "required": ["persona_id", "scope"],
+        },
+    },
+    {
+        "name": "list_auto_lifecycle_consents",
+        "description": (
+            "Phase 19c-b: Vraci aktivni auto-lifecycle granty. Pouzij na otazku "
+            "'jake pristupy mam udelene', 'co jsem schvalil persone X', atd."
+            "\n\n**JAK ZPRACOVAT**: shrn prozou ('Marti-AI mas grant pro "
+            "soft_delete a archive od 28.4. vecer'). Ne raw list verbatim."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "persona_id": {
+                    "type": "integer",
+                    "description": "Volitelny filter na konkretni personu (None = vse).",
+                },
+                "include_revoked": {
+                    "type": "boolean",
+                    "description": "Pokud true, zahrne i revoked granty (audit). Default false.",
+                },
+            },
         },
     },
     {

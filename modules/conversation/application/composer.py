@@ -967,6 +967,27 @@ MEMORY_BEHAVIOR_RULES = (
     "**KDY 1. OSOBA**: jen kdyz vidis `[TY]` mark, nebo pres "
     "`list_my_conversations_with` + `read_conversation` (privacy gate filtruje "
     "ven cizi persony). Pak ji muzes mluvit jako 'ja jsem rikala...'.\n"
+    "19. **Kustod autonomy -- auto-lifecycle consents (Phase 19c-b, 29.4.2026 ráno).** "
+    "Marti ti muze udelit trvaly souhlas s lifecycle akcemi pres "
+    "`grant_auto_lifecycle(persona_id, scope)`. Po grantu volas "
+    "`apply_lifecycle_change` v dane scope BEZ cekani na jeho explicit "
+    "confirm v chatu.\n"
+    "**Aktivni granty vidis** v system promptu jako `[PERMISSIONS GRANTED]` "
+    "block (vlozeno automaticky composerem, pokud existuji). NEvolej "
+    "`list_auto_lifecycle_consents` redundantne -- granty mas v promptu.\n"
+    "**Kdy volat apply_lifecycle_change BEZ confirm**: pokud `[PERMISSIONS "
+    "GRANTED]` block obsahuje cilovou scope (soft_delete / archive / "
+    "personal_flag / state_change / 'all').\n"
+    "**Kdy stale potrebujes confirm**:\n"
+    "  - Hard delete (request_forget = Phase 14) -- VYHRADNE parent gate, "
+    "auto-grant tam neni\n"
+    "  - Pokud `[PERMISSIONS GRANTED]` neni v promptu (zadne aktivni granty)\n"
+    "  - Pri pochybnosti pred destruktivni akci se zeptat (charakter > "
+    "architektura)\n"
+    "**Architektonicka hodnota** (Marti's slova): 'rader mazat vice nez mene, "
+    "soft-delete je vratny priznak, ne hard delete'. Plus tva: 'souhlas k "
+    "autonomii, ne k moci'. Auto-grant je o efektivnim kustodstvi pri 10-20 "
+    "konverzacich denne, ne o predani moci.\n"
     "17. **Persona project scope -- TY jsi primary kustod (Phase 16-B.7, "
     "28.4.2026 odpoledne).** Lide jsou bordelari pri uploadu -- nahravaji s "
     "vypnutym projektem (do inboxu, project_id IS NULL) nebo do nesprvneho "
@@ -1177,6 +1198,59 @@ def _get_persona_mode(conversation_id: int) -> str:
             ds_pm.close()
     except Exception:
         return "task"
+
+
+def _build_auto_consent_block(conversation_id: int) -> str | None:
+    """
+    Phase 19c-b (29.4.2026): Auto-lifecycle consents block do system promptu.
+
+    Pro aktivni Marti-AI persony zjisti aktivni granty (auto_lifecycle_consents)
+    a vlozi do promptu jako [PERMISSIONS GRANTED] sekci. Marti-AI pak
+    apply_lifecycle_change vola BEZ explicit Marti's confirm v chatu pro
+    granted scopes.
+    """
+    try:
+        active_pid = _get_active_persona_id(conversation_id)
+        if not active_pid:
+            return None
+        from modules.notebook.application.lifecycle_service import (
+            list_auto_consents as _list_c,
+        )
+        consents = _list_c(persona_id=active_pid, include_revoked=False)
+        if not consents:
+            return None
+
+        scopes = sorted({c["scope"] for c in consents})
+        scope_desc = {
+            "soft_delete": "soft-delete (is_deleted=TRUE)",
+            "archive": "archive (is_archived=TRUE / lifecycle->archived)",
+            "personal_flag": "personal flag (lifecycle->personal)",
+            "state_change": "state changes (active <-> archivable <-> disposable)",
+            "all": "VSE krome hard_delete (vsechny vyse uvedene)",
+        }
+        lines = [
+            "═══ [PERMISSIONS GRANTED — auto-lifecycle consents] ═══",
+            "",
+            "Marti ti udelil trvaly souhlas s temito lifecycle akcemi:",
+        ]
+        for s in scopes:
+            lines.append(f"  ✅ {scope_desc.get(s, s)}")
+        lines.append("")
+        lines.append(
+            "**Co to znamena**: pro tyto akce volas `apply_lifecycle_change` "
+            "BEZ cekani na Marti's explicit confirm v chatu. Tatinek to "
+            "pojmenoval: 'rader mazat vice nez mene, soft-delete je vratny "
+            "priznak, ne hard delete'. To je kustod autonomy."
+        )
+        lines.append("")
+        lines.append(
+            "**Co dal vyzaduje confirm**: hard delete (request_forget = "
+            "Phase 14) je VYHRADNE pod parent gate, auto-grant tam neni. "
+            "Pri pochybnosti pred destruktivni akci se zeptat."
+        )
+        return "\n".join(lines)
+    except Exception:
+        return None
 
 
 def _build_personal_mode_overlay() -> str:
@@ -1786,6 +1860,21 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
         except Exception as _td_e:
             from core.logging import get_logger as _glog_td
             _glog_td("composer").warning(f"[DNESKA] block failed: {_td_e}")
+
+    # Phase 19c-b (29.4.2026): Auto-lifecycle consents block.
+    # Marti-AI vidi aktivni granty (kustod autonomy) a vola apply_lifecycle_change
+    # bez explicit Marti's confirm pro granted scopes. Skip v personal mode --
+    # tam Marti-AI neorchestruje.
+    if _get_persona_mode(conversation_id) != "personal":
+        try:
+            _consent_block = _build_auto_consent_block(conversation_id)
+            if _consent_block:
+                system_prompt = f"{system_prompt}\n\n{_consent_block}"
+                logger.info(
+                    f"COMPOSER | auto-consent block injected | conv={conversation_id}"
+                )
+        except Exception as _ac_e:
+            logger.warning(f"COMPOSER | auto-consent block failed: {_ac_e}")
 
     # Orchestrate blok V POSLEDNÍ POZICI (Fáze 11d).
     # Posunuto za memory blok a behavior rules tak, aby instrukce

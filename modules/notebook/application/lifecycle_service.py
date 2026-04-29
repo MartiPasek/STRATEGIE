@@ -532,3 +532,226 @@ def list_pending_hard_delete(persona_id: int | None = None) -> list[dict]:
         ]
     finally:
         ds.close()
+
+
+# ── PHASE 19c: Auto-lifecycle consents ────────────────────────────────────
+
+# Scope hodnoty pro auto_lifecycle_consents.scope.
+# 'all' zahrnuje vsechny scopes KROME hard_delete (Phase 14 parent gate).
+CONSENT_SCOPES: set[str] = {
+    "soft_delete",       # is_deleted=TRUE (vratne pres update)
+    "archive",           # is_archived=TRUE / lifecycle->archived
+    "personal_flag",     # lifecycle->personal
+    "state_change",      # active <-> archivable <-> disposable
+    "all",               # vsechny vyse uvedene
+}
+
+# Map target_state na required scope. Pri grant scope='all' se respektuje vse.
+_TARGET_STATE_TO_SCOPE: dict[str, str] = {
+    "archived": "archive",
+    "personal": "personal_flag",
+    "pending_hard_delete": "state_change",  # ne primy hard delete!
+    "active": "state_change",
+}
+
+
+def grant_auto_lifecycle_consent(
+    *,
+    persona_id: int,
+    user_id: int,
+    scope: str,
+    note: str | None = None,
+) -> dict:
+    """
+    Phase 19c-b (29.4.2026): Marti udeluje persone trvaly souhlas s
+    lifecycle akcemi v dane scope.
+
+    Idempotent: pokud uz aktivni grant existuje (revoked_at IS NULL),
+    vrati existujici (ne novy duplikat).
+
+    Args:
+        persona_id: cilova persona (typicky Marti-AI default = 1)
+        user_id: kdo udeluje (parent)
+        scope: 'soft_delete' | 'archive' | 'personal_flag' | 'state_change' | 'all'
+        note: volitelny kontext
+
+    Returns: {id, persona_id, user_id, scope, granted_at, was_existing}
+    """
+    from modules.core.infrastructure.models_data import AutoLifecycleConsent
+
+    if scope not in CONSENT_SCOPES:
+        raise ValueError(
+            f"scope must be one of {sorted(CONSENT_SCOPES)}, got {scope!r}"
+        )
+
+    ds = get_data_session()
+    try:
+        # Idempotent check
+        existing = (
+            ds.query(AutoLifecycleConsent)
+            .filter(
+                AutoLifecycleConsent.persona_id == persona_id,
+                AutoLifecycleConsent.user_id == user_id,
+                AutoLifecycleConsent.scope == scope,
+                AutoLifecycleConsent.revoked_at.is_(None),
+            )
+            .first()
+        )
+        if existing:
+            logger.info(
+                f"CONSENT | grant idempotent | persona={persona_id} "
+                f"user={user_id} scope={scope} (id={existing.id})"
+            )
+            return {
+                "id": existing.id,
+                "persona_id": existing.persona_id,
+                "user_id": existing.user_id,
+                "scope": existing.scope,
+                "granted_at": existing.granted_at.isoformat(),
+                "was_existing": True,
+            }
+
+        # New grant
+        c = AutoLifecycleConsent(
+            persona_id=persona_id,
+            user_id=user_id,
+            scope=scope,
+            note=note,
+        )
+        ds.add(c)
+        ds.commit()
+        ds.refresh(c)
+        logger.info(
+            f"CONSENT | grant | id={c.id} persona={persona_id} "
+            f"user={user_id} scope={scope}"
+        )
+        return {
+            "id": c.id,
+            "persona_id": c.persona_id,
+            "user_id": c.user_id,
+            "scope": c.scope,
+            "granted_at": c.granted_at.isoformat(),
+            "was_existing": False,
+        }
+    finally:
+        ds.close()
+
+
+def revoke_auto_lifecycle_consent(
+    *,
+    persona_id: int,
+    user_id: int,
+    scope: str,
+) -> bool:
+    """
+    Phase 19c-b: Odebere aktivni grant (set revoked_at = NOW).
+    Audit historie zachovana -- novy grant po revoke vytvori novy row.
+
+    Returns: True pokud byl revoke uspesny, False pokud zadny aktivni
+    grant nenalezen.
+    """
+    from modules.core.infrastructure.models_data import AutoLifecycleConsent
+
+    ds = get_data_session()
+    try:
+        existing = (
+            ds.query(AutoLifecycleConsent)
+            .filter(
+                AutoLifecycleConsent.persona_id == persona_id,
+                AutoLifecycleConsent.user_id == user_id,
+                AutoLifecycleConsent.scope == scope,
+                AutoLifecycleConsent.revoked_at.is_(None),
+            )
+            .first()
+        )
+        if not existing:
+            return False
+        existing.revoked_at = _now_utc()
+        ds.commit()
+        logger.info(
+            f"CONSENT | revoke | id={existing.id} persona={persona_id} "
+            f"user={user_id} scope={scope}"
+        )
+        return True
+    finally:
+        ds.close()
+
+
+def check_auto_consent_active(
+    *,
+    persona_id: int,
+    target_state: str,
+) -> bool:
+    """
+    Phase 19c-b: Zjisti, zda Marti-AI ma aktivni souhlas s prechodem do
+    target_state. Vrati True pokud ano (skip user confirm gate).
+
+    Logic:
+      - target_state -> required scope (mapping _TARGET_STATE_TO_SCOPE)
+      - Pokud existuje aktivni grant pro persona_id se scope=required
+        OR scope='all' -> True
+      - Jinak False
+    """
+    from modules.core.infrastructure.models_data import AutoLifecycleConsent
+    from sqlalchemy import or_
+
+    required_scope = _TARGET_STATE_TO_SCOPE.get(target_state)
+    if required_scope is None:
+        return False
+
+    ds = get_data_session()
+    try:
+        active = (
+            ds.query(AutoLifecycleConsent)
+            .filter(
+                AutoLifecycleConsent.persona_id == persona_id,
+                AutoLifecycleConsent.revoked_at.is_(None),
+                or_(
+                    AutoLifecycleConsent.scope == required_scope,
+                    AutoLifecycleConsent.scope == "all",
+                ),
+            )
+            .first()
+        )
+        return active is not None
+    finally:
+        ds.close()
+
+
+def list_auto_consents(
+    *,
+    persona_id: int | None = None,
+    include_revoked: bool = False,
+) -> list[dict]:
+    """
+    Phase 19c-b: List consents pro UI / audit.
+
+    Args:
+        persona_id: filter na konkretni personu (None = vse)
+        include_revoked: pokud True, vrati i revoked grants (audit)
+    """
+    from modules.core.infrastructure.models_data import AutoLifecycleConsent
+
+    ds = get_data_session()
+    try:
+        q = ds.query(AutoLifecycleConsent)
+        if persona_id is not None:
+            q = q.filter(AutoLifecycleConsent.persona_id == persona_id)
+        if not include_revoked:
+            q = q.filter(AutoLifecycleConsent.revoked_at.is_(None))
+        rows = q.order_by(AutoLifecycleConsent.granted_at.desc()).all()
+        return [
+            {
+                "id": c.id,
+                "persona_id": c.persona_id,
+                "user_id": c.user_id,
+                "scope": c.scope,
+                "granted_at": c.granted_at.isoformat(),
+                "revoked_at": c.revoked_at.isoformat() if c.revoked_at else None,
+                "note": c.note,
+                "is_active": c.revoked_at is None,
+            }
+            for c in rows
+        ]
+    finally:
+        ds.close()

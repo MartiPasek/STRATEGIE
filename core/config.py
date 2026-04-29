@@ -1,7 +1,18 @@
-from pydantic_settings import BaseSettings
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
+    # Pydantic 2: model_config nahrazuje deprecated `class Config:`.
+    # extra="ignore" -- ignoruj env vars, co nepasují k poli (jinak Pydantic
+    # padne na shell history / system env pollution -- 21 errors v logu
+    # 29.4.2026 ráno).
+    # case_sensitive=False -- POSTGRES_PASSWORD = postgres_password = ok
+    model_config = SettingsConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
     # Application
     app_env: str = "development"   # "development" | "production"
     app_debug: bool = False
@@ -155,14 +166,6 @@ class Settings(BaseSettings):
     @property
     def trusted_hosts_list(self) -> list[str]:
         return [h.strip() for h in self.app_trusted_hosts.split(",") if h.strip()]
-
-    class Config:
-        env_file = ".env"
-        case_sensitive = False
-        extra = "ignore"  # ignoruj env vars co nepasují k poli (jinak Pydantic
-                          # padne na shell history / system env pollution)
-
-
 
     # Phase 15a: Notebook replaces sliding window -- feature flag.
     # Pokud True, composer snizi sliding window z 20 na 10 zprav (5 turnu)

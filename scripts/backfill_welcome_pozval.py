@@ -24,16 +24,16 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import text
-from core.database_core import get_core_session
-from core.database_data import get_data_session
+from core.database import get_session
+from core.database import get_session
 
 
 PATTERN = "pozval/a"
 
 
 def main(apply_changes: bool = False) -> None:
-    ds = get_data_session()
-    cs = get_core_session()
+    ds = get_session()
+    cs = get_session()
     try:
         # 1) Vsechny zpravy s "pozval/a" v contentu
         msgs = ds.execute(text(

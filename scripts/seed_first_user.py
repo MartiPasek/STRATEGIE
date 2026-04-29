@@ -7,14 +7,14 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from datetime import datetime, timezone
-from core.database_core import get_core_session
+from core.database import get_session
 from modules.core.infrastructure.models_core import (
     User, UserIdentity, Tenant, UserTenant, Project, UserProject
 )
 
 
 def seed():
-    session = get_core_session()
+    session = get_session()
     try:
         # 1. Najdi tenant EUROSOFT
         tenant = session.query(Tenant).filter_by(name="EUROSOFT").first()

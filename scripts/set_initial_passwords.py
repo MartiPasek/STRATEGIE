@@ -26,14 +26,14 @@ from datetime import datetime, timezone
 import os
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.database_core import get_core_session
+from core.database import get_session
 from modules.auth.application.password import hash_password, PasswordTooShort, MIN_PASSWORD_LENGTH
 from modules.core.infrastructure.models_core import User, UserContact
 
 
 def list_active_users() -> list[tuple[User, str]]:
     """Vrátí list (user, primary_email) aktivních userů, seřazené podle id."""
-    session = get_core_session()
+    session = get_session()
     try:
         users = session.query(User).filter_by(status="active").order_by(User.id).all()
         # Vytáhni primary email pro každého (z user_contacts)
@@ -55,7 +55,7 @@ def list_active_users() -> list[tuple[User, str]]:
 def set_password_for_user(user_id: int, plain_password: str) -> None:
     """Zahashuje a uloží heslo. Aktualizuje password_set_at."""
     h = hash_password(plain_password)
-    session = get_core_session()
+    session = get_session()
     try:
         u = session.query(User).filter_by(id=user_id).first()
         if not u:

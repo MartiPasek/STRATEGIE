@@ -21,12 +21,12 @@ ROOT = Path(__file__).resolve().parent.parent
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from core.database_core import get_core_session
+from core.database import get_session
 from modules.core.infrastructure.models_core import User, UserTenant
 
 
 def main() -> None:
-    session = get_core_session()
+    session = get_session()
     try:
         users = session.query(User).filter(User.status == "active").all()
         fixed = 0

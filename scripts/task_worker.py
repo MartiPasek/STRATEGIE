@@ -71,14 +71,14 @@ def _reap_unprocessed_sms(lookback_hours: int = 24) -> None:
     startu kdyby modul mel chybu.
     """
     from datetime import datetime, timezone, timedelta
-    from core.database_data import get_data_session
+    from core.database import get_session
     from modules.core.infrastructure.models_data import SmsInbox, Task
     from modules.notifications.application.sms_service import (
         _maybe_create_task_from_inbound_sms,
     )
 
     cutoff = datetime.now(timezone.utc) - timedelta(hours=lookback_hours)
-    ds = get_data_session()
+    ds = get_session()
     try:
         rows = (
             ds.query(SmsInbox)

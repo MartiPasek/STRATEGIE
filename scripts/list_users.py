@@ -7,12 +7,12 @@ import sys
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 
-from core.database_core import get_core_session
+from core.database import get_session
 from modules.core.infrastructure.models_core import User, UserContact
 
 
 def main() -> None:
-    session = get_core_session()
+    session = get_session()
     try:
         users = session.query(User).filter_by(status="active").order_by(User.id).all()
         if not users:

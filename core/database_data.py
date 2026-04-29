@@ -1,22 +1,15 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+"""
+Phase 18 backward-compat shim (29.4.2026 rano).
 
-from core.config import settings
-
-
-engine_data = create_engine(
-    settings.database_data_url,
-    pool_pre_ping=True,
-    echo=False,
+Drive mel vlastni engine pro data_db. Po DB merge je to alias na
+sjednocene core.database. Modules/ kod muze pokracovat s BaseData /
+get_data_session bez refactor.
+"""
+from core.database import (
+    Base as BaseData,
+    SessionLocal as SessionData,
+    engine as engine_data,
+    get_session as get_data_session,
 )
 
-SessionData = sessionmaker(bind=engine_data, autocommit=False, autoflush=False)
-
-
-class BaseData(DeclarativeBase):
-    """Deklarativní základ pro modely v data_db."""
-    pass
-
-
-def get_data_session():
-    return SessionData()
+__all__ = ["BaseData", "SessionData", "engine_data", "get_data_session"]

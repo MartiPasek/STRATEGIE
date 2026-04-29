@@ -6,13 +6,13 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from sqlalchemy import text
-from core.database_core import get_core_session
-from core.database_data import get_data_session
+from core.database import get_session
+from core.database import get_session
 
 
 def main() -> None:
     # 1) users + memberships
-    cs = get_core_session()
+    cs = get_session()
     try:
         print("== USERS (css_db) ==")
         rows = cs.execute(text(
@@ -76,7 +76,7 @@ def main() -> None:
         cs.close()
 
     # 2) conversations
-    ds = get_data_session()
+    ds = get_session()
     try:
         print("\n== CONVERSATIONS (data_db, posledních 10) ==")
         rows = ds.execute(text(

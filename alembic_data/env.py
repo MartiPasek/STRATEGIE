@@ -8,13 +8,15 @@ from alembic import context
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.config import settings
-from core.database_data import BaseData
+# Phase 18 (29.4.2026): sjednocený Base — z core.database (po DB merge).
+# BaseData zachováno přes shim v core.database_data.
+from core.database import Base
 
-# Importuj všechny modely z nového core modulu
-from modules.core.infrastructure.models_data import (  # noqa: F401
-    Conversation, Message, ConversationSummary, ConversationShare,
-    Memory, Document, DocumentChunk, DocumentVector, ActionLog,
-)
+# Importuj VŠECHNY modely (core + data) -- po Phase 18 sdílí stejný Base.metadata.
+# Importujeme moduly (ne konkrétní třídy) aby všechny tabulky byly registrovány
+# automaticky.
+from modules.core.infrastructure import models_core  # noqa: F401
+from modules.core.infrastructure import models_data  # noqa: F401
 
 config = context.config
 
@@ -23,7 +25,7 @@ if config.config_file_name is not None:
 
 config.set_main_option("sqlalchemy.url", settings.database_data_url)
 
-target_metadata = BaseData.metadata
+target_metadata = Base.metadata
 
 
 def run_migrations_offline() -> None:

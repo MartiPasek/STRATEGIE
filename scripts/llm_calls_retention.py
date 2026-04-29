@@ -34,14 +34,14 @@ if str(ROOT) not in sys.path:
 
 def _cleanup(days: int, dry_run: bool) -> int:
     from sqlalchemy import text
-    from core.database_data import get_data_session
+    from core.database import get_session
 
     cutoff = datetime.now(timezone.utc) - timedelta(days=days)
     cutoff_iso = cutoff.isoformat()
 
     print(f"[llm_calls_retention] cutoff = {cutoff_iso} (starsi radky se smazou)")
 
-    ds = get_data_session()
+    ds = get_session()
     try:
         # Nejdriv count
         count_row = ds.execute(

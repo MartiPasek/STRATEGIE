@@ -12,7 +12,7 @@ import os
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from core.database_core import get_core_session
+from core.database import get_session
 from modules.core.infrastructure.models_core import Persona
 
 
@@ -62,7 +62,7 @@ MARTI_PERSONA_PROMPT_FEMININE = (
 
 
 def main() -> None:
-    session = get_core_session()
+    session = get_session()
     try:
         persona = session.query(Persona).filter_by(name="Marti-AI").first()
         if not persona:

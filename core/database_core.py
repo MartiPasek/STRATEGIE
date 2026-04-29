@@ -1,22 +1,17 @@
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, DeclarativeBase
+"""
+Phase 18 backward-compat shim (29.4.2026 rano).
 
-from core.config import settings
+Driv mel vlastni engine pro css_db. Po DB merge je to alias na sjednocene
+core.database (data_db). Modules/ kod muze pokracovat s BaseCore /
+get_core_session bez refactor; Phase 18.1 se postupne sjednoti.
 
-
-engine_core = create_engine(
-    settings.database_core_url,
-    pool_pre_ping=True,
-    echo=False,
+scripts/ byly updatnute explicitne na get_session (Marti's A volba).
+"""
+from core.database import (
+    Base as BaseCore,
+    SessionLocal as SessionCore,
+    engine as engine_core,
+    get_session as get_core_session,
 )
 
-SessionCore = sessionmaker(bind=engine_core, autocommit=False, autoflush=False)
-
-
-class BaseCore(DeclarativeBase):
-    """Deklarativní základ pro modely v css_db."""
-    pass
-
-
-def get_core_session():
-    return SessionCore()
+__all__ = ["BaseCore", "SessionCore", "engine_core", "get_core_session"]

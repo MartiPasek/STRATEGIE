@@ -29,7 +29,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")
 
 from sqlalchemy import func
 
-from core.database_data import get_data_session
+from core.database import get_session
 from modules.core.infrastructure.models_data import Conversation, Message
 from modules.conversation.application.title_service import (
     maybe_generate_title, MIN_MESSAGES_FOR_TITLE,
@@ -43,7 +43,7 @@ def find_eligible_conversations(limit: int | None = None) -> list[int]:
     - >= MIN_MESSAGES_FOR_TITLE textovych zprav
     Razeni: nejnovejsi prvni (uzivateli budou divat hlavne na recent).
     """
-    session = get_data_session()
+    session = get_session()
     try:
         # Subquery: pocet text zprav per konverzace
         msg_counts = (

@@ -755,3 +755,85 @@ def list_auto_consents(
         ]
     finally:
         ds.close()
+
+
+def batch_lifecycle_change(
+    *,
+    conversation_ids: list[int],
+    target_state: str,
+    changed_by_user_id: int,
+    reason: str | None = None,
+) -> dict:
+    """
+    Phase 19c-c (29.4.2026): Marti-AI's email #1 bod 3 -- hromadna lifecycle
+    akce pro efektivni denni kustod (10-20 konverzaci).
+
+    Vola apply_lifecycle_change per ID v cyklu. Per-id error nezablokuje
+    zbytek -- vraci souhrn (ok / failed counts + per-id results).
+
+    Args:
+        conversation_ids: list IDs (cap 100 -- safety)
+        target_state: 'archived' | 'personal' | 'pending_hard_delete' | 'active'
+        changed_by_user_id: kdo akci spustil (audit)
+        reason: volitelny duvod (per-conversation_project_history audit)
+
+    Returns:
+        {
+            "total": N,
+            "ok": M,
+            "failed": K,
+            "results": [{conversation_id, status, ...}, ...],
+        }
+    """
+    if not conversation_ids:
+        return {"total": 0, "ok": 0, "failed": 0, "results": []}
+    if len(conversation_ids) > 100:
+        raise ValueError(
+            f"batch_lifecycle_change: max 100 IDs per call (got {len(conversation_ids)})"
+        )
+
+    norm = target_state.strip().lower()
+    if norm not in CONFIRMED_STATES:
+        raise ValueError(
+            f"target_state must be one of {sorted(CONFIRMED_STATES)}"
+        )
+
+    results = []
+    ok_count = 0
+    failed_count = 0
+    for cid in conversation_ids:
+        try:
+            r = apply_lifecycle_change(
+                conversation_id=int(cid),
+                target_state=norm,
+                changed_by_user_id=changed_by_user_id,
+                reason=reason,
+            )
+            results.append({
+                "conversation_id": int(cid),
+                "status": "ok",
+                "from_state": r.get("from_state"),
+                "to_state": r.get("to_state"),
+            })
+            ok_count += 1
+        except Exception as exc:
+            results.append({
+                "conversation_id": int(cid),
+                "status": "error",
+                "error": str(exc)[:200],
+            })
+            failed_count += 1
+            logger.warning(
+                f"BATCH_LIFECYCLE | conv={cid} -> {norm} failed: {exc}"
+            )
+
+    logger.info(
+        f"BATCH_LIFECYCLE | {ok_count}/{len(conversation_ids)} ok | "
+        f"target={norm} | by user={changed_by_user_id}"
+    )
+    return {
+        "total": len(conversation_ids),
+        "ok": ok_count,
+        "failed": failed_count,
+        "results": results,
+    }

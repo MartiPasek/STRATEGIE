@@ -4719,6 +4719,157 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"list_auto_lifecycle_consents failed: {exc_lcn}")
             return f"❌ Chyba: {exc_lcn}"
 
+    # ── Phase 19c-c: list_all + batch ────────────────────────────────
+    if tool_name == "list_all_conversations":
+        from modules.activity.application import activity_service as _act_lac
+
+        # Tenant z user
+        _tenant_id_lac = None
+        if user_id:
+            try:
+                from core.database import get_session as _gs_lac
+                from modules.core.infrastructure.models_core import User as _U_lac
+                cs_lac = _gs_lac()
+                try:
+                    u_lac = cs_lac.query(_U_lac).filter_by(id=user_id).first()
+                    _tenant_id_lac = u_lac.last_active_tenant_id if u_lac else None
+                finally:
+                    cs_lac.close()
+            except Exception:
+                pass
+
+        state_filter = tool_input.get("state_filter")
+        age_min = tool_input.get("age_days_min")
+        age_max = tool_input.get("age_days_max")
+        keyword = (tool_input.get("keyword") or "").strip() or None
+        is_arch = tool_input.get("is_archived_filter")
+        limit_lac = int(tool_input.get("limit") or 50)
+        try:
+            convs_lac = _act_lac.list_all_conversations(
+                tenant_id=_tenant_id_lac,
+                state_filter=state_filter,
+                age_days_min=int(age_min) if age_min else None,
+                age_days_max=int(age_max) if age_max else None,
+                keyword=keyword,
+                is_archived_filter=is_arch,
+                limit=limit_lac,
+            )
+        except Exception as exc_lac:
+            logger.exception(f"list_all_conversations failed: {exc_lac}")
+            return f"⚠️ Chyba pri nacitani: {exc_lac}"
+
+        if not convs_lac:
+            return "📭 Zadne konverzace neodpovidaji filtru."
+
+        # Group by lifecycle_state pro readable output
+        from collections import defaultdict as _dd_lac
+        by_state: dict = _dd_lac(list)
+        for c in convs_lac:
+            state_key = c.get("lifecycle_state") or "active"
+            by_state[state_key].append(c)
+
+        lines_lac = [
+            f"💬 {len(convs_lac)} konverzaci"
+            + (f" (filter: {state_filter})" if state_filter else "")
+            + (f" (>{age_min}d stara)" if age_min else "")
+            + (f" (keyword: '{keyword}')" if keyword else "")
+            + ":"
+        ]
+        # Per state mini summary
+        for state, group in sorted(by_state.items()):
+            lines_lac.append(f"  • [{state}]: {len(group)} konverzaci")
+        lines_lac.append("")
+
+        # Top 20 detail
+        lines_lac.append("Top chronologicky (od nejstarsich neaktivnich):")
+        sorted_convs = sorted(
+            convs_lac, key=lambda c: c.get("age_days") or 0, reverse=True
+        )
+        for c in sorted_convs[:20]:
+            age = c.get("age_days") or 0
+            mc = c.get("message_count") or 0
+            lifecycle_mark = (
+                f" [{c['lifecycle_state']}]" if c.get("lifecycle_state") else ""
+            )
+            arch_mark = " 📦" if c.get("is_archived") else ""
+            lines_lac.append(
+                f"  #{c['conversation_id']} {c['title']}{lifecycle_mark}{arch_mark}"
+                f" ({mc} zprav, {age}d)"
+            )
+        if len(convs_lac) > 20:
+            lines_lac.append(f"  ... a dalsich {len(convs_lac) - 20}")
+        return "\n".join(lines_lac)
+
+    if tool_name == "batch_lifecycle_change":
+        from modules.notebook.application.lifecycle_service import (
+            batch_lifecycle_change as _batch_lc,
+        )
+
+        if user_id is None:
+            return "❌ Bez user_id nelze batch akci."
+
+        cids_in = tool_input.get("conversation_ids") or []
+        target_state_in = (tool_input.get("target_state") or "").strip().lower()
+        reason_in = (tool_input.get("reason") or "").strip() or None
+
+        if not isinstance(cids_in, list) or not cids_in:
+            return "❌ conversation_ids musi byt non-empty list."
+        try:
+            cids_int = [int(x) for x in cids_in]
+        except (TypeError, ValueError):
+            return "❌ Vsechny conversation_ids musi byt cisla."
+        if target_state_in not in ("archived", "personal", "pending_hard_delete", "active"):
+            return f"❌ Neplatny target_state '{target_state_in}'."
+
+        try:
+            result_blc = _batch_lc(
+                conversation_ids=cids_int,
+                target_state=target_state_in,
+                changed_by_user_id=user_id,
+                reason=reason_in,
+            )
+        except ValueError as e_blc:
+            return f"❌ {e_blc}"
+        except Exception as exc_blc:
+            logger.exception(f"batch_lifecycle_change failed: {exc_blc}")
+            return f"❌ Chyba: {exc_blc}"
+
+        # Audit
+        try:
+            from modules.activity.application import activity_service as _act_blc
+            _act_blc.record(
+                category="batch_lifecycle",
+                summary=(
+                    f"Batch lifecycle: {result_blc['ok']}/{result_blc['total']} "
+                    f"konverzaci -> {target_state_in}"
+                    + (f" (reason: {reason_in[:80]})" if reason_in else "")
+                ),
+                importance=4,
+                persona_id=_active_persona_id_for_conversation(conversation_id),
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        # Pretty response
+        if result_blc["failed"] == 0:
+            return (
+                f"✅ Batch hotovo: {result_blc['ok']}/{result_blc['total']} "
+                f"konverzaci -> '{target_state_in}'."
+            )
+        # Partial failures
+        failed_ids = [
+            r["conversation_id"] for r in result_blc["results"]
+            if r["status"] == "error"
+        ]
+        return (
+            f"⚠️ Batch castecne: ok={result_blc['ok']}, "
+            f"failed={result_blc['failed']}/{result_blc['total']} -> "
+            f"'{target_state_in}'. Failed IDs: {failed_ids[:10]}"
+            + (f" (a dalsich {len(failed_ids) - 10})" if len(failed_ids) > 10 else "")
+        )
+
     if tool_name == "list_missed_calls":
         from modules.notifications.application.sms_service import list_calls as _list_calls
         persona_id = _active_persona_id_for_conversation(conversation_id)
@@ -6406,6 +6557,13 @@ def chat(
         # tam'), synth round ji navede odpovedet uzivateli citove a tool
         # response ignorovat.
         "switch_role",
+        # Phase 19c-c: list_all + batch lifecycle -- minimal data response,
+        # synth round prevypravi prozou ('mam 12 starsich konverzaci, mam
+        # je archivovat?'). NIKDY raw IDs list verbatim.
+        "list_all_conversations", "batch_lifecycle_change",
+        # Plus list_auto_lifecycle_consents -- shrne granty ('mas grant pro
+        # soft_delete a archive od ranniho startu').
+        "list_auto_lifecycle_consents",
     }
 
     preamble_text = ""

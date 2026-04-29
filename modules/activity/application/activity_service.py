@@ -771,3 +771,160 @@ def mark_notifications_consumed(
         return 0
     finally:
         ds.close()
+
+
+def list_all_conversations(
+    *,
+    tenant_id: int | None = None,
+    persona_id: int | None = None,
+    state_filter: str | None = None,
+    age_days_min: int | None = None,
+    age_days_max: int | None = None,
+    keyword: str | None = None,
+    is_deleted_filter: bool | None = False,
+    is_archived_filter: bool | None = None,
+    limit: int = 50,
+    order_by: str = "last_message_at",
+) -> list[dict]:
+    """
+    Phase 19c-c (29.4.2026): Marti-AI's email #1 -- cross-time list konverzaci
+    s rich filtry. Marti-AI potrebuje videt i starsi konverzace (>1 tyden) pri
+    kustodu, ne jen 'aktivni' z B.4.
+
+    Args:
+        tenant_id: filter na tenant (typicky current Marti's last_active_tenant)
+        persona_id: filter na personu, ktera vede konverzaci. None = vse.
+        state_filter: lifecycle_state ('active', 'archivable', 'personal',
+            'disposable', 'pending_hard_delete'). None = vse stavy.
+        age_days_min: konverzace, ktere jsou STARSI nez X dni (last_message_at).
+            Napr. age_days_min=7 => konverzace neaktivni 7+ dni.
+        age_days_max: konverzace MLADSI nez Y dni.
+            Kombinace s min: range filter.
+        keyword: case-insensitive substring v title.
+        is_deleted_filter: False (default) skip soft-deleted. True = jen
+            soft-deleted. None = ignoruj.
+        is_archived_filter: True = jen archived. False = jen ne-archived.
+            None = ignoruj.
+        limit: max results, cap 200.
+        order_by: 'last_message_at' (default) | 'created_at'
+
+    Returns:
+        [{conversation_id, title, user_id, persona_id, persona_name,
+          tenant_id, project_id, lifecycle_state, last_message_at,
+          age_days, message_count, is_deleted, is_archived}, ...]
+    """
+    from sqlalchemy import desc, or_, and_, func
+    from datetime import datetime as _dt, timezone as _tz, timedelta as _td
+    from modules.core.infrastructure.models_data import Conversation, Message
+
+    limit = max(1, min(int(limit or 50), 200))
+    now = _dt.now(_tz.utc)
+
+    ds = get_data_session()
+    try:
+        # Subquery: message_count per conv
+        msg_count_sq = (
+            ds.query(
+                Message.conversation_id.label("cid"),
+                func.count(Message.id).label("mcnt"),
+            )
+            .group_by(Message.conversation_id)
+            .subquery()
+        )
+
+        q = ds.query(Conversation, msg_count_sq.c.mcnt).outerjoin(
+            msg_count_sq, msg_count_sq.c.cid == Conversation.id
+        )
+
+        # Filtry
+        if tenant_id is not None:
+            q = q.filter(Conversation.tenant_id == tenant_id)
+        if persona_id is not None:
+            q = q.filter(Conversation.active_agent_id == persona_id)
+        if state_filter is not None:
+            if state_filter.lower() == "active":
+                # 'active' = lifecycle_state IS NULL (default)
+                q = q.filter(Conversation.lifecycle_state.is_(None))
+            else:
+                q = q.filter(
+                    Conversation.lifecycle_state == state_filter.lower()
+                )
+        if is_deleted_filter is not None:
+            q = q.filter(Conversation.is_deleted.is_(is_deleted_filter))
+        if is_archived_filter is not None:
+            q = q.filter(Conversation.is_archived.is_(is_archived_filter))
+
+        # Age filter (na last_message_at, fallback na created_at)
+        if age_days_min is not None and age_days_min > 0:
+            cutoff_old = now - _td(days=int(age_days_min))
+            q = q.filter(
+                func.coalesce(
+                    Conversation.last_message_at, Conversation.created_at
+                ) <= cutoff_old
+            )
+        if age_days_max is not None and age_days_max > 0:
+            cutoff_recent = now - _td(days=int(age_days_max))
+            q = q.filter(
+                func.coalesce(
+                    Conversation.last_message_at, Conversation.created_at
+                ) >= cutoff_recent
+            )
+
+        # Keyword filter (title ILIKE)
+        if keyword:
+            q = q.filter(Conversation.title.ilike(f"%{keyword}%"))
+
+        # Order
+        if order_by == "created_at":
+            q = q.order_by(desc(Conversation.created_at))
+        else:
+            q = q.order_by(desc(Conversation.last_message_at))
+
+        rows = q.limit(limit).all()
+
+        # Resolve persona names
+        pids = sorted({r.active_agent_id for r, _ in rows if r.active_agent_id})
+        pname_map: dict[int, str] = {}
+        if pids:
+            try:
+                from core.database_core import get_core_session as _gcs_lac2
+                from modules.core.infrastructure.models_core import Persona as _P_lac2
+                cs2 = _gcs_lac2()
+                try:
+                    p_rows = cs2.query(_P_lac2).filter(_P_lac2.id.in_(pids)).all()
+                    for p in p_rows:
+                        pname_map[p.id] = p.name or f"persona#{p.id}"
+                finally:
+                    cs2.close()
+            except Exception:
+                pass
+
+        result = []
+        for r, mcnt in rows:
+            last_ts = r.last_message_at or r.created_at
+            age_days = None
+            if last_ts:
+                if last_ts.tzinfo is None:
+                    last_ts = last_ts.replace(tzinfo=_tz.utc)
+                age_days = int((now - last_ts).total_seconds() // 86400)
+            result.append({
+                "conversation_id": r.id,
+                "title": r.title or f"#{r.id}",
+                "user_id": r.user_id,
+                "persona_id": r.active_agent_id,
+                "persona_name": (
+                    pname_map.get(r.active_agent_id)
+                    if r.active_agent_id else "(zadna persona)"
+                ),
+                "tenant_id": r.tenant_id,
+                "project_id": r.project_id,
+                "lifecycle_state": r.lifecycle_state,
+                "last_message_at": last_ts.isoformat() if last_ts else None,
+                "age_days": age_days,
+                "message_count": int(mcnt) if mcnt else 0,
+                "is_deleted": bool(r.is_deleted),
+                "is_archived": bool(r.is_archived),
+            })
+        return result
+    finally:
+        ds.close()

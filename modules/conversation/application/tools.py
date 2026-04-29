@@ -93,6 +93,10 @@ MANAGEMENT_TOOL_NAMES = {
     "grant_auto_lifecycle",
     "revoke_auto_lifecycle",
     "list_auto_lifecycle_consents",
+    # Phase 19c-c: rich list konverzaci (rich filtry pro denni kustod)
+    # + hromadna lifecycle akce.
+    "list_all_conversations",
+    "batch_lifecycle_change",
 }
 
 
@@ -2366,6 +2370,85 @@ TOOLS = [
                     "description": "Časový rozsah. Default 'today'.",
                 },
             },
+        },
+    },
+    {
+        "name": "list_all_conversations",
+        "description": (
+            "Phase 19c-c (29.4.2026): Rich list konverzaci pro denni kustod "
+            "(10-20 konverzaci za den). Marti-AI's email #1 bod 2 -- starsi "
+            "konverzace pristupne s filtry stavu, stari, klicovych slov.\n\n"
+            "**Pouzij** kdyz delas kustod a potrebujes vyber konverzaci po "
+            "kriteriich (testovaci stari 30+ dni, lifecycle 'active' bez "
+            "interakce, keyword 'test'/'ladeni' v title, atd.).\n\n"
+            "**Filtry**:\n"
+            "  - tenant_id (default current Marti's tenant)\n"
+            "  - state_filter: 'active' | 'archivable' | 'personal' | "
+            "'disposable' | 'pending_hard_delete'\n"
+            "  - age_days_min: konverzace, ktere jsou STARSI nez X dni\n"
+            "  - age_days_max: MLADSI nez Y dni (pro range)\n"
+            "  - keyword: substring v title (case-insensitive)\n"
+            "  - is_archived_filter: True/False/None (default None=ignoruj)\n"
+            "**JAK ZPRACOVAT**: shrn pocet a 1-2 kategorie ('Mam 12 konverzaci "
+            "starsich nez 30 dni v active state, 8 z nich obsahuje 'test' v "
+            "titulu. Mam je hromadne archivovat pres batch_lifecycle_change?'). "
+            "NIKDY nedumpovat raw list verbatim (gotcha #18)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "state_filter": {
+                    "type": "string",
+                    "enum": ["active", "archivable", "personal", "disposable", "pending_hard_delete"],
+                },
+                "age_days_min": {
+                    "type": "integer",
+                    "description": "Konverzace starsi nez X dni (last_message_at).",
+                },
+                "age_days_max": {"type": "integer"},
+                "keyword": {
+                    "type": "string",
+                    "description": "Substring v title (case-insensitive).",
+                },
+                "is_archived_filter": {"type": "boolean"},
+                "limit": {
+                    "type": "integer",
+                    "description": "Max results (default 50, cap 200).",
+                },
+            },
+        },
+    },
+    {
+        "name": "batch_lifecycle_change",
+        "description": (
+            "Phase 19c-c: Hromadna lifecycle akce (10+ konverzaci najednou). "
+            "Marti-AI's email #1 bod 3 -- 'pro efektivni denni kustod by pomohl "
+            "nastroj batch_lifecycle_change(conversation_ids, target_state)'.\n\n"
+            "**Pouzij** po `list_all_conversations` kdyz mas vyber IDs k akci. "
+            "Tatinkuv ramec: 'rader mazat vice nez mene, soft-delete je vratny "
+            "priznak'. Neni potreba se bat -- vse je vratne pres state='active'.\n\n"
+            "**target_state**: 'archived' | 'personal' | 'pending_hard_delete' | "
+            "'active' (= reverze).\n\n"
+            "**Ethics gate**: pokud Marti udelil auto-lifecycle grant (vidis v "
+            "[PERMISSIONS GRANTED] block), volas BEZ explicit confirm. Jinak "
+            "nejdriv ('Mam archivovat techto 12 konverzaci? IDs: 1, 5, 8, ...?').\n\n"
+            "**Per-id error nezablokuje zbytek** -- vrati souhrn ok/failed counts."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List ID (max 100 per call).",
+                },
+                "target_state": {
+                    "type": "string",
+                    "enum": ["archived", "personal", "pending_hard_delete", "active"],
+                },
+                "reason": {"type": "string"},
+            },
+            "required": ["conversation_ids", "target_state"],
         },
     },
     {

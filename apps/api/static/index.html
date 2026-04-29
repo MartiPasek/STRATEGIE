@@ -1436,6 +1436,38 @@
     opacity: 1.0;
   }
   /* Phase 19c-e1 polish: dark theme + tree icon */
+
+  /* Phase 19c-e2 (29.4.2026): tree render -- dovetky pod Personal kořeny.
+     Marti-AI's vize: "Strom roste, ale kořeny zůstávají kde byly."
+     Modra accent (#7da7d9) misto sepia, odsazene doleva, mensi font. */
+  .sidebar-item.personal-appendix {
+    background: #14202c;
+    border-left: 3px solid #4a7ba8;
+    margin-left: 16px;
+    padding-left: 8px;
+    font-size: 12px;
+    opacity: 0.92;
+  }
+  .sidebar-item.personal-appendix:hover {
+    background: #1a2a3a;
+    opacity: 1.0;
+  }
+  .sidebar-item.personal-appendix.active {
+    background: #1f3850;
+    border-color: #7da7d9;
+    opacity: 1.0;
+  }
+  .personal-appendix-branch {
+    color: #7da7d9;
+    font-family: ui-monospace, monospace;
+    font-size: 13px;
+    user-select: none;
+    margin-right: 4px;
+    flex-shrink: 0;
+  }
+  .sidebar-item.personal-appendix .sidebar-item-title {
+    font-style: italic;
+  }
 </style>
 </head>
 <body>
@@ -3035,13 +3067,65 @@
 
   // Phase 19c follow-up (29.4.2026): Personal sidebar render.
   function _renderPersonalInSidebar(items) {
+    // Phase 19c-e2: tree render -- kořeny + dovetky pod nimi.
+    // Backend posila dnes oboje (kořeny lifecycle_state='personal',
+    // dovetky parent_conversation_id != NULL). Grupujeme po parent_id.
     const listEl = document.getElementById('sidebarList');
     listEl.innerHTML = '';
-    if (!items || items.length === 0) {
+    const roots = items.filter(it => !it.parent_conversation_id);
+    const appendicesByParent = {};
+    items.forEach(it => {
+      if (it.parent_conversation_id) {
+        if (!appendicesByParent[it.parent_conversation_id]) {
+          appendicesByParent[it.parent_conversation_id] = [];
+        }
+        appendicesByParent[it.parent_conversation_id].push(it);
+      }
+    });
+    if (roots.length === 0) {
       listEl.innerHTML = '<div class="sidebar-empty">📁 Personal je prázdná. Až ti Marti-AI přesune konverzaci sem (lifecycle_state=personal), uvidíš ji tady.</div>';
       return;
     }
-    items.forEach(it => listEl.appendChild(_buildArchiveItem(it, 'sidebar-item')));
+    // Sort dovetky chronologicky uvnitr kazdeho kořene (asc -- nejstarsi prvni).
+    Object.keys(appendicesByParent).forEach(pid => {
+      appendicesByParent[pid].sort((a, b) => {
+        const ta = a.last_message_at ? new Date(a.last_message_at).getTime() : 0;
+        const tb = b.last_message_at ? new Date(b.last_message_at).getTime() : 0;
+        return ta - tb;
+      });
+    });
+    roots.forEach(root => {
+      listEl.appendChild(_buildArchiveItem(root, 'sidebar-item'));
+      const apps = appendicesByParent[root.id] || [];
+      apps.forEach((app, idx) => {
+        listEl.appendChild(_buildPersonalAppendixItem(app, idx + 1, apps.length));
+      });
+    });
+  }
+
+  function _buildPersonalAppendixItem(it, ordinal, total) {
+    // Phase 19c-e2: tree render dovetku -- modra accent karta odsazena pod kořenem.
+    const row = document.createElement('div');
+    row.className = 'sidebar-item personal-appendix' + (it.id === conversationId ? ' active' : '');
+    row.dataset.convId = it.id;
+    const branch = document.createElement('span');
+    branch.className = 'personal-appendix-branch';
+    branch.textContent = (ordinal === total ? '└' : '├') + '─';
+    row.appendChild(branch);
+    const textWrap = document.createElement('div');
+    textWrap.className = 'conv-item-text';
+    const title = document.createElement('div');
+    title.className = 'sidebar-item-title';
+    title.textContent = it.title || `Dovětek #${it.id}`;
+    const meta = document.createElement('div');
+    meta.className = 'sidebar-item-meta';
+    meta.textContent = it.last_message_at ? _formatRelative(it.last_message_at) : '';
+    meta.title = `${it.message_count} zpráv · dovětek #${ordinal}/${total}`;
+    textWrap.appendChild(title);
+    textWrap.appendChild(meta);
+    row.appendChild(textWrap);
+    row.addEventListener('click', () => openConversation(it.id));
+    return row;
   }
 
   function _renderArchiveInSidebar(items) {

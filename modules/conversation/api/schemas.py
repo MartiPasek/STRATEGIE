@@ -119,6 +119,9 @@ class ConversationListItem(BaseModel):
     # Phase 19c-e1+ (29.4.2026): Marti's darek -- Persona's volba symbolu
     # pro Personal konverzace. NULL = UI fallback '🌳'.
     personal_icon: str | None = None
+    # Phase 19c-e2 (29.4.2026): dovetky tree -- parent_conversation_id
+    # pro UI render. NULL = kořen, NON-NULL = dovetek pod parentem.
+    parent_conversation_id: int | None = None
 
 
 class ShareInfo(BaseModel):

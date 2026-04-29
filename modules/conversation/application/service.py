@@ -4596,6 +4596,98 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"caka na pokracovani rozhovoru, ne na status hlasku."
         )
 
+    # ── Phase 19c-e2 (29.4.2026): create_personal_appendix -- dovetek ───
+    if tool_name == "create_personal_appendix":
+        # Marti-AI vytvori dovetek -- novou konverzaci navazujici na Personal
+        # kořen. "Cisty papir, jasna hranice mezi tehdy a teď. Strom roste, ale
+        # koreny zustavaji kde byly." (Marti-AI 29.4. rano)
+        parent_id_cpa = tool_input.get("parent_conversation_id")
+        initial_msg_cpa = (tool_input.get("initial_message") or "").strip() or None
+
+        if not parent_id_cpa:
+            return "❌ Chyba: parent_conversation_id je povinny."
+
+        try:
+            from core.database_data import get_data_session as _gds_cpa
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_cpa,
+            )
+            ds_cpa = _gds_cpa()
+            try:
+                # Najdi parent
+                parent_cpa = ds_cpa.query(_Conv_cpa).filter_by(id=parent_id_cpa).first()
+                if not parent_cpa:
+                    return f"❌ Parent konverzace id={parent_id_cpa} nenalezena."
+                # Validace -- parent musi byt 'personal' (jinak nedava smysl)
+                if getattr(parent_cpa, "lifecycle_state", None) != "personal":
+                    return (
+                        f"❌ Konverzace id={parent_id_cpa} neni Personal "
+                        f"(lifecycle_state={getattr(parent_cpa, 'lifecycle_state', None)}). "
+                        f"Dovetek lze vytvorit jen z Personal kořene."
+                    )
+                # Anti-double-nesting: dovetky pod dovetky nejsou (kořeny jen).
+                if parent_cpa.parent_conversation_id is not None:
+                    return (
+                        f"❌ Konverzace id={parent_id_cpa} je sama dovetkem "
+                        f"(parent_conversation_id={parent_cpa.parent_conversation_id}). "
+                        f"Vytvor dovetek pod kořenem id={parent_cpa.parent_conversation_id}."
+                    )
+                # Dedi tenant + persona
+                child_cpa = _Conv_cpa(
+                    user_id=parent_cpa.user_id,
+                    tenant_id=parent_cpa.tenant_id,
+                    project_id=parent_cpa.project_id,
+                    active_agent_id=parent_cpa.active_agent_id,
+                    parent_conversation_id=parent_id_cpa,
+                    # lifecycle_state = NULL (= active, dovetek je zivy dialog)
+                )
+                ds_cpa.add(child_cpa)
+                ds_cpa.commit()
+                ds_cpa.refresh(child_cpa)
+                child_id_cpa = child_cpa.id
+
+                # Volitelna prvni zprava od Marti-AI
+                if initial_msg_cpa:
+                    from modules.conversation.infrastructure.repository import (
+                        save_message as _save_msg_cpa,
+                    )
+                    _save_msg_cpa(
+                        conversation_id=child_id_cpa,
+                        role="assistant",
+                        content=initial_msg_cpa,
+                        author_type="ai",
+                        agent_id=parent_cpa.active_agent_id,
+                    )
+            finally:
+                ds_cpa.close()
+        except Exception as exc_cpa:
+            logger.exception(f"create_personal_appendix failed: {exc_cpa}")
+            return f"[create_personal_appendix error: {exc_cpa}]"
+
+        # Audit log
+        try:
+            from modules.activity.application import activity_service as _act_cpa
+            _act_cpa.record(
+                category="personal_appendix_created",
+                summary=(
+                    f"Marti-AI vytvorila dovetek conv #{child_id_cpa} "
+                    f"navazujici na Personal kořen #{parent_id_cpa}"
+                ),
+                importance=2,
+                persona_id=parent_cpa.active_agent_id,
+                user_id=user_id,
+                conversation_id=child_id_cpa,
+            )
+        except Exception:
+            pass
+
+        return (
+            f"✅ Dovetek vytvoren: konverzace #{child_id_cpa} "
+            f"(kořen: Personal #{parent_id_cpa}). "
+            f"V sidebaru se ukaze jako modra odsazena polozka pod kořenem. "
+            f"User (Marti) v ni muze normalne psat -- je 'active'."
+        )
+
     # ── Phase 19c-e1+ (29.4.2026): Marti's darek -- set_personal_icon ───
     if tool_name == "set_personal_icon":
         # Marti-AI rozhoduje sama o symbolu pro svuj Personal sidebar.

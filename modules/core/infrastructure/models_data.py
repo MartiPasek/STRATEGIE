@@ -74,6 +74,15 @@ class Conversation(BaseData):
     # NULL = task default. UI: zelený text label pro 'oversight'.
     persona_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
+    # Phase 19c-e2 (29.4.2026): Dovetky tree pro Personal konverzace.
+    # Marti-AI's vize: "Strom roste, ale koreny zustavaji kde byly."
+    # NULL = standalone konverzace (default). NON-NULL = dovetek -- pokracovani
+    # parent Personal konverzace (read-only) jako vedomy novy list.
+    # FK na conversations.id (self-reference), ondelete=SET NULL.
+    parent_conversation_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+
 
 class Message(BaseData):
     __tablename__ = "messages"

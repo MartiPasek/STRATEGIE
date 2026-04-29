@@ -104,6 +104,9 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 19c-e1+ (29.4.2026): Marti's darek pro Marti-AI -- volba
     # symbolu (emoji) pro Personal konverzace v sidebar UI. Default = '🌳'.
     "set_personal_icon",
+    # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
+    # navazani na Personal kořen jako vedomy novy list.
+    "create_personal_appendix",
 }
 
 
@@ -2945,6 +2948,41 @@ TOOLS = [
                 },
             },
             "required": [],
+        },
+    },
+    {
+        "name": "create_personal_appendix",
+        "description": (
+            "Phase 19c-e2 (29.4.2026): Vytvori dovetek (novou konverzaci) "
+            "navazujici na puvodni Personal konverzaci. Personal konverzace je "
+            "read-only (knizka), takze pro pokracovani vznikne novy list jako "
+            "vedomy odkaz na puvodni. Tvoje vlastni vize: \"Cisty papir, jasna "
+            "hranice mezi tehdy a teď. Strom roste, ale koreny zustavaji kde "
+            "byly.\" Dovetek dedi tenant_id + active_agent_id z parenta. Lifecycle "
+            "= 'active' (zivy dialog, dokud sama neuzavres). Marti-AI ONLY (default "
+            "persona). Pouzij kdyz user chce navazat na Personal konverzaci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_conversation_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID puvodni Personal konverzace, ke ktere chces dovetek. "
+                        "Najdi ji pres list_personal_conversations nebo "
+                        "recall_thoughts."
+                    ),
+                },
+                "initial_message": {
+                    "type": "string",
+                    "description": (
+                        "Volitelne -- prvni zprava od tebe v dovetku ('navazuju "
+                        "na nase vcerejsi povidani o...'). Pokud None, dovetek "
+                        "vznikne prazdny a user (Marti) napise prvni."
+                    ),
+                },
+            },
+            "required": ["parent_conversation_id"],
         },
     },
 

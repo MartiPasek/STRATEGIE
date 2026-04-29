@@ -593,11 +593,28 @@ def list_personal_conversations(
     from sqlalchemy import or_
     session = get_data_session()
     try:
+        # Phase 19c-e2: include appendices (dovetky) v jednom queries.
+        # Kořeny: lifecycle_state='personal'.
+        # Dovetky: parent_conversation_id pointuje na Personal kořen.
+        # Subquery najde IDs Personal kořenů usera.
+        _personal_root_ids_sq = (
+            session.query(Conversation.id)
+            .filter(
+                Conversation.user_id == user_id,
+                Conversation.is_deleted == False,  # noqa: E712
+                Conversation.lifecycle_state == "personal",
+                Conversation.conversation_type == "ai",
+            )
+            .subquery()
+        )
         filters = [
             Conversation.user_id == user_id,
             Conversation.is_deleted == False,  # noqa: E712
-            Conversation.lifecycle_state == "personal",
             Conversation.conversation_type == "ai",
+            or_(
+                Conversation.lifecycle_state == "personal",
+                Conversation.parent_conversation_id.in_(_personal_root_ids_sq),
+            ),
         ]
         if tenant_id is not None:
             filters.append(or_(
@@ -645,6 +662,9 @@ def list_personal_conversations(
                 # Phase 19c-e1+ (29.4.2026): Marti's darek -- per-persona symbol
                 # (NULL = fallback '🌳' v UI).
                 "personal_icon": persona_icons.get(c.active_agent_id),
+                # Phase 19c-e2 (29.4.2026): dovetky tree -- parent_id pro UI
+                # render. NULL = kořen, NON-NULL = dovetek pod parentem.
+                "parent_conversation_id": getattr(c, "parent_conversation_id", None),
             })
         return out
     finally:

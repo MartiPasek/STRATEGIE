@@ -26,6 +26,7 @@ from modules.thoughts.api.questions_router import router as marti_questions_rout
 from modules.admin.api.router import router as admin_router
 from modules.notebook.api.router import router as notebook_router
 from modules.media.api.router import router as media_router
+from modules.md_pyramid.api.router import router as md_pyramid_router
 
 setup_logging()
 
@@ -64,6 +65,7 @@ app.include_router(notebook_router)
 app.include_router(marti_questions_router)
 app.include_router(admin_router)
 app.include_router(media_router)
+app.include_router(md_pyramid_router)  # Phase 24-F UI Pyramida Browser
 
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)

@@ -643,6 +643,39 @@
       opacity: 0.8;
       margin-left: 2px;
     }
+    /* Phase 24-F (30.4.2026): MD Pyramida sidebar items + group headers. */
+    .sidebar-group-header {
+      font-size: 10px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+      color: #8b7355;
+      padding: 8px 10px 4px;
+      border-bottom: 1px solid rgba(139, 115, 85, 0.18);
+      margin-top: 4px;
+    }
+    .sidebar-item.pyramid-item {
+      padding: 8px 12px;
+      border-radius: 4px;
+      margin: 2px 4px;
+      cursor: pointer;
+      transition: background 120ms ease;
+    }
+    .sidebar-item.pyramid-item:hover {
+      background: rgba(139, 115, 85, 0.12);
+    }
+    .sidebar-item.pyramid-item .sidebar-item-title {
+      font-size: 12px;
+      font-weight: 500;
+      color: #d4b88a;
+    }
+    .sidebar-item.pyramid-item .sidebar-item-meta {
+      font-size: 10px;
+      opacity: 0.65;
+      margin-top: 2px;
+      font-family: 'Roboto Mono', monospace;
+    }
+
     /* Phase 24-G (30.4.2026): UI Inkarnace Badge.
        Marti's pozadavek: "Musim videt v UI s kym mluvim."
        Primary identity v hlavicce -- inkarnace + scope label.
@@ -1652,6 +1685,7 @@
         </div>
         <div class="sidebar-footer" id="sidebarFooter">
           <button class="sidebar-footer-btn" id="sidebarPersonalToggle" data-tooltip="Marti-AI's krabička oblíbených konverzací">📁 Personal</button>
+          <button class="sidebar-footer-btn" id="sidebarPyramidToggle" data-tooltip="Phase 24: pyramida MD souborů (md1-md5)">🌳 Pyramida</button>
           <button class="sidebar-footer-btn" id="sidebarArchiveToggle" data-tooltip="Otevřu tvůj archiv">📦 Můj archív konverzací</button>
         </div>
       </div>
@@ -3215,6 +3249,8 @@
       footerBtn.classList.add('archive-mode');
       footerBtn.dataset.tooltip = 'Vrátím tě k aktivním konverzacím';
       if (personalBtn) personalBtn.style.display = 'none';
+      const pyramidBtnP = document.getElementById('sidebarPyramidToggle');
+      if (pyramidBtnP) pyramidBtnP.style.display = 'none';
       listEl.innerHTML = '<div class="sidebar-empty">Načítám…</div>';
       try {
         const res = await fetch('/api/v1/conversation/list-personal', { credentials: 'include' });
@@ -3227,15 +3263,176 @@
       } catch (e) {
         listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
       }
+    } else if (mode === 'pyramid') {
+      // Phase 24-F (30.4.2026): MD Pyramida sidebar -- strom md1-md5.
+      titleEl.textContent = '🌳 MD Pyramida';
+      footerBtn.textContent = '← Zpět na konverzace';
+      footerBtn.classList.add('archive-mode');
+      footerBtn.dataset.tooltip = 'Vrátím tě k aktivním konverzacím';
+      if (personalBtn) personalBtn.style.display = 'none';
+      const pyramidBtnHide = document.getElementById('sidebarPyramidToggle');
+      if (pyramidBtnHide) pyramidBtnHide.style.display = 'none';
+      listEl.innerHTML = '<div class="sidebar-empty">Načítám pyramidu…</div>';
+      try {
+        const res = await fetch('/api/v1/md_pyramid/list', { credentials: 'include' });
+        if (!res.ok) {
+          listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
+          return;
+        }
+        const data = await res.json();
+        _renderPyramidInSidebar(data.items || [], !!data.is_parent_view);
+      } catch (e) {
+        listEl.innerHTML = '<div class="sidebar-empty">Chyba spojení.</div>';
+      }
     } else {
       titleEl.textContent = 'Konverzace';
       footerBtn.textContent = '📦 Můj archív konverzací';
       footerBtn.classList.remove('archive-mode');
       footerBtn.dataset.tooltip = 'Otevřu tvůj archiv';
       if (personalBtn) personalBtn.style.display = '';
+      const pyramidBtnShow = document.getElementById('sidebarPyramidToggle');
+      if (pyramidBtnShow) pyramidBtnShow.style.display = '';
       // Znovu načti aktivní konverzace
       loadConversationList();
     }
+  }
+
+  // Phase 24-F: Render md_pyramid items v sidebaru (strom md5 -> md1).
+  function _renderPyramidInSidebar(items, isParentView) {
+    const listEl = document.getElementById('sidebarList');
+    listEl.innerHTML = '';
+    if (!items || items.length === 0) {
+      listEl.innerHTML = '<div class="sidebar-empty">🌳 Pyramida zatím prázdná. Až Marti-AI vytvoří první md1, uvidíš ho zde.</div>';
+      return;
+    }
+    // Group: md5 first, pak md1 work, pak md1 personal, pak ostatni
+    const md5Items = items.filter(it => it.level === 5);
+    const md1Work = items.filter(it => it.level === 1 && it.scope_kind === 'work');
+    const md1Personal = items.filter(it => it.level === 1 && it.scope_kind === 'personal');
+    const md_other = items.filter(it => it.level >= 2 && it.level <= 4);
+
+    function renderItem(it) {
+      const div = document.createElement('div');
+      div.className = 'sidebar-item pyramid-item';
+      div.dataset.mdId = it.id;
+      div.style.cursor = 'pointer';
+      // Title text
+      let titleStr = '';
+      if (it.level === 5) {
+        titleStr = `md5 · Privát Marti`;
+      } else if (it.level === 1 && it.scope_kind === 'work') {
+        const userPart = it.scope_user_name || `user_${it.scope_user_id}`;
+        const tenantPart = it.scope_tenant_name || `tenant_${it.scope_tenant_id}`;
+        titleStr = `md1 · ${userPart} / ${tenantPart}`;
+      } else if (it.level === 1 && it.scope_kind === 'personal') {
+        const userPart = it.scope_user_name || `user_${it.scope_user_id}`;
+        titleStr = `md1 · ${userPart} (osobní)`;
+      } else {
+        titleStr = `md${it.level} · ${it.id}`;
+      }
+      const versionStr = `v${it.version}`;
+      const sizeStr = `${it.size_chars} ch`;
+      const lastTime = it.last_updated ? _formatRelative(it.last_updated) : '';
+      div.innerHTML = (
+        `<div class="sidebar-item-title">${titleStr}</div>` +
+        `<div class="sidebar-item-meta">${versionStr} · ${sizeStr} · ${lastTime}</div>`
+      );
+      div.addEventListener('click', () => openPyramidMdModal(it.id));
+      return div;
+    }
+
+    // Render groups
+    function renderGroup(label, groupItems) {
+      if (groupItems.length === 0) return;
+      const header = document.createElement('div');
+      header.className = 'sidebar-group-header';
+      header.textContent = `${label} (${groupItems.length})`;
+      listEl.appendChild(header);
+      groupItems.forEach(it => listEl.appendChild(renderItem(it)));
+    }
+
+    renderGroup('md5 Privát Marti', md5Items);
+    renderGroup('md1 Tvoje Marti (work)', md1Work);
+    renderGroup('md1 Tvoje Marti (personal)', md1Personal);
+    if (md_other.length > 0) {
+      renderGroup('md2-md4 (zatim spí)', md_other);
+    } else if (isParentView) {
+      const sleeping = document.createElement('div');
+      sleeping.className = 'sidebar-empty';
+      sleeping.style.fontSize = '11px';
+      sleeping.style.opacity = '0.6';
+      sleeping.style.padding = '8px 10px';
+      sleeping.textContent = 'md2 / md3 / md4 zatím spí — čekají na to, až firma poroste.';
+      listEl.appendChild(sleeping);
+    }
+  }
+
+  async function openPyramidMdModal(mdId) {
+    try {
+      const res = await fetch(`/api/v1/md_pyramid/md/${mdId}`, { credentials: 'include' });
+      if (!res.ok) {
+        alert(`Nelze načíst md#${mdId} (${res.status}).`);
+        return;
+      }
+      const data = await res.json();
+      _renderPyramidMdModal(data);
+    } catch (e) {
+      alert('Chyba spojení.');
+    }
+  }
+
+  function _renderPyramidMdModal(data) {
+    const overlay = document.createElement('div');
+    overlay.className = 'sms-modal-bg';
+    overlay.id = 'pyramidMdModalBg';
+    const closeOnBg = (e) => { if (e.target === overlay) overlay.remove(); };
+    overlay.addEventListener('click', closeOnBg);
+    document.addEventListener('keydown', function escClose(e) {
+      if (e.key === 'Escape') {
+        const el = document.getElementById('pyramidMdModalBg');
+        if (el) el.remove();
+        document.removeEventListener('keydown', escClose);
+      }
+    });
+
+    let scopeLabel = '';
+    if (data.level === 5) {
+      scopeLabel = 'md5 · Privát Marti';
+    } else if (data.level === 1 && data.scope_kind === 'work') {
+      scopeLabel = `md1 work · user=${data.scope_user_id} · tenant=${data.scope_tenant_id}`;
+    } else if (data.level === 1 && data.scope_kind === 'personal') {
+      scopeLabel = `md1 personal · user=${data.scope_user_id}`;
+    } else {
+      scopeLabel = `md${data.level} #${data.id}`;
+    }
+
+    const modal = document.createElement('div');
+    modal.className = 'sms-modal pyramid-md-modal';
+    modal.style.maxWidth = '780px';
+    modal.style.width = '94vw';
+    modal.style.maxHeight = '90vh';
+    modal.innerHTML = (
+      `<div class="sms-modal-header">` +
+      `  <div>` +
+      `    <div class="sms-modal-title">${scopeLabel}</div>` +
+      `    <div class="sms-modal-meta">v${data.version} · ${data.size_chars} chars · last ${data.last_updated || ''}</div>` +
+      `  </div>` +
+      `  <button class="sms-modal-close" type="button">×</button>` +
+      `</div>` +
+      `<div class="pyramid-md-content"></div>`
+    );
+    modal.querySelector('.sms-modal-close').addEventListener('click', () => overlay.remove());
+    const contentEl = modal.querySelector('.pyramid-md-content');
+    contentEl.style.padding = '12px 16px';
+    contentEl.style.overflow = 'auto';
+    contentEl.style.maxHeight = '70vh';
+    contentEl.style.fontFamily = "'Roboto Mono', 'Consolas', monospace";
+    contentEl.style.fontSize = '13px';
+    contentEl.style.lineHeight = '1.55';
+    contentEl.style.whiteSpace = 'pre-wrap';
+    contentEl.textContent = data.content_md || '(prázdné)';
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
   }
 
   // Phase 19c follow-up (29.4.2026): Personal sidebar render.
@@ -3388,6 +3585,14 @@
   if (_personalToggleBtn) {
     _personalToggleBtn.addEventListener('click', () => {
       setSidebarMode(sidebarMode === 'personal' ? 'active' : 'personal');
+    });
+  }
+
+  // Phase 24-F (30.4.2026): MD Pyramida sidebar toggle.
+  const _pyramidToggleBtn = document.getElementById('sidebarPyramidToggle');
+  if (_pyramidToggleBtn) {
+    _pyramidToggleBtn.addEventListener('click', () => {
+      setSidebarMode(sidebarMode === 'pyramid' ? 'active' : 'pyramid');
     });
   }
 

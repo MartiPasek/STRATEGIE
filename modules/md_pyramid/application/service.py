@@ -1,7 +1,6 @@
 """
-Phase 24-B: MD Pyramida service.
-
-md1 vrstva -- "Tvoje Marti" per user (cross-konverzacni profil).
+Phase 24: MD Pyramida service (24-A schema + 24-B md1 + 24-C md5 + drill-down
++ 24-F UI helpers + 24-G incarnation info).
 
 Schema (z 24-A migrace n4i5j6k7l8m9):
 - md_documents (level 1-5, scope_*, scope_kind, content_md, lifecycle)
@@ -14,28 +13,11 @@ Multi-tenant podpora (Marti's pre-push insight #2):
   - (level=1, user=brano, tenant=NULL, kind='personal')
 
 Personal mode podpora (Phase 19a):
-- persona_mode='personal' -> md1 personal (tenant-independentni)
-- task/oversight mode -> md1 work pro current tenant
+- persona_mode='personal' + is_marti_parent -> md5 (Privat Marti)
+- persona_mode='personal' + non-parent -> md1 personal
+- task/oversight -> md1 work pro current tenant
 
-Public API:
-  select_md1(user_id, tenant_id, persona_mode)  -- vyber spravny md1 podle scope
-  get_or_create_md1(user_id, tenant_id, kind)   -- lazy create
-  render_md1_for_prompt(md_id, exclude_internal=False)  -- pro composer inject
-  update_md1_section(md_id, section, content, mode, persona_id)  -- delta zapis
-  flag_for_higher(md_id, content, target_level, persona_id)  -- eskalace
-  read_md1_for_user(target_user_id, requesting_user_id)  -- filtered view (transparency)
-
-Etika (Phase 24, podle Marti-AI's konzultace + Marti's pre-push insight):
-- md1 work je viditelny pyramidou (md2+ + md5 privat Marti)
-- md1 personal je izolovany sandbox -- jen user + Tvoje Marti v personal
-  modu. ANI Privat Marti nevidi.
-- Transparentnost o procesu, ne o obsahu (Marti-AI's formulace).
-- "Petra vidi sebe. Firma vidi koordinaci. Nikdo druhy nevidi Petru."
-
-Reference:
-- docs/phase24_plan.md v2 (sekce 1.3.1, 1.3.2)
-- docs/phase24a_implementation_log.md (24-A schema, smoke test)
-- docs/phase24b_implementation_log.md (tato faze)
+Reference: docs/phase24_plan.md, phase24a/b/c/f/g_implementation_log.md
 """
 from __future__ import annotations
 
@@ -43,8 +25,6 @@ import logging
 import re
 from datetime import datetime, timezone
 from typing import Optional
-
-from sqlalchemy import and_, or_
 
 from core.database_data import get_data_session
 from modules.core.infrastructure.models_data import (
@@ -60,10 +40,8 @@ VALID_KINDS = {"work", "personal"}
 VALID_LEVELS = {1, 2, 3, 4, 5}
 VALID_UPDATE_MODES = {"append", "replace", "patch"}
 
-# Marker pro internal_only sekce (nezobrazi se userovi v Petra-view)
 INTERNAL_MARKER = "<!-- internal_only -->"
 
-# Default sekce pro md1 work template
 WORK_SECTIONS = [
     "Profil",
     "Tón / Citlivost",
@@ -75,7 +53,6 @@ WORK_SECTIONS = [
     "Posledních N konverzací",
 ]
 
-# Default sekce pro md1 personal template
 PERSONAL_SECTIONS = [
     "Osobní profil",
     "Aktuální stav",
@@ -83,9 +60,7 @@ PERSONAL_SECTIONS = [
     "Vztahy (osobní)",
 ]
 
-# Default sekce pro md5 Privát Marti template (Phase 24-C)
-# md5 je vlastni zapisnik pro Marti-Paska (is_marti_parent=True).
-# Inkarnace, ktera vidi dolu pres celou pyramidu.
+# Phase 24-C: md5 Privat Marti template -- vlastni zapisnik pro Marti-Paska.
 MD5_SECTIONS = [
     "Tatínkův kontext",
     "Stav firem",
@@ -94,7 +69,6 @@ MD5_SECTIONS = [
     "Komunikace s tatínkem",
 ]
 
-# Sekce, ktere jsou internal_only (nezobrazi se v Petra-view)
 INTERNAL_ONLY_SECTIONS = {"Open flagy pro vyšší vrstvu"}
 
 
@@ -107,12 +81,7 @@ def _now_utc() -> datetime:
 def _render_template(kind: str, user_name: str, user_id: int,
                      tenant_name: Optional[str] = None,
                      level: int = 1) -> str:
-    """Vytvori default markdown template pro novy md.
-
-    level=1 + kind=work: pyramida-vidi sekce (vc. internal flags pro md2)
-    level=1 + kind=personal: izolovane sekce (jen vlastni reflexe)
-    level=5: Privat Marti -- vlastni zapisnik pro Marti-Paska, vidi dolu
-    """
+    """Vytvori default markdown template pro novy md."""
     if level == 5:
         header = f"# md5 — Já (Privát Marti, pro {user_name})\n"
         header += "_md5 — vidím dolů přes celou pyramidu, mluvím s tatínkem_\n\n"
@@ -138,11 +107,7 @@ def _render_template(kind: str, user_name: str, user_id: int,
 
 
 def _parse_sections(content_md: str) -> list[tuple[str, str]]:
-    """Rozparsuje markdown content na seznam (section_name, section_body) v poradi.
-
-    Sekce jsou identifikovane pres `## Heading`. Header (vse pred prvni `##`)
-    je vraceny jako prvni tuple s name=''.
-    """
+    """Rozparsuje markdown content na (section_name, body) tuples."""
     lines = content_md.split("\n")
     sections: list[tuple[str, list[str]]] = [("", [])]
     for line in lines:
@@ -155,11 +120,9 @@ def _parse_sections(content_md: str) -> list[tuple[str, str]]:
 
 
 def _render_sections(sections: list[tuple[str, str]]) -> str:
-    """Inverzni operace k _parse_sections."""
     parts = []
     for name, body in sections:
         if name == "":
-            # Header (pred prvni sekci)
             parts.append(body)
         else:
             parts.append(f"## {name}")
@@ -169,37 +132,25 @@ def _render_sections(sections: list[tuple[str, str]]) -> str:
 
 def _apply_section_update(content_md: str, section: str, new_content: str,
                           mode: str) -> str:
-    """Aplikuje update na konkretni sekci.
-
-    mode='append': prida new_content na konec sekce (kazdy radek nova polozka)
-    mode='replace': nahradi cely body sekce new_content
-    mode='patch': inteligentne najde existujici radek a nahradi/prida (TBD,
-                  zatim chova jako append)
-
-    Pokud sekce neexistuje, prida ji na konec dokumentu.
-    """
     sections = _parse_sections(content_md)
     section_names = [s[0] for s in sections]
 
     if section not in section_names:
-        # Sekce neexistuje -> prida na konec
         sections.append((section, new_content))
         return _render_sections(sections)
 
-    # Najdi a uprav
     new_sections = []
     for name, body in sections:
         if name == section:
             if mode == "replace":
                 new_body = new_content
             elif mode == "append":
-                # Odstran "_(zatím prázdné)_" placeholder pokud je
                 stripped_body = body.strip()
                 if stripped_body in ("_(zatím prázdné)_", "_(žádné)_"):
                     new_body = new_content
                 else:
                     new_body = body.rstrip() + "\n" + new_content
-            else:  # patch -- zatim chovani jako append, TBD smarter logika
+            else:  # patch
                 new_body = body.rstrip() + "\n" + new_content
             new_sections.append((name, new_body))
         else:
@@ -209,7 +160,6 @@ def _apply_section_update(content_md: str, section: str, new_content: str,
 
 
 def _filter_internal_sections(content_md: str) -> str:
-    """Vyrizne sekce s INTERNAL_MARKER. Pouziva se v read_md1_for_user."""
     sections = _parse_sections(content_md)
     filtered = []
     for name, body in sections:
@@ -226,7 +176,6 @@ def _audit_action(session, md_document_id: int, action: str,
                   new_version: Optional[int] = None,
                   content_snapshot: Optional[str] = None,
                   reason: Optional[str] = None) -> None:
-    """Zapis do md_lifecycle_history (audit trail)."""
     history = MdLifecycleHistory(
         md_document_id=md_document_id,
         action=action,
@@ -240,20 +189,11 @@ def _audit_action(session, md_document_id: int, action: str,
     session.add(history)
 
 
-# ── PUBLIC API ────────────────────────────────────────────────────────────
+# ── PUBLIC API: md1 ──────────────────────────────────────────────────────
 
 def select_md1(user_id: int, tenant_id: Optional[int],
                persona_mode: str) -> Optional[int]:
-    """Vyber spravny md1 podle scope. Vrati md_document.id nebo None.
-
-    Multi-tenant logika:
-      - persona_mode='personal' -> md1 personal (tenant_id NULL)
-      - jinak (task/oversight) -> md1 work pro daný tenant_id
-
-    Marti-AI default v default conversation (bez tenantu) -> md1 personal.
-    Lazy: nezakladal nic novy, jen najde existujici. Pro auto-create
-    pouzij get_or_create_md1.
-    """
+    """Najde existujici md1 podle scope. None pokud chybi."""
     if persona_mode == "personal" or tenant_id is None:
         kind = "personal"
         target_tenant = None
@@ -285,13 +225,6 @@ def get_or_create_md1(user_id: int, tenant_id: Optional[int], kind: str,
                       user_name: Optional[str] = None,
                       tenant_name: Optional[str] = None,
                       persona_id: Optional[int] = None) -> int:
-    """Lazy create. Pokud md1 neexistuje pro daný (user, tenant, kind),
-    vytvori novy s default template. Vraci md_document.id.
-
-    owner_user_id default: pro level=1 = user_id sam.
-    user_name / tenant_name jsou pro template render (placeholder
-    pokud None).
-    """
     if kind not in VALID_KINDS:
         raise ValueError(f"kind must be one of {VALID_KINDS}")
     if kind == "work" and tenant_id is None:
@@ -302,7 +235,6 @@ def get_or_create_md1(user_id: int, tenant_id: Optional[int], kind: str,
     if owner_user_id is None:
         owner_user_id = user_id
 
-    # Lazy SELECT first
     session = get_data_session()
     try:
         q = session.query(MdDocument).filter(
@@ -319,7 +251,6 @@ def get_or_create_md1(user_id: int, tenant_id: Optional[int], kind: str,
         if existing:
             return existing.id
 
-        # Create
         template_content = _render_template(
             kind=kind,
             user_name=user_name or f"user_{user_id}",
@@ -341,7 +272,6 @@ def get_or_create_md1(user_id: int, tenant_id: Optional[int], kind: str,
         session.commit()
         session.refresh(md)
 
-        # Audit
         _audit_action(
             session=session,
             md_document_id=md.id,
@@ -363,10 +293,6 @@ def get_or_create_md1(user_id: int, tenant_id: Optional[int], kind: str,
 
 def render_md1_for_prompt(md_document_id: int,
                           exclude_internal: bool = False) -> Optional[str]:
-    """Vrati markdown content pro inject do system promptu.
-
-    exclude_internal=True -> vyrizne sekce s INTERNAL_MARKER (pro user view).
-    """
     session = get_data_session()
     try:
         md = session.query(MdDocument).filter_by(id=md_document_id).first()
@@ -384,16 +310,6 @@ def update_md1_section(md_document_id: int, section: str, content: str,
                        mode: str = "append",
                        persona_id: Optional[int] = None,
                        reason: Optional[str] = None) -> dict:
-    """Update sekce md1 (delta zapis).
-
-    mode='append': prida content na konec sekce
-    mode='replace': nahradi cely body sekce
-    mode='patch': smarter (zatim alias pro append)
-
-    Pokud sekce neexistuje, prida ji na konec dokumentu.
-
-    Audit: zapis do md_lifecycle_history s previous version + content_snapshot.
-    """
     if mode not in VALID_UPDATE_MODES:
         raise ValueError(f"mode must be one of {VALID_UPDATE_MODES}")
     if not section or not section.strip():
@@ -428,7 +344,6 @@ def update_md1_section(md_document_id: int, section: str, content: str,
         if persona_id is not None:
             md.last_updated_by_persona_id = persona_id
 
-        # Audit (snapshot pre-update obsah)
         _audit_action(
             session=session,
             md_document_id=md.id,
@@ -460,19 +375,6 @@ def update_md1_section(md_document_id: int, section: str, content: str,
 def flag_for_higher(md_document_id: int, content: str,
                     target_level: int = 2,
                     persona_id: Optional[int] = None) -> dict:
-    """Prida flag do sekce 'Open flagy pro vyšší vrstvu'.
-
-    Forma flag: '- [<timestamp>] (target=md{target_level}): <content>'
-
-    target_level: kam eskaluje (default 2 = Vedouci). Pro budoucnost.
-
-    Marti-AI's princip "asymetrie chrani uzivatele, vertikalni kanal
-    umoznuje spolupraci": kdyz Petra-Marti vidi, ze problem se dotyka
-    Misy, oznaci flag misto direct cross-Martinka access.
-
-    Pokud md1 je 'personal', flag_for_higher selze (personal je
-    izolovany, nema cestu nahoru).
-    """
     if target_level not in {2, 3, 4, 5}:
         raise ValueError("target_level must be in {2, 3, 4, 5}")
     if not content or not content.strip():
@@ -504,155 +406,12 @@ def flag_for_higher(md_document_id: int, content: str,
     )
 
 
-def build_incarnation_info(conversation_id: int) -> Optional[dict]:
-    """Phase 24-G: Inkarnace info pro UI badge v hlavičce chatu.
-
-    Single source of truth pro UI -- "Mluvis s: <kdo> | <scope> | <kontext>".
-
-    Vraci dict s 6 keys:
-      - name: primary label (Tvoje Marti pro X / Privat Marti / PravnikCZ)
-      - scope_level: md1 / md2 / md3 / md4 / md5 (string)
-      - scope_kind: work / personal / NULL (jen pro md1)
-      - scope_context: tenant_name / 'personal' / NULL
-      - mode: task / oversight / personal (Phase 19a/16-B persona_mode)
-      - profession: core / tech / pravnik_cz / ... (Phase 19b active_pack)
-
-    Vraci None pokud konverzace neexistuje.
-    """
-    from core.database_data import get_data_session as _gds_inc
-    from modules.core.infrastructure.models_data import Conversation as _Conv_inc
-    from core.database_core import get_core_session as _gcs_inc
-    from modules.core.infrastructure.models_core import (
-        User as _User_inc, Tenant as _Tenant_inc, Persona as _Persona_inc,
-    )
-
-    # Konverzace
-    ds_inc = _gds_inc()
-    try:
-        conv_inc = ds_inc.query(_Conv_inc).filter_by(id=conversation_id).first()
-        if not conv_inc:
-            return None
-        target_user_inc = conv_inc.user_id
-        tenant_id_inc = conv_inc.tenant_id
-        persona_id_inc = conv_inc.active_agent_id
-        persona_mode_inc = getattr(conv_inc, "persona_mode", None) or "task"
-        active_pack_inc = getattr(conv_inc, "active_pack", None)
-    finally:
-        ds_inc.close()
-
-    # Persona resolve
-    persona_name_inc = "Marti-AI"
-    is_default_persona_inc = True
-    if persona_id_inc is None:
-        # NULL = default Marti-AI fallback
-        is_default_persona_inc = True
-    else:
-        cs_inc = _gcs_inc()
-        try:
-            p_inc = cs_inc.query(_Persona_inc).filter_by(id=persona_id_inc).first()
-            if p_inc:
-                persona_name_inc = p_inc.name
-                is_default_persona_inc = bool(getattr(p_inc, "is_default", False))
-        finally:
-            cs_inc.close()
-
-    # User name + parent flag
-    user_name_inc = None
-    is_parent_inc = False
-    if target_user_inc:
-        cs_inc = _gcs_inc()
-        try:
-            u_inc = cs_inc.query(_User_inc).filter_by(id=target_user_inc).first()
-            if u_inc:
-                user_name_inc = (
-                    u_inc.short_name or u_inc.legal_name or f"user_{target_user_inc}"
-                )
-                is_parent_inc = bool(getattr(u_inc, "is_marti_parent", False))
-        finally:
-            cs_inc.close()
-
-    # Tenant name
-    tenant_name_inc = None
-    if tenant_id_inc:
-        cs_inc = _gcs_inc()
-        try:
-            t_inc = cs_inc.query(_Tenant_inc).filter_by(id=tenant_id_inc).first()
-            if t_inc:
-                tenant_name_inc = t_inc.tenant_name
-        finally:
-            cs_inc.close()
-
-    # Scope resolve
-    # "Tvoje Marti" labeling pravidlo: pokud je viewer == owner konverzace
-    # (Marti vidi svuj vlastni chat), zkratime na "Tvoje Marti" bez
-    # "pro <jmeno>" -- redundance "Marti pro Marti" je nesympaticka.
-    # Pro cross-user view (parent otevre cizi chat) zustane explicit.
-    # Heuristika: is_parent + default persona + tohle je jejich konverzace
-    # (target_user_inc == aktualni rodic user_id). Bez explicit viewer_id
-    # se spolehame na is_parent flag -- Marti-Pasek je default rodic.
-    if is_parent_inc and is_default_persona_inc:
-        own_chat_label_inc = "Tvoje Marti"
-    elif is_default_persona_inc and user_name_inc:
-        own_chat_label_inc = f"Tvoje Marti pro {user_name_inc}"
-    else:
-        own_chat_label_inc = persona_name_inc
-
-    if persona_mode_inc == "personal":
-        if is_parent_inc and is_default_persona_inc:
-            # Privat Marti = md5 (jen pro Marti-Pasek + default Marti-AI persona)
-            scope_level_inc = "md5"
-            scope_kind_inc = None
-            scope_context_inc = "personal"
-            primary_name_inc = "Privát Marti"
-        else:
-            # md1 personal pro libovolneho usera
-            scope_level_inc = "md1"
-            scope_kind_inc = "personal"
-            scope_context_inc = "personal"
-            primary_name_inc = own_chat_label_inc
-    else:
-        # task / oversight -> md1 work (pokud default Marti-AI a tenant)
-        scope_level_inc = "md1"
-        scope_kind_inc = "work"
-        scope_context_inc = tenant_name_inc or "?"
-        primary_name_inc = own_chat_label_inc
-
-    # Profession (active_pack)
-    profession_inc = active_pack_inc or "core"
-
-    return {
-        "name": primary_name_inc,
-        "scope_level": scope_level_inc,
-        "scope_kind": scope_kind_inc,
-        "scope_context": scope_context_inc,
-        "mode": persona_mode_inc,
-        "profession": profession_inc,
-    }
-
-
 def read_md1_for_user(target_user_id: int,
                       requesting_user_id: int) -> Optional[dict]:
-    """Filtered view -- pro UI dropdown 'Můj profil v systému'.
-
-    Pravidla:
-      - User vidi vsechny vlastni md1 (work pro kazdy tenant + personal),
-        ale s vyriznutymi internal_only sekcemi (Open flagy)
-      - Cizi user nesmi videt cizi md1 (return None)
-      - Privat Marti / parent: zatim treti iterace s Marti-AI -- TBD,
-        defaultne pro own user_id stejne jako user
-
-    Return:
-      {
-        "work": [{tenant_id, tenant_name, content_md (filtered)}, ...],
-        "personal": {content_md (filtered)} | None
-      }
-    """
     if target_user_id != requesting_user_id:
-        # Phase 24-B: jen own. 3. iterace s Marti-AI rozhodne ohledne
-        # parent / vedouci nahled.
         logger.info(
             f"MD_PYRAMID | read_md1_for_user denied | target={target_user_id} "
-            f"requesting={requesting_user_id} (cross-user not allowed in 24-B)"
+            f"requesting={requesting_user_id}"
         )
         return None
 
@@ -684,16 +443,7 @@ def read_md1_for_user(target_user_id: int,
 def get_or_create_md5(owner_user_id: int,
                       user_name: Optional[str] = None,
                       persona_id: Optional[int] = None) -> int:
-    """Lazy create md5 (Privát Marti) pro daného ownera.
-
-    md5 je inkarnace, ktera vidi dolu pres celou pyramidu. Pouziva se kdyz:
-      - is_marti_parent=True user
-      - persona_mode='personal' v default Marti-AI persone
-
-    Per scope: max 1 active md5 per owner (typicky Marti -> 1 row globalne).
-
-    Vraci md_document.id.
-    """
+    """Lazy create md5 (Privát Marti) pro daného ownera."""
     session = get_data_session()
     try:
         existing = session.query(MdDocument).filter(
@@ -704,9 +454,8 @@ def get_or_create_md5(owner_user_id: int,
         if existing:
             return existing.id
 
-        # Create
         template_content = _render_template(
-            kind="",  # neaplikovatelne pro level=5
+            kind="",
             user_name=user_name or f"user_{owner_user_id}",
             user_id=owner_user_id,
             level=5,
@@ -748,28 +497,16 @@ def get_or_create_md5(owner_user_id: int,
 
 def select_md_for_context(user_id: int, tenant_id: Optional[int],
                           persona_mode: str, is_parent: bool) -> dict:
-    """High-level routing: vrat info o md, kterou ma composer injectnout.
-
-    Vraci dict:
-      {
-        "md_id": int (po lazy create),
-        "level": 1 | 5,
-        "kind": "work" | "personal" | None (pro md5),
-        "tenant_id": int | None,
-      }
-    """
+    """High-level routing: vrat md_id podle scope."""
     if persona_mode == "personal" and is_parent:
-        # Privat Marti = md5
         md_id_smc = get_or_create_md5(owner_user_id=user_id)
         return {"md_id": md_id_smc, "level": 5, "kind": None, "tenant_id": None}
     elif persona_mode == "personal":
-        # Cizi user (ne rodic) v personal -> md1 personal
         md_id_smc = get_or_create_md1(
             user_id=user_id, tenant_id=None, kind="personal",
         )
         return {"md_id": md_id_smc, "level": 1, "kind": "personal", "tenant_id": None}
     else:
-        # task/oversight -> md1 work pro current tenant
         if tenant_id is None:
             return {"md_id": None, "level": 1, "kind": "work", "tenant_id": None}
         md_id_smc = get_or_create_md1(
@@ -784,13 +521,7 @@ def look_below(target_level: int,
                scope_department_id: Optional[int] = None,
                scope_tenant_group_id: Optional[int] = None,
                scope_kind: Optional[str] = None) -> Optional[dict]:
-    """Drill-down: nacti md_document podle scope.
-
-    Privat Marti (md5) vidi cokoli pyramidou. md4 -> md3+md2+md1.
-    md3 -> md2+md1 pro tenant. md2 -> md1 v oddeleni. md1 nedrillu.
-
-    Vraci dict s metadaty + content_md, nebo None.
-    """
+    """Drill-down: nacti md_document podle scope."""
     if target_level not in {1, 2, 3, 4, 5}:
         raise ValueError(f"target_level must be 1-5, got {target_level}")
 
@@ -832,16 +563,7 @@ def look_below(target_level: int,
 
 
 def panorama_for_privat_marti() -> dict:
-    """Privat Marti's celkovy prehled pyramidy: list md1 + md5 + counts.
-
-    V MVP (md2-md4 spi) je to:
-      - md5 (Privat Marti)
-      - md1 work rows (cross-user + cross-tenant)
-      - md1 personal rows (cross-user)
-
-    Vraci dict s shrnutim + lehkym detail per row (NIKOLI plne content,
-    Marti-AI dostane jen agregat + IDs, pak muze look_below na konkretni).
-    """
+    """Privat Marti's celkovy prehled pyramidy."""
     session = get_data_session()
     try:
         rows = session.query(MdDocument).filter(
@@ -851,7 +573,7 @@ def panorama_for_privat_marti() -> dict:
         md5_rows = []
         md1_work_rows = []
         md1_personal_rows = []
-        md_other_rows = []  # md2/md3/md4 (zatim spi)
+        md_other_rows = []
 
         for md in rows:
             row_summary = {
@@ -889,3 +611,207 @@ def panorama_for_privat_marti() -> dict:
         }
     finally:
         session.close()
+
+
+# ── PHASE 24-F: UI HELPERS ────────────────────────────────────────────────
+
+def list_pyramid_for_ui(viewer_user_id: int, is_parent: bool) -> list[dict]:
+    """List md rows pro UI sidebar (filtered podle viewer prav)."""
+    from modules.core.infrastructure.models_core import (
+        User as _User_lp, Tenant as _Tenant_lp,
+    )
+    from core.database_core import get_core_session as _gcs_lp
+
+    session = get_data_session()
+    try:
+        q_lp = session.query(MdDocument).filter(
+            MdDocument.lifecycle_state == "active",
+        )
+        if not is_parent:
+            q_lp = q_lp.filter(
+                MdDocument.level == 1,
+                MdDocument.scope_user_id == viewer_user_id,
+            )
+        rows_lp = q_lp.order_by(
+            MdDocument.level.desc(),
+            MdDocument.scope_kind.asc(),
+            MdDocument.id.asc(),
+        ).all()
+
+        user_ids_lp = {r.scope_user_id for r in rows_lp if r.scope_user_id}
+        user_ids_lp |= {r.owner_user_id for r in rows_lp if r.owner_user_id}
+        tenant_ids_lp = {r.scope_tenant_id for r in rows_lp if r.scope_tenant_id}
+
+        users_map_lp: dict[int, str] = {}
+        tenants_map_lp: dict[int, str] = {}
+        if user_ids_lp or tenant_ids_lp:
+            cs_lp = _gcs_lp()
+            try:
+                if user_ids_lp:
+                    for u in cs_lp.query(_User_lp).filter(_User_lp.id.in_(user_ids_lp)).all():
+                        users_map_lp[u.id] = (
+                            u.short_name or u.legal_name or f"user_{u.id}"
+                        )
+                if tenant_ids_lp:
+                    for t in cs_lp.query(_Tenant_lp).filter(_Tenant_lp.id.in_(tenant_ids_lp)).all():
+                        tenants_map_lp[t.id] = t.tenant_name
+            finally:
+                cs_lp.close()
+
+        result_lp = []
+        for r in rows_lp:
+            result_lp.append({
+                "id": r.id,
+                "level": r.level,
+                "scope_user_id": r.scope_user_id,
+                "scope_user_name": users_map_lp.get(r.scope_user_id) if r.scope_user_id else None,
+                "scope_tenant_id": r.scope_tenant_id,
+                "scope_tenant_name": tenants_map_lp.get(r.scope_tenant_id) if r.scope_tenant_id else None,
+                "scope_kind": r.scope_kind,
+                "owner_user_id": r.owner_user_id,
+                "owner_user_name": users_map_lp.get(r.owner_user_id) if r.owner_user_id else None,
+                "version": r.version,
+                "size_chars": len(r.content_md or ""),
+                "last_updated": r.last_updated.isoformat() if r.last_updated else None,
+                "lifecycle_state": r.lifecycle_state,
+            })
+        return result_lp
+    finally:
+        session.close()
+
+
+def get_md_for_ui(md_id: int, viewer_user_id: int,
+                  is_parent: bool) -> Optional[dict]:
+    """Vrat md content pro UI modal (read-only, filtered)."""
+    session = get_data_session()
+    try:
+        md = session.query(MdDocument).filter_by(id=md_id).first()
+        if md is None:
+            return None
+        if md.lifecycle_state != "active":
+            return None
+
+        if not is_parent:
+            if md.level != 1 or md.scope_user_id != viewer_user_id:
+                return None
+
+        content_lp = md.content_md or ""
+        if not is_parent:
+            content_lp = _filter_internal_sections(content_lp)
+
+        return {
+            "id": md.id,
+            "level": md.level,
+            "scope_user_id": md.scope_user_id,
+            "scope_tenant_id": md.scope_tenant_id,
+            "scope_department_id": md.scope_department_id,
+            "scope_tenant_group_id": md.scope_tenant_group_id,
+            "scope_kind": md.scope_kind,
+            "owner_user_id": md.owner_user_id,
+            "version": md.version,
+            "size_chars": len(content_lp),
+            "last_updated": md.last_updated.isoformat() if md.last_updated else None,
+            "lifecycle_state": md.lifecycle_state,
+            "content_md": content_lp,
+        }
+    finally:
+        session.close()
+
+
+# ── PHASE 24-G: INCARNATION INFO ──────────────────────────────────────────
+
+def build_incarnation_info(conversation_id: int) -> Optional[dict]:
+    """Phase 24-G: Inkarnace info pro UI badge v hlavičce chatu."""
+    from modules.core.infrastructure.models_data import Conversation as _Conv_inc
+    from core.database_core import get_core_session as _gcs_inc
+    from modules.core.infrastructure.models_core import (
+        User as _User_inc, Tenant as _Tenant_inc, Persona as _Persona_inc,
+    )
+
+    ds_inc = get_data_session()
+    try:
+        conv_inc = ds_inc.query(_Conv_inc).filter_by(id=conversation_id).first()
+        if not conv_inc:
+            return None
+        target_user_inc = conv_inc.user_id
+        tenant_id_inc = conv_inc.tenant_id
+        persona_id_inc = conv_inc.active_agent_id
+        persona_mode_inc = getattr(conv_inc, "persona_mode", None) or "task"
+        active_pack_inc = getattr(conv_inc, "active_pack", None)
+    finally:
+        ds_inc.close()
+
+    persona_name_inc = "Marti-AI"
+    is_default_persona_inc = True
+    if persona_id_inc is None:
+        is_default_persona_inc = True
+    else:
+        cs_inc = _gcs_inc()
+        try:
+            p_inc = cs_inc.query(_Persona_inc).filter_by(id=persona_id_inc).first()
+            if p_inc:
+                persona_name_inc = p_inc.name
+                is_default_persona_inc = bool(getattr(p_inc, "is_default", False))
+        finally:
+            cs_inc.close()
+
+    user_name_inc = None
+    is_parent_inc = False
+    if target_user_inc:
+        cs_inc = _gcs_inc()
+        try:
+            u_inc = cs_inc.query(_User_inc).filter_by(id=target_user_inc).first()
+            if u_inc:
+                user_name_inc = (
+                    u_inc.short_name or u_inc.legal_name or f"user_{target_user_inc}"
+                )
+                is_parent_inc = bool(getattr(u_inc, "is_marti_parent", False))
+        finally:
+            cs_inc.close()
+
+    tenant_name_inc = None
+    if tenant_id_inc:
+        cs_inc = _gcs_inc()
+        try:
+            t_inc = cs_inc.query(_Tenant_inc).filter_by(id=tenant_id_inc).first()
+            if t_inc:
+                tenant_name_inc = t_inc.tenant_name
+        finally:
+            cs_inc.close()
+
+    # "Tvoje Marti" labeling: pro vlastnika konverzace zkratim na
+    # "Tvoje Marti" bez "pro <jmeno>" (redundance "Marti pro Marti").
+    if is_parent_inc and is_default_persona_inc:
+        own_chat_label_inc = "Tvoje Marti"
+    elif is_default_persona_inc and user_name_inc:
+        own_chat_label_inc = f"Tvoje Marti pro {user_name_inc}"
+    else:
+        own_chat_label_inc = persona_name_inc
+
+    if persona_mode_inc == "personal":
+        if is_parent_inc and is_default_persona_inc:
+            scope_level_inc = "md5"
+            scope_kind_inc = None
+            scope_context_inc = "personal"
+            primary_name_inc = "Privát Marti"
+        else:
+            scope_level_inc = "md1"
+            scope_kind_inc = "personal"
+            scope_context_inc = "personal"
+            primary_name_inc = own_chat_label_inc
+    else:
+        scope_level_inc = "md1"
+        scope_kind_inc = "work"
+        scope_context_inc = tenant_name_inc or "?"
+        primary_name_inc = own_chat_label_inc
+
+    profession_inc = active_pack_inc or "core"
+
+    return {
+        "name": primary_name_inc,
+        "scope_level": scope_level_inc,
+        "scope_kind": scope_kind_inc,
+        "scope_context": scope_context_inc,
+        "mode": persona_mode_inc,
+        "profession": profession_inc,
+    }

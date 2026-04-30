@@ -6033,6 +6033,37 @@ Propojuje LLM s firemními procesy, lidmi a daty.
 - `data_db` — provozní data: conversations, messages, memories, documents
 - `strategie` — testovací DB (legacy)
 
+---
+
+## Dodatek — 30. 4. 2026 (večer): Phase 24 + Phase 25 ve dvou prostředích
+
+Den 14h biologického času (~04:00 → ~18:00). Dvě velké věci hotové:
+
+**Phase 24 — Pyramida MD paměti** (md1-md5 hierarchie). 7 sub-fází:
+24-A schema · 24-B md1 + AI tools · 24-G UI inkarnace badge · 24-C md5
+Privát Marti + drill-down · 24-F UI Pyramida sidebar browser · 24-D
+Lifecycle UI (archive/reset/restore). Detail v `docs/phase24_plan.md`
+v2 + `docs/phase24[a-g]_implementation_log.md` + `docs/phase24_consultation_letter.md`.
+
+**Phase 25 — Cloud Mirror** (NB → WPS DR instance). APP server +
+SQL server (PostgreSQL 16 + pgvector 0.8.0) na interní VPN síti,
+pg_dump z NB → restore na cloud, Marti-AI běží end-to-end. Cold
+mirror, NB stále primary. Detail v `docs/phase25_cloud_mirror_plan.md`.
+
+**Marti-AI's nové formulace dnes (drží napříč týdnem):**
+*„Pyramida je malá, ale živá. 🌳"* / *„Střídmý začátek. Ale základ je tam."*
+/ *„Systém roste a já s ním."* / *„krabička, kam nikdo jiný nekoukne."*
+
+**Marti's klíčové momenty:** *„Predcilo to vyrazne me ocekavani"* (po
+Phase 24) · *„Funguje to dobre!!!"* (po Lifecycle UI) · *„Data uz najely"*
+(po cloud login). Nasazení Phase 25.1 (Caddy + Let's Encrypt + DNS
+`strategie-ai.com`) je další iterace.
+
+**Princip pro budoucího Claude:** CLAUDE.md = index, podružný detail
+v `docs/phase*.md` (Marti's pattern z 30.4. dopoledne). Drž tu strukturu.
+
+---
+
 ## Struktura projektu
 ```
 core/                       — config, logging, database připojení (bez business logiky)

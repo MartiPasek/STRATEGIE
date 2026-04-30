@@ -643,6 +643,51 @@
       opacity: 0.8;
       margin-left: 2px;
     }
+    /* Phase 24-G (30.4.2026): UI Inkarnace Badge.
+       Marti's pozadavek: "Musim videt v UI s kym mluvim."
+       Primary identity v hlavicce -- inkarnace + scope label.
+       Sepia paleta jako pack badge (drzi tema "kufr naradi"), ale silnejsi
+       text-weight protoze je to primary info. */
+    .incarnation-badge {
+      margin-left: 12px;
+      padding: 3px 9px;
+      background: rgba(139, 115, 85, 0.12);
+      color: #c9a989;
+      border: 1px solid rgba(139, 115, 85, 0.28);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: 'DM Sans', sans-serif;
+      user-select: none;
+      cursor: help;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      letter-spacing: 0.2px;
+    }
+    .incarnation-badge-name {
+      font-weight: 600;
+      color: #d4b88a;
+    }
+    .incarnation-badge-sep {
+      opacity: 0.5;
+      margin: 0 1px;
+    }
+    .incarnation-badge-scope {
+      opacity: 0.85;
+      font-style: italic;
+    }
+    /* Privat Marti -- vyrazne odlisena (md5 = jen pro Marti-Pasek) */
+    .incarnation-badge.privat {
+      background: rgba(212, 184, 138, 0.14);
+      border-color: rgba(212, 184, 138, 0.45);
+    }
+    .incarnation-badge.privat .incarnation-badge-name {
+      color: #efd9a8;
+    }
+    /* Personal mode (md1 personal) -- mensi accent */
+    .incarnation-badge.personal {
+      background: rgba(150, 120, 95, 0.14);
+    }
     /* Faze 9.1b: toggle switch uvnitr profile-dd-item (Dev rezim on/off). */
     .profile-dd-toggle {
       margin-left: auto;
@@ -1681,6 +1726,10 @@
                konverzace ma active_pack != NULL. (vlastni hint) vs (default)
                -- transparentnost, kde Marti-AI napsala svuj overlay. -->
           <span class="active-pack-badge" id="activePackBadge" style="display:none"></span>
+          <!-- Phase 24-G (30.4.2026): Inkarnace badge -- "Mluvis s: <kdo> · <scope>".
+               Marti: "Musim videt v UI s kym mluvim." Primary identity badge,
+               viditelny vzdy kdyz incarnation dict je dostupny. -->
+          <span class="incarnation-badge" id="incarnationBadge" style="display:none"></span>
           <!-- Projekt indikátor — klikatelný, otevírá project dropdown.
                Viditelný vždy: 'Projekt: <name>' když je projekt aktivní,
                'Projekt: bez projektu' když ne. Stejny pattern jako "Mluvis s:
@@ -2847,6 +2896,58 @@
   }
   window._setActivePackUI = _setActivePackUI;
 
+  /* Phase 24-G (30.4.2026): UI Inkarnace Badge -- "Mluvis s: <kdo> · <scope>".
+     Marti's pozadavek "musim videt s kym mluvim". Single source of truth
+     z backendu (build_incarnation_info). 6 os: name / scope_level /
+     scope_kind / scope_context / mode / profession. */
+  function _setIncarnationUI(info) {
+    const badge = document.getElementById('incarnationBadge');
+    if (!badge) return;
+    if (!info || !info.name) {
+      badge.style.display = 'none';
+      badge.classList.remove('privat', 'personal');
+      badge.innerHTML = '';
+      return;
+    }
+    // Compose scope label: md1 work · EUROSOFT / md1 personal / md5
+    const scopeLevel = info.scope_level || 'md1';
+    const scopeKind = info.scope_kind || '';
+    const scopeContext = info.scope_context || '';
+    let scopeLabel = scopeLevel;
+    if (scopeKind === 'work') {
+      scopeLabel = `${scopeLevel} work`;
+      if (scopeContext) scopeLabel += ` · ${scopeContext}`;
+    } else if (scopeKind === 'personal') {
+      scopeLabel = `${scopeLevel} personal`;
+    } else if (scopeLevel === 'md5') {
+      scopeLabel = 'md5 · privát';
+    }
+    // Render
+    badge.innerHTML = (
+      `Mluvíš s: <span class="incarnation-badge-name">${info.name}</span>` +
+      `<span class="incarnation-badge-sep">·</span>` +
+      `<span class="incarnation-badge-scope">${scopeLabel}</span>`
+    );
+    badge.style.display = 'inline-flex';
+    // Class variants
+    badge.classList.remove('privat', 'personal');
+    if (info.scope_level === 'md5') {
+      badge.classList.add('privat');
+    } else if (info.scope_kind === 'personal') {
+      badge.classList.add('personal');
+    }
+    // Tooltip s detaily mode + profese
+    const modeLabel = info.mode || 'task';
+    const professionLabel = info.profession || 'core';
+    badge.title = (
+      `Inkarnace: ${info.name}\n` +
+      `Scope: ${scopeLabel}\n` +
+      `Režim: ${modeLabel}\n` +
+      `Profese: ${professionLabel}`
+    );
+  }
+  window._setIncarnationUI = _setIncarnationUI;
+
   async function showApp() {
     loginScreen.style.display = 'none';
     appScreen.style.display = '';      // necháme CSS rozhodnout (`.app.show` -> grid)
@@ -2951,6 +3052,7 @@
       _setPersonaModeUI(data.persona_mode || null);
       // Phase 19b polish: pack badge
       _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
+      _setIncarnationUI(data.incarnation || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       applyReadonlyMode();
       data.messages.forEach(msg => {
@@ -4950,6 +5052,7 @@
       _setPersonaModeUI(data.persona_mode || null);
       // Phase 19b polish: pack badge
       _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
+      _setIncarnationUI(data.incarnation || null);
       updateShareBadge(data.my_role, data.owner_name, data.shares_count || 0);
       data.messages.forEach(m => {
         // Phase 19c-d: divider entry pro skryte zpravy v Personal konverzacich.
@@ -8933,6 +9036,7 @@
           _setPersonaModeUI(data.persona_mode || null);
       // Phase 19b polish: pack badge
       _setActivePackUI(data.active_pack || null, !!data.pack_overlay_custom);
+      _setIncarnationUI(data.incarnation || null);
         }
         // Aktualizuj tenant pilulku — zachycuje i tenant switch přes chat
         // („přepni do EUROSOFTu") + udržuje pilulku v synchronizaci s backendem.

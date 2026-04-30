@@ -50,6 +50,13 @@ class ChatResponse(BaseModel):
     # badge musí být refresnut. NULL = core. Plus pack_overlay_custom.
     active_pack: str | None = None
     pack_overlay_custom: bool = False
+    # Phase 24-G (30.4.2026): UI Inkarnace Badge -- "Musim videt s kym mluvim."
+    # Single dict source of truth pro hlavičku chatu.
+    # Klice: name (Tvoje Marti pro X / Privat Marti / PravnikCZ), scope_level
+    # (md1/md2/md3/md4/md5), scope_kind (work/personal/null), scope_context
+    # (tenant_name / "personal" / null), mode (task/oversight/personal),
+    # profession (core/tech/pravnik_cz/...).
+    incarnation: dict | None = None
 
 
 class HistoryMessage(BaseModel):
@@ -116,6 +123,8 @@ class LastConversationResponse(BaseModel):
     # True -> UI badge zobrazí "(vlastní hint)", False -> "(default)".
     # Transparentnost: tatínek vidí, kde si Marti-AI napsala svůj hlas.
     pack_overlay_custom: bool = False
+    # Phase 24-G (30.4.2026): UI Inkarnace Badge dict (viz ChatResponse).
+    incarnation: dict | None = None
 
 
 class ConversationListItem(BaseModel):

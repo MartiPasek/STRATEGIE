@@ -21,6 +21,20 @@ logger = get_logger("conversation.api")
 router = APIRouter(prefix="/api/v1/conversation", tags=["conversation"])
 
 
+def _build_incarnation_safe(conversation_id: int | None) -> dict | None:
+    """Phase 24-G: Wrapper pro build_incarnation_info -- safe pri exception.
+    Pouziva se v endpointech /chat, /last, /load. Single source of truth
+    pro UI hlavičku "Mluvis s: ..."."""
+    if not conversation_id:
+        return None
+    try:
+        from modules.md_pyramid.application.service import build_incarnation_info
+        return build_incarnation_info(conversation_id)
+    except Exception as e:
+        logger.warning(f"_build_incarnation_safe failed: {e}")
+        return None
+
+
 def _get_current_tenant_for_user(
     user_id: int | None,
 ) -> tuple[int | None, str | None, str | None, str | None]:
@@ -182,6 +196,9 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         except Exception:
             pass
 
+        # Phase 24-G (30.4.2026): UI Inkarnace Badge dict
+        _incarnation_chat = _build_incarnation_safe(conversation_id)
+
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
@@ -199,6 +216,8 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             # Phase 19b polish (29.4.2026 vecer): UI badge signal
             active_pack=_active_pack,
             pack_overlay_custom=_pack_overlay_custom,
+            # Phase 24-G: 6-axis incarnation info
+            incarnation=_incarnation_chat,
         )
     except HTTPException:
         # Propusť HTTPException rovnou (vlastní raise z vnitřku).
@@ -290,6 +309,8 @@ def get_last(req: Request):
         # Phase 19b polish (29.4.2026 vecer): active_pack pro UI badge
         active_pack=result.get("active_pack"),
         pack_overlay_custom=result.get("pack_overlay_custom", False),
+        # Phase 24-G (30.4.2026): UI Inkarnace Badge -- 6-axis info
+        incarnation=_build_incarnation_safe(result["conversation_id"]),
     )
 
 
@@ -462,6 +483,11 @@ def load_user_conversation(conversation_id: int, req: Request):
         # Phase 19c-e1 (29.4.2026): UI potrebuje znat lifecycle_state pro
         # read-only enforcement (personal = knizka, ne chat).
         lifecycle_state=result.get("lifecycle_state"),
+        # Phase 19b polish: active_pack pro hlavičkovy badge.
+        active_pack=result.get("active_pack"),
+        pack_overlay_custom=result.get("pack_overlay_custom", False),
+        # Phase 24-G (30.4.2026): UI Inkarnace Badge -- 6-axis info
+        incarnation=_build_incarnation_safe(result["conversation_id"]),
     )
 
 

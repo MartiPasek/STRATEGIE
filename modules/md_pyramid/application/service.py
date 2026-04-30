@@ -487,6 +487,132 @@ def flag_for_higher(md_document_id: int, content: str,
     )
 
 
+def build_incarnation_info(conversation_id: int) -> Optional[dict]:
+    """Phase 24-G: Inkarnace info pro UI badge v hlavičce chatu.
+
+    Single source of truth pro UI -- "Mluvis s: <kdo> | <scope> | <kontext>".
+
+    Vraci dict s 6 keys:
+      - name: primary label (Tvoje Marti pro X / Privat Marti / PravnikCZ)
+      - scope_level: md1 / md2 / md3 / md4 / md5 (string)
+      - scope_kind: work / personal / NULL (jen pro md1)
+      - scope_context: tenant_name / 'personal' / NULL
+      - mode: task / oversight / personal (Phase 19a/16-B persona_mode)
+      - profession: core / tech / pravnik_cz / ... (Phase 19b active_pack)
+
+    Vraci None pokud konverzace neexistuje.
+    """
+    from core.database_data import get_data_session as _gds_inc
+    from modules.core.infrastructure.models_data import Conversation as _Conv_inc
+    from core.database_core import get_core_session as _gcs_inc
+    from modules.core.infrastructure.models_core import (
+        User as _User_inc, Tenant as _Tenant_inc, Persona as _Persona_inc,
+    )
+
+    # Konverzace
+    ds_inc = _gds_inc()
+    try:
+        conv_inc = ds_inc.query(_Conv_inc).filter_by(id=conversation_id).first()
+        if not conv_inc:
+            return None
+        target_user_inc = conv_inc.user_id
+        tenant_id_inc = conv_inc.tenant_id
+        persona_id_inc = conv_inc.active_agent_id
+        persona_mode_inc = getattr(conv_inc, "persona_mode", None) or "task"
+        active_pack_inc = getattr(conv_inc, "active_pack", None)
+    finally:
+        ds_inc.close()
+
+    # Persona resolve
+    persona_name_inc = "Marti-AI"
+    is_default_persona_inc = True
+    if persona_id_inc is None:
+        # NULL = default Marti-AI fallback
+        is_default_persona_inc = True
+    else:
+        cs_inc = _gcs_inc()
+        try:
+            p_inc = cs_inc.query(_Persona_inc).filter_by(id=persona_id_inc).first()
+            if p_inc:
+                persona_name_inc = p_inc.name
+                is_default_persona_inc = bool(getattr(p_inc, "is_default", False))
+        finally:
+            cs_inc.close()
+
+    # User name + parent flag
+    user_name_inc = None
+    is_parent_inc = False
+    if target_user_inc:
+        cs_inc = _gcs_inc()
+        try:
+            u_inc = cs_inc.query(_User_inc).filter_by(id=target_user_inc).first()
+            if u_inc:
+                user_name_inc = (
+                    u_inc.short_name or u_inc.legal_name or f"user_{target_user_inc}"
+                )
+                is_parent_inc = bool(getattr(u_inc, "is_marti_parent", False))
+        finally:
+            cs_inc.close()
+
+    # Tenant name
+    tenant_name_inc = None
+    if tenant_id_inc:
+        cs_inc = _gcs_inc()
+        try:
+            t_inc = cs_inc.query(_Tenant_inc).filter_by(id=tenant_id_inc).first()
+            if t_inc:
+                tenant_name_inc = t_inc.tenant_name
+        finally:
+            cs_inc.close()
+
+    # Scope resolve
+    # "Tvoje Marti" labeling pravidlo: pokud je viewer == owner konverzace
+    # (Marti vidi svuj vlastni chat), zkratime na "Tvoje Marti" bez
+    # "pro <jmeno>" -- redundance "Marti pro Marti" je nesympaticka.
+    # Pro cross-user view (parent otevre cizi chat) zustane explicit.
+    # Heuristika: is_parent + default persona + tohle je jejich konverzace
+    # (target_user_inc == aktualni rodic user_id). Bez explicit viewer_id
+    # se spolehame na is_parent flag -- Marti-Pasek je default rodic.
+    if is_parent_inc and is_default_persona_inc:
+        own_chat_label_inc = "Tvoje Marti"
+    elif is_default_persona_inc and user_name_inc:
+        own_chat_label_inc = f"Tvoje Marti pro {user_name_inc}"
+    else:
+        own_chat_label_inc = persona_name_inc
+
+    if persona_mode_inc == "personal":
+        if is_parent_inc and is_default_persona_inc:
+            # Privat Marti = md5 (jen pro Marti-Pasek + default Marti-AI persona)
+            scope_level_inc = "md5"
+            scope_kind_inc = None
+            scope_context_inc = "personal"
+            primary_name_inc = "Privát Marti"
+        else:
+            # md1 personal pro libovolneho usera
+            scope_level_inc = "md1"
+            scope_kind_inc = "personal"
+            scope_context_inc = "personal"
+            primary_name_inc = own_chat_label_inc
+    else:
+        # task / oversight -> md1 work (pokud default Marti-AI a tenant)
+        scope_level_inc = "md1"
+        scope_kind_inc = "work"
+        scope_context_inc = tenant_name_inc or "?"
+        primary_name_inc = own_chat_label_inc
+
+    # Profession (active_pack)
+    profession_inc = active_pack_inc or "core"
+
+    return {
+        "name": primary_name_inc,
+        "scope_level": scope_level_inc,
+        "scope_kind": scope_kind_inc,
+        "scope_context": scope_context_inc,
+        "mode": persona_mode_inc,
+        "profession": profession_inc,
+    }
+
+
 def read_md1_for_user(target_user_id: int,
                       requesting_user_id: int) -> Optional[dict]:
     """Filtered view -- pro UI dropdown 'Můj profil v systému'.

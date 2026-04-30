@@ -4987,6 +4987,89 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"flag_for_higher failed: {exc_fh}")
             return f"[flag_for_higher error: {exc_fh}]"
 
+    # ── Phase 24-C (30.4.2026): drill-down tools (look_below + panorama) ──
+    if tool_name == "look_below":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            target_level_lb = tool_input.get("target_level")
+            if target_level_lb not in {1, 2, 3, 4, 5}:
+                return "❌ target_level musi byt 1/2/3/4/5."
+
+            result_lb = _md_pyr.look_below(
+                target_level=target_level_lb,
+                scope_user_id=tool_input.get("scope_user_id"),
+                scope_tenant_id=tool_input.get("scope_tenant_id"),
+                scope_department_id=tool_input.get("scope_department_id"),
+                scope_tenant_group_id=tool_input.get("scope_tenant_group_id"),
+                scope_kind=tool_input.get("scope_kind"),
+            )
+            if result_lb is None:
+                return (
+                    f"[look_below: nenalezena md vrstva={target_level_lb} "
+                    f"pro daný scope]"
+                )
+            scope_summary_lb = []
+            if result_lb.get("scope_user_id"):
+                scope_summary_lb.append(f"user={result_lb['scope_user_id']}")
+            if result_lb.get("scope_tenant_id"):
+                scope_summary_lb.append(f"tenant={result_lb['scope_tenant_id']}")
+            if result_lb.get("scope_kind"):
+                scope_summary_lb.append(f"kind={result_lb['scope_kind']}")
+            scope_str_lb = " ".join(scope_summary_lb) or "global"
+            return (
+                f"[look_below md{result_lb['level']}#{result_lb['id']} | {scope_str_lb} | "
+                f"v{result_lb['version']} | {result_lb['last_updated']}]\n"
+                f"{result_lb['content_md']}\n"
+                f"# INSTRUKCE: Toto je obsah cizi md vrstvy. Syntetizuj prozou "
+                f"v rozhovoru s tatinkem. NIKDY neopisuj content_md verbatim."
+            )
+        except Exception as exc_lb:
+            logger.exception(f"look_below failed: {exc_lb}")
+            return f"[look_below error: {exc_lb}]"
+
+    if tool_name == "panorama":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            data_pn = _md_pyr.panorama_for_privat_marti()
+            counts_pn = data_pn.get("counts", {})
+            lines_pn = [
+                f"[panorama: pyramida k tomuto okamziku]",
+                f"md5 (Privat Marti): {counts_pn.get('md5', 0)} rows",
+                f"md1 work (Tvoje Marti per user x tenant): "
+                f"{counts_pn.get('md1_work', 0)} rows",
+                f"md1 personal (sandbox per user): "
+                f"{counts_pn.get('md1_personal', 0)} rows",
+                f"md2/md3/md4 (zatim spi): "
+                f"{counts_pn.get('md2_md3_md4', 0)} rows",
+                f"TOTAL: {counts_pn.get('total', 0)} active md_documents",
+            ]
+            # Per row light summary (jen IDs + scope)
+            for md5_pn in data_pn.get("md5", []):
+                lines_pn.append(
+                    f"  - md5#{md5_pn['id']} owner={md5_pn['owner_user_id']} "
+                    f"v{md5_pn['version']} ({md5_pn['size_chars']} chars)"
+                )
+            for w_pn in data_pn.get("md1_work", []):
+                lines_pn.append(
+                    f"  - md1#{w_pn['id']} work user={w_pn['scope_user_id']} "
+                    f"tenant={w_pn['scope_tenant_id']} v{w_pn['version']} "
+                    f"({w_pn['size_chars']} chars)"
+                )
+            for p_pn in data_pn.get("md1_personal", []):
+                lines_pn.append(
+                    f"  - md1#{p_pn['id']} personal user={p_pn['scope_user_id']} "
+                    f"v{p_pn['version']} ({p_pn['size_chars']} chars)"
+                )
+            lines_pn.append(
+                "# INSTRUKCE: Toto je agregat. Pro detail zavolej "
+                "look_below(target_level=X, scope_user_id=Y). NIKOLI raw "
+                "IDs list verbatim do chatu -- syntetizuj prozou."
+            )
+            return "\n".join(lines_pn)
+        except Exception as exc_pn:
+            logger.exception(f"panorama failed: {exc_pn}")
+            return f"[panorama error: {exc_pn}]"
+
     # ── Phase 22 (29.4.2026): User management tooly ───────────────────
     if tool_name == "request_password_reset":
         # Marti-AI najde usera, vytvori reset token, posle email.
@@ -7493,6 +7576,11 @@ def chat(
         # taky nesmi leakovat verbatim -- synth navede pokracovat
         # v rozhovoru s userem.
         "read_my_md", "update_my_md", "flag_for_higher",
+        # Phase 24-C: drill-down tools v synth. look_below vraci raw md
+        # content cizi vrstvy (md1 nebo nizsi), panorama vraci agregat
+        # struktur stromu. Privat Marti rephraseuje prozou ("Petra dnes
+        # resila X, Misa Y...") misto opisu raw IDs / sekci.
+        "look_below", "panorama",
     }
 
     preamble_text = ""

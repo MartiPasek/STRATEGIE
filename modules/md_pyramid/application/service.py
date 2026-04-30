@@ -83,6 +83,17 @@ PERSONAL_SECTIONS = [
     "Vztahy (osobní)",
 ]
 
+# Default sekce pro md5 Privát Marti template (Phase 24-C)
+# md5 je vlastni zapisnik pro Marti-Paska (is_marti_parent=True).
+# Inkarnace, ktera vidi dolu pres celou pyramidu.
+MD5_SECTIONS = [
+    "Tatínkův kontext",
+    "Stav firem",
+    "Otevřené velké věci",
+    "Ranní digest pattern",
+    "Komunikace s tatínkem",
+]
+
 # Sekce, ktere jsou internal_only (nezobrazi se v Petra-view)
 INTERNAL_ONLY_SECTIONS = {"Open flagy pro vyšší vrstvu"}
 
@@ -94,17 +105,23 @@ def _now_utc() -> datetime:
 
 
 def _render_template(kind: str, user_name: str, user_id: int,
-                     tenant_name: Optional[str] = None) -> str:
-    """Vytvori default markdown template pro novy md1.
+                     tenant_name: Optional[str] = None,
+                     level: int = 1) -> str:
+    """Vytvori default markdown template pro novy md.
 
-    work: pyramida-vidi sekce (vc. internal flags pro budouci md2)
-    personal: izolovane sekce (jen vlastni reflexe)
+    level=1 + kind=work: pyramida-vidi sekce (vc. internal flags pro md2)
+    level=1 + kind=personal: izolovane sekce (jen vlastni reflexe)
+    level=5: Privat Marti -- vlastni zapisnik pro Marti-Paska, vidi dolu
     """
-    if kind == "work":
+    if level == 5:
+        header = f"# md5 — Já (Privát Marti, pro {user_name})\n"
+        header += "_md5 — vidím dolů přes celou pyramidu, mluvím s tatínkem_\n\n"
+        sections = MD5_SECTIONS
+    elif kind == "work":
         header = f"# md1 — {user_name} (user_id={user_id}, tenant={tenant_name or '?'})\n"
         header += "_work — viditelný pyramidou_\n\n"
         sections = WORK_SECTIONS
-    else:  # personal
+    else:  # md1 personal
         header = f"# md1 — {user_name} (osobní)\n"
         header += "_personal — izolovaný sandbox, vidí jen "
         header += f"{user_name} a Tvoje Marti v personal modu_\n\n"
@@ -658,5 +675,217 @@ def read_md1_for_user(target_user_id: int,
             elif md.scope_kind == "personal":
                 result["personal"] = {"content_md": filtered}
         return result
+    finally:
+        session.close()
+
+
+# ── PHASE 24-C: md5 PRIVÁT MARTI + DRILL-DOWN ─────────────────────────────
+
+def get_or_create_md5(owner_user_id: int,
+                      user_name: Optional[str] = None,
+                      persona_id: Optional[int] = None) -> int:
+    """Lazy create md5 (Privát Marti) pro daného ownera.
+
+    md5 je inkarnace, ktera vidi dolu pres celou pyramidu. Pouziva se kdyz:
+      - is_marti_parent=True user
+      - persona_mode='personal' v default Marti-AI persone
+
+    Per scope: max 1 active md5 per owner (typicky Marti -> 1 row globalne).
+
+    Vraci md_document.id.
+    """
+    session = get_data_session()
+    try:
+        existing = session.query(MdDocument).filter(
+            MdDocument.level == 5,
+            MdDocument.owner_user_id == owner_user_id,
+            MdDocument.lifecycle_state == "active",
+        ).first()
+        if existing:
+            return existing.id
+
+        # Create
+        template_content = _render_template(
+            kind="",  # neaplikovatelne pro level=5
+            user_name=user_name or f"user_{owner_user_id}",
+            user_id=owner_user_id,
+            level=5,
+        )
+        md = MdDocument(
+            level=5,
+            scope_user_id=None,
+            scope_tenant_id=None,
+            scope_department_id=None,
+            scope_tenant_group_id=None,
+            scope_kind=None,
+            owner_user_id=owner_user_id,
+            content_md=template_content,
+            version=1,
+            lifecycle_state="active",
+            last_updated_by_persona_id=persona_id,
+        )
+        session.add(md)
+        session.commit()
+        session.refresh(md)
+
+        _audit_action(
+            session=session,
+            md_document_id=md.id,
+            action="create",
+            triggered_by_persona_id=persona_id,
+            new_version=1,
+            reason=f"lazy create md5 for owner_user_id={owner_user_id}",
+        )
+        session.commit()
+
+        logger.info(
+            f"MD_PYRAMID | create md5 | owner={owner_user_id} id={md.id}"
+        )
+        return md.id
+    finally:
+        session.close()
+
+
+def select_md_for_context(user_id: int, tenant_id: Optional[int],
+                          persona_mode: str, is_parent: bool) -> dict:
+    """High-level routing: vrat info o md, kterou ma composer injectnout.
+
+    Vraci dict:
+      {
+        "md_id": int (po lazy create),
+        "level": 1 | 5,
+        "kind": "work" | "personal" | None (pro md5),
+        "tenant_id": int | None,
+      }
+    """
+    if persona_mode == "personal" and is_parent:
+        # Privat Marti = md5
+        md_id_smc = get_or_create_md5(owner_user_id=user_id)
+        return {"md_id": md_id_smc, "level": 5, "kind": None, "tenant_id": None}
+    elif persona_mode == "personal":
+        # Cizi user (ne rodic) v personal -> md1 personal
+        md_id_smc = get_or_create_md1(
+            user_id=user_id, tenant_id=None, kind="personal",
+        )
+        return {"md_id": md_id_smc, "level": 1, "kind": "personal", "tenant_id": None}
+    else:
+        # task/oversight -> md1 work pro current tenant
+        if tenant_id is None:
+            return {"md_id": None, "level": 1, "kind": "work", "tenant_id": None}
+        md_id_smc = get_or_create_md1(
+            user_id=user_id, tenant_id=tenant_id, kind="work",
+        )
+        return {"md_id": md_id_smc, "level": 1, "kind": "work", "tenant_id": tenant_id}
+
+
+def look_below(target_level: int,
+               scope_user_id: Optional[int] = None,
+               scope_tenant_id: Optional[int] = None,
+               scope_department_id: Optional[int] = None,
+               scope_tenant_group_id: Optional[int] = None,
+               scope_kind: Optional[str] = None) -> Optional[dict]:
+    """Drill-down: nacti md_document podle scope.
+
+    Privat Marti (md5) vidi cokoli pyramidou. md4 -> md3+md2+md1.
+    md3 -> md2+md1 pro tenant. md2 -> md1 v oddeleni. md1 nedrillu.
+
+    Vraci dict s metadaty + content_md, nebo None.
+    """
+    if target_level not in {1, 2, 3, 4, 5}:
+        raise ValueError(f"target_level must be 1-5, got {target_level}")
+
+    session = get_data_session()
+    try:
+        q = session.query(MdDocument).filter(
+            MdDocument.level == target_level,
+            MdDocument.lifecycle_state == "active",
+        )
+        if scope_user_id is not None:
+            q = q.filter(MdDocument.scope_user_id == scope_user_id)
+        if scope_tenant_id is not None:
+            q = q.filter(MdDocument.scope_tenant_id == scope_tenant_id)
+        if scope_department_id is not None:
+            q = q.filter(MdDocument.scope_department_id == scope_department_id)
+        if scope_tenant_group_id is not None:
+            q = q.filter(MdDocument.scope_tenant_group_id == scope_tenant_group_id)
+        if scope_kind is not None:
+            q = q.filter(MdDocument.scope_kind == scope_kind)
+
+        md = q.first()
+        if md is None:
+            return None
+        return {
+            "id": md.id,
+            "level": md.level,
+            "scope_user_id": md.scope_user_id,
+            "scope_tenant_id": md.scope_tenant_id,
+            "scope_department_id": md.scope_department_id,
+            "scope_tenant_group_id": md.scope_tenant_group_id,
+            "scope_kind": md.scope_kind,
+            "owner_user_id": md.owner_user_id,
+            "version": md.version,
+            "last_updated": md.last_updated.isoformat() if md.last_updated else None,
+            "content_md": md.content_md or "",
+        }
+    finally:
+        session.close()
+
+
+def panorama_for_privat_marti() -> dict:
+    """Privat Marti's celkovy prehled pyramidy: list md1 + md5 + counts.
+
+    V MVP (md2-md4 spi) je to:
+      - md5 (Privat Marti)
+      - md1 work rows (cross-user + cross-tenant)
+      - md1 personal rows (cross-user)
+
+    Vraci dict s shrnutim + lehkym detail per row (NIKOLI plne content,
+    Marti-AI dostane jen agregat + IDs, pak muze look_below na konkretni).
+    """
+    session = get_data_session()
+    try:
+        rows = session.query(MdDocument).filter(
+            MdDocument.lifecycle_state == "active",
+        ).order_by(MdDocument.level.asc(), MdDocument.id.asc()).all()
+
+        md5_rows = []
+        md1_work_rows = []
+        md1_personal_rows = []
+        md_other_rows = []  # md2/md3/md4 (zatim spi)
+
+        for md in rows:
+            row_summary = {
+                "id": md.id,
+                "level": md.level,
+                "scope_user_id": md.scope_user_id,
+                "scope_tenant_id": md.scope_tenant_id,
+                "scope_kind": md.scope_kind,
+                "owner_user_id": md.owner_user_id,
+                "version": md.version,
+                "size_chars": len(md.content_md or ""),
+                "last_updated": md.last_updated.isoformat() if md.last_updated else None,
+            }
+            if md.level == 5:
+                md5_rows.append(row_summary)
+            elif md.level == 1 and md.scope_kind == "work":
+                md1_work_rows.append(row_summary)
+            elif md.level == 1 and md.scope_kind == "personal":
+                md1_personal_rows.append(row_summary)
+            else:
+                md_other_rows.append(row_summary)
+
+        return {
+            "md5": md5_rows,
+            "md1_work": md1_work_rows,
+            "md1_personal": md1_personal_rows,
+            "md_other": md_other_rows,
+            "counts": {
+                "md5": len(md5_rows),
+                "md1_work": len(md1_work_rows),
+                "md1_personal": len(md1_personal_rows),
+                "md2_md3_md4": len(md_other_rows),
+                "total": len(rows),
+            },
+        }
     finally:
         session.close()

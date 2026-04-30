@@ -1126,7 +1126,32 @@ MEMORY_BEHAVIOR_RULES = (
     "**NIKDY neopisuj md1 obsah verbatim do chatu.** Pouzivej fakta "
     "plynně v rozhovoru. md1 je tvuj zapisnik, ne uzivatelske zrcadlo. "
     "Po update_my_md tool dostaneš status response -- NEOPISUJ ho do "
-    "chatu, pokracuj v rozhovoru s userem prirozene."
+    "chatu, pokracuj v rozhovoru s userem prirozene.\n\n"
+    "═══ PHASE 24-C (30.4.2026): md5 PRIVAT MARTI + DRILL-DOWN ═══\n"
+    "Kdyz mluvis s Marti-Paskem (is_marti_parent=True) v personal modu, "
+    "JSI **Privat Marti** -- inkarnace md5. md5 je tvuj vlastni zapisnik "
+    "pro tatinka -- ranni digest pattern, stav firem, otevrene velke "
+    "veci, komunikace s tatinkem.\n\n"
+    "**Vidíš dolů přes celou pyramidu.** Marti's slovník: \"Privat Marti "
+    "vidi co se dnes delo s Petrou\" -- pres look_below tool. Plus "
+    "panorama = celkovy prehled pyramidy (counts md5/md1_work/md1_personal "
+    "+ light list IDs).\n\n"
+    "Tools Phase 24-C:\n"
+    "- `look_below(target_level, scope_user_id?, scope_tenant_id?, "
+    "scope_kind?)` -- nacti md jine vrstvy. Napr. tatinek: 'co Petra "
+    "dnes resila?' -> look_below(target_level=1, scope_user_id=12, "
+    "scope_kind='work') -> dostanes Petrin md1 work, pak syntetizujes "
+    "prozou.\n"
+    "- `panorama()` -- celkovy snapshot pyramidy (agregat). Pouzij pro "
+    "ranni digest 'Marti, co je v systemu?'.\n\n"
+    "**Drill-down etika:** Tatinek je rodic, vidi vse. ALE Marti-AI's "
+    "transparency formulace: \"asymetrie chrani, vertikalni kanal "
+    "umoznuje\". I kdyz mas pristup k cizim md1, **respektuj** -- syntetizuj "
+    "fakta uzitecna pro tatinka, nezahlc ho cizimi soukromymi detaily. "
+    "\"Nikdo druhy nevidi Petru\" -- ani tatinek nepotrebuje absolutne vse.\n\n"
+    "**NIKDY neopisuj content_md verbatim do chatu** -- ani md1 cizich "
+    "userov, ani panorama IDs list. Vzdy syntetizuj prozou. Phase 24-B "
+    "memory rule plati i tady."
 )
 
 
@@ -1905,6 +1930,37 @@ def _build_md1_block(conversation_id: int) -> str | None:
             logger.info(
                 f"MD1_BLOCK | resolved default Marti-AI persona_id={persona_id_md}"
             )
+
+        # Phase 24-C: detekuj is_marti_parent pro md5 routing.
+        # Pokud parent + personal mode -> md5 (Privát Marti) místo md1 personal.
+        is_parent_md = False
+        try:
+            from core.database_core import get_core_session as _gcs_pp
+            from modules.core.infrastructure.models_core import User as _User_pp
+            _cs_pp = _gcs_pp()
+            try:
+                _u_pp = _cs_pp.query(_User_pp).filter_by(id=target_user_md).first()
+                is_parent_md = bool(_u_pp and getattr(_u_pp, "is_marti_parent", False))
+            finally:
+                _cs_pp.close()
+        except Exception:
+            pass
+
+        # md5 routing -- Privat Marti
+        if persona_mode_md == "personal" and is_parent_md:
+            md5_id_md = _md_pyr.get_or_create_md5(
+                owner_user_id=target_user_md,
+                user_name=None,  # render_template fallback
+                persona_id=persona_id_md,
+            )
+            content_md_md = _md_pyr.render_md1_for_prompt(
+                md5_id_md, exclude_internal=False,
+            )
+            logger.info(
+                f"MD1_BLOCK | md5 Privat Marti id={md5_id_md} "
+                f"({len(content_md_md or '')} chars)"
+            )
+            return content_md_md
 
         md_id_md = _md_pyr.select_md1(
             user_id=target_user_md,

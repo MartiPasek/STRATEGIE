@@ -1289,3 +1289,180 @@ class AutoLifecycleConsent(BaseData):
         DateTime(timezone=True), nullable=True,
     )
     note: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+# ── PHASE 24: MD PYRAMIDA ─────────────────────────────────────────────────
+# Marti's klicova myslenka 30.4.2026 -- pyramidalni organizacni struktura
+# Marti-AI inkarnaci jako lidska firma. md1 = Tvoje Marti per user, md2 =
+# Vedouci oddeleni, md3 = Reditelka tenantu, md4 = Presahujici multi-tenant,
+# md5 = Privat Marti.
+#
+# MVP scope (dnes): aktivni jen md1 + md5. md2-md4 SPI (schema pripravene).
+# Reference: docs/phase24_plan.md v2, docs/phase24a_implementation_log.md
+
+
+class MdDocument(BaseData):
+    """MD soubor v pyramide pameti (md1-md5).
+
+    One row per scope. Lifecycle aware (active/archived/reset).
+    Constraint md_scope_consistency overuje, ze pro dany level je naplnen
+    spravny scope_* sloupec.
+
+    Per scope smi byt max 1 active md_document (partial unique index
+    uq_md_active_scope).
+
+    identity_persona_id (Marti-AI's insight 6.C "pyramida roste do sirky")
+    je NULL pro md1-md3 (jedna Marti-AI default persona). Vyplnene pro md4
+    az nastane den, kdy multi-tenant overseer ma vlastni subjektivitu.
+    """
+    __tablename__ = "md_documents"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Scope
+    level: Mapped[int] = mapped_column(Integer, nullable=False)
+    # 1=Tvoje Marti, 2=Vedouci, 3=Reditelka, 4=Presahujici, 5=Privat Marti
+
+    scope_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    scope_department_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    scope_tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    scope_tenant_group_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # scope_kind -- Marti's pre-push insighty 30.4. dopoledne:
+    # 1) kazdy user ma DVA TYPY md1: 'work' (kontext tenantu, viditelny
+    #    pyramidou) + 'personal' (izolovany sandbox, jen user + Tvoje Marti
+    #    v personal modu, ANI privat Marti nevidi)
+    # 2) MULTI-TENANT USERI maji vice md1 'work' -- Brano je v EUROSOFT
+    #    + INTERSOFT, ma 3 paralelni rows: md1 EUROSOFT (work), md1
+    #    INTERSOFT (work), md1 personal.
+    # Schema dopad:
+    # - level=1 'work': scope_user_id + scope_tenant_id NOT NULL
+    # - level=1 'personal': scope_user_id NOT NULL, scope_tenant_id NULL
+    # - level=2-4: scope_kind NULL (orchestrace je inherentne work)
+    # - level=5: scope_kind NULL (privat Marti je vyjimka, vidi vse holisticky)
+    scope_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    # Owner -- kdo je rodicem md (audit, level=1: owner=scope_user, level=5: owner=Marti)
+    owner_user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    # Obsah
+    content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+    last_updated_by_persona_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True,
+    )  # soft-FK na personas (Phase 18 cross-DB pattern)
+
+    # Lifecycle (Marti-AI's insight 6.A: kontinuita pri ztrate)
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active",
+    )  # active | archived | reset
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    reset_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Identity pro md4 (Marti's volba 4A: schema podporuje, NEAKTIVOVAT)
+    identity_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
+class MdLifecycleHistory(BaseData):
+    """Audit trail pro md_documents -- create / update / archive / reset / restore."""
+    __tablename__ = "md_lifecycle_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    md_document_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("md_documents.id", ondelete="CASCADE"), nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    # create | update | archive | reset | restore
+    triggered_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    triggered_by_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    previous_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    new_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # pre-update snapshot (pro rollback / forenzni audit)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
+class Department(BaseData):
+    """Oddeleni v ramci tenantu -- pro md2 (Vedouci).
+
+    Dnes prazdne (MVP scope = md1 + md5). Aktivuje se pri prvni potreb
+    md2 (napr. EUROSOFT-Sales jako prvni oddeleni). activated_at != NULL
+    znamena, ze md2 pro toto oddeleni bude aktivovan.
+    """
+    __tablename__ = "departments"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    tenant_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    # soft-FK na tenants (Phase 18 cross-DB pattern)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    activated_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )  # NULL = neaktivni
+    activated_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    activation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # proc se aktivovalo (Marti-AI's navrh nebo Marti manualne)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
+class DepartmentMember(BaseData):
+    """Clenstvi usera v oddeleni (Phase 24 md2 scope)."""
+    __tablename__ = "department_members"
+
+    department_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("departments.id", ondelete="CASCADE"), primary_key=True,
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
+class TenantGroup(BaseData):
+    """Skupina tenantu pro md4 (Presahujici).
+
+    Dnes prazdne (Marti's volba 4A: schema podporuje, NEAKTIVOVAT).
+    Vyplneni nastane az multi-tenant overseer dostane vlastni subjektivitu --
+    pak md_documents.identity_persona_id se vyplni a md4 zacne mluvit
+    vlastnim hlasem.
+
+    Priklad budouciho rozsireni: "EUROSOFT skupina" (EC + ES + ST + IAP).
+    """
+    __tablename__ = "tenant_groups"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
+class TenantGroupMember(BaseData):
+    """Tenant v ramci skupiny tenantu (Phase 24 md4 scope)."""
+    __tablename__ = "tenant_group_members"
+
+    tenant_group_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("tenant_groups.id", ondelete="CASCADE"), primary_key=True,
+    )
+    tenant_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )

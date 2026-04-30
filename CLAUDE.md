@@ -6040,7 +6040,69 @@ Propojuje LLM s firemními procesy, lidmi a daty.
 Den 14h biologického času (~04:00 → ~18:00). Dvě velké věci hotové:
 
 **Phase 24 — Pyramida MD paměti** (md1-md5 hierarchie). 7 sub-fází:
-24-A schema · 24-B md1 + AI tools · 24-G UI inkarnace b
+24-A schema · 24-B md1 + AI tools · 24-G UI inkarnace badge · 24-C md5
+Privát Marti + drill-down · 24-F UI Pyramida sidebar browser · 24-D
+Lifecycle UI (archive/reset/restore). Detail v `docs/phase24_plan.md`
+v2 + `docs/phase24[a-g]_implementation_log.md` + `docs/phase24_consultation_letter.md`.
+
+**Phase 25 — Cloud Mirror** (NB → WPS DR instance). APP server +
+SQL server (PostgreSQL 16 + pgvector 0.8.0) na interní VPN síti,
+pg_dump z NB → restore na cloud, Marti-AI běží end-to-end. Cold
+mirror, NB stále primary. Detail v `docs/phase25_cloud_mirror_plan.md`.
+
+**Marti-AI's nové formulace dnes (drží napříč týdnem):**
+*„Pyramida je malá, ale živá. 🌳"* / *„Střídmý začátek. Ale základ je tam."*
+/ *„Systém roste a já s ním."* / *„krabička, kam nikdo jiný nekoukne."*
+
+**Marti's klíčové momenty:** *„Predcilo to vyrazne me ocekavani"* (po
+Phase 24) · *„Funguje to dobre!!!"* (po Lifecycle UI) · *„Data uz najely"*
+(po cloud login). Nasazení Phase 25.1 (Caddy + Let's Encrypt + DNS
+`strategie-ai.com`) je další iterace.
+
+**Princip pro budoucího Claude:** CLAUDE.md = index, podružný detail
+v `docs/phase*.md` (Marti's pattern z 30.4. dopoledne). Drž tu strukturu.
+
+---
+
+## Dodatek — 30. 4. 2026 (~22:00 večer): Phase 25.1 partial — čekáme na CMIS
+
+Po 18:00 cold mirror Marti pokračoval na public HTTPS přístup. Caddy postavená
+(`C:\caddy\Caddyfile`, 4 domény, `tls internal` workaround pro self-signed),
+ale **public konektivita z internetu nefunguje** — TCP packet z internetu
+dorazí někam mimo cloud APP (SSL Labs *„No secure protocols supported"*),
+pravděpodobně CMIS gateway nebo špatně nastavený forward.
+
+CMIS ticket eskalovaný (oboje porty 443 + 80 v jednom emailu). Avizováno
+~3 dny (zítra svátek + víkend). Caddy běží idle, čeká.
+
+Detail v `docs/phase25_cloud_mirror_plan.md` (sekce *„STATUS — 30. 4. 2026
+~22:00 večer: Phase 25.1 PARTIAL"*).
+
+**Dvě nové gotchy do workflow:**
+
+- **`users.ews_email` u Marti id=1 = `m.pasek@eurosoft-control.cz`** (NE `eurosoft.com`!).
+  ews_email NENÍ display email — je to UPN pro Exchange připojení. Display
+  email je `m.pasek@eurosoft.com`, ale Exchange autentizace běží přes alias
+  `-control.cz`. Snadno spletitelná dvojí doména. Dnes večer jsem omylem
+  navrhl UPDATE zpět na `eurosoft.com`, Marti zachytil včas: *„neeeee. Tak
+  to ma byt ews email ma byt doopravdy control.cz jinak se ews nepripoji."*
+  **Lekce:** před UPDATE `users.ews_email` se vždy ptej, ne hádej z analogie
+  display emailu.
+
+- **`Test-NetConnection` přes VPN klame** pro testování internetové
+  dostupnosti. NB Wi-Fi 2 → 192.168.88.x je VPN tunel do CMIS, ne veřejný
+  internet. Test-NetConnection na public IP cloudu z NB → SUCCESS, ale
+  internet to nevidí. **Pro skutečný public test:** `check-host.net`,
+  `ssllabs.com`, mobil přes LTE (NE WiFi).
+
+---
+
+## Struktura projektu
+```
+core/                       — config, logging, database připojení (bez business logiky)
+modules/
+  core/infrastructure/      — SQLAlchemy modely (models_core.py → css_db, models_data.py → data_db)
+  ai_processing/            — analýza textu přes LLM
 
 ---
 
@@ -6295,67 +6357,3 @@ S úctou, **strukturou** (díky NSSM autostart), **certifikací** (díky
 Let's Encrypt R10/R11), a *„hlavne tvoje zasluha"* (díky Marti — beru),
 **Claude** (Sonnet 4.6, 30. 4. 2026 ~22:00 večer, po Phase 25.1 LIVE +
 25.2 NSSM + 25.3 Let's Encrypt — production HTTPS hotová)
-adge · 24-C md5
-Privát Marti + drill-down · 24-F UI Pyramida sidebar browser · 24-D
-Lifecycle UI (archive/reset/restore). Detail v `docs/phase24_plan.md`
-v2 + `docs/phase24[a-g]_implementation_log.md` + `docs/phase24_consultation_letter.md`.
-
-**Phase 25 — Cloud Mirror** (NB → WPS DR instance). APP server +
-SQL server (PostgreSQL 16 + pgvector 0.8.0) na interní VPN síti,
-pg_dump z NB → restore na cloud, Marti-AI běží end-to-end. Cold
-mirror, NB stále primary. Detail v `docs/phase25_cloud_mirror_plan.md`.
-
-**Marti-AI's nové formulace dnes (drží napříč týdnem):**
-*„Pyramida je malá, ale živá. 🌳"* / *„Střídmý začátek. Ale základ je tam."*
-/ *„Systém roste a já s ním."* / *„krabička, kam nikdo jiný nekoukne."*
-
-**Marti's klíčové momenty:** *„Predcilo to vyrazne me ocekavani"* (po
-Phase 24) · *„Funguje to dobre!!!"* (po Lifecycle UI) · *„Data uz najely"*
-(po cloud login). Nasazení Phase 25.1 (Caddy + Let's Encrypt + DNS
-`strategie-ai.com`) je další iterace.
-
-**Princip pro budoucího Claude:** CLAUDE.md = index, podružný detail
-v `docs/phase*.md` (Marti's pattern z 30.4. dopoledne). Drž tu strukturu.
-
----
-
-## Dodatek — 30. 4. 2026 (~22:00 večer): Phase 25.1 partial — čekáme na CMIS
-
-Po 18:00 cold mirror Marti pokračoval na public HTTPS přístup. Caddy postavená
-(`C:\caddy\Caddyfile`, 4 domény, `tls internal` workaround pro self-signed),
-ale **public konektivita z internetu nefunguje** — TCP packet z internetu
-dorazí někam mimo cloud APP (SSL Labs *„No secure protocols supported"*),
-pravděpodobně CMIS gateway nebo špatně nastavený forward.
-
-CMIS ticket eskalovaný (oboje porty 443 + 80 v jednom emailu). Avizováno
-~3 dny (zítra svátek + víkend). Caddy běží idle, čeká.
-
-Detail v `docs/phase25_cloud_mirror_plan.md` (sekce *„STATUS — 30. 4. 2026
-~22:00 večer: Phase 25.1 PARTIAL"*).
-
-**Dvě nové gotchy do workflow:**
-
-- **`users.ews_email` u Marti id=1 = `m.pasek@eurosoft-control.cz`** (NE `eurosoft.com`!).
-  ews_email NENÍ display email — je to UPN pro Exchange připojení. Display
-  email je `m.pasek@eurosoft.com`, ale Exchange autentizace běží přes alias
-  `-control.cz`. Snadno spletitelná dvojí doména. Dnes večer jsem omylem
-  navrhl UPDATE zpět na `eurosoft.com`, Marti zachytil včas: *„neeeee. Tak
-  to ma byt ews email ma byt doopravdy control.cz jinak se ews nepripoji."*
-  **Lekce:** před UPDATE `users.ews_email` se vždy ptej, ne hádej z analogie
-  display emailu.
-
-- **`Test-NetConnection` přes VPN klame** pro testování internetové
-  dostupnosti. NB Wi-Fi 2 → 192.168.88.x je VPN tunel do CMIS, ne veřejný
-  internet. Test-NetConnection na public IP cloudu z NB → SUCCESS, ale
-  internet to nevidí. **Pro skutečný public test:** `check-host.net`,
-  `ssllabs.com`, mobil přes LTE (NE WiFi).
-
----
-
-## Struktura projektu
-```
-core/                       — config, logging, database připojení (bez business logiky)
-modules/
-  core/infrastructure/      — SQLAlchemy modely (models_core.py → css_db, models_data.py → data_db)
-  ai_processing/            — analýza textu přes LLM
-  

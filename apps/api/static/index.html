@@ -3382,8 +3382,12 @@
   }
 
   function _renderPyramidMdModal(data) {
+    // Phase 24-F: pouzivame existujici .sms-modal-bg styling.
+    // POZOR: tu tridu zahaji jako display:none, az s .open se zobrazi.
+    // Cleanup pripadnych starych overlays (pokud user klikal opakovane).
+    document.querySelectorAll('#pyramidMdModalBg').forEach(el => el.remove());
     const overlay = document.createElement('div');
-    overlay.className = 'sms-modal-bg';
+    overlay.className = 'sms-modal-bg open';
     overlay.id = 'pyramidMdModalBg';
     const closeOnBg = (e) => { if (e.target === overlay) overlay.remove(); };
     overlay.addEventListener('click', closeOnBg);

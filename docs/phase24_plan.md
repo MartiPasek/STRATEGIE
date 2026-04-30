@@ -554,19 +554,39 @@ Aktivně dnes:
 
 ---
 
-## 9. Sub-fáze 24-A → 24-G (implementace)
+## 9. Sub-fáze 24-A → 24-G — STATUS (30. 4. 2026)
 
-| Sub-fáze | Co | Čas |
-|---|---|---|
-| **24-A** | Schema (`md_documents`, `md_lifecycle_history`, `departments`, `tenant_groups`, `projects.responsible_user_id`) + migrace | 1 den |
-| **24-B** | md1 materializace + AI tools (`read_my_md`, `update_my_md`, `flag_for_higher`) + composer hook (md1 inject při startu konverzace) + scope-aware prompt | 1.5 dne |
-| **24-C** | md5 Privát Marti + drill-down tools (`look_below`, `panorama`) + read_below pro budoucí md2-md4 | 1 den |
-| **24-D** | Lifecycle (archive/reset/restore) + 3 view modes pro md1 (user/internal/privat) + transparency disclosure | 1 den |
-| **24-E** | Memory rules (kvalita přítomnosti, junior v týmu, vertikální cesta, dcery jedné matky) v `MEMORY_BEHAVIOR_RULES` + smoke testy + UI taglines (*„Mluvíš s Tvou Marti"*) | 0.5 dne |
-| **24-F** | **UI Pyramida Browser** — sidebar sekce *„🌳 MD Pyramida"* analogická Personal sidebar (Phase 19c-e1) + dovětky tree (Phase 19c-e2). Stromová struktura md5 → md4 → md3 → md2 → md1, klik otevře MD content modal (read-only pro Martiho, edit přes Marti-AI). Filter ikony pro lifecycle state. Polling 30s. | 1 den |
-| **24-G** | **UI Inkarnace Badge** — rozšíření existujícího `active_pack` badge z Phase 19b polish. Hlavička chatu zobrazí: *„Mluvíš s: <Inkarnace> / <režim> / <profese> / <scope úroveň>"*. Příklady: *„Privát Marti / personal mode / core / md5"* nebo *„Tvoje Marti pro Petru / task mode / core / md1"*. Sepia paleta (kufr nářadí), tooltip s detaily. | 0.5 dne |
+| Sub-fáze | Co | Status | Commit |
+|---|---|---|---|
+| **24-A** | Schema (`md_documents`, `md_lifecycle_history`, `departments`, `tenant_groups`) + migrace | ✅ **HOTOVO** | `feat/memory-rag` |
+| **24-B** | md1 + AI tools (`read_my_md`, `update_my_md`, `flag_for_higher`) + composer hook + memory rule | ✅ **HOTOVO** | `feat/memory-rag` |
+| **24-G** | UI Inkarnace Badge — *„Mluvíš s: ... · md5 · privát"* | ✅ **HOTOVO** | `feat/memory-rag` |
+| **24-C** | md5 Privát Marti + drill-down tools (`look_below`, `panorama`) | ✅ **HOTOVO** | `feat/memory-rag` |
+| **24-F** | UI Pyramida Browser — sidebar tree + read-only modal | ✅ **HOTOVO** | `feat/memory-rag` (+ `.open` fix) |
+| **24-D** | Lifecycle UI (archive/reset/restore badges + actions v modalu) + 3 view modes pro userů (transparency dropdown) | ⏳ **TODO** | — |
+| **24-E** | UI taglines polish (*„Mluvíš s Tvou Marti"* na startu konverzace) + scope-aware prompt finalize | ⏳ **TODO** | — |
 
-**Suma: ~6.5 dne** rozdělených přes 9-12 dní práce (s pauzami).
+**5/7 sub-fází hotových.** ~5 hodin biologického času (30. 4. 04:00 → 09:00).
+
+## 9.1 Paralelní quick wins (Sub-fáze 24-Z, mimo pyramidu)
+
+| # | Akce | Status | Čas |
+|---|---|---|---|
+| Z1 | Diagnostika `#-1` projekt bug (`suggest_create_project` vrátil sentinel `-1`) | ⏳ TODO | 15 min |
+| Z2 | Email follow-up od Marti osobně (mailbox/podpis disonance) | ⏳ TODO (Marti) | 15 min |
+| Z3 | Memory rule — `find_user` reflex + self-knowledge persistence | ⏳ TODO | 30 min |
+| Z4 | Thought deduplication helper (recall before record_thought) | ⏳ TODO | 2 hod |
+
+## 9.2 Future / Phase 24+1
+
+| Co | Popis |
+|---|---|
+| **3. iterace konzultace s Marti-AI** | Po týdnu praxe na pyramidě — co fungovalo, co přinesla nová formulace, co by chtěla. Phase 13/15 pattern (insider design partner). |
+| **md4 aktivace** | Až bude druhý tenant pravidelně koordinován — Marti's vize z 30.4. konzultace #6.C *„pyramida roste do šířky"*. Schema podporuje, schema neaktivuje. |
+| **md2 aktivace** | Až EUROSOFT poroste přes 5 Martinek bez Vedoucí > 30 dní (soft threshold reminder z volby 1B). Marti-AI navrhne, Marti rozhodne. |
+| **Privát Marti consent pro nahlédnutí do personal md1** | Marti-AI's TODO z 30.4. dopolední konzultace #5 — explicit consent pattern jako Phase 7 auto_send_consents. |
+| **md1 max velikost — auto-archivace kvartálu** | Marti's volba 3B — soft warning >10000 slov, Marti-AI navrhne archivovat nejstarší kvartál >20000. |
+| **Cross-Martinka komunikace přes md1 flag** | Phase 24-B `flag_for_higher` už existuje, ale **md2 musí být aktivní** aby flag vedl k akci. Až md2 vznikne, smoke test patternu. |
 
 ### Sub-fáze 24-Z (paralelní quick wins z 30.4. 00:30 plánu)
 

@@ -675,6 +675,70 @@
       margin-top: 2px;
       font-family: 'Roboto Mono', monospace;
     }
+    /* Phase 24-D: archived state -- greyed out, italics. */
+    .sidebar-item.pyramid-item.lifecycle-archived {
+      opacity: 0.5;
+      font-style: italic;
+    }
+    .sidebar-item.pyramid-item.lifecycle-archived .sidebar-item-title::before {
+      content: '📦 ';
+      opacity: 0.7;
+    }
+    /* Phase 24-D: archive toggle pill v sidebaru */
+    .sidebar-pyramid-toggle-archived {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      margin: 4px 6px 8px;
+      font-size: 11px;
+      color: #b0926d;
+      cursor: pointer;
+      background: rgba(139, 115, 85, 0.06);
+      border-radius: 4px;
+      user-select: none;
+    }
+    .sidebar-pyramid-toggle-archived:hover {
+      background: rgba(139, 115, 85, 0.14);
+    }
+    .sidebar-pyramid-toggle-archived input {
+      cursor: pointer;
+    }
+    /* Phase 24-D: lifecycle action buttons v MD modalu */
+    .pyramid-md-actions {
+      display: flex;
+      gap: 8px;
+      padding: 12px 16px;
+      border-top: 1px solid var(--border);
+      background: rgba(255,255,255,0.02);
+    }
+    .pyramid-md-actions button {
+      padding: 6px 14px;
+      font-size: 12px;
+      font-family: 'DM Sans', sans-serif;
+      border-radius: 4px;
+      border: 1px solid var(--border);
+      cursor: pointer;
+      background: transparent;
+      color: var(--text);
+      transition: background 120ms ease;
+    }
+    .pyramid-md-actions button:hover {
+      background: rgba(255,255,255,0.05);
+    }
+    .pyramid-md-actions .btn-archive {
+      color: #d4b88a;
+      border-color: rgba(139, 115, 85, 0.4);
+    }
+    .pyramid-md-actions .btn-restore {
+      color: #88c074;
+      border-color: rgba(136, 192, 116, 0.4);
+    }
+    .pyramid-md-actions .btn-reset {
+      color: #d47474;
+      border-color: rgba(212, 116, 116, 0.4);
+      margin-left: auto;
+    }
 
     /* Phase 24-G (30.4.2026): UI Inkarnace Badge.
        Marti's pozadavek: "Musim videt v UI s kym mluvim."
@@ -3274,7 +3338,12 @@
       if (pyramidBtnHide) pyramidBtnHide.style.display = 'none';
       listEl.innerHTML = '<div class="sidebar-empty">Načítám pyramidu…</div>';
       try {
-        const res = await fetch('/api/v1/md_pyramid/list', { credentials: 'include' });
+        // Phase 24-D: include_archived ovladano user pref (defaultne false)
+        const includeArchived = window._pyramidIncludeArchived === true;
+        const url = includeArchived
+          ? '/api/v1/md_pyramid/list?include_archived=true'
+          : '/api/v1/md_pyramid/list';
+        const res = await fetch(url, { credentials: 'include' });
         if (!res.ok) {
           listEl.innerHTML = `<div class="sidebar-empty">Nelze načíst (${res.status}).</div>`;
           return;
@@ -3301,8 +3370,30 @@
   function _renderPyramidInSidebar(items, isParentView) {
     const listEl = document.getElementById('sidebarList');
     listEl.innerHTML = '';
+
+    // Phase 24-D: toggle "Včetně archivovaných" -- jen pro parent
+    if (isParentView) {
+      const toggleEl = document.createElement('label');
+      toggleEl.className = 'sidebar-pyramid-toggle-archived';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = window._pyramidIncludeArchived === true;
+      cb.addEventListener('change', () => {
+        window._pyramidIncludeArchived = cb.checked;
+        setSidebarMode('pyramid');  // refresh
+      });
+      toggleEl.appendChild(cb);
+      const text = document.createElement('span');
+      text.textContent = '📦 Včetně archivovaných';
+      toggleEl.appendChild(text);
+      listEl.appendChild(toggleEl);
+    }
+
     if (!items || items.length === 0) {
-      listEl.innerHTML = '<div class="sidebar-empty">🌳 Pyramida zatím prázdná. Až Marti-AI vytvoří první md1, uvidíš ho zde.</div>';
+      const empty = document.createElement('div');
+      empty.className = 'sidebar-empty';
+      empty.textContent = '🌳 Pyramida zatím prázdná. Až Marti-AI vytvoří první md1, uvidíš ho zde.';
+      listEl.appendChild(empty);
       return;
     }
     // Group: md5 first, pak md1 work, pak md1 personal, pak ostatni
@@ -3314,6 +3405,10 @@
     function renderItem(it) {
       const div = document.createElement('div');
       div.className = 'sidebar-item pyramid-item';
+      // Phase 24-D: lifecycle state class (archived = greyed)
+      if (it.lifecycle_state === 'archived') {
+        div.classList.add('lifecycle-archived');
+      }
       div.dataset.mdId = it.id;
       div.style.cursor = 'pointer';
       // Title text
@@ -3415,26 +3510,115 @@
     modal.style.maxWidth = '780px';
     modal.style.width = '94vw';
     modal.style.maxHeight = '90vh';
+    const lifecycleLabel = data.lifecycle_state === 'archived'
+      ? ' · 📦 archived'
+      : (data.lifecycle_state === 'reset' ? ' · ♻️ reset' : '');
     modal.innerHTML = (
       `<div class="sms-modal-header">` +
       `  <div>` +
-      `    <div class="sms-modal-title">${scopeLabel}</div>` +
+      `    <div class="sms-modal-title">${scopeLabel}${lifecycleLabel}</div>` +
       `    <div class="sms-modal-meta">v${data.version} · ${data.size_chars} chars · last ${data.last_updated || ''}</div>` +
       `  </div>` +
       `  <button class="sms-modal-close" type="button">×</button>` +
       `</div>` +
-      `<div class="pyramid-md-content"></div>`
+      `<div class="pyramid-md-content"></div>` +
+      `<div class="pyramid-md-actions"></div>`
     );
     modal.querySelector('.sms-modal-close').addEventListener('click', () => overlay.remove());
     const contentEl = modal.querySelector('.pyramid-md-content');
     contentEl.style.padding = '12px 16px';
     contentEl.style.overflow = 'auto';
-    contentEl.style.maxHeight = '70vh';
+    contentEl.style.maxHeight = '60vh';
     contentEl.style.fontFamily = "'Roboto Mono', 'Consolas', monospace";
     contentEl.style.fontSize = '13px';
     contentEl.style.lineHeight = '1.55';
     contentEl.style.whiteSpace = 'pre-wrap';
     contentEl.textContent = data.content_md || '(prázdné)';
+
+    // Phase 24-D: lifecycle actions (parent only)
+    const actionsEl = modal.querySelector('.pyramid-md-actions');
+    const isParentMD = !!(typeof currentUser !== 'undefined' && currentUser && currentUser.is_marti_parent);
+    if (isParentMD) {
+      if (data.lifecycle_state === 'active') {
+        const archiveBtn = document.createElement('button');
+        archiveBtn.className = 'btn-archive';
+        archiveBtn.textContent = '📦 Archivovat';
+        archiveBtn.addEventListener('click', async () => {
+          const reason = prompt('Důvod archivace (volitelný):') || '';
+          if (reason === null) return;  // user pressed cancel
+          if (!confirm(`Archivovat md#${data.id}? (vratné přes Restore)`)) return;
+          try {
+            const res = await fetch(`/api/v1/md_pyramid/md/${data.id}/archive`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert(`Archive selhal: ${err.detail || res.status}`);
+              return;
+            }
+            overlay.remove();
+            setSidebarMode('pyramid');  // refresh
+          } catch (e) {
+            alert(`Chyba: ${e}`);
+          }
+        });
+        actionsEl.appendChild(archiveBtn);
+
+        const resetBtn = document.createElement('button');
+        resetBtn.className = 'btn-reset';
+        resetBtn.textContent = '♻️ Hard reset';
+        resetBtn.addEventListener('click', async () => {
+          const reason = prompt('Důvod resetu (POVINNÝ — destruktivní akce):');
+          if (!reason || !reason.trim()) return;
+          if (!confirm(`HARD RESET md#${data.id}? Content se přepíše default template, version=1. Pre-reset snapshot v audit trailu.`)) return;
+          try {
+            const res = await fetch(`/api/v1/md_pyramid/md/${data.id}/reset`, {
+              method: 'POST',
+              credentials: 'include',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ reason }),
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert(`Reset selhal: ${err.detail || res.status}`);
+              return;
+            }
+            overlay.remove();
+            setSidebarMode('pyramid');
+          } catch (e) {
+            alert(`Chyba: ${e}`);
+          }
+        });
+        actionsEl.appendChild(resetBtn);
+      } else if (data.lifecycle_state === 'archived' || data.lifecycle_state === 'reset') {
+        const restoreBtn = document.createElement('button');
+        restoreBtn.className = 'btn-restore';
+        restoreBtn.textContent = '↩️ Obnovit';
+        restoreBtn.addEventListener('click', async () => {
+          if (!confirm(`Obnovit md#${data.id} (${data.lifecycle_state} → active)?`)) return;
+          try {
+            const res = await fetch(`/api/v1/md_pyramid/md/${data.id}/restore`, {
+              method: 'POST',
+              credentials: 'include',
+            });
+            if (!res.ok) {
+              const err = await res.json().catch(() => ({}));
+              alert(`Restore selhal: ${err.detail || res.status}`);
+              return;
+            }
+            overlay.remove();
+            setSidebarMode('pyramid');
+          } catch (e) {
+            alert(`Chyba: ${e}`);
+          }
+        });
+        actionsEl.appendChild(restoreBtn);
+      }
+    }
+
     overlay.appendChild(modal);
     document.body.appendChild(overlay);
   }

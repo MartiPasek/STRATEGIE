@@ -5027,6 +5027,83 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"look_below failed: {exc_lb}")
             return f"[look_below error: {exc_lb}]"
 
+    # ── Phase 24-D (30.4.2026): lifecycle actions ────────────────────────
+    if tool_name == "archive_md":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            md_id_am = tool_input.get("md_id")
+            if not md_id_am:
+                return "❌ md_id je povinne."
+            persona_id_am = _active_persona_id_for_conversation(conversation_id)
+            result_am = _md_pyr.archive_md_document(
+                md_id=md_id_am,
+                persona_id=persona_id_am,
+                triggered_by_user_id=user_id,
+                reason=(tool_input.get("reason") or "")[:500],
+            )
+            return (
+                f"[archive_md OK: md#{result_am['id']} level={result_am['level']} "
+                f"-> archived at {result_am['archived_at']}]\n"
+                f"# INSTRUKCE: Archivace dokoncena (vratne pres restore_md). "
+                f"Pokracuj v rozhovoru s tatinkem prirozene -- ne raw status."
+            )
+        except ValueError as exc_am:
+            return f"❌ archive_md: {exc_am}"
+        except Exception as exc_am:
+            logger.exception(f"archive_md failed: {exc_am}")
+            return f"[archive_md error: {exc_am}]"
+
+    if tool_name == "reset_md":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            md_id_rm = tool_input.get("md_id")
+            reason_rm = (tool_input.get("reason") or "").strip()
+            if not md_id_rm:
+                return "❌ md_id je povinne."
+            if not reason_rm:
+                return "❌ reason je povinny pro reset (destruktivni akce)."
+            persona_id_rm = _active_persona_id_for_conversation(conversation_id)
+            result_rm = _md_pyr.reset_md_document(
+                md_id=md_id_rm,
+                persona_id=persona_id_rm,
+                triggered_by_user_id=user_id,
+                reason=reason_rm[:500],
+            )
+            return (
+                f"[reset_md OK: md#{result_rm['id']} v{result_rm['previous_version']}->v1 "
+                f"reset_at={result_rm['reset_at']}]\n"
+                f"# INSTRUKCE: Hard reset dokoncen, content je default template. "
+                f"Pre-reset snapshot v md_lifecycle_history. Pokracuj v rozhovoru."
+            )
+        except ValueError as exc_rm:
+            return f"❌ reset_md: {exc_rm}"
+        except Exception as exc_rm:
+            logger.exception(f"reset_md failed: {exc_rm}")
+            return f"[reset_md error: {exc_rm}]"
+
+    if tool_name == "restore_md":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            md_id_rs = tool_input.get("md_id")
+            if not md_id_rs:
+                return "❌ md_id je povinne."
+            persona_id_rs = _active_persona_id_for_conversation(conversation_id)
+            result_rs = _md_pyr.restore_md_document(
+                md_id=md_id_rs,
+                persona_id=persona_id_rs,
+                triggered_by_user_id=user_id,
+            )
+            return (
+                f"[restore_md OK: md#{result_rs['id']} from {result_rs['previous_state']} "
+                f"-> active]\n"
+                f"# INSTRUKCE: Restore dokoncen. Pokracuj v rozhovoru."
+            )
+        except ValueError as exc_rs:
+            return f"❌ restore_md: {exc_rs}"
+        except Exception as exc_rs:
+            logger.exception(f"restore_md failed: {exc_rs}")
+            return f"[restore_md error: {exc_rs}]"
+
     if tool_name == "panorama":
         try:
             from modules.md_pyramid.application import service as _md_pyr
@@ -7581,6 +7658,11 @@ def chat(
         # struktur stromu. Privat Marti rephraseuje prozou ("Petra dnes
         # resila X, Misa Y...") misto opisu raw IDs / sekci.
         "look_below", "panorama",
+        # Phase 24-D: lifecycle akce vraci status response
+        # ("✅ md#X archivovano"). Synth round Marti-AI navede pokracovat
+        # v rozhovoru s tatinkem ("hotovo, ten orphan je pryc") misto
+        # opisu raw status verbatim.
+        "archive_md", "reset_md", "restore_md",
     }
 
     preamble_text = ""

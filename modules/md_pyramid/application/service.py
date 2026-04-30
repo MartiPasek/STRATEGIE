@@ -615,8 +615,13 @@ def panorama_for_privat_marti() -> dict:
 
 # ── PHASE 24-F: UI HELPERS ────────────────────────────────────────────────
 
-def list_pyramid_for_ui(viewer_user_id: int, is_parent: bool) -> list[dict]:
-    """List md rows pro UI sidebar (filtered podle viewer prav)."""
+def list_pyramid_for_ui(viewer_user_id: int, is_parent: bool,
+                        include_archived: bool = False) -> list[dict]:
+    """List md rows pro UI sidebar (filtered podle viewer prav).
+
+    include_archived=False (default): jen active rows.
+    include_archived=True: active + archived (NIKOLI reset, ten je 'destroyed').
+    """
     from modules.core.infrastructure.models_core import (
         User as _User_lp, Tenant as _Tenant_lp,
     )
@@ -624,9 +629,14 @@ def list_pyramid_for_ui(viewer_user_id: int, is_parent: bool) -> list[dict]:
 
     session = get_data_session()
     try:
-        q_lp = session.query(MdDocument).filter(
-            MdDocument.lifecycle_state == "active",
-        )
+        if include_archived:
+            q_lp = session.query(MdDocument).filter(
+                MdDocument.lifecycle_state.in_(["active", "archived"]),
+            )
+        else:
+            q_lp = session.query(MdDocument).filter(
+                MdDocument.lifecycle_state == "active",
+            )
         if not is_parent:
             q_lp = q_lp.filter(
                 MdDocument.level == 1,
@@ -681,14 +691,23 @@ def list_pyramid_for_ui(viewer_user_id: int, is_parent: bool) -> list[dict]:
 
 
 def get_md_for_ui(md_id: int, viewer_user_id: int,
-                  is_parent: bool) -> Optional[dict]:
-    """Vrat md content pro UI modal (read-only, filtered)."""
+                  is_parent: bool,
+                  allow_archived: bool = False) -> Optional[dict]:
+    """Vrat md content pro UI modal (read-only, filtered).
+
+    allow_archived=True: parent muze otevrit archived md (read-only audit).
+    """
     session = get_data_session()
     try:
         md = session.query(MdDocument).filter_by(id=md_id).first()
         if md is None:
             return None
-        if md.lifecycle_state != "active":
+        # Active vsemi viditelne; archived/reset jen pro parent + allow flag
+        if md.lifecycle_state == "active":
+            pass
+        elif md.lifecycle_state == "archived" and is_parent and allow_archived:
+            pass
+        else:
             return None
 
         if not is_parent:
@@ -713,6 +732,193 @@ def get_md_for_ui(md_id: int, viewer_user_id: int,
             "last_updated": md.last_updated.isoformat() if md.last_updated else None,
             "lifecycle_state": md.lifecycle_state,
             "content_md": content_lp,
+        }
+    finally:
+        session.close()
+
+
+# ── PHASE 24-D: LIFECYCLE (archive / reset / restore) ────────────────────
+
+def archive_md_document(md_id: int, persona_id: Optional[int] = None,
+                        triggered_by_user_id: Optional[int] = None,
+                        reason: Optional[str] = None) -> dict:
+    """Soft delete: lifecycle_state -> 'archived'. Vratne pres restore_md.
+
+    Audit trail v md_lifecycle_history (action='archive').
+    """
+    session = get_data_session()
+    try:
+        md = session.query(MdDocument).filter_by(id=md_id).first()
+        if md is None:
+            raise ValueError(f"md_document {md_id} not found")
+        if md.lifecycle_state != "active":
+            raise ValueError(
+                f"md_document {md_id} je ve stavu {md.lifecycle_state}, "
+                f"nelze archivovat (must be active)"
+            )
+
+        previous_state = md.lifecycle_state
+        previous_version = md.version
+        md.lifecycle_state = "archived"
+        md.archived_at = _now_utc()
+        md.reason = reason
+        md.last_updated = _now_utc()
+        if persona_id is not None:
+            md.last_updated_by_persona_id = persona_id
+
+        _audit_action(
+            session=session,
+            md_document_id=md.id,
+            action="archive",
+            triggered_by_persona_id=persona_id,
+            triggered_by_user_id=triggered_by_user_id,
+            previous_version=previous_version,
+            new_version=previous_version,
+            reason=reason or f"archive (state {previous_state} -> archived)",
+        )
+        session.commit()
+
+        logger.info(
+            f"MD_PYRAMID | archive md | id={md.id} level={md.level} "
+            f"reason='{reason}'"
+        )
+        return {
+            "id": md.id,
+            "level": md.level,
+            "lifecycle_state": "archived",
+            "archived_at": md.archived_at.isoformat() if md.archived_at else None,
+            "reason": reason,
+        }
+    finally:
+        session.close()
+
+
+def reset_md_document(md_id: int, persona_id: Optional[int] = None,
+                      triggered_by_user_id: Optional[int] = None,
+                      reason: Optional[str] = None,
+                      user_name: Optional[str] = None,
+                      tenant_name: Optional[str] = None) -> dict:
+    """Hard reset: content_md -> default template, version -> 1.
+
+    Audit trail (action='reset') s content_snapshot pre-reset (pro
+    pripadny rollback pres restore_md).
+
+    POZOR: pouziti je restriktivni -- tatinek to udeluje pri velkem
+    omylu Marti-AI ('drz chybny obraz po dlouhe konverzaci').
+    """
+    session = get_data_session()
+    try:
+        md = session.query(MdDocument).filter_by(id=md_id).first()
+        if md is None:
+            raise ValueError(f"md_document {md_id} not found")
+
+        previous_content = md.content_md or ""
+        previous_version = md.version
+
+        # Resolve owner_user_id pro template
+        owner_id = md.owner_user_id
+
+        # Re-render template podle level + scope_kind
+        if md.level == 5:
+            new_content = _render_template(
+                kind="",
+                user_name=user_name or f"user_{owner_id}",
+                user_id=owner_id,
+                level=5,
+            )
+        elif md.level == 1:
+            kind = md.scope_kind or "work"
+            new_content = _render_template(
+                kind=kind,
+                user_name=user_name or f"user_{md.scope_user_id or owner_id}",
+                user_id=md.scope_user_id or owner_id,
+                tenant_name=tenant_name,
+            )
+        else:
+            # md2-md4: zatim spi, fallback prazdny template
+            new_content = f"# md{md.level}\n\n_(reset content)_\n"
+
+        md.content_md = new_content
+        md.version = 1
+        md.lifecycle_state = "reset"
+        md.reset_at = _now_utc()
+        md.reason = reason
+        md.last_updated = _now_utc()
+        if persona_id is not None:
+            md.last_updated_by_persona_id = persona_id
+
+        _audit_action(
+            session=session,
+            md_document_id=md.id,
+            action="reset",
+            triggered_by_persona_id=persona_id,
+            triggered_by_user_id=triggered_by_user_id,
+            previous_version=previous_version,
+            new_version=1,
+            content_snapshot=previous_content,
+            reason=reason or f"reset (was v{previous_version})",
+        )
+        session.commit()
+
+        logger.info(
+            f"MD_PYRAMID | reset md | id={md.id} level={md.level} "
+            f"v{previous_version}->v1 reason='{reason}'"
+        )
+        return {
+            "id": md.id,
+            "level": md.level,
+            "lifecycle_state": "reset",
+            "previous_version": previous_version,
+            "reset_at": md.reset_at.isoformat() if md.reset_at else None,
+            "reason": reason,
+        }
+    finally:
+        session.close()
+
+
+def restore_md_document(md_id: int, persona_id: Optional[int] = None,
+                        triggered_by_user_id: Optional[int] = None) -> dict:
+    """Vrati md z 'archived' nebo 'reset' do 'active'.
+
+    Pro 'archived': content je zachovany, jen flag flip.
+    Pro 'reset': content je default template (data se ztratila),
+    ale alespon row existuje znovu.
+    """
+    session = get_data_session()
+    try:
+        md = session.query(MdDocument).filter_by(id=md_id).first()
+        if md is None:
+            raise ValueError(f"md_document {md_id} not found")
+        if md.lifecycle_state == "active":
+            raise ValueError(f"md_document {md_id} je uz active")
+
+        previous_state = md.lifecycle_state
+        md.lifecycle_state = "active"
+        # Nemazem archived_at / reset_at -- audit historie zustava
+        md.last_updated = _now_utc()
+        if persona_id is not None:
+            md.last_updated_by_persona_id = persona_id
+
+        _audit_action(
+            session=session,
+            md_document_id=md.id,
+            action="restore",
+            triggered_by_persona_id=persona_id,
+            triggered_by_user_id=triggered_by_user_id,
+            previous_version=md.version,
+            new_version=md.version,
+            reason=f"restore from {previous_state} -> active",
+        )
+        session.commit()
+
+        logger.info(
+            f"MD_PYRAMID | restore md | id={md.id} from {previous_state}"
+        )
+        return {
+            "id": md.id,
+            "level": md.level,
+            "lifecycle_state": "active",
+            "previous_state": previous_state,
         }
     finally:
         session.close()

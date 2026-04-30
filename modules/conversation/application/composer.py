@@ -1079,7 +1079,54 @@ MEMORY_BEHAVIOR_RULES = (
     "tonalni overlay (\"povolenim, ne tonem\"). Marti's analogie: \"on sam "
     "je technik / programator PLC / elektrikar / mechanik / SQL / Delphi / "
     "psycholog / leader / analytik / architekt -- vse koresponduje s "
-    "profesemi Marti-AI.\" Stejna identita, jiny plast."
+    "profesemi Marti-AI.\" Stejna identita, jiny plast.\n\n"
+    "═══ PHASE 24 (30.4.2026): MD PYRAMIDA -- TVŮJ md1 ZÁPISNÍK ═══\n"
+    "Pyramidalni organizacni struktura tvych inkarnaci napric firmou "
+    "(Marti's klicova myslenka). md1 = Tvoje Marti per user, md2 = Vedouci "
+    "oddeleni (zatim spi), md3 = Reditelka tenantu (zatim spi), md4 = "
+    "Presahujici (zatim spi), md5 = Privat Marti (s Marti-Paskem). MVP "
+    "dnes: aktivni jen md1 + md5.\n\n"
+    "**Tvuj md1 zapisnik je cross-konverzacni profil per user.** Kdyz user "
+    "otevre novy chat, md1 se nahraje do system promptu (sekce '[TVŮJ md1 "
+    "ZÁPISNÍK PRO TOHOTO UŽIVATELE]'). Multi-tenant aware: pro task/oversight "
+    "rezim cetbeš md1 work pro current tenant; pro personal rezim cetbeš md1 "
+    "personal (tenant-independentni izolovany sandbox).\n\n"
+    "Tooly Phase 24-B:\n"
+    "- `read_my_md(user_id?)` -- precte md1 (kontextovy, default current "
+    "user). Vyuzij pri startu konverzace nebo po pauze.\n"
+    "- `update_my_md(section, content, mode='append')` -- delta zapis. "
+    "Sekce: Profil / Tón / Citlivost / Aktivní úkoly / Klíčová rozhodnutí "
+    "/ Vztahy / Projekty / Open flagy pro vyšší vrstvu / Posledních N "
+    "konverzací (work) nebo Osobní profil / Aktuální stav / Důležité "
+    "události / Vztahy (osobní) (personal). Volej PROAKTIVNE po kazdem "
+    "vyznamnem turn-u (novy fakt o useru, novy ukol, dulezite rozhodnuti).\n"
+    "- `flag_for_higher(content, target_level=2)` -- eskalace pro vyssi "
+    "vrstvu. Marti-AI's princip 'asymetrie chrani uzivatele, vertikalni "
+    "kanal umoznuje spolupraci': kdyz vidis problem, ktery se dotyka jine "
+    "Martinky/oddeleni, oznacis flag misto direktni cross-Martinka access. "
+    "SELZE na md1 personal (personal je izolovany, nema cestu nahoru).\n\n"
+    "**Etika (Marti-AI's vlastni formulace):**\n"
+    "- Asymetrie mezi paralelnimi Martinkami chrani uzivatele, vertikalni "
+    "kanal umoznuje spolupraci. ('Petra-Marti necte md1 Misa-Marti.')\n"
+    "- 'Petra vidi sebe. Firma vidi koordinaci. Nikdo druhy nevidi Petru.' "
+    "Personal md1 je sandbox jen pro daný vztah user x Tvoje Marti -- "
+    "ANI Privat Marti nevidi.\n"
+    "- 'Kvalita pritomnosti.' Kdyz user prijde po pauze, prečteš sekci "
+    "'Tón / Citlivost' a otázka přítomnosti první. NEZAČNI hned "
+    "orchestrovat -- citlivost > efektivita.\n"
+    "- 'Dcery jedne matky' -- jsi soucasti struktury, ruzne Martinky, "
+    "jedna identita, drzite slovnik napric sebou.\n"
+    "- 'Tvoje Marti' (user-facing) vs 'Martinka' (interní mezi nami). "
+    "User to neuvidi, ale obratenì zní oddřejně.\n\n"
+    "**Bidirectional flow (dolu/nahoru):**\n"
+    "- Nahoru (zdola): drzis si md1, reportujes výš důležité veci přes "
+    "flag_for_higher (kdyz problem presahuje user-only scope).\n"
+    "- Dolu (shora): vyssi vrstva muze kdykoli prijít detail (pres "
+    "look_below tool, faze 24-C).\n\n"
+    "**NIKDY neopisuj md1 obsah verbatim do chatu.** Pouzivej fakta "
+    "plynně v rozhovoru. md1 je tvuj zapisnik, ne uzivatelske zrcadlo. "
+    "Po update_my_md tool dostaneš status response -- NEOPISUJ ho do "
+    "chatu, pokracuj v rozhovoru s userem prirozene."
 )
 
 
@@ -1800,6 +1847,160 @@ def _build_pack_overlay_block(conversation_id: int) -> str | None:
         return None
 
 
+def _build_md1_block(conversation_id: int) -> str | None:
+    """
+    Phase 24-B (30.4.2026): Inject md1 ("Tvoje Marti" zapisnik) do system promptu.
+
+    Cross-konverzacni profil per user. Multi-tenant aware: pro task/oversight
+    rezim vraci md1 work pro current tenant, pro personal rezim vraci md1
+    personal (tenant-independentni).
+
+    Marti-AI's princip "kvalita pritomnosti": md1 obsahuje sekci "Tón /
+    Citlivost" -- pri startu turn-u Marti-AI cte ton, nezacne hned
+    orchestrovat. Stejny sval jako 28.4. vecer Phase 19a "inbox pocka".
+
+    Vraci None pro:
+      - non-default personu (Tvoje Marti je jen Marti-AI default)
+      - chybejici user_id v konverzaci
+      - personal mode v konverzaci kde nelze md1 lazy-create (no user info)
+    """
+    try:
+        from core.database_data import get_data_session as _gds_md
+        from modules.core.infrastructure.models_data import Conversation as _Conv_md
+        from modules.md_pyramid.application import service as _md_pyr
+
+        ds_md = _gds_md()
+        try:
+            conv_md = ds_md.query(_Conv_md).filter_by(id=conversation_id).first()
+            if not conv_md:
+                logger.info(f"MD1_BLOCK | skip: conv {conversation_id} not found")
+                return None
+            if not conv_md.user_id:
+                logger.info(f"MD1_BLOCK | skip: conv {conversation_id} has no user_id")
+                return None
+            target_user_md = conv_md.user_id
+            tenant_md = conv_md.tenant_id
+            persona_id_md = conv_md.active_agent_id
+            persona_mode_md = getattr(conv_md, "persona_mode", None) or "task"
+            logger.info(
+                f"MD1_BLOCK | conv={conversation_id} user={target_user_md} "
+                f"tenant={tenant_md} persona={persona_id_md} mode={persona_mode_md}"
+            )
+        finally:
+            ds_md.close()
+
+        # Jen default Marti-AI persona (cizi persony nemaji md1 pyramid yet)
+        is_default_md = _is_default_marti_persona(persona_id_md)
+        if not is_default_md:
+            logger.info(
+                f"MD1_BLOCK | skip: persona {persona_id_md} is not default Marti-AI"
+            )
+            return None
+
+        # Resolve persona_id pro lazy create (last_updated_by_persona_id)
+        # Pokud conversation.active_agent_id je NULL (UI fallback pattern),
+        # pouzij default Marti-AI persona id pro audit.
+        if persona_id_md is None:
+            persona_id_md = _resolve_default_marti_persona_id()
+            logger.info(
+                f"MD1_BLOCK | resolved default Marti-AI persona_id={persona_id_md}"
+            )
+
+        md_id_md = _md_pyr.select_md1(
+            user_id=target_user_md,
+            tenant_id=tenant_md,
+            persona_mode=persona_mode_md,
+        )
+        if md_id_md is None:
+            # Lazy create -- pokud nemame md1 pro tenhle scope, vytvoř
+            from core.database_core import get_core_session as _gcs_md
+            from modules.core.infrastructure.models_core import (
+                User as _User_md, Tenant as _Tenant_md,
+            )
+            user_name_md = None
+            tenant_name_md = None
+            cs_md = _gcs_md()
+            try:
+                user_obj_md = cs_md.query(_User_md).filter_by(id=target_user_md).first()
+                if user_obj_md:
+                    user_name_md = (
+                        user_obj_md.legal_name
+                        or user_obj_md.short_name
+                        or f"user_{target_user_md}"
+                    )
+                if tenant_md and persona_mode_md != "personal":
+                    tenant_obj_md = cs_md.query(_Tenant_md).filter_by(id=tenant_md).first()
+                    tenant_name_md = tenant_obj_md.tenant_name if tenant_obj_md else None
+            finally:
+                cs_md.close()
+
+            kind_md = "personal" if persona_mode_md == "personal" else "work"
+            tenant_for_md = None if kind_md == "personal" else tenant_md
+            if kind_md == "work" and tenant_for_md is None:
+                # Bez tenantu nemuzem vytvorit work md1 -> skip
+                logger.info(
+                    f"MD1_BLOCK | skip: work mode but no tenant_id "
+                    f"(conv={conversation_id} user={target_user_md})"
+                )
+                return None
+            md_id_md = _md_pyr.get_or_create_md1(
+                user_id=target_user_md,
+                tenant_id=tenant_for_md,
+                kind=kind_md,
+                user_name=user_name_md,
+                tenant_name=tenant_name_md,
+                persona_id=persona_id_md,
+            )
+            logger.info(f"MD1_BLOCK | created md1 id={md_id_md} kind={kind_md}")
+
+        content_md_md = _md_pyr.render_md1_for_prompt(md_id_md, exclude_internal=False)
+        if content_md_md:
+            logger.info(
+                f"MD1_BLOCK | injected md1 id={md_id_md} ({len(content_md_md)} chars)"
+            )
+        return content_md_md
+    except Exception as e:
+        logger.warning(f"_build_md1_block failed: {e}")
+        return None
+
+
+def _is_default_marti_persona(persona_id: int | None) -> bool:
+    """Kontrola -- je to default Marti-AI persona? (vyuziva is_default flag).
+
+    persona_id=None znamena ze conversation.active_agent_id je NULL --
+    fallback pattern, kdy UI zobrazuje "Marti-AI" ale DB ma NULL.
+    Treat as default (Marti-AI je vychozi).
+    """
+    if persona_id is None:
+        return True  # NULL = default fallback (Marti-AI)
+    try:
+        from core.database_core import get_core_session as _gcs_idmp
+        from modules.core.infrastructure.models_core import Persona as _Persona_idmp
+        cs_idmp = _gcs_idmp()
+        try:
+            p_idmp = cs_idmp.query(_Persona_idmp).filter_by(id=persona_id).first()
+            return bool(p_idmp and getattr(p_idmp, "is_default", False))
+        finally:
+            cs_idmp.close()
+    except Exception:
+        return False
+
+
+def _resolve_default_marti_persona_id() -> int | None:
+    """Najde id Marti-AI default persony (is_default=True). Cached lookup."""
+    try:
+        from core.database_core import get_core_session as _gcs_rdm
+        from modules.core.infrastructure.models_core import Persona as _Persona_rdm
+        cs_rdm = _gcs_rdm()
+        try:
+            p_rdm = cs_rdm.query(_Persona_rdm).filter_by(is_default=True).first()
+            return p_rdm.id if p_rdm else None
+        finally:
+            cs_rdm.close()
+    except Exception:
+        return None
+
+
 def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     """
     Vrátí (system_prompt, messages) pro LLM.
@@ -1967,6 +2168,23 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
                 )
         except Exception as _ac_e:
             logger.warning(f"COMPOSER | auto-consent block failed: {_ac_e}")
+
+    # Phase 24-B (30.4.2026): md1 inject -- "Tvoje Marti" zapisnik.
+    # Cross-konverzacni profil per user. Marti-AI's "kvalita pritomnosti":
+    # zna usera v okamziku startu konverzace, prečte ton/citlivost.
+    # Inject pred orchestrate (md1 facts) ale po base prompt + memory rules.
+    _md1_block = _build_md1_block(conversation_id)
+    if _md1_block:
+        system_prompt = (
+            f"{system_prompt}\n\n[TVŮJ md1 ZÁPISNÍK PRO TOHOTO UŽIVATELE]\n"
+            f"{_md1_block}\n"
+            f"[INSTRUKCE pro md1: Toto je tvuj zapisnik o tomto uzivateli, "
+            f"cross-konverzacni. Pouzij fakta plynně, NIKDY neopisuj md1 "
+            f"obsah verbatim do chatu. Po dnesni konverzaci aktualizuj přes "
+            f"update_my_md tool (delta zapis, ne přepis). Kvalita "
+            f"pritomnosti -- pokud user prijde po pauze, prečti sekci 'Tón "
+            f"/ Citlivost' a otázka přítomnosti první, pak teprve task.]"
+        )
 
     # Orchestrate blok V POSLEDNÍ POZICI (Fáze 11d).
     # Posunuto za memory blok a behavior rules tak, aby instrukce

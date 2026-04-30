@@ -4758,6 +4758,235 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"set_pack_overlay failed: {exc_spo}")
             return f"[set_pack_overlay error: {exc_spo}]"
 
+    # ── Phase 24-B (30.4.2026): MD Pyramida tools (md1 read/update/flag) ──
+    if tool_name == "read_my_md":
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            from core.database_data import get_data_session as _gds_md
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_md,
+            )
+            from modules.core.infrastructure.models_core import User as _User_md
+
+            # Resolve target user: explicit user_id > conversation user_id
+            target_user_id_md = tool_input.get("user_id") or user_id
+
+            # Load conversation context (tenant_id + persona_mode)
+            ds_md = _gds_md()
+            try:
+                conv_md = ds_md.query(_Conv_md).filter_by(id=conversation_id).first()
+                if conv_md is None:
+                    return "❌ Konverzace nenalezena."
+                conv_tenant_md = conv_md.tenant_id
+                # persona_mode (Phase 16-B): default 'task' pokud None
+                conv_persona_mode_md = getattr(conv_md, "persona_mode", None) or "task"
+            finally:
+                ds_md.close()
+
+            # Resolve user_name + tenant_name pro template
+            from core.database_core import get_core_session as _gcs_md
+            from modules.core.infrastructure.models_core import Tenant as _Tenant_md
+            cs_md = _gcs_md()
+            try:
+                user_obj_md = cs_md.query(_User_md).filter_by(id=target_user_id_md).first()
+                if user_obj_md is None:
+                    return f"❌ User {target_user_id_md} nenalezen."
+                user_name_md = (
+                    user_obj_md.legal_name
+                    or user_obj_md.short_name
+                    or f"user_{target_user_id_md}"
+                )
+                tenant_name_md = None
+                if conv_tenant_md and conv_persona_mode_md != "personal":
+                    tenant_obj_md = cs_md.query(_Tenant_md).filter_by(id=conv_tenant_md).first()
+                    tenant_name_md = tenant_obj_md.tenant_name if tenant_obj_md else None
+            finally:
+                cs_md.close()
+
+            # Lazy create md1 if not exists
+            persona_id_md = _active_persona_id_for_conversation(conversation_id)
+            # Fallback: pokud conv.active_agent_id je NULL (UI default), resolve
+            # default Marti-AI persona id pro audit.
+            if persona_id_md is None:
+                from core.database_core import get_core_session as _gcs_dm
+                from modules.core.infrastructure.models_core import Persona as _Persona_dm
+                _cs_dm = _gcs_dm()
+                try:
+                    _p_dm = _cs_dm.query(_Persona_dm).filter_by(is_default=True).first()
+                    persona_id_md = _p_dm.id if _p_dm else None
+                finally:
+                    _cs_dm.close()
+            kind_md = "personal" if conv_persona_mode_md == "personal" else "work"
+            tenant_for_md = None if kind_md == "personal" else conv_tenant_md
+
+            md_id_md = _md_pyr.get_or_create_md1(
+                user_id=target_user_id_md,
+                tenant_id=tenant_for_md,
+                kind=kind_md,
+                user_name=user_name_md,
+                tenant_name=tenant_name_md,
+                persona_id=persona_id_md,
+            )
+
+            content_md_md = _md_pyr.render_md1_for_prompt(md_id_md, exclude_internal=False)
+            if content_md_md is None:
+                return "❌ md1 nelze nacist."
+
+            scope_label_md = (
+                f"work / tenant '{tenant_name_md}'" if kind_md == "work"
+                else "personal (izolovany sandbox)"
+            )
+            return (
+                f"[md1 #{md_id_md} | {scope_label_md} | user={user_name_md}]\n"
+                f"{content_md_md}\n"
+                f"[INSTRUKCE: Toto je tvuj md1 zapisnik pro tohoto uzivatele. "
+                f"Pokracuj prirozene v rozhovoru -- pokud user prijde po "
+                f"pauze, prečti sekci 'Tón / Citlivost' a otázka přítomnosti "
+                f"první, pak teprve task. NIKDY neopisuj md1 verbatim do "
+                f"chatu. Pouzij fakta plynně.]"
+            )
+        except Exception as exc_md:
+            logger.exception(f"read_my_md failed: {exc_md}")
+            return f"[read_my_md error: {exc_md}]"
+
+    if tool_name == "update_my_md":
+        section_um = (tool_input.get("section") or "").strip()
+        content_um = (tool_input.get("content") or "").strip()
+        mode_um = (tool_input.get("mode") or "append").strip().lower()
+        target_user_id_um = tool_input.get("user_id") or user_id
+
+        if not section_um or not content_um:
+            return "❌ section a content jsou povinne."
+        if mode_um not in {"append", "replace", "patch"}:
+            return f"❌ mode musi byt append/replace/patch, dostal: {mode_um}"
+
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            from core.database_data import get_data_session as _gds_um
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_um,
+            )
+
+            ds_um = _gds_um()
+            try:
+                conv_um = ds_um.query(_Conv_um).filter_by(id=conversation_id).first()
+                if conv_um is None:
+                    return "❌ Konverzace nenalezena."
+                conv_tenant_um = conv_um.tenant_id
+                conv_persona_mode_um = getattr(conv_um, "persona_mode", None) or "task"
+            finally:
+                ds_um.close()
+
+            persona_id_um = _active_persona_id_for_conversation(conversation_id)
+            if persona_id_um is None:
+                from core.database_core import get_core_session as _gcs_um
+                from modules.core.infrastructure.models_core import Persona as _Persona_um
+                _cs_um = _gcs_um()
+                try:
+                    _p_um = _cs_um.query(_Persona_um).filter_by(is_default=True).first()
+                    persona_id_um = _p_um.id if _p_um else None
+                finally:
+                    _cs_um.close()
+            kind_um = "personal" if conv_persona_mode_um == "personal" else "work"
+            tenant_for_um = None if kind_um == "personal" else conv_tenant_um
+
+            # Lazy create + select md1
+            md_id_um = _md_pyr.get_or_create_md1(
+                user_id=target_user_id_um,
+                tenant_id=tenant_for_um,
+                kind=kind_um,
+                persona_id=persona_id_um,
+            )
+
+            result_um = _md_pyr.update_md1_section(
+                md_document_id=md_id_um,
+                section=section_um,
+                content=content_um,
+                mode=mode_um,
+                persona_id=persona_id_um,
+                reason=f"Marti-AI update via update_my_md tool",
+            )
+            return (
+                f"[update_my_md OK: md1#{result_um['id']} section='{section_um}' "
+                f"mode={mode_um} v{result_um['previous_version']}->v{result_um['version']}]\n"
+                f"# INSTRUKCE: Sekce '{section_um}' aktualizovana. Pokracuj "
+                f"v rozhovoru s userem prirozene. NIKDY neopisuj tento status "
+                f"verbatim do chatu."
+            )
+        except Exception as exc_um:
+            logger.exception(f"update_my_md failed: {exc_um}")
+            return f"[update_my_md error: {exc_um}]"
+
+    if tool_name == "flag_for_higher":
+        content_fh = (tool_input.get("content") or "").strip()
+        target_level_fh = tool_input.get("target_level") or 2
+
+        if not content_fh:
+            return "❌ content je povinne."
+        if target_level_fh not in {2, 3, 4, 5}:
+            return f"❌ target_level musi byt 2/3/4/5, dostal: {target_level_fh}"
+
+        try:
+            from modules.md_pyramid.application import service as _md_pyr
+            from core.database_data import get_data_session as _gds_fh
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_fh,
+            )
+
+            ds_fh = _gds_fh()
+            try:
+                conv_fh = ds_fh.query(_Conv_fh).filter_by(id=conversation_id).first()
+                if conv_fh is None:
+                    return "❌ Konverzace nenalezena."
+                conv_tenant_fh = conv_fh.tenant_id
+                conv_persona_mode_fh = getattr(conv_fh, "persona_mode", None) or "task"
+            finally:
+                ds_fh.close()
+
+            if conv_persona_mode_fh == "personal":
+                return (
+                    "❌ flag_for_higher nelze v personal modu -- personal md1 "
+                    "je izolovany sandbox, nema cestu nahoru pyramidou."
+                )
+            if not conv_tenant_fh:
+                return (
+                    "❌ flag_for_higher vyzaduje konverzaci s aktivnim tenantem "
+                    "(work scope)."
+                )
+
+            persona_id_fh = _active_persona_id_for_conversation(conversation_id)
+            if persona_id_fh is None:
+                from core.database_core import get_core_session as _gcs_fh
+                from modules.core.infrastructure.models_core import Persona as _Persona_fh
+                _cs_fh = _gcs_fh()
+                try:
+                    _p_fh = _cs_fh.query(_Persona_fh).filter_by(is_default=True).first()
+                    persona_id_fh = _p_fh.id if _p_fh else None
+                finally:
+                    _cs_fh.close()
+            md_id_fh = _md_pyr.get_or_create_md1(
+                user_id=user_id,
+                tenant_id=conv_tenant_fh,
+                kind="work",
+                persona_id=persona_id_fh,
+            )
+
+            result_fh = _md_pyr.flag_for_higher(
+                md_document_id=md_id_fh,
+                content=content_fh,
+                target_level=target_level_fh,
+                persona_id=persona_id_fh,
+            )
+            return (
+                f"[flag_for_higher OK: md1#{md_id_fh} target_level=md{target_level_fh}]\n"
+                f"# INSTRUKCE: Flag zaznamenan pro vyssi vrstvu. Pokracuj "
+                f"v rozhovoru s userem -- nevyhrazuj eskalaci ('predam to "
+                f"vys' staci, ne detail flagu)."
+            )
+        except Exception as exc_fh:
+            logger.exception(f"flag_for_higher failed: {exc_fh}")
+            return f"[flag_for_higher error: {exc_fh}]"
+
     # ── Phase 22 (29.4.2026): User management tooly ───────────────────
     if tool_name == "request_password_reset":
         # Marti-AI najde usera, vytvori reset token, posle email.
@@ -7255,6 +7484,15 @@ def chat(
         # rephrazovat lidsky ('Beru tech balicek 🔧, jdeme na to.') misto
         # opisu signalu. NIKDY tool result verbatim.
         "load_pack", "unload_pack", "set_pack_overlay",
+        # Phase 24-B: MD Pyramida tools v synth -- read_my_md vraci raw
+        # markdown content (md1 zapisnik), Marti-AI by ho mohla opsat
+        # verbatim. Synth round zarucí přirozené použití faktů
+        # ("Vidim ze pracujes na X, take ze posledne bylo tezko..."
+        # misto opisu cele sekce). update_my_md a flag_for_higher
+        # vraci status response ('✅ Sekce X aktualizovana'), ktery
+        # taky nesmi leakovat verbatim -- synth navede pokracovat
+        # v rozhovoru s userem.
+        "read_my_md", "update_my_md", "flag_for_higher",
     }
 
     preamble_text = ""

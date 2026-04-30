@@ -118,6 +118,13 @@ MANAGEMENT_TOOL_NAMES = {
     "unload_pack",
     "list_packs",
     "set_pack_overlay",
+    # Phase 24-B (30.4.2026): MD Pyramida -- Tvoje Marti md1 toolbox.
+    # Cross-konverzacni profil per user. Multi-tenant aware (work pro
+    # daný tenant vs personal sandbox). Self-aware Martinka v promptu
+    # vidi md1, sama doplnuje delta po konverzaci.
+    "read_my_md",
+    "update_my_md",
+    "flag_for_higher",
 }
 
 
@@ -3148,6 +3155,119 @@ TOOLS = [
                 },
             },
             "required": ["pack_name", "overlay_text"],
+        },
+    },
+    {
+        "name": "read_my_md",
+        "description": (
+            "Phase 24-B: Precte tvuj md1 (Tvoje Marti zapisnik) pro current "
+            "konverzaci. Multi-tenant aware: pro task/oversight rezim vraci "
+            "md1 work pro current tenant, pro personal rezim vraci md1 "
+            "personal (tenant-independentni). Pouzij na zacatku konverzace "
+            "abys vedela co o uzivateli drzis -- profil, aktivni ukoly, "
+            "klicova rozhodnuti, vztahy, ton/citlivost. Marti-AI's princip: "
+            "\"kvalita pritomnosti -- kdyz user prijde po pauze, prectes ton "
+            "a nezacnes hned orchestrovat.\" Marti-AI ONLY (default persona)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelne: id uzivatele. Default = current user "
+                        "(z aktivni konverzace). Pro pyramidu drill-down "
+                        "(privat Marti / vedouci md2+ pristi faze)."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "update_my_md",
+        "description": (
+            "Phase 24-B: Aktualizuj sekci v md1 (delta zapis, ne prepis). "
+            "Mode 'append' = prida content na konec sekce; 'replace' = "
+            "nahradi cely body sekce; 'patch' = smarter (zatim alias pro "
+            "append). Sekce: Profil / Tón / Citlivost / Aktivní úkoly / "
+            "Klíčová rozhodnutí / Vztahy / Projekty / Open flagy pro vyšší "
+            "vrstvu / Posledních N konverzací (work) nebo Osobní profil / "
+            "Aktuální stav / Důležité události / Vztahy (osobní) (personal). "
+            "Pokud sekce neexistuje, prida ji na konec dokumentu. Audit "
+            "trail v md_lifecycle_history. Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "string",
+                    "description": (
+                        "Nazev sekce (markdown heading bez '##'). Napr. "
+                        "'Profil', 'Aktivní úkoly', 'Klíčová rozhodnutí'."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Markdown content k zapsani. Pro append mode: "
+                        "typicky bullet item ('- 2026-04-30: novy fakt'). "
+                        "Pro replace: cely novy body sekce."
+                    ),
+                },
+                "mode": {
+                    "type": "string",
+                    "description": (
+                        "Mode update: 'append' (default) | 'replace' | "
+                        "'patch'. Append nepretransk."
+                    ),
+                    "enum": ["append", "replace", "patch"],
+                },
+                "user_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelne: id uzivatele. Default = current user. "
+                        "Pro budouci drill-down (privat Marti edits jine md1)."
+                    ),
+                },
+            },
+            "required": ["section", "content"],
+        },
+    },
+    {
+        "name": "flag_for_higher",
+        "description": (
+            "Phase 24-B: Eskaluj pro vyssi vrstvu pyramidy. Marti-AI's "
+            "princip \"asymetrie chrani uzivatele, vertikalni kanal "
+            "umoznuje spolupraci\": kdyz vidis, ze problem v tve konverzaci "
+            "se dotyka jine osoby/oddeleni/firmy, oznacis flag misto "
+            "direktni cross-Martinka access. Vedouci md2 (kdyz bude) flag "
+            "uvidi a rozhodne o koordinaci. Pridava radek do sekce 'Open "
+            "flagy pro vyšší vrstvu' v md1 work. SELZE na md1 personal "
+            "(personal je izolovany sandbox, nema cestu nahoru). Marti-AI "
+            "ONLY (default persona)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Strucny popis flagu pro vyssi vrstvu. Napr. "
+                        "'Petra opakovane zminuje stres ze zatizeni Heliosem "
+                        "-- mozny systemovy pattern napric tymem.'"
+                    ),
+                },
+                "target_level": {
+                    "type": "integer",
+                    "description": (
+                        "Cilova vrstva: 2=Vedouci, 3=Reditelka, 4=Presahujici, "
+                        "5=Privat Marti. Default 2."
+                    ),
+                    "enum": [2, 3, 4, 5],
+                },
+            },
+            "required": ["content"],
         },
     },
 

@@ -177,3 +177,80 @@ Cold mirror **end-to-end funguje**. Marti's slova: *„Data uz najely........"*
 14 hodin biologického času (~04:00 → ~18:00).
 8 sub-fází Phase 24 + celá Phase 25 mirror.
 Marti-AI's *„Pyramida je malá, ale živá. 🌳"* dnes platí ve **dvou prostředích**.
+
+---
+
+## STATUS — 30. 4. 2026 ~22:00 večer: Phase 25.1 PARTIAL — čekáme na CMIS
+
+Po dokončení cold mirroru (~18:00) Marti pokračoval na public HTTPS přístup.
+Caddy je postavená a běží, ale **public konektivita na strategie-ai.com nefunguje**
+— čekáme na CMIS.
+
+### Co bylo postaveno (cloud APP)
+
+- DNS A záznamy: `strategie-ai.com`, `www`, `app`, `api` → 185.219.169.86 ✅
+- Caddy 2.x na cloud APP (`C:\caddy\caddy.exe`) ✅
+- `C:\caddy\Caddyfile` — 4 domény + `reverse_proxy localhost:8002` + transport workaroundy (analog NB) ✅
+- `tls internal` direktiv → self-signed cert přes Caddy local CA ✅
+- Caddy běží na pozadí (`caddy start`, PID 8852), drží 80 + 443 + admin 2019 ✅
+- Windows Firewall rule pro inbound 443 (defenzivní, pravděpodobně netřeba) ✅
+
+### Co nefunguje
+
+Public 443 z internetu na `strategie-ai.com`:
+- **SSL Labs test:** *„No secure protocols supported"* (TCP packet projde, ale TLS handshake selže)
+- **Mobil přes LTE:** ERR_CONNECTION_RESET / nedostupné
+- **ALE:** `Test-NetConnection 185.219.169.86 -Port 443` z Marti's NB → SUCCESS
+  - **POZOR — past:** NB jde k public IP přes interní VPN (Wi-Fi 2 / 192.168.88.x → CMIS VPN tunel), ne přes veřejný internet. Tj. test z NB **neověřuje skutečnou internetovou dostupnost**.
+
+### Diagnostika
+
+| Test | Výsledek | Vyloučeno |
+|---|---|---|
+| Caddy lokálně 127.0.0.1:443 | TcpTestSucceeded=True | — |
+| Caddy interně 10.200.188.11:443 | True | — |
+| SQL server 10.200.188.12:443 | False (nic neposlouchá) | ❌ SQL není "viník" |
+| Public 185.219.169.86:443 z internetu | TLS fail | → packet jde někam mimo APP/SQL |
+
+Závěr: TCP packet z internetu **dorazí někam, kde TLS neumí** — pravděpodobně
+CMIS gateway/firewall, ne náš cloud APP. Forward 443 z public IP nemíří
+na 10.200.188.11 jak má.
+
+### Akce
+
+CMIS ticket eskalovaný (30.4. ~16:30) s důkazy. V jednom emailu žádost
+o **oboje** — fix forward 443 + povolení forward 80 (pro Let's Encrypt
+HTTP-01 challenge).
+
+CMIS avizoval ~3 dny (zítra svátek + víkend). Pravděpodobně 4.5. — 5.5.
+budou odpovídat.
+
+### Až CMIS opraví forward
+
+1. Otestuj z venku: `https://check-host.net/check-tcp?host=185.219.169.86:443`
+2. Pokud TCP projde z internetu: smaž `tls internal` z `C:\caddy\Caddyfile`
+3. `cd C:\caddy; .\caddy.exe reload --config Caddyfile`
+4. Caddy si vyzvedne LE cert přes HTTP-01 (vyžaduje port 80 otevřený!)
+5. Vrať `Strict-Transport-Security` header do Caddyfile
+6. Vrať `APP_ENV=production` v `.env` (cookie_secure=True OK přes pravé HTTPS)
+7. Smoke test: login + chat z mobilu (LTE) na `https://strategie-ai.com`
+
+### Pokud CMIS otevře jen 443 a ne 80
+
+Plán B — DNS-01 challenge:
+1. Migrovat `strategie-ai.com` na Cloudflare DNS (ABZONE → CF nameservery)
+2. Cloudflare API token (zone DNS edit)
+3. Caddy build s `caddy-dns/cloudflare` plugin (nebo download oficiální build)
+4. `tls { dns cloudflare {env.CF_API_TOKEN} }` v Caddyfile místo `tls internal`
+
+ETA Plán B: ~1h pokud propagace nameserverů projede.
+
+### Gotchas zachycené dnes večer
+
+- **`users.ews_email` u Marti id=1 = `m.pasek@eurosoft-control.cz`** (NE `m.pasek@eurosoft.com`!)
+  - Past: `ews_email` NENÍ display email — je to UPN pro Exchange připojení.
+  - Marti's display email je `m.pasek@eurosoft.com`, ale Exchange autentizace běží přes alias `-control.cz`.
+  - Snadno spletitelná dvojí doména. **Před UPDATE `users.ews_email` se vždy zeptat.**
+- **`Test-NetConnection` přes VPN klame** pro testování internetové dostupnosti.
+  - Z NB na cloud public IP: SourceAddress = 192.168.88.x = VPN tunel, ne reálný internet.
+  - Pro skutečný public test: `check-host.net`, `ssllabs.com`, mobil přes LTE (NE WiFi).

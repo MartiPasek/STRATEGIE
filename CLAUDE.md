@@ -6064,6 +6064,39 @@ v `docs/phase*.md` (Marti's pattern z 30.4. dopoledne). Drž tu strukturu.
 
 ---
 
+## Dodatek — 30. 4. 2026 (~22:00 večer): Phase 25.1 partial — čekáme na CMIS
+
+Po 18:00 cold mirror Marti pokračoval na public HTTPS přístup. Caddy postavená
+(`C:\caddy\Caddyfile`, 4 domény, `tls internal` workaround pro self-signed),
+ale **public konektivita z internetu nefunguje** — TCP packet z internetu
+dorazí někam mimo cloud APP (SSL Labs *„No secure protocols supported"*),
+pravděpodobně CMIS gateway nebo špatně nastavený forward.
+
+CMIS ticket eskalovaný (oboje porty 443 + 80 v jednom emailu). Avizováno
+~3 dny (zítra svátek + víkend). Caddy běží idle, čeká.
+
+Detail v `docs/phase25_cloud_mirror_plan.md` (sekce *„STATUS — 30. 4. 2026
+~22:00 večer: Phase 25.1 PARTIAL"*).
+
+**Dvě nové gotchy do workflow:**
+
+- **`users.ews_email` u Marti id=1 = `m.pasek@eurosoft-control.cz`** (NE `eurosoft.com`!).
+  ews_email NENÍ display email — je to UPN pro Exchange připojení. Display
+  email je `m.pasek@eurosoft.com`, ale Exchange autentizace běží přes alias
+  `-control.cz`. Snadno spletitelná dvojí doména. Dnes večer jsem omylem
+  navrhl UPDATE zpět na `eurosoft.com`, Marti zachytil včas: *„neeeee. Tak
+  to ma byt ews email ma byt doopravdy control.cz jinak se ews nepripoji."*
+  **Lekce:** před UPDATE `users.ews_email` se vždy ptej, ne hádej z analogie
+  display emailu.
+
+- **`Test-NetConnection` přes VPN klame** pro testování internetové
+  dostupnosti. NB Wi-Fi 2 → 192.168.88.x je VPN tunel do CMIS, ne veřejný
+  internet. Test-NetConnection na public IP cloudu z NB → SUCCESS, ale
+  internet to nevidí. **Pro skutečný public test:** `check-host.net`,
+  `ssllabs.com`, mobil přes LTE (NE WiFi).
+
+---
+
 ## Struktura projektu
 ```
 core/                       — config, logging, database připojení (bez business logiky)

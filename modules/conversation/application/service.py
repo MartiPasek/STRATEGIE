@@ -5766,6 +5766,130 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         import json as _json_res
         return _json_res.dumps(result, ensure_ascii=False, default=str)
 
+    # ── Phase 27d (1.5.2026 vecer): PDF reader pro Marti-AI ──────────
+    # Klarka workflow (Bakalari exporty). Marti-AI's volby A/A/A + bonus
+    # list_pdf_metadata. Gotcha #7: vsechny lokalni importy s aliasem!
+    if tool_name == "list_pdf_metadata":
+        from modules.rag.application import pdf_service as _pdf_lpm
+        from core.database_core import get_core_session as _gcs_lpm
+        from modules.core.infrastructure.models_core import User as _User_lpm
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        is_parent_lpm = False
+        caller_tenant_lpm = None
+        if user_id:
+            cs_lpm = _gcs_lpm()
+            try:
+                u_lpm = cs_lpm.query(_User_lpm).filter_by(id=user_id).first()
+                if u_lpm:
+                    is_parent_lpm = bool(u_lpm.is_marti_parent)
+                    caller_tenant_lpm = u_lpm.last_active_tenant_id
+            finally:
+                cs_lpm.close()
+
+        try:
+            result_lpm = _pdf_lpm.list_pdf_metadata(
+                document_id_resolved,
+                caller_tenant_id=caller_tenant_lpm,
+                is_parent=is_parent_lpm,
+            )
+        except PermissionError as exc_lpm:
+            return f"🔒 {exc_lpm}"
+        except ValueError as exc_lpm:
+            return f"❌ {exc_lpm}"
+        except Exception as exc_lpm:
+            logger.exception(f"list_pdf_metadata failed: {exc_lpm}")
+            return f"[list_pdf_metadata error: {exc_lpm}]"
+
+        # Compact response -- Marti-AI rephrazuje pres synth round
+        lines_lpm = [
+            f"file={result_lpm['filename']} | n_pages={result_lpm['n_pages']}",
+        ]
+        if result_lpm.get("encrypted"):
+            lines_lpm.append("⚠ ENCRYPTED — pozadej Klarku o nesifrovany export")
+        if not result_lpm.get("has_text_layer", True):
+            lines_lpm.append(
+                "⚠ NO TEXT LAYER (scan only) — extract_text vrati prazdne. "
+                "OCR neni v Phase 27d, pozadej user o text-layer PDF."
+            )
+        else:
+            lines_lpm.append("text_layer: OK")
+        dims = result_lpm.get("page_dimensions") or {}
+        if dims.get("width"):
+            lines_lpm.append(f"page_size: {dims['width']}x{dims['height']}")
+        if result_lpm.get("error"):
+            lines_lpm.append(f"error: {result_lpm['error']}")
+        return "\n".join(lines_lpm)
+
+    if tool_name == "read_pdf_structured":
+        from modules.rag.application import pdf_service as _pdf_rps
+        from core.database_core import get_core_session as _gcs_rps
+        from modules.core.infrastructure.models_core import User as _User_rps
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        pages_in = tool_input.get("pages")
+        offset_in = tool_input.get("offset", 0)
+        limit_in = tool_input.get("limit", 50)
+
+        # Validate pages parameter
+        pages_resolved: list[int] | None = None
+        if pages_in is not None:
+            if not isinstance(pages_in, (list, tuple)) or len(pages_in) != 2:
+                return "❌ pages musi byt list [start, end] s 2 prvky (1-based inclusive)."
+            try:
+                pages_resolved = [int(pages_in[0]), int(pages_in[1])]
+            except (TypeError, ValueError):
+                return "❌ pages musi obsahovat integery."
+
+        try:
+            offset_resolved = int(offset_in) if offset_in is not None else 0
+            limit_resolved = int(limit_in) if limit_in is not None else 50
+        except (TypeError, ValueError):
+            return "❌ offset a limit musi byt int."
+
+        is_parent_rps = False
+        caller_tenant_rps = None
+        if user_id:
+            cs_rps = _gcs_rps()
+            try:
+                u_rps = cs_rps.query(_User_rps).filter_by(id=user_id).first()
+                if u_rps:
+                    is_parent_rps = bool(u_rps.is_marti_parent)
+                    caller_tenant_rps = u_rps.last_active_tenant_id
+            finally:
+                cs_rps.close()
+
+        try:
+            result_rps = _pdf_rps.read_pdf_structured(
+                document_id_resolved,
+                pages=pages_resolved,
+                offset=offset_resolved,
+                limit=limit_resolved,
+                caller_tenant_id=caller_tenant_rps,
+                is_parent=is_parent_rps,
+            )
+        except PermissionError as exc_rps:
+            return f"🔒 {exc_rps}"
+        except ValueError as exc_rps:
+            return f"❌ {exc_rps}"
+        except Exception as exc_rps:
+            logger.exception(f"read_pdf_structured failed: {exc_rps}")
+            return f"[read_pdf_structured error: {exc_rps}]"
+
+        # Structured JSON response - Marti-AI rephrazuje pres synth round
+        import json as _json_rps
+        return _json_rps.dumps(result_rps, ensure_ascii=False, default=str)
+
     # ── Phase 27c (1.5.2026): Python sandbox pro Marti-AI ───────────
     if tool_name == "python_exec":
         from modules.sandbox.application import python_runner as _pyr
@@ -8002,6 +8126,13 @@ def chat(
         # rephrazovat ('Vyrobila jsem klarka_sablona.xlsx, 5 listu, posilam
         # ti to pres reply...') misto opisu raw JSON s runtime_ms a vsim.
         "python_exec",
+        # Phase 27d (1.5.2026 vecer): PDF reader -- list_pdf_metadata vraci
+        # compact signal, read_pdf_structured vraci JSON dict s pages.
+        # Bez synth roundu by Marti-AI opisovala raw text/tables verbatim
+        # do chatu (gotcha #18). Synth round ji navede prevypravet
+        # ('Klarka poslala PDF s rozvrhem 5.A. Vidim 4 stranky, 8 tabulek
+        # s casy hodin. Mam vytahnout konkretni sloupec?') misto opisu.
+        "list_pdf_metadata", "read_pdf_structured",
     }
 
     preamble_text = ""

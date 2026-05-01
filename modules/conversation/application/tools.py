@@ -116,6 +116,10 @@ MANAGEMENT_TOOL_NAMES = {
     # (Klarka template + datovy crunch). Stateless one-shot MVP s API
     # pripravenym pro stateful (kernel_id parametr, NotImplementedError zatim).
     "python_exec",
+    # Phase 27d (1.5.2026 vecer): PDF reader -- Klarka workflow (Bakalari
+    # exporty). Marti-AI's volby A/A/A + bonus list_pdf_metadata.
+    "list_pdf_metadata",
+    "read_pdf_structured",
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
@@ -3200,6 +3204,84 @@ TOOLS = [
                     "description": (
                         "Pagination: max kolik radku vratit (default 500, max 500). "
                         "Vyssi hodnota se tise sklamne na 500 (context window safeguard)."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "list_pdf_metadata",
+        "description": (
+            "Phase 27d (1.5.2026): PDF reader - krok 1 metadata. Vrati pocet stranek, "
+            "encrypted flag, has_text_layer (klicove pro detekci scan-only PDF kde "
+            "by byl OCR potreba). Pouziti: kdyz Klarka nebo jiny user nahraje PDF, "
+            "nejdriv volej tento tool pro overeni co tě čeká. Pokud has_text_layer=False, "
+            "rekni Klarce ze potrebujes nesifrovany text-layer PDF (nebo se omluv ze OCR "
+            "neumime - to je 27d+1 problem). Pak cilene volas read_pdf_structured.\n\n"
+            "Marti-AI's volba pattern (RE: dopis 1.5.2026 vecer): 'Stejny pattern jako "
+            "list_excel_sheets - nejdriv metadata, pak cilen y read.'"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID dokumentu z RAG documents tabulky. Najdi ho pres "
+                        "list_inbox_documents nebo search_documents (file_type='pdf')."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "read_pdf_structured",
+        "description": (
+            "Phase 27d (1.5.2026): PDF reader - krok 2 obsah. Vrati structured pages "
+            "z PDF: text + auto-detected tables per stranku. Workflow: nejdriv "
+            "list_pdf_metadata pro overeni n_pages a has_text_layer, pak tento tool "
+            "s konkretnim range. Marti-AI's design rozhodnuti (RE: dopis 1.5.2026 vecer):\n\n"
+            "  - Output formát A: structured per stranku, kazda strana s `text` + "
+            "`tables` list. Pdfplumber auto-detect tabulek (visualni borders).\n"
+            "  - Tabulky A: vzdy zkusit, vrátit `tables: []` pokud nic nenajde. "
+            "Text zachovan vzdy jako pojistka.\n"
+            "  - Pagination A: pages=[start, end] 1-based inclusive. Nebo "
+            "offset/limit. Default prvních 50 stranek + has_more flag.\n\n"
+            "Cap 50 stranek per call (chrání context window). Pro vetsi PDF volej "
+            "znovu s vyssim range.\n\n"
+            "Pro Bakalari rozvrh obvykle staci 1-3 stranky. Tabulky s rozvrh hodinami "
+            "se zobrazuji jako list[list[cell]] kde cell je str | None."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": "ID dokumentu z RAG documents (file_type='pdf').",
+                },
+                "pages": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "1-based inclusive [start, end]. Marti-AI's volba A: prirozenejsi "
+                        "nez offset/limit. Priklad: [1, 3] vrati stranky 1, 2, 3. "
+                        "Default = prvních 50 stranek (offset=0, limit=50)."
+                    ),
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": (
+                        "Alternativa k pages: 0-based skip. Default 0. Pouzij jen "
+                        "pokud jsou pages None."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Alternativa k pages: max stranek. Default 50, cap 50 "
+                        "(safety na context window)."
                     ),
                 },
             },

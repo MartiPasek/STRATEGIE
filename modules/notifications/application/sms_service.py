@@ -24,9 +24,12 @@ queue_sms() provadi:
   4. zapis do sms_outbox se status='pending'
 """
 from __future__ import annotations
+import json
 import re
 from abc import ABC, abstractmethod
 from datetime import datetime, timedelta, timezone
+
+from sqlalchemy import text
 
 from core.config import settings
 from core.database_data import get_data_session
@@ -507,6 +510,40 @@ def store_inbound_sms(
 
     ds = get_data_session()
     try:
+        # Idempotent insert -- capcom6 cloud sometimes retries webhook delivery
+        # with same gateway message_id (potvrzeno 1.5.2026: 2 rows se stejným
+        # message_id, processed_at rozdíl 9s). Pokud existuje row se shodným
+        # gateway message_id v posledních 5 minutách, vrať existing místo
+        # vytváření duplikátu.
+        if meta:
+            try:
+                meta_obj = json.loads(meta)
+                gw_msg_id = meta_obj.get("message_id")
+                if gw_msg_id:
+                    existing = ds.execute(text(
+                        "SELECT id, persona_id, from_phone, body, received_at "
+                        "FROM sms_inbox "
+                        "WHERE meta::jsonb->>'message_id' = :msg_id "
+                        "  AND received_at > NOW() - INTERVAL '5 minutes' "
+                        "LIMIT 1"
+                    ), {"msg_id": gw_msg_id}).first()
+                    if existing:
+                        logger.info(
+                            f"SMS | inbox | dedup | skip insert -- existing id={existing.id} "
+                            f"| gateway_msg_id={gw_msg_id} | from={from_phone_norm}"
+                        )
+                        return {
+                            "id": existing.id,
+                            "persona_id": existing.persona_id,
+                            "from_phone": existing.from_phone,
+                            "body": existing.body,
+                            "received_at": existing.received_at.isoformat() if existing.received_at else None,
+                            "task_id": None,
+                            "deduped": True,
+                        }
+            except (ValueError, KeyError, AttributeError, TypeError) as _e:
+                logger.debug(f"SMS | inbox | dedup check failed (non-fatal): {_e}")
+
         row = SmsInbox(
             persona_id=persona_id,
             tenant_id=tenant_id,

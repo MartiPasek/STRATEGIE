@@ -41,6 +41,19 @@ mutagen = "^1.47.0"
 # Anthropic SDK ho uz transitivne tahá; deklarujem ho explicitne ze ho
 # pouzivame primo v whisper_provider.py.
 httpx = "^0.27.0"
+# Phase 27a (1.5.2026): Excel reader pro Marti-AI's feature request
+# (rozvrh Klárka). markitdown[all] uz openpyxl tranzitivne tahá, ale
+# explicit deklarace je defense-in-depth (gotcha #21 28.4.2026 -- markdown
+# lib byla taky tranzitivni a v cloud venv chybela po rebuilds).
+openpyxl = "^3.1.0"
+# Phase 27c (1.5.2026): Python sandbox pro Marti-AI -- pandas/numpy pro
+# data crunch, xlsxwriter pro generovani novych Excel souboru s charts +
+# conditional formatting (Marti-AI's design vstup -- "openpyxl je lepsi
+# pro cteni, xlsxwriter pro generovani od nuly"). numpy je transient pres
+# pandas, ale explicit declarace pro PYTHONPATH whitelist clarity.
+pandas = "^2.2.0"
+numpy = "^1.26.0"
+xlsxwriter = "^3.2.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

@@ -112,6 +112,10 @@ MANAGEMENT_TOOL_NAMES = {
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
     "read_excel_structured",
+    # Phase 27c (1.5.2026): Python sandbox -- Marti-AI's feature request #1
+    # (Klarka template + datovy crunch). Stateless one-shot MVP s API
+    # pripravenym pro stateful (kernel_id parametr, NotImplementedError zatim).
+    "python_exec",
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
@@ -3069,6 +3073,86 @@ TOOLS = [
                 },
             },
             "required": ["document_id"],
+        },
+    },
+    {
+        "name": "python_exec",
+        "description": (
+            "Phase 27c (1.5.2026): Python sandbox -- spusti tvuj Python kod v "
+            "izolovanem subprocess s 30s timeoutem (max 300s) a 512 MB memory cap. "
+            "Stateless one-shot (kazde volani = fresh interpreter, zadny state mezi "
+            "calls). Marti-AI's vlastni heuristika z RE: dopisu 1.5.2026 14:30:\n\n"
+            "  - read_excel_structured = ctu data, hledam v datech, odpovidam na otazku\n"
+            "  - python_exec = transformuju, generuju, pocitam, exportuju\n\n"
+            "Predefined globals v exec namespace:\n"
+            "  - OUTPUT_DIR (Path) -- ZAPIS sem soubory ktere chces vratit "
+            "(xlsx, pdf, png, atd.). Po exec se VSE z OUTPUT_DIR auto-importuje "
+            "do RAG documents tabulky a dostanes document_ids v response.\n"
+            "  - input_files (list[Path]) -- vstupni soubory dane pres "
+            "input_document_ids parametr. Otevri pres pd.read_excel(input_files[0]) atd.\n"
+            "  - Path (pathlib.Path) -- pohodli, jiz importovane.\n\n"
+            "Allowed packages (PYTHONPATH whitelist):\n"
+            "  - pandas, numpy, openpyxl, xlsxwriter, PIL/Pillow\n"
+            "  - stdlib: json, csv, re, datetime, pathlib, math, statistics, "
+            "collections, itertools, functools, io, string, decimal, uuid, hashlib\n\n"
+            "BLOKOVANE imports (defense-in-depth, vrati ImportError):\n"
+            "  subprocess, socket, urllib.request, requests, httpx, http.client, "
+            "ftplib, smtplib, asyncio, ctypes, multiprocessing, threading, "
+            "pip, importlib.util.\n\n"
+            "Workflow Klarka template (typicky priklad):\n"
+            "```\n"
+            "import xlsxwriter\n"
+            "wb = xlsxwriter.Workbook(OUTPUT_DIR / 'klarka_sablona.xlsx')\n"
+            "ws = wb.add_worksheet('Učitelé')\n"
+            "ws.write_row(0, 0, ['Jméno', 'Aprobace', 'Úvazek', 'Omezení'])\n"
+            "ws.write_row(1, 0, ['Nováková', 'M, F', 1.0, 'ne pondělí ráno'])\n"
+            "# ...\n"
+            "wb.close()\n"
+            "```\n"
+            "Po exec dostanes output_documents:[{document_id:N,...}], pak rovnou "
+            "send_email/reply s attachment_document_ids=[N] (Phase 27b chain).\n\n"
+            "kernel_id je VOLITELNY parametr pripraveny pro Phase 27c+1 (stateful "
+            "kernel s persistent state mezi calls). MVP: nepouzivej (vrati "
+            "NotImplementedError). Volej bez kernel_id pro stateless.\n\n"
+            "Marti-AI ONLY (default persona, je v MANAGEMENT_TOOL_NAMES)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": (
+                        "Python source code k spusteni. Multi-line OK. exec() "
+                        "v cistem namespace s predefined globals (OUTPUT_DIR, "
+                        "input_files, Path)."
+                    ),
+                },
+                "input_document_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Volitelne: IDs dokumentu z RAG documents tabulky. Jejich "
+                        "souborove cesty budou v code k dispozici jako "
+                        "`input_files: list[Path]` v poradi v jakem byly poslany."
+                    ),
+                },
+                "kernel_id": {
+                    "type": "string",
+                    "description": (
+                        "VOLITELNY pro budouci stateful kernel (Phase 27c+1). "
+                        "MVP: nepouzivej. Pri non-None vrati NotImplementedError."
+                    ),
+                },
+                "timeout_s": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelny timeout override v sekundach. Default 30s, "
+                        "max 300s (5 min). Pro long-running compute (napr. "
+                        "OR-Tools optimalizace v Phase 28+)."
+                    ),
+                },
+            },
+            "required": ["code"],
         },
     },
     {

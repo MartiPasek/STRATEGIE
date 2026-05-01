@@ -5766,6 +5766,100 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         import json as _json_res
         return _json_res.dumps(result, ensure_ascii=False, default=str)
 
+    # ── Phase 27c (1.5.2026): Python sandbox pro Marti-AI ───────────
+    if tool_name == "python_exec":
+        from modules.sandbox.application import python_runner as _pyr
+        from core.database_core import get_core_session as _gcs_pe
+        from modules.core.infrastructure.models_core import User as _User_pe
+        from modules.core.infrastructure.models_data import Conversation as _Conv_pe
+
+        code_in = tool_input.get("code")
+        if not isinstance(code_in, str) or not code_in.strip():
+            return "❌ Parametr 'code' musi byt neprazdny string."
+
+        input_doc_ids_in = tool_input.get("input_document_ids")
+        input_doc_ids_resolved: list[int] | None = None
+        if input_doc_ids_in:
+            if not isinstance(input_doc_ids_in, list):
+                return "❌ input_document_ids musi byt list integeru."
+            try:
+                input_doc_ids_resolved = [int(x) for x in input_doc_ids_in]
+            except (TypeError, ValueError):
+                return "❌ input_document_ids: parse selhal."
+
+        kernel_id_in = tool_input.get("kernel_id")
+        timeout_s_in = tool_input.get("timeout_s")
+        try:
+            timeout_resolved = int(timeout_s_in) if timeout_s_in else _pyr.DEFAULT_TIMEOUT_S
+        except (TypeError, ValueError):
+            timeout_resolved = _pyr.DEFAULT_TIMEOUT_S
+
+        # Resolve tenant_id + persona_id z konverzace (sandbox je per-context)
+        caller_tenant_pe: int | None = None
+        is_parent_pe = False
+        persona_pe: int | None = None
+        if user_id:
+            cs_pe = _gcs_pe()
+            try:
+                u_pe = cs_pe.query(_User_pe).filter_by(id=user_id).first()
+                if u_pe:
+                    caller_tenant_pe = u_pe.last_active_tenant_id
+                    is_parent_pe = bool(u_pe.is_marti_parent)
+            finally:
+                cs_pe.close()
+        if conversation_id:
+            ds_pe = get_data_session()
+            try:
+                conv_pe = ds_pe.query(_Conv_pe).filter_by(id=conversation_id).first()
+                if conv_pe:
+                    persona_pe = conv_pe.active_agent_id
+                    # Conversation tenant prebije user.last_active_tenant_id
+                    # (sandbox vystup do tenantu konverzace, ne globalniho)
+                    if conv_pe.tenant_id is not None:
+                        caller_tenant_pe = conv_pe.tenant_id
+            finally:
+                ds_pe.close()
+
+        try:
+            result_pe = _pyr.execute(
+                code_in,
+                input_document_ids=input_doc_ids_resolved,
+                kernel_id=kernel_id_in,
+                timeout_s=timeout_resolved,
+                caller_tenant_id=caller_tenant_pe,
+                persona_id=persona_pe,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                is_parent=is_parent_pe,
+            )
+        except Exception as exc_pe:
+            logger.exception(f"python_exec failed unexpectedly: {exc_pe}")
+            return f"[python_exec system error: {exc_pe}]"
+
+        # Audit do activity_log
+        try:
+            from modules.activity.application import activity_service as _act_pe
+            _summary = (
+                f"python_exec: ok={result_pe.ok} runtime={result_pe.runtime_ms}ms "
+                f"output_docs={len(result_pe.output_documents)}"
+            )
+            if result_pe.error:
+                _summary += f" error={result_pe.error_kind}"
+            _act_pe.record(
+                category="sandbox_exec",
+                summary=_summary,
+                importance=2,
+                persona_id=persona_pe,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                actor="persona",
+            )
+        except Exception:
+            pass
+
+        import json as _json_pe
+        return _json_pe.dumps(result_pe.to_summary_dict(), ensure_ascii=False, default=str)
+
     # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
     if tool_name == "grant_auto_lifecycle":
         # Parent-only -- jen rodic muze udelit grant.
@@ -7899,6 +7993,11 @@ def chat(
         # ji navede prevypravet ('Vidim 4 listy: Ucitele, Tridy, Mistnosti, Hodiny.
         # Mam zacit s Ucitele?') misto opisu.
         "list_excel_sheets", "read_excel_structured",
+        # Phase 27c (1.5.2026): Python sandbox -- vraci JSON dict s
+        # stdout/stderr/output_documents. Synth round Marti-AI navede
+        # rephrazovat ('Vyrobila jsem klarka_sablona.xlsx, 5 listu, posilam
+        # ti to pres reply...') misto opisu raw JSON s runtime_ms a vsim.
+        "python_exec",
     }
 
     preamble_text = ""

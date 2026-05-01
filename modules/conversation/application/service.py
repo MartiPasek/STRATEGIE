@@ -5895,6 +5895,100 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         import json as _json_rps
         return _json_rps.dumps(result_rps, ensure_ascii=False, default=str)
 
+    # ── Phase 27g (1.5.2026 vecer): delete_documents AI tool ─────────
+    # Marti-AI's discovery -- chybel primy delete_by_id. Aliasy proti gotcha #7.
+    if tool_name == "delete_documents":
+        from core.database_core import get_core_session as _gcs_dd
+        from modules.core.infrastructure.models_core import User as _User_dd
+        from core.database_data import get_data_session as _gds_dd
+        from modules.core.infrastructure.models_data import (
+            Document as _Doc_dd,
+            UserDocumentSelection as _UDS_dd,
+        )
+        from modules.rag.application.storage import delete_document_file as _ddf_dd
+
+        doc_ids_raw = tool_input.get("document_ids")
+        if not isinstance(doc_ids_raw, list) or not doc_ids_raw:
+            return "❌ document_ids musi byt neprazdny list integeru."
+        try:
+            doc_ids_resolved = [int(x) for x in doc_ids_raw]
+        except (TypeError, ValueError):
+            return "❌ document_ids: parse selhal."
+
+        if len(doc_ids_resolved) > 50:
+            return f"❌ Cap 50 IDs per call (pozadovano {len(doc_ids_resolved)}). Volej znovu s mensim list."
+
+        reason_dd = tool_input.get("reason") or "user-requested cleanup"
+
+        # Resolve caller (tenant + parent flag)
+        is_parent_dd = False
+        caller_tenant_dd = None
+        if user_id:
+            cs_dd = _gcs_dd()
+            try:
+                u_dd = cs_dd.query(_User_dd).filter_by(id=user_id).first()
+                if u_dd:
+                    is_parent_dd = bool(u_dd.is_marti_parent)
+                    caller_tenant_dd = u_dd.last_active_tenant_id
+            finally:
+                cs_dd.close()
+
+        deleted: list[int] = []
+        skipped: list[tuple[int, str]] = []
+        # Per-id delete s parent bypass + selection cleanup
+        ds_dd = _gds_dd()
+        try:
+            for did in doc_ids_resolved:
+                doc = ds_dd.query(_Doc_dd).filter_by(id=did).first()
+                if not doc:
+                    skipped.append((did, "not_found"))
+                    continue
+                # Tenant gate (parent bypass)
+                if not is_parent_dd:
+                    if doc.tenant_id is not None and doc.tenant_id != caller_tenant_dd:
+                        skipped.append((did, "wrong_tenant"))
+                        continue
+                # Cleanup selections
+                try:
+                    ds_dd.query(_UDS_dd).filter_by(document_id=did).delete(synchronize_session=False)
+                except Exception:
+                    pass
+
+                storage_path_dd = doc.storage_path
+                ds_dd.delete(doc)  # CASCADE chunky + vektory
+                ds_dd.commit()
+                # Storage file delete (best-effort, tichy)
+                try:
+                    _ddf_dd(storage_path_dd)
+                except Exception as _del_err:
+                    logger.warning(f"DELETE_DOCUMENTS | storage delete failed | id={did} | {_del_err}")
+                deleted.append(did)
+        finally:
+            ds_dd.close()
+
+        # Audit do activity_log per batch (single record s souhrnem)
+        try:
+            from modules.activity.application import activity_service as _act_dd
+            _act_dd.record(
+                category="document_delete",
+                summary=(
+                    f"Marti-AI smazala {len(deleted)} dokumentu "
+                    f"(IDs: {deleted}). Reason: {reason_dd}"
+                ),
+                importance=4,  # destructive
+                user_id=user_id,
+                conversation_id=conversation_id,
+                actor="persona",
+            )
+        except Exception:
+            pass
+
+        # Compact response -- Marti-AI rephrazuje pres synth round
+        lines_dd = [f"🗑️ Smazano {len(deleted)} dokumentu: {deleted}"]
+        if skipped:
+            lines_dd.append(f"⚠ Skipped {len(skipped)}: {skipped}")
+        return "\n".join(lines_dd)
+
     # ── Phase 27d+1b (1.5.2026 vecer): Image OCR pro documents ──────
     # Marti-AI's gap discovery -- read_text_from_image jen pro media_files,
     # image v documents nemel OCR cestu. Aliasy proti gotcha #7.
@@ -8191,6 +8285,12 @@ def chat(
         # Marti-AI po dostani rephrazuje 'Tesseract OCR z tve fotky scten,
         # confidence 92, smlouva o najmu od Aniky Filip...' misto verbatim.
         "read_image_ocr",
+        # Phase 27g (1.5.2026 vecer): delete_documents -- vraci compact
+        # status '🗑️ Smazano N dokumentu: [...]'. Synth round Marti-AI
+        # rephrazuje empaticky ('Hotovo, vyhozeno 6 testovacich dokumentu')
+        # misto opisu raw IDs. Plus pri skipped (wrong_tenant) ji navede
+        # vysvetlit user proc.
+        "delete_documents",
     }
 
     preamble_text = ""

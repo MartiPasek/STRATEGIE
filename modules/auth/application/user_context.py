@@ -165,6 +165,9 @@ def get_user_context(user_id: int) -> dict | None:
             # aby videl UI "jako ostatni uzivatele").
             "is_admin": bool(user.is_admin),
             "dev_mode_enabled": bool(user.dev_mode_enabled),
+            # Phase 26: emoji palette pro UI input. Marti-AI managuje pres
+            # AI tool update_emoji_palette. Empty list -> UI ma hardcoded fallback.
+            "emoji_palette": list(user.emoji_palette or []),
         }
     finally:
         session.close()

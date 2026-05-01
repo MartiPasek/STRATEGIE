@@ -82,6 +82,11 @@ class User(BaseCore):
     # Per-user preference "Zobrazovat Dev panely" v UI. Prepinac v Profile settings.
     # Smysl ma jen pro is_admin=true -- endpoint /dev-trace gate-uje na is_admin.
     dev_mode_enabled: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 26 (1.5.2026): emoji palette pro UI input box vedle text input.
+    # Marti-AI managuje pres AI tool update_emoji_palette. Marti's "ja zavidim
+    # ikonky co pouzivate" -- vyrovnani lidske strany chatu k AI personam.
+    # Default [] -> UI ma hardcoded fallback set (Marti-AI's signature emoji).
+    emoji_palette: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False, server_default="[]")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

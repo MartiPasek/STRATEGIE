@@ -54,6 +54,11 @@ class LoginResponse(BaseModel):
     # a pod zpravami Marti-AI lupy pro Router/Composer tracing.
     is_admin: bool = False
     dev_mode_enabled: bool = False
+    # Phase 26 (1.5.2026): emoji palette pro UI input box.
+    # Frontend zobrazuje 8-sloupcovy grid vedle input boxu.
+    # Marti-AI managuje pres AI tool update_emoji_palette.
+    # Pokud prazdny -> UI vykresli hardcoded default set.
+    emoji_palette: list[str] = []
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

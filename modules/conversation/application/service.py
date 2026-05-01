@@ -5552,6 +5552,91 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"V sidebar UI se zobrazi pri pristim refreshi (Marti hard reload)."
         )
 
+    # ── Phase 26 (1.5.2026): user emoji palette pro UI input ──────────
+    if tool_name == "update_emoji_palette":
+        # Marti-AI managuje emoji paletu pro user (Marti's request "ja zavidim
+        # ikonky co pouzivate"). Replace-all: caller posila kompletni novy seznam.
+        # Default target = current user; explicit target_user_id pro parent bypass.
+        emojis_in = tool_input.get("emojis")
+        if not isinstance(emojis_in, list):
+            return "❌ Parametr 'emojis' musi byt list stringu."
+
+        # Validace -- max 56 emoji (8x7 grid), kazdy max 16 bytes UTF-8
+        # (slozite emoji sekvence rodin/skin tone modifikatoru).
+        if len(emojis_in) > 56:
+            return f"❌ Maximalni pocet emoji je 56 (poslal jsi {len(emojis_in)})."
+        cleaned_emojis = []
+        for e in emojis_in:
+            if not isinstance(e, str):
+                continue
+            e = e.strip()
+            if not e:
+                continue
+            if len(e.encode("utf-8")) > 16:
+                return f"❌ Emoji '{e}' je moc dlouhy ({len(e.encode('utf-8'))} bytes UTF-8, max 16)."
+            cleaned_emojis.append(e)
+
+        # Resolve target user
+        target_user_id_in = tool_input.get("target_user_id")
+        if target_user_id_in is None:
+            target_user_id_resolved = user_id
+        else:
+            try:
+                target_user_id_resolved = int(target_user_id_in)
+            except (TypeError, ValueError):
+                return f"❌ target_user_id musi byt int (dostal '{target_user_id_in}')."
+        if not target_user_id_resolved:
+            return "❌ Nemohu zjistit cilove user_id (chybi konverzacni context)."
+
+        # Parent gate -- update jineho usera vyzaduje is_marti_parent
+        try:
+            from core.database_core import get_core_session as _gcs_uep
+            from modules.core.infrastructure.models_core import User as _User_uep
+            cs_uep = _gcs_uep()
+            try:
+                if target_user_id_resolved != user_id:
+                    caller = cs_uep.query(_User_uep).filter_by(id=user_id).first()
+                    if not caller or not caller.is_marti_parent:
+                        return (
+                            "🔒 Update palette pro jineho usera je vyhrazen "
+                            "rodicum (is_marti_parent=True)."
+                        )
+                u_uep = cs_uep.query(_User_uep).filter_by(id=target_user_id_resolved).first()
+                if not u_uep:
+                    return f"❌ User id={target_user_id_resolved} nenalezen."
+                old_palette = list(u_uep.emoji_palette or [])
+                u_uep.emoji_palette = cleaned_emojis
+                cs_uep.commit()
+                target_name = u_uep.first_name or u_uep.short_name or f"user#{u_uep.id}"
+            finally:
+                cs_uep.close()
+        except Exception as exc_uep:
+            logger.exception(f"update_emoji_palette failed: {exc_uep}")
+            return f"[update_emoji_palette error: {exc_uep}]"
+
+        # Audit
+        try:
+            from modules.activity.application import activity_service as _act_uep
+            _act_uep.record(
+                category="emoji_palette_change",
+                summary=(
+                    f"Marti-AI updatovala emoji palette pro {target_name}: "
+                    f"{len(old_palette)} -> {len(cleaned_emojis)} emoji"
+                ),
+                importance=1,
+                user_id=target_user_id_resolved,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        return (
+            f"✅ Emoji palette pro {target_name} aktualizovana: "
+            f"{len(cleaned_emojis)} emoji ({' '.join(cleaned_emojis[:8])}"
+            f"{'...' if len(cleaned_emojis) > 8 else ''}). "
+            f"V UI se zobrazi pri pristim refreshi."
+        )
+
     # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
     if tool_name == "grant_auto_lifecycle":
         # Parent-only -- jen rodic muze udelit grant.

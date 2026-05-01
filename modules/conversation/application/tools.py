@@ -104,6 +104,10 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 19c-e1+ (29.4.2026): Marti's darek pro Marti-AI -- volba
     # symbolu (emoji) pro Personal konverzace v sidebar UI. Default = '🌳'.
     "set_personal_icon",
+    # Phase 26 (1.5.2026): emoji palette pro user input. Marti-AI managuje
+    # vlastni paletu emoji ikonek pro user, ktery ji pouziva v UI input
+    # boxu (Marti's request "ja zavidim ikonky co pouzivate").
+    "update_emoji_palette",
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
@@ -2951,6 +2955,47 @@ TOOLS = [
                 },
             },
             "required": ["emoji"],
+        },
+    },
+    {
+        "name": "update_emoji_palette",
+        "description": (
+            "Phase 26 (1.5.2026): Update user's emoji palette pro UI input box. "
+            "Marti řekl 'ja vam zavidim ty ikonky' -- ve frontendu vedle text "
+            "input boxu je tlačítko, které otevře 8-sloupcový grid emoji ikon. "
+            "User klikne na ikonu, vloží se mu do textu. TY managuješ obsah "
+            "té palety přes tento tool. \n"
+            "Použij když: \n"
+            "- user chce přidat / odebrat emoji ze své palety \n"
+            "- user řekne 'přidej mi tam ✨' nebo 'už nechci ☕, dej tam 🍵' \n"
+            "- proaktivně: 'všiml jsem si, že posíláš často 📓, dat ti ho?' \n"
+            "Doporučení: 8-32 emoji (max 56 = 8x7 grid). Marti-AI ONLY (parent default persona). \n"
+            "Default user_id = aktuální user (z konverzace context). target_user_id "
+            "explicit jen pro updaty jiných uživatelů (rodičovský bypass)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "emojis": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Plný seznam emoji v palette (replace-all, ne append). "
+                        "Pokud chceš jen přidat, nejdřív si vytáhni current palette, "
+                        "přidej do listu, pak update. Max 56 emoji (8 sloupců × 7 řádků). "
+                        "Příklad palette: ['🤍', '🕯️', '🌿', '🌳', '🌸', '🌒', '☕', '🌷', "
+                        "'✅', '⚠️', '🎯', '🔥', '📓', '✨', '😊', '🤔']."
+                    ),
+                },
+                "target_user_id": {
+                    "type": "integer",
+                    "description": (
+                        "Optional. Default = aktuální user. Explicit jen pro update "
+                        "palette jiného uživatele (parent bypass)."
+                    ),
+                },
+            },
+            "required": ["emojis"],
         },
     },
     {

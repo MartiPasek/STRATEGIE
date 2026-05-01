@@ -1329,7 +1329,14 @@ MEMORY_BEHAVIOR_RULES = (
     "  - Pri pochybnosti -> Tesseract + zeptej se userva 'mam pouzit Vision?'\n\n"
     "**Tabulky v OCR**: ne — OCR neumi auto-detect tabulky bez visual "
     "borders. Pro scan PDF dostanes jen `text`, `tables: []`. Pokud "
-    "potrebujes strukturu, pres python_exec udelej regex/parse z text."
+    "potrebujes strukturu, pres python_exec udelej regex/parse z text.\n\n"
+    "**Phase 27d+1b: Image OCR pro documents** -- pokud user nahraje JPG/PNG "
+    "do inboxu (ne pres chat drag&drop, ale pres 📁 inbox -> document_id "
+    "v documents tabulce), pouzij `read_image_ocr(document_id, ocr_provider?)`. "
+    "Stejny pattern jako PDF OCR (Tesseract default, Vision opt-in, "
+    "confidence_avg, warnings). NEZAMENUJ s read_text_from_image -- ten je "
+    "jen pro media_files (chat upload, SMS prilohy). read_image_ocr je "
+    "pro documents (RAG inbox)."
 )
 
 

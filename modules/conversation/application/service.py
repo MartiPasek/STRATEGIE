@@ -5895,6 +5895,54 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         import json as _json_rps
         return _json_rps.dumps(result_rps, ensure_ascii=False, default=str)
 
+    # ── Phase 27d+1b (1.5.2026 vecer): Image OCR pro documents ──────
+    # Marti-AI's gap discovery -- read_text_from_image jen pro media_files,
+    # image v documents nemel OCR cestu. Aliasy proti gotcha #7.
+    if tool_name == "read_image_ocr":
+        from modules.rag.application import image_ocr_service as _img_rio
+        from core.database_core import get_core_session as _gcs_rio
+        from modules.core.infrastructure.models_core import User as _User_rio
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        ocr_provider_in = tool_input.get("ocr_provider", "tesseract")
+        if ocr_provider_in not in ("tesseract", "vision"):
+            return f"❌ ocr_provider musi byt 'tesseract' nebo 'vision' (dostal '{ocr_provider_in}')."
+
+        is_parent_rio = False
+        caller_tenant_rio = None
+        if user_id:
+            cs_rio = _gcs_rio()
+            try:
+                u_rio = cs_rio.query(_User_rio).filter_by(id=user_id).first()
+                if u_rio:
+                    is_parent_rio = bool(u_rio.is_marti_parent)
+                    caller_tenant_rio = u_rio.last_active_tenant_id
+            finally:
+                cs_rio.close()
+
+        try:
+            result_rio = _img_rio.read_image_ocr(
+                document_id_resolved,
+                ocr_provider=ocr_provider_in,
+                caller_tenant_id=caller_tenant_rio,
+                is_parent=is_parent_rio,
+            )
+        except PermissionError as exc_rio:
+            return f"🔒 {exc_rio}"
+        except ValueError as exc_rio:
+            return f"❌ {exc_rio}"
+        except Exception as exc_rio:
+            logger.exception(f"read_image_ocr failed: {exc_rio}")
+            return f"[read_image_ocr error: {exc_rio}]"
+
+        import json as _json_rio
+        return _json_rio.dumps(result_rio, ensure_ascii=False, default=str)
+
     # ── Phase 27c (1.5.2026): Python sandbox pro Marti-AI ───────────
     if tool_name == "python_exec":
         from modules.sandbox.application import python_runner as _pyr
@@ -8138,6 +8186,11 @@ def chat(
         # ('Klarka poslala PDF s rozvrhem 5.A. Vidim 4 stranky, 8 tabulek
         # s casy hodin. Mam vytahnout konkretni sloupec?') misto opisu.
         "list_pdf_metadata", "read_pdf_structured",
+        # Phase 27d+1b (1.5.2026 vecer): Image OCR pro documents tabulku.
+        # Vraci JSON s text + confidence_avg + warnings + text_origin.
+        # Marti-AI po dostani rephrazuje 'Tesseract OCR z tve fotky scten,
+        # confidence 92, smlouva o najmu od Aniky Filip...' misto verbatim.
+        "read_image_ocr",
     }
 
     preamble_text = ""

@@ -120,6 +120,11 @@ MANAGEMENT_TOOL_NAMES = {
     # exporty). Marti-AI's volby A/A/A + bonus list_pdf_metadata.
     "list_pdf_metadata",
     "read_pdf_structured",
+    # Phase 27d+1b (1.5.2026 vecer): Image OCR pro documents tabulku.
+    # Marti-AI's gap discovery: read_text_from_image (Phase 12a) jede jen
+    # pres media_files, image v documents nemely OCR cestu. Tento tool to
+    # vyresi -- prima Tesseract/Vision OCR na image documents.
+    "read_image_ocr",
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
@@ -3295,7 +3300,7 @@ TOOLS = [
                         "**Explicit volba:**\n"
                         "  - 'tesseract' -- lokalni OCR, privacy first (TISAX, "
                         "smlouvy, citlive dokumenty zustanou ve firemni VPN). "
-                        "~15-30s/stranku, lang ces+eng. Confidence score per "
+                        "~15-30s/stranku, lang ces+deu+eng. Confidence score per "
                         "stranka v warnings (Marti-AI's volba A).\n"
                         "  - 'vision' -- Anthropic Claude Haiku Vision API. "
                         "Vyssi kvalita, lepsi multilang, ~1-2s/stranku, "
@@ -3304,6 +3309,57 @@ TOOLS = [
                         "Marti-AI's volba C (Hybrid): default Tesseract, "
                         "Vision opt-in kdyz Tesseract drhne (low confidence "
                         "warning) nebo pri slozitejsich faktur."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "read_image_ocr",
+        "description": (
+            "Phase 27d+1b (1.5.2026 vecer): OCR jednoho image dokumentu "
+            "(jpg/png/jpeg/gif/webp/bmp/tiff) z RAG documents tabulky. "
+            "Vznikl po Marti-AI's gap discovery -- read_text_from_image "
+            "(Phase 12a) funguje jen pro media_files (chat upload, SMS), "
+            "ale image v documents tabulce (uploaded pres 📁 inbox) nemel "
+            "OCR cestu. Tenhle tool to vyresi.\n\n"
+            "Pouziti: kdyz user nahraje JPG/PNG do inboxu (napr. fotka "
+            "papirove smlouvy, ucenka, ručně psaná poznámka, screenshot) "
+            "a chce text. Cely workflow: list_inbox_documents -> najdes "
+            "image -> read_image_ocr(document_id, ocr_provider=...).\n\n"
+            "**Default ocr_provider='tesseract'** -- privacy first (smlouvy, "
+            "citlive dokumenty zustanou ve firemni VPN). ~5-15s per image "
+            "(rychlejsi nez PDF protoze neni PDF->image krok).\n\n"
+            "**ocr_provider='vision'** -- Anthropic Haiku Vision (~1-2s, "
+            "$0.003/image). Vyssi kvalita, lepsi pro rucne psane / nizka "
+            "kvalita scan / komplexni layouty. POZOR cloud roundtrip.\n\n"
+            "Marti-AI's volby C/A/A z Phase 27d+1 konzultace plati (Hybrid + "
+            "confidence + cap). Confidence_avg pri Tesseract; pokud < 60 "
+            "-> warning -> rozhodni: prepnout na Vision nebo zazadat user "
+            "o lepsi obrazek.\n\n"
+            "Pro PDF nepouzivej -- volej read_pdf_structured. Pro Excel "
+            "read_excel_structured. Pro chat-uploaded images "
+            "read_text_from_image (media_files cesta)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID image dokumentu z RAG documents (file_type "
+                        "jpg/png/jpeg/gif/webp/bmp/tiff). Najdi pres "
+                        "list_inbox_documents nebo search_documents."
+                    ),
+                },
+                "ocr_provider": {
+                    "type": "string",
+                    "enum": ["tesseract", "vision"],
+                    "description": (
+                        "Default 'tesseract' (privacy + cost). 'vision' = "
+                        "Anthropic Haiku Vision, vyssi kvalita ale cloud "
+                        "roundtrip + ~$0.003/image."
                     ),
                 },
             },

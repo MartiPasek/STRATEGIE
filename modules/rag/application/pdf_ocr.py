@@ -303,6 +303,75 @@ def _ocr_page_vision(
     return text, None, []
 
 
+def ocr_image_file(
+    storage_path: str,
+    *,
+    provider: str = PROVIDER_TESSERACT,
+    lang: str = DEFAULT_LANG,
+) -> dict:
+    """
+    Phase 27d+1b: OCR jednoho image souboru (jpg/png/jpeg/gif/webp).
+
+    Na rozdil od ocr_pdf_pages neni potreba pdf2image -- PIL otevre
+    image direct. Vse ostatni stejne (Tesseract / Vision providers,
+    confidence_avg, warnings).
+
+    Args:
+        storage_path: cesta k image souboru na disku
+        provider: 'tesseract' | 'vision'
+        lang: Tesseract lang ('ces+deu+eng' default)
+
+    Returns:
+        {
+          "text": str,
+          "confidence_avg": float | None,  # jen Tesseract
+          "warnings": list[str],
+          "text_origin": "tesseract" | "vision"
+        }
+    """
+    if provider not in VALID_PROVIDERS:
+        raise ValueError(
+            f"provider musi byt jeden z {sorted(VALID_PROVIDERS)}, dostal '{provider}'"
+        )
+
+    try:
+        from PIL import Image
+    except ImportError as e:
+        raise RuntimeError(f"Pillow neni dostupna: {e}")
+
+    try:
+        image = Image.open(storage_path)
+        # Ensure RGB pro vsechny providery (Tesseract je OK s grayscale,
+        # ale Vision API chce klasicky RGB)
+        if image.mode not in ("RGB", "L"):
+            image = image.convert("RGB")
+    except Exception as e:
+        return {
+            "text": "",
+            "confidence_avg": None,
+            "warnings": [f"PIL otevreni obrazku selhalo: {type(e).__name__}: {e}"],
+            "text_origin": provider,
+        }
+
+    if provider == PROVIDER_TESSERACT:
+        text, conf, warnings = _ocr_page_tesseract(image, lang=lang)
+    elif provider == PROVIDER_VISION:
+        text, conf, warnings = _ocr_page_vision(image)
+    else:
+        text, conf, warnings = "", None, [f"Unknown provider: {provider}"]
+
+    logger.info(
+        f"OCR | image | provider={provider} | text_len={len(text)} | conf={conf}"
+    )
+
+    return {
+        "text": text,
+        "confidence_avg": round(conf, 1) if conf is not None else None,
+        "warnings": warnings,
+        "text_origin": provider,
+    }
+
+
 def ocr_pdf_pages(
     storage_path: str,
     pages: list[int],

@@ -5770,6 +5770,10 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
     if tool_name == "python_exec":
         from modules.sandbox.application import python_runner as _pyr
         from core.database_core import get_core_session as _gcs_pe
+        # Gotcha #7: aliasovat get_data_session aby nestinilo lokalnimu jmenu
+        # v _handle_tool (1500+ radku, jiny handler vyse importuje
+        # get_data_session bez aliasu -> Python bere ho jako local var).
+        from core.database_data import get_data_session as _gds_pe
         from modules.core.infrastructure.models_core import User as _User_pe
         from modules.core.infrastructure.models_data import Conversation as _Conv_pe
 
@@ -5808,7 +5812,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             finally:
                 cs_pe.close()
         if conversation_id:
-            ds_pe = get_data_session()
+            ds_pe = _gds_pe()
             try:
                 conv_pe = ds_pe.query(_Conv_pe).filter_by(id=conversation_id).first()
                 if conv_pe:

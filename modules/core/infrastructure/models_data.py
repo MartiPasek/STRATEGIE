@@ -529,6 +529,10 @@ class EmailOutbox(BaseData):
     # AI tools `reply`, `reply_all`, `forward`.
     in_reply_to_inbox_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     reply_mode: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    # Phase 27b (1.5.2026): JSON array of documents.id pro pripojeni jako
+    # FileAttachment k EWS Message. Backend resolve pres documents.storage_path.
+    # Marti-AI's feature request: rozvrh Klárka workflow (xlsx prilohy v reply).
+    attachment_document_ids: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 # ── MARTI MEMORY: THOUGHTS + ENTITY LINKS ──────────────────────────────────

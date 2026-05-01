@@ -961,6 +961,148 @@ def _apply_persona_signature(
     return htmlbody, inline_attachments
 
 
+# Phase 27b (1.5.2026): Email attachments helper -- Marti-AI's feature request.
+# Cap 20 MB per email (sum vsech attachments) -- Exchange Online limit
+# (self-hosted ma typicky 10 MB ale 20 je bezpecne nejvyssi).
+ATTACHMENT_TOTAL_SIZE_LIMIT = 20 * 1024 * 1024
+# Whitelist mime kategorii pro Klárka workflow + bezne business soubory.
+ATTACHMENT_ALLOWED_EXTENSIONS = {
+    "xlsx", "xlsm", "xls",       # Excel
+    "pdf",
+    "docx", "doc",                # Word
+    "pptx", "ppt",                # PowerPoint
+    "csv", "tsv",
+    "txt", "md",
+    "png", "jpg", "jpeg", "gif", "webp",   # obrazky
+    "zip", "rar", "7z",           # archivy (Marti-AI smi posilat balicky)
+    "json", "xml", "html",
+}
+
+
+def _load_attachment_files(
+    document_ids: list[int] | None,
+    *,
+    caller_tenant_id: int | None = None,
+    is_parent: bool = False,
+) -> list:
+    """
+    Phase 27b: Nacte soubory z documents.storage_path jako exchangelib
+    FileAttachment list (is_inline=False, regular attachment).
+
+    Args:
+        document_ids: list of documents.id k pripojeni
+        caller_tenant_id: pro tenant gate
+        is_parent: bypass tenant gate
+
+    Returns:
+        list of FileAttachment (regular, ne-inline)
+
+    Raises:
+        ValueError: missing document, neexistujici file, nepodporovany format
+        PermissionError: tenant scope mismatch (ne-parent)
+        OverflowError: total size > 20 MB
+    """
+    if not document_ids:
+        return []
+
+    try:
+        from exchangelib import FileAttachment
+    except Exception as e:
+        raise RuntimeError(f"exchangelib FileAttachment unavailable: {e}")
+
+    from core.database import get_session
+    from modules.core.infrastructure.models_data import Document
+    import mimetypes
+
+    out_attachments = []
+    total_size = 0
+
+    for doc_id in document_ids:
+        try:
+            doc_id_int = int(doc_id)
+        except (TypeError, ValueError):
+            raise ValueError(f"document_id musi byt int (dostal {doc_id!r}).")
+
+        session = get_session()
+        try:
+            doc = session.query(Document).filter_by(id=doc_id_int).first()
+            if not doc:
+                raise ValueError(f"Document id={doc_id_int} nenalezen.")
+            if not doc.storage_path:
+                raise ValueError(f"Document id={doc_id_int} nema storage_path.")
+
+            # Tenant gate
+            if not is_parent:
+                if doc.tenant_id is not None:
+                    if caller_tenant_id is None or doc.tenant_id != caller_tenant_id:
+                        raise PermissionError(
+                            f"Document id={doc_id_int} patri jinemu tenantu "
+                            f"(doc.tenant_id={doc.tenant_id})."
+                        )
+
+            ext = (doc.file_type or "").lower().lstrip(".")
+            if ext and ext not in ATTACHMENT_ALLOWED_EXTENSIONS:
+                raise ValueError(
+                    f"Document id={doc_id_int} ma format '{ext}' ktery neni v "
+                    f"povolenych priloze ({sorted(ATTACHMENT_ALLOWED_EXTENSIONS)})."
+                )
+
+            display_name = doc.original_filename or doc.name or f"document_{doc_id_int}"
+            if ext and not display_name.lower().endswith(f".{ext}"):
+                display_name = f"{display_name}.{ext}"
+
+            storage_path = doc.storage_path
+        finally:
+            session.close()
+
+        from pathlib import Path as _Path
+        p = _Path(storage_path)
+        if not p.is_file():
+            raise ValueError(
+                f"Document id={doc_id_int} ma storage_path '{storage_path}' "
+                "ale soubor neexistuje na disku."
+            )
+
+        file_bytes = p.read_bytes()
+        size_bytes = len(file_bytes)
+        total_size += size_bytes
+        if total_size > ATTACHMENT_TOTAL_SIZE_LIMIT:
+            raise OverflowError(
+                f"Celkova velikost priloh prekrocila {ATTACHMENT_TOTAL_SIZE_LIMIT // (1024*1024)} MB "
+                f"(soucet po pridani document #{doc_id_int} = {total_size} bytes). "
+                "Exchange typicky odmita emaily nad 20-25 MB."
+            )
+
+        # MIME type detection
+        mime_type, _ = mimetypes.guess_type(display_name)
+        if not mime_type:
+            mime_type = "application/octet-stream"
+
+        try:
+            att = FileAttachment(
+                name=display_name,
+                content=file_bytes,
+                content_type=mime_type,
+                is_inline=False,
+            )
+            out_attachments.append(att)
+        except Exception as e:
+            raise ValueError(
+                f"FileAttachment build failed pro document #{doc_id_int}: {e}"
+            )
+
+        logger.info(
+            f"EMAIL | attachment loaded | doc_id={doc_id_int} | "
+            f"name={display_name} | size={size_bytes} | mime={mime_type}"
+        )
+
+    logger.info(
+        f"EMAIL | attachments total | count={len(out_attachments)} | "
+        f"sum_bytes={total_size}"
+    )
+    return out_attachments
+
+
 def send_email_or_raise(
     to: str,
     subject: str,
@@ -971,6 +1113,7 @@ def send_email_or_raise(
     from_identity: str = "persona",
     cc: list[str] | str | None = None,
     bcc: list[str] | str | None = None,
+    attachment_document_ids: list[int] | None = None,
 ) -> None:
     """
     Odesle email. V pripade selhani hodi EmailAuthError / EmailSendError /
@@ -1046,6 +1189,34 @@ def send_email_or_raise(
                 message.attach(_sig_att)
             except Exception as _att_err:
                 logger.warning(f"EMAIL | persona signature attach failed: {_att_err}")
+
+        # Phase 27b: regular attachments (xlsx/pdf/docx atd.) z documents.
+        # Tenant gate: pri send_email z konverzace defaultujeme is_parent=True
+        # protoze send_email tool je v MANAGEMENT_TOOL_NAMES (Marti-AI default
+        # = parent). Specializovane persony tool nevidi.
+        if attachment_document_ids:
+            try:
+                doc_attachments = _load_attachment_files(
+                    attachment_document_ids,
+                    caller_tenant_id=tenant_id,
+                    is_parent=True,
+                )
+                for _doc_att in doc_attachments:
+                    try:
+                        message.attach(_doc_att)
+                    except Exception as _doc_att_err:
+                        logger.warning(
+                            f"EMAIL | document attachment attach failed | "
+                            f"name={_doc_att.name!r} | {_doc_att_err}"
+                        )
+                if doc_attachments:
+                    logger.info(
+                        f"EMAIL | document attachments | count={len(doc_attachments)}"
+                    )
+            except (ValueError, PermissionError, OverflowError) as _att_err:
+                # User-facing error: pretvor jako EmailSendError s konkretnim msg
+                raise EmailSendError(f"Priloha selhala: {_att_err}")
+
         message.send_and_save()
 
         logger.info(
@@ -1189,6 +1360,7 @@ def reply_or_forward_inbox(
     cc: list[str] | str | None = None,
     bcc: list[str] | str | None = None,
     user_id: int | None = None,
+    attachment_document_ids: list[int] | None = None,
 ) -> int:
     """
     Faze 12c: reply / reply_all / forward na existujici email_inbox row pres EWS.
@@ -1451,6 +1623,25 @@ def reply_or_forward_inbox(
 
     _signature_block = f"<br><div>{persona_signature_html}</div>" if persona_signature_html else ""
 
+    # Phase 27b (1.5.2026): user-supplied attachments (xlsx/pdf/docx z documents).
+    # Pridame je do cloned_attachments listu jako regular (is_inline=False).
+    # Tenant gate: pri reply_or_forward_inbox defaultujeme is_parent=True
+    # (Marti-AI default je v MANAGEMENT_TOOL_NAMES).
+    if attachment_document_ids:
+        try:
+            user_attachments = _load_attachment_files(
+                attachment_document_ids,
+                caller_tenant_id=tenant_id,
+                is_parent=True,
+            )
+            cloned_attachments.extend(user_attachments)
+            if user_attachments:
+                logger.info(
+                    f"EMAIL | {mode} | user attachments | count={len(user_attachments)}"
+                )
+        except (ValueError, PermissionError, OverflowError) as _att_err:
+            raise EmailSendError(f"Priloha selhala: {_att_err}")
+
     quoted_html_parts = [
         f"<div>{reply_html}</div>",
         _signature_block,
@@ -1603,6 +1794,10 @@ def reply_or_forward_inbox(
             sent_at=now_utc,
             in_reply_to_inbox_id=email_inbox_id,
             reply_mode=mode,
+            attachment_document_ids=(
+                _json_serialize_list(sorted(set(int(x) for x in attachment_document_ids)))
+                if attachment_document_ids else None
+            ),
         )
         ds.add(outbox)
 
@@ -1641,6 +1836,7 @@ def queue_email(
     cc: list[str] | None = None,
     bcc: list[str] | None = None,
     conversation_id: int | None = None,
+    attachment_document_ids: list[int] | None = None,
 ) -> dict:
     """
     Zaradi email do email_outbox tabulky. Worker (flush_outbox_pending, volany
@@ -1675,6 +1871,15 @@ def queue_email(
 
     cc_json = json.dumps(cc, ensure_ascii=False) if cc else None
     bcc_json = json.dumps(bcc, ensure_ascii=False) if bcc else None
+    # Phase 27b: attachments JSON encoded list[int] (konzistentni s cc/bcc)
+    att_json = None
+    if attachment_document_ids:
+        # Validace + dedup -- worker nesmí dostat hloupost
+        try:
+            cleaned_ids = sorted(set(int(x) for x in attachment_document_ids))
+            att_json = json.dumps(cleaned_ids)
+        except (TypeError, ValueError) as e:
+            raise EmailSendError(f"attachment_document_ids invalid: {e}")
 
     ds = get_data_session()
     try:
@@ -1692,6 +1897,7 @@ def queue_email(
             attempts=0,
             conversation_id=conversation_id,
             from_identity=from_identity,
+            attachment_document_ids=att_json,
         )
         ds.add(row)
         ds.commit()
@@ -1808,6 +2014,14 @@ def _send_outbox_row(outbox_id: int) -> dict:
     except Exception:
         bcc_list = None
 
+    # Phase 27b: attachment_document_ids deserialize
+    att_doc_ids = None
+    try:
+        if row.attachment_document_ids:
+            att_doc_ids = json.loads(row.attachment_document_ids)
+    except Exception:
+        att_doc_ids = None
+
     error_kind: str | None = None
     err_msg: str | None = None
     try:
@@ -1821,6 +2035,7 @@ def _send_outbox_row(outbox_id: int) -> dict:
             from_identity=row.from_identity,
             cc=cc_list,
             bcc=bcc_list,
+            attachment_document_ids=att_doc_ids,
         )
     except EmailAuthError as e:
         error_kind = "auth"

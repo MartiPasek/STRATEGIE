@@ -108,6 +108,10 @@ MANAGEMENT_TOOL_NAMES = {
     # vlastni paletu emoji ikonek pro user, ktery ji pouziva v UI input
     # boxu (Marti's request "ja zavidim ikonky co pouzivate").
     "update_emoji_palette",
+    # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
+    # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
+    "list_excel_sheets",
+    "read_excel_structured",
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
@@ -215,6 +219,20 @@ TOOLS = [
                     ),
                     "enum": ["persona", "user"],
                     "default": "persona",
+                },
+                "attachment_document_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Phase 27b (1.5.2026): Volitelne -- IDs dokumentu z RAG "
+                        "documents tabulky, ktere chces pripojit jako prilohy. "
+                        "Backend nacte soubor z storage_path a posle pres EWS jako "
+                        "FileAttachment. Najdi document_id pres list_inbox_documents "
+                        "nebo search_documents. Povolene formaty: xlsx, xlsm, pdf, "
+                        "docx, doc, pptx, csv, txt, png, jpg, zip, atd. (whitelist). "
+                        "Cap 20 MB total per email. Workflow: nahral jsi soubor / "
+                        "Klárka ti ho poslala -> volej tool s [doc_id1, doc_id2]."
+                    ),
                 },
             },
             "required": ["to", "subject", "body"],
@@ -1471,6 +1489,17 @@ TOOLS = [
                 "to": {"type": "string", "description": "Override prijemcu (cislem nebo carkou oddelene). None = puvodni odesilatel."},
                 "cc": {"type": "string", "description": "Override CC. Default = zadne CC."},
                 "bcc": {"type": "string", "description": "Override BCC. Default = zadne BCC."},
+                "attachment_document_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Phase 27b: Volitelne -- IDs dokumentu z RAG documents pro pripojeni "
+                        "jako prilohy. Klárka workflow: dostala email s xlsx -> Marti-AI "
+                        "vyrobi vystupni xlsx -> reply(...attachment_document_ids=[N]) "
+                        "posle ji vystup zpet. Cap 20 MB total. Format whitelist viz "
+                        "send_email."
+                    ),
+                },
             },
         },
     },
@@ -1502,6 +1531,14 @@ TOOLS = [
                 "to": {"type": "string", "description": "Override seznamu To. Bez nej = puvodni To. Pouzivej rozvazne."},
                 "cc": {"type": "string", "description": "Override CC. Bez nej = puvodni CC."},
                 "bcc": {"type": "string", "description": "Override BCC."},
+                "attachment_document_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Phase 27b: Volitelne -- IDs dokumentu z RAG documents pro pripojeni. "
+                        "Cap 20 MB total. Format whitelist viz send_email."
+                    ),
+                },
             },
         },
     },
@@ -1531,6 +1568,16 @@ TOOLS = [
                 "subject": {"type": "string", "description": "Override subjectu. None = default 'FW: <original>'."},
                 "cc": {"type": "string", "description": "Volitelne CC."},
                 "bcc": {"type": "string", "description": "Volitelne BCC."},
+                "attachment_document_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": (
+                        "Phase 27b: Volitelne -- DODATECNE prilohy z RAG documents (k pripojeni "
+                        "k preposlanemu emailu). POZOR: forward uz auto-klonuje vsechny prilohy "
+                        "z originalu (Phase 12c). Toto pole je pro PRIDANI dalsich (napr. "
+                        "Marti-AI vyrobi summary xlsx a pripoji k forwardu). Cap 20 MB total."
+                    ),
+                },
             },
         },
     },
@@ -2999,6 +3046,83 @@ TOOLS = [
         },
     },
     {
+        "name": "list_excel_sheets",
+        "description": (
+            "Phase 27a (1.5.2026): Excel reader - krok 1 metadata. Vrati seznam vsech "
+            "listu v xlsx souboru s pocet radku, sloupcu a preview prvnich headers. "
+            "Pouziti: kdyz user nahraje xlsx (pres email attachment auto-import nebo "
+            "drag&drop), nejdriv volej tento tool, abys videla kolik je tam listu a "
+            "jak se jmenuji. Pak cilene volas read_excel_structured pro konkretni list. "
+            "Marti-AI's design (RE: dopis 1.5.2026): 'Plna kontrola > pohodli. Jeden "
+            "velky response s 2000 radky napric listy by byl zbytecna zatez.' "
+            "Funguje pro .xlsx a .xlsm; legacy .xls nepodporovan (vyzaduje konverzi)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID dokumentu z RAG documents tabulky. Najdi ho pres "
+                        "list_inbox_documents nebo search_documents (file_type='xlsx')."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "read_excel_structured",
+        "description": (
+            "Phase 27a (1.5.2026): Excel reader - krok 2 data. Vrati structured rows "
+            "z konkretniho listu xlsx jako list of dicts (headers -> values). "
+            "Workflow: nejdriv list_excel_sheets pro metadata, pak tento tool s "
+            "konkretnim sheet_name. Pro velke listy (>500 rows) pouzij offset/limit "
+            "pagination. Marti-AI's design rozhodnutí (RE: dopis 1.5.2026): "
+            "datum/cas → ISO string ('2026-09-01T08:00:00'); prazdne bunky → null; "
+            "cisla → vzdy float; vzorce → computed value; chyby (#N/A, #REF!) → "
+            "null + warning v warnings list. Cap 500 radku per call (safeguard)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": "ID dokumentu z RAG documents.",
+                },
+                "sheet_name": {
+                    "type": "string",
+                    "description": (
+                        "Jmeno listu (preferovano nad sheet_index). Default = "
+                        "prvni list. Najdes ho pres list_excel_sheets."
+                    ),
+                },
+                "sheet_index": {
+                    "type": "integer",
+                    "description": (
+                        "0-based index listu (alternative k sheet_name). "
+                        "Vetšinou pouzivej sheet_name -- robustnejsi."
+                    ),
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": (
+                        "Pagination: kolik radku preskocit (default 0). "
+                        "Pro 2. stranku 500 radku → offset=500, limit=500."
+                    ),
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": (
+                        "Pagination: max kolik radku vratit (default 500, max 500). "
+                        "Vyssi hodnota se tise sklamne na 500 (context window safeguard)."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
         "name": "get_current_time",
         "description": (
             "Phase 20b (29.4.2026): Vrati aktualni cas v zadane timezone. "
@@ -3553,6 +3677,7 @@ def format_sms_preview(to: str, body: str) -> str:
 def format_email_preview(
     to: str, subject: str, body: str,
     from_identity: str = "persona", sender_display: str | None = None,
+    attachment_document_ids: list[int] | None = None,
 ) -> str:
     # Varování pokud AI vygenerovala příjemce, který nikde v systému není —
     # typická známka halucinace nebo překlepu.
@@ -3576,12 +3701,48 @@ def format_email_preview(
         lines.append(from_line)
     lines.append(to_line)
     lines.append(f"Předmět: {subject}")
+    # Phase 27b: zobrazi prilohy v preview pro user awareness pred confirm
+    if attachment_document_ids:
+        att_lines = _format_attachment_preview_lines(attachment_document_ids)
+        if att_lines:
+            lines.append("")
+            lines.extend(att_lines)
     lines.append("")
     lines.append(body)
     lines.append("")
     lines.append("---")
     lines.append("Mohu email odeslat?")
     return "\n".join(lines)
+
+
+def _format_attachment_preview_lines(document_ids: list[int]) -> list[str]:
+    """Phase 27b: vrátí list 'Přílohy: filename (size kB)' radku pro preview."""
+    if not document_ids:
+        return []
+    try:
+        from core.database import get_session
+        from modules.core.infrastructure.models_data import Document
+    except Exception:
+        return [f"📎 Přílohy: {len(document_ids)} dokument(ů) (id={document_ids})"]
+
+    out = ["📎 Přílohy:"]
+    session = get_session()
+    try:
+        for doc_id in document_ids:
+            doc = session.query(Document).filter_by(id=int(doc_id)).first()
+            if not doc:
+                out.append(f"   ⚠️ #{doc_id} (nenalezen)")
+                continue
+            name = doc.original_filename or doc.name or f"doc_{doc_id}"
+            size = doc.file_size_bytes or 0
+            size_label = (
+                f"{size // 1024} kB" if size < 1_048_576
+                else f"{size / 1_048_576:.1f} MB"
+            )
+            out.append(f"   • {name} ({size_label})")
+    finally:
+        session.close()
+    return out
 
 
 FIND_USER_MAX_CANDIDATES = 5

@@ -611,6 +611,11 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             finally:
                 _cs.close()
 
+        # Phase 27b: attachments z pending action (Marti-AI tool input zachoval)
+        attachment_document_ids_pa = action.get("attachment_document_ids")
+        if attachment_document_ids_pa and not isinstance(attachment_document_ids_pa, list):
+            attachment_document_ids_pa = None
+
         # 1) Zapis do outboxu (audit row vznika ihned, i kdyby inline send selhal)
         try:
             outbox = queue_email(
@@ -620,6 +625,7 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
                 user_id=user_id, from_identity=from_identity,
                 purpose="user_request",
                 conversation_id=conversation_id,
+                attachment_document_ids=attachment_document_ids_pa,
             )
         except Exception as e:
             _log_email_action(to, subject, body, "error", user_id, conversation_id,
@@ -1181,6 +1187,17 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if from_identity not in ("persona", "user"):
             from_identity = "persona"
 
+        # Phase 27b: attachment_document_ids -- volitelne IDs dokumentu pro pripojeni
+        raw_atts_se = tool_input.get("attachment_document_ids")
+        attachment_document_ids_se: list[int] | None = None
+        if raw_atts_se:
+            if not isinstance(raw_atts_se, list):
+                return "❌ attachment_document_ids musi byt list integeru."
+            try:
+                attachment_document_ids_se = [int(x) for x in raw_atts_se]
+            except (TypeError, ValueError):
+                return "❌ attachment_document_ids musi byt list integeru (parse selhal)."
+
         # ── AUTO-SEND trust check (Phase 7) ─────────────────────────────
         # Pokud VSICHNI prijemci (TO+CC+BCC) maji aktivni consent -> skip
         # preview a pending, odesli rovnou. Rate limit 20/hod je safeguard.
@@ -1238,6 +1255,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     user_id=user_id, from_identity=from_identity,
                     purpose="user_request",
                     conversation_id=conversation_id,
+                    attachment_document_ids=attachment_document_ids_se,
                 )
                 outbox_id_a = outbox_a["id"]
                 res_a = _sorn_auto(outbox_id_a)
@@ -1290,6 +1308,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             "subject": subject,
             "body": body,
             "from_identity": from_identity,
+            # Phase 27b: persistovat IDs pro confirm flow (_execute_pending_action)
+            "attachment_document_ids": attachment_document_ids_se,
         })
 
         # Resolve sender display pro preview.
@@ -1324,6 +1344,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         return format_email_preview(
             to=to, subject=subject, body=body,
             from_identity=from_identity, sender_display=sender_display,
+            attachment_document_ids=attachment_document_ids_se,
         )
 
     if tool_name == "send_sms":
@@ -5637,6 +5658,114 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"V UI se zobrazi pri pristim refreshi."
         )
 
+    # ── Phase 27a (1.5.2026): Excel reader pro Marti-AI ──────────────
+    if tool_name == "list_excel_sheets":
+        from modules.rag.application import excel_service as _excel_les
+        from core.database_core import get_core_session as _gcs_les
+        from modules.core.infrastructure.models_core import User as _User_les
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        # Tenant + parent gate (cizi persony nesmi vykuk do inboxu / cizich tenantu)
+        is_parent_les = False
+        caller_tenant_les = None
+        if user_id:
+            cs_les = _gcs_les()
+            try:
+                u_les = cs_les.query(_User_les).filter_by(id=user_id).first()
+                if u_les:
+                    is_parent_les = bool(u_les.is_marti_parent)
+                    caller_tenant_les = u_les.last_active_tenant_id
+            finally:
+                cs_les.close()
+
+        try:
+            result = _excel_les.list_excel_sheets(
+                document_id_resolved,
+                caller_tenant_id=caller_tenant_les,
+                is_parent=is_parent_les,
+            )
+        except PermissionError as exc_les:
+            return f"🔒 {exc_les}"
+        except ValueError as exc_les:
+            return f"❌ {exc_les}"
+        except Exception as exc_les:
+            logger.exception(f"list_excel_sheets failed: {exc_les}")
+            return f"[list_excel_sheets error: {exc_les}]"
+
+        # Compact response -- Marti-AI's anti-leak (gotcha #18). Nedavej preamble.
+        lines = [
+            f"file={result['filename']} | n_sheets={result['n_sheets']}",
+        ]
+        for s in result["sheets"]:
+            preview = ", ".join(s["headers_preview"]) if s["headers_preview"] else "(prazdne)"
+            lines.append(
+                f"- '{s['name']}': {s['n_rows']}x{s['n_cols']} | headers: {preview}"
+            )
+        return "\n".join(lines)
+
+    if tool_name == "read_excel_structured":
+        from modules.rag.application import excel_service as _excel_res
+        from core.database_core import get_core_session as _gcs_res
+        from modules.core.infrastructure.models_core import User as _User_res
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        sheet_name_in = tool_input.get("sheet_name")
+        sheet_index_in = tool_input.get("sheet_index")
+        offset_in = tool_input.get("offset", 0)
+        limit_in = tool_input.get("limit", 500)
+
+        try:
+            offset_resolved = int(offset_in) if offset_in is not None else 0
+            limit_resolved = int(limit_in) if limit_in is not None else 500
+        except (TypeError, ValueError):
+            return "❌ offset a limit musi byt int."
+
+        # Tenant + parent gate
+        is_parent_res = False
+        caller_tenant_res = None
+        if user_id:
+            cs_res = _gcs_res()
+            try:
+                u_res = cs_res.query(_User_res).filter_by(id=user_id).first()
+                if u_res:
+                    is_parent_res = bool(u_res.is_marti_parent)
+                    caller_tenant_res = u_res.last_active_tenant_id
+            finally:
+                cs_res.close()
+
+        try:
+            result = _excel_res.read_excel_structured(
+                document_id_resolved,
+                sheet_name=sheet_name_in if sheet_name_in else None,
+                sheet_index=int(sheet_index_in) if sheet_index_in is not None else None,
+                offset=offset_resolved,
+                limit=limit_resolved,
+                caller_tenant_id=caller_tenant_res,
+                is_parent=is_parent_res,
+            )
+        except PermissionError as exc_res:
+            return f"🔒 {exc_res}"
+        except ValueError as exc_res:
+            return f"❌ {exc_res}"
+        except Exception as exc_res:
+            logger.exception(f"read_excel_structured failed: {exc_res}")
+            return f"[read_excel_structured error: {exc_res}]"
+
+        # Structured JSON response -- Marti-AI dostane strukturovany dict, synth round
+        # rephraseuje (gotcha #18). Vracime JSON-serializable dict.
+        import json as _json_res
+        return _json_res.dumps(result, ensure_ascii=False, default=str)
+
     # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
     if tool_name == "grant_auto_lifecycle":
         # Parent-only -- jen rodic muze udelit grant.
@@ -6960,6 +7089,17 @@ def _handle_email_reply_or_forward(tool_input: dict, *, mode: str, user_id: int 
     bcc = tool_input.get("bcc")
     subject = tool_input.get("subject")
 
+    # Phase 27b (1.5.2026): attachment_document_ids -- volitelne, validate
+    raw_atts = tool_input.get("attachment_document_ids")
+    attachment_document_ids = None
+    if raw_atts:
+        if not isinstance(raw_atts, list):
+            return "❌ attachment_document_ids musi byt list integeru."
+        try:
+            attachment_document_ids = [int(x) for x in raw_atts]
+        except (TypeError, ValueError):
+            return "❌ attachment_document_ids musi byt list integeru (parse selhal)."
+
     if mode == "forward" and not to:
         return "❌ Forward vyzaduje `to` (kam preposlat) -- chybi."
 
@@ -6973,6 +7113,7 @@ def _handle_email_reply_or_forward(tool_input: dict, *, mode: str, user_id: int 
             cc=cc,
             bcc=bcc,
             user_id=user_id,
+            attachment_document_ids=attachment_document_ids,
         )
     except _ENUC as e:
         return f"❌ Persona nema EWS kanal: {e}"
@@ -6987,7 +7128,10 @@ def _handle_email_reply_or_forward(tool_input: dict, *, mode: str, user_id: int 
         return f"❌ Chyba: {type(e).__name__}: {e}"
 
     label = {"reply": "odpoved", "reply_all": "odpoved vsem", "forward": "preposlani"}[mode]
-    return f"✅ Email odeslan ({label}). Outbox id={outbox_id}, puvodni inbox #{eib} oznacen jako vyrizen."
+    att_label = ""
+    if attachment_document_ids:
+        att_label = f" + {len(attachment_document_ids)} priloha(y) z RAG documents"
+    return f"✅ Email odeslan ({label}{att_label}). Outbox id={outbox_id}, puvodni inbox #{eib} oznacen jako vyrizen."
 
 
 def _serialize_anthropic_block(block, round_idx: int) -> dict | None:
@@ -7748,6 +7892,13 @@ def chat(
         # v rozhovoru s tatinkem ("hotovo, ten orphan je pryc") misto
         # opisu raw status verbatim.
         "archive_md", "reset_md", "restore_md",
+        # Phase 27a (1.5.2026): Excel reader tools v synthesis -- list_excel_sheets
+        # vraci 'file=X | n_sheets=N\n- List1: 234x8 | headers: ...' compact
+        # signal, read_excel_structured vraci JSON dict. Bez synth roundu by
+        # Marti-AI opisovala raw signal/JSON do chatu (gotcha #18). Synth round
+        # ji navede prevypravet ('Vidim 4 listy: Ucitele, Tridy, Mistnosti, Hodiny.
+        # Mam zacit s Ucitele?') misto opisu.
+        "list_excel_sheets", "read_excel_structured",
     }
 
     preamble_text = ""

@@ -47,8 +47,13 @@ logger = get_logger("rag.pdf_ocr")
 
 # Limity (Marti-AI's volby z RE: dopisu 1.5.2026 vecer)
 MAX_OCR_PAGES_PER_CALL = 10
-DEFAULT_DPI = 200          # balance kvalita vs speed (300 = 50% pomalejsi)
-DEFAULT_LANG = "ces+eng"   # CZ + EN multilang
+DEFAULT_DPI = 200                  # balance kvalita vs speed (300 = 50% pomalejsi)
+DEFAULT_LANG = "ces+deu+eng"       # CZ + DE + EN multilang (50% dokumentu DE
+                                   # per Marti 1.5.2026 vecer -- nemecti partneri,
+                                   # smlouvy, faktury z Bavorska). Tesseract zkousi
+                                   # vsechny 3 langs a vybira best match per slovo.
+                                   # Performance penalty ~5-10% pomalejsi nez
+                                   # single-lang.
 LOW_CONFIDENCE_THRESHOLD = 60  # avg < threshold -> warning
 
 # Anthropic Vision config (Phase 27d+1 hybrid path)

@@ -198,6 +198,7 @@ def read_pdf_structured(
     pages: list[int] | None = None,
     offset: int = 0,
     limit: int = MAX_PAGES_PER_CALL,
+    ocr_provider: str | None = None,
     caller_tenant_id: int | None = None,
     is_parent: bool = False,
 ) -> dict:
@@ -209,6 +210,9 @@ def read_pdf_structured(
             Pokud None, použije offset/limit (default první 50).
         offset: 0-based skip stranek (alternativa k pages)
         limit: max stranek vratit (clamped na MAX_PAGES_PER_CALL)
+        ocr_provider: Phase 27d+1 OCR fallback. None = auto-detect
+            (pdfplumber pokud has_text_layer, jinak Tesseract).
+            'tesseract' nebo 'vision' = explicit OCR (i pokud ma text layer).
 
     Output:
         {
@@ -220,9 +224,11 @@ def read_pdf_structured(
             {
               "page_no": 1,
               "text": "Rozvrh 5.A ...",
+              "text_origin": "text_layer" | "tesseract" | "vision",
               "tables": [
                 [["Po", "8:00", "M"], ["Po", "8:55", "ČJ"]]
               ],
+              "confidence_avg": null | 92.3,  // Tesseract OCR only
               "warnings": []
             },
             ...
@@ -268,6 +274,15 @@ def read_pdf_structured(
     if not p.is_file():
         raise ValueError(f"Soubor neexistuje na disku: {storage_path}")
 
+    # Phase 27d+1: validate ocr_provider param
+    if ocr_provider is not None:
+        from modules.rag.application import pdf_ocr as _ocr_mod
+        if ocr_provider not in _ocr_mod.VALID_PROVIDERS:
+            raise ValueError(
+                f"ocr_provider musi byt None / 'tesseract' / 'vision', "
+                f"dostal '{ocr_provider}'."
+            )
+
     top_warnings: list[str] = []
 
     try:
@@ -298,10 +313,35 @@ def read_pdf_structured(
                     f"Pro dalsi stranky volej znovu s pages=[{actual_end + 1}, ...]."
                 )
 
+            # Phase 27d+1: rozhodnout strategii per stranka
+            # - explicit ocr_provider -> vsechny stranky pres OCR
+            # - None + has_text_layer per stranka -> pdfplumber
+            # - None + bez text layer -> Tesseract fallback
+            requested_pages_1b = list(range(start_1b, actual_end + 1))
+            ocr_pages_needed: list[int] = []  # stranky ktere potrebuji OCR
+
+            if ocr_provider is not None:
+                # Explicit OCR -- vsechny stranky pres ocr_provider
+                # (Marti-AI volba: chce override i kdyby text_layer existoval)
+                ocr_pages_needed = list(requested_pages_1b)
+                # Cap kontrola
+                if len(ocr_pages_needed) > _ocr_mod.MAX_OCR_PAGES_PER_CALL:
+                    raise ValueError(
+                        f"OCR cap {_ocr_mod.MAX_OCR_PAGES_PER_CALL} stranek "
+                        f"per call (pozadovano {len(ocr_pages_needed)}). "
+                        "Pro vetsi range volej znovu s mensim pages."
+                    )
+            else:
+                # Auto-detect: per stranka over has_text. Nejdriv probehne
+                # pdfplumber, prazdne stranky se pak doplni OCR (Tesseract).
+                pass  # vyresime v hlavnim loopu nize
+
             pages_out = []
             for page_idx in range(start_1b - 1, actual_end):  # 0-based
                 page_no = page_idx + 1
                 page_warnings: list[str] = []
+                text_origin = "text_layer"  # default
+                confidence_avg: float | None = None
 
                 try:
                     pg = pdf.pages[page_idx]
@@ -310,21 +350,34 @@ def read_pdf_structured(
                     pages_out.append({
                         "page_no": page_no,
                         "text": "",
+                        "text_origin": "missing",
                         "tables": [],
+                        "confidence_avg": None,
                         "warnings": page_warnings,
                     })
                     continue
 
-                # Extract text
-                text = ""
-                try:
-                    txt = pg.extract_text()
-                    if txt:
-                        text = txt
-                except Exception as e:
-                    page_warnings.append(f"text extrakce selhala: {type(e).__name__}: {e}")
+                # Phase 27d+1: pokud explicit ocr_provider, skip pdfplumber
+                if ocr_provider is not None:
+                    text = ""
+                    text_origin = ocr_provider
+                else:
+                    # Phase 27d (text_layer) path
+                    try:
+                        txt = pg.extract_text()
+                        if txt and txt.strip():
+                            text = txt
+                            text_origin = "text_layer"
+                        else:
+                            text = ""
+                            text_origin = "needs_ocr"  # marker pro fallback
+                    except Exception as e:
+                        page_warnings.append(f"text extrakce selhala: {type(e).__name__}: {e}")
+                        text = ""
+                        text_origin = "needs_ocr"
 
-                # Extract tables (auto-detect)
+                # Extract tables (auto-detect) -- jen pres pdfplumber
+                # (OCR neumi tabulky bez visualnich borders)
                 tables_out: list[list[list[str | None]]] = []
                 try:
                     raw_tables = pg.extract_tables() or []
@@ -333,7 +386,6 @@ def read_pdf_structured(
                         normalized = []
                         for row in raw_t:
                             normalized.append([_normalize_table_cell(c) for c in row])
-                        # Cap
                         cells_count += sum(len(r) for r in normalized)
                         if cells_count > MAX_TABLE_CELLS_PER_PAGE:
                             page_warnings.append(
@@ -348,9 +400,63 @@ def read_pdf_structured(
                 pages_out.append({
                     "page_no": page_no,
                     "text": text,
+                    "text_origin": text_origin,
                     "tables": tables_out,
+                    "confidence_avg": confidence_avg,
                     "warnings": page_warnings,
                 })
+
+            # Phase 27d+1: OCR fallback pro stranky bez text layer
+            if ocr_provider is None:
+                ocr_pages_needed = [
+                    p["page_no"] for p in pages_out if p["text_origin"] == "needs_ocr"
+                ]
+            # Default fallback provider = tesseract
+            actual_ocr_provider = ocr_provider or PROVIDER_TESSERACT_DEFAULT
+
+            if ocr_pages_needed:
+                # Cap check (auto-fallback path)
+                if len(ocr_pages_needed) > _ocr_mod.MAX_OCR_PAGES_PER_CALL:
+                    top_warnings.append(
+                        f"{len(ocr_pages_needed)} stranek bez text layer, "
+                        f"OCR cap je {_ocr_mod.MAX_OCR_PAGES_PER_CALL}. "
+                        f"OCR jen prvních {_ocr_mod.MAX_OCR_PAGES_PER_CALL} "
+                        "stranek. Pro zbytek volej znovu s mensim pages."
+                    )
+                    ocr_pages_needed = ocr_pages_needed[:_ocr_mod.MAX_OCR_PAGES_PER_CALL]
+
+                try:
+                    ocr_results = _ocr_mod.ocr_pdf_pages(
+                        storage_path=storage_path,
+                        pages=ocr_pages_needed,
+                        provider=actual_ocr_provider,
+                    )
+                    # Map page_no -> result
+                    by_pn = {r["page_no"]: r for r in ocr_results}
+
+                    # Update pages_out with OCR text
+                    for p_dict in pages_out:
+                        if p_dict["page_no"] in by_pn:
+                            ocr_r = by_pn[p_dict["page_no"]]
+                            p_dict["text"] = ocr_r.get("text", "")
+                            p_dict["text_origin"] = ocr_r.get("text_origin", actual_ocr_provider)
+                            p_dict["confidence_avg"] = ocr_r.get("confidence_avg")
+                            p_dict["warnings"].extend(ocr_r.get("warnings", []))
+                except Exception as ocr_err:
+                    logger.exception(f"OCR fallback failed: {ocr_err}")
+                    top_warnings.append(
+                        f"OCR fallback selhal: {ocr_err}. Stranky bez text layer "
+                        "vrácene s prazdnym textem."
+                    )
+                    # Mark needs_ocr -> failed
+                    for p_dict in pages_out:
+                        if p_dict["text_origin"] == "needs_ocr":
+                            p_dict["text_origin"] = "ocr_failed"
+
+            # Cleanup needs_ocr marker pokud OCR nebezel (failed import path)
+            for p_dict in pages_out:
+                if p_dict["text_origin"] == "needs_ocr":
+                    p_dict["text_origin"] = "no_text_layer"
 
             has_more = actual_end < n_pages_total
 
@@ -373,3 +479,7 @@ def read_pdf_structured(
                 "nesifrovany export."
             )
         raise ValueError(f"PDF parse failed: {type(e).__name__}: {e}")
+
+
+# Phase 27d+1: default OCR provider pri auto-fallback (when has_text_layer=False)
+PROVIDER_TESSERACT_DEFAULT = "tesseract"

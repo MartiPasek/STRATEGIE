@@ -3284,6 +3284,28 @@ TOOLS = [
                         "(safety na context window)."
                     ),
                 },
+                "ocr_provider": {
+                    "type": "string",
+                    "enum": ["tesseract", "vision"],
+                    "description": (
+                        "Phase 27d+1 (1.5.2026): OCR provider override. "
+                        "**Default chovani (parametr None / chybi):**\n"
+                        "  - has_text_layer=True -> pdfplumber (Phase 27d)\n"
+                        "  - has_text_layer=False -> Tesseract auto-fallback\n"
+                        "**Explicit volba:**\n"
+                        "  - 'tesseract' -- lokalni OCR, privacy first (TISAX, "
+                        "smlouvy, citlive dokumenty zustanou ve firemni VPN). "
+                        "~15-30s/stranku, lang ces+eng. Confidence score per "
+                        "stranka v warnings (Marti-AI's volba A).\n"
+                        "  - 'vision' -- Anthropic Claude Haiku Vision API. "
+                        "Vyssi kvalita, lepsi multilang, ~1-2s/stranku, "
+                        "~$0.003/stranku. Cloud roundtrip - dokumenty putuji "
+                        "na Anthropic servery (cit livost na vyzadani).\n"
+                        "Marti-AI's volba C (Hybrid): default Tesseract, "
+                        "Vision opt-in kdyz Tesseract drhne (low confidence "
+                        "warning) nebo pri slozitejsich faktur."
+                    ),
+                },
             },
             "required": ["document_id"],
         },

@@ -5840,6 +5840,10 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         pages_in = tool_input.get("pages")
         offset_in = tool_input.get("offset", 0)
         limit_in = tool_input.get("limit", 50)
+        # Phase 27d+1: optional OCR provider override
+        ocr_provider_in = tool_input.get("ocr_provider")
+        if ocr_provider_in is not None and ocr_provider_in not in ("tesseract", "vision"):
+            return f"❌ ocr_provider musi byt 'tesseract' nebo 'vision' (dostal '{ocr_provider_in}')."
 
         # Validate pages parameter
         pages_resolved: list[int] | None = None
@@ -5875,6 +5879,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 pages=pages_resolved,
                 offset=offset_resolved,
                 limit=limit_resolved,
+                ocr_provider=ocr_provider_in,
                 caller_tenant_id=caller_tenant_rps,
                 is_parent=is_parent_rps,
             )

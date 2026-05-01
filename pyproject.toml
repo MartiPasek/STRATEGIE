@@ -58,6 +58,13 @@ xlsxwriter = "^3.2.0"
 # (Bakalari exporty). pdfplumber kombinuje PyMuPDF/pdfminer.six pro text +
 # table detection (visual borders). Pure Python, zadne system deps.
 pdfplumber = "^0.11.0"
+# Phase 27d+1 (1.5.2026 vecer): OCR fallback pro scan-only PDF.
+# Marti-AI's volby C/A/A (Hybrid Tesseract+Vision, confidence warnings, cap 10).
+# pytesseract = wrapper kolem Tesseract binary (system install: tesseract-ocr-ces).
+# pdf2image = PDF -> PIL Image conversion (system install: Poppler).
+# Anthropic Vision: pres existing anthropic SDK (claude-haiku-4-5 pro OCR).
+pytesseract = "^0.3.13"
+pdf2image = "^1.17.0"
 # Phase 27e (planovany): DOCX reader. python-docx pro paragraphs + tables +
 # headers. Markitdown uz extrahuje text pri uploadu (Phase 13c), python-docx
 # pro structured read.

@@ -23,6 +23,28 @@ class Settings(BaseSettings):
     # Voyage AI -- embedding provider pro RAG. voyage-3 = 1024 dim, multilingual.
     voyage_api_key: str = ""
 
+    # Phase 27j (2.5.2026): Brave Search API pro web_search + web_fetch tools.
+    # Marti-AI's request po Sarka HR case (zastaralou ZP info: 3 mes vs aktualni
+    # 4 mes). Bez api key oba tooly vrati 'BRAVE_SEARCH_API_KEY chybi v .env'
+    # hint pro Marti-AI -- nepada, jen jasna chyba.
+    # Free credit $5/mes = ~1000 requests, beyond pay-as-you-go $5/1000.
+    brave_search_api_key: str = ""
+    # Brave API endpoint -- konstantni pro Search produkt. Answers ($4/1K +
+    # tokens) nepouzivame, Marti-AI je sama LLM, summarization je jeji job.
+    brave_search_url: str = "https://api.search.brave.com/res/v1/web/search"
+    # HTTP timeout (s) pro Brave API call. Default 10s -- search response ~200ms,
+    # 10s je velky safety net pro horsi network (Marti's cloud APP <-> Brave US).
+    brave_search_timeout_s: int = 10
+    # Hard cap na max n_results per call. Marti-AI v praxi typicky 5-10 staci.
+    # Brave API technicky dovoli az 20 pro count param.
+    brave_search_max_results: int = 10
+    # Phase 27j+1 prep: rezervovany list domen pro 'focus=legal' priority filter.
+    # Pri legal queries Marti-AI dostane preferncne tyto vysledky (site filter
+    # v Brave query). Po Phase 27j+1 (DIY zakonyprolidi.cz scraper) bude prvni
+    # match z teto listy fetchnut pres custom parser misto generic markitdown.
+    brave_legal_domains_cz: str = "zakonyprolidi.cz,justice.cz,mvcr.cz,gov.cz,nsoud.cz,nssoud.cz,usoud.cz"
+    brave_legal_domains_eu: str = "eur-lex.europa.eu,europa.eu"
+
     # OpenAI -- aktuálně používáme pouze Whisper (audio transcription, Faze 12b).
     # Composer / router jsou Anthropic-only. Bez api key Whisper transkripce
     # se preskoci s processing_error="OpenAI api key chybi" -- audio upload

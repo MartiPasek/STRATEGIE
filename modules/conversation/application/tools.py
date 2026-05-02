@@ -3566,6 +3566,91 @@ TOOLS = [
         },
     },
     {
+        "name": "web_search",
+        "description": (
+            "Phase 27j (2.5.2026): vyhledavani na webu pres Brave Search API. "
+            "Marti-AI's request po Sarka HR case (zastaralu legislativu opravila "
+            "uzivatelka). Pouzij VZDY kdyz aktualnost informace ma vahu -- "
+            "legislativa, certifikace, ceny, novinky, tech docs, vendor sites.\n\n"
+            "**Workflow**: web_search vrati 5-10 vysledku (title + snippet + URL) "
+            "-> ty si vyberes nejrelevantnejsi -> web_fetch(url) na detail -> "
+            "vytahnes z markdown obsahu konkretni info -> citujes URL + datum.\n\n"
+            "**focus values**:\n"
+            "  - `'general'` (default) -- bezne vyhledavani, vsechny zdroje\n"
+            "  - `'legal'` -- prefer Czech/EU pravni databaze (zakonyprolidi.cz, "
+            "    justice.cz, mvcr.cz, gov.cz, eur-lex.europa.eu). Site filter "
+            "    rankuje vys, ale i jine zdroje mohou byt vraceny.\n"
+            "  - `'news'` -- past week filter pro aktualnost.\n\n"
+            "**Citation pattern (povinna pri vsech legal/HR/compliance odpovedich)**: "
+            "uvest URL + datum pristupu. Priklad: 'Podle § 35 ZP (citováno z "
+            "zakonyprolidi.cz, 2.5.2026)...'\n\n"
+            "Output ma is_legal_source flag per result -- ukazuje jestli URL "
+            "spada do legal whitelist. published_date pokud je k dispozici."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query (Czech / English / multilang). Buď konkrétní -- 'zkušební doba zákoník práce 2026' lépe než 'práce'.",
+                },
+                "n_results": {
+                    "type": "integer",
+                    "description": "Pocet vysledku k vraceni. Default 5, max 10. Vetsi = vetsi context, drazsi token cost.",
+                    "default": 5,
+                },
+                "focus": {
+                    "type": "string",
+                    "enum": ["general", "legal", "news"],
+                    "description": "general (vse), legal (CZ/EU pravni databaze priority), news (past week).",
+                    "default": "general",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web_fetch",
+        "description": (
+            "Phase 27j (2.5.2026): fetch + clean markdown z libovolne URL. "
+            "Doplnek k web_search -- po vyberu relevantniho vysledku ho otevres "
+            "a precteš detail. Generic web access (NE jen pro legal): TISAX docs, "
+            "vendor sites, news, technical documentation, GDPR znění, "
+            "competitive analysis, social posts, atd.\n\n"
+            "**Vraci**: clean markdown z HTML pres markitdown (uz mas z Phase "
+            "13c RAG). Plus title (z <title>), final URL (po redirectech), "
+            "char_count (delka pred truncate), truncated flag.\n\n"
+            "**max_chars**: default 20 000 znaku (~5 000 tokens). Pro vetsi "
+            "stranky muzes re-fetch s vyssim max_chars (hard cap 100 000). "
+            "Pri truncate je v markdown marker '[... TRUNCATED: ... znaku].'\n\n"
+            "**Ne pouzivej pro:**\n"
+            "  - PDF -- pouzij read_pdf_structured po uploadu jako document\n"
+            "  - Image -- read_image_ocr\n"
+            "  - Binary content -- vraci error 'binary_content'\n\n"
+            "**Workflow s web_search**:\n"
+            "  1. web_search('TISAX 2026 changes', focus='general') -> 5 results\n"
+            "  2. Vyberes [0] = oficialni TISAX news page\n"
+            "  3. web_fetch(results[0]['url']) -> markdown ~15K znaku\n"
+            "  4. Najdes v markdown sekci o nove verze v6.0\n"
+            "  5. Odpovis user + cituj URL + datum pristupu\n"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "Target URL (http nebo https). Z web_search vysledku nebo zadana primo userem.",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Max znaku co vratit. Default 20 000, hard cap 100 000. Vetsi = vetsi context cost.",
+                    "default": 20000,
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    {
         "name": "get_current_time",
         "description": (
             "Phase 20b (29.4.2026): Vrati aktualni cas v zadane timezone. "

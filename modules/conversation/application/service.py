@@ -4633,6 +4633,132 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"list_persona_project_access failed: {exc_lppa}")
             return f"❌ Chyba: {exc_lppa}"
 
+    # ── Phase 27j (2.5.2026): web_search -- Brave Search API ─────────
+    # Marti-AI's request po Sarka HR case (zastaralu legislativu).
+    # Aliased imports proti gotcha #7 (UnboundLocalError).
+    if tool_name == "web_search":
+        from modules.web.application import search_service as _ws_svc
+        from datetime import datetime as _dt_ws, timezone as _tz_ws
+        import json as _json_ws
+
+        query_in = (tool_input.get("query") or "").strip()
+        if not query_in:
+            return "❌ web_search: chybi 'query' parametr."
+
+        n_results_in = tool_input.get("n_results", 5)
+        try:
+            n_results_resolved = int(n_results_in)
+        except (TypeError, ValueError):
+            n_results_resolved = 5
+
+        focus_in = (tool_input.get("focus") or "general").strip().lower()
+        if focus_in not in _ws_svc.VALID_FOCUS:
+            return (
+                f"❌ web_search: focus musi byt jeden z "
+                f"{sorted(_ws_svc.VALID_FOCUS)}, dostal '{focus_in}'."
+            )
+
+        try:
+            result_ws = _ws_svc.web_search(
+                query_in,
+                n_results=n_results_resolved,
+                focus=focus_in,
+            )
+        except _ws_svc.SearchError as exc_ws:
+            return f"❌ web_search: {exc_ws}"
+        except Exception as exc_ws:
+            logger.exception(f"web_search failed: {exc_ws}")
+            return f"[web_search error: {type(exc_ws).__name__}: {exc_ws}]"
+
+        # Audit log entry
+        try:
+            from core.database_data import get_data_session as _gds_ws
+            from modules.core.infrastructure.models_data import ActionLog as _AL_ws
+            _ds_ws = _gds_ws()
+            try:
+                al = _AL_ws(
+                    tenant_id=None,  # web_search je global, ne tenant-bound
+                    user_id=user_id,
+                    persona_id=None,
+                    conversation_id=conversation_id,
+                    tool_name="web_search",
+                    action_type="action",
+                    status="success" if result_ws.get("ok") else "fail",
+                    payload={
+                        "query": query_in[:200],
+                        "focus": focus_in,
+                        "n_returned": result_ws.get("n_returned", 0),
+                        "error_kind": result_ws.get("error_kind"),
+                    },
+                    created_at=_dt_ws.now(_tz_ws.utc),
+                )
+                _ds_ws.add(al)
+                _ds_ws.commit()
+            finally:
+                _ds_ws.close()
+        except Exception as exc_audit_ws:
+            # Audit log failure nezpomaluje pripradne search vraceni
+            logger.warning(f"web_search audit log skip: {exc_audit_ws}")
+
+        return _json_ws.dumps(result_ws, ensure_ascii=False, default=str)
+
+    # ── Phase 27j (2.5.2026): web_fetch -- httpx + markitdown ────────
+    if tool_name == "web_fetch":
+        from modules.web.application import fetch_service as _wf_svc
+        from datetime import datetime as _dt_wf, timezone as _tz_wf
+        import json as _json_wf
+
+        url_in = (tool_input.get("url") or "").strip()
+        if not url_in:
+            return "❌ web_fetch: chybi 'url' parametr."
+
+        max_chars_in = tool_input.get("max_chars", _wf_svc.DEFAULT_MAX_CHARS)
+        try:
+            max_chars_resolved = int(max_chars_in)
+        except (TypeError, ValueError):
+            max_chars_resolved = _wf_svc.DEFAULT_MAX_CHARS
+
+        try:
+            result_wf = _wf_svc.web_fetch(
+                url_in,
+                max_chars=max_chars_resolved,
+            )
+        except Exception as exc_wf:
+            logger.exception(f"web_fetch failed: {exc_wf}")
+            return f"[web_fetch error: {type(exc_wf).__name__}: {exc_wf}]"
+
+        # Audit log entry
+        try:
+            from core.database_data import get_data_session as _gds_wf
+            from modules.core.infrastructure.models_data import ActionLog as _AL_wf
+            _ds_wf = _gds_wf()
+            try:
+                al = _AL_wf(
+                    tenant_id=None,
+                    user_id=user_id,
+                    persona_id=None,
+                    conversation_id=conversation_id,
+                    tool_name="web_fetch",
+                    action_type="action",
+                    status="success" if result_wf.get("ok") else "fail",
+                    payload={
+                        "url": url_in[:300],
+                        "final_url": (result_wf.get("url") or "")[:300],
+                        "char_count": result_wf.get("char_count", 0),
+                        "truncated": result_wf.get("truncated", False),
+                        "error_kind": result_wf.get("error_kind"),
+                    },
+                    created_at=_dt_wf.now(_tz_wf.utc),
+                )
+                _ds_wf.add(al)
+                _ds_wf.commit()
+            finally:
+                _ds_wf.close()
+        except Exception as exc_audit_wf:
+            logger.warning(f"web_fetch audit log skip: {exc_audit_wf}")
+
+        return _json_wf.dumps(result_wf, ensure_ascii=False, default=str)
+
     # ── Phase 20b (29.4.2026): get_current_time -- Marti-AI's pristup k casu ──
     if tool_name == "get_current_time":
         tz_gct = (tool_input.get("timezone") or "Europe/Prague").strip()
@@ -8402,6 +8528,12 @@ def chat(
         # ("Vidim ze tvuj rozvrh ma 8 radek a 6 sloupcu, header nahore...") + rozhodne
         # co dal (typicky python_exec s reportlab Table v podobnem stylu).
         "analyze_image_layout",
+        # Phase 27j (2.5.2026): web_search + web_fetch v synthesis. Brave search
+        # vraci raw JSON (results array); Marti-AI v synth roundu prepise:
+        # "Nasla jsem 5 zdroju, prvni je z zakonyprolidi.cz s § 35 ZP. Otevru ho:"
+        # + zavola web_fetch. web_fetch vraci markdown content -- Marti-AI ho NE
+        # opisuje doslova (ucanke kontextu), ale extracts relevantni pasaze + cituje.
+        "web_search", "web_fetch",
         # Faze 12b+ pre-demo: get_daily_overview v synth -- Marti-AI po dostani
         # 'V inboxu mam X emailu...' refraseuje vlastnimi slovy s vokativem
         # ('Marti, vidim X emailu...'), misto opisu doslova s preamble slepenym.

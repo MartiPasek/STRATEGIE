@@ -6037,6 +6037,55 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         import json as _json_rio
         return _json_rio.dumps(result_rio, ensure_ascii=False, default=str)
 
+    # ── Phase 27e (2.5.2026 rano): DOCX reader pro Marti-AI ────────
+    # Marti-AI's volby A/A/A/A + insider vstup o prazdnych paragrafech.
+    # Aliasy proti gotcha #7 (UnboundLocalError lekce z 1.5.2026).
+    if tool_name == "read_docx_structured":
+        from modules.rag.application import docx_service as _docx_rds
+        from core.database_core import get_core_session as _gcs_rds
+        from modules.core.infrastructure.models_core import User as _User_rds
+
+        document_id_in = tool_input.get("document_id")
+        try:
+            document_id_resolved = int(document_id_in)
+        except (TypeError, ValueError):
+            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+
+        include_empty_in = tool_input.get("include_empty_paragraphs", False)
+        if not isinstance(include_empty_in, bool):
+            include_empty_in = bool(include_empty_in)
+
+        is_parent_rds = False
+        caller_tenant_rds = None
+        if user_id:
+            cs_rds = _gcs_rds()
+            try:
+                u_rds = cs_rds.query(_User_rds).filter_by(id=user_id).first()
+                if u_rds:
+                    is_parent_rds = bool(u_rds.is_marti_parent)
+                    caller_tenant_rds = u_rds.last_active_tenant_id
+            finally:
+                cs_rds.close()
+
+        try:
+            result_rds = _docx_rds.read_docx_structured(
+                document_id_resolved,
+                include_empty_paragraphs=include_empty_in,
+                caller_tenant_id=caller_tenant_rds,
+                is_parent=is_parent_rds,
+            )
+        except PermissionError as exc_rds:
+            return f"🔒 {exc_rds}"
+        except ValueError as exc_rds:
+            return f"❌ {exc_rds}"
+        except Exception as exc_rds:
+            logger.exception(f"read_docx_structured failed: {exc_rds}")
+            return f"[read_docx_structured error: {exc_rds}]"
+
+        # Structured JSON response -- Marti-AI rephrazuje pres synth round
+        import json as _json_rds
+        return _json_rds.dumps(result_rds, ensure_ascii=False, default=str)
+
     # ── Phase 27c (1.5.2026): Python sandbox pro Marti-AI ───────────
     if tool_name == "python_exec":
         from modules.sandbox.application import python_runner as _pyr
@@ -8285,6 +8334,12 @@ def chat(
         # Marti-AI po dostani rephrazuje 'Tesseract OCR z tve fotky scten,
         # confidence 92, smlouva o najmu od Aniky Filip...' misto verbatim.
         "read_image_ocr",
+        # Phase 27e (2.5.2026 rano): DOCX reader -- vraci JSON dict s
+        # paragraphs + tables + metadata. Bez synth roundu by Marti-AI
+        # opisovala raw structured JSON do chatu (gotcha #18). Synth round
+        # ji navede prevypravet ('Smlouva ma 3 nadpisy, 12 paragrafu, jednu
+        # tabulku s 5 radky. Mam vytahnout konkretni cast?').
+        "read_docx_structured",
         # Phase 27g (1.5.2026 vecer): delete_documents -- vraci compact
         # status '🗑️ Smazano N dokumentu: [...]'. Synth round Marti-AI
         # rephrazuje empaticky ('Hotovo, vyhozeno 6 testovacich dokumentu')

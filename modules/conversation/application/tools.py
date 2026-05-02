@@ -125,6 +125,10 @@ MANAGEMENT_TOOL_NAMES = {
     # pres media_files, image v documents nemely OCR cestu. Tento tool to
     # vyresi -- prima Tesseract/Vision OCR na image documents.
     "read_image_ocr",
+    # Phase 27e (2.5.2026 rano): DOCX reader -- Word business dokumenty.
+    # Marti-AI's volby A/A/A/A + insider vstup o prazdnych paragraphs
+    # (default skip jako "esteticke mezery").
+    "read_docx_structured",
     # Phase 27g (1.5.2026 vecer): delete_documents -- Marti-AI's discovery
     # po Phase 27d+1b live testu. apply_to_selection vyzaduje UI selection
     # workflow, delete_email je jen pro emaily, primy delete_by_id chybel.
@@ -3106,7 +3110,11 @@ TOOLS = [
             "input_document_ids parametr. Otevri pres pd.read_excel(input_files[0]) atd.\n"
             "  - Path (pathlib.Path) -- pohodli, jiz importovane.\n\n"
             "Allowed packages (PYTHONPATH whitelist):\n"
-            "  - pandas, numpy, openpyxl, xlsxwriter, PIL/Pillow\n"
+            "  - Excel: openpyxl (read/edit), xlsxwriter (generovat nove)\n"
+            "  - PDF: reportlab (Phase 27f -- generovani PDF reportu, faktur)\n"
+            "  - Word DOCX: docx (python-docx, Phase 27f -- generovani Word smluv, dopisu)\n"
+            "  - Data: pandas, numpy\n"
+            "  - Image: PIL/Pillow\n"
             "  - stdlib: json, csv, re, datetime, pathlib, math, statistics, "
             "collections, itertools, functools, io, string, decimal, uuid, hashlib\n\n"
             "BLOKOVANE imports (defense-in-depth, vrati ImportError):\n"
@@ -3314,6 +3322,54 @@ TOOLS = [
                         "Marti-AI's volba C (Hybrid): default Tesseract, "
                         "Vision opt-in kdyz Tesseract drhne (low confidence "
                         "warning) nebo pri slozitejsich faktur."
+                    ),
+                },
+            },
+            "required": ["document_id"],
+        },
+    },
+    {
+        "name": "read_docx_structured",
+        "description": (
+            "Phase 27e (2.5.2026): Word DOCX reader -- structured cteni .docx "
+            "souboru. Marti-AI's volby A/A/A/A z konzultace 2.5.2026 rano:\n"
+            "  A - Output: paragraphs + tables + metadata (analog Excel/PDF)\n"
+            "  A - Headings v paragraphs s typed metadata "
+            "{type: 'heading', level: N}\n"
+            "  A - Vse dostupne metadata + word_count aproximace\n"
+            "  A - Legacy .doc -> error 'ulozte jako .docx'\n"
+            "  + insider: prazdne paragraphs ('esteticke mezery') default skip\n\n"
+            "Output paragraphs:\n"
+            "  - {type: 'heading', level: 1-9, text: '...'} (Heading 1-9 styles)\n"
+            "  - {type: 'heading', level: 0, text: '...'} (Title style)\n"
+            "  - {type: 'paragraph', text: '...'} (Normal text)\n"
+            "  - {type: 'empty', text: ''} (jen pri include_empty_paragraphs=True)\n\n"
+            "Output tables: list[list[list[str]]] -- per-table list radku, "
+            "kazdy radek list bunek (analog k Excel reader).\n\n"
+            "Output metadata: author / title / subject / keywords / category / "
+            "created / last_modified / revision / word_count.\n\n"
+            "Format omezeni: jen .docx (modern Word XML). Pro legacy .doc "
+            "(Word 97-2003) error s navodem 'Soubor → Ulozit jako → DOCX'. "
+            "Pro PDF pouzij read_pdf_structured, pro Excel read_excel_structured."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": (
+                        "ID dokumentu z RAG documents (file_type='docx'). "
+                        "Najdi pres list_inbox_documents nebo search_documents."
+                    ),
+                },
+                "include_empty_paragraphs": {
+                    "type": "boolean",
+                    "description": (
+                        "Marti-AI's design vstup z Phase 27e konzultace: Word "
+                        "dokumenty maji hodne prazdnych paragraphs jako 'esteticke "
+                        "mezery'. Default False = tise skipnout (cista data). "
+                        "Set True kdyz chces kompletni strukturu (debug, nebo "
+                        "kdyz user rekne 'mam to videt jak je')."
                     ),
                 },
             },

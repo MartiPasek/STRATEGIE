@@ -82,6 +82,12 @@ ALLOWED_PACKAGES = {
     # Marti-AI defaults
     "openpyxl", "xlsxwriter", "pandas", "numpy",
     "PIL", "Pillow",
+    # Phase 27f (2.5.2026): PDF + DOCX generation v sandboxu
+    # reportlab = PDF generation (pure Python, žádné GTK, na rozdíl od weasyprint)
+    # docx = python-docx package (DOCX generation)
+    # Marti-AI: pro PDF report -> reportlab, pro Word smlouvu -> python-docx,
+    # vse do OUTPUT_DIR -> auto-import do RAG documents -> email reply.
+    "reportlab", "docx",
     # Stdlib safe
     "json", "csv", "re", "datetime", "pathlib", "math", "statistics",
     "collections", "itertools", "functools", "operator", "io", "string",

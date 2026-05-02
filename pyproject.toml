@@ -54,11 +54,13 @@ openpyxl = "^3.1.0"
 # pro cteni, xlsxwriter pro generovani od nuly"). numpy je transient pres
 # pandas, ale explicit declarace pro PYTHONPATH whitelist clarity.
 pandas = "^2.2.0"
-# 2.5.2026 (gotcha #41 follow-up): numpy caret ^1.26.0 znamenal <2.0.0 -- poetry
-# resolver pak po remove matplotlib zkusil downgrade z venv 2.4.4 -> 1.26.4
-# (NB Win Py3.14 nema prebuilt wheel pro 1.26.4 -> build ze source -> fail).
-# Cloud i NB jedou stabilne na numpy 2.4.x. Range >=1.26 do <3.0 = realny stav.
-numpy = ">=1.26.0,<3.0.0"
+# 2.5.2026 (gotcha #41 final): numpy zamykame na >=2.0,<3.0.
+# Predchozi range >=1.26,<3.0 nedonutil resolver k 2.x -- bez matplotlibu
+# (ktery driv 'pomahal' resolveru preferovat numpy 2.x kvuli wheel constraints)
+# pickl 1.26.4. To nema prebuilt Windows wheel pro Python 3.14 -> build ze
+# source -> fail. Cloud i NB venv stabilne na numpy 2.4.x, pandas 2.2 plne
+# kompatibilni. Lower bound >=2.0 zabrani downgrade.
+numpy = ">=2.0.0,<3.0.0"
 xlsxwriter = "^3.2.0"
 # Phase 27d (1.5.2026 vecer): PDF reader pro Marti-AI -- Klarka workflow
 # (Bakalari exporty). pdfplumber kombinuje PyMuPDF/pdfminer.six pro text +

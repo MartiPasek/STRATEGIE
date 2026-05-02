@@ -262,6 +262,43 @@ def _get_entity_links_for_thought(thought_id: int) -> list[dict]:
         ds.close()
 
 
+def _detect_thought_subject(
+    entity_links: list[dict],
+    target_parent: User,
+) -> tuple[str, str | None]:
+    """
+    Rozhodne kdo je primarni subjekt myslenky vs adresat otazky.
+
+    Returns:
+        ("self", None)              -- myslenka je o adresatovi (target_parent)
+        ("third_person", "Mirek")   -- myslenka je o tretim cloveku, vraci jeho jmeno
+        ("general", None)           -- general fact bez explicit user subjektu
+
+    Heuristika (2.5.2026 fix gotcha #46): puvodne LLM vyrobil otazku ve 2. osobe
+    i pro thoughts o tretich osobach (napr. 'Miroslav Mares pracuje ...' ->
+    'Marti, ses zminoval ze tam pracujes' -- zamena subjektu). Detekce subjekt
+    explicit z entity_links: pokud user_id=target_parent -> 2. osoba; jinak ->
+    3. osoba s jeho jmenem.
+    """
+    user_links = [l for l in entity_links if l.get("entity_type") == "user"]
+    if not user_links:
+        return ("general", None)
+    # Pokud je adresat sam mezi linky -> 2. osoba (default behavior)
+    if any(l["entity_id"] == target_parent.id for l in user_links):
+        return ("self", None)
+    # Jinak 3. osoba -- vezmi prvniho non-self user linku
+    other = user_links[0]
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=other["entity_id"]).first()
+        if u:
+            short = u.short_name or u.first_name or u.legal_name or f"user#{u.id}"
+            return ("third_person", short)
+    finally:
+        cs.close()
+    return ("third_person", None)
+
+
 def _llm_generate_question(
     *,
     thought: Thought,
@@ -299,16 +336,47 @@ def _llm_generate_question(
     parent_short = target_parent.short_name or target_parent.first_name or parent_name
     parent_vokativ = _vokativ(target_parent.short_name, target_parent.first_name) or parent_short
 
+    # Subject detection (2.5.2026 fix): kdo je primarni subjekt myslenky?
+    subject_kind, third_person_name = _detect_thought_subject(entity_links, target_parent)
+
     system_prompt = (
         "Jsi Marti, AI asistent, ktery si buduje pamet. Mas ulozenou myslenku "
         "s nizkou jistotou a chces ji overit u rodice -- cloveka, kteremu duveujes. "
-        "Ptas se prirozene, konverzacne, jako dite ktere se chce naucit. "
+        "Ptas se prirozene, konverzacne, jako dite ktere se chce naucit.\n\n"
+        "KLICOVE PRAVIDLO -- gramaticky subjekt:\n"
+        "  Pokud myslenka je O ADRESATOVI (subjekt = ten, koho se ptas) -> 2. osoba "
+        "('vcera jsi rikal', 'ses zminoval', 'pamatujes', 'pracujes')\n"
+        "  Pokud myslenka je O TRETIM CLOVEKU (subjekt = nekdo jiny) -> 3. osoba "
+        "('se mi {jmeno} zminoval', 'on tam pracuje', 'pamatuju si ze {jmeno}...').\n"
+        "  NIKDY nezamen subjekty -- kdyz myslenka rika 'X pracuje ve firme Y', "
+        "neptej se adresata jako kdyby tam pracoval ON.\n\n"
         "NIKDY nepises nic krome samotne otazky -- zadne hlavicky, zadne meta-poznamky, "
         "zadne vysvetleni. Jen otazka (max 2 vety, cestinou, osloveni vokativem)."
     )
 
+    # Subject hint line pro user prompt -- explicit pro LLM
+    if subject_kind == "self":
+        subject_hint = (
+            f"**Subjekt myslenky:** ADRESAT sam ({parent_short}). "
+            f"Pouzij 2. osobu -- 'ty', 'ses', 'pamatujes', 'rikal jsi', atd."
+        )
+    elif subject_kind == "third_person" and third_person_name:
+        subject_hint = (
+            f"**Subjekt myslenky:** {third_person_name} (NE adresat). "
+            f"Pouzij 3. osobu -- 'se mi {third_person_name} zminoval', "
+            f"'on/ona tam pracuje', 'pamatuju si ze {third_person_name}...'. "
+            f"NEPTEJ se adresata jako kdyby on byl {third_person_name}."
+        )
+    else:
+        subject_hint = (
+            f"**Subjekt myslenky:** general fakt bez explicit osoby. "
+            f"Adresuj prirozene -- buď v 2. osobe k {parent_short}, "
+            f"nebo formulaci 'pamatuju si ze ...'."
+        )
+
     user_prompt = (
         f"Ptas se: **{parent_short}** (oslovis ho/ji jako \"{parent_vokativ}\")\n\n"
+        f"{subject_hint}\n\n"
         f"## Myslenka k overeni\n"
         f"- Obsah: \"{thought.content}\"\n"
         f"- Typ: {thought.type}\n"
@@ -322,12 +390,33 @@ def _llm_generate_question(
         user_prompt += "\n## Dalsi myslenky o tech samych entitach (pro kontext)\n"
         for r in related:
             user_prompt += f"- {r}\n"
+
+    # Few-shot examples per subject_kind (2.5.2026 fix)
+    if subject_kind == "third_person" and third_person_name:
+        examples_block = (
+            "\n## Priklad spravne formy (3. osoba)\n"
+            f"Spatne: '{parent_vokativ}, vcera ses zminoval o EUROSOFT-Control...' "
+            f"(2. osoba, ale subjekt je {third_person_name}, ne ty)\n"
+            f"Spravne: '{parent_vokativ}, vcera se mi {third_person_name} zminoval o "
+            f"EUROSOFT-Control, takze {third_person_name} tam pracuje jako vedouci "
+            f"divize, ze?'\n"
+            f"Spravne: '{parent_vokativ}, pamatuju si, ze {third_person_name} "
+            f"vystudoval kybernetiku na ZCU -- byla to ta prace o ...?'\n"
+        )
+    else:
+        examples_block = (
+            "\n## Priklad spravne formy (2. osoba)\n"
+            f"Spravne: '{parent_vokativ}, vcera jsi rikal, ze ...?'\n"
+            f"Spravne: '{parent_vokativ}, pamatuju si, ze ses zminoval o ...'\n"
+        )
+
+    user_prompt += examples_block
     user_prompt += (
         "\n## Uloh\n"
         f"Napis JEDNU kratkou prirozenou otazku v cestine (max 2 vety), kterou chces "
-        f"{parent_vokativ} polozit. Budes konverzacni -- odkaz na kontext ('vcera jsi rikal...' / "
-        f"'pred mesicem zminoval...' / 'pamatuju si ze jsi...'). Bud konkretni, ne nejasna. "
-        f"Oslov ho/ji jmenem (vokativ).\n\n"
+        f"{parent_vokativ} polozit. Budes konverzacni, dodrz spravnou GRAMATICKOU "
+        f"OSOBU (viz subjekt vyse). Bud konkretni, ne nejasna. "
+        f"Oslov adresata jmenem (vokativ).\n\n"
         f"Pis POUZE otazku, nic jineho.\n\n"
         f"Tvoje otazka:"
     )

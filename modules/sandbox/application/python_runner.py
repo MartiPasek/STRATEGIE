@@ -88,6 +88,11 @@ ALLOWED_PACKAGES = {
     # Marti-AI: pro PDF report -> reportlab, pro Word smlouvu -> python-docx,
     # vse do OUTPUT_DIR -> auto-import do RAG documents -> email reply.
     "reportlab", "docx",
+    # Phase 27h-A (2.5.2026): Visual workflow -- chart / graph / calendar grid
+    # generation. matplotlib pure Python s 'Agg' backendem (headless, ne tkinter).
+    # Marti-AI: matplotlib.use('Agg') PRED import pyplot, savefig do OUTPUT_DIR
+    # jako PNG, pak embed pres reportlab.platypus.Image(path) nebo doc.add_picture.
+    "matplotlib",
     # Stdlib safe
     "json", "csv", "re", "datetime", "pathlib", "math", "statistics",
     "collections", "itertools", "functools", "operator", "io", "string",

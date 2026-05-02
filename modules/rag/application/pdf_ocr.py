@@ -45,6 +45,36 @@ from core.logging import get_logger
 
 logger = get_logger("rag.pdf_ocr")
 
+
+# ── Phase 27d+1c (2.5.2026): HEIC/HEIF support pro iPhone fotky ──────
+# pillow-heif registruje HEIC opener do PIL.Image. Po registraci pak
+# Image.open(heic_path) funguje transparently jako pro jpg/png. Bez
+# tehle volani by HEIC vratil UnidentifiedImageError.
+#
+# Silent fail (try/except) -- pokud pillow-heif neni nainstalovan,
+# image_ocr_service ho nezavola pro HEIC dokument (ALLOWED_IMAGE_TYPES
+# ho akceptuje, ale OCR pak hodi RuntimeError s jasnym hintem).
+def _try_register_heif_opener() -> None:
+    """Register HEIF/HEIC opener do PIL. Silent na missing dependency."""
+    try:
+        import pillow_heif
+        pillow_heif.register_heif_opener()
+        logger.info("rag.pdf_ocr: pillow-heif registered (HEIC/HEIF support active)")
+    except ImportError:
+        logger.info(
+            "rag.pdf_ocr: pillow-heif neni nainstalovan -- HEIC/HEIF nebude fungovat. "
+            "Fix: poetry add pillow-heif (NB) nebo "
+            "'python -m poetry run pip install pillow-heif' (cloud APP)."
+        )
+    except Exception as e:
+        logger.warning(
+            f"rag.pdf_ocr: pillow-heif register selhal: {type(e).__name__}: {e}"
+        )
+
+
+_try_register_heif_opener()
+
+
 # Limity (Marti-AI's volby z RE: dopisu 1.5.2026 vecer)
 MAX_OCR_PAGES_PER_CALL = 10
 DEFAULT_DPI = 200                  # balance kvalita vs speed (300 = 50% pomalejsi)

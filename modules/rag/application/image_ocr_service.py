@@ -26,7 +26,13 @@ from core.logging import get_logger
 
 logger = get_logger("rag.image_ocr")
 
-ALLOWED_IMAGE_TYPES = {"jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff"}
+ALLOWED_IMAGE_TYPES = {
+    "jpg", "jpeg", "png", "gif", "webp", "bmp", "tiff",
+    # Phase 27d+1c (2.5.2026): HEIC/HEIF support pro iPhone fotky.
+    # Vyzaduje pillow-heif balicek v pyproject.toml a register_heif_opener()
+    # volany v pdf_ocr.py pri import (PIL.Image.open() pak heic transparently).
+    "heic", "heif",
+}
 
 
 def _resolve_image_document(document_id: int) -> tuple[str, str, int | None, str]:

@@ -72,6 +72,11 @@ python-docx = "^1.1.0"
 # Phase 27f (volitelne, az bude konkretni use case): reportlab pro PDF
 # generovani v sandboxu (pure Python, bez GTK na rozdil od weasyprint).
 reportlab = "^4.2.0"
+# Phase 27d+1c (2.5.2026): HEIC/HEIF support pro iPhone fotky.
+# pillow-heif je Pillow plugin -- po register_heif_opener() v pdf_ocr.py
+# PIL.Image.open() umi HEIC transparently (jpg/png/...heic/heif).
+# Use case: Klarka nebo Marti pofoti dokument iPhonem -> upload -> OCR.
+pillow-heif = "^0.18.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

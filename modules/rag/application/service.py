@@ -59,6 +59,9 @@ EXTRACTABLE_EXTENSIONS: frozenset[str] = frozenset({
     "msg", "eml",
     # images (OCR)
     "jpg", "jpeg", "png", "gif", "bmp", "tiff", "tif", "webp",
+    # Phase 27d+1c (2.5.2026): HEIC/HEIF z iPhone -- pillow-heif registruje
+    # opener v pdf_ocr.py module load, markitdown pak HEIC zpracuje pres PIL.
+    "heic", "heif",
     # audio (whisper transcription)
     "mp3", "wav", "m4a", "wma", "ogg", "flac", "aac", "mp4",
     # poznamka mp4 -- markitdown vytahne audio track + transcribe;

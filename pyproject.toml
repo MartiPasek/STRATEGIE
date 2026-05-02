@@ -76,7 +76,13 @@ reportlab = "^4.2.0"
 # pillow-heif je Pillow plugin -- po register_heif_opener() v pdf_ocr.py
 # PIL.Image.open() umi HEIC transparently (jpg/png/...heic/heif).
 # Use case: Klarka nebo Marti pofoti dokument iPhonem -> upload -> OCR.
-pillow-heif = "^0.18.0"
+#
+# POZN k version pin (gotcha #41 z 2.5.2026): puvodne ^0.18.0, ale ten
+# release nema prebuilt Windows wheel pro Python 3.14 + vyzaduje pillow
+# 10.x downgrade (z 12.x). Build ze source padl na zlib/MSYS2 dep. Cloud
+# install pres `pip install pillow-heif` (bez verze) vzal 1.3.0, ktery
+# wheel ma. ^1.0 je sirsi range pro Python 3.14 + pillow 12.x kompatibilni.
+pillow-heif = "^1.0"
 # Phase 27h-A (2.5.2026): Visual workflow -- charts / graphs / diagrams v PDF.
 # matplotlib byla puvodni volba, ALE pri prvnim importu vola subprocess
 # (font cache build via fc-list/fc-match). Subprocess je BLOKOVANY v sandboxu

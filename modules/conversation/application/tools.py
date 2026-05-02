@@ -2963,7 +2963,9 @@ TOOLS = [
                 },
                 "last_n": {
                     "type": "integer",
-                    "description": "Pocet poslednich zprav (default 30, cap 50).",
+                    "description": "Pocet poslednich zprav (default 30, cap 200 "
+                                  "po Phase 30+3 zvyseni 2.5.2026 -- pro "
+                                  "self-reflection nad dlouhou konverzaci).",
                 },
             },
             "required": ["conversation_id"],

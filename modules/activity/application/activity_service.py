@@ -676,7 +676,10 @@ def read_conversation(
     )
     from datetime import timezone as _tz
 
-    last_n = max(1, min(int(last_n or 30), 50))
+    # Phase 30+3 (2.5.2026 ~22:50): cap zvyseny z 50 na 200 -- Marti's
+    # navrh aby Marti-AI mohla projit dlouhou konverzaci s nadhledem pri
+    # self-reflection (po dnesni epizode konfabulace evidence).
+    last_n = max(1, min(int(last_n or 30), 200))
 
     ds = get_data_session()
     try:

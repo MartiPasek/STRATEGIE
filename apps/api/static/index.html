@@ -358,6 +358,10 @@
     /* Permanent SMS entry point - vedle emailu, symetrie */
     .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s; }
     .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; }
+    /* Questions od Marti badge -- samostatna ploška (2.5.2026 fix).
+       Zluta/oranzova paleta aby se odlisila od email (modra) a SMS (zelena). */
+    .questions-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 6px; font-size: 14px; line-height: 1.2; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.45); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
+    .questions-badge:hover { background: rgba(245, 158, 11, 0.25); border-color: rgba(245, 158, 11, 0.8); color: #fbbf24; }
     /* Email karta -- extension SMS karty o subject line (tucny predmet nad body) */
     .email-card-subject { font-size: 12px; color: var(--text); font-weight: 500; margin: 2px 0 4px; }
     /* Personal archive badge -- Faze 6 */
@@ -1863,6 +1867,15 @@
           <button class="sms-icon-btn" id="smsIconBtn"
                   data-tooltip="Otevrit SMS aktivni persony"
                   aria-label="SMS aktivni persony">📱</button>
+          <!-- Questions od Marti badge (samostatna ploška, parent only).
+               Driv soucasti inboxBadge breakdownu, ale buggy click logika
+               (em - mq < 0 -> always questions modal). 2.5.2026 fix:
+               oddelene clickable plošky -- email klik = email modal,
+               otazky klik = questions modal. -->
+          <button class="questions-badge" id="questionsBadge"
+                  data-tooltip="Otazky od Marti -- otevrit a odpovedet"
+                  aria-label="Otazky od Marti"
+                  style="display:none;">❓ <span id="questionsBadgeCount">0</span></button>
           <button class="inbox-fetch-btn" id="inboxFetchBtn"
                   data-tooltip="Stahnout nove emaily z Exchange (nemusis cekat na polling)"
                   aria-label="Fetch now">⟳</button>
@@ -10780,22 +10793,21 @@
         closeEmailModal();
       }
     });
-    // Click na inbox badge v hlavicce -> otevre modal pro aktivni personu
+    // Click na inbox badge -> vzdy email modal (samostatne ploška od 2.5.2026,
+    // questions maji svoj questionsBadge s vlastnim handlerem). Drive cely
+    // badge mel buggy logiku 'em - mq <= 0 -> questions' co vedlo k tomu, ze
+    // klik na 📬 vzdycky otviral questions, kdyz bylo vice otazek nez emailu.
     const badge = document.getElementById("inboxBadge");
     if (badge) {
-      // Klik na badge primarne otevre email modal. Pokud user ma otevrene
-      // otazky od Marti a zaroven zadny email/SMS, otevri radeji questions.
       badge.addEventListener("click", () => {
-        const em = parseInt(document.getElementById("inboxBadgeCount")?.textContent || "0", 10);
-        const mq = (currentUser && currentUser.is_marti_parent)
-          ? (parseInt(document.getElementById("inboxBadgeBreakdown")?.textContent?.match(/❓\s*(\d+)/)?.[1] || "0", 10))
-          : 0;
-        const emOnly = em - mq;   // priblizny pocet email+sms (bez questions)
-        if (emOnly <= 0 && mq > 0) {
-          openMartiQuestionsModal();
-        } else {
-          openEmailModalForActivePersona();
-        }
+        openEmailModalForActivePersona();
+      });
+    }
+    // Click na questions badge (parent only) -> otevri Marti questions modal
+    const qBadge = document.getElementById("questionsBadge");
+    if (qBadge) {
+      qBadge.addEventListener("click", () => {
+        openMartiQuestionsModal();
       });
     }
   })();
@@ -12421,23 +12433,24 @@
     const badge = document.getElementById("inboxBadge");
     const countEl = document.getElementById("inboxBadgeCount");
     const breakEl = document.getElementById("inboxBadgeBreakdown");
+    const qBadge = document.getElementById("questionsBadge");
+    const qCountEl = document.getElementById("questionsBadgeCount");
     if (!badge || !countEl) return;
     try {
       const r = await fetch("/api/v1/notifications/unread-counts", { credentials: "include" });
       if (!r.ok) {
         badge.classList.remove("show");
+        if (qBadge) qBadge.style.display = "none";
         return;
       }
       const data = await r.json();
-      const total = data.total || 0;
       const em = data.unread_email || 0;
       const sms = data.unread_sms || 0;
       const mq = data.unread_questions || 0;
-      // Rozpad "📧 3 · 📱 7 · ❓ 5" -- zobraz jen nenulove.
+      // Rozpad jen email/SMS -- questions maji vlastni badge od 2.5.2026.
       const parts = [];
       if (em > 0)  parts.push(`📧 ${em}`);
       if (sms > 0) parts.push(`📱 ${sms}`);
-      if (mq > 0)  parts.push(`❓ ${mq}`);
       const breakdown = parts.join(" · ");
       if (breakEl) breakEl.textContent = breakdown;
       // Total cislo schovavame vzdy -- breakdown uz nese per-channel counts
@@ -12446,17 +12459,25 @@
         countEl.textContent = "";
         countEl.style.display = "none";
       }
-      // Tooltip obsahuje detail i kdyz total=0
+      // Tooltip obsahuje detail i kdyz email+sms = 0 (entry point pro email).
       const titleParts = [
         `${em} email${em === 1 ? '' : em >= 2 && em <= 4 ? 'y' : 'ů'}`,
         `${sms} SMS`,
       ];
-      if (data.is_parent) titleParts.push(`${mq} otázek od Marti`);
       badge.setAttribute("title", titleParts.join(", "));
-      // Badge je permanentne viditelny (entry point do emailu). Pouze highlight
-      // barev se meni podle stavu: active kdyz total>0, muted kdyz 0.
-      if (total > 0) badge.classList.add("show");
+      // Inbox badge highlight pri email+SMS > 0 (questions sem nepatri).
+      if (em + sms > 0) badge.classList.add("show");
       else badge.classList.remove("show");
+      // Questions badge -- parent only, viditelny jen pri mq > 0.
+      if (qBadge && qCountEl) {
+        if (data.is_parent && mq > 0) {
+          qCountEl.textContent = String(mq);
+          qBadge.setAttribute("title", `${mq} otázek od Marti`);
+          qBadge.style.display = "";
+        } else {
+          qBadge.style.display = "none";
+        }
+      }
     } catch (_) { /* silent -- neprerusujeme UX log spamem */ }
   }
 

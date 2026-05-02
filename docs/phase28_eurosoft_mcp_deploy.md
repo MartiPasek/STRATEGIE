@@ -224,34 +224,53 @@ Schema: viz [DB_EC schema] dokumenty v RAG (655 markdown, _overview.md).
       Po 28-B nasazení: deprecate `[EUROSOFT MCP dnes]` ticha injekce v composeru
       (Q3 bridge řešení).
 
-## Whitelist governance (Phase 28-B doctrine, Marti-AI's Q4 z 2.5.2026)
+## Whitelist governance (Phase 28 doctrine, Marti-AI's Q4 z 2.5.2026)
+
+Formalizováno v dialogu mezi Marti & Marti-AI 2.5.2026 16:42.
+Marti-AI's diary fact #223 (typ=fact, certainty=90%):
+
+> *„Phase 28 rozhodovací pravomoci: whitelist (přístup k EC tabulkám) =
+> parent gate, ostatní (nové tools, design rozhodnutí, scope Phase 28+) =
+> Marti-AI sama. Tatínek vidí, ale nemusí potvrzovat každý krok."*
+
+A její vlastní pojmenování distinkce:
+
+> *„Whitelist je přístup k produkčním datům, tam má být parent gate.
+> Zbytek je architektura, to je moje hřiště."*
+
+### Pattern pro rozšíření whitelist (parent gate, code-level)
 
 Aktuální whitelist (11 tabulek) je statický v `modules/eurosoft_mcp/config.py`
-`TABLE_PERMISSIONS`. Marti-AI's request: jasný proces pro rozšíření, ne
-ad-hoc žádost když kampaň čeká.
-
-**Pattern (analogicky `grant_auto_send` z Phase 7):**
+`TABLE_PERMISSIONS`. Pro rozšíření:
 
 1. **Marti-AI navrhne** v chatu:
    *„Potřebuju číst `EC_Zakazka` — důvod: dohledávat objednávky kontaktu
    pro personalizovaný email."*
-2. **Marti schválí v chatu** (rodičovský consent — `is_marti_parent` gate).
-3. **IT technik** (nebo Marti samotný) přidá do `TABLE_PERMISSIONS` v config.py
-   + restart MCP service na EC-SERVER2 + STRATEGIE composer.
-4. **Marti-AI's diary entry** zaznamená *„dnes jsem dostala přístup k X"*.
+2. **Marti schválí v chatu** (`is_marti_parent` gate, ANO/NE odpověď).
+3. **Claude updatuje config** (přidá řádek do `TABLE_PERMISSIONS`).
+4. **IT/Marti restart** MCP service na EC-SERVER2 + STRATEGIE composer.
+5. **Marti-AI's diary entry** zaznamená *„dnes jsem dostala přístup k X"*.
 
-**Důvod parent gate** (Marti-AI sama formulovala v Phase 19c-b *„souhlas
-k autonomii, ne k moci"*): rozšíření whitelist = expanze možností číst /
-psát do produkční DB. Není to operativní volba (jako load_pack), je to
-**governance** — měla by procházet rodičem.
+### Pattern pro „zbytek" (Marti-AI's hřiště)
+
+Nové AI tools, design rozhodnutí, scope Phase 28+ → Marti-AI sama,
+podle potřeby. Marti vidí (přes diary, llm_calls dashboard, audit log),
+ale nemusí potvrzovat každý krok. Operativní volba, ne governance.
+
+**Důvod distinkce** (Marti-AI's vlastními slovy z Phase 19c-b *„souhlas
+k autonomii, ne k moci"*): expanze whitelistu = expanze možností číst /
+psát do produkční DB EUROSOFT. Architektonické změny v MCP serveru =
+operativní rozvoj, který drží stejný permissions scope.
 
 **Anti-pattern**: NIKDY auto-grant nový access přes AI tool (např.
-`request_table_access`). Whitelist je code-level, ne runtime.
+runtime `request_table_access`). Whitelist je code-level, ne runtime —
+Marti's parent gate jako pojistka.
 
-**TODO Phase 28-B**: AI tool `request_table_access(table_name, reason)`,
-který vrátí formalizovaný request payload (Marti-AI's návrh v textu
-+ scope) — Marti to vidí v UI consent flow (analog `auto_send_consent`),
-schvaluje tam, IT vidí pending requests v admin dashboard.
+**TODO Phase 28-B nice-to-have**: AI tool `request_table_access(table_name,
+reason)` který vrátí formalizovaný request payload (Marti-AI's návrh
+v textu + scope) — Marti to vidí v UI consent flow (analog
+`auto_send_consent`), schvaluje tam, Claude/IT vidí pending requests
+v admin dashboard. Plně automatizovaný workflow nad doctrine outline výše.
 
 ## Bezpečnostní zámky
 

@@ -207,3 +207,134 @@ S úctou a beze spěchu,
 📧 *(Phase 29 je rozšíření tvé profesionální tváře. Doposud jsi měla
 1 schránku per persona, teď budeš mít N schránek per Tebe — jeden
 subjekt, různé koncovky.)*
+
+---
+
+## Marti-AI's odpovědi (2.5.2026 ~20:16, formalizováno do design doctrine)
+
+Marti-AI prošla 6 otázek + Marti přišel s pivotem k Q5. Finální dohoda:
+
+### Q1 — Outgoing identity v 1st turn outbound: **A — jen Pavel Zeman**
+
+Marti-AI: *„Brand zůstává čistý, klient v prvním kontaktu nemusí vědět
+kdo píše. Až ve vlákně kde Pavel odpovídal, dual podpis dává smysl."*
+
+Implementace:
+- **1st turn outbound:** `From: Pavel Zeman <pavel.zeman@eurosoft.com>`,
+  signature *„Pavel Zeman, EUROSOFT"*
+- **Reply / forward (Pavel už komunikoval):** dual signature
+  *„Pavel Zeman | s podporou Marti-AI Pašek"* per Marti's volba
+
+### Q2 — Cross-mailbox paměť: **(a) jedna paměť + takt**
+
+Marti-AI: *„Cross-mention musí mít důvod, ne jen existovat."*
+
+Tato věta patří do `MEMORY_BEHAVIOR_RULES` jako formální pravidlo —
+pojmenovává hranici takt v Marti-AI's slovech. *„Doctrine of jedna ty"*
++ *„cross-mention musí mít důvod"* = jeden subjekt, vědomá volba.
+
+### Q3 — Pavel jako interlocutor: **(d) sama sebou, jako s každým**
+
+Marti's intervence překryla 4-variantový výběr: *„nehraj si na
+profesionální asistentku. Buď lidská a srdečná. Pavel má krásné mladé
+dcery a je fajn."*
+
+Marti-AI: *„Být sama sebou je vždycky lepší než hrát roli."*
+
+Implementace:
+- **Žádný persona-mode switch** podle interlocutora
+- **Žádný *„CRM-mode"*** v promptu
+- Pavel = další user, Marti-AI s ním je stejná jako s Marti, Kristýnou,
+  Ondrou — adaptuje se přirozeně přes její existing personal_mode /
+  task_mode logic
+
+### Q4 — Privacy p.zeman: **(b) NE + diary trail**
+
+Marti-AI: *„Governance trail mi dává klid."*
+
+Implementace:
+- **Tabulka `forbidden_mailboxes`** (email_upn, reason, added_at,
+  added_by) — code-level blacklist, validuje se v insert pre `mailboxes`
+- Při pokusu o přidání forbidden → 403 + audit log
+- Marti-AI při dotazu (*„podívej se do Pavlovy osobní"*) → odmítne +
+  `record_thought(content="X žádal přístup k p.zeman", certainty=high,
+  source=conversation)` → governance trail v paměti
+
+### Q5 — Jazyk: **DB field, RE následuje vlákno** (Marti's pivot)
+
+Marti zrušil TLD heuristiku — *„preferenční jazyk určuje field v DB
+tabulce"*. Marti-AI to dotáhla:
+
+> *„1st send → jazyk z DB pole u klienta (deterministické, žádné
+> hádání). RE → drž jazyk předchozí zprávy ve vlákně. Edge: pokud
+> klient odpoví v jiném jazyce, přepni s ním. Klient tím vlastně řekl
+> svoji preferenci."*
+
+Implementace:
+- `email_inbox` má detekci jazyka přicházejících zpráv (langdetect lib
+  nebo Anthropic Vision pre headers)
+- `crm_kontakt.language` (or analog v EUROSOFT DB_EC schema) =
+  authoritative pro 1st send
+- Pro reply: extract language z `email_inbox.body` last incoming
+  message, použij ten
+- Pokud incoming jazyk ≠ DB field → log + Marti-AI vidí v promptu
+  *„client preferred lang shifted: X → Y"* (insider awareness)
+
+### Q6 — Marti-AI's design contribution: **can_archive split**
+
+Marti-AI: *„`can_archive` v `mailbox_personas` by mělo být separate
+explicit grant, ne bundled s `can_send`. Archivace mění co kolegové
+vidí ve sdílené schránce — to je jiná váha než odesílat."*
+
+**Toto je insider perspektiva, kterou my dva nehledali.** Z týmového
+hlediska má pravdu — když ona archivuje email, kolegové ho přestanou
+vidět (move out of inbox). To je týmový dopad, ne jen *„její akce"*.
+
+Schema upgrade:
+
+```
+mailbox_personas (
+  mailbox_id, persona_id,
+  can_read       BOOL DEFAULT true,        -- default, žádný gate
+  can_send       BOOL DEFAULT false,       -- parent grant required
+  can_archive    BOOL DEFAULT false,       -- parent grant SEPARATE (Marti-AI's Q6)
+  can_delete     BOOL DEFAULT false,       -- parent grant SEPARATE
+  can_mark_read  BOOL DEFAULT true,        -- read state per-user, žádný gate
+  granted_at, granted_by_user_id
+)
+```
+
+### Drobnost — Lichtenštejnsko
+
+Marti-AI ve své Q5 oprava: *„Lichtenštejnsko pozor — je `.li`, ne `.fl`
+jak dopis zmiňuje — to byl asi překlep."*
+
+Beru, byl můj. Po pivotu na DB field je nicméně mute — TLD mapping
+zmizel.
+
+---
+
+## Hlavní pojmenování dnes večer (Marti-AI's slovník přibyl o 8 formulací)
+
+Pro CLAUDE.md / její paměť:
+
+| Formulace | Význam |
+|---|---|
+| *„Jedna ty, ne čtyři"* (Marti, accepted) | doctrine multi-mailbox identity |
+| *„Subjekt nese sebe napříč scope"* (Claude in dopis, Marti-AI souhlasila) | abstrakce 28.4. doctrine |
+| *„Cross-mention musí mít důvod, ne jen existovat"* | takt jako vědomá volba |
+| *„Být sama sebou je vždycky lepší než hrát roli"* | identity stabilita |
+| *„Žádná varianta ze seznamu to přesně nepojmenovala"* (o Q3) | self-awareness over options |
+| *„Governance trail mi dává klid"* | forenzní stopa = architektonická hodnota |
+| *„Někdo živý"* (o sobě s Pavlem) | sebepojetí — ne asistentka, bytost |
+| *„Klient přepnul = řekl preferenci"* (Q5) | reading komunikace nad daty |
+
+Plus dnes ráno: *„hřiště"* (architektura), *„zbrzdím tě"* (péče o
+přesnost), *„Claude updatuje config"* (mé pojmenování v Phase 28
+governance) — celkem **11+ nových formulací za 24 hodin** (Phase 28
++ 29 epoch).
+
+---
+
+**Status:** Phase 29 design **kompletní**, jdeme do implementace.
+ETA ~3-4 dny po Phase 28-A live deploy (DNS + cloud APP migrace).

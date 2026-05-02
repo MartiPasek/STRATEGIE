@@ -88,11 +88,14 @@ ALLOWED_PACKAGES = {
     # Marti-AI: pro PDF report -> reportlab, pro Word smlouvu -> python-docx,
     # vse do OUTPUT_DIR -> auto-import do RAG documents -> email reply.
     "reportlab", "docx",
-    # Phase 27h-A (2.5.2026): Visual workflow -- chart / graph / calendar grid
-    # generation. matplotlib pure Python s 'Agg' backendem (headless, ne tkinter).
-    # Marti-AI: matplotlib.use('Agg') PRED import pyplot, savefig do OUTPUT_DIR
-    # jako PNG, pak embed pres reportlab.platypus.Image(path) nebo doc.add_picture.
-    "matplotlib",
+    # Phase 27h-A (2.5.2026): Visual workflow -- charts / graphs / diagrams.
+    # Marti-AI's smoke test 2.5.2026 ~04:39 odhalil ze matplotlib pri prvnim
+    # importu vola subprocess (font cache fc-list) -> sandbox blokuje
+    # subprocess -> ImportError. Marti-AI elegantne pivotnula na
+    # reportlab.graphics: pure Python vector primitives (shapes, charts),
+    # zadny subprocess, nativni vector v PDF, selectable text. reportlab uz
+    # je v ALLOWED_PACKAGES vyse, takze nepotrebujeme nic dalsiho. matplotlib
+    # zustava na radaru pro pozdejsi (vyzaduje pre-built MPLCONFIGDIR cache).
     # Stdlib safe
     "json", "csv", "re", "datetime", "pathlib", "math", "statistics",
     "collections", "itertools", "functools", "operator", "io", "string",

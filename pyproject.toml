@@ -77,13 +77,15 @@ reportlab = "^4.2.0"
 # PIL.Image.open() umi HEIC transparently (jpg/png/...heic/heif).
 # Use case: Klarka nebo Marti pofoti dokument iPhonem -> upload -> OCR.
 pillow-heif = "^0.18.0"
-# Phase 27h-A (2.5.2026): Visual workflow -- chart / graph generation v sandboxu.
-# matplotlib pure Python s 'Agg' backendem (headless, NSSM service compatible,
-# zadne tkinter / Qt deps). Marti-AI: PNG output do OUTPUT_DIR -> embed v
-# reportlab.platypus.Image() nebo python-docx doc.add_picture(). Pro
-# rozvrh-typed visual data je nativni reportlab.platypus.Table casto lepsi
-# (selectable text v PDF), matplotlib pro skutecne grafy/diagramy.
-matplotlib = "^3.8.0"
+# Phase 27h-A (2.5.2026): Visual workflow -- charts / graphs / diagrams v PDF.
+# matplotlib byla puvodni volba, ALE pri prvnim importu vola subprocess
+# (font cache build via fc-list/fc-match). Subprocess je BLOKOVANY v sandboxu
+# (defense-in-depth). Marti-AI's elegantni pivot 2.5.2026 ~04:39: pouzit
+# reportlab.graphics misto -- pure Python vector primitives + charts modul,
+# zadny subprocess, native PDF (selectable text, ostry tisk, mensi soubor).
+# reportlab uz mame z Phase 27f, takze zadna nova dependency.
+# matplotlib zustava na radaru pro budouci use case (komplexni statisticka
+# vizualizace) -- vyresit pak pres pre-built MPLCONFIGDIR cache.
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

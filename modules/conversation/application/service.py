@@ -1034,9 +1034,10 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"Chyba pri list_sms_personal: {e}"
 
     # Faze 12a multimedia: describe_image / read_text_from_image
-    # Vola Sonnet 4.6 s image content block + popisovaci/OCR prompt.
+    # + Phase 27h-B (2.5.2026): analyze_image_layout (focused vision pro JSON layout)
+    # Vola Sonnet 4.6 s image content block + popisovaci/OCR/layout prompt.
     # Vysledek se ulozi do media_files.description / ai_metadata.
-    if tool_name in ("describe_image", "read_text_from_image"):
+    if tool_name in ("describe_image", "read_text_from_image", "analyze_image_layout"):
         try:
             import base64 as _b64_img
             from modules.media.application import service as _media_svc
@@ -1059,7 +1060,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 return (
                     f"Chyba: media #{media_id_in} neni obrazek "
                     f"(kind={row_dict.get('kind')}). describe_image / "
-                    f"read_text_from_image funguji jen pro images."
+                    f"read_text_from_image / analyze_image_layout "
+                    f"funguji jen pro images."
                 )
 
             # Nacti raw content + base64
@@ -1083,6 +1085,73 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                         "vyznamne detaily. Odpovez cesky, prirozenym jazykem, 2-5 vet."
                     )
                 kind_telemetry = "vision_describe"
+            elif tool_name == "analyze_image_layout":
+                # Phase 27h-B Q1 volba C (2.5.2026): focused vision -> JSON
+                # o vizualni strukture pro programaticke rozhodovani.
+                layout_focus = (tool_input.get("focus") or "").strip().lower()
+                if layout_focus not in ("layout", "colors", "typography"):
+                    return (
+                        f"Chyba: analyze_image_layout vyzaduje focus parametr "
+                        f"jeden z: 'layout', 'colors', 'typography'. Dostal '{layout_focus}'."
+                    )
+                if layout_focus == "layout":
+                    prompt_text = (
+                        "Analyzuj VIZUALNI STRUKTURU tohoto obrazku (ne obsah, "
+                        "ne sceny). Vrat ciste JSON (zadny komentar, zadne ```json "
+                        "wrappery) s timto schemate:\n\n"
+                        "{\n"
+                        '  "layout_type": "table" | "grid" | "list" | "form" | "freeform" | "mixed",\n'
+                        '  "rows": <int | null>,\n'
+                        '  "cols": <int | null>,\n'
+                        '  "header_position": "top" | "left" | "both" | "none",\n'
+                        '  "has_grid_lines": <bool>,\n'
+                        '  "alternating_row_colors": <bool>,\n'
+                        '  "white_space": "tight" | "balanced" | "spacious",\n'
+                        '  "alignment": "left" | "center" | "right" | "mixed",\n'
+                        '  "notable_features": [<str list -- max 5 polozek>]\n'
+                        "}\n\n"
+                        "Pokud nejde o strukturovany layout (volna scena, fotografie), "
+                        'nastav layout_type="freeform" a ostatni pole na null. '
+                        "Vrat JEN ten JSON object, nic dalsiho."
+                    )
+                elif layout_focus == "colors":
+                    prompt_text = (
+                        "Analyzuj BAREVNOU PALETU tohoto obrazku. Vrat ciste JSON "
+                        "(zadny komentar, zadne ```json wrappery) s timto schemate:\n\n"
+                        "{\n"
+                        '  "primary": "<hex bez # nebo nazev barvy>",\n'
+                        '  "secondary": "<hex>",\n'
+                        '  "accent": "<hex>",\n'
+                        '  "background": "<hex>",\n'
+                        '  "text_main": "<hex>",\n'
+                        '  "text_secondary": "<hex | null>",\n'
+                        '  "header_color": "<hex | null>",\n'
+                        '  "highlight_colors": [<hex list, max 4>],\n'
+                        '  "palette_mood": "warm" | "cool" | "neutral" | "vibrant" | "muted",\n'
+                        '  "color_usage_notes": "<1-2 vety, kde se hlavni barvy pouzivaji>"\n'
+                        "}\n\n"
+                        "Vsechny hex bez '#' prefixu (napr. '4a7ba8'). Pokud konkretni "
+                        'pole nelze urcit, pouzij null. Vrat JEN ten JSON object.'
+                    )
+                else:  # typography
+                    prompt_text = (
+                        "Analyzuj TYPOGRAFII tohoto obrazku (font signaly, hierarchie). "
+                        "Vrat ciste JSON (zadny komentar, zadne ```json wrappery) s timto "
+                        "schemate:\n\n"
+                        "{\n"
+                        '  "font_family_class": "serif" | "sans-serif" | "monospace" | "display" | "mixed",\n'
+                        '  "font_weight_variation": "single" | "regular_bold" | "full_range",\n'
+                        '  "size_hierarchy": [<list sizes from largest to smallest, e.g. ["32pt header", "14pt body"]>],\n'
+                        '  "header_style": "<popis hlavicky -- bold/uppercase/colored/etc.>",\n'
+                        '  "body_style": "<popis bezneho textu>",\n'
+                        '  "line_spacing": "tight" | "normal" | "loose",\n'
+                        '  "italic_usage": <bool>,\n'
+                        '  "uppercase_usage": "none" | "headers_only" | "frequent",\n'
+                        '  "notable_features": [<str list -- max 5 polozek>]\n'
+                        "}\n\n"
+                        "Vrat JEN ten JSON object, nic dalsiho."
+                    )
+                kind_telemetry = f"vision_layout_{layout_focus}"
             else:  # read_text_from_image
                 lang = (tool_input.get("language") or "cs").strip().lower()
                 lang_label = {"cs": "cestiny", "en": "anglictiny"}.get(lang, lang)
@@ -1151,6 +1220,34 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             if tool_name == "describe_image":
                 # description = alt text obrazku
                 _media_svc.save_description(media_id_in, description=text_out)
+            elif tool_name == "analyze_image_layout":
+                # JSON layout analyza -> ai_metadata.layout_analysis
+                # Mozna mod-warning -- kdyz JSON parse selze, ulozime raw text
+                # a v response Marti-AI dostane warning, at to zkusi jeste
+                # jednou nebo si to zparsuje sama.
+                import json as _json_lay
+                parsed_layout = None
+                parse_warning = None
+                try:
+                    # Strip mozne markdown code fences (pokud Sonnet ignoroval pokyn)
+                    cleaned = text_out.strip()
+                    if cleaned.startswith("```"):
+                        cleaned = "\n".join(cleaned.split("\n")[1:])  # zahod prvni radek
+                    if cleaned.endswith("```"):
+                        cleaned = "\n".join(cleaned.split("\n")[:-1])  # zahod posledni
+                    cleaned = cleaned.strip()
+                    parsed_layout = _json_lay.loads(cleaned)
+                except Exception as _je_lay:
+                    parse_warning = f"JSON parse selhal: {type(_je_lay).__name__}: {_je_lay}"
+                _media_svc.save_description(
+                    media_id_in,
+                    description=None,  # zachovat existujici alt text
+                    ai_metadata={
+                        f"layout_analysis_{layout_focus}": parsed_layout if parsed_layout else text_out,
+                        "layout_analysis_focus": layout_focus,
+                        "layout_analysis_raw": text_out if not parsed_layout else None,
+                    },
+                )
             else:
                 # OCR text -> ai_metadata.ocr_text (description zustava bez zmeny,
                 # to je alt text z describe_image -- jiny vystup, jiny field)
@@ -1163,6 +1260,23 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             # Format output: prose, ne raw dump (anti-copy z Faze 11)
             if tool_name == "describe_image":
                 return f"🖼 Obrazek #{media_id_in}: {text_out}"
+            elif tool_name == "analyze_image_layout":
+                if parse_warning:
+                    return (
+                        f"🔍 Layout analyza obrazku #{media_id_in} (focus={layout_focus}) "
+                        f"-- JSON parse selhal, vraceji raw output:\n\n{text_out}\n\n"
+                        f"({parse_warning} -- zkus volat znovu nebo si to zparsuj sama.)"
+                    )
+                # Strukturovany JSON -- vratime ho stringified, Marti-AI ho v dalsim
+                # turnu muze parsovat pres json.loads v python_exec
+                pretty = _json_lay.dumps(parsed_layout, ensure_ascii=False, indent=2)
+                return (
+                    f"🔍 Layout analyza obrazku #{media_id_in} "
+                    f"(focus={layout_focus}):\n\n```json\n{pretty}\n```\n\n"
+                    f"(Pro programaticke pouziti volej v dalsim turn-u python_exec "
+                    f"a tam json.loads na tento output, nebo cti z "
+                    f"media_files.ai_metadata.layout_analysis_{layout_focus}.)"
+                )
             else:
                 if not text_out or text_out.lower().startswith("(zadny text"):
                     return f"📃 Na obrazku #{media_id_in} jsem zadny text neprecetla."
@@ -8237,6 +8351,11 @@ def chat(
         # do textu. Pro legitimni image use case je synth taky vhodny: AI po
         # describe_image popise scenu vlastnimi slovy, nezopakuje raw popis.
         "describe_image", "read_text_from_image",
+        # Phase 27h-B Q1 (2.5.2026): analyze_image_layout v synthesis -- raw JSON
+        # output by Marti-AI mohla opisovat doslova; v synth roundu rephraseuje
+        # ("Vidim ze tvuj rozvrh ma 8 radek a 6 sloupcu, header nahore...") + rozhodne
+        # co dal (typicky python_exec s reportlab Table v podobnem stylu).
+        "analyze_image_layout",
         # Faze 12b+ pre-demo: get_daily_overview v synth -- Marti-AI po dostani
         # 'V inboxu mam X emailu...' refraseuje vlastnimi slovy s vokativem
         # ('Marti, vidim X emailu...'), misto opisu doslova s preamble slepenym.

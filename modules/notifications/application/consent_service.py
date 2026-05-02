@@ -372,7 +372,9 @@ def revoke_consent(
 # ── LIST / LOOKUP ─────────────────────────────────────────────────────────
 
 def list_active_consents() -> list[dict]:
-    """Vrati vsechny aktivni consenty s join-nutymi jmeny userů (pokud existuji)."""
+    """Vrati vsechny aktivni consenty s join-nutymi jmeny userů (pokud existuji)
+    a Phase 27i (2.5.2026 follow-up): konkretni kontakty per user (emaily/telefony)
+    pro UI transparenci -- 'kde se to vlastne aplikuje'."""
     s = get_data_session()
     try:
         rows = (
@@ -385,6 +387,11 @@ def list_active_consents() -> list[dict]:
         user_ids = {r.target_user_id for r in rows if r.target_user_id}
         grantor_ids = {r.granted_by_user_id for r in rows}
         names: dict[int, str] = {}
+        # Phase 27i UI fix (2.5.2026 ~08:00): per-user contacts of matching channel.
+        # Marti's feedback: 'neni explicitne videt, ktere emaily a telefoni cisla
+        # jsou povolene'. Pre kazdy target_user_id grant fetchneme user_contacts
+        # filtrovane na matching channel typ.
+        user_contacts: dict[tuple[int, str], list[str]] = {}  # (user_id, channel) -> [contacts]
         if user_ids or grantor_ids:
             cs = get_core_session()
             try:
@@ -393,15 +400,29 @@ def list_active_consents() -> list[dict]:
                     first = u.first_name or ""
                     last = u.last_name or ""
                     names[u.id] = (first + " " + last).strip() or u.canonical_email or f"user#{u.id}"
+
+                # Phase 27i: bulk fetch user_contacts pro target_user_ids per channel
+                if user_ids:
+                    needed_pairs: set[tuple[int, str]] = set()
+                    for r in rows:
+                        if r.target_user_id:
+                            needed_pairs.add((r.target_user_id, r.channel))
+                    for uid, ch in needed_pairs:
+                        user_contacts[(uid, ch)] = _get_user_contacts(uid, ch)
             finally:
                 cs.close()
 
         out = []
         for r in rows:
+            target_contacts_resolved = None
+            if r.target_user_id:
+                target_contacts_resolved = user_contacts.get((r.target_user_id, r.channel), [])
             out.append({
                 "id": r.id,
                 "target_user_id": r.target_user_id,
                 "target_user_name": names.get(r.target_user_id) if r.target_user_id else None,
+                # Phase 27i: konkretni emaily/cisla pro UI display
+                "target_user_contacts": target_contacts_resolved,
                 "target_contact": r.target_contact,
                 "target_domain": r.target_domain,
                 "channel": r.channel,

@@ -33,6 +33,7 @@ class GrantRequest(BaseModel):
     channel: str                                  # email | sms
     target_user_id: int | None = None
     target_contact: str | None = None
+    target_domain: str | None = None              # Phase 27i (2.5.2026)
     note: str | None = None
 
 
@@ -68,6 +69,7 @@ def grant(req: Request, body: GrantRequest):
             channel=body.channel,
             target_user_id=body.target_user_id,
             target_contact=body.target_contact,
+            target_domain=body.target_domain,
             note=body.note,
         )
         return result

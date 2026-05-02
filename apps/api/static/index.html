@@ -10065,6 +10065,10 @@
         <input id="consentContact" type="text" placeholder="např. zakaznik@firma.cz nebo +420777888999" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
       </div>
       <div style="margin-bottom:8px;">
+        <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">nebo Doména (Phase 27i — hromadný whitelist, jen pro email kanál)</label>
+        <input id="consentDomain" type="text" placeholder="např. eurosoft.com (pokryje libovolný @eurosoft.com)" style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
+      </div>
+      <div style="margin-bottom:8px;">
         <label style="font-size:12px; color:var(--muted); display:block; margin-bottom:3px;">Poznámka (nepovinná)</label>
         <input id="consentNote" type="text" placeholder="proč souhlas dáváš..." style="width:100%; padding:6px; background:var(--bg); border:1px solid var(--border); color:var(--fg); border-radius:4px;">
       </div>
@@ -11966,7 +11970,35 @@
   }
 
   function _renderConsentRow(it, isParent) {
-    const who = it.target_user_name || it.target_contact || "?";
+    // Phase 27i (2.5.2026): scope-aware title + explicitne ukazat kde to plati.
+    let who, scopeBadge, scopeDetail;
+    if (it.target_domain) {
+      // Domenovy grant
+      who = `*@${it.target_domain}`;
+      scopeBadge = `<span style="background:rgba(74,123,168,0.18); color:#9bb8d6; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; margin-left:6px;">DOMÉNA</span>`;
+      scopeDetail = `<div style="font-size:12px; color:var(--muted); margin-top:3px;">Pokrývá <strong>libovolný @${_esc(it.target_domain)}</strong> email (exact match, subdomény ne).</div>`;
+    } else if (it.target_user_id) {
+      // Per-user grant -- ukaz konkretni kontakty z user_contacts
+      who = it.target_user_name || `user#${it.target_user_id}`;
+      scopeBadge = `<span style="background:rgba(139,115,85,0.22); color:#d4b88a; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; margin-left:6px;">USER</span>`;
+      const contacts = it.target_user_contacts || [];
+      if (contacts.length > 0) {
+        const list = contacts.map(c => `<code style="background:var(--bg-elevated); padding:1px 5px; border-radius:3px; font-size:11px;">${_esc(c)}</code>`).join(", ");
+        scopeDetail = `<div style="font-size:12px; color:var(--muted); margin-top:3px;">Pokrývá ${list}</div>`;
+      } else {
+        scopeDetail = `<div style="font-size:12px; color:var(--muted); margin-top:3px; font-style:italic;">User nemá uložené kontakty pro tento kanál — grant platí pouze přes user_id match.</div>`;
+      }
+    } else if (it.target_contact) {
+      // Konkretni kontakt (email/telefon mimo users)
+      who = it.target_contact;
+      scopeBadge = `<span style="background:rgba(120,140,90,0.22); color:#b5cb8a; padding:1px 6px; border-radius:3px; font-size:10px; font-weight:600; margin-left:6px;">KONTAKT</span>`;
+      scopeDetail = "";
+    } else {
+      who = "?";
+      scopeBadge = "";
+      scopeDetail = "";
+    }
+
     const ch = it.channel === "email" ? "📧 email" : "📱 sms";
     const grantedBy = it.granted_by_name || `user#${it.granted_by_user_id}`;
     const grantedAt = (it.granted_at || "").slice(0, 10);
@@ -11975,7 +12007,8 @@
     return `
       <div style="padding:12px 14px; border-bottom:1px solid var(--border); display:flex; justify-content:space-between; align-items:flex-start; gap:10px;">
         <div style="flex:1;">
-          <div style="font-weight:600; color:var(--fg);">${_esc(who)} <span style="font-weight:normal; color:var(--muted); font-size:12px;">· ${ch}</span></div>
+          <div style="font-weight:600; color:var(--fg);">${_esc(who)}${scopeBadge} <span style="font-weight:normal; color:var(--muted); font-size:12px;">· ${ch}</span></div>
+          ${scopeDetail}
           <div style="font-size:12px; color:var(--muted); margin-top:3px;">Udělil ${_esc(grantedBy)} · ${grantedAt}</div>
           ${note}
         </div>
@@ -11992,16 +12025,28 @@
     const channel = document.getElementById("consentChannel").value;
     const userIdStr = document.getElementById("consentUserId").value.trim();
     const contact = document.getElementById("consentContact").value.trim();
+    const domain = document.getElementById("consentDomain").value.trim();
     const note = document.getElementById("consentNote").value.trim();
 
-    if (!userIdStr && !contact) {
-      alert("Zadej User ID NEBO Email/Telefon.");
+    // Phase 27i: presne jeden ze tri scopu
+    const scopeCount = [userIdStr, contact, domain].filter(Boolean).length;
+    if (scopeCount === 0) {
+      alert("Zadej User ID, Email/Telefon NEBO Doménu.");
+      return;
+    }
+    if (scopeCount > 1) {
+      alert("Zadej PRESNE jeden ze tří scopů (User ID / Email-Telefon / Doména) — ne více najednou.");
+      return;
+    }
+    if (domain && channel !== "email") {
+      alert("Doménový grant je validní jen pro kanál 'email'. SMS nemá doménu.");
       return;
     }
 
     const body = { channel };
     if (userIdStr) body.target_user_id = parseInt(userIdStr, 10);
     if (contact) body.target_contact = contact;
+    if (domain) body.target_domain = domain;
     if (note) body.note = note;
 
     const submitBtn = document.getElementById("consentSubmitBtn");
@@ -12022,6 +12067,7 @@
       // Reset form + refresh list
       document.getElementById("consentUserId").value = "";
       document.getElementById("consentContact").value = "";
+      document.getElementById("consentDomain").value = "";
       document.getElementById("consentNote").value = "";
       document.getElementById("consentsAddForm").style.display = "none";
       await _consentsLoad();

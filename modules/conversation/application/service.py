@@ -8492,12 +8492,25 @@ def chat(
             persona_id=_active_pid,
         )
     else:
+        # Phase 28 (2.5.2026): EUROSOFT MCP feature flag (mirror telemetry path).
+        _mcp_kwargs_fb: dict = {}
+        if settings.eurosoft_mcp_enabled:
+            _mcp_kwargs_fb["mcp_servers"] = [{
+                "type": "url",
+                "url": settings.eurosoft_mcp_url,
+                "name": "eurosoft",
+                "authorization_token": settings.eurosoft_mcp_api_key,
+            }]
+            _mcp_kwargs_fb["extra_headers"] = {
+                "anthropic-beta": "mcp-client-2025-04-04",
+            }
         response = client.messages.create(
             model=MODEL,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
             tools=effective_tools,
+            **_mcp_kwargs_fb,
         )
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.

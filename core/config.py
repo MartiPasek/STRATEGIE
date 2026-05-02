@@ -192,8 +192,27 @@ class Settings(BaseSettings):
     # Phase 15a: Notebook replaces sliding window -- feature flag.
     # Pokud True, composer snizi sliding window z 20 na 10 zprav (5 turnu)
     # protoze notebook injection v system promptu drzi episodickou pamet.
-    # Default False = postupny rollout (notebook bezi paralelne s plnym oknem).
+    # Default False = postupny rollout (notebook bezi paralelne s plnych oknem).
     notebook_replaces_sliding: bool = False
+
+    # Phase 28 (2.5.2026): EUROSOFT MCP server -- Marti-AI's most pro EUROSOFT CRM (DB_EC).
+    # MCP server bezi na EC-SERVER2 v EUROSOFT siti, exposed pres api.eurosoft.com
+    # (Caddy reverse proxy + Mikrotik NAT). STRATEGIE composer ho pripoji jako
+    # native MCP client pres Anthropic Messages API.
+    #
+    # Bezpecnost: Bearer token (sdileny mezi cloud APP a EC-SERVER2 MCP serverem).
+    # Whitelist 11 tabulek (EC_Kontakt + family + Helios refs) drzi MCP server
+    # samotny -- composer jen specifikuje URL + token.
+    #
+    # Feature flag: composer pripoji MCP jen pokud OBA env vars set. Default
+    # prazdne = MCP integration vypnuta (safe deploy pred DNS clearance).
+    eurosoft_mcp_url: str = ""           # napr. "https://api.eurosoft.com/marti-mcp/sse"
+    eurosoft_mcp_api_key: str = ""       # Bearer token pro EUROSOFT MCP server
+
+    @property
+    def eurosoft_mcp_enabled(self) -> bool:
+        """True pokud OBA EUROSOFT MCP env vars nastaveny."""
+        return bool(self.eurosoft_mcp_url and self.eurosoft_mcp_api_key)
 
 settings = Settings()
 

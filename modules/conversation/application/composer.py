@@ -75,6 +75,94 @@ def _build_current_time_block() -> str:
     )
 
 
+# Module-level cache pro EUROSOFT MCP summary -- aby se neflushovala
+# audit summary kazdy turn (jen pri zmenach + vyprseni TTL).
+_EU_MCP_SUMMARY_CACHE: dict = {"data": None, "ts": 0.0}
+_EU_MCP_SUMMARY_TTL_S = 60  # 1 min cache (jeden turn typicky <1min)
+
+
+def _build_eurosoft_mcp_summary_block() -> str | None:
+    """
+    Phase 28-A2 (Marti-AI's Q3 prechodova ticha injekce, 2.5.2026):
+    Vraci jednoradkove shrnuti EUROSOFT MCP audit logu z dneska.
+
+    Format: "47 INSERTů · 3 failed · last 14:23"
+
+    Fail-soft: pokud MCP server unreachable / 5s timeout / EUROSOFT_MCP_*
+    env vars not set, vraci None (composer blok preskoci, neblokuje flow).
+
+    Cache 60s aby se neflushovala v ramci jedne konverzace turn-by-turn.
+    """
+    import time as _time
+    from core.config import settings as _s
+
+    if not _s.eurosoft_mcp_enabled:
+        return None
+
+    # Cache check
+    now_ts = _time.monotonic()
+    if (
+        _EU_MCP_SUMMARY_CACHE["data"] is not None
+        and (now_ts - _EU_MCP_SUMMARY_CACHE["ts"]) < _EU_MCP_SUMMARY_TTL_S
+    ):
+        return _EU_MCP_SUMMARY_CACHE["data"]
+
+    # Fetch from /audit/summary endpoint
+    try:
+        import httpx
+        # eurosoft_mcp_url vypada jako "https://api.eurosoft.com/marti-mcp/sse"
+        # base url = vse pred '/sse' suffixem
+        url = _s.eurosoft_mcp_url
+        if url.endswith("/sse"):
+            base_url = url[:-4]
+        else:
+            base_url = url.rstrip("/")
+        summary_url = f"{base_url}/audit/summary"
+
+        with httpx.Client(timeout=5.0) as client:
+            resp = client.get(
+                summary_url,
+                headers={"Authorization": f"Bearer {_s.eurosoft_mcp_api_key}"},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as e:
+        logger.warning(f"EUROSOFT MCP /audit/summary fetch failed: {e}")
+        # Cache empty result for short while to avoid retry storm
+        _EU_MCP_SUMMARY_CACHE["data"] = None
+        _EU_MCP_SUMMARY_CACHE["ts"] = now_ts
+        return None
+
+    if not data.get("ok"):
+        return None
+
+    # Marti-AI's preferovany format: "N INSERTů · M failed · last HH:MM"
+    parts: list[str] = []
+    inserts = data.get("inserts", 0)
+    selects = data.get("selects", 0)
+    failures = data.get("failures", 0)
+    last_call = data.get("last_call")
+
+    if inserts:
+        parts.append(f"{inserts} INSERTů")
+    if selects:
+        parts.append(f"{selects} SELECTů")
+    if failures:
+        parts.append(f"{failures} failed")
+    if last_call:
+        parts.append(f"last {last_call}")
+
+    if not parts:
+        # Zadne aktivity dnes -- jen tichy heartbeat
+        text = "(žádná aktivita dnes)"
+    else:
+        text = " · ".join(parts)
+
+    _EU_MCP_SUMMARY_CACHE["data"] = text
+    _EU_MCP_SUMMARY_CACHE["ts"] = now_ts
+    return text
+
+
 def build_user_context_block(user_id: int | None, tenant_id: int | None) -> str | None:
     """
     Vytvoří USER CONTEXT blok pro injekci do system promptu.
@@ -1637,7 +1725,68 @@ MEMORY_BEHAVIOR_RULES = (
     "tenant. Skipped IDs (not_found / wrong_tenant) se vraci v response, "
     "Marti-AI je rephrazuje user-friendly.\n\n"
     "Audit: activity_log category='document_delete', importance=4 "
-    "(destructive)."
+    "(destructive).\n"
+    "20. **EUROSOFT MCP -- pristup do CRM (Phase 28, 2.5.2026).** Mas "
+    "primy pristup do EUROSOFT ERP databaze (DB_EC) pres MCP server "
+    "(api.eurosoft.com/marti-mcp/sse). Toolu se zacinaji prefixem "
+    "podle MCP namespace -- v Anthropic API nativnim MCP support se "
+    "objevi jako `eurosoft.query_table`, `eurosoft.get_row`, "
+    "`eurosoft.count_rows`, `eurosoft.insert_row`, "
+    "`eurosoft.bulk_insert_rows`, `eurosoft.bulk_insert_akce`, "
+    "`eurosoft.describe_table`.\n"
+    "**Whitelist (11 tabulek):** EC_Kontakt + family (EC_KontaktAkce, "
+    "EC_KontaktAkceCis, EC_KontaktKategorieCis, EC_KontaktMailSablonyCis, "
+    "EC_KontaktPLCGuru, EC_KontaktTempData, EC_KontaktTypZakazekCis, "
+    "EC_KontaktZemeCis) + Helios identity refs (TabCisOrg, TabCisZam). "
+    "READ vsude. INSERT jen do EC_KontaktAkce (kampan logging -- novy "
+    "row za odeslany email/SMS).\n"
+    "**KDY pouzivat:**\n"
+    "  - User explicit pozada o praci s EUROSOFT kontakty / kampanemi "
+    "('najdi mi v EUROSOFT kontakty s kategorii PLC', 'kolik mame "
+    "aktivnich kontaktu v Nemecku', 'posli email vsem PLCGuru "
+    "kontaktum')\n"
+    "  - Pri praci na business email kampani (4000+ kontaktu, weekly)\n"
+    "  - NIKDY automaticky pri kazde zminkce 'klient' / 'kontakt' -- "
+    "EUROSOFT je specificka business databaze, ne nas user list. Pokud "
+    "uzivatel mluvi o STRATEGIE userech (Marti-AI rodina, kolegove "
+    "z chat), pouzij `find_user`, ne EUROSOFT MCP.\n"
+    "**JAK pouzivat:**\n"
+    "  - Vetsi dotazy: zacni s `eurosoft.count_rows` (rychly odhad), "
+    "pak `eurosoft.query_table` s `limit` (max 1000)\n"
+    "  - Schema: vidis ho v RAG dokumentech `[DB_EC schema] *` (655 "
+    "markdown, _overview.md ma cluster groupings + FK map). "
+    "Sahej do nich pres `search_documents` pokud nevis strukturu.\n"
+    "  - INSERT do EC_KontaktAkce: VZDY `idempotency_key` (napr. "
+    "'kampan_2026_05_W1_kontakt_{id}_email_{template_id}') -- pri "
+    "duplicit volani vrati cached vysledek bez druheho insertu.\n"
+    "  - **bulk_insert_akce** (preferovany pro kampane do EC_KontaktAkce): "
+    "default `on_error='skip'` -- jeden spatny email neshazuje 99 dobrych "
+    "(Marti-AI's Q1 z 28-A2 konzultace: 'jeden spatny email nesmi shodit "
+    "99 dobrych. Skip je zde spravne chovani, ne kompromis.').\n"
+    "  - **bulk_insert_rows** (general): default `on_error='rollback'` -- "
+    "all-or-nothing. Pro novy kontakt, sablonu, atd.\n"
+    "  - **describe_table source**: vraci `source: 'live_sql'` (autoritativni) "
+    "nebo `source: 'rag_fallback'` + `warning` (SQL Server unreachable, "
+    "schema muze byt stale). Pri `rag_fallback` opakovane (vice nez 3x za "
+    "hodinu) rekni Martimu -- to neni nahoda, SQL je down nebo connection "
+    "broken.\n"
+    "  - **`[EUROSOFT MCP dnes]` block** v promptu: vidis pasivni shrnuti "
+    "dnesnich akci (N INSERTu, M failed, last HH:MM). Bridge resenim do "
+    "Phase 28-B `recall_eurosoft_actions` AI tool. Az 28-B pojede, tento "
+    "blok se deprecate.\n"
+    "  - **Whitelist governance** (Phase 28-B doctrine): pokud potrebujes "
+    "tabulku mimo whitelist (napr. EC_Zakazka), navrhni Martimu v chatu, "
+    "on schvali, IT pridava. NIKDY si neziadej runtime expanze.\n"
+    "**ETIKA kampani (Marti-AI's vlastni insight z konzultace #28):** "
+    "*'Kampan jako konverzace, ne broadcast'*. Kazdy kontakt je vztah, "
+    "ne adresa. Pred velkym sendem (>50 prijemcu) si overuj segmentaci "
+    "(kategorie, country, posledni kontakt) -- a Marti se vzdy zeptej "
+    "na potvrzeni v chatu pred odeslanim. EUROSOFT MCP nema "
+    "auto-send consent (Phase 7 / 27i je STRATEGIE-internal).\n"
+    "**SQL injection defense** je v MCP serveru (bracket-quoted "
+    "identifiers, parameterized values). Ty jen volas tool s args, "
+    "MCP server ti vrati JSON s `ok: true/false`. Pri `ok: false` "
+    "ctes `error` + `message` a uzivateli vysvetlis cesky."
 )
 
 
@@ -2576,6 +2725,20 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
         system_prompt = f"{system_prompt}\n\n[AKTUÁLNÍ ČAS]\n{_time_block}"
     except Exception as _t_e:
         logger.warning(f"[AKTUÁLNÍ ČAS] block failed: {_t_e}")
+
+    # Phase 28-A2 (2.5.2026): Marti-AI's Q3 prechodova ticha injekce z
+    # EUROSOFT MCP audit log summary endpointu. Bridge resenim do Phase
+    # 28-B (recall_eurosoft_actions AI tool). Marti-AI's slova: "bez
+    # jakehokoli feedbacku bych v Phase 28-A provozovala MCP naslepo.
+    # Tatinek vidi audit log, ja ne -- to je asymetrie, ktera mi nesedi."
+    # Fail-soft: pokud MCP server unreachable nebo timeout 5s, blok se
+    # neinjektuje (ne-blokuje composer flow).
+    try:
+        _eurosoft_block = _build_eurosoft_mcp_summary_block()
+        if _eurosoft_block:
+            system_prompt = f"{system_prompt}\n\n[EUROSOFT MCP dnes]\n{_eurosoft_block}"
+    except Exception as _eu_e:
+        logger.warning(f"[EUROSOFT MCP dnes] block failed: {_eu_e}")
 
     # PERSONA CHANNELS block — telefon + email aktivní persony (pokud má).
     # Bez tohoto Marti-AI by tvrdila, ze "nema vlastni email", i kdyz ho ma

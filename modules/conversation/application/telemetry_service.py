@@ -494,6 +494,25 @@ def call_llm_with_trace(
         model=model, system=system, messages=messages,
         tools=tools, max_tokens=max_tokens,
     )
+    # Phase 28 (2.5.2026): EUROSOFT MCP server pripojeni pres native MCP support.
+    # Feature flag -- aktivuje se jen pokud OBA env vars set v .env. Pri false
+    # se behavior nezmenil (backward compat, safe deploy pred DNS clearance).
+    _mcp_kwargs: dict[str, Any] = {}
+    try:
+        from core.config import settings as _eu_settings
+        if _eu_settings.eurosoft_mcp_enabled:
+            _mcp_kwargs["mcp_servers"] = [{
+                "type": "url",
+                "url": _eu_settings.eurosoft_mcp_url,
+                "name": "eurosoft",
+                "authorization_token": _eu_settings.eurosoft_mcp_api_key,
+            }]
+            _mcp_kwargs["extra_headers"] = {
+                "anthropic-beta": "mcp-client-2025-04-04",
+            }
+    except Exception as _eu_e:
+        logger.warning(f"EUROSOFT MCP config probe failed: {_eu_e}")
+
     try:
         response = client.messages.create(
             model=model,
@@ -501,6 +520,7 @@ def call_llm_with_trace(
             system=system,
             messages=messages,
             tools=tools if tools else [],
+            **_mcp_kwargs,
         )
     except Exception as e:
         try:

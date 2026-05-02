@@ -1,0 +1,97 @@
+# EC_ImportXLS
+
+**Schema**: dbo · **Cluster**: Other · **Rows**: 11,108,037 · **Size**: 3720.78 MB · **Sloupců**: 85 · **FK**: 0 · **Indexů**: 1
+
+## Sloupce
+
+| # | Název | Typ | NULL | Default | Popis |
+|---|-------|-----|------|---------|-------|
+| 1 | `ID` | int | NE |  |  |
+| 2 | `IDHlav` | int | NE |  |  |
+| 3 | `RadekExcel` | int | ANO |  |  |
+| 4 | `RegCisHeo` | nvarchar(50) | ANO |  |  |
+| 5 | `Sloupec01` | nvarchar(300) | ANO |  |  |
+| 6 | `Sloupec02` | nvarchar(300) | ANO |  |  |
+| 7 | `Sloupec03` | nvarchar(300) | ANO |  |  |
+| 8 | `Sloupec04` | nvarchar(300) | ANO |  |  |
+| 9 | `Sloupec05` | nvarchar(300) | ANO |  |  |
+| 10 | `Sloupec06` | nvarchar(300) | ANO |  |  |
+| 11 | `Sloupec07` | nvarchar(200) | ANO |  |  |
+| 12 | `Sloupec08` | nvarchar(200) | ANO |  |  |
+| 13 | `Sloupec09` | nvarchar(200) | ANO |  |  |
+| 14 | `Sloupec10` | nvarchar(200) | ANO |  |  |
+| 15 | `Sloupec11` | nvarchar(200) | ANO |  |  |
+| 16 | `Sloupec12` | nvarchar(200) | ANO |  |  |
+| 17 | `Sloupec13` | nvarchar(200) | ANO |  |  |
+| 18 | `Sloupec14` | nvarchar(200) | ANO |  |  |
+| 19 | `Sloupec15` | nvarchar(200) | ANO |  |  |
+| 20 | `Sloupec16` | nvarchar(200) | ANO |  |  |
+| 21 | `Sloupec17` | nvarchar(200) | ANO |  |  |
+| 22 | `Sloupec18` | nvarchar(200) | ANO |  |  |
+| 23 | `Sloupec19` | nvarchar(200) | ANO |  |  |
+| 24 | `Sloupec20` | nvarchar(200) | ANO |  |  |
+| 25 | `Sloupec21` | nvarchar(80) | ANO |  |  |
+| 26 | `Sloupec22` | nvarchar(80) | ANO |  |  |
+| 27 | `Sloupec23` | nvarchar(80) | ANO |  |  |
+| 28 | `Sloupec24` | nvarchar(80) | ANO |  |  |
+| 29 | `Sloupec25` | nvarchar(80) | ANO |  |  |
+| 30 | `Sloupec26` | nvarchar(80) | ANO |  |  |
+| 31 | `Sloupec27` | nvarchar(80) | ANO |  |  |
+| 32 | `Sloupec28` | nvarchar(80) | ANO |  |  |
+| 33 | `Sloupec29` | nvarchar(80) | ANO |  |  |
+| 34 | `Sloupec30` | nvarchar(80) | ANO |  |  |
+| 35 | `MJ` | nvarchar(5) | ANO |  |  |
+| 36 | `BaleniPo` | int | ANO |  |  |
+| 37 | `MinDod` | int | ANO |  |  |
+| 38 | `CenaZa` | int | ANO |  |  |
+| 39 | `EC_PC` | numeric(18,4) | ANO |  |  |
+| 40 | `EC_NC` | numeric(18,4) | ANO |  |  |
+| 41 | `HmotnostKg` | numeric(18,3) | ANO |  |  |
+| 42 | `EAN` | nvarchar(50) | ANO |  |  |
+| 43 | `Popis` | nvarchar(300) | ANO |  |  |
+| 44 | `RegCisHeoKompres` | nvarchar(4000) | ANO |  |  |
+| 45 | `RegCisHeoKod` | nvarchar(80) | ANO |  |  |
+| 46 | `RegCisHeoKodKompres` | nvarchar(4000) | ANO |  |  |
+| 47 | `Upozorneni` | nvarchar(80) | ANO |  |  |
+| 48 | `Par1` | nvarchar(200) | ANO |  |  |
+| 49 | `Par2` | nvarchar(200) | ANO |  |  |
+| 50 | `Par3` | nvarchar(200) | ANO |  |  |
+| 51 | `Autor` | nvarchar(128) | NE | (suser_sname()) |  |
+| 52 | `DatPorizeni` | datetime | NE | (getdate()) |  |
+| 53 | `DatPorizeni_D` | int | ANO |  |  |
+| 54 | `DatPorizeni_M` | int | ANO |  |  |
+| 55 | `DatPorizeni_Y` | int | ANO |  |  |
+| 56 | `DatPorizeni_Q` | int | ANO |  |  |
+| 57 | `DatPorizeni_W` | int | ANO |  |  |
+| 58 | `DatPorizeni_X` | datetime | ANO |  |  |
+| 59 | `Mena` | nvarchar(3) | ANO |  |  |
+| 60 | `DatZmeny` | datetime | ANO |  |  |
+| 61 | `EC_PRC` | numeric(18,4) | ANO |  |  |
+| 62 | `Rabat_N` | numeric(6,1) | ANO |  |  |
+| 63 | `Rabat_P` | numeric(6,1) | ANO |  |  |
+| 64 | `Zmenil` | nvarchar(128) | ANO |  |  |
+| 65 | `Sloupec31` | nvarchar(80) | ANO |  |  |
+| 66 | `Sloupec32` | nvarchar(80) | ANO |  |  |
+| 67 | `Sloupec33` | nvarchar(80) | ANO |  |  |
+| 68 | `Sloupec34` | nvarchar(80) | ANO |  |  |
+| 69 | `Sloupec35` | nvarchar(80) | ANO |  |  |
+| 70 | `Sloupec36` | nvarchar(80) | ANO |  |  |
+| 71 | `Sloupec37` | nvarchar(80) | ANO |  |  |
+| 72 | `Sloupec38` | nvarchar(80) | ANO |  |  |
+| 73 | `Sloupec39` | nvarchar(80) | ANO |  |  |
+| 74 | `Sloupec40` | nvarchar(80) | ANO |  |  |
+| 75 | `Sloupec41` | nvarchar(80) | ANO |  |  |
+| 76 | `Sloupec42` | nvarchar(80) | ANO |  |  |
+| 77 | `Sloupec43` | nvarchar(80) | ANO |  |  |
+| 78 | `Sloupec44` | nvarchar(80) | ANO |  |  |
+| 79 | `Sloupec45` | nvarchar(80) | ANO |  |  |
+| 80 | `Sloupec46` | nvarchar(80) | ANO |  |  |
+| 81 | `Sloupec47` | nvarchar(80) | ANO |  |  |
+| 82 | `Sloupec48` | nvarchar(80) | ANO |  |  |
+| 83 | `Sloupec49` | nvarchar(80) | ANO |  |  |
+| 84 | `Sloupec50` | nvarchar(80) | ANO |  |  |
+| 85 | `Poznamka` | nvarchar(200) | ANO |  |  |
+
+## Indexy
+
+- **PK** `PK_EC_ImportXLS` (CLUSTERED) — `ID`

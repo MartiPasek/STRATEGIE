@@ -1,0 +1,127 @@
+# EC_KalkulacePolozky_PoslObjednani
+
+**Schema**: dbo · **Cluster**: Production · **Rows**: 1,229,392 · **Size**: 1243.21 MB · **Sloupců**: 114 · **FK**: 0 · **Indexů**: 2
+
+## Sloupce
+
+| # | Název | Typ | NULL | Default | Popis |
+|---|-------|-----|------|---------|-------|
+| 1 | `ID` | int | NE |  |  |
+| 2 | `IDHlav` | int | NE |  |  |
+| 3 | `IDKmenZbozi` | int | ANO |  |  |
+| 4 | `IDStavSkladu` | int | ANO |  |  |
+| 5 | `ID_Skupina` | int | ANO |  |  |
+| 6 | `IDCenik` | int | ANO |  |  |
+| 7 | `IDNahrada` | int | ANO |  |  |
+| 8 | `idPuvPolKalk` | int | ANO |  |  |
+| 9 | `RegCis` | nvarchar(30) | ANO |  |  |
+| 10 | `NazevListu` | nvarchar(40) | NE |  |  |
+| 11 | `PosExcel` | int | ANO |  |  |
+| 12 | `Pos` | int | ANO |  |  |
+| 13 | `Bezeichnung` | nvarchar(160) | ANO |  |  |
+| 14 | `BezeichnungComment` | nvarchar(MAX) | ANO |  |  |
+| 15 | `RegCisKalk` | nvarchar(30) | ANO |  |  |
+| 16 | `Vyrobce` | nvarchar(30) | ANO |  |  |
+| 17 | `PocetKusu` | numeric(12,2) | ANO |  |  |
+| 18 | `PribalKusy` | numeric(6,2) | ANO |  |  |
+| 19 | `Opce` | nchar(1) | ANO |  |  |
+| 20 | `JCenaEUR` | numeric(8,2) | ANO |  |  |
+| 21 | `RabatP` | numeric(6,2) | ANO |  |  |
+| 22 | `RabatN` | numeric(6,2) | ANO |  |  |
+| 23 | `K_ARB` | numeric(5,2) | ANO |  |  |
+| 24 | `K_VKM` | numeric(5,2) | ANO |  |  |
+| 25 | `PoznamkaVP` | nvarchar(1000) | ANO |  |  |
+| 26 | `PoznamkaNakup` | nvarchar(128) | ANO |  |  |
+| 27 | `Beistellung` | nvarchar(3) | ANO |  |  |
+| 28 | `Hmotnost` | numeric(19,6) | ANO |  |  |
+| 29 | `JeVKM` | bit | ANO |  |  |
+| 30 | `GesamtPreis1` | numeric(33,10) | ANO |  |  |
+| 31 | `KontrolaSklad` | smallint | ANO |  |  |
+| 32 | `KontrolaCenik` | smallint | ANO |  |  |
+| 33 | `PC_Cenik` | numeric(18,2) | ANO |  |  |
+| 34 | `NC_Cenik` | numeric(18,2) | ANO |  |  |
+| 35 | `NC_Posledni` | numeric(18,2) | ANO |  |  |
+| 36 | `Einheitpreis` | numeric(24,10) | ANO |  |  |
+| 37 | `EinheitpreisPoSleve` | numeric(29,12) | ANO |  |  |
+| 38 | `GesamtPreis` | numeric(37,12) | ANO |  |  |
+| 39 | `Arbeitstunden` | numeric(18,4) | ANO |  |  |
+| 40 | `VKM` | numeric(10,4) | ANO |  |  |
+| 41 | `Arbeit` | numeric(11,4) | ANO |  |  |
+| 42 | `Einbaupreis` | numeric(38,11) | ANO |  |  |
+| 43 | `Hmotnost_Celkem` | numeric(32,8) | ANO |  |  |
+| 44 | `ARB_Sazba` | numeric(5,2) | ANO |  |  |
+| 45 | `VKM_Sazba` | numeric(4,2) | ANO |  |  |
+| 46 | `Marze` | numeric(4,2) | ANO |  |  |
+| 47 | `StavGenerovaniDO` | smallint | ANO |  |  |
+| 48 | `StavGenerDO_Text` | nvarchar(200) | NE |  |  |
+| 49 | `Color` | nvarchar(MAX) | ANO |  |  |
+| 50 | `ExcelColor` | nvarchar(MAX) | ANO |  |  |
+| 51 | `ExcelNazevListu` | nvarchar(40) | ANO |  |  |
+| 52 | `Bei` | int | ANO |  |  |
+| 53 | `SumaKusu` | numeric(18,2) | ANO |  |  |
+| 54 | `SkladDispozice` | numeric(18,2) | ANO |  |  |
+| 55 | `Objednano` | numeric(18,2) | ANO |  |  |
+| 56 | `Vydano` | numeric(18,2) | ANO |  |  |
+| 57 | `VydanoVKM` | numeric(18,2) | ANO |  |  |
+| 58 | `ZbyvaResit` | numeric(18,2) | ANO |  |  |
+| 59 | `Objednej` | numeric(18,2) | ANO |  |  |
+| 60 | `Vydej` | numeric(18,2) | ANO |  |  |
+| 61 | `VydejVKM` | numeric(18,2) | ANO |  |  |
+| 62 | `ZpetNaSklad` | numeric(18,2) | ANO |  |  |
+| 63 | `VracenoZpet` | numeric(18,2) | ANO |  |  |
+| 64 | `VydanoNavic` | numeric(18,2) | ANO |  |  |
+| 65 | `SumaObjednano` | numeric(18,2) | ANO |  |  |
+| 66 | `SumaVydano` | numeric(18,2) | ANO |  |  |
+| 67 | `SumaObjednej` | numeric(18,2) | ANO |  |  |
+| 68 | `SumaVydej` | numeric(18,2) | ANO |  |  |
+| 69 | `StavSkladDispozice` | nvarchar(30) | ANO |  |  |
+| 70 | `CisloZakazky` | nchar(20) | ANO |  |  |
+| 71 | `ObjednatDo` | date | ANO |  |  |
+| 72 | `SkutecNaklady` | numeric(18,2) | ANO |  |  |
+| 73 | `DatumKalkSkutecNakl` | datetime | ANO |  |  |
+| 74 | `SkutecMnozstvi` | numeric(18,2) | ANO |  |  |
+| 75 | `IndPoptavka` | bit | ANO |  |  |
+| 76 | `VazbaPoptavka` | int | ANO |  |  |
+| 77 | `IndObjVydRucne` | bit | NE |  |  |
+| 78 | `JeDodavatel` | bit | NE |  |  |
+| 79 | `Dodavatel` | int | ANO |  |  |
+| 80 | `Kontr_JCenaEUR` | numeric(8,2) | ANO |  |  |
+| 81 | `Kontr_RabatP` | numeric(6,2) | ANO |  |  |
+| 82 | `Kontr_RabatN` | numeric(6,2) | ANO |  |  |
+| 83 | `Kontr_K_ARB` | numeric(5,2) | ANO |  |  |
+| 84 | `Kontr_K_VKM` | numeric(5,2) | ANO |  |  |
+| 85 | `Kontr_JeVKM` | bit | ANO |  |  |
+| 86 | `Autor` | nvarchar(128) | NE |  |  |
+| 87 | `DatPorizeni` | datetime | NE |  |  |
+| 88 | `Zmenil` | nvarchar(128) | ANO |  |  |
+| 89 | `DatZmeny` | datetime | ANO |  |  |
+| 90 | `IndArchiv` | bit | ANO |  |  |
+| 91 | `DatPoslZmenyArchiv` | datetime | ANO |  |  |
+| 92 | `InfoObjStav` | nvarchar(200) | ANO |  |  |
+| 93 | `ObjNaSklad` | numeric(18,2) | ANO |  |  |
+| 94 | `SdruzObj` | bit | ANO |  |  |
+| 95 | `SdruzObjOtevrena` | nvarchar(100) | ANO |  |  |
+| 96 | `VezmiZObjSklad` | numeric(18,2) | ANO |  |  |
+| 97 | `IDCenikObjVazba` | int | ANO |  |  |
+| 98 | `TextDoObj` | nvarchar(200) | ANO |  |  |
+| 99 | `DruhExtPozadavku` | tinyint | ANO |  |  |
+| 100 | `StatusPozadavku` | tinyint | ANO |  |  |
+| 101 | `DatSchvaleni` | datetime | ANO |  |  |
+| 102 | `Schvalil` | nvarchar(128) | ANO |  |  |
+| 103 | `PoznamkaPozadavku` | nvarchar(MAX) | ANO |  |  |
+| 104 | `StatusPozadavkuText` | varchar(28) | ANO |  |  |
+| 105 | `IDPrefObj` | int | ANO |  |  |
+| 106 | `PozadDatDod` | datetime | ANO |  |  |
+| 107 | `PoznamkaKontrola` | nvarchar(200) | ANO |  |  |
+| 108 | `kontrolaOK` | int | NE |  |  |
+| 109 | `KontrolovatVydani` | bit | ANO |  |  |
+| 110 | `VerzeObjednani` | int | ANO |  |  |
+| 111 | `DatumZalozeni` | datetime | ANO | (getdate()) |  |
+| 112 | `Zalozil` | nvarchar(10) | ANO | (suser_sname()) |  |
+| 113 | `Typ` | nvarchar(20) | ANO |  |  |
+| 114 | `ID_VPoptavky` | int | ANO |  |  |
+
+## Indexy
+
+- **PK** `PK_EC_KalkulacePolozky_PoslObjednani` (CLUSTERED) — `ID`
+- **INDEX** `IDHlav_Includes` (NONCLUSTERED) — `VerzeObjednani, IDHlav`

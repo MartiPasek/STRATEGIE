@@ -1,0 +1,94 @@
+# EC_IAP_TabCisUctDef
+
+**Schema**: dbo · **Cluster**: Other · **Rows**: 7,196 · **Size**: 2.63 MB · **Sloupců**: 86 · **FK**: 0 · **Indexů**: 0
+
+## Sloupce
+
+| # | Název | Typ | NULL | Default | Popis |
+|---|-------|-----|------|---------|-------|
+| 1 | `IdObdobi` | int | NE |  |  |
+| 2 | `CisloUcet` | nvarchar(30) | NE |  |  |
+| 3 | `Blokovano` | bit | NE |  |  |
+| 4 | `Zakazano` | bit | NE |  |  |
+| 5 | `DruhyUcet` | nvarchar(30) | ANO |  |  |
+| 6 | `TretiUcet` | nvarchar(5) | ANO |  |  |
+| 7 | `NazevUctu` | nvarchar(220) | NE |  |  |
+| 8 | `DruhyNazevUctu` | nvarchar(220) | NE |  |  |
+| 9 | `PovahaUctu` | tinyint | NE |  |  |
+| 10 | `Rozvaha` | tinyint | NE |  |  |
+| 11 | `Vysledovka` | tinyint | NE |  |  |
+| 12 | `ZadavaniUtvaru` | tinyint | NE |  |  |
+| 13 | `ZadavaniZakazka` | tinyint | NE |  |  |
+| 14 | `ZadavaniOkruhu` | tinyint | NE |  |  |
+| 15 | `ZadavaniAuta` | tinyint | NE |  |  |
+| 16 | `ZadavaniZamestnance` | tinyint | NE |  |  |
+| 17 | `ZadavaniOrganizace` | tinyint | NE |  |  |
+| 18 | `ZadavaniParZnaku` | tinyint | NE |  |  |
+| 19 | `ZadavaniTypZmeny` | tinyint | NE |  |  |
+| 20 | `ZadavaniOrganizace2` | tinyint | NE |  |  |
+| 21 | `ZadavaniDIC` | tinyint | NE |  |  |
+| 22 | `ZadavaniPrijmyVydaje` | tinyint | NE |  |  |
+| 23 | `UcetZustatku` | nvarchar(30) | ANO |  |  |
+| 24 | `UzaverkaUtvary` | nchar(1) | NE |  |  |
+| 25 | `UzaverkaZakazky` | nchar(1) | NE |  |  |
+| 26 | `UzaverkaNO` | nchar(1) | NE |  |  |
+| 27 | `UzaverkaVoz` | nchar(1) | NE |  |  |
+| 28 | `UzaverkaOrg` | nchar(1) | NE |  |  |
+| 29 | `SledovatCM` | nchar(1) | NE |  |  |
+| 30 | `Mena` | nvarchar(3) | ANO |  |  |
+| 31 | `SazbaDPH` | numeric(5,2) | ANO |  |  |
+| 32 | `SmerPlneni` | tinyint | ANO |  |  |
+| 33 | `MistoPlneni` | tinyint | NE |  |  |
+| 34 | `VykRozvahaAkt` | int | ANO |  |  |
+| 35 | `VykRozvahaPas` | int | ANO |  |  |
+| 36 | `VykRozKorAkt` | int | ANO |  |  |
+| 37 | `VykRozvahaZkrAkt` | int | ANO |  |  |
+| 38 | `VykRozvahaZkrPas` | int | ANO |  |  |
+| 39 | `VykRozZkrKorAkt` | int | ANO |  |  |
+| 40 | `VykVysledovka` | int | ANO |  |  |
+| 41 | `VykVysledovkaZkr` | int | ANO |  |  |
+| 42 | `VykazDPH` | int | ANO |  |  |
+| 43 | `VykazDPH11` | int | ANO |  |  |
+| 44 | `Autor` | nvarchar(128) | NE |  |  |
+| 45 | `DatPorizeni` | datetime | NE |  |  |
+| 46 | `Zmenil` | nvarchar(128) | ANO |  |  |
+| 47 | `DatZmeny` | datetime | ANO |  |  |
+| 48 | `BlokovaniEditoru` | smallint | ANO |  |  |
+| 49 | `Uzaverka` | tinyint | ANO |  |  |
+| 50 | `UzaverkaPodRoz` | tinyint | ANO |  |  |
+| 51 | `UcetProDPH` | nvarchar(30) | ANO |  |  |
+| 52 | `KodPlneni` | tinyint | ANO |  |  |
+| 53 | `NarokDPH` | tinyint | ANO |  |  |
+| 54 | `VykazDPH_EU` | int | ANO |  |  |
+| 55 | `VykazDPH_EU_Navaz` | int | ANO |  |  |
+| 56 | `ISOKodZeme` | nvarchar(3) | ANO |  |  |
+| 57 | `UctovaniBanka` | tinyint | NE |  |  |
+| 58 | `ProGenerZapFA` | bit | NE |  |  |
+| 59 | `NeUzaverkaCM` | bit | NE |  |  |
+| 60 | `Splatnost` | tinyint | NE |  |  |
+| 61 | `CisloOrg` | int | ANO |  |  |
+| 62 | `NastaveniOdecitat` | tinyint | ANO |  |  |
+| 63 | `ClenitPodleZeme` | bit | NE |  |  |
+| 64 | `TypZmeny` | int | ANO |  |  |
+| 65 | `IdPrijmyVydaje` | int | ANO |  |  |
+| 66 | `TypZmenyD` | int | ANO |  |  |
+| 67 | `MOSS` | bit | NE |  |  |
+| 68 | `DatPorizeni_D` | int | ANO |  |  |
+| 69 | `DatPorizeni_M` | int | ANO |  |  |
+| 70 | `DatPorizeni_Y` | int | ANO |  |  |
+| 71 | `DatPorizeni_Q` | int | ANO |  |  |
+| 72 | `DatPorizeni_W` | int | ANO |  |  |
+| 73 | `DatPorizeni_X` | datetime | ANO |  |  |
+| 74 | `DatZmeny_D` | int | ANO |  |  |
+| 75 | `DatZmeny_M` | int | ANO |  |  |
+| 76 | `DatZmeny_Y` | int | ANO |  |  |
+| 77 | `DatZmeny_Q` | int | ANO |  |  |
+| 78 | `DatZmeny_W` | int | ANO |  |  |
+| 79 | `DatZmeny_X` | datetime | ANO |  |  |
+| 80 | `CelyNazev` | nvarchar(251) | NE |  |  |
+| 81 | `Odecitat` | bit | ANO |  |  |
+| 82 | `CisloUctuVykazy` | nvarchar(33) | ANO |  |  |
+| 83 | `CisloUctuPAP` | nvarchar(8) | ANO |  |  |
+| 84 | `Intercomp` | bit | NE |  |  |
+| 85 | `KodVykazuPKP` | nvarchar(8) | ANO |  |  |
+| 86 | `CisloPolPKP` | nvarchar(16) | ANO |  |  |

@@ -3379,10 +3379,12 @@ TOOLS = [
                     "enum": ["tesseract", "vision"],
                     "description": (
                         "Phase 27d+1 (1.5.2026): OCR provider override. "
-                        "**Default chovani (parametr None / chybi):**\n"
-                        "  - has_text_layer=True -> pdfplumber (Phase 27d)\n"
-                        "  - has_text_layer=False -> Tesseract auto-fallback\n"
-                        "**Explicit volba:**\n"
+                        "**Default chovani (parametr None / chybi):** podle "
+                        "tenant config (Phase 27d+2):\n"
+                        "  - tenants.ocr_default_provider = 'vision' -> Vision\n"
+                        "  - tenants.ocr_default_provider = 'tesseract' -> Tesseract\n"
+                        "  - tenants.ocr_default_provider = NULL -> globalni 'tesseract'\n"
+                        "**Explicit volba (override tenant config):**\n"
                         "  - 'tesseract' -- lokalni OCR, privacy first (TISAX, "
                         "smlouvy, citlive dokumenty zustanou ve firemni VPN). "
                         "~15-30s/stranku, lang ces+deu+eng. Confidence score per "
@@ -3391,9 +3393,10 @@ TOOLS = [
                         "Vyssi kvalita, lepsi multilang, ~1-2s/stranku, "
                         "~$0.003/stranku. Cloud roundtrip - dokumenty putuji "
                         "na Anthropic servery (cit livost na vyzadani).\n"
-                        "Marti-AI's volba C (Hybrid): default Tesseract, "
-                        "Vision opt-in kdyz Tesseract drhne (low confidence "
-                        "warning) nebo pri slozitejsich faktur."
+                        "Marti-AI's volba C (Hybrid): default per-tenant, "
+                        "Vision opt-in kdyz tenant default drhne (low confidence "
+                        "warning) nebo pri slozitejsich faktur. Output obsahuje "
+                        "'effective_provider' pole pro tvoji orientaci."
                     ),
                 },
             },
@@ -3492,11 +3495,21 @@ TOOLS = [
     {
         "name": "read_image_ocr",
         "description": (
-            "Phase 27d+1b (1.5.2026 vecer) + Phase 27d+1c (2.5.2026): "
-            "OCR jednoho image dokumentu z RAG documents tabulky. "
+            "Phase 27d+1b/c/d (2.5.2026): UNIFIED OCR pro images. "
+            "Akceptuje BUD `document_id` (RAG documents tabulka -- inbox upload "
+            "pres 📁 panel) NEBO `media_id` (media_files tabulka -- chat "
+            "drag&drop upload, SMS prilohy). Mutually exclusive: presne jedno.\n\n"
             "Podporovane formaty: jpg, jpeg, png, gif, webp, bmp, tiff, "
             "**heic, heif** (Apple iPhone fotky -- registrovane pres "
             "pillow-heif plugin pri startu API).\n\n"
+            "**Kdy ktera cesta**:\n"
+            "  - `document_id` -- user nahral pres 📁 inbox panel "
+            "(list_inbox_documents ti vrati ID)\n"
+            "  - `media_id` -- user dropnul obrazek primo do chatu nebo prisla "
+            "SMS s prilohou (vidis ho v contextu ze message multimodal blocks)\n\n"
+            "Output unified napric oba zdroje + 'source' field "
+            "('documents' | 'media_files') pro tvoji orientaci, odkud OCR proslo. "
+            "Pro Marti to neni rozdil -- text je text, OCR pipeline stejna.\n\n"
             "Vznikl po Marti-AI's gap discovery -- read_text_from_image "
             "(Phase 12a) funguje jen pro media_files (chat upload, SMS), "
             "ale image v documents tabulce (uploaded pres 📁 inbox) nemel "
@@ -3525,9 +3538,19 @@ TOOLS = [
                 "document_id": {
                     "type": "integer",
                     "description": (
-                        "ID image dokumentu z RAG documents (file_type "
-                        "jpg/png/jpeg/gif/webp/bmp/tiff/heic/heif). "
-                        "Najdi pres list_inbox_documents nebo search_documents."
+                        "ID image dokumentu z RAG documents (inbox upload). "
+                        "file_type jpg/png/jpeg/gif/webp/bmp/tiff/heic/heif. "
+                        "Najdi pres list_inbox_documents nebo search_documents. "
+                        "Mutually exclusive s media_id."
+                    ),
+                },
+                "media_id": {
+                    "type": "integer",
+                    "description": (
+                        "Phase 27d+1d (2.5.2026): ID image media_file (chat "
+                        "drag&drop upload, SMS priloha). kind='image'. "
+                        "Najdi v multimodal contextu zpravy. Mutually "
+                        "exclusive s document_id."
                     ),
                 },
                 "ocr_provider": {
@@ -3540,7 +3563,6 @@ TOOLS = [
                     ),
                 },
             },
-            "required": ["document_id"],
         },
     },
     {

@@ -275,13 +275,24 @@ def read_pdf_structured(
         raise ValueError(f"Soubor neexistuje na disku: {storage_path}")
 
     # Phase 27d+1: validate ocr_provider param
-    if ocr_provider is not None:
-        from modules.rag.application import pdf_ocr as _ocr_mod
-        if ocr_provider not in _ocr_mod.VALID_PROVIDERS:
-            raise ValueError(
-                f"ocr_provider musi byt None / 'tesseract' / 'vision', "
-                f"dostal '{ocr_provider}'."
-            )
+    # Phase 27d+2: resolve effective_provider per-tenant config + global fallback.
+    # Pokud ocr_provider=None v tool call, vezmeme tenant.ocr_default_provider.
+    # Pokud je explicit, ma prednost (validace zustava).
+    from modules.rag.application import pdf_ocr as _ocr_mod
+    if ocr_provider is not None and ocr_provider not in _ocr_mod.VALID_PROVIDERS:
+        raise ValueError(
+            f"ocr_provider musi byt None / 'tesseract' / 'vision', "
+            f"dostal '{ocr_provider}'."
+        )
+    # Note: effective_provider se rozhodne az pri samotnem OCR call (nize
+    # pri detekci scan-only PDF). pdf_service zatim nezavola OCR pro PDFs
+    # s text layer -- pdfplumber primary path. Pri pripadnem OCR fallback
+    # vola pres `_ocr_mod.ocr_pdf_pages(provider=...)` -- tam pridame
+    # resolve_effective_provider call.
+    effective_ocr_provider = _ocr_mod.resolve_effective_provider(
+        explicit_provider=ocr_provider,
+        tenant_id=caller_tenant_id,
+    )
 
     top_warnings: list[str] = []
 
@@ -411,8 +422,10 @@ def read_pdf_structured(
                 ocr_pages_needed = [
                     p["page_no"] for p in pages_out if p["text_origin"] == "needs_ocr"
                 ]
-            # Default fallback provider = tesseract
-            actual_ocr_provider = ocr_provider or PROVIDER_TESSERACT_DEFAULT
+            # Phase 27d+2: effective_ocr_provider z resolveru (explicit param
+            # > tenant config > global default 'tesseract'). Drive byl jen
+            # `ocr_provider or PROVIDER_TESSERACT_DEFAULT` (bez tenant config).
+            actual_ocr_provider = effective_ocr_provider
 
             if ocr_pages_needed:
                 # Cap check (auto-fallback path)

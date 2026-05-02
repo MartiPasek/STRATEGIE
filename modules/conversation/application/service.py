@@ -6111,11 +6111,38 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         from core.database_core import get_core_session as _gcs_rio
         from modules.core.infrastructure.models_core import User as _User_rio
 
+        # Phase 27d+1d (2.5.2026): unified path -- accept document_id NEBO media_id
         document_id_in = tool_input.get("document_id")
-        try:
-            document_id_resolved = int(document_id_in)
-        except (TypeError, ValueError):
-            return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+        media_id_in = tool_input.get("media_id")
+
+        # Validate exclusivity in handler (image_ocr_service taky validuje, ale
+        # tady chytneme s pretty error pred volanim service)
+        has_doc_in = document_id_in is not None
+        has_media_in = media_id_in is not None
+        if not has_doc_in and not has_media_in:
+            return (
+                "❌ Musis zadat bud document_id (z 📁 inboxu) NEBO media_id "
+                "(chat upload / SMS priloha). Zadne neni."
+            )
+        if has_doc_in and has_media_in:
+            return (
+                "❌ Zadej presne JEDEN ze dvou: document_id (RAG documents) "
+                "NEBO media_id (media_files), ne oboji najednou. "
+                "Mutually exclusive scope."
+            )
+
+        document_id_resolved = None
+        media_id_resolved = None
+        if has_doc_in:
+            try:
+                document_id_resolved = int(document_id_in)
+            except (TypeError, ValueError):
+                return f"❌ document_id musi byt int (dostal '{document_id_in}')."
+        else:
+            try:
+                media_id_resolved = int(media_id_in)
+            except (TypeError, ValueError):
+                return f"❌ media_id musi byt int (dostal '{media_id_in}')."
 
         ocr_provider_in = tool_input.get("ocr_provider", "tesseract")
         if ocr_provider_in not in ("tesseract", "vision"):
@@ -6135,7 +6162,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         try:
             result_rio = _img_rio.read_image_ocr(
-                document_id_resolved,
+                document_id=document_id_resolved,
+                media_id=media_id_resolved,
                 ocr_provider=ocr_provider_in,
                 caller_tenant_id=caller_tenant_rio,
                 is_parent=is_parent_rio,

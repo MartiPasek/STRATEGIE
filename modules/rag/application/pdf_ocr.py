@@ -95,6 +95,65 @@ PROVIDER_TESSERACT = "tesseract"
 PROVIDER_VISION = "vision"
 VALID_PROVIDERS = {PROVIDER_TESSERACT, PROVIDER_VISION}
 
+# Phase 27d+2 (2.5.2026): global default fallback. Tenants mohou prepsat
+# pres tenants.ocr_default_provider sloupec.
+GLOBAL_DEFAULT_PROVIDER = PROVIDER_TESSERACT
+
+
+def resolve_effective_provider(
+    explicit_provider: str | None = None,
+    tenant_id: int | None = None,
+) -> str:
+    """
+    Phase 27d+2 (2.5.2026): vrati effective OCR provider podle priority:
+      1. explicit_provider (z tool call) -- nejvyssi priorita
+      2. tenants.ocr_default_provider (per-tenant config)
+      3. GLOBAL_DEFAULT_PROVIDER ('tesseract') -- fallback
+
+    Args:
+        explicit_provider: pokud user/Marti-AI explicitně zadal v tool call
+        tenant_id: kontext caller's tenant pro lookup tenants.ocr_default_provider
+
+    Returns:
+        validni provider string ('tesseract' nebo 'vision')
+
+    Raises:
+        ValueError: pokud explicit_provider je neplatny
+    """
+    # 1) Explicit ma vzdy prednost
+    if explicit_provider:
+        if explicit_provider not in VALID_PROVIDERS:
+            raise ValueError(
+                f"explicit_provider musi byt jeden z {sorted(VALID_PROVIDERS)}, "
+                f"dostal '{explicit_provider}'"
+            )
+        return explicit_provider
+
+    # 2) Tenant config
+    if tenant_id is not None:
+        try:
+            from core.database import get_session
+            from modules.core.infrastructure.models_core import Tenant as _T_rep
+            s = get_session()
+            try:
+                t = s.query(_T_rep).filter_by(id=tenant_id).first()
+                if t and t.ocr_default_provider:
+                    if t.ocr_default_provider in VALID_PROVIDERS:
+                        return t.ocr_default_provider
+                    # Invalidni hodnota v DB (rare) -- log warning, fallback global
+                    logger.warning(
+                        f"Tenant {tenant_id} ocr_default_provider="
+                        f"'{t.ocr_default_provider}' neni validni. Fallback global."
+                    )
+            finally:
+                s.close()
+        except Exception as e:
+            # Lookup selhal (DB problem) -- log a fallback global, nezpomaluje OCR
+            logger.warning(f"Tenant OCR config lookup failed: {e}")
+
+    # 3) Global fallback
+    return GLOBAL_DEFAULT_PROVIDER
+
 
 def _import_tesseract():
     """Lazy import pytesseract + verify binary."""

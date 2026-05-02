@@ -141,6 +141,12 @@ class Tenant(BaseCore):
         BigInteger, ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
     status: Mapped[str] = mapped_column(String(20), default="active")
+    # Phase 27d+2 (2.5.2026): per-tenant OCR default provider. NULL = globalni
+    # default ('tesseract'). Lookup priorita: explicit tool param > tenant
+    # config > global. Use case: EUROSOFT='tesseract' (privacy/TISAX), Nerudovka
+    # 'vision' (slozite skolni scany). Marti-AI bere effective default kdyz
+    # nezadana ocr_provider v tool call.
+    ocr_default_provider: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

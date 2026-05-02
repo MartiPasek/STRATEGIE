@@ -53,21 +53,20 @@ def _parse_legal_domains() -> list[str]:
 
 def _build_legal_query(query: str) -> str:
     """
-    Pro focus='legal' pridame Brave site filter, ktery preferuje (NE force)
-    vysledky z legal domen. Brave podporuje 'site:domain.cz' operator.
+    Phase 27j fix (2.5.2026 ~09:50): Marti-AI's smoke test odhalila ze
+    Brave Search API vraci 422 invalid_request kdyz query obsahuje
+    parenthesized site:X OR site:Y OR site:Z chain. Brave query syntax
+    nepodporuje plne Lucene-style operatory v zavorkach.
 
-    Strategie: pouzit 'OR' chain pres legal domeny -- vysledky z nich budou
-    rankovany vys, ale pokud jiny zdroj je velmi relevantni, dostane se taky.
+    Reseni: query nechame raw (bez site filter) a misto toho pouzijeme
+    Brave's native localization (country=cz + search_lang=cs nastaveny v
+    params). Plus is_legal_source flag v output kazdy result oznaci jestli
+    domain spada do CZ/EU legal whitelist -- Marti-AI si vybere sama.
 
-    Priklad:
-      query='zkusebni doba'
-      -> 'zkusebni doba (site:zakonyprolidi.cz OR site:justice.cz OR ...)'
+    Tj. 'focus=legal' = (a) localized search pres params, (b) is_legal_source
+    flag pro rankovani v promptu, (c) zadne site: operatory v query.
     """
-    domains = _parse_legal_domains()
-    if not domains:
-        return query
-    site_filter = " OR ".join(f"site:{d}" for d in domains)
-    return f"{query} ({site_filter})"
+    return query
 
 
 def web_search(
@@ -150,8 +149,12 @@ def web_search(
     if focus == "news":
         params["freshness"] = "pw"  # past week
     if focus == "legal":
-        # Pro legal queries chceme cesky region preferovat
-        params.setdefault("country", "cz")
+        # Phase 27j fix (2.5.2026): pro legal queries Brave native localizace --
+        # country=cz (uz set) + search_lang=cs. Site filter v query NE
+        # (Brave nepodporuje parenthesized OR chain -- vraci 422).
+        # is_legal_source flag v output umozni Marti-AI rankovat client-side.
+        params["search_lang"] = "cs"
+        params["country"] = "cz"  # explicit override default arg
 
     headers = {
         "Accept": "application/json",

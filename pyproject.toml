@@ -32,7 +32,9 @@ python-multipart = "^0.0.10"
 # Multimedia (Faze 12) -- image processing (thumbnails, dimensions detection).
 # Markitdown uz nejakou Pillow ma jako tranzitivni dep, ale eager declarujeme
 # pro jistotu (verzi nezamykame -- Pillow je stable).
-Pillow = "^10.0.0"
+# 2.5.2026 (Phase 27d+1c follow-up): bump z ^10.0.0 -> >=11.1.0,<13.0.0 kvuli
+# pillow-heif (1.x) min requirement >=11.1.0. Cloud venv stabilne na 12.2.0.
+Pillow = ">=11.1.0,<13.0.0"
 # Audio metadata extraction (duration, sample rate, codec) -- pure-Python,
 # zadne binarni dependencies (na rozdil od ffmpeg). Pouziva se v
 # storage_service._detect_audio_duration pro mp3/m4a/wav/ogg/webm.

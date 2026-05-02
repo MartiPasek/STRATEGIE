@@ -52,10 +52,20 @@ def list_projects_for_user(user_id: int) -> list[dict]:
     return repo.list_active_projects_for_user(user_id=user_id, tenant_id=tenant_id)
 
 
-def create_project(*, user_id: int, name: str) -> int:
+def create_project(
+    *,
+    user_id: int,
+    name: str,
+    parent_project_id: int | None = None,
+) -> int:
     """
     Vytvori novy projekt v aktualnim tenantu usera. User musi byt tenant owner.
     MVP zkratka -- pozdeji lze rozsirit o admin role.
+
+    Phase 30 (2.5.2026): parent_project_id volitelny. Pokud zadan, validuje:
+      - parent existuje a je aktivni
+      - parent je ve stejnem tenantu (nelze cross-tenant hierarchii)
+      - parent depth + 1 <= PROJECT_MAX_DEPTH (6)
     """
     name = (name or "").strip()
     if not name:
@@ -77,11 +87,127 @@ def create_project(*, user_id: int, name: str) -> int:
     finally:
         cs.close()
 
+    # Phase 30: validace parent
+    if parent_project_id is not None:
+        parent = repo.get_project(parent_project_id)
+        if parent is None:
+            raise ProjectError(
+                f"Parent projekt #{parent_project_id} neexistuje."
+            )
+        if not parent.is_active:
+            raise ProjectError(
+                f"Parent projekt #{parent_project_id} je archivovany."
+            )
+        if parent.tenant_id != tenant_id:
+            raise ProjectError(
+                "Parent projekt je v jinem tenantu -- hierarchii nelze "
+                "krizit cross-tenant."
+            )
+        parent_depth = repo.get_project_depth(parent_project_id)
+        if parent_depth + 1 >= repo.PROJECT_MAX_DEPTH:
+            raise ProjectError(
+                f"Hloubka stromu by prekrocila limit {repo.PROJECT_MAX_DEPTH}. "
+                f"Parent #{parent_project_id} je na urovni {parent_depth}, "
+                f"max povoleno child na urovni {repo.PROJECT_MAX_DEPTH - 1}."
+            )
+
     return repo.create_project(
         tenant_id=tenant_id,
         name=name,
         owner_user_id=user_id,
+        parent_project_id=parent_project_id,
     )
+
+
+def move_project(
+    *,
+    user_id: int,
+    project_id: int,
+    new_parent_project_id: int | None,
+) -> bool:
+    """
+    Phase 30 (2.5.2026): Presune projekt pod jineho parenta (nebo na root
+    pri new_parent_project_id=None). Validace:
+      - project existuje a user ma pristup (member nebo tenant owner)
+      - new_parent (pokud zadan) existuje, aktivni, stejny tenant
+      - new_parent neni descendantem project (cycle prevention)
+      - novy depth chain nepresahuje PROJECT_MAX_DEPTH (6)
+
+    Returns True pokud se podarilo. False = projekt nenalezen.
+    """
+    project = repo.get_project(project_id)
+    if project is None:
+        raise ProjectError(f"Projekt #{project_id} neexistuje.")
+    if not project.is_active:
+        raise ProjectError(f"Projekt #{project_id} je archivovany.")
+
+    # Permission: tenant owner nebo project owner / member
+    current_tenant = _get_current_tenant(user_id)
+    if current_tenant is None or project.tenant_id != current_tenant:
+        raise ProjectError("Projekt neni v tvem aktualnim tenantu.")
+
+    if not repo.is_user_member_or_owner(user_id, project_id):
+        # Tenant owner ma implicitni pravo
+        cs = get_core_session()
+        try:
+            tenant = cs.query(Tenant).filter_by(id=project.tenant_id).first()
+        finally:
+            cs.close()
+        if tenant is None or tenant.owner_user_id != user_id:
+            raise NotProjectMember("Nemas pravo k presunu tohoto projektu.")
+
+    # No-op? Pokud aktualni parent == new parent, nic nedelej
+    if project.parent_project_id == new_parent_project_id:
+        return True
+
+    if new_parent_project_id is not None:
+        # Validate new parent
+        new_parent = repo.get_project(new_parent_project_id)
+        if new_parent is None:
+            raise ProjectError(
+                f"Cilovy parent #{new_parent_project_id} neexistuje."
+            )
+        if not new_parent.is_active:
+            raise ProjectError(
+                f"Cilovy parent #{new_parent_project_id} je archivovany."
+            )
+        if new_parent.tenant_id != project.tenant_id:
+            raise ProjectError(
+                "Nelze presunout pod parenta v jinem tenantu."
+            )
+
+        # Cycle prevention: new_parent nesmi byt descendantem project
+        if repo.is_descendant_of(new_parent_project_id, project_id):
+            raise ProjectError(
+                f"Nelze presunout #{project_id} pod jeho vlastniho potomka "
+                f"(#{new_parent_project_id}) -- vznikla by cyklicka struktura."
+            )
+
+        # Depth check: nove parent_depth + 1 + max_descendant_depth <= MAX
+        # Zjednoduseni: zkontroluj jen new_parent_depth + 1 (depth NEW projektu).
+        # Pokud projekt ma deti, zustanou s nim a relativni hloubky se jen
+        # posunou -- pokud subtree projektu ma hloubku N, novy total = parent
+        # depth + 1 + N. Validace nejhlubsiho descendanta:
+        new_parent_depth = repo.get_project_depth(new_parent_project_id)
+        # Najdeme nejhlubsi descendant projektu (vc. sam projekt = depth 0
+        # relativne)
+        descendants = repo.get_descendant_project_ids(project_id)
+        max_subtree_depth = 0
+        for d_id in descendants:
+            # depth d_id minus depth project = relativni hloubka v podstromu
+            rel_depth = repo.get_project_depth(d_id) - repo.get_project_depth(project_id)
+            if rel_depth > max_subtree_depth:
+                max_subtree_depth = rel_depth
+
+        new_total_depth = new_parent_depth + 1 + max_subtree_depth
+        if new_total_depth >= repo.PROJECT_MAX_DEPTH:
+            raise ProjectError(
+                f"Po presunu by hloubka stromu byla {new_total_depth}, "
+                f"limit je {repo.PROJECT_MAX_DEPTH - 1}. Zmenuj nejdriv subtree "
+                f"nebo vyber mensiho parenta."
+            )
+
+    return repo.update_project_parent(project_id, new_parent_project_id)
 
 
 def switch_project_for_user(user_id: int, project_id: int | None) -> dict:

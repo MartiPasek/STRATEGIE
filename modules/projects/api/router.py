@@ -14,6 +14,7 @@ from modules.projects.api.schemas import (
     SwitchProjectRequest, SwitchProjectResponse, RenameProjectRequest,
     ProjectMemberInfo, AddMemberRequest,
     SetDefaultPersonaRequest, SetDefaultPersonaResponse,
+    MoveProjectRequest, MoveProjectResponse,
 )
 
 logger = get_logger("projects.api")
@@ -41,17 +42,55 @@ def list_projects(req: Request):
 
 @router.post("/create", response_model=CreateProjectResponse)
 def create_project(body: CreateProjectRequest, req: Request):
-    """Vytvoří nový projekt v aktuálním tenantu. MVP: jen tenant owner."""
+    """
+    Vytvoří nový projekt v aktuálním tenantu. MVP: jen tenant owner.
+
+    Phase 30 (2.5.2026): body.parent_project_id volitelný pro hierarchii.
+    NULL = root projekt (default), jinak child existujícího projektu.
+    Validace depth (max 6) + tenant scope v service.
+    """
     user_id = _get_uid(req)
     try:
-        project_id = project_service.create_project(user_id=user_id, name=body.name)
+        project_id = project_service.create_project(
+            user_id=user_id,
+            name=body.name,
+            parent_project_id=body.parent_project_id,
+        )
     except NotTenantMember as e:
         raise HTTPException(status_code=400, detail=str(e))
     except NotAuthorizedToCreate as e:
         raise HTTPException(status_code=403, detail=str(e))
     except ProjectError as e:
         raise HTTPException(status_code=400, detail=str(e))
-    return CreateProjectResponse(id=project_id, name=body.name.strip())
+    return CreateProjectResponse(
+        id=project_id,
+        name=body.name.strip(),
+        parent_project_id=body.parent_project_id,
+    )
+
+
+@router.patch("/{project_id}/move", response_model=MoveProjectResponse)
+def move_project(project_id: int, body: MoveProjectRequest, req: Request):
+    """
+    Phase 30 (2.5.2026): Přesune projekt pod jiného parenta. body.new_parent_project_id=None
+    posune projekt na root. Validace cyklu + max depth 6 v service.
+    Oprávnění: project owner / member nebo tenant owner.
+    """
+    user_id = _get_uid(req)
+    try:
+        project_service.move_project(
+            user_id=user_id,
+            project_id=project_id,
+            new_parent_project_id=body.new_parent_project_id,
+        )
+    except NotProjectMember as e:
+        raise HTTPException(status_code=403, detail=str(e))
+    except ProjectError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return MoveProjectResponse(
+        project_id=project_id,
+        new_parent_project_id=body.new_parent_project_id,
+    )
 
 
 @router.post("/switch", response_model=SwitchProjectResponse)

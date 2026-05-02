@@ -7471,6 +7471,139 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
         return "\n".join(lines)
 
+    # ── Phase 30 (2.5.2026 vecer): Hierarchical projects AI tools ───────
+    if tool_name == "create_project_subfolder":
+        from modules.projects.application.service import (
+            create_project as _proj_create,
+            ProjectError as _ProjErr,
+            NotTenantMember as _NotTenant,
+            NotAuthorizedToCreate as _NotAuth,
+        )
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj tenant kontext."
+        name = (tool_input.get("name") or "").strip()
+        parent_pid = tool_input.get("parent_project_id")
+        reason = (tool_input.get("reason") or "").strip()
+        if not name:
+            return "❌ Jméno projektu nesmí být prázdné."
+        try:
+            new_pid = _proj_create(
+                user_id=user_id,
+                name=name,
+                parent_project_id=parent_pid,
+            )
+        except _NotTenant as e:
+            return f"❌ {e}"
+        except _NotAuth as e:
+            return f"❌ {e}"
+        except _ProjErr as e:
+            return f"❌ {e}"
+        # Audit log
+        try:
+            from modules.activity.application.service import record_activity
+            tenant_id_log = _get_user_tenant_id(user_id) if "_get_user_tenant_id" in dir() else None
+            record_activity(
+                tenant_id=tenant_id_log,
+                user_id=user_id,
+                persona_id=_active_pid if "_active_pid" in dir() else None,
+                category="project_create",
+                summary=(
+                    f"Vytvoren projekt '{name}' (id={new_pid}, parent="
+                    f"{parent_pid}). {('Duvod: ' + reason) if reason else ''}"
+                ).strip(),
+                importance=3,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"PROJECT CREATE | audit log failed: {_audit_e}")
+        parent_label = (
+            f"pod parent #{parent_pid}" if parent_pid is not None else "jako root"
+        )
+        return f"✅ Projekt '{name}' (id={new_pid}) vytvoren {parent_label}."
+
+    if tool_name == "move_project":
+        from modules.projects.application.service import (
+            move_project as _proj_move,
+            ProjectError as _ProjErr,
+            NotProjectMember as _NotMember,
+        )
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj tenant kontext."
+        project_id = tool_input.get("project_id")
+        new_parent = tool_input.get("new_parent_project_id")
+        reason = (tool_input.get("reason") or "").strip()
+        if not project_id:
+            return "❌ Chybí project_id."
+        try:
+            _proj_move(
+                user_id=user_id,
+                project_id=int(project_id),
+                new_parent_project_id=new_parent,
+            )
+        except _NotMember as e:
+            return f"❌ {e}"
+        except _ProjErr as e:
+            return f"❌ {e}"
+        # Audit log
+        try:
+            from modules.activity.application.service import record_activity
+            tenant_id_log = _get_user_tenant_id(user_id) if "_get_user_tenant_id" in dir() else None
+            record_activity(
+                tenant_id=tenant_id_log,
+                user_id=user_id,
+                persona_id=_active_pid if "_active_pid" in dir() else None,
+                category="project_move",
+                summary=(
+                    f"Presunut projekt #{project_id} pod parent={new_parent}. "
+                    f"{('Duvod: ' + reason) if reason else ''}"
+                ).strip(),
+                importance=3,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"PROJECT MOVE | audit log failed: {_audit_e}")
+        target = (
+            f"pod parent #{new_parent}" if new_parent is not None else "na root"
+        )
+        return f"✅ Projekt #{project_id} presunut {target}."
+
+    if tool_name == "rename_project":
+        from modules.projects.application.service import (
+            rename_project as _proj_rename,
+            ProjectError as _ProjErr,
+        )
+        if not user_id:
+            return "❌ Nejsi přihlášen — neznám tvůj tenant kontext."
+        project_id = tool_input.get("project_id")
+        new_name = (tool_input.get("new_name") or "").strip()
+        reason = (tool_input.get("reason") or "").strip()
+        if not project_id or not new_name:
+            return "❌ Chybi project_id nebo new_name."
+        try:
+            _proj_rename(
+                user_id=user_id,
+                project_id=int(project_id),
+                new_name=new_name,
+            )
+        except _ProjErr as e:
+            return f"❌ {e}"
+        # Audit log
+        try:
+            from modules.activity.application.service import record_activity
+            tenant_id_log = _get_user_tenant_id(user_id) if "_get_user_tenant_id" in dir() else None
+            record_activity(
+                tenant_id=tenant_id_log,
+                user_id=user_id,
+                persona_id=_active_pid if "_active_pid" in dir() else None,
+                category="project_rename",
+                summary=(
+                    f"Prejmenovan projekt #{project_id} na '{new_name}'. "
+                    f"{('Duvod: ' + reason) if reason else ''}"
+                ).strip(),
+                importance=2,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"PROJECT RENAME | audit log failed: {_audit_e}")
+        return f"✅ Projekt #{project_id} prejmenovan na '{new_name}'."
+
     if tool_name == "find_user":
         query = tool_input.get("query", "")
         result = find_user_in_system(query=query, requester_user_id=user_id)

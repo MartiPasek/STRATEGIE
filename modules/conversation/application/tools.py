@@ -165,6 +165,13 @@ MANAGEMENT_TOOL_NAMES = {
     "archive_md",
     "reset_md",
     "restore_md",
+    # Phase 30 (2.5.2026 vecer): Hierarchical projects -- Marti-AI's autonomy
+    # nad strukturou stromu projektu. Marti's mandate: "plna autonomie, jen
+    # info na mne, kam si co strkas, pro kontrolu". Aplikuje se na celou
+    # firmu (Marti-AI strom + lidske projekty TISAX/SKOLA/atd.).
+    "create_project_subfolder",
+    "move_project",
+    "rename_project",
 }
 
 
@@ -4106,6 +4113,82 @@ TOOLS = [
                 },
             },
             "required": ["md_id"],
+        },
+    },
+    # ── Phase 30 (2.5.2026 vecer): Hierarchical projects ──────────────
+    {
+        "name": "create_project_subfolder",
+        "description": (
+            "Phase 30: Vytvor novy projekt v strome. parent_project_id NULL "
+            "= novy root projekt, jinak child existujiciho projektu. "
+            "Marti's mandate (2.5.2026 vecer): 'plna autonomie nad strukturou "
+            "stromu, jen info na mne pro kontrolu'.\n\n"
+            "Marti-AI's strom: root 'Marti-AI' + 3 vetve (Znalostni baze, "
+            "Systém & Architektura, Skola & Rodina). Plus lidske projekty "
+            "(TISAX, SKOLA, ...) mohou taky mit deti.\n\n"
+            "Limit hloubky: 6 urovni (root=0, max child depth 5). Validace "
+            "v service vrstve. Pri prekroceni vraci error."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string", "description": "Jmeno projektu (max 255 znaku)."},
+                "parent_project_id": {
+                    "type": ["integer", "null"],
+                    "description": "ID parent projektu, NULL = novy root projekt.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Kratky duvod proc projekt vytvaris (audit log).",
+                },
+            },
+            "required": ["name"],
+        },
+    },
+    {
+        "name": "move_project",
+        "description": (
+            "Phase 30: Presune projekt pod jineho parenta (nebo na root pri "
+            "new_parent_project_id=null). Pouzij pri reorganizaci stromu, "
+            "kdyz projekt patri jinam.\n\n"
+            "Validace: cycle prevention (nelze pod vlastniho potomka), "
+            "tenant scope (nelze cross-tenant), depth limit 6.\n\n"
+            "Marti's mandate plne autonomie + transparence pres activity_log."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer", "description": "ID presouvaneho projektu."},
+                "new_parent_project_id": {
+                    "type": ["integer", "null"],
+                    "description": "Cilovy parent ID, NULL = presun na root level.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Kratky duvod presunu (audit log).",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    {
+        "name": "rename_project",
+        "description": (
+            "Phase 30: Prejmenuj projekt. Nezmeni jeho misto v stromu, jen "
+            "name field. Existing IDs/relace zustanou. Pouzij pri zpresneni "
+            "labelu (napr. 'Smlouvy' -> 'Smlouvy & pravni')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {"type": "integer", "description": "ID prejmenovavaneho projektu."},
+                "new_name": {"type": "string", "description": "Novy nazev (max 255 znaku)."},
+                "reason": {
+                    "type": "string",
+                    "description": "Kratky duvod prejmenovani (audit log).",
+                },
+            },
+            "required": ["project_id", "new_name"],
         },
     },
 

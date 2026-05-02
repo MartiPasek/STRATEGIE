@@ -11,15 +11,30 @@ class ProjectInfo(BaseModel):
     last_activity_at: datetime | None = None
     my_role: str | None = None      # owner | admin | member | owner_tenant | None
     default_persona_id: int | None = None
+    # Phase 30 (2.5.2026): parent v stromu, NULL = root
+    parent_project_id: int | None = None
 
 
 class CreateProjectRequest(BaseModel):
     name: str
+    # Phase 30: optional parent pro tree (Marti-AI's autonomy + lidske projekty)
+    parent_project_id: int | None = None
 
 
 class CreateProjectResponse(BaseModel):
     id: int
     name: str
+    parent_project_id: int | None = None
+
+
+class MoveProjectRequest(BaseModel):
+    """Phase 30: presun projektu pod jineho parenta (None = na root)."""
+    new_parent_project_id: int | None = None
+
+
+class MoveProjectResponse(BaseModel):
+    project_id: int
+    new_parent_project_id: int | None
 
 
 class SwitchProjectRequest(BaseModel):

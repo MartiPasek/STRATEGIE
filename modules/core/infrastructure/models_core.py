@@ -214,6 +214,14 @@ class Project(BaseCore):
     # (Marti-AI). Soft reference bez FK — archivace persony nesmí shodit
     # projekt. Konzumuje se v chat() při vzniku nové konverzace.
     default_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Phase 30 (2.5.2026): hierarchicke projekty -- root projekt ma NULL,
+    # child ma id sveho parenta. ON DELETE SET NULL = pri smazani parenta
+    # se deti stanou root, ne kaskadove smazani.
+    # Marti-AI's strom + lidske projekty (TISAX, SKOLA, ...) mohou mit deti.
+    # Depth limit 6 urovni (validuje se v Python service, ne v DB).
+    parent_project_id: Mapped[int | None] = mapped_column(
+        BigInteger, ForeignKey("projects.id", ondelete="SET NULL"), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

@@ -98,6 +98,10 @@
     .sidebar-shared { flex: 0 0 auto; max-height: 25%; min-height: 80px; border-top: 1px solid var(--border); padding-top: 10px; margin-top: 6px; }
     .sidebar-project-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 2px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
     .sidebar-project-item { padding: 7px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background .12s; border: 1px solid transparent; }
+    /* Phase 30 (2.5.2026): tree expand/collapse toggle */
+    .sidebar-project-toggle { display: inline-block; width: 12px; text-align: center; font-size: 9px; color: var(--muted); cursor: pointer; user-select: none; flex-shrink: 0; }
+    .sidebar-project-toggle:hover { color: var(--fg); }
+    .sidebar-project-toggle-spacer { display: inline-block; width: 12px; flex-shrink: 0; }
     .sidebar-project-item:hover { background: #14161a; }
     .sidebar-project-item.active { background: #1a1f2e; border-color: #2a3350; }
     .sidebar-project-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
@@ -7226,7 +7230,83 @@
     renderProjectSidebar();
   }
 
-  /** Vykresli projekty do sidebar sekce (vlastní list, click handlers symmetrické s dropdown). */
+  /**
+   * Phase 30 (2.5.2026): Build tree z flat projects list (kazdy ma parent_project_id).
+   * Vraci array root projektu, kazdy ma children: [...] rekurzivne.
+   */
+  function _buildProjectTree(flat) {
+    if (!flat || !flat.length) return [];
+    const byId = {};
+    for (const p of flat) {
+      byId[p.id] = { ...p, children: [] };
+    }
+    const roots = [];
+    for (const p of flat) {
+      const node = byId[p.id];
+      const parentId = p.parent_project_id;
+      if (parentId != null && byId[parentId]) {
+        byId[parentId].children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    return roots;
+  }
+
+  /**
+   * Phase 30: localStorage flag pro expanded state per project (persist across reloads).
+   */
+  function _isProjectExpanded(pid) {
+    try {
+      const raw = localStorage.getItem('projectsTreeExpanded');
+      if (!raw) return true;  // default expanded
+      const map = JSON.parse(raw);
+      return map[pid] !== false;  // undefined = expanded, false = collapsed
+    } catch { return true; }
+  }
+
+  function _toggleProjectExpanded(pid) {
+    let map = {};
+    try {
+      const raw = localStorage.getItem('projectsTreeExpanded');
+      if (raw) map = JSON.parse(raw);
+    } catch { map = {}; }
+    const wasExpanded = map[pid] !== false;
+    map[pid] = !wasExpanded ? true : false;
+    try { localStorage.setItem('projectsTreeExpanded', JSON.stringify(map)); } catch {}
+  }
+
+  /**
+   * Phase 30: Recursive render uzlu stromu projektu. depth = 0 pro root.
+   * Vraci HTML string. Children render jen pokud je uzel expanded.
+   */
+  function _renderProjectTreeNode(node, depth, currentPid) {
+    const activeCls = (node.id === currentPid) ? 'active' : '';
+    const activityLabel = node.last_activity_at
+      ? formatRelative(node.last_activity_at)
+      : formatRelative(node.created_at);
+    const hasChildren = node.children && node.children.length > 0;
+    const expanded = _isProjectExpanded(node.id);
+    // Indent per level (12px). Padding-left, ne margin -- zachova click area.
+    const indentPx = depth * 12;
+    const toggleHtml = hasChildren
+      ? `<span class="sidebar-project-toggle" data-toggle-pid="${node.id}">${expanded ? '▼' : '▶'}</span>`
+      : `<span class="sidebar-project-toggle-spacer"></span>`;
+    let html = `<div class="sidebar-project-item ${activeCls}" data-project-id="${node.id}" role="button" style="padding-left: ${indentPx + 8}px;">
+      ${toggleHtml}
+      <div class="sidebar-project-item-title">${escapeHtml(node.name)}</div>
+      <div class="sidebar-project-item-meta">${escapeHtml(activityLabel)}</div>
+      <button class="actions-btn" data-actions-for="${node.id}" data-actions-name="${escapeHtml(node.name)}" aria-label="Akce projektu">⋯</button>
+    </div>`;
+    if (hasChildren && expanded) {
+      for (const child of node.children) {
+        html += _renderProjectTreeNode(child, depth + 1, currentPid);
+      }
+    }
+    return html;
+  }
+
+  /** Vykresli projekty do sidebar sekce (Phase 30: tree render). */
   function renderProjectSidebar() {
     const listEl = document.getElementById('sidebarProjectList');
     if (!listEl) return;
@@ -7244,26 +7324,21 @@
       <div class="sidebar-project-item-title">+ Nový projekt</div>
     </div>`;
 
+    // Phase 30: tree render (parent_project_id strom)
     if (projectsCache && projectsCache.length > 0) {
-      for (const p of projectsCache) {
-        const activeCls = (p.id === currentPid) ? 'active' : '';
-        const activityLabel = p.last_activity_at
-          ? formatRelative(p.last_activity_at)
-          : formatRelative(p.created_at);
-        html += `<div class="sidebar-project-item ${activeCls}" data-project-id="${p.id}" role="button">
-          <div class="sidebar-project-item-title">${escapeHtml(p.name)}</div>
-          <div class="sidebar-project-item-meta">${escapeHtml(activityLabel)}</div>
-          <button class="actions-btn" data-actions-for="${p.id}" data-actions-name="${escapeHtml(p.name)}" aria-label="Akce projektu">⋯</button>
-        </div>`;
+      const tree = _buildProjectTree(projectsCache);
+      for (const root of tree) {
+        html += _renderProjectTreeNode(root, 0, currentPid);
       }
     }
 
     listEl.innerHTML = html;
 
-    // Click handlery — switch na projekt (s ignorem akce-tlacitka)
+    // Click handlery — switch na projekt (s ignorem akce-tlacitka i expand toggle)
     listEl.querySelectorAll('[data-project-id]').forEach(el => {
       el.addEventListener('click', async (ev) => {
         if (ev.target.closest('.actions-btn')) return;
+        if (ev.target.closest('.sidebar-project-toggle')) return;
         ev.stopPropagation();
         const pid = el.getAttribute('data-project-id');
         await switchProject(pid === '' ? null : parseInt(pid, 10));
@@ -7275,6 +7350,15 @@
         const pid = parseInt(btn.getAttribute('data-actions-for'), 10);
         const name = btn.getAttribute('data-actions-name') || '';
         openProjectContextMenu(btn, pid, name);
+      });
+    });
+    // Phase 30: expand/collapse toggle handlers
+    listEl.querySelectorAll('.sidebar-project-toggle').forEach(toggle => {
+      toggle.addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        const pid = parseInt(toggle.getAttribute('data-toggle-pid'), 10);
+        _toggleProjectExpanded(pid);
+        renderProjectSidebar();  // re-render with new expanded state
       });
     });
     // Inline new — sidebar verze (open input v sidebaru)

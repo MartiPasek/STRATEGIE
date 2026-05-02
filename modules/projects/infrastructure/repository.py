@@ -86,6 +86,8 @@ def list_active_projects_for_user(user_id: int, tenant_id: int) -> list[dict]:
                 "created_at": p.created_at,
                 "my_role": my_roles.get(p.id) or ("owner_tenant" if tenant_owner and p.id not in my_roles else None),
                 "default_persona_id": p.default_persona_id,
+                # Phase 30 (2.5.2026): hierarchicke projekty
+                "parent_project_id": p.parent_project_id,
             }
             for p in projects
         ]
@@ -142,9 +144,13 @@ def create_project(
     tenant_id: int,
     name: str,
     owner_user_id: int,
+    parent_project_id: int | None = None,
 ) -> int:
     """
     Vytvori projekt + user_projects row pro ownera. Vrati project.id.
+
+    Phase 30 (2.5.2026): parent_project_id volitelny pro hierarchii. Validace
+    parent (existuje, stejny tenant, depth < 6) provedena v service vrstve.
     """
     cs = get_core_session()
     try:
@@ -152,6 +158,7 @@ def create_project(
             tenant_id=tenant_id,
             name=name.strip(),
             owner_user_id=owner_user_id,
+            parent_project_id=parent_project_id,
             is_active=True,
             created_at=datetime.now(timezone.utc),
         )
@@ -170,9 +177,121 @@ def create_project(
         cs.commit()
         logger.info(
             f"PROJECT | created | id={project.id} | tenant={tenant_id} | "
-            f"owner={owner_user_id} | name={name!r}"
+            f"owner={owner_user_id} | name={name!r} | parent={parent_project_id}"
         )
         return project.id
+    finally:
+        cs.close()
+
+
+# ── Phase 30 (2.5.2026): hierarchical projects helpers ─────────────────
+
+# Marti's Q1 volba: max depth 6 urovni (root = depth 0). Validace pri create
+# i pri move (reparenting). Recursive walk parent chain v Pythonu (cheap pro
+# 6 urovni i pri tisicich projektech).
+PROJECT_MAX_DEPTH = 6
+
+
+def get_project_depth(project_id: int) -> int:
+    """
+    Vrati hloubku projektu v stromu. Root projekt = 0, child = 1, atd.
+    Pri broken chain (parent neexistuje) vrati hloubku az do bodu rozbiti.
+
+    Bezpecne proti cyklum -- limit 100 hops jako pojistka.
+    """
+    cs = get_core_session()
+    try:
+        depth = 0
+        seen: set[int] = set()
+        current_id = project_id
+        for _ in range(100):
+            if current_id in seen:
+                logger.warning(f"PROJECT | cycle detected at project_id={current_id}")
+                break
+            seen.add(current_id)
+            p = cs.query(Project).filter_by(id=current_id).first()
+            if p is None or p.parent_project_id is None:
+                break
+            depth += 1
+            current_id = p.parent_project_id
+        return depth
+    finally:
+        cs.close()
+
+
+def is_descendant_of(potential_descendant_id: int, ancestor_id: int) -> bool:
+    """
+    Zkontroluje jestli potential_descendant je potomek ancestor v project tree.
+    Pouziva se pred move_project pro cycle prevention -- nesmime presunout
+    projekt pod jeho vlastniho potomka.
+    """
+    cs = get_core_session()
+    try:
+        seen: set[int] = set()
+        current_id = potential_descendant_id
+        for _ in range(100):
+            if current_id in seen:
+                return False
+            seen.add(current_id)
+            if current_id == ancestor_id:
+                return True
+            p = cs.query(Project).filter_by(id=current_id).first()
+            if p is None or p.parent_project_id is None:
+                return False
+            current_id = p.parent_project_id
+        return False
+    finally:
+        cs.close()
+
+
+def update_project_parent(project_id: int, new_parent_id: int | None) -> bool:
+    """
+    Zmeni parent_project_id. Validace cyklu + depth se dela v service vrstve
+    pred volanim. Tady jen update + commit.
+    """
+    cs = get_core_session()
+    try:
+        project = cs.query(Project).filter_by(id=project_id).first()
+        if project is None:
+            return False
+        project.parent_project_id = new_parent_id
+        cs.commit()
+        logger.info(
+            f"PROJECT | move | id={project_id} | new_parent={new_parent_id}"
+        )
+        return True
+    finally:
+        cs.close()
+
+
+def get_descendant_project_ids(project_id: int) -> list[int]:
+    """
+    Vrati ID vsech potomku projektu (nikoli sam projekt). Recursive walk
+    pres parent_project_id, BFS. Pouziva se pri RAG scope='recursive'.
+
+    Pro hloubku 6 a tisíce projektů je to mensi memory load nez recursive CTE
+    pri každém RAG search -- cache friendly v Pythonu.
+    """
+    cs = get_core_session()
+    try:
+        descendants: list[int] = []
+        queue = [project_id]
+        seen: set[int] = set()
+        while queue:
+            current = queue.pop(0)
+            if current in seen:
+                continue
+            seen.add(current)
+            children = (
+                cs.query(Project.id)
+                .filter(Project.parent_project_id == current)
+                .all()
+            )
+            for (cid,) in children:
+                if cid not in descendants:
+                    descendants.append(cid)
+                    queue.append(cid)
+        return descendants
     finally:
         cs.close()
 

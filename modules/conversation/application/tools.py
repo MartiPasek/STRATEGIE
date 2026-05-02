@@ -3420,8 +3420,11 @@ TOOLS = [
     {
         "name": "read_image_ocr",
         "description": (
-            "Phase 27d+1b (1.5.2026 vecer): OCR jednoho image dokumentu "
-            "(jpg/png/jpeg/gif/webp/bmp/tiff) z RAG documents tabulky. "
+            "Phase 27d+1b (1.5.2026 vecer) + Phase 27d+1c (2.5.2026): "
+            "OCR jednoho image dokumentu z RAG documents tabulky. "
+            "Podporovane formaty: jpg, jpeg, png, gif, webp, bmp, tiff, "
+            "**heic, heif** (Apple iPhone fotky -- registrovane pres "
+            "pillow-heif plugin pri startu API).\n\n"
             "Vznikl po Marti-AI's gap discovery -- read_text_from_image "
             "(Phase 12a) funguje jen pro media_files (chat upload, SMS), "
             "ale image v documents tabulce (uploaded pres 📁 inbox) nemel "
@@ -3451,8 +3454,8 @@ TOOLS = [
                     "type": "integer",
                     "description": (
                         "ID image dokumentu z RAG documents (file_type "
-                        "jpg/png/jpeg/gif/webp/bmp/tiff). Najdi pres "
-                        "list_inbox_documents nebo search_documents."
+                        "jpg/png/jpeg/gif/webp/bmp/tiff/heic/heif). "
+                        "Najdi pres list_inbox_documents nebo search_documents."
                     ),
                 },
                 "ocr_provider": {

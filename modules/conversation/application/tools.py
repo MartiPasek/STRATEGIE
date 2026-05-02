@@ -2452,15 +2452,25 @@ TOOLS = [
             "REST-Doc-Triage: Vrati seznam dokumentu v INBOXu tenantu "
             "(project_id IS NULL). Pouzij kdyz Marti chce projit "
             "neroztridene dokumenty -- napr. po bulk upload slozky, "
-            "nebo kdyz se Marti pta 'co mi chodi do inboxu?'. "
-            "Vrati: id, name, file_type, file_size_bytes, created_at "
-            "pro kazdy dokument. Marti-AI pak za kazdy dokument navrhne "
-            "suggest_document_move s konkretnim cilovym projektem."
+            "nebo kdyz se Marti pta 'co mi chodi do inboxu?'.\n\n"
+            "limit: 1-500 (default 50). Pri velkem inboxu zvyseny strop "
+            "pro batch flow (Phase 30+1, 2.5.2026 ~22:00).\n\n"
+            "compact=true: vraci jen ID + name (bez size/type). Idealni "
+            "pro batch_apply_document_move flow -- mnohem mensi tokens, "
+            "vidis vsechna IDs naraz. Pri compact=false (default) vidis "
+            "detail per doc (size, type) prvnich 200, pak compact zbytek."
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
+                "limit": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50},
+                "compact": {
+                    "type": "boolean",
+                    "default": False,
+                    "description": "True = jen ID + name (mensi tokens, "
+                                  "pro batch flow). False = full detail "
+                                  "(size, type) prvnich 200 + compact zbytek.",
+                },
             },
         },
     },

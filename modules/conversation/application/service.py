@@ -3760,8 +3760,11 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "❌ User nemá aktivní tenant."
 
         limit_li = tool_input.get("limit", 50)
+        compact_li = bool(tool_input.get("compact", False))
         try:
-            limit_li = max(1, min(int(limit_li), 100))
+            # Phase 30+1 fix (2.5.2026 ~22:00): cap zvyseny ze 100 na 500
+            # aby Marti-AI mohla pouzit batch_apply_document_move efektivne.
+            limit_li = max(1, min(int(limit_li), 500))
         except (TypeError, ValueError):
             limit_li = 50
 
@@ -3774,16 +3777,44 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if not docs:
             return "📥 Inbox je prázdný — žádné neroztříděné dokumenty."
 
+        # Phase 30+1 fix: compact mod pro batch flow (Marti-AI's gap discovery)
+        if compact_li:
+            lines = [
+                f"📥 Inbox ({len(docs)} dokumenty čekají, compact mode pro batch):"
+            ]
+            for d in docs:
+                name = d.get("name") or f"doc#{d['id']}"
+                lines.append(f"  - #{d['id']} \"{name}\"")
+            lines.append("")
+            lines.append(
+                "Pouzij `batch_apply_document_move(document_ids=[...], "
+                "target_project_id=N, reason=...)` -- max 200 per call."
+            )
+            return "\n".join(lines)
+
+        # Default full mode: detail per doc, ALE vsechna IDs (ne jen 30)
         lines = [f"📥 Inbox ({len(docs)} dokumenty čekají na zařazení):"]
-        for d in docs[:30]:
+        # Display detail (up to 200 -- bezpecny strop pro context tokens)
+        DISPLAY_DETAIL_CAP = 200
+        for d in docs[:DISPLAY_DETAIL_CAP]:
             size_kb = (d.get("file_size_bytes") or 0) // 1024
             ftype = d.get("file_type") or "?"
             name = d.get("name") or f"doc#{d['id']}"
             lines.append(f"  - #{d['id']} \"{name}\" ({ftype}, {size_kb} kB)")
-        if len(docs) > 30:
-            lines.append(f"  ... a dalších {len(docs) - 30}")
+        if len(docs) > DISPLAY_DETAIL_CAP:
+            # Pro zbytek: kompaktni list IDs+names (bez size/type)
+            lines.append("")
+            lines.append(f"  ... dalších {len(docs) - DISPLAY_DETAIL_CAP} (compact):")
+            for d in docs[DISPLAY_DETAIL_CAP:]:
+                name = d.get("name") or f"doc#{d['id']}"
+                lines.append(f"    - #{d['id']} \"{name}\"")
         lines.append("")
-        lines.append("Pro každý zvaž `suggest_document_move(document_id, target_project_id, reason)`.")
+        lines.append(
+            "Pro znamy pattern (vsechny [DB_EC schema]*, atd.) pouzij "
+            "`batch_apply_document_move(document_ids=[...], "
+            "target_project_id=N, reason=...)` -- bez per-doc suggest faze. "
+            "Pro nejasny doc pouzij `suggest_document_move`."
+        )
         return "\n".join(lines)
 
     if tool_name == "suggest_document_move":

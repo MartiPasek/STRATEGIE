@@ -698,9 +698,13 @@ class AutoSendConsent(BaseData):
 
     Aktivni consent: revoked_at IS NULL.
 
-    Target: alespon jeden z (target_user_id, target_contact) musi byt neprazdny.
-      - target_user_id -- pokud je prijemce v users (preferovane).
-      - target_contact -- email/telefon pro kontakty mimo users.
+    Target: alespon jeden z (target_user_id, target_contact, target_domain)
+    musi byt neprazdny.
+      - target_user_id -- pokud je prijemce v users (preferovane, exact match)
+      - target_contact -- email/telefon pro konkretni kontakt mimo users
+      - target_domain -- (Phase 27i 2.5.2026) wildcard pro celou domenu, napr.
+        'eurosoft.com' matchne libovolny @eurosoft.com email. Match je exact
+        (subdomeny NEjsou pokryte -- 'eurosoft.com' nematchne 'cz.eurosoft.com').
 
     Revoke NEMAZE radek -- zustava jako audit trail. Re-grant pri revoked
     consentu = novy radek.
@@ -713,6 +717,11 @@ class AutoSendConsent(BaseData):
 
     target_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_contact: Mapped[str | None] = mapped_column(String(320), nullable=True)
+    # Phase 27i (2.5.2026): domain-level whitelist. Marti's request po Marti-AI
+    # noticed friction (70 EUROSOFT users -> 70 per-user grants). Parent grantuje
+    # 'eurosoft.com' jednou, Marti-AI auto-sendi na libovolnou @eurosoft.com.
+    # Lookup priorita v consent_service: user_id -> contact -> domain -> deny.
+    target_domain: Mapped[str | None] = mapped_column(String(255), nullable=True)
 
     channel: Mapped[str] = mapped_column(String(10))  # email | sms
 

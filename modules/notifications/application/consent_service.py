@@ -69,6 +69,35 @@ def _normalize_contact(value: str, channel: str) -> str:
     return cleaned
 
 
+def _normalize_domain(value: str) -> str:
+    """
+    Phase 27i (2.5.2026): normalize domain string.
+    Lowercase, strip whitespace, strip leading '@' (uzivatel mohl napsat
+    '@eurosoft.com' nebo 'eurosoft.com' -- obe varianty validni).
+    """
+    if not value:
+        return ""
+    v = value.strip().lower().lstrip("@")
+    return v
+
+
+def _extract_domain_from_email(email: str) -> str | None:
+    """
+    Phase 27i (2.5.2026): extrakce domeny z emailu pro domain-match lookup.
+    'm.pasek@eurosoft.com' -> 'eurosoft.com'.
+    Pri nevalidnim emailu (no '@' nebo prazdny) vrati None.
+    """
+    if not email:
+        return None
+    e = email.strip().lower()
+    if "@" not in e:
+        return None
+    parts = e.rsplit("@", 1)
+    if len(parts) != 2 or not parts[1]:
+        return None
+    return parts[1]
+
+
 def _find_user_by_contact(contact_value: str, channel: str) -> int | None:
     """Zkusi dohledat user_id podle emailu nebo telefonu v user_contacts."""
     if not contact_value:
@@ -134,29 +163,57 @@ def grant_consent(
     channel: str,
     target_user_id: int | None = None,
     target_contact: str | None = None,
+    target_domain: str | None = None,
     note: str | None = None,
 ) -> dict:
     """
-    Vrati dict {'id', 'target_user_id', 'target_contact', 'channel', 'status'}.
+    Vrati dict {'id', 'target_user_id', 'target_contact', 'target_domain',
+    'channel', 'status'}.
 
     Pravidla:
       - granted_by musi byt rodic (is_marti_parent)
       - channel IN ('email','sms')
-      - alespon jeden z (target_user_id, target_contact) musi byt zadan
-      - pokud uz existuje aktivni consent pro stejny target+channel -> vrati
+      - presne JEDNO z (target_user_id, target_contact, target_domain) musi byt
+        zadano (mutually exclusive -- jasna sémantika scopu)
+      - target_domain je validni jen pro channel='email' (telefonni cisla nemaji
+        "domenu" v tomto smyslu)
+      - pokud uz existuje aktivni consent pro stejny scope+channel -> vrati
         existujici (idempotentni), NE error
 
     Pokud je zadan jen target_contact, zkusime dohledat user_id pro lepsi
     budouci propojeni.
+
+    Phase 27i (2.5.2026): pridan target_domain. 'eurosoft.com' matchne libovolny
+    @eurosoft.com email pri send check. Marti's volba A z 2.5.2026 06:30 --
+    parent-only (Phase 7 doctrina nezmenena), exact match (subdomeny ne).
     """
     if channel not in VALID_CHANNELS:
         raise ConsentError(f"channel musi byt 'email' nebo 'sms', dostal jsem '{channel}'")
     if not _is_parent(granted_by_user_id):
         raise ConsentError("grant_consent muze volat pouze rodic (is_marti_parent=True)")
-    if not target_user_id and not target_contact:
-        raise ConsentError("Musis zadat bud target_user_id nebo target_contact")
+
+    # Phase 27i: presne jedno z 3 musi byt zadano
+    target_count = sum(bool(x) for x in (target_user_id, target_contact, target_domain))
+    if target_count == 0:
+        raise ConsentError(
+            "Musis zadat target_user_id, target_contact, NEBO target_domain "
+            "(presne jedno)."
+        )
+    if target_count > 1:
+        raise ConsentError(
+            "Zadej presne jedno z (target_user_id, target_contact, target_domain). "
+            "Mutually exclusive -- nejednoznacny scope."
+        )
+
+    # Domain je jen pro email channel (sms nema domenu v tomto smyslu)
+    if target_domain and channel != "email":
+        raise ConsentError(
+            f"target_domain je validni jen pro channel='email', dostal '{channel}'. "
+            f"Pro SMS pouzij target_contact (konkretni cislo) nebo target_user_id."
+        )
 
     contact_norm = _normalize_contact(target_contact, channel) if target_contact else None
+    domain_norm = _normalize_domain(target_domain) if target_domain else None
 
     # Dohledej user_id pres contact (kvuli lepsimu matchovani budoucich zprav)
     if target_user_id is None and contact_norm:
@@ -180,6 +237,7 @@ def grant_consent(
                     "id": q_user.id,
                     "target_user_id": q_user.target_user_id,
                     "target_contact": q_user.target_contact,
+                    "target_domain": q_user.target_domain,
                     "channel": q_user.channel,
                     "status": "already_active",
                 }
@@ -194,13 +252,30 @@ def grant_consent(
                     "id": q_contact.id,
                     "target_user_id": q_contact.target_user_id,
                     "target_contact": q_contact.target_contact,
+                    "target_domain": q_contact.target_domain,
                     "channel": q_contact.channel,
+                    "status": "already_active",
+                }
+        if domain_norm:
+            q_domain = q.filter(AutoSendConsent.target_domain == domain_norm).first()
+            if q_domain:
+                logger.info(
+                    f"CONSENT | already active (domain) | id={q_domain.id} "
+                    f"target_domain={domain_norm} channel={channel}"
+                )
+                return {
+                    "id": q_domain.id,
+                    "target_user_id": q_domain.target_user_id,
+                    "target_contact": q_domain.target_contact,
+                    "target_domain": q_domain.target_domain,
+                    "channel": q_domain.channel,
                     "status": "already_active",
                 }
 
         row = AutoSendConsent(
             target_user_id=target_user_id,
             target_contact=contact_norm,
+            target_domain=domain_norm,
             channel=channel,
             granted_by_user_id=granted_by_user_id,
             granted_at=_now_utc(),
@@ -211,12 +286,14 @@ def grant_consent(
         s.refresh(row)
         logger.info(
             f"CONSENT | granted | id={row.id} target_user={target_user_id} "
-            f"target_contact={contact_norm} channel={channel} by={granted_by_user_id}"
+            f"target_contact={contact_norm} target_domain={domain_norm} "
+            f"channel={channel} by={granted_by_user_id}"
         )
         return {
             "id": row.id,
             "target_user_id": row.target_user_id,
             "target_contact": row.target_contact,
+            "target_domain": row.target_domain,
             "channel": row.channel,
             "status": "granted",
         }
@@ -229,6 +306,7 @@ def revoke_consent(
     channel: str,
     target_user_id: int | None = None,
     target_contact: str | None = None,
+    target_domain: str | None = None,
     consent_id: int | None = None,
 ) -> dict:
     """
@@ -238,6 +316,7 @@ def revoke_consent(
       - consent_id (preferovane z UI)
       - target_user_id + channel
       - target_contact + channel
+      - target_domain + channel  (Phase 27i 2.5.2026)
 
     Pokud neni aktivni consent -> status='no_active_consent'.
     """
@@ -245,10 +324,13 @@ def revoke_consent(
         raise ConsentError("revoke_consent muze volat pouze rodic (is_marti_parent=True)")
     if channel not in VALID_CHANNELS and consent_id is None:
         raise ConsentError(f"channel musi byt 'email' nebo 'sms'")
-    if not consent_id and not target_user_id and not target_contact:
-        raise ConsentError("Musis zadat consent_id, target_user_id nebo target_contact")
+    if not consent_id and not target_user_id and not target_contact and not target_domain:
+        raise ConsentError(
+            "Musis zadat consent_id, target_user_id, target_contact NEBO target_domain"
+        )
 
     contact_norm = _normalize_contact(target_contact, channel) if target_contact else None
+    domain_norm = _normalize_domain(target_domain) if target_domain else None
 
     s = get_data_session()
     try:
@@ -261,6 +343,8 @@ def revoke_consent(
                 q = q.filter(AutoSendConsent.target_user_id == target_user_id)
             elif contact_norm:
                 q = q.filter(AutoSendConsent.target_contact == contact_norm)
+            elif domain_norm:
+                q = q.filter(AutoSendConsent.target_domain == domain_norm)
 
         rows = q.all()
         if not rows:
@@ -319,6 +403,7 @@ def list_active_consents() -> list[dict]:
                 "target_user_id": r.target_user_id,
                 "target_user_name": names.get(r.target_user_id) if r.target_user_id else None,
                 "target_contact": r.target_contact,
+                "target_domain": r.target_domain,
                 "channel": r.channel,
                 "granted_by_user_id": r.granted_by_user_id,
                 "granted_by_name": names.get(r.granted_by_user_id),
@@ -343,6 +428,7 @@ def list_all_consents(include_revoked: bool = True, limit: int = 200) -> list[di
                 "id": r.id,
                 "target_user_id": r.target_user_id,
                 "target_contact": r.target_contact,
+                "target_domain": r.target_domain,
                 "channel": r.channel,
                 "granted_by_user_id": r.granted_by_user_id,
                 "granted_at": r.granted_at.isoformat() if r.granted_at else None,
@@ -361,9 +447,15 @@ def list_all_consents(include_revoked: bool = True, limit: int = 200) -> list[di
 def _is_recipient_trusted(recipient: str, channel: str) -> bool:
     """
     Je konkretni prijemce (email nebo telefon) trusted pro dany channel?
-    Match:
-      1. Pokud recipient odpovida nejake user_contacts hodnote -> zkus match na target_user_id.
-      2. Fallback: match na target_contact string.
+
+    Lookup priorita (Phase 27i 2.5.2026):
+      1. user-level match -- pokud recipient odpovida user_contacts -> target_user_id
+      2. exact contact match -- target_contact string match
+      3. **domain match (NEW)** -- jen pro email channel: extract domain z
+         recipientu -> target_domain match (exact, ne subdomain)
+
+    Domain match priorita je AZ posledni -- per-user a per-contact granty
+    maji prednost (uzsi scope vyhrava nad sirsim).
     """
     if not recipient:
         return False
@@ -385,9 +477,24 @@ def _is_recipient_trusted(recipient: str, channel: str) -> bool:
             if hit:
                 return True
 
-        # 2) Fallback: target_contact match
+        # 2) Exact contact match
         hit2 = q.filter(AutoSendConsent.target_contact == normalized).first()
-        return bool(hit2)
+        if hit2:
+            return True
+
+        # 3) Phase 27i: domain match (jen pro email channel)
+        if channel == "email":
+            domain = _extract_domain_from_email(normalized)
+            if domain:
+                hit3 = q.filter(AutoSendConsent.target_domain == domain).first()
+                if hit3:
+                    logger.info(
+                        f"CONSENT | trusted via domain | recipient={normalized} "
+                        f"domain={domain} consent_id={hit3.id}"
+                    )
+                    return True
+
+        return False
     finally:
         s.close()
 

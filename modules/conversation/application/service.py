@@ -6983,6 +6983,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         channel = (tool_input.get("channel") or "").lower().strip()
         target_user_id = tool_input.get("target_user_id")
         target_contact = (tool_input.get("target_contact") or "").strip() or None
+        target_domain = (tool_input.get("target_domain") or "").strip() or None  # Phase 27i
         note = (tool_input.get("note") or "").strip() or None
 
         if not user_id:
@@ -6994,6 +6995,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 channel=channel,
                 target_user_id=target_user_id,
                 target_contact=target_contact,
+                target_domain=target_domain,
                 note=note,
             )
         except _cs_asc.ConsentError as e:
@@ -7009,8 +7011,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"GRANT_AUTO_SEND | failed | {e}")
             return f"❌ Chyba při ukládání souhlasu: {e}"
 
-        # Resolve jmeno prijemce pro hezci reply
+        # Resolve display label podle scopu
         display = None
+        scope_label = None
         if result.get("target_user_id"):
             from core.database_core import get_core_session as _gcs_g
             from modules.core.infrastructure.models_core import User as _U_g
@@ -7021,11 +7024,24 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     display = ((u.first_name or "") + " " + (u.last_name or "")).strip() or u.canonical_email
             finally:
                 cs.close()
-        display = display or result.get("target_contact") or "?"
+            scope_label = "user"
+        elif result.get("target_domain"):
+            display = f"@{result['target_domain']}"
+            scope_label = "domain"
+        else:
+            display = result.get("target_contact") or "?"
+            scope_label = "contact"
 
         if result.get("status") == "already_active":
             return (
                 f"ℹ️ Souhlas pro **{display}** ({channel}) už existuje — platí dál. "
+                f"(consent_id={result['id']}, scope={scope_label})"
+            )
+        if scope_label == "domain":
+            return (
+                f"✅ Doménový souhlas uložen — od teď můžu posílat {channel} na "
+                f"libovolnou **{display}** adresu bez potvrzení. Kdykoli lze odvolat "
+                f"přes `revoke_auto_send` s target_domain. "
                 f"(consent_id={result['id']})"
             )
         return (
@@ -7039,6 +7055,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         channel = (tool_input.get("channel") or "").lower().strip() or None
         target_user_id = tool_input.get("target_user_id")
         target_contact = (tool_input.get("target_contact") or "").strip() or None
+        target_domain = (tool_input.get("target_domain") or "").strip() or None  # Phase 27i
         consent_id = tool_input.get("consent_id")
 
         if not user_id:
@@ -7050,6 +7067,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 channel=channel or "email",  # pokud consent_id, channel se nepouzije
                 target_user_id=target_user_id,
                 target_contact=target_contact,
+                target_domain=target_domain,
                 consent_id=consent_id,
             )
         except _cs_asc.ConsentError as e:

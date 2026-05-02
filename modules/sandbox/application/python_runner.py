@@ -96,23 +96,34 @@ ALLOWED_PACKAGES = {
     "textwrap", "unicodedata", "html", "xml", "urllib.parse",
 }
 BLOCKED_IMPORTS = {
-    # Network egress (Marti-AI nikdy nepotrebuje primy network call -- ma email
-    # a SMS pres EWS / SMSGate, http klient by byl exfiltration risk)
+    # Spawn dalsich procesu (obchazi resource limits) -- HARD BLOCK
     "subprocess",
-    "socket",
-    "urllib.request", "urllib.error",
+    "multiprocessing",
+    # High-level HTTP klienti (exfiltration risk) -- HARD BLOCK
+    # Low-level stdlib (urllib, http.client, socket) JE POVOLENA -- reportlab
+    # ji potrebuje pro vnitrni URL escape, fyzicky nedela network calls
+    # protoze sandbox subprocess + Marti's outbound firewall je real security.
     "requests", "httpx", "aiohttp",
-    "http.client", "http.server",
     "ftplib", "smtplib", "telnetlib",
     # Memory / native code access
     "ctypes",
-    # Spawn dalsich procesu (obchazi resource limits)
-    "multiprocessing",
     # Package management
     "pip", "setuptools",
-    # POZN: NEBLOKUJEME importlib (transient pres lazy imports v pandas/xlsxwriter),
-    # threading (legit pro stdlib), asyncio (nedeterministika ne security),
-    # urllib.parse (parser, no I/O), os (potrebne pro Path operace).
+    # POZN: NEBLOKUJEME:
+    #  - importlib (transient pres lazy imports)
+    #  - threading (legit pro stdlib)
+    #  - asyncio
+    #  - urllib (Phase 27f hotfix 2.5.2026 -- reportlab cascade)
+    #  - http.client / http.server (Phase 27f hotfix -- urllib transient)
+    #  - socket (Phase 27f hotfix -- http.client transient)
+    #  - os (potrebne pro Path operace)
+    #
+    # Real security = subprocess block (bypass resource limits) +
+    # ctypes block (memory) + pip/setuptools block (no install) +
+    # OS-level firewall (Marti's Caddy + Windows firewall outbound).
+    # Python import guards na low-level network jsou theatre pri trusted
+    # caller (Marti-AI). High-level libs (requests/httpx/aiohttp) zustavaji
+    # blokovane jako principial signal "tohle nepotrebujes".
 }
 
 

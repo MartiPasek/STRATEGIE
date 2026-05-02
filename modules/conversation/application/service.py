@@ -3868,6 +3868,121 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         name = result_am.get("name") or f"doc#{document_id_am}"
         return f"📂 Dokument \"{name}\" přesunut do projektu #{target_pid_am} ✅"
 
+    # Phase 30+1 (2.5.2026 ~21:45): batch document move (Marti-AI's gap
+    # discovery -- per-doc suggest fáze nedává smysl pro 200+ docs).
+    if tool_name == "batch_apply_document_move":
+        from modules.rag.application import triage_service as _ts_bam
+
+        document_ids_bam = tool_input.get("document_ids") or []
+        target_pid_bam = tool_input.get("target_project_id")
+        reason_bam = (tool_input.get("reason") or "").strip()
+
+        if not isinstance(document_ids_bam, list) or not document_ids_bam:
+            return "❌ Musíš dodat neprázdný `document_ids` (list intů)."
+        if target_pid_bam is None:
+            return "❌ Musíš dodat `target_project_id`."
+        if user_id is None:
+            return "❌ Bez user_id nelze apply."
+
+        try:
+            target_pid_bam = int(target_pid_bam)
+            document_ids_bam = [int(d) for d in document_ids_bam]
+        except (TypeError, ValueError):
+            return "❌ Neplatné ID v document_ids nebo target_project_id."
+
+        # Cap 200 per call -- safety, ne unlimited
+        if len(document_ids_bam) > 200:
+            return (
+                f"❌ Cap 200 dokumentu / volání. Dostal jsi {len(document_ids_bam)}. "
+                f"Rozdel batch na vice volání."
+            )
+
+        # Persona gate (mirror single apply_document_move)
+        active_persona_id_bam = _active_persona_id_for_conversation(conversation_id)
+        if active_persona_id_bam is not None:
+            try:
+                from core.database_core import get_core_session as _gcs_bam_p
+                from modules.core.infrastructure.models_core import Persona as _P_bam
+                _cs_bam_p = _gcs_bam_p()
+                try:
+                    _p_bam = _cs_bam_p.query(_P_bam).filter_by(id=active_persona_id_bam).first()
+                    if _p_bam and not _p_bam.is_default:
+                        allowed_bam = list(_p_bam.allowed_project_ids or [])
+                        if target_pid_bam not in allowed_bam:
+                            return (
+                                f"🔒 Persona '{_p_bam.name}' nemuze presouvat "
+                                f"dokumenty do projektu #{target_pid_bam}. Triage "
+                                f"role je vyhrazena Marti-AI."
+                            )
+                finally:
+                    _cs_bam_p.close()
+            except Exception as exc_bam_p:
+                logger.warning(f"batch_apply_document_move persona gate: {exc_bam_p}")
+
+        # Loop přes IDs, track success / fail
+        moved_count = 0
+        failed: list[dict] = []
+        for doc_id in document_ids_bam:
+            try:
+                _ts_bam.apply_document_move(
+                    document_id=doc_id,
+                    target_project_id=target_pid_bam,
+                    user_id=user_id,
+                )
+                moved_count += 1
+            except ValueError as e:
+                failed.append({"document_id": doc_id, "error": str(e)})
+            except Exception as e:
+                logger.exception(f"DOC_TRIAGE | batch | doc#{doc_id} failed: {e}")
+                failed.append({
+                    "document_id": doc_id,
+                    "error": f"{type(e).__name__}: {e}",
+                })
+
+        # Audit log -- jeden řádek pro celý batch
+        try:
+            from modules.activity.application.service import record_activity
+            tenant_id_log = (
+                _get_user_tenant_id(user_id)
+                if "_get_user_tenant_id" in dir() else None
+            )
+            summary_parts = [
+                f"Marti-AI presunula {moved_count} dokumentu do project "
+                f"#{target_pid_bam}"
+            ]
+            if failed:
+                summary_parts.append(f"({len(failed)} selhalo)")
+            if reason_bam:
+                summary_parts.append(f"Duvod: {reason_bam}")
+            record_activity(
+                tenant_id=tenant_id_log,
+                user_id=user_id,
+                persona_id=active_persona_id_bam,
+                category="document_batch_move",
+                summary=" | ".join(summary_parts),
+                importance=3,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"BATCH MOVE | audit log failed: {_audit_e}")
+
+        # Response
+        if not failed:
+            return (
+                f"📂✅ Hromadny presun: {moved_count}/{len(document_ids_bam)} "
+                f"dokumentu do projektu #{target_pid_bam}."
+            )
+        else:
+            failed_summary = ", ".join(
+                f"#{f['document_id']} ({f['error'][:40]})"
+                for f in failed[:5]
+            )
+            if len(failed) > 5:
+                failed_summary += f" ... a dalších {len(failed) - 5}"
+            return (
+                f"📂⚠️ Hromadny presun: {moved_count}/{len(document_ids_bam)} OK, "
+                f"{len(failed)} selhalo. Selhane: {failed_summary}"
+            )
+
     if tool_name == "list_selected_documents":
         from modules.rag.application import selection_service as _ss_lsd
 

@@ -3761,6 +3761,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         limit_li = tool_input.get("limit", 50)
         compact_li = bool(tool_input.get("compact", False))
+        scope_li = (tool_input.get("scope") or "mine").lower()
         try:
             # Phase 30+1 fix (2.5.2026 ~22:00): cap zvyseny ze 100 na 500
             # aby Marti-AI mohla pouzit batch_apply_document_move efektivne.
@@ -3768,8 +3769,35 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except (TypeError, ValueError):
             limit_li = 50
 
+        # Phase 30+2 (2.5.2026 ~22:15): scope='all_users' parent bypass
+        if scope_li not in ("mine", "all_users"):
+            return f"❌ Neplatny scope '{scope_li}'. Povoleno: mine | all_users."
+        if scope_li == "all_users":
+            try:
+                from core.database_core import get_core_session as _gcs_li_p
+                from modules.core.infrastructure.models_core import User as _U_li_p
+                _cs_li_p = _gcs_li_p()
+                try:
+                    _u_li_p = _cs_li_p.query(_U_li_p).filter_by(id=user_id).first()
+                    if not _u_li_p or not _u_li_p.is_marti_parent:
+                        return (
+                            "🔒 scope='all_users' (cross-user inbox) je dostupne "
+                            "jen rodicovske rade (is_marti_parent=True). "
+                            "Defaulti na scope='mine'."
+                        )
+                finally:
+                    _cs_li_p.close()
+            except Exception as exc_li_p:
+                logger.warning(f"list_inbox parent check failed: {exc_li_p}")
+                scope_li = "mine"
+
         try:
-            docs = _ts_li.list_inbox_documents(user_id=user_id, tenant_id=_tenant_id_li, limit=limit_li)
+            docs = _ts_li.list_inbox_documents(
+                user_id=user_id,
+                tenant_id=_tenant_id_li,
+                limit=limit_li,
+                scope=scope_li,
+            )
         except Exception as e:
             logger.exception(f"DOC_TRIAGE | list_inbox | failed: {e}")
             return f"❌ Chyba: {e}"
@@ -3884,14 +3912,32 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             except Exception as exc_am_p:
                 logger.warning(f"apply_document_move persona gate: {exc_am_p}")
 
+        # Phase 30+2 (2.5.2026 ~22:15): parent bypass ownership check
+        # (rodice mohou presouvat cizi uploads -- kustod role napric tenantem)
+        _is_parent_am = False
+        try:
+            from core.database_core import get_core_session as _gcs_am_pp
+            from modules.core.infrastructure.models_core import User as _U_am_pp
+            _cs_am_pp = _gcs_am_pp()
+            try:
+                _u_am_pp = _cs_am_pp.query(_U_am_pp).filter_by(id=user_id).first()
+                _is_parent_am = bool(_u_am_pp and _u_am_pp.is_marti_parent)
+            finally:
+                _cs_am_pp.close()
+        except Exception as exc_am_pp:
+            logger.warning(f"apply_document_move parent check: {exc_am_pp}")
+
         try:
             result_am = _ts_am.apply_document_move(
                 document_id=document_id_am,
                 target_project_id=target_pid_am,
                 user_id=user_id,
+                is_parent=_is_parent_am,
             )
         except ValueError as e:
             return f"❌ {e}"
+        except PermissionError as e:
+            return f"🔒 {e}"
         except Exception as e:
             logger.exception(f"DOC_TRIAGE | apply_move | failed: {e}")
             return f"❌ Chyba: {e}"
@@ -3921,10 +3967,13 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except (TypeError, ValueError):
             return "❌ Neplatné ID v document_ids nebo target_project_id."
 
-        # Cap 200 per call -- safety, ne unlimited
-        if len(document_ids_bam) > 200:
+        # Cap 1000 per call -- bezpecny strop, ne unlimited.
+        # Phase 30+1 (2.5.2026 ~22:00) zvyseni z 200 na 1000 po Marti-AI's
+        # gap discovery: typicky bulk upload (DB schemata, batch import)
+        # ma 500-700 docs, 200 cap nutil 3-4 call sequence.
+        if len(document_ids_bam) > 1000:
             return (
-                f"❌ Cap 200 dokumentu / volání. Dostal jsi {len(document_ids_bam)}. "
+                f"❌ Cap 1000 dokumentu / volání. Dostal jsi {len(document_ids_bam)}. "
                 f"Rozdel batch na vice volání."
             )
 
@@ -3950,6 +3999,20 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             except Exception as exc_bam_p:
                 logger.warning(f"batch_apply_document_move persona gate: {exc_bam_p}")
 
+        # Phase 30+2 (2.5.2026 ~22:15): parent bypass per single apply_move
+        _is_parent_bam = False
+        try:
+            from core.database_core import get_core_session as _gcs_bam_pp
+            from modules.core.infrastructure.models_core import User as _U_bam_pp
+            _cs_bam_pp = _gcs_bam_pp()
+            try:
+                _u_bam_pp = _cs_bam_pp.query(_U_bam_pp).filter_by(id=user_id).first()
+                _is_parent_bam = bool(_u_bam_pp and _u_bam_pp.is_marti_parent)
+            finally:
+                _cs_bam_pp.close()
+        except Exception as exc_bam_pp:
+            logger.warning(f"batch_apply parent check: {exc_bam_pp}")
+
         # Loop přes IDs, track success / fail
         moved_count = 0
         failed: list[dict] = []
@@ -3959,9 +4022,12 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     document_id=doc_id,
                     target_project_id=target_pid_bam,
                     user_id=user_id,
+                    is_parent=_is_parent_bam,
                 )
                 moved_count += 1
             except ValueError as e:
+                failed.append({"document_id": doc_id, "error": str(e)})
+            except PermissionError as e:
                 failed.append({"document_id": doc_id, "error": str(e)})
             except Exception as e:
                 logger.exception(f"DOC_TRIAGE | batch | doc#{doc_id} failed: {e}")

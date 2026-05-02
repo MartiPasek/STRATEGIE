@@ -2458,7 +2458,12 @@ TOOLS = [
             "compact=true: vraci jen ID + name (bez size/type). Idealni "
             "pro batch_apply_document_move flow -- mnohem mensi tokens, "
             "vidis vsechna IDs naraz. Pri compact=false (default) vidis "
-            "detail per doc (size, type) prvnich 200, pak compact zbytek."
+            "detail per doc (size, type) prvnich 200 + compact zbytek.\n\n"
+            "scope: 'mine' (default, jen vlastni uploady -- per-user "
+            "isolation) | 'all_users' (cross-user inbox napric tenantem). "
+            "Phase 30+2 (2.5.2026 ~22:15): scope='all_users' vyzaduje "
+            "is_marti_parent=True. Pouzij kdyz potrebujes triage napric "
+            "tymem (Michalin upload, Pavlův, atd.) -- bez toho slepy bod."
         ),
         "input_schema": {
             "type": "object",
@@ -2470,6 +2475,14 @@ TOOLS = [
                     "description": "True = jen ID + name (mensi tokens, "
                                   "pro batch flow). False = full detail "
                                   "(size, type) prvnich 200 + compact zbytek.",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["mine", "all_users"],
+                    "default": "mine",
+                    "description": "'mine' = jen vlastni uploady. "
+                                  "'all_users' = napric tenantem (jen "
+                                  "is_marti_parent=True).",
                 },
             },
         },
@@ -4194,7 +4207,8 @@ TOOLS = [
             "suggest fáze. Marti-AI je primary kustod inboxu, takze pri "
             "znamem patternu (napr. vsechny [DB_EC schema]* -> projekt "
             "DB_EC) nedava smysl potvrzovat kazdy zvlast.\n\n"
-            "Cap: max 200 dokumentu / volání. Pri vetsim batchi rozdelit. "
+            "Cap: max 1000 dokumentu / volání (zvyseno z 200 po Marti-AI's "
+            "feedback 2.5.2026 ~22:00). Pri vetsim batchi rozdelit. "
             "Audit log: jeden activity_log radek 'Marti-AI presunula N "
             "dokumentu do project #X', importance=3.\n\n"
             "Permissions: stejne jako apply_document_move (single) -- "
@@ -4207,7 +4221,7 @@ TOOLS = [
                 "document_ids": {
                     "type": "array",
                     "items": {"type": "integer"},
-                    "description": "List ID dokumentu k presunu (max 200).",
+                    "description": "List ID dokumentu k presunu (max 1000).",
                 },
                 "target_project_id": {
                     "type": "integer",

@@ -43,45 +43,54 @@ def list_inbox_documents(
     user_id: int,
     tenant_id: int,
     limit: int = 50,
+    scope: str = "mine",
 ) -> list[dict]:
     """
     Vrati seznam dokumentu v INBOXu pro daneho usera v tenantu.
-    Filter: tenant_id + user_id + project_id IS NULL.
 
-    Marti's pravidlo v2: per-user, per-tenant -- aby se neuploady ruznych
-    uzivatelu nemichaly.
+    scope:
+      - 'mine' (default) -- per-user inbox isolation, jen vlastni uploady
+      - 'all_users' -- napric vsemi usery v tenantu (parent bypass).
+        Vyzaduje is_marti_parent=True -- validace v service / handler vrstve
+        PRED zavolanim teto funkce. Tady jen prepneme filter.
+
+    Marti-AI's Q1 (Phase 30+2, 2.5.2026 ~22:15): rodice (Marti, Ondra,
+    Kristyna, Jirka, plus Marti-AI default persona pres vlastniho rodice)
+    musi videt cross-user inbox aby mohli ridit kustod inbox napric tymem.
     """
     ds = get_data_session()
     try:
+        q = ds.query(Document).filter(
+            Document.tenant_id == tenant_id,
+            Document.project_id.is_(None),
+        )
+        if scope == "mine":
+            q = q.filter(Document.user_id == user_id)
+        # scope='all_users' -> bez user_id filter (parent scope)
         rows = (
-            ds.query(Document)
-            .filter(
-                Document.tenant_id == tenant_id,
-                Document.user_id == user_id,
-                Document.project_id.is_(None),
-            )
-            .order_by(Document.created_at.desc())
-            .limit(limit)
-            .all()
+            q.order_by(Document.created_at.desc()).limit(limit).all()
         )
         return [_serialize(d) for d in rows]
     finally:
         ds.close()
 
 
-def count_inbox_documents(user_id: int, tenant_id: int) -> int:
-    """Pro UI badge a composer block. Per user + tenant."""
+def count_inbox_documents(
+    user_id: int,
+    tenant_id: int,
+    scope: str = "mine",
+) -> int:
+    """Pro UI badge a composer block. Default per user + tenant; scope='all_users'
+    pro parent bypass (cross-user count)."""
     ds = get_data_session()
     try:
-        return (
-            ds.query(Document)
-            .filter(
-                Document.tenant_id == tenant_id,
-                Document.user_id == user_id,
-                Document.project_id.is_(None),
-            )
-            .count()
+        q = ds.query(Document).filter(
+            Document.tenant_id == tenant_id,
+            Document.project_id.is_(None),
         )
+        if scope == "mine":
+            q = q.filter(Document.user_id == user_id)
+        return q.count()
     finally:
         ds.close()
 
@@ -92,13 +101,16 @@ def apply_document_move(
     document_id: int,
     target_project_id: Optional[int],
     user_id: int,
+    is_parent: bool = False,
 ) -> dict:
     """
     Provede skutecny presun dokumentu do projektu (po Marti's confirm).
     target_project_id=None -> ponecha v inboxu (= reverze).
 
-    Validace: user_id musi byt vlastnik dokumentu. Per-user isolation --
-    nikdo nesmi presouvat dokumenty jinych userov.
+    Validace ownership: per-user isolation, ALE rodic (is_marti_parent=True)
+    bypass -- muze presouvat dokumenty napric usery v tenantu (Phase 30+2,
+    2.5.2026 ~22:15, Marti-AI's gap discovery: Michalin upload v tenantu,
+    Marti-AI ho potrebuje tridit). Validuje volajici v service / handler.
     """
     ds = get_data_session()
     try:
@@ -106,10 +118,11 @@ def apply_document_move(
         if doc is None:
             raise ValueError(f"document {document_id} not found")
 
-        if doc.user_id != user_id:
+        if doc.user_id != user_id and not is_parent:
             raise PermissionError(
                 f"document {document_id} patri jinemu userovi (#{doc.user_id}) "
-                f"-- ty jsi #{user_id}. Per-user inbox isolation."
+                f"-- ty jsi #{user_id}. Per-user inbox isolation. "
+                f"(Parent bypass: jen is_marti_parent=True usere.)"
             )
 
         old_project = doc.project_id
@@ -121,6 +134,7 @@ def apply_document_move(
         logger.info(
             f"DOC_TRIAGE | apply_move | doc={document_id} "
             f"{old_project} -> {target_project_id} by user={user_id}"
+            f"{' (parent)' if is_parent else ''}"
         )
 
         return {

@@ -298,7 +298,7 @@ def web_fetch(
     char_count_before = len(markdown)
     markdown_truncated, was_truncated = _truncate_with_marker(markdown, max_chars_clamped)
 
-    return {
+    response_dict: dict[str, Any] = {
         "ok": True,
         "url": final_url,
         "original_url": url_norm,
@@ -310,3 +310,25 @@ def web_fetch(
         "truncated": was_truncated,
         "fetched_at": datetime.now(timezone.utc).isoformat(),
     }
+
+    # Phase 27j+1 (2.5.2026): zakonyprolidi.cz custom parser. Pokud URL je
+    # z teto domeny, pridame strukturovanou pravni meta + citation suggestion.
+    # Generic markdown zustava jako 'markdown' field. Marti-AI v promptu vidi
+    # 'legal_meta' field a pouzije citation_suggestion v odpovedi.
+    try:
+        from modules.web.application import zakonyprolidi_parser as _zp_parser
+        if _zp_parser.is_zakonyprolidi_url(final_url):
+            # Pouzijeme NE-truncated markdown pro lepsi paragraph extract
+            legal_meta = _zp_parser.build_legal_meta(
+                url=final_url,
+                markdown=markdown,  # raw, pred truncate
+            )
+            response_dict["legal_meta"] = legal_meta
+    except Exception as e:
+        # Parser failure nezpomaluje fetch -- log warning a pokracuj bez legal_meta
+        logger.warning(
+            f"zakonyprolidi parser failed (fallback to generic markdown): "
+            f"{type(e).__name__}: {e}"
+        )
+
+    return response_dict

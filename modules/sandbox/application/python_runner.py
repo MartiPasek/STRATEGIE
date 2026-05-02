@@ -217,6 +217,75 @@ builtins.__import__ = _guarded_import
 OUTPUT_DIR = Path({output_dir!r})
 input_files = [Path(p) for p in {input_paths!r}]
 
+# === Phase 27f (2.5.2026): Auto-register Verdana font pro PDF (EUROSOFT default) ===
+# Marti's request: "jako firma pouzivame defaultni font Verdana".
+# reportlab default Helvetica neumi Latin Extended (CZ/DE/PL diakritika ->
+# ctverecky). Verdana je Windows standard s plnou Latin-1+2 + Czech support.
+# Registrujeme silent (failure neshodi runner) -- pokud reportlab neni
+# imported user codem, registrace ani neprobehla. Pokud reportlab ano,
+# Marti-AI staci pouzit fontName='Verdana' bez explicit registrace.
+def _try_register_verdana():
+    """Try common Verdana paths across Windows/Linux. Silent on failure."""
+    try:
+        from reportlab.pdfbase import pdfmetrics
+        from reportlab.pdfbase.ttfonts import TTFont
+        from reportlab.pdfbase.pdfmetrics import registerFontFamily
+    except Exception:
+        return  # reportlab neni nainstalovan -- jen vrat (uzivatelsky kod
+                # ho stejne nebude pouzivat)
+
+    # Hledame v poradi: Windows (cloud APP) -> Linux msttcorefonts -> DejaVu fallback
+    candidates = [
+        # Windows (cloud APP production)
+        ("C:/Windows/Fonts/verdana.ttf",  "C:/Windows/Fonts/verdanab.ttf",
+         "C:/Windows/Fonts/verdanai.ttf", "C:/Windows/Fonts/verdanaz.ttf"),
+        # Linux ms-corefonts package (apt install ttf-mscorefonts-installer)
+        ("/usr/share/fonts/truetype/msttcorefonts/Verdana.ttf",
+         "/usr/share/fonts/truetype/msttcorefonts/Verdana_Bold.ttf",
+         "/usr/share/fonts/truetype/msttcorefonts/Verdana_Italic.ttf",
+         "/usr/share/fonts/truetype/msttcorefonts/Verdana_Bold_Italic.ttf"),
+        # Linux DejaVu fallback (vetsinou nainstalovany; Latin Extended OK)
+        ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+         "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf"),
+    ]
+
+    for normal, bold, italic, bold_italic in candidates:
+        if not Path(normal).is_file():
+            continue
+        try:
+            pdfmetrics.registerFont(TTFont('Verdana', normal))
+            # Bold/italic pokud existuji -- bez nich registerFontFamily
+            # zafallbackuje na 'Verdana' pro vsechny varianty
+            if Path(bold).is_file():
+                pdfmetrics.registerFont(TTFont('Verdana-Bold', bold))
+            else:
+                pdfmetrics.registerFont(TTFont('Verdana-Bold', normal))
+            if Path(italic).is_file():
+                pdfmetrics.registerFont(TTFont('Verdana-Italic', italic))
+            else:
+                pdfmetrics.registerFont(TTFont('Verdana-Italic', normal))
+            if Path(bold_italic).is_file():
+                pdfmetrics.registerFont(TTFont('Verdana-BoldItalic', bold_italic))
+            else:
+                pdfmetrics.registerFont(TTFont('Verdana-BoldItalic', normal))
+
+            # Family registration -- ParagraphStyle s fontName='Verdana' pak
+            # automaticky vybere bold/italic varianty pri <b>, <i>, <b><i> tagach
+            registerFontFamily(
+                'Verdana',
+                normal='Verdana',
+                bold='Verdana-Bold',
+                italic='Verdana-Italic',
+                boldItalic='Verdana-BoldItalic',
+            )
+            return  # Done
+        except Exception:
+            continue  # zkusit dalsi candidate
+
+_try_register_verdana()
+
 # === Capture stdout/stderr ===
 _stdout_buf = io.StringIO()
 _stderr_buf = io.StringIO()

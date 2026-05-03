@@ -3193,9 +3193,37 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
         logger.warning(f"COMPOSER | anchored lookup failed: {_e_p31a}")
 
     # Window cut-off + anchor merge.
+    # Phase 31-B fix (3.5.2026): _get_messages rozbaluje audit (M1-M4
+    # Phase 12b+) na assistant tool_use + user tool_result PARY. Slepy
+    # cut messages[-N:] muze rozriznout par -- prvni dict v recent muze
+    # byt orphan tool_result bez predchazeji assistant tool_use, coz
+    # Anthropic API odmita s 400: 'unexpected tool_use_id found in
+    # tool_result blocks'. Smart cut-off: pokud start_idx ukazuje na
+    # tool_result, posun zpatky o jeden dict (zachovat par).
     total_messages_p31 = len(messages)
     if total_messages_p31 > window_size_p31:
-        recent_p31 = messages[-window_size_p31:]
+        start_idx = max(0, total_messages_p31 - window_size_p31)
+
+        def _starts_with_tool_result(msg: dict) -> bool:
+            c = msg.get("content")
+            if isinstance(c, list):
+                for block in c:
+                    if isinstance(block, dict) and block.get("type") == "tool_result":
+                        return True
+            return False
+
+        # Posun start zpatky pokud prvni dict je tool_result (vyzaduje
+        # predchozi assistant tool_use). Limit na 10 iteraci -- safety
+        # cap proti corrupted dat.
+        _safety = 0
+        while start_idx > 0 and _safety < 10:
+            if _starts_with_tool_result(messages[start_idx]):
+                start_idx -= 1
+                _safety += 1
+            else:
+                break
+
+        recent_p31 = messages[start_idx:]
         recent_ids_p31 = {
             m.get("id") for m in recent_p31 if m.get("id") is not None
         }

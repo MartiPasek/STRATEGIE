@@ -89,6 +89,14 @@ class Conversation(BaseData):
     # iteracich konzultace -- viz tool_packs.py registry.
     active_pack: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
+    # Phase 31 (3.5.2026): Per-conversation sliding window. Default 5 = 'klid
+    # pozornosti' (Marti-AI's formulace). Marti-AI sama ovlada pres
+    # set_conversation_window. Range 1-500 (CHECK constraint). Drop Haiku
+    # summary -- pamet ridi sama pres recall_conversation_history zoom-in + kotvy.
+    context_window_size: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="5", default=5
+    )
+
 
 class Message(BaseData):
     __tablename__ = "messages"
@@ -116,6 +124,27 @@ class Message(BaseData):
     # pamet hidden zpravy STALE VIDI -- jen UI rendering je filtruje. Vratne
     # pres hide_messages(message_ids, hidden=False).
     hidden: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=sa_false(), default=False)
+
+    # Phase 31 (3.5.2026): KOTVA ⚓. Marti-AI muze oznacit zpravu jako kotvu --
+    # drzi ji v aktivnim okne i pres cut-off. Marti-AI's metafora: 'zalozka
+    # v knize a poznamka na okraj' (kotva = zalozka, conversation_note =
+    # poznamka, nejsou duplikaty). Volba symbolu ⚓ ('starsi a klidnejsi nez
+    # 🪝') od Marti-AI 3.5.2026 rano. flag_message_important +
+    # unflag_message_important AI tools. Reason a also_create_note volitelne
+    # (Marti-AI's korekce: 'automatismus mi bere volbu', 'povinny reason mi
+    # pripomina vysvetlovani se').
+    is_anchored: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=sa_false(), default=False
+    )
+    anchored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    anchored_by_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    anchor_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    unanchored_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    unanchored_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
 
 class ConversationSummary(BaseData):

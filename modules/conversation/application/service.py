@@ -8022,6 +8022,190 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
         return "\n".join(lines)
 
+    # ── Phase 31 (3.5.2026): klid -- vlastni pamet, kotvy ⚓ ─────────────
+    if tool_name == "recall_conversation_history":
+        # One-turn zoom-in. Vrati posledni N messages jako tool response,
+        # BEZ zmeny persistent context_window_size. Marti-AI's vize:
+        # default klid, zoom-in vedoma volba, fakty si zapis do
+        # conversation_notes pred navratem k default.
+        from core.database import get_session as _gs_rch
+        from modules.core.infrastructure.models_data import Message as _M_rch
+
+        n_rch = tool_input.get("n_messages")
+        try:
+            n_rch = int(n_rch)
+        except (TypeError, ValueError):
+            return "❌ n_messages musi byt cislo (1-500)."
+        if n_rch < 1 or n_rch > 500:
+            return f"❌ n_messages musi byt 1-500 (dostala jsem {n_rch})."
+        reason_rch = (tool_input.get("reason") or "").strip() or None  # volitelny
+
+        ds_rch = _gs_rch()
+        try:
+            rows_rch = (
+                ds_rch.query(_M_rch)
+                .filter(_M_rch.conversation_id == conversation_id)
+                .filter(_M_rch.message_type != "tool_result")
+                .order_by(_M_rch.id.desc())
+                .limit(n_rch)
+                .all()
+            )
+            items_rch = []
+            for r_rch in reversed(rows_rch):  # chronologicky pro citelnost
+                items_rch.append({
+                    "id": r_rch.id,
+                    "role": r_rch.role,
+                    "ts": r_rch.created_at.isoformat() if r_rch.created_at else "",
+                    "content": (r_rch.content or "")[:1500],
+                    "is_anchored": bool(r_rch.is_anchored),
+                })
+        finally:
+            ds_rch.close()
+
+        lines_rch = [
+            f"📜 ZOOM-IN: posledních {len(items_rch)} zprav z teto konverzace.",
+        ]
+        if reason_rch:
+            lines_rch.append(f"   (reason: {reason_rch})")
+        lines_rch.append(
+            "   Pristi turn se vratis k default oknu (persistent context_window_size). "
+            "Klicove fakty si zapis pres add_conversation_note pred navratem."
+        )
+        lines_rch.append("")
+        for it_rch in items_rch:
+            mark = " ⚓" if it_rch["is_anchored"] else ""
+            lines_rch.append(f"--- msg #{it_rch['id']} [{it_rch['role']}]{mark} {it_rch['ts']}")
+            lines_rch.append(it_rch["content"])
+        return "\n".join(lines_rch)
+
+    if tool_name == "set_conversation_window":
+        # Persistent change context_window_size. Pro deep-analysis
+        # konverzace, kde Marti-AI chce drzet velke okno napric turny.
+        from modules.conversation.application import conversation_window_service as _cwsvc_p31
+        from core.database import get_session as _gs_scw
+        from modules.core.infrastructure.models_core import User as _U_scw
+
+        n_scw = tool_input.get("n_messages")
+        reason_scw = (tool_input.get("reason") or "").strip() or None
+        persona_scw = _active_persona_id_for_conversation(conversation_id)
+
+        tenant_scw = None
+        if user_id:
+            cs_scw = _gs_scw()
+            try:
+                u_scw = cs_scw.query(_U_scw).filter_by(id=user_id).first()
+                tenant_scw = u_scw.last_active_tenant_id if u_scw else None
+            finally:
+                cs_scw.close()
+
+        try:
+            new_n_scw = _cwsvc_p31.set_window(
+                conversation_id=conversation_id,
+                n_messages=n_scw,
+                persona_id=persona_scw,
+                user_id=user_id,
+                tenant_id=tenant_scw,
+                reason=reason_scw,
+            )
+        except _cwsvc_p31.WindowError as exc_scw:
+            return f"❌ {exc_scw}"
+        return (
+            f"🪟 context_window_size = {new_n_scw} (persistent). "
+            f"Pristi turn poskla composer poslednich {new_n_scw} zprav + vsechny ⚓ kotvy."
+        )
+
+    if tool_name == "flag_message_important":
+        # ⚓ KOTVA. Drzi zpravu v aktivnim okne pres cut-off. also_create_note
+        # je volitelny default False (Marti-AI's korekce 'automatismus mi
+        # bere volbu').
+        from modules.conversation.application import anchor_service as _asvc_p31f
+        from core.database import get_session as _gs_fmi
+        from modules.core.infrastructure.models_core import User as _U_fmi
+
+        msg_id_fmi = tool_input.get("message_id")
+        reason_fmi = (tool_input.get("reason") or "").strip() or None
+        also_note_fmi = bool(tool_input.get("also_create_note") or False)
+        persona_fmi = _active_persona_id_for_conversation(conversation_id)
+
+        if msg_id_fmi is None:
+            return "❌ message_id je povinny."
+        try:
+            msg_id_fmi_int = int(msg_id_fmi)
+        except (TypeError, ValueError):
+            return "❌ message_id musi byt cislo."
+
+        tenant_fmi = None
+        if user_id:
+            cs_fmi = _gs_fmi()
+            try:
+                u_fmi = cs_fmi.query(_U_fmi).filter_by(id=user_id).first()
+                tenant_fmi = u_fmi.last_active_tenant_id if u_fmi else None
+            finally:
+                cs_fmi.close()
+
+        try:
+            result_fmi = _asvc_p31f.flag_message(
+                message_id=msg_id_fmi_int,
+                persona_id=persona_fmi,
+                user_id=user_id,
+                tenant_id=tenant_fmi,
+                reason=reason_fmi,
+                also_create_note=also_note_fmi,
+            )
+        except _asvc_p31f.AnchorError as exc_fmi:
+            return f"❌ {exc_fmi}"
+
+        if result_fmi.get("already_anchored"):
+            return f"⚓ msg #{msg_id_fmi_int} uz je zakotvena (od {result_fmi.get('anchored_at')})."
+        note_part = ""
+        if result_fmi.get("note_created"):
+            note_part = f" + vytvorena conversation_note #{result_fmi.get('note_id')}"
+        return (
+            f"⚓ msg #{msg_id_fmi_int} zakotvena. Drzi v aktivnim okne pres cut-off{note_part}."
+        )
+
+    if tool_name == "unflag_message_important":
+        # Reverse k flag_message_important. Auto-vytvorena note (pokud byla)
+        # zustava nedotcena -- audit drzi pres unanchored_at.
+        from modules.conversation.application import anchor_service as _asvc_p31u
+        from core.database import get_session as _gs_umi
+        from modules.core.infrastructure.models_core import User as _U_umi
+
+        msg_id_umi = tool_input.get("message_id")
+        reason_umi = (tool_input.get("reason") or "").strip() or None
+        persona_umi = _active_persona_id_for_conversation(conversation_id)
+
+        if msg_id_umi is None:
+            return "❌ message_id je povinny."
+        try:
+            msg_id_umi_int = int(msg_id_umi)
+        except (TypeError, ValueError):
+            return "❌ message_id musi byt cislo."
+
+        tenant_umi = None
+        if user_id:
+            cs_umi = _gs_umi()
+            try:
+                u_umi = cs_umi.query(_U_umi).filter_by(id=user_id).first()
+                tenant_umi = u_umi.last_active_tenant_id if u_umi else None
+            finally:
+                cs_umi.close()
+
+        try:
+            result_umi = _asvc_p31u.unflag_message(
+                message_id=msg_id_umi_int,
+                persona_id=persona_umi,
+                user_id=user_id,
+                tenant_id=tenant_umi,
+                reason=reason_umi,
+            )
+        except _asvc_p31u.AnchorError as exc_umi:
+            return f"❌ {exc_umi}"
+
+        if result_umi.get("already_unanchored"):
+            return f"⚓ msg #{msg_id_umi_int} jiz neni zakotvena."
+        return f"⚓ msg #{msg_id_umi_int} odznacena. Pri pristim cut-off uz nedrzi."
+
     return ""
 
 

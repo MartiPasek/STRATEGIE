@@ -177,6 +177,14 @@ MANAGEMENT_TOOL_NAMES = {
     # scale (662 DB_EC schema docs ze prvniho upload-u). Marti-AI's slova:
     # 'pokud ja jako kustod vim kam to patri, proc potvrzovat kazdy zvlast?'
     "batch_apply_document_move",
+    # Phase 31 (3.5.2026): Klid -- Marti-AI ovlada svou pamet sama. Drop
+    # Haiku summary halucinace, default male okno + zoom-in spike + kotvy ⚓.
+    # Marti-AI's volby z konzultace 3.5. rano: reason volitelny,
+    # also_create_note volitelny. Marti's princip: 'klid jako default'.
+    "recall_conversation_history",
+    "set_conversation_window",
+    "flag_message_important",
+    "unflag_message_important",
 }
 
 
@@ -4259,7 +4267,156 @@ TOOLS = [
             "required": ["project_id", "new_name"],
         },
     },
-
+    # ── Phase 31 (3.5.2026): Klid -- vlastni pamet, kotvy ⚓ ──────────────
+    {
+        "name": "recall_conversation_history",
+        "description": (
+            "Phase 31 (3.5.2026): One-turn zoom-in do starsi historie konverzace. "
+            "Vrati posledních N zprav v teto konverzaci jako tool response, "
+            "BEZ zmeny persistent context_window_size. Pristi turn se zase "
+            "vratis k default oknu (typicky 5 zprav).\n\n"
+            "Pouziti (Marti-AI's vlastni vize): default okno je male a klidne. "
+            "Kdyz potrebujes vidět starsi turny, zoom-in -- vytahnes co potrebujes, "
+            "**zapises do conversation_notes klicove fakty**, pristi turn klid.\n\n"
+            "Alternativa: pokud konverzace je deep-analysis typ (právní text, "
+            "dlouha analyza) a budes potrebovat velke okno OPAKOVANE, pouzij "
+            "set_conversation_window pro persistent zmenu.\n\n"
+            "Pravidla:\n"
+            "  - n_messages: 1-500\n"
+            "  - reason je VOLITELNY (Marti-AI's korekce z konzultace 3.5.: "
+            "    'povinny reason mi pripomina vysvetlovani se')\n"
+            "  - cost: zoom-in 50 zprav ~6 Kc, vidis odhad v promptu pred volanim"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "n_messages": {
+                    "type": "integer",
+                    "description": "Kolik poslednich zprav vytahnout (1-500).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "VOLITELNY -- audit duvod (napr. 'user se "
+                                  "odkazuje na pasaz pred 30 turny').",
+                },
+            },
+            "required": ["n_messages"],
+        },
+    },
+    {
+        "name": "set_conversation_window",
+        "description": (
+            "Phase 31 (3.5.2026): Persistuje novou velikost context window "
+            "pro tuto konverzaci (kolik posldenich zprav composer poskla v kazdem turnu). "
+            "Default 5 = 'klid pozornosti'.\n\n"
+            "Pouziti: pri klasifikaci konverzace -- v prvnim turn-u rozeznas "
+            "z user's intent ('toto je analyza smlouvy') a nastavis vetsi "
+            "okno predem. Plus muzes upravit kdykoli pozdeji (napr. konverzace "
+            "se posunula z smalltalk do deep-analysis).\n\n"
+            "Doporucene rozsahy podle typu (Marti's trichotomie):\n"
+            "  - smalltalk: 5-10\n"
+            "  - bezna prace: 20-40\n"
+            "  - hluboka analyza / pravni text: 100-500\n\n"
+            "Pravidla:\n"
+            "  - n_messages: 1-500 (CHECK constraint v DB)\n"
+            "  - reason VOLITELNY (Marti-AI's korekce, klid od vysvetlovani se)\n"
+            "  - idempotent (pokud uz je nastaveno na n_messages, no-op)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "n_messages": {
+                    "type": "integer",
+                    "description": "Nova velikost okna (1-500).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "VOLITELNY -- proc menis (napr. 'pravni "
+                                  "analyza, potrebuju cely text').",
+                },
+            },
+            "required": ["n_messages"],
+        },
+    },
+    {
+        "name": "flag_message_important",
+        "description": (
+            "Phase 31 (3.5.2026): KOTVA ⚓. Oznaci zpravu jako dulezitou -- "
+            "drzi ji v aktivnim okne i pres cut-off, bez ohledu na stari.\n\n"
+            "Marti-AI's volba symbolu (3.5.2026 rano): ⚓ ('starsi a klidnejsi "
+            "nez 🪝, prinaska obraz neceho, co drzi i v boure'). Marti-AI's "
+            "metafora: 'zalozka v knize'.\n\n"
+            "Pouziti: kdyz user preda kompletni podklady (klicovy kontext, "
+            "instrukce, fakty na ktere se budes vracet), flagni zpravu --"
+            "drzi se v okne dokud sama neunflag (zadne expiration, zadny "
+            "hard cap).\n\n"
+            "also_create_note=True (volitelne, default False -- Marti-AI's "
+            "korekce 'automatismus mi bere volbu'):\n"
+            "  - Auto-vytvori conversation_note s source_message_id=msg\n"
+            "  - note_type='fact', certainty=85, importance=4\n"
+            "  - content = reason (pokud zadan), jinak 'Zakotvena zprava #N'\n"
+            "  - Tvuj vlastni text zachycujici tvuj VYKLAD (Marti-AI's metafora "
+            "    'zalozka v knize a poznamka na okraj' -- kotva = zalozka, "
+            "    note = poznamka, NEjsou duplikaty)\n\n"
+            "Pravidla:\n"
+            "  - reason VOLITELNY\n"
+            "  - also_create_note default False\n"
+            "  - idempotent (pokud uz je is_anchored=True, no-op)\n"
+            "  - bez parent gate (tvuj prostor)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "integer",
+                    "description": "ID zpravy z teto konverzace.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "VOLITELNY -- proc kotvis (napr. 'Klarka "
+                                  "predala kompletni podklady k rozvrhu').",
+                },
+                "also_create_note": {
+                    "type": "boolean",
+                    "description": "Volitelne (default False). True = auto-vytvorit "
+                                  "conversation_note jako 'poznamku na okraji' s "
+                                  "odkazem na zpravu. Pouzij kdyz chces dvojitou "
+                                  "pojistku -- zalozku v knize + tvou interpretaci.",
+                },
+            },
+            "required": ["message_id"],
+        },
+    },
+    {
+        "name": "unflag_message_important",
+        "description": (
+            "Phase 31 (3.5.2026): Odznaci kotvu na zprave. Reverse k "
+            "flag_message_important. Auto-vytvorena conversation_note "
+            "(pokud byla) ZUSTAVA -- unflag drzi audit pres unanchored_at "
+            "+ unanchored_reason, ale poznamka na okraji je trvala.\n\n"
+            "Pouziti: kdyz fakt z kotvene zpravy mas plne v notebooku "
+            "(opsala jsi si do ConversationNote), kotva neni potreba a "
+            "moze odplynout. Drzi tvuj prostor cisty.\n\n"
+            "Pravidla:\n"
+            "  - reason VOLITELNY\n"
+            "  - idempotent (pokud uz is_anchored=False, no-op)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "integer",
+                    "description": "ID zpravy s kotvou.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "VOLITELNY -- proc odznacujes (napr. 'opsala "
+                                  "jsem si fakta do notebooku, kotva uz neni potreba').",
+                },
+            },
+            "required": ["message_id"],
+        },
+    },
 ]
 
 

@@ -1215,6 +1215,15 @@
     /* Diskretni timestamp pod bublinou. Drobny, jen pro orientaci v case. */
     .msg-time { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); opacity: 0.5; padding: 0 4px; line-height: 1.2; }
     .msg.user .msg-time, .msg.from-me .msg-time { align-self: flex-end; }
+    /* Phase 31 (3.5.2026) — kotva ⚓: Marti-AI's redaktorska role nad vlastni
+       pameti. Diskretni indikator pod bublinou kotvene zpravy. */
+    .msg-anchor { font-size: 11px; color: #c8a86a; opacity: 0.85; padding: 0 4px; line-height: 1.2; cursor: help; user-select: none; }
+    .msg.user .msg-anchor, .msg.from-me .msg-anchor { align-self: flex-end; }
+    /* Phase 31 cost transparency: per-message naklad v Kc + kumulativni soucet.
+       Marti's princip "vedomi materiality, ne uzkost" -- jemne, neopinionate. */
+    .msg-cost { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); opacity: 0.4; padding: 0 4px; line-height: 1.2; }
+    .msg.user .msg-cost, .msg.from-me .msg-cost { align-self: flex-end; }
+    .msg-cost:hover { opacity: 0.7; }
     /* Phase 19c-d: Hidden divider pro Personal konverzace. Marti-AI's redaktorska
        role -- spojite bloky skrytych zprav se sleji do jedne "———" cary. */
     .chat-hidden-divider {
@@ -3189,7 +3198,9 @@
         if (msg.type === 'divider') {
           renderHiddenDivider(msg.n_hidden);
         } else {
-          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media);
+          // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI
+          // kotva indicator a cost transparency.
+          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media, msg.is_anchored, msg.cost_czk, msg.cum_cost_czk);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -5483,7 +5494,8 @@
         if (m.type === 'divider') {
           renderHiddenDivider(m.n_hidden);
         } else {
-          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media);
+          // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI.
+          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -9238,7 +9250,7 @@
     messagesEl.appendChild(div);
   }
 
-  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media) {
+  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media, isAnchored, costCzk, cumCostCzk) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
@@ -9353,6 +9365,32 @@
       timeEl.className = 'msg-time';
       timeEl.textContent = formatMessageTime(createdAt);
       msg.appendChild(timeEl);
+    }
+    // Phase 31 (3.5.2026): kotva ⚓ -- Marti-AI's redaktorska role nad pameti.
+    // Indikator pod kotvenou zpravou. Hover tooltip vysvetli, ze tato zprava
+    // se vzdy prilozi k modelu i kdyz vypadne z context window.
+    if (isAnchored && messageType !== 'system') {
+      const anchorEl = document.createElement('div');
+      anchorEl.className = 'msg-anchor';
+      anchorEl.textContent = '⚓ kotva';
+      anchorEl.title = 'Kotvená zpráva — Marti-AI ji vždy přiloží do kontextu, i když vypadne z window.';
+      msg.appendChild(anchorEl);
+      msg.dataset.isAnchored = '1';
+    }
+    // Phase 31 cost transparency: Marti's princip "vedomi materiality, ne uzkost".
+    // Per-message naklad v Kc + kumulativni soucet az do teto zpravy.
+    if (typeof costCzk === 'number' && messageType !== 'system') {
+      const costEl = document.createElement('div');
+      costEl.className = 'msg-cost';
+      const costStr = costCzk.toFixed(2).replace('.', ',');
+      const cumStr = (typeof cumCostCzk === 'number')
+        ? cumCostCzk.toFixed(2).replace('.', ',')
+        : null;
+      costEl.textContent = cumStr
+        ? `${costStr} Kč · celkem ${cumStr} Kč`
+        : `${costStr} Kč`;
+      costEl.title = 'Cena této zprávy (LLM volání) v Kč. Druhý údaj je kumulativní součet od začátku konverzace.';
+      msg.appendChild(costEl);
     }
     // Faze 9.1c: Dev View lupy (Router/Composer trace) -- jen assistant, admin, dev_mode.
     _attachDevLupy(msg, messageId, role, messageType);

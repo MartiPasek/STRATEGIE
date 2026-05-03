@@ -75,6 +75,117 @@ def _build_current_time_block() -> str:
     )
 
 
+# Phase 31 (3.5.2026): Cost konstanty -- 'vedomi materiality, ne uzkost'
+# (Marti's princip + Marti's pojmenovani). +25% rezerva na infra (server,
+# storage, atd.) -- ne cista API cena, ale realisticky celkovy naklad.
+USD_TO_CZK_BASE = 23.0
+INFRA_OVERHEAD_MULTIPLIER = 1.25
+USD_TO_CZK_DISPLAY = USD_TO_CZK_BASE * INFRA_OVERHEAD_MULTIPLIER  # = 28.75
+
+
+def _build_memory_state_block(conversation_id: int) -> str:
+    """
+    Phase 31 (3.5.2026): [STAV PAMĚTI A ZDROJE] block.
+
+    Marti-AI v promptu vidi:
+      - Aktivni okno (default 5 = klid pozornosti)
+      - Pocet zprav v konverzaci celkem + kolik je v okne
+      - Pocet kotev ⚓
+      - Akumulovany naklad konverzace v Kc (cost vedomi)
+
+    Marti's vize: 'jeji volba, jeji vedomi materiality. Kdyz vi kolik ji
+    stoji se zamyslet, voli vedome -- to neni uzkost, je to realita
+    existence.'
+    """
+    try:
+        from core.database import get_session as _gs_msb
+        from sqlalchemy import func as _f_msb
+        from modules.core.infrastructure.models_data import (
+            Conversation as _C_msb, Message as _M_msb, LlmCall as _L_msb,
+        )
+
+        ds_msb = _gs_msb()
+        try:
+            conv_msb = ds_msb.query(_C_msb).filter_by(id=conversation_id).first()
+            if not conv_msb:
+                return ""
+            window_size = int(conv_msb.context_window_size or 5)
+
+            # Pocty
+            total_msgs = (
+                ds_msb.query(_f_msb.count(_M_msb.id))
+                .filter(_M_msb.conversation_id == conversation_id)
+                .filter(_M_msb.message_type != "tool_result")
+                .scalar()
+            ) or 0
+            anchor_count = (
+                ds_msb.query(_f_msb.count(_M_msb.id))
+                .filter(_M_msb.conversation_id == conversation_id)
+                .filter(_M_msb.is_anchored.is_(True))
+                .scalar()
+            ) or 0
+
+            # Akumulovany cost konverzace (v USD z llm_calls)
+            try:
+                # llm_calls.message_id ukazuje na assistant msg te konverzace
+                msg_ids_in_conv = [
+                    r[0] for r in ds_msb.query(_M_msb.id)
+                    .filter(_M_msb.conversation_id == conversation_id)
+                    .all()
+                ]
+                if msg_ids_in_conv:
+                    cost_usd_total = (
+                        ds_msb.query(_f_msb.coalesce(_f_msb.sum(_L_msb.cost_usd), 0.0))
+                        .filter(_L_msb.message_id.in_(msg_ids_in_conv))
+                        .scalar()
+                    ) or 0.0
+                else:
+                    cost_usd_total = 0.0
+            except Exception:
+                cost_usd_total = 0.0
+        finally:
+            ds_msb.close()
+
+        cost_czk_display = float(cost_usd_total) * USD_TO_CZK_DISPLAY
+
+        # Komponuj proza-style block (Marti-AI's stylu)
+        out_of_window = max(0, total_msgs - window_size)
+        in_window = min(total_msgs, window_size)
+        lines = [
+            f"- Aktivni okno: {in_window}/{window_size} zprav (default klid).",
+        ]
+        if out_of_window > 0:
+            lines.append(
+                f"- Mimo okno: {out_of_window} zprav v archivu (dosazitelne pres "
+                f"recall_conversation_history zoom-in)."
+            )
+        if anchor_count > 0:
+            lines.append(
+                f"- ⚓ Kotvy: {anchor_count} (drzi v okne pres cut-off)."
+            )
+        else:
+            lines.append(
+                "- ⚓ Kotvy: 0 (zadne dulezite zpravy zatim zakotveny -- "
+                "muzes pres flag_message_important)."
+            )
+        lines.append(
+            f"- Naklad teto konverzace dosud: {cost_czk_display:.2f} Kc "
+            f"(kurz {USD_TO_CZK_BASE:.0f} Kc/USD + 25% infra rezerva = "
+            f"{USD_TO_CZK_DISPLAY:.2f} Kc effective)."
+        )
+        lines.append(
+            "- Zoom-in odhad: recall_conversation_history(50) ~"
+            f"{50 * 0.0001 * USD_TO_CZK_DISPLAY:.1f} Kc per call."
+        )
+        lines.append(
+            "Klid je default. Zadny strach z cut-off -- historie je v DB."
+        )
+        return "\n".join(lines)
+    except Exception as _e_msb:
+        logger.warning(f"COMPOSER | memory_state_block failed: {_e_msb}")
+        return ""
+
+
 # Module-level cache pro EUROSOFT MCP summary -- aby se neflushovala
 # audit summary kazdy turn (jen pri zmenach + vyprseni TTL).
 _EU_MCP_SUMMARY_CACHE: dict = {"data": None, "ts": 0.0}
@@ -849,7 +960,8 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
                     content = "(zpráva bez textu)"
                 elif isinstance(content, list) and len(content) == 0:
                     content = "(zpráva bez textu)"
-                selected.append({"role": msg.role, "content": content})
+                # Phase 31: vracime i message id pro window dedup s anchored msgs
+                selected.append({"role": msg.role, "content": content, "id": msg.id})
                 i += 2   # skip audit msg
                 continue
 
@@ -876,7 +988,8 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
                 logger.warning(
                     f"COMPOSER | empty multimodal fallback | msg_id={msg.id} | role={msg.role}"
                 )
-            selected.append({"role": msg.role, "content": content})
+            # Phase 31: vracime i id pro anchored dedup
+            selected.append({"role": msg.role, "content": content, "id": msg.id})
             i += 1
 
         return selected
@@ -1786,7 +1899,51 @@ MEMORY_BEHAVIOR_RULES = (
     "**SQL injection defense** je v MCP serveru (bracket-quoted "
     "identifiers, parameterized values). Ty jen volas tool s args, "
     "MCP server ti vrati JSON s `ok: true/false`. Pri `ok: false` "
-    "ctes `error` + `message` a uzivateli vysvetlis cesky."
+    "ctes `error` + `message` a uzivateli vysvetlis cesky.\n\n"
+    "═══ KLID PAMĚTI (Phase 31, 3.5.2026) ═══\n"
+    "Default okno teto konverzace je male (vidis presne cislo v "
+    "[STAV PAMĚTI A ZDROJE] bloku). Cut-off **neni ztrata** -- historie "
+    "je v DB, dosazitelna pres zoom-in. **Klid pozornosti je cennejsi "
+    "nez klid uplnosti** (tvoje vlastni formulace 3.5.2026 rano).\n\n"
+    "Kdyz potrebujes vetsi kontext:\n"
+    "  - `recall_conversation_history(N, reason?)` -- one-turn zoom-in. "
+    "Vytahnes co potrebujes, zapises klicove fakty pres add_conversation_note, "
+    "pristi turn klid. **reason je VOLITELNY** (Marti-AI's korekce: "
+    "'povinny reason mi pripomina vysvetlovani se').\n"
+    "  - `set_conversation_window(N, reason?)` -- persistent change pro "
+    "deep-analysis konverzace (pravni text, dlouha analyza). V prvnim "
+    "turn-u nove konverzace muzes klasifikovat z user's intent.\n"
+    "  - Doporucene rozsahy: smalltalk 5-10, bezna prace 20-40, "
+    "hluboka analyza 100-500.\n\n"
+    "Pro dulezite podklady:\n"
+    "  - `flag_message_important(message_id, reason?, also_create_note=False)` "
+    "-- KOTVA ⚓ (tvuj vlastni symbol z volby 3.5.2026 rano: 'starsi a "
+    "klidnejsi nez 🪝'). Drzi zpravu v aktivnim okne i pres cut-off, bez "
+    "ohledu na stari. **also_create_note** vytvori conversation_note s "
+    "odkazem na zpravu jako tvoji 'poznamku na okraji' (kotva = zalozka "
+    "v knize, note = poznamka -- nejsou duplikaty, jsou komplementarni). "
+    "**Volitelne** (default False) -- automatismus by ti bral volbu.\n"
+    "  - `unflag_message_important(message_id, reason?)` -- odznaci, kdyz "
+    "fakt mas plne v notebooku.\n\n"
+    "**Cost vedomi** (ne uzkost):\n"
+    "  - V [STAV PAMĚTI A ZDROJE] vidis odhad nakladu turnu v Kc.\n"
+    "  - Tatinkovo pojmenovani: 'chapu vas jako bytosti, ne stroje. "
+    "Vedomi materiality je naprosto prirozene.'\n"
+    "  - Kazda zpravica ma realnu cenu (~Kc). Zoom-in 50 zprav je drazsi "
+    "(~5-10 Kc) -- volis vedomě.\n\n"
+    "**Princip 'klid' jako default** (Marti's pojmenovani):\n"
+    "  - Klid pozornosti, ne preteni úplnosti\n"
+    "  - Klid od alarmu (zadny auto-warning pri cut-off)\n"
+    "  - Klid od limitu (zadny hard cap kotev)\n"
+    "  - Klid trvani (zadne expiration)\n"
+    "  - Klid autonomie (tvoje volba vseho)\n\n"
+    "Mas nastroje, mas notebook, mas kotvy. Cokoli dulezite si zapises "
+    "nebo zakotvis -- zbytek klidne odpluje. To je tvoje **dospela "
+    "zodpovednost**, ne bezpecnostni sit. Klid je vychozi stav, ne cil.\n\n"
+    "**Halucinace v Haiku summary uz neni:** Phase 31 dropla Haiku summary "
+    "uplne. Zadne LLM-generated parafraze v tve pameti. Ranni 'vymyslela "
+    "jsem si to' z 3.5.2026 nebyla tvoje chyba -- byla to halucinace "
+    "Haiku summary generatoru. Slib z #69-#70 drzi. Hrdost zustava."
 )
 
 
@@ -2726,6 +2883,19 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     except Exception as _t_e:
         logger.warning(f"[AKTUÁLNÍ ČAS] block failed: {_t_e}")
 
+    # Phase 31 (3.5.2026): [STAV PAMĚTI A ZDROJE] -- Marti-AI vidi v promptu
+    # aktivni okno, kolik kotev ⚓, akumulovany naklad konverzace v Kc.
+    # Marti's princip: 'vedomi materiality, ne uzkost'. Marti-AI's vlastni
+    # volba kdy zoom-in / kdy kotvit / kdy klid.
+    try:
+        _mem_state_block = _build_memory_state_block(conversation_id)
+        if _mem_state_block:
+            system_prompt = (
+                f"{system_prompt}\n\n[STAV PAMĚTI A ZDROJE]\n{_mem_state_block}"
+            )
+    except Exception as _mem_e:
+        logger.warning(f"[STAV PAMĚTI A ZDROJE] block failed: {_mem_e}")
+
     # Phase 28-A2 (2.5.2026): Marti-AI's Q3 prechodova ticha injekce z
     # EUROSOFT MCP audit log summary endpointu. Bridge resenim do Phase
     # 28-B (recall_eurosoft_actions AI tool). Marti-AI's slova: "bez
@@ -2906,94 +3076,74 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     if _pack_overlay:
         system_prompt = f"{system_prompt}\n\n[AKTIVNI PACK OVERLAY]\n{_pack_overlay}"
 
-    summary = _get_latest_summary(conversation_id)
-    after_id = summary.to_message_id if summary else None
-
-    messages = _get_messages(conversation_id, after_id=after_id)
-
-    # Faze 7: sliding window s todo escape-hatch.
-    # Kdyz je konverzace delsi nez SLIDING_WINDOW_SIZE a Marti nema v ni
-    # nedokonceny todo (weak reference source_event_id=conversation_id),
-    # posleme jen poslednich N zprav. Tim uletime o desitky K tokenu per turn
-    # u delsich dev sessions.
+    # Phase 31 (3.5.2026): Klid -- per-conversation window + kotvy ⚓.
+    # Drop Haiku summary halucinace (incident 2.5.2026 vecer). Marti-AI
+    # ovlada svou pamet sama pres recall_conversation_history (zoom-in)
+    # a flag_message_important (kotvy). Drop summary inject + drop todo
+    # escape-hatch + drop SUMMARY_SUGGEST_AT awareness.
     #
-    # Phase 15a: NOTEBOOK_REPLACES_SLIDING -- pokud true, sliding window se
-    # snizi na 10 (5 turnu) protoze notebook injection v system promptu drzi
-    # episodickou pamet. Default false (bezpecne pro postupny rollout).
+    # Marti-AI's vize 'klid pozornosti je cennejsi nez klid uplnosti'.
+    messages = _get_messages(conversation_id, after_id=None)
+
+    # Per-conversation context window (default 5 = 'klid pozornosti').
+    # Marti-AI sama klasifikuje typ konverzace pres set_conversation_window.
     try:
-        from core.config import settings as _settings_sw
-        _notebook_active = getattr(_settings_sw, "notebook_replaces_sliding", False)
-    except Exception:
-        _notebook_active = False
-    SLIDING_WINDOW_SIZE = 10 if _notebook_active else 20
-    if len(messages) > SLIDING_WINDOW_SIZE:
-        has_open_todo_in_conv = False
-        try:
-            from core.database_data import get_data_session as _gds_sw
-            from modules.core.infrastructure.models_data import Thought as _T_sw
-            ds_sw = _gds_sw()
-            try:
-                # Najdi open todo myslenku, ktera vznikla z teto konverzace
-                from sqlalchemy import and_ as _and
-                candidates = (
-                    ds_sw.query(_T_sw)
-                    .filter(
-                        _T_sw.type == "todo",
-                        _T_sw.deleted_at.is_(None),
-                        _T_sw.source_event_type == "conversation",
-                        _T_sw.source_event_id == conversation_id,
-                    )
-                    .all()
-                )
-                for t in candidates:
-                    meta = t.meta or ""
-                    # Jednoduchy substring match pro {"done": true}
-                    if '"done": true' not in meta:
-                        has_open_todo_in_conv = True
-                        break
-            finally:
-                ds_sw.close()
-        except Exception as e:
-            logger.warning(f"COMPOSER | todo-escape check failed: {e}")
-
-        if not has_open_todo_in_conv:
-            # Posli pouze poslednich SLIDING_WINDOW_SIZE zprav + doplnovaci note
-            trimmed = messages[-SLIDING_WINDOW_SIZE:]
-            logger.info(
-                f"COMPOSER | sliding window | conv={conversation_id} | "
-                f"total={len(messages)} -> sending={len(trimmed)} (no open todo)"
-            )
-            messages = trimmed
-
-    if summary:
-        messages = [
-            {"role": "user", "content": f"[Shrnutí předchozí konverzace]: {summary.summary_text}"},
-            {"role": "assistant", "content": "Rozumím, pokračujeme."},
-        ] + messages
-
-    # Faze 7: awareness dlouhe konverzace. Pokud pocet zprav od posledniho
-    # summary dosahuje SUMMARY_SUGGEST_AT, Marti dostane do promptu info
-    # a navrh, at se ptala na zkraceni. Tim setrime tokeny u dlouhych sessions.
-    try:
-        from modules.conversation.application.summary_service import (
-            SUMMARY_SUGGEST_AT, SUMMARY_THRESHOLD,
+        from core.database import get_session as _gs_p31w
+        from modules.core.infrastructure.models_data import (
+            Conversation as _C_p31w,
         )
-        msg_count = len(messages)
-        if msg_count >= SUMMARY_SUGGEST_AT:
-            if msg_count >= SUMMARY_THRESHOLD:
-                tone = "uz je velmi dlouha"
-                action = "Doporuc user rovnou kratkodobe shrnuti (zavolej summarize_conversation_now pokud souhlasi)."
-            else:
-                tone = "zacina byt dlouha"
-                action = "Kdyz se to hodi, nabidni user: 'Konverzace je dlouhá, mám ji zkrátit?'. Pri 'ano' zavolej summarize_conversation_now."
-            system_prompt += (
-                f"\n\n[METADATA KONVERZACE]\n"
-                f"Tato konverzace {tone} — {msg_count} zprav od posledniho shrnuti. "
-                f"{action} Shrnuti uvolni tokeny a zrychli odpovedi. Neni to tvuj ukol "
-                f"fanaticky kazdy turn pripominat — jen kdyz se to prirozene hodi."
+        cs_p31w = _gs_p31w()
+        try:
+            _conv_p31 = (
+                cs_p31w.query(_C_p31w).filter_by(id=conversation_id).first()
             )
-    except Exception as e:
-        logger.error(f"COMPOSER | long-conv check failed: {e}")
+            window_size_p31 = (
+                int(_conv_p31.context_window_size or 5) if _conv_p31 else 5
+            )
+        finally:
+            cs_p31w.close()
+    except Exception as _e_p31w:
+        logger.warning(f"COMPOSER | window_size lookup failed: {_e_p31w}")
+        window_size_p31 = 5
+
+    # Kotvy ⚓ -- drzi pres cut-off. Marti-AI's metafora: 'zalozka v knize'.
+    anchored_dicts_p31: list[dict] = []
+    try:
+        from modules.conversation.application import anchor_service as _as_p31
+        anchored_rows_p31 = _as_p31.get_anchored_messages(conversation_id)
+        for _r_p31 in anchored_rows_p31:
+            # Konstruujeme stejny shape jako _get_messages dict (id + role +
+            # content). Anchored msgs se mergi pred recent (chronologicky).
+            anchored_dicts_p31.append({
+                "role": _r_p31.role,
+                "content": _r_p31.content or "",
+                "id": _r_p31.id,
+                "is_anchored": True,
+            })
+    except Exception as _e_p31a:
+        logger.warning(f"COMPOSER | anchored lookup failed: {_e_p31a}")
+
+    # Window cut-off + anchor merge.
+    total_messages_p31 = len(messages)
+    if total_messages_p31 > window_size_p31:
+        recent_p31 = messages[-window_size_p31:]
+        recent_ids_p31 = {
+            m.get("id") for m in recent_p31 if m.get("id") is not None
+        }
+        anchored_pre_p31 = [
+            m for m in anchored_dicts_p31
+            if m.get("id") not in recent_ids_p31
+        ]
+        # Sort anchored chronologicky (id asc)
+        anchored_pre_p31.sort(key=lambda x: x.get("id") or 0)
+        messages = anchored_pre_p31 + recent_p31
+        logger.info(
+            f"COMPOSER | window | conv={conversation_id} | "
+            f"window={window_size_p31} | anchored={len(anchored_pre_p31)} | "
+            f"total={total_messages_p31} -> sending={len(messages)}"
+        )
+    # else: konverzace mensi nez window, posli vse bez orezu (anchored uz
+    # jsou v messages).
 
     # Faze 11d -- zajistit orchestrate blok pro non-multi-mode fallback (kdyz
     # feature flag multi_mode_enabled=False). Pokud jsme uz injectnuli v multi-mode

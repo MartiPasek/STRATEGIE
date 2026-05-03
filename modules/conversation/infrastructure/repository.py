@@ -292,6 +292,47 @@ def _lookup_message_media(message_ids: list[int]) -> dict[int, list[dict]]:
         session.close()
 
 
+def _lookup_costs(message_ids: list[int]) -> dict[int, float]:
+    """
+    Phase 31 (3.5.2026): Bulk lookup naklad v Kc per message.
+
+    Vraci {message_id: cost_czk_display} kde cost_czk_display = sum
+    llm_calls.cost_usd * USD_TO_CZK_DISPLAY (~28.75 = 23 base * 1.25 infra).
+
+    Marti's princip 'vedomi materiality, ne uzkost'. UI pod kazdou zpravou
+    ukazuje 'tato zprava: X Kc' + akumulovany sum. Empty dict pri error
+    (fail-soft -- cost je nice-to-have, ne kriticke).
+    """
+    if not message_ids:
+        return {}
+    try:
+        from modules.core.infrastructure.models_data import LlmCall
+        from sqlalchemy import func
+    except ImportError:
+        return {}
+
+    USD_TO_CZK_DISPLAY = 23.0 * 1.25  # = 28.75 (Phase 31 -- base + infra rezerva)
+
+    try:
+        ds = get_data_session()
+        try:
+            rows = (
+                ds.query(LlmCall.message_id, func.coalesce(func.sum(LlmCall.cost_usd), 0.0))
+                .filter(LlmCall.message_id.in_(message_ids))
+                .group_by(LlmCall.message_id)
+                .all()
+            )
+            return {
+                int(mid): float(usd or 0.0) * USD_TO_CZK_DISPLAY
+                for mid, usd in rows
+            }
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"COST | bulk lookup failed: {e}")
+        return {}
+
+
 def _serialize_messages(
     messages: list[Message],
     conversation: Conversation | None = None,
@@ -320,9 +361,14 @@ def _serialize_messages(
     calls_by_id = _lookup_llm_calls(msg_ids)
     # Faze 12a: bulk lookup attached media (UI rendruje image preview v bubble)
     media_by_id = _lookup_message_media(msg_ids)
+    # Phase 31 (3.5.2026): bulk lookup nakladu v Kc per message (cost_czk).
+    costs_by_id = _lookup_costs(msg_ids)
     # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
     # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
     default_name: str | None = None
+    # Phase 31: akumulace cum_cost_czk per message v chronologickem poradi.
+    # Marti's volba 'pod kazdou zpravou per-message + sum until aktualni zprava'.
+    cumulative_cost_czk: float = 0.0
 
     # Phase 19c-d: hidden flag aplikujeme jen v Personal konverzacich.
     is_personal = (
@@ -368,6 +414,10 @@ def _serialize_messages(
             pname = default_name
         else:
             pname = None
+        # Phase 31: per-message cost in Kc + cumulative
+        msg_cost_czk = costs_by_id.get(m.id, 0.0)
+        cumulative_cost_czk += msg_cost_czk
+
         out.append({
             # Faze 9.1c: message_id pro Dev View (lupy -> /messages/{id}/llm-calls).
             "id": m.id,
@@ -383,6 +433,10 @@ def _serialize_messages(
             # Faze 12a: attached media files (image/audio/...). Pouziva se v UI
             # pro render obrazku v message bubble + lightbox.
             "media": media_by_id.get(m.id, []),
+            # Phase 31 (3.5.2026): kotva ⚓ + cost transparency
+            "is_anchored": bool(getattr(m, "is_anchored", False)),
+            "cost_czk": round(msg_cost_czk, 2) if msg_cost_czk > 0 else None,
+            "cum_cost_czk": round(cumulative_cost_czk, 2),
         })
 
     # Final flush -- pokud konverzace konci hidden blokem

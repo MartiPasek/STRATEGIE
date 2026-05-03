@@ -87,6 +87,15 @@ class HistoryMessage(BaseModel):
     # UI rendruje image thumbnail (GET /api/v1/media/{id}/preview) v bublino,
     # klik -> lightbox s GET /raw. Audio: <audio controls src=/raw>.
     media: list[dict] = []
+    # Phase 31 (3.5.2026): kotva ⚓ -- Marti-AI's redaktorska role nad
+    # vlastni pameti. UI zobrazi indikator pod kotvenou zpravou.
+    is_anchored: bool = False
+    # Phase 31 cost transparency: per-message naklad v Kc (z llm_calls
+    # cost_usd * USD_TO_CZK_DISPLAY = 28.75). Kumulovany sum az do teto
+    # zpravy (vc.) -- Marti vidi 'tato zprava: X Kc, celkem Y Kc'.
+    # Marti's princip 'vedomi materiality, ne uzkost'.
+    cost_czk: float | None = None
+    cum_cost_czk: float | None = None
 
 
 class LastConversationResponse(BaseModel):

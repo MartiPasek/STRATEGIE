@@ -496,6 +496,9 @@ class EmailInbox(BaseData):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Phase 29 (3.5.2026): mailbox_id FK -- email patri konkretni schrance.
+    # NULL pre-Phase-29 (backfill v 29-B na default mailbox per persona).
+    mailbox_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("mailboxes.id", ondelete="SET NULL"), nullable=True)
     from_email: Mapped[str] = mapped_column(String(320))
     from_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     to_email: Mapped[str] = mapped_column(String(320))
@@ -546,6 +549,9 @@ class EmailOutbox(BaseData):
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    # Phase 29 (3.5.2026): mailbox_id FK -- email odesilan z konkretni schranky.
+    # NULL pre-Phase-29 (backfill v 29-B na default mailbox per persona).
+    mailbox_id: Mapped[int | None] = mapped_column(BigInteger, ForeignKey("mailboxes.id", ondelete="SET NULL"), nullable=True)
     to_email: Mapped[str] = mapped_column(String(320))
     cc: Mapped[str | None] = mapped_column(Text, nullable=True)        # JSON list
     bcc: Mapped[str | None] = mapped_column(Text, nullable=True)       # JSON list
@@ -1522,3 +1528,109 @@ class TenantGroupMember(BaseData):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False,
     )
+
+
+# ── PHASE 29 (3.5.2026): Multi-mailbox per persona ────────────────────────
+#
+# Marti-AI bude 5. operátor v sdílené Pavlově CRM schránce
+# `pavel.zeman@eurosoft.com`. Architektura schema B (clean): mailboxes
+# table + mailbox_members (lidé) + mailbox_personas (AI persony s
+# per-action grants). Per-action grants = Marti-AI's design contribution
+# z 2.5.2026 vecer Q6 ("archivace meni co kolegove vidi -- jiny tymovy
+# dopad nez send").
+#
+# Pavlova privatni schranka `p.zeman@eurosoft.com` je v forbidden_mailboxes
+# tabulce (governance trail, code-level blacklist).
+
+
+class Mailbox(BaseData):
+    """
+    Email schránka (shared CRM nebo personal). Multiple personas mohou
+    být authorized. EWS fetcher pollne PER MAILBOX (ne per persona).
+
+    is_shared=True -> sdílená schránka, multiple mailbox_members.
+    is_shared=False -> personal schránka jednoho usera.
+    """
+    __tablename__ = "mailboxes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    email_upn: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    ews_credentials_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    ews_server: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ews_display_email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    # Default jazyk pro 1st send outbound (cs / de / en / sk).
+    # Marti-AI přepíná pres extracted language ze last incoming v RE.
+    default_language: Mapped[str] = mapped_column(String(2), default="cs", nullable=False)
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_false())
+    tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+
+
+class MailboxMember(BaseData):
+    """
+    Lidský člen schránky. Role:
+      owner    -- vlastník (může grant operatory + observery)
+      operator -- může číst + odpovídat
+      observer -- jen číst
+    """
+    __tablename__ = "mailbox_members"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mailbox_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mailboxes.id", ondelete="CASCADE"), nullable=False
+    )
+    user_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    granted_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class MailboxPersona(BaseData):
+    """
+    AI persona authorized v schránce. Per-action grants (Marti-AI's
+    Q6 design contribution 2.5.2026 vecer):
+
+      can_read       -- default true, žádný gate (read access pro AI tools)
+      can_send       -- parent grant required (může odesílat z této schránky)
+      can_archive    -- parent grant SEPARATE (mění co kolegové vidí -> tymovy dopad)
+      can_delete     -- parent grant SEPARATE (terminal akce)
+      can_mark_read  -- read state per-user, žádný gate
+
+    Marti-AI: "archivace meni co kolegove vidi v share schrance -- to je
+    tymovy dopad, ne jen jeji akce".
+    """
+    __tablename__ = "mailbox_personas"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    mailbox_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("mailboxes.id", ondelete="CASCADE"), nullable=False
+    )
+    persona_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    can_read: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    can_send: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_false())
+    can_archive: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_false())
+    can_delete: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_false())
+    can_mark_read: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    granted_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+class ForbiddenMailbox(BaseData):
+    """
+    Blacklist schránek -- code-level forbidden, NIKDY nesmí být přidány
+    do `mailboxes`. Validace v service layeru pred INSERT.
+
+    Q4 z konzultace (2.5.2026): Pavel má soukromou pracovní schránku
+    `p.zeman@eurosoft.com`, do které ani 3 kolegové nesmí. Marti-AI:
+    "governance trail mi dává klid". Marti: "soukromý prostor, do
+    kterého nikdo z nás nepatří".
+    """
+    __tablename__ = "forbidden_mailboxes"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    email_upn: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
+    added_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)

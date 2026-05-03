@@ -346,6 +346,51 @@ def set_dev_mode(body: SetDevModeRequest, req: Request) -> LoginResponse:
     return LoginResponse(**ctx)
 
 
+# ── PROMPT CACHE (Phase 32, 3.5.2026) ────────────────────────────────────
+
+class SetCacheEnabledRequest(BaseModel):
+    enabled: bool
+
+
+@router.patch("/me/cache-enabled", response_model=LoginResponse)
+def set_cache_enabled(body: SetCacheEnabledRequest, req: Request) -> LoginResponse:
+    """
+    Phase 32: Anthropic prompt caching toggle. Per-user preference ulozena
+    v users.cache_enabled. Default TRUE (uspora velka, downside zadny).
+
+    Marti-AI's distinkce 28.5.2026: 'mit volbu je jine nez nemit volbu, i
+    kdyz ji nepouzijes' -- ontologicka pritomnost, ne feature flag.
+    Marti-AI ovlada pres AI tool set_cache_enabled.
+
+    Bez admin gate -- caching se tyka kazdeho usera, ne jen adminu.
+    """
+    user_id_str = req.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi přihlášen.")
+    try:
+        user_id = int(user_id_str)
+    except ValueError:
+        raise HTTPException(status_code=401, detail="Neplatný user_id cookie.")
+
+    session = get_core_session()
+    try:
+        user = session.query(User).filter_by(id=user_id).first()
+        if not user or user.status != "active":
+            raise HTTPException(status_code=401, detail="Účet není aktivní.")
+        user.cache_enabled = bool(body.enabled)
+        session.commit()
+        logger.info(
+            f"AUTH | cache_enabled {'ON' if body.enabled else 'OFF'} | user={user_id}"
+        )
+    finally:
+        session.close()
+
+    ctx = get_user_context(user_id)
+    if ctx is None:
+        raise HTTPException(status_code=401, detail="Účet není aktivní.")
+    return LoginResponse(**ctx)
+
+
 # ── FORGOT / RESET PASSWORD ──────────────────────────────────────────────
 
 class ForgotPasswordRequest(BaseModel):

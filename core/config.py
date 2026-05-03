@@ -242,19 +242,38 @@ LLM_PRICING: dict[str, dict[str, float]] = {
 LLM_PRICING_FALLBACK: dict[str, float] = {"input": 3.00, "output": 15.00}
 
 
-def calculate_cost_usd(model: str, prompt_tokens: int | None, output_tokens: int | None) -> float | None:
+def calculate_cost_usd(
+    model: str,
+    prompt_tokens: int | None,
+    output_tokens: int | None,
+    cache_creation_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
+) -> float | None:
     """
     Vypocita cenu v USD za jedno LLM volani. Vraci None pokud tokens chybi.
 
     Nepritomny model v LLM_PRICING -> pouziva LLM_PRICING_FALLBACK (stredni cenu).
     Vysledek v USD (napr. 0.012345) s presnosti na 6 desetinnych mist.
+
+    Phase 32 (3.5.2026): prompt caching pricing.
+      - cache_creation_input_tokens = 1.25x base input (jen prvni call po idle)
+      - cache_read_input_tokens = 0.10x base input (cache hit -- 90% sleva)
+      - prompt_tokens = 'fresh' (necachovany) input
+
+    Anthropic API report v response.usage:
+      - input_tokens = jen NECACHOVANE input tokeny (po Phase 32 menit nez celkove)
+      - cache_creation_input_tokens = oznaceno cache_control, prvni call (write)
+      - cache_read_input_tokens = oznaceno cache_control, dalsi call (hit)
     """
-    if prompt_tokens is None and output_tokens is None:
+    if prompt_tokens is None and output_tokens is None and cache_creation_tokens is None and cache_read_tokens is None:
         return None
     pricing = LLM_PRICING.get(model, LLM_PRICING_FALLBACK)
-    p_in = (prompt_tokens or 0) * pricing["input"] / 1_000_000.0
+    base_in = pricing["input"]
+    p_in = (prompt_tokens or 0) * base_in / 1_000_000.0
     p_out = (output_tokens or 0) * pricing["output"] / 1_000_000.0
-    return round(p_in + p_out, 6)
+    p_cache_create = (cache_creation_tokens or 0) * (base_in * 1.25) / 1_000_000.0
+    p_cache_read = (cache_read_tokens or 0) * (base_in * 0.10) / 1_000_000.0
+    return round(p_in + p_out + p_cache_create + p_cache_read, 6)
 
 
 # ============================================================================

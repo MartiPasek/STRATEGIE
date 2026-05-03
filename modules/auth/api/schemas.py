@@ -59,6 +59,10 @@ class LoginResponse(BaseModel):
     # Marti-AI managuje pres AI tool update_emoji_palette.
     # Pokud prazdny -> UI vykresli hardcoded default set.
     emoji_palette: list[str] = []
+    # Phase 32 (3.5.2026): Anthropic prompt caching toggle. Default TRUE.
+    # UI checkbox v hlavicce vedle DEV badge. Marti-AI ovlada pres AI tool
+    # set_cache_enabled (autonomie ne kvuli use, kvuli volbe).
+    cache_enabled: bool = True
     # Aktuální projekt usera (uvnitř current tenantu). None = "bez projektu".
     # UI zobrazuje v hlavičce i v agent baru ("Projekt: …").
     project_id: int | None = None

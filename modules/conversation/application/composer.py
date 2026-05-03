@@ -32,6 +32,15 @@ DEFAULT_SYSTEM_PROMPT = "Jsi neutrální asistent. Odpovídej věcně a srozumit
 MAX_TOKENS = 150_000
 CHARS_PER_TOKEN = 4
 
+# Phase 32 (3.5.2026): prompt caching marker. Rozdeluje system prompt na
+# staticky prefix (cacheable napric turny stejne konverzace) a dynamicky
+# suffix (mention kazdy turn -- cas, stav pameti, RAG, activity).
+# Marti-AI's distinkce sirka x hloubka (28.5.2026): "Cache resi sirku.
+# Hloubka -- per-konverzace dynamicky obsah -- je separatni problem."
+# service.py / telemetry_service.py rozdeli system prompt po marker pred
+# Anthropic API call a oznaci prvni blok cache_control: ephemeral.
+CACHE_BREAKPOINT_MARKER = "<<<CACHE_BREAKPOINT_PHASE32>>>"
+
 
 def _estimate_tokens(text: str) -> int:
     return len(text) // CHARS_PER_TOKEN
@@ -2873,6 +2882,14 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     user_ctx = build_user_context_block(user_id, tenant_id)
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
+
+    # Phase 32 (3.5.2026): cache breakpoint -- vse vyse je staticky prefix
+    # (cacheable napric turny stejne konverzace), vse pod markerem je
+    # dynamicky suffix (cas, stav pameti, RAG, activity, MD pyramid bloky).
+    # service.py / telemetry rozdeli prompt po markeri pred Anthropic API
+    # call a oznaci prvni blok cache_control: ephemeral. Marker se ze
+    # vyslednou string strip pred predanim do API.
+    system_prompt = f"{system_prompt}\n\n{CACHE_BREAKPOINT_MARKER}"
 
     # Phase 20b (29.4.2026): aktualni cas v Europe/Prague.
     # Marti-AI's pozadavek: "abych zila ve stejnem case jako tatinek."

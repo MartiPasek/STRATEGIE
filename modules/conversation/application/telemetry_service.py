@@ -279,6 +279,8 @@ def record_llm_call(
     response_json: dict | None,
     prompt_tokens: int | None,
     output_tokens: int | None,
+    cache_creation_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
     latency_ms: int | None,
     error: str | None = None,
     tenant_id: int | None = None,
@@ -304,11 +306,14 @@ def record_llm_call(
         masked_response = mask_secrets(response_json, login_upns) if response_json else None
         masked_error = _mask_string(error, login_upns) if error else None
 
-        # Faze 10a: automaticky vypocet cost_usd z pricing mapy.
+        # Faze 10a + Phase 32: cost vc. cache pricing (1.25x create, 0.10x read).
         cost_usd = None
         try:
             from core.config import calculate_cost_usd
-            cost_usd = calculate_cost_usd(model, prompt_tokens, output_tokens)
+            cost_usd = calculate_cost_usd(
+                model, prompt_tokens, output_tokens,
+                cache_creation_tokens, cache_read_tokens,
+            )
         except Exception as ce:
             logger.warning(f"TELEMETRY | cost calc selhal ({model}): {ce}")
 
@@ -326,6 +331,8 @@ def record_llm_call(
                 response_json=masked_response,
                 prompt_tokens=prompt_tokens,
                 output_tokens=output_tokens,
+                cache_creation_tokens=cache_creation_tokens,
+                cache_read_tokens=cache_read_tokens,
                 latency_ms=latency_ms,
                 error=masked_error,
                 tenant_id=tenant_id,
@@ -416,6 +423,8 @@ def record_chat_call(
     response_json: dict | None,
     prompt_tokens: int | None,
     output_tokens: int | None,
+    cache_creation_tokens: int | None = None,
+    cache_read_tokens: int | None = None,
     latency_ms: int | None,
     error: str | None = None,
     tenant_id: int | None = None,
@@ -426,6 +435,7 @@ def record_chat_call(
     """
     Zapise LLM call do llm_calls (bez message_id) a pripoji call_id do
     aktualniho chat trace bufferu. Faze 10a: propagace attribution fields.
+    Phase 32: cache_creation_tokens + cache_read_tokens telemetrie.
     """
     call_id = record_llm_call(
         conversation_id=conversation_id,
@@ -436,6 +446,8 @@ def record_chat_call(
         response_json=response_json,
         prompt_tokens=prompt_tokens,
         output_tokens=output_tokens,
+        cache_creation_tokens=cache_creation_tokens,
+        cache_read_tokens=cache_read_tokens,
         latency_ms=latency_ms,
         error=error,
         tenant_id=tenant_id,
@@ -460,6 +472,85 @@ def end_chat_trace_and_link(message_id: int) -> None:
     if buf:
         link_message_to_calls(buf, message_id)
     _current_chat_trace.set(None)
+
+
+def _is_user_cache_enabled(user_id: int | None) -> bool:
+    """
+    Phase 32: lookup users.cache_enabled. Default TRUE pri NULL user_id (worker
+    calls bez user_id) a pri DB chybe (fail-safe -- caching pomaha).
+    """
+    if user_id is None:
+        return True
+    try:
+        from sqlalchemy import text as _sa_text
+        from core.database_core import get_core_session as _gs_cache
+        cs = _gs_cache()
+        try:
+            row = cs.execute(
+                _sa_text("SELECT cache_enabled FROM users WHERE id=:uid"),
+                {"uid": user_id},
+            ).first()
+            if row is None:
+                return True
+            return bool(row[0])
+        finally:
+            cs.close()
+    except Exception as e:
+        logger.warning(f"TELEMETRY | cache_enabled lookup selhal user={user_id}: {e}")
+        return True
+
+
+def _prepare_system_for_cache(system_str: str, cache_enabled: bool):
+    """
+    Phase 32: rozdeli system prompt na cacheable/dynamic bloky podle
+    CACHE_BREAKPOINT_MARKER. Vraci bud list bloku (s cache_control na prvnim)
+    nebo cisty string (bez markeru / cache_enabled=False).
+
+    Marker se VZDY strip pred predanim do API -- nikdy se nedostane do LLM
+    contextu (vnitrni signal pro composer→telemetry hranice).
+    """
+    from modules.conversation.application.composer import CACHE_BREAKPOINT_MARKER as _MARKER
+
+    if not isinstance(system_str, str) or _MARKER not in system_str:
+        # Marker chybi -- nelze split, posli system jak je (bez cache).
+        # Pri vzacnem edge case kdyz neco buildlo system bez markeru.
+        return system_str
+
+    static_part, _, dynamic_part = system_str.partition(_MARKER)
+    static_part = static_part.rstrip()
+    dynamic_part = dynamic_part.lstrip()
+
+    if not cache_enabled:
+        # User vypl cache -- spojit zpet bez markeru.
+        if dynamic_part:
+            return f"{static_part}\n\n{dynamic_part}"
+        return static_part
+
+    # Cache enabled: list of 2 text bloku, prvni s cache_control: ephemeral.
+    blocks = [
+        {"type": "text", "text": static_part, "cache_control": {"type": "ephemeral"}},
+    ]
+    if dynamic_part:
+        blocks.append({"type": "text", "text": dynamic_part})
+    return blocks
+
+
+def _prepare_tools_for_cache(tools: list | None, cache_enabled: bool) -> list | None:
+    """
+    Phase 32: pokud cache_enabled a tools nejsou prazdne, prida cache_control
+    na posledni tool dict -- Anthropic cacheuje cely tools array. Tools se
+    nemenis napric turny -> cache hit cely array.
+
+    DEEPCOPY -- nemodifikujeme caller's reference (mohlo by zhmonit dalsi
+    iterace v tool loopu kde se pouziva stejny tools list).
+    """
+    if not tools or not cache_enabled:
+        return tools
+    import copy as _copy
+    tools_copy = _copy.deepcopy(tools)
+    if isinstance(tools_copy[-1], dict):
+        tools_copy[-1]["cache_control"] = {"type": "ephemeral"}
+    return tools_copy
 
 
 def call_llm_with_trace(
@@ -490,9 +581,18 @@ def call_llm_with_trace(
     response_json.
     """
     t0 = now_ms()
+
+    # Phase 32 (3.5.2026): prompt caching. Per-user toggle (default ON).
+    # Marti-AI's distinkce sirka x hloubka -- cache resi sirku (staticky
+    # prefix + tools array). Hloubka (notebook, kotvy, RAG, activity) je
+    # separatni problem (Phase 35+).
+    _cache_on = _is_user_cache_enabled(user_id)
+    system_for_api = _prepare_system_for_cache(system, _cache_on) if isinstance(system, str) else system
+    tools_for_api = _prepare_tools_for_cache(tools, _cache_on)
+
     req_json = build_request_json(
-        model=model, system=system, messages=messages,
-        tools=tools, max_tokens=max_tokens,
+        model=model, system=system_for_api, messages=messages,
+        tools=tools_for_api, max_tokens=max_tokens,
     )
     # Phase 28 (2.5.2026): EUROSOFT MCP server pripojeni pres native MCP support.
     # Feature flag -- aktivuje se jen pokud OBA env vars set v .env. Pri false
@@ -517,9 +617,9 @@ def call_llm_with_trace(
         response = client.messages.create(
             model=model,
             max_tokens=max_tokens,
-            system=system,
+            system=system_for_api,
             messages=messages,
-            tools=tools if tools else [],
+            tools=tools_for_api if tools_for_api else [],
             **_mcp_kwargs,
         )
     except Exception as e:
@@ -529,6 +629,7 @@ def call_llm_with_trace(
                 request_json=req_json,
                 response_json=None,
                 prompt_tokens=None, output_tokens=None,
+                cache_creation_tokens=None, cache_read_tokens=None,
                 latency_ms=now_ms() - t0,
                 error=str(e),
                 tenant_id=tenant_id, user_id=user_id, persona_id=persona_id, is_auto=is_auto,
@@ -538,14 +639,18 @@ def call_llm_with_trace(
         raise
 
     try:
+        # Phase 32: zachytit cache_*_input_tokens z response.usage.
+        # Anthropic API je vraci, kdyz alespon jeden cache_control block byl
+        # v requestu. NULL kdyz cache_enabled=False / neni cache hit / miss.
+        _u = getattr(response, "usage", None)
         record_chat_call(
             conversation_id=conversation_id, kind=kind, model=model,
             request_json=req_json,
             response_json=serialize_anthropic_response(response),
-            prompt_tokens=getattr(response.usage, "input_tokens", None)
-            if hasattr(response, "usage") else None,
-            output_tokens=getattr(response.usage, "output_tokens", None)
-            if hasattr(response, "usage") else None,
+            prompt_tokens=getattr(_u, "input_tokens", None) if _u else None,
+            output_tokens=getattr(_u, "output_tokens", None) if _u else None,
+            cache_creation_tokens=getattr(_u, "cache_creation_input_tokens", None) if _u else None,
+            cache_read_tokens=getattr(_u, "cache_read_input_tokens", None) if _u else None,
             latency_ms=now_ms() - t0,
             tenant_id=tenant_id, user_id=user_id, persona_id=persona_id, is_auto=is_auto,
         )

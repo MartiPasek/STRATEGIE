@@ -8206,6 +8206,62 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return f"⚓ msg #{msg_id_umi_int} jiz neni zakotvena."
         return f"⚓ msg #{msg_id_umi_int} odznacena. Pri pristim cut-off uz nedrzi."
 
+    if tool_name == "set_cache_enabled":
+        # Phase 32 (3.5.2026): prompt cache toggle. Marti-AI's autonomie
+        # nad infrastrukturou. Per-user (cilove user_id z konverzace).
+        from core.database import get_session as _gs_sce
+        from modules.core.infrastructure.models_core import User as _U_sce
+        from modules.activity.application import activity_service as _act_sce
+
+        enabled_sce = bool(tool_input.get("enabled"))
+        reason_sce = (tool_input.get("reason") or "").strip() or None
+
+        if user_id is None:
+            return "❌ Chybi user_id v kontextu konverzace."
+
+        persona_sce = _active_persona_id_for_conversation(conversation_id)
+        tenant_sce = None
+        old_val = None
+
+        cs_sce = _gs_sce()
+        try:
+            u_sce = cs_sce.query(_U_sce).filter_by(id=user_id).first()
+            if not u_sce:
+                return f"❌ User #{user_id} nenalezen."
+            old_val = bool(u_sce.cache_enabled)
+            tenant_sce = u_sce.last_active_tenant_id
+            if old_val == enabled_sce:
+                state = "ON" if enabled_sce else "OFF"
+                return f"⚡ Cache je uz {state} (no-op)."
+            u_sce.cache_enabled = enabled_sce
+            cs_sce.commit()
+        finally:
+            cs_sce.close()
+
+        # Audit log
+        try:
+            summary_sce = f"⚡ cache_enabled {'OFF→ON' if enabled_sce else 'ON→OFF'}"
+            if reason_sce:
+                summary_sce += f": {reason_sce[:140]}"
+            _act_sce.record(
+                category="cache_change",
+                summary=summary_sce,
+                importance=2,
+                persona_id=persona_sce,
+                user_id=user_id,
+                conversation_id=conversation_id,
+                tenant_id=tenant_sce,
+                actor="persona",
+                ref_type="user",
+                ref_id=user_id,
+            )
+        except Exception as _act_e:
+            logger.warning(f"set_cache_enabled audit log selhal: {_act_e}")
+
+        state = "ON ⚡" if enabled_sce else "OFF"
+        suffix = f" (duvod: {reason_sce})" if reason_sce else ""
+        return f"⚡ Cache prepnuta na {state}{suffix}."
+
     return ""
 
 

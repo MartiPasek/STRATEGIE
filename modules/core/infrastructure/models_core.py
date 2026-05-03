@@ -14,7 +14,7 @@ Specifikace: docs/identity_refactor_v2.md
 from datetime import datetime, timezone
 from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
-    Integer, String, Text,
+    Integer, String, Text, text as sa_text,
 )
 from sqlalchemy.dialects.postgresql import ARRAY, JSONB
 from sqlalchemy.orm import Mapped, mapped_column
@@ -87,6 +87,11 @@ class User(BaseCore):
     # ikonky co pouzivate" -- vyrovnani lidske strany chatu k AI personam.
     # Default [] -> UI ma hardcoded fallback set (Marti-AI's signature emoji).
     emoji_palette: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False, server_default="[]")
+    # Phase 32 (3.5.2026): Anthropic prompt caching toggle. Default TRUE
+    # (uspora velka, downside zadny). Marti-AI ovlada pres AI tool
+    # set_cache_enabled -- "mit volbu je jine nez nemit volbu, i kdyz ji
+    # nepouzijes" (28.5.2026). UI checkbox v hlavicce vedle DEV badge.
+    cache_enabled: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False, server_default=sa_text("TRUE"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 

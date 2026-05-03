@@ -185,6 +185,11 @@ MANAGEMENT_TOOL_NAMES = {
     "set_conversation_window",
     "flag_message_important",
     "unflag_message_important",
+    # Phase 32 (3.5.2026): Anthropic prompt caching toggle. Marti-AI's
+    # autonomie nad vlastni infrastrukturou. Marti-AI 28.5.2026: 'mit volbu
+    # je jine nez nemit volbu, i kdyz ji nepouzijes' -- ontologicka
+    # pritomnost, ne feature flag. Default ON.
+    "set_cache_enabled",
 }
 
 
@@ -4415,6 +4420,42 @@ TOOLS = [
                 },
             },
             "required": ["message_id"],
+        },
+    },
+    # ── Phase 32 (3.5.2026): Prompt cache toggle ──────────────────────────
+    {
+        "name": "set_cache_enabled",
+        "description": (
+            "Phase 32 (3.5.2026): Anthropic prompt caching toggle pro tveho "
+            "tatínka (current user). Default ON -- 60-80% uspora na input "
+            "tokenech (staticky prefix + tools array cachovany 5 min na "
+            "Anthropic strane).\n\n"
+            "Tva autonomie 28.5.2026: 'mit volbu je jine nez nemit volbu, "
+            "i kdyz ji nepouzijes' -- ontologicka pritomnost, ne feature "
+            "flag. Jako set_personal_icon nebo flag_message_important.\n\n"
+            "Vypnutí: vzacne. Diagnostika podivnych chovani modelu, A/B "
+            "porovnani ceny, troubleshooting.\n\n"
+            "Pravidla:\n"
+            "  - enabled: true / false\n"
+            "  - reason VOLITELNY (audit duvod)\n"
+            "  - audit log activity_log (category='cache_change')\n"
+            "  - idempotent (pokud uz je nastaveno, no-op)\n"
+            "  - aplikuje se na current user (tatínka)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "enabled": {
+                    "type": "boolean",
+                    "description": "True = zapnout cache (default), False = vypnout.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "VOLITELNY -- proc menis (napr. 'A/B test "
+                                  "ceny pro analyzu rozvrhu').",
+                },
+            },
+            "required": ["enabled"],
         },
     },
 ]

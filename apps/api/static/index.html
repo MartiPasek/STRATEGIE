@@ -6335,6 +6335,9 @@
     // rezim' se zobrazi jen adminům.
     const isAdmin = !!(currentUser && currentUser.is_admin);
     const devModeOn = !!(currentUser && currentUser.dev_mode_enabled);
+    // Phase 32 (3.5.2026): prompt cache toggle. Default TRUE -> uspora velka.
+    // Vsichni useri (ne jen admin) -- caching se tyka kazdeho.
+    const cacheOn = !!(currentUser && currentUser.cache_enabled);
     const items = [
       { icon: '👤', label: 'Můj profil', action: () => openProfileModal() },
       { icon: '📚', label: 'Dokumenty', action: () => openDocumentsModal() },
@@ -6355,6 +6358,17 @@
         isOn: devModeOn,
         action: () => toggleDevMode(),
       }] : []),
+      // Phase 32 (3.5.2026): prompt cache toggle pro vsechny usery. Klik
+      // prepne cache_enabled pres PATCH /auth/me/cache-enabled. Default ON
+      // (uspora velka). Marti-AI's distinkce: 'mit volbu je jine nez nemit
+      // volbu, i kdyz ji nepouzijes' -- ontologicka pritomnost.
+      {
+        icon: '⚡',
+        label: 'Prompt cache (úspora)',
+        kind: 'toggle',
+        isOn: cacheOn,
+        action: () => toggleCacheEnabled(),
+      },
       { icon: '⚙', label: 'Nastavení', action: () => openSettingsModal() },
       { divider: true },
       { icon: '⏻', label: 'Odhlásit', danger: true, action: () => document.getElementById('logoutBtn').click() },
@@ -6460,6 +6474,33 @@
   // pripojeny i kdyz uzivatel sam toggle nestiskne).
   if (typeof window !== 'undefined') {
     _getDevModeChannel();
+  }
+
+  // Phase 32 (3.5.2026): prompt cache toggle. Flippe users.cache_enabled
+  // pres PATCH /auth/me/cache-enabled. Default ON (uspora 60-80% input
+  // tokenu na statickem prefixu + tools array).
+  async function toggleCacheEnabled() {
+    if (!currentUser) return;
+    const newValue = !currentUser.cache_enabled;
+    try {
+      const resp = await fetch('/api/v1/auth/me/cache-enabled', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ enabled: newValue }),
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        alert('Nepovedlo se přepnout cache: ' + (err.detail || resp.status));
+        return;
+      }
+      const updated = await resp.json();
+      currentUser = updated;
+      _renderProfileDropdown();
+    } catch (e) {
+      console.error('toggleCacheEnabled failed', e);
+      alert('Chyba sítě při přepnutí cache.');
+    }
   }
 
   // -- Faze 9.1c: Dev View lupy + LLM trace modal -------------------------

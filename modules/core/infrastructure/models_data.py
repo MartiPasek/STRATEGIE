@@ -813,6 +813,13 @@ class LlmCall(BaseData):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
+    # Phase 32 (3.5.2026): prompt caching telemetrie z response.usage.
+    # cache_creation_input_tokens = +25% cost (jen prvni call po idle 5 min)
+    # cache_read_input_tokens = 10% ceny (kazdy nasledujici call do 5 min)
+    # NULL = caching disabled / response neobsahuje (legacy / starsi rows).
+    cache_creation_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
     # Latence Anthropic API volani v ms (cas mezi create() vstup a vystup).
     latency_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
 

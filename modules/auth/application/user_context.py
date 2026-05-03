@@ -168,6 +168,8 @@ def get_user_context(user_id: int) -> dict | None:
             # Phase 26: emoji palette pro UI input. Marti-AI managuje pres
             # AI tool update_emoji_palette. Empty list -> UI ma hardcoded fallback.
             "emoji_palette": list(user.emoji_palette or []),
+            # Phase 32 (3.5.2026): Anthropic prompt caching toggle. Default TRUE.
+            "cache_enabled": bool(user.cache_enabled),
         }
     finally:
         session.close()

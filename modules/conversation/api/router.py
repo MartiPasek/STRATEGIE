@@ -200,10 +200,12 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         _incarnation_chat = _build_incarnation_safe(conversation_id)
 
         # Phase 31-C polish (3.5.2026): live UI render. Fetch latest assistant
-        # msg id + cost_czk + llm_calls aby UI po addMessage mohlo rendrovat
-        # lupy + cost bez hard reload (pred fixem se ukazaly az po reload).
+        # msg id + cost_czk + cum_cost_czk + llm_calls aby UI po addMessage
+        # mohlo rendrovat lupy + cost bez hard reload (pred fixem se ukazaly
+        # az po reload).
         _assistant_msg_id: int | None = None
         _cost_czk: float | None = None
+        _cum_cost_czk: float | None = None
         _llm_calls: list[dict] = []
         try:
             from core.database_data import get_data_session as _gds_p31uc
@@ -211,6 +213,7 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
                 Message as _Msg_p31uc,
                 LlmCall as _LC_p31uc,
             )
+            from sqlalchemy import func as _sa_func_p31uc
             _ds_p31uc = _gds_p31uc()
             try:
                 # Latest assistant text msg (skip tool_result audit pseudo-user)
@@ -234,12 +237,25 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
                         {"id": c.id, "kind": c.kind, "latency_ms": c.latency_ms}
                         for c in _calls_rows
                     ]
-                    # cost_czk = SUM(cost_usd) * 28.75 (USD_TO_CZK_DISPLAY)
+                    # Per-message cost = SUM(cost_usd) * 28.75 (USD_TO_CZK_DISPLAY)
                     _cost_sum = sum(
                         float(c.cost_usd or 0.0) for c in _calls_rows
                     )
                     if _cost_sum > 0:
                         _cost_czk = round(_cost_sum * 28.75, 2)
+                # Kumulativni cost konverzace (vsechny llm_calls.cost_usd
+                # v teto conversation_id, sjednocene s repository._lookup_costs).
+                _cum_usd = (
+                    _ds_p31uc.query(
+                        _sa_func_p31uc.coalesce(
+                            _sa_func_p31uc.sum(_LC_p31uc.cost_usd), 0.0
+                        )
+                    )
+                    .filter(_LC_p31uc.conversation_id == conversation_id)
+                    .scalar()
+                )
+                if _cum_usd:
+                    _cum_cost_czk = round(float(_cum_usd) * 28.75, 2)
             finally:
                 _ds_p31uc.close()
         except Exception as _e_p31uc:
@@ -268,6 +284,7 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             # po addMessage bez hard reload.
             assistant_message_id=_assistant_msg_id,
             cost_czk=_cost_czk,
+            cum_cost_czk=_cum_cost_czk,
             llm_calls=_llm_calls,
         )
     except HTTPException:

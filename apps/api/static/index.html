@@ -9583,11 +9583,12 @@
       msg.appendChild(timeEl);
     }
     // Phase 31-C polish (3.5.2026): pro live assistant message preneseny
-    // extras (messageId, costCzk, llmCalls) z chat response. Renderujeme
-    // lupy + cost stejne jako renderMessage v history.
+    // extras (messageId, costCzk, cumCostCzk, llmCalls) z chat response.
+    // Renderujeme lupy + cost stejne jako renderMessage v history.
     if (role === 'assistant' && type !== 'loading' && type !== 'error') {
       const messageId = extras.messageId || null;
       const costCzk = (typeof extras.costCzk === 'number') ? extras.costCzk : null;
+      const cumCostCzk = (typeof extras.cumCostCzk === 'number') ? extras.cumCostCzk : null;
       const llmCalls = Array.isArray(extras.llmCalls) ? extras.llmCalls : [];
       if (messageId) {
         msg.dataset.messageId = messageId;
@@ -9607,10 +9608,13 @@
         const costEl = document.createElement('div');
         costEl.className = 'msg-cost';
         const costStr = costCzk.toFixed(2).replace('.', ',');
-        // Live mode neumi kumulativni soucet (cum_cost_czk neni dostupny
-        // bez full conversation reload). Per-message cost staci.
-        costEl.textContent = `${costStr} Kč`;
-        costEl.title = 'Cena této zprávy v Kč. Po reload uvidíš i kumulativní součet konverzace.';
+        const cumStr = (typeof cumCostCzk === 'number')
+          ? cumCostCzk.toFixed(2).replace('.', ',')
+          : null;
+        costEl.textContent = cumStr
+          ? `${costStr} Kč · celkem ${cumStr} Kč`
+          : `${costStr} Kč`;
+        costEl.title = 'Cena této zprávy (LLM volání) v Kč. Druhý údaj je kumulativní součet od začátku konverzace.';
         const lupyBox = msg.querySelector('.dev-lupy');
         if (lupyBox) {
           lupyBox.appendChild(costEl);
@@ -9786,11 +9790,12 @@
           renderProjectSidebar();
         }
         // Phase 31-C polish (3.5.2026): live UI render -- backend vrati
-        // assistant_message_id + cost_czk + llm_calls aby UI rendrovalo
-        // lupy + cost bez hard reset.
+        // assistant_message_id + cost_czk + cum_cost_czk + llm_calls aby
+        // UI rendrovalo lupy + cost bez hard reset.
         addMessage('assistant', data.reply, 'text', {
           messageId: data.assistant_message_id || null,
           costCzk: (typeof data.cost_czk === 'number') ? data.cost_czk : null,
+          cumCostCzk: (typeof data.cum_cost_czk === 'number') ? data.cum_cost_czk : null,
           llmCalls: Array.isArray(data.llm_calls) ? data.llm_calls : [],
         });
         // Banner pokud backend shrnul starší historii v tomto cyklu

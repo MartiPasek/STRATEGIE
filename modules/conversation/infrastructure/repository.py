@@ -363,6 +363,27 @@ def _serialize_messages(
     media_by_id = _lookup_message_media(msg_ids)
     # Phase 31 (3.5.2026): bulk lookup nakladu v Kc per message (cost_czk).
     costs_by_id = _lookup_costs(msg_ids)
+    # Phase 31 polish (3.5.2026): zoom-in N per assistant message. Detekuj
+    # recall_conversation_history tool_use v audit follow-up tool_blocks.
+    # Single pass napric messages -- pokud msg s tool_blocks ma recall, mapuj
+    # to NA PREDCHAZEJICI assistant (audit je vzdy po assistant message).
+    zoom_by_assistant_id: dict[int, int] = {}
+    prev_assistant_id: int | None = None
+    for m in messages:
+        if m.role == "assistant" and m.message_type != "tool_result":
+            prev_assistant_id = m.id
+        elif m.message_type == "tool_result" and m.tool_blocks and prev_assistant_id:
+            blocks = m.tool_blocks if isinstance(m.tool_blocks, list) else []
+            for b in blocks:
+                if (
+                    isinstance(b, dict)
+                    and b.get("type") == "tool_use"
+                    and b.get("name") == "recall_conversation_history"
+                ):
+                    n = (b.get("input") or {}).get("n_messages")
+                    if isinstance(n, int):
+                        zoom_by_assistant_id[prev_assistant_id] = n
+                        break
     # Default nacteme jednou a jen kdyz je potreba (uzivateli bez historie
     # zbytecnou query neusetrime, ale nechat to leniveho je hezci).
     default_name: str | None = None
@@ -437,6 +458,8 @@ def _serialize_messages(
             "is_anchored": bool(getattr(m, "is_anchored", False)),
             "cost_czk": round(msg_cost_czk, 2) if msg_cost_czk > 0 else None,
             "cum_cost_czk": round(cumulative_cost_czk, 2),
+            # Phase 31 polish (3.5.2026): zoom-in N per assistant msg.
+            "zoom_in_n": zoom_by_assistant_id.get(m.id),
         })
 
     # Final flush -- pokud konverzace konci hidden blokem

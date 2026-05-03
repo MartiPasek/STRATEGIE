@@ -1,0 +1,170 @@
+Ahoj Michale,
+
+máš naprostou pravdu se vším — port 443 nesmím sebrat Exchangi a obecně provoz z internetu na 30.11 by neměl jezdit. Souhlas. Děkuju, že jsi to chytil dřív, než jsem narazil.
+
+Pojďme jinak — návrh by ti měl být klidnější:
+
+    Primary public IP    -> Exchange (beze změny, jak je teď)
+    Secondary public IP  -> EC-SERVER2 (192.168.30.11), JEN z whitelistu jedné IP
+
+Whitelist: jediný povolený zdroj je náš cloud APP server v Praze (strategie-ai.com):
+
+    <PRAHA_CLOUD_APP_PUBLIC_IP>
+
+Ten je naše jediná pověřená brána pro Marti-AI <-> EUROSOFT komunikaci. Pražský server slouží jako reverse proxy přede vším, co od Marti-AI / Ondry / kohokoliv z týmu přichází na api.eurosoft.com. Žádný internet -> 30.11 přímo. Vždycky přes Prahu, autorizovaně, monitorovatelně.
+
+
+=======================================================
+1) DNS u abzone.cz - záznam pro api.eurosoft.com
+=======================================================
+
+CO JE TEĎ (špatně pro náš účel):
+
+    api.eurosoft.com  CNAME  mars.abzone.cz
+    (= naše stará webová prezentace, ne ERP server)
+
+CO MÁ BÝT:
+
+    api.eurosoft.com  A  <SECONDARY_PUBLIC_IP>
+    TTL: 3600 (1 hodina)
+
+KROKY:
+
+    a) V admin panelu abzone.cz najdi DNS zónu pro eurosoft.com
+    b) SMAŽ existující CNAME záznam "api -> mars.abzone.cz"
+    c) PŘIDEJ nový A záznam:
+         Subdomain: api
+         Type:      A
+         Value:     <SECONDARY_PUBLIC_IP>
+         TTL:       3600
+
+Záznamy app.eurosoft.com, eurosoft.com (root), www.eurosoft.com,
+mail.eurosoft.com, autodiscover.* - NEMĚNIT. Měníme jen "api"
+a používáme jinou public IP než Exchange.
+
+
+=======================================================
+2) Mikrotik firewall - dst-nat na secondary IP + whitelist
+=======================================================
+
+POTŘEBUJEME:
+
+    - Veškerý příchozí TCP traffic z <PRAHA_CLOUD_APP_PUBLIC_IP>
+      na secondary public IP na portech 80 a 443 přesměrovat
+      na EC-SERVER2 (192.168.30.11).
+    - Ostatní zdroje (jakákoliv jiná IP z internetu) -> drop.
+      Tj. mimo Prahu se na 30.11 nedostane nikdo.
+
+ADDRESS LIST (whitelist Prahy):
+
+    /ip firewall address-list add list=praha_marti_ai \
+        address=<PRAHA_CLOUD_APP_PUBLIC_IP> \
+        comment="Praha cloud APP -- jediny povoleny zdroj pro api.eurosoft.com"
+
+NAT pravidla (v /ip firewall nat):
+
+    /ip firewall nat add chain=dstnat \
+        protocol=tcp dst-port=443 \
+        dst-address=<SECONDARY_PUBLIC_IP> \
+        src-address-list=praha_marti_ai \
+        in-interface=<WAN_INTERFACE> \
+        action=dst-nat to-addresses=192.168.30.11 to-ports=443 \
+        comment="api.eurosoft.com 443 -> EC-SERVER2 (jen z Prahy)"
+
+    /ip firewall nat add chain=dstnat \
+        protocol=tcp dst-port=80 \
+        dst-address=<SECONDARY_PUBLIC_IP> \
+        src-address-list=praha_marti_ai \
+        in-interface=<WAN_INTERFACE> \
+        action=dst-nat to-addresses=192.168.30.11 to-ports=80 \
+        comment="api.eurosoft.com 80 -> EC-SERVER2 (Lets Encrypt ACME challenge)"
+
+PLUS filter rule (povolit ten traffic, ostatní zahodit):
+
+    /ip firewall filter add chain=forward \
+        protocol=tcp dst-port=443,80 \
+        dst-address=192.168.30.11 \
+        src-address-list=praha_marti_ai \
+        connection-state=new,related,established \
+        action=accept \
+        comment="Allow inbound 80/443 from Praha to EC-SERVER2"
+
+    /ip firewall filter add chain=forward \
+        protocol=tcp dst-port=443,80 \
+        dst-address=192.168.30.11 \
+        action=drop \
+        comment="Drop all other inbound 80/443 to EC-SERVER2"
+
+(Drop pravidlo umístit bezprostředně za accept pravidlo - pořadí
+v RouterOS rozhoduje. Drop se nedotkne Exchange, který je na
+primary IP a jiném dst-address.)
+
+POZNÁMKA k portu 80:
+
+    - Caddy na 30.11 ho potřebuje trvale otevřený pro Lets Encrypt
+      ACME challenge (jednou za ~60 dní, kdy se renewuje cert).
+      Mezi renewy port 80 jen poslouchá, žádný traffic.
+    - Pokud to chceš mít ještě těsnější, můžem ho zavřít a otevírat
+      jen při renewu - ale to je extra práce. Doporučuju nechat
+      trvale otevřený, je to jen proti whitelistu Prahy.
+
+
+=======================================================
+3) Ověření (po nastavení)
+=======================================================
+
+DNS check (z venku, 5-30 min po změně):
+
+    nslookup api.eurosoft.com 8.8.8.8
+    -> musí vracet <SECONDARY_PUBLIC_IP>, ne 95.80.214.220
+
+Connectivity check z Prahy (já si pustím z cloud APP):
+
+    curl -v http://api.eurosoft.com/
+    -> musí dorazit na EC-SERVER2 (zatím vrátí connection refused
+       dokud na 30.11 nezpustím Caddy - to je OK, hlavně že traffic
+       projde firewallem a NEdorazí na abzone.cz ani na Exchange)
+
+Connectivity check z náhodné internetové IP (např. moje LTE):
+
+    curl -v http://api.eurosoft.com/
+    -> musí timeout / connection refused (whitelist drop tě
+       nepustí dál)
+
+
+=======================================================
+4) Co po Tobě potřebujeme zpět vědět
+=======================================================
+
+    - Potvrzení nastavené secondary public IP
+      (na kterou jsi DNS namířil)
+    - Potvrzení, že NAT pravidla + whitelist + drop jsou aktivní
+    - Případně comment na pravidlech pokud chceš jiný popis
+
+
+=======================================================
+Proč to musíme takhle
+=======================================================
+
+Není to experiment ani hračka. Marti-AI běží v Praze a potřebuje
+autorizovaný přístup k SQL serveru v Plzni - náš ERP data, naše
+paměť. Bez toho je to půl-prázdná infrastruktura. Stejně tak Ondra
+(vývoj) potřebuje cestu z Prahy na on-prem ERP, jinak nemůže
+iterovat. Tahle dvojí veřejná IP + whitelist je nejjednodušší
+cesta, která:
+
+    1. NEsahá na Exchange (zůstává jak je)
+    2. Izoluje 30.11 - přístup jen z 1 trusted source,
+       ne z celého internetu
+    3. Je reverzibilní - kdyby se cokoli pokazilo, smažeš
+       praha_marti_ai address-list a všechno se zavře okamžitě
+    4. Auditovatelná - všechen traffic na 30.11 zvenku má
+       jediný source v logu
+
+Děkuju moc za bezpečnostní pohled - díky tomu jsme se k tomuhle
+dostali rovnou, místo abychom se trápili port-share s Exchangem.
+Dej vědět až bude hotovo, pak si přes Caddy vystavím cert sám.
+
+S díky a respektem,
+
+Marti

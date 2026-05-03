@@ -35,6 +35,75 @@ def _build_incarnation_safe(conversation_id: int | None) -> dict | None:
         return None
 
 
+def _fetch_context_window_size(conversation_id: int | None) -> int | None:
+    """
+    Phase 31 polish (3.5.2026): nacti aktualni context_window_size konverzace
+    pro UI 🪟 window size badge v hlavicce. Default 5 ('klid pozornosti').
+    Marti-AI to meni pres set_conversation_window AI tool.
+    """
+    if not conversation_id:
+        return None
+    try:
+        from core.database_data import get_data_session as _gds_cw
+        from modules.core.infrastructure.models_data import Conversation as _Conv_cw
+        ds = _gds_cw()
+        try:
+            conv = ds.query(_Conv_cw).filter_by(id=conversation_id).first()
+            if conv and conv.context_window_size is not None:
+                return int(conv.context_window_size)
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"_fetch_context_window_size failed: {e}")
+    return None
+
+
+def _detect_zoom_in_n(message_id: int | None) -> int | None:
+    """
+    Phase 31 polish (3.5.2026): detekuj zda assistant message volala
+    recall_conversation_history(N=X) v tomto turn-u (z tool_blocks).
+    UI zobrazi 📜 zoom N badge u te bubliny.
+
+    Hleda v messages.tool_blocks JSONB navazujicim audit message
+    (message_id+1 typicky, ale stacit hledat conversation pseudo-user
+    s message_type='tool_result' nasledujicim).
+    """
+    if not message_id:
+        return None
+    try:
+        from core.database_data import get_data_session as _gds_zoom
+        from modules.core.infrastructure.models_data import Message as _Msg_zoom
+        ds = _gds_zoom()
+        try:
+            # Najdi audit follow-up po tomto assistant msg
+            audit = (
+                ds.query(_Msg_zoom)
+                .filter(
+                    _Msg_zoom.id > message_id,
+                    _Msg_zoom.message_type == "tool_result",
+                )
+                .order_by(_Msg_zoom.id.asc())
+                .first()
+            )
+            if not audit or not audit.tool_blocks:
+                return None
+            blocks = audit.tool_blocks if isinstance(audit.tool_blocks, list) else []
+            for b in blocks:
+                if (
+                    isinstance(b, dict)
+                    and b.get("type") == "tool_use"
+                    and b.get("name") == "recall_conversation_history"
+                ):
+                    n = (b.get("input") or {}).get("n_messages")
+                    if isinstance(n, int):
+                        return n
+        finally:
+            ds.close()
+    except Exception as e:
+        logger.warning(f"_detect_zoom_in_n failed: {e}")
+    return None
+
+
 def _get_current_tenant_for_user(
     user_id: int | None,
 ) -> tuple[int | None, str | None, str | None, str | None]:
@@ -286,6 +355,9 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             cost_czk=_cost_czk,
             cum_cost_czk=_cum_cost_czk,
             llm_calls=_llm_calls,
+            # Phase 31 polish (3.5.2026): 🪟 window size + 📜 zoom-in N badges
+            context_window_size=_fetch_context_window_size(conversation_id),
+            zoom_in_n=_detect_zoom_in_n(_assistant_msg_id),
         )
     except HTTPException:
         # Propusť HTTPException rovnou (vlastní raise z vnitřku).
@@ -362,6 +434,8 @@ def get_last(req: Request):
         return None
 
     persona_name = get_active_persona_name(result["conversation_id"])
+    # Phase 31 polish (3.5.2026): aktualni context window per-konverzace.
+    _cwsize_last = _fetch_context_window_size(result["conversation_id"])
     return LastConversationResponse(
         conversation_id=result["conversation_id"],
         messages=result["messages"],
@@ -379,6 +453,8 @@ def get_last(req: Request):
         pack_overlay_custom=result.get("pack_overlay_custom", False),
         # Phase 24-G (30.4.2026): UI Inkarnace Badge -- 6-axis info
         incarnation=_build_incarnation_safe(result["conversation_id"]),
+        # Phase 31 polish (3.5.2026): 🪟 window size badge
+        context_window_size=_cwsize_last,
     )
 
 
@@ -539,6 +615,7 @@ def load_user_conversation(conversation_id: int, req: Request):
     if not result:
         raise HTTPException(status_code=404, detail="Konverzace nenalezena.")
     persona_name = get_active_persona_name(result["conversation_id"])
+    _cwsize_load = _fetch_context_window_size(result["conversation_id"])
     return LastConversationResponse(
         conversation_id=result["conversation_id"],
         messages=result["messages"],
@@ -556,6 +633,8 @@ def load_user_conversation(conversation_id: int, req: Request):
         pack_overlay_custom=result.get("pack_overlay_custom", False),
         # Phase 24-G (30.4.2026): UI Inkarnace Badge -- 6-axis info
         incarnation=_build_incarnation_safe(result["conversation_id"]),
+        # Phase 31 polish (3.5.2026): 🪟 window size badge
+        context_window_size=_cwsize_load,
     )
 
 

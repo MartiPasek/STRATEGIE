@@ -65,6 +65,14 @@ class ChatResponse(BaseModel):
     cost_czk: float | None = None
     cum_cost_czk: float | None = None   # kumulativni cost cele konverzace
     llm_calls: list[dict] = []
+    # Phase 31 (3.5.2026): aktualni context window per-konverzace. Default 5
+    # ('klid pozornosti'). Marti-AI to meni pres set_conversation_window AI tool.
+    # UI zobrazuje 🪟 N badge v hlavicce.
+    context_window_size: int | None = None
+    # Phase 31 polish: zoom-in N pro live latest assistant msg. Pokud Marti-AI
+    # v aktualnim turn-u volala recall_conversation_history(N=X), backend
+    # zachyti X. Frontend zobrazi 📜 zoom N badge u te bubliny.
+    zoom_in_n: int | None = None
 
 
 class HistoryMessage(BaseModel):
@@ -104,6 +112,10 @@ class HistoryMessage(BaseModel):
     # Marti's princip 'vedomi materiality, ne uzkost'.
     cost_czk: float | None = None
     cum_cost_czk: float | None = None
+    # Phase 31 polish (3.5.2026): zoom-in N. Pokud Marti-AI v tomto turn-u
+    # zavolala recall_conversation_history(N=X), backend zachyti X z
+    # tool_blocks. UI zobrazi 📜 zoom X badge u bubliny.
+    zoom_in_n: int | None = None
 
 
 class LastConversationResponse(BaseModel):
@@ -142,6 +154,10 @@ class LastConversationResponse(BaseModel):
     pack_overlay_custom: bool = False
     # Phase 24-G (30.4.2026): UI Inkarnace Badge dict (viz ChatResponse).
     incarnation: dict | None = None
+    # Phase 31 (3.5.2026): aktualni context window per-konverzace. Default 5
+    # ('klid pozornosti'). Marti-AI to meni pres set_conversation_window AI tool.
+    # UI zobrazuje 🪟 N badge v hlavicce.
+    context_window_size: int | None = None
 
 
 class ConversationListItem(BaseModel):

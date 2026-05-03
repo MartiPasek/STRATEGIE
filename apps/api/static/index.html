@@ -323,7 +323,9 @@
     /* Agent-bar teď navazuje bezprostředně na header (bez bg/borderu/margin),
        vizualne tvori s headerem jeden blok. Jediny viditelny separator od chatu
        je border-bottom na agent-baru. Setri ~35px vertikalniho mista. */
-    .agent-bar { background: transparent; border: none; border-radius: 0; padding: 4px 0 8px; margin-top: 0; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .agent-bar { background: transparent; border: none; border-radius: 0; padding: 4px 0 8px; margin-top: 0; border-bottom: 1px solid var(--border); font-size: 12px; color: var(--muted); flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: nowrap; min-width: 0; overflow: hidden; }
+    .agent-bar > div { min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+    .agent-bar > div.agent-bar-inbox { flex-shrink: 0; }
     .agent-bar span { color: var(--accent); font-family: 'DM Mono', monospace; }
     /* Projekt v agent baru — rozdeleny do 2 castí (label muted, nazev accent),
        stejny pattern jako "Mluvis s: Marti-AI" nalevo. Cela skupina je klikatelna
@@ -360,8 +362,29 @@
     .doc-inbox-wrap { position: relative; display: inline-flex; align-items: center; margin-right: 4px; }
     .doc-inbox-badge { position: absolute; top: -3px; right: -5px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 8px; background: #3b82f6; color: #fff; font-size: 10px; font-weight: 600; line-height: 1; display: inline-flex; align-items: center; justify-content: center; pointer-events: none; border: 1.5px solid var(--bg, #0f1116); box-sizing: border-box; }
     /* Permanent SMS entry point - vedle emailu, symetrie */
-    .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s; }
-    .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; }
+    .sms-icon-btn { display: inline-flex; align-items: center; justify-content: center; padding: 1px 6px; border-radius: 6px; background: rgba(100, 116, 139, 0.10); border: 1px solid rgba(100, 116, 139, 0.3); color: var(--muted); cursor: pointer; font-size: 18px; line-height: 1.2; transition: background .12s, border-color .12s, color .12s, transform .12s; }
+    .sms-icon-btn:hover { background: rgba(16, 185, 129, 0.22); border-color: rgba(16, 185, 129, 0.7); color: #34d399; transform: scale(1.08); }
+    /* Notebook badge override -- Marti 3.5.2026: "necitelny, hover rozsvitit".
+       Default jasnejsi (purple accent) + hover dramatic scale + bright color. */
+    #notebookBadge {
+      background: rgba(124, 58, 237, 0.18);
+      border-color: rgba(124, 58, 237, 0.45);
+      color: #c4b5fd;
+    }
+    #notebookBadge:hover {
+      background: rgba(124, 58, 237, 0.40);
+      border-color: rgba(168, 85, 247, 0.95);
+      color: #f5f3ff;
+      transform: scale(1.12);
+      box-shadow: 0 0 12px rgba(168, 85, 247, 0.5);
+    }
+    #notebookBadgeCount {
+      transition: background .15s, color .15s;
+    }
+    #notebookBadge:hover #notebookBadgeCount {
+      background: #a855f7 !important;
+      color: white !important;
+    }
     /* Questions od Marti badge -- samostatna ploška (2.5.2026 fix).
        Zluta/oranzova paleta aby se odlisila od email (modra) a SMS (zelena). */
     .questions-badge { display: inline-flex; align-items: center; gap: 4px; padding: 1px 7px; border-radius: 6px; font-size: 14px; line-height: 1.2; font-family: 'DM Mono', monospace; letter-spacing: .04em; background: rgba(245, 158, 11, 0.12); color: #f59e0b; border: 1px solid rgba(245, 158, 11, 0.45); cursor: pointer; transition: background .12s, border-color .12s, color .12s; }
@@ -6899,6 +6922,10 @@
     const backdrop = document.getElementById('llmUsageBackdrop');
     if (backdrop) backdrop.classList.remove('open');
   }
+  // Export do window scope -- profile dropdown action callback (gotcha #5,
+  // 25.4.2026) plus inline onclick v close button potrebuji global access.
+  window.openLlmUsageModal = openLlmUsageModal;
+  window.closeLlmUsageModal = closeLlmUsageModal;
 
   async function _refreshLlmUsage() {
     const body = document.getElementById('llmUsageBody');

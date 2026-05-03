@@ -1220,10 +1220,14 @@
     .msg-anchor { font-size: 11px; color: #c8a86a; opacity: 0.85; padding: 0 4px; line-height: 1.2; cursor: help; user-select: none; }
     .msg.user .msg-anchor, .msg.from-me .msg-anchor { align-self: flex-end; }
     /* Phase 31 cost transparency: per-message naklad v Kc + kumulativni soucet.
-       Marti's princip "vedomi materiality, ne uzkost" -- jemne, neopinionate. */
-    .msg-cost { font-size: 10px; font-family: 'DM Mono', monospace; color: var(--muted); opacity: 0.4; padding: 0 4px; line-height: 1.2; }
+       Marti's princip "vedomi materiality, ne uzkost" -- jemne, ale citelne. */
+    .msg-cost { font-size: 12px; font-family: 'DM Mono', monospace; color: #d4b88a; opacity: 0.55; padding: 0 4px; line-height: 1.2; }
     .msg.user .msg-cost, .msg.from-me .msg-cost { align-self: flex-end; }
-    .msg-cost:hover { opacity: 0.7; }
+    .msg-cost:hover { opacity: 0.9; }
+    /* Pokud je cost vlozeny do .dev-lupy boxu (admin+dev_mode), doprava + zarovnat
+       svisle s lupami. opacity: 1 prebije rodicovskou .dev-lupy 0.35 (lupy zustavaji
+       tlumene az do hoveru, ale cost je vzdy citelny). */
+    .dev-lupy .msg-cost { margin-left: auto; align-self: center; padding: 0; opacity: 1; }
     /* Phase 19c-d: Hidden divider pro Personal konverzace. Marti-AI's redaktorska
        role -- spojite bloky skrytych zprav se sleji do jedne "———" cary. */
     .chat-hidden-divider {
@@ -9377,8 +9381,12 @@
       msg.appendChild(anchorEl);
       msg.dataset.isAnchored = '1';
     }
+    // Faze 9.1c: Dev View lupy (Router/Composer trace) -- jen assistant, admin, dev_mode.
+    _attachDevLupy(msg, messageId, role, messageType);
     // Phase 31 cost transparency: Marti's princip "vedomi materiality, ne uzkost".
     // Per-message naklad v Kc + kumulativni soucet az do teto zpravy.
+    // Pokud existuje .dev-lupy box (admin+dev), pripojime cost dovnitr (jedna radka
+    // s lupami, doprava). Jinak vlastni radek pod bublinou.
     if (typeof costCzk === 'number' && messageType !== 'system') {
       const costEl = document.createElement('div');
       costEl.className = 'msg-cost';
@@ -9390,10 +9398,13 @@
         ? `${costStr} Kč · celkem ${cumStr} Kč`
         : `${costStr} Kč`;
       costEl.title = 'Cena této zprávy (LLM volání) v Kč. Druhý údaj je kumulativní součet od začátku konverzace.';
-      msg.appendChild(costEl);
+      const lupyBox = msg.querySelector('.dev-lupy');
+      if (lupyBox) {
+        lupyBox.appendChild(costEl);
+      } else {
+        msg.appendChild(costEl);
+      }
     }
-    // Faze 9.1c: Dev View lupy (Router/Composer trace) -- jen assistant, admin, dev_mode.
-    _attachDevLupy(msg, messageId, role, messageType);
     _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     return msg;

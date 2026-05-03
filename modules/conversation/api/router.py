@@ -199,6 +199,52 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
         # Phase 24-G (30.4.2026): UI Inkarnace Badge dict
         _incarnation_chat = _build_incarnation_safe(conversation_id)
 
+        # Phase 31-C polish (3.5.2026): live UI render. Fetch latest assistant
+        # msg id + cost_czk + llm_calls aby UI po addMessage mohlo rendrovat
+        # lupy + cost bez hard reload (pred fixem se ukazaly az po reload).
+        _assistant_msg_id: int | None = None
+        _cost_czk: float | None = None
+        _llm_calls: list[dict] = []
+        try:
+            from core.database_data import get_data_session as _gds_p31uc
+            from modules.core.infrastructure.models_data import (
+                Message as _Msg_p31uc,
+                LlmCall as _LC_p31uc,
+            )
+            _ds_p31uc = _gds_p31uc()
+            try:
+                # Latest assistant text msg (skip tool_result audit pseudo-user)
+                _latest = (
+                    _ds_p31uc.query(_Msg_p31uc)
+                    .filter_by(conversation_id=conversation_id, role="assistant")
+                    .filter(_Msg_p31uc.message_type != "tool_result")
+                    .order_by(_Msg_p31uc.id.desc())
+                    .first()
+                )
+                if _latest:
+                    _assistant_msg_id = _latest.id
+                    # llm_calls pro tuto msg (Dev View lupy)
+                    _calls_rows = (
+                        _ds_p31uc.query(_LC_p31uc)
+                        .filter_by(message_id=_latest.id)
+                        .order_by(_LC_p31uc.id)
+                        .all()
+                    )
+                    _llm_calls = [
+                        {"id": c.id, "kind": c.kind, "latency_ms": c.latency_ms}
+                        for c in _calls_rows
+                    ]
+                    # cost_czk = SUM(cost_usd) * 28.75 (USD_TO_CZK_DISPLAY)
+                    _cost_sum = sum(
+                        float(c.cost_usd or 0.0) for c in _calls_rows
+                    )
+                    if _cost_sum > 0:
+                        _cost_czk = round(_cost_sum * 28.75, 2)
+            finally:
+                _ds_p31uc.close()
+        except Exception as _e_p31uc:
+            logger.warning(f"chat extras lookup selhal: {_e_p31uc}")
+
         return ChatResponse(
             conversation_id=conversation_id,
             reply=reply,
@@ -218,6 +264,11 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             pack_overlay_custom=_pack_overlay_custom,
             # Phase 24-G: 6-axis incarnation info
             incarnation=_incarnation_chat,
+            # Phase 31-C polish (3.5.2026): live UI render -- lupy + cost
+            # po addMessage bez hard reload.
+            assistant_message_id=_assistant_msg_id,
+            cost_czk=_cost_czk,
+            llm_calls=_llm_calls,
         )
     except HTTPException:
         # Propusť HTTPException rovnou (vlastní raise z vnitřku).

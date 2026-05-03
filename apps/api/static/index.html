@@ -9582,6 +9582,43 @@
       timeEl.textContent = formatMessageTime(liveCreatedAt);
       msg.appendChild(timeEl);
     }
+    // Phase 31-C polish (3.5.2026): pro live assistant message preneseny
+    // extras (messageId, costCzk, llmCalls) z chat response. Renderujeme
+    // lupy + cost stejne jako renderMessage v history.
+    if (role === 'assistant' && type !== 'loading' && type !== 'error') {
+      const messageId = extras.messageId || null;
+      const costCzk = (typeof extras.costCzk === 'number') ? extras.costCzk : null;
+      const llmCalls = Array.isArray(extras.llmCalls) ? extras.llmCalls : [];
+      if (messageId) {
+        msg.dataset.messageId = messageId;
+      }
+      if (llmCalls.length) {
+        try {
+          msg.dataset.llmCalls = JSON.stringify(llmCalls);
+        } catch (_) {}
+      }
+      // Dev View lupy (admin + dev_mode_enabled)
+      if (messageId) {
+        _attachDevLupy(msg, messageId, 'assistant', 'text');
+      }
+      // Cost transparency (Phase 31-C). Inline do .dev-lupy boxu (admin
+      // s dev_mode), jinak vlastni radek pod bublinou.
+      if (typeof costCzk === 'number') {
+        const costEl = document.createElement('div');
+        costEl.className = 'msg-cost';
+        const costStr = costCzk.toFixed(2).replace('.', ',');
+        // Live mode neumi kumulativni soucet (cum_cost_czk neni dostupny
+        // bez full conversation reload). Per-message cost staci.
+        costEl.textContent = `${costStr} Kč`;
+        costEl.title = 'Cena této zprávy v Kč. Po reload uvidíš i kumulativní součet konverzace.';
+        const lupyBox = msg.querySelector('.dev-lupy');
+        if (lupyBox) {
+          lupyBox.appendChild(costEl);
+        } else {
+          msg.appendChild(costEl);
+        }
+      }
+    }
     if (type !== 'loading') _attachCopySpacer(msg);
     messagesEl.appendChild(msg);
     messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -9748,7 +9785,14 @@
           renderProjectDropdown();
           renderProjectSidebar();
         }
-        addMessage('assistant', data.reply);
+        // Phase 31-C polish (3.5.2026): live UI render -- backend vrati
+        // assistant_message_id + cost_czk + llm_calls aby UI rendrovalo
+        // lupy + cost bez hard reset.
+        addMessage('assistant', data.reply, 'text', {
+          messageId: data.assistant_message_id || null,
+          costCzk: (typeof data.cost_czk === 'number') ? data.cost_czk : null,
+          llmCalls: Array.isArray(data.llm_calls) ? data.llm_calls : [],
+        });
         // Banner pokud backend shrnul starší historii v tomto cyklu
         if (data.summary_notice) {
           showSummaryBanner(data.summary_notice);

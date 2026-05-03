@@ -57,6 +57,13 @@ class ChatResponse(BaseModel):
     # (tenant_name / "personal" / null), mode (task/oversight/personal),
     # profession (core/tech/pravnik_cz/...).
     incarnation: dict | None = None
+    # Phase 31-C polish (3.5.2026): live UI render. Po chat() backend lookne
+    # latest assistant msg + jeho cost + llm_calls. Frontend addMessage je
+    # rendruje stejne jako renderMessage v history (lupy + cost transparency).
+    # Pred fixem se zobrazily az po hard reset / refresh.
+    assistant_message_id: int | None = None
+    cost_czk: float | None = None
+    llm_calls: list[dict] = []
 
 
 class HistoryMessage(BaseModel):

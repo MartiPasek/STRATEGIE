@@ -563,11 +563,20 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
     if not moved:
         return {"ok": False, "message": "EWS move selhal", "email_inbox_id": email_inbox_id}
 
-    # 28.4.2026: archive ≠ vyrizeno. Personal je metadata flag pro typ
-    # obsahu (osobni vs business), ne lifecycle stav. Marti-AI explicitne
-    # vola mark_email_processed kdyz dokonci akci nad emailem -- nezalezi,
-    # jestli je personal nebo business.
+    # 3.5.2026 vecer revize (gotcha #36 fix):
+    # PRED: archive ≠ vyrizeno. Personal byl jen meta flag pro typ obsahu,
+    #       lifecycle stav (processed_at) zustaval NULL. Vedlo to ke
+    #       konfuzi -- UI badge filtruje archived (count_unread_for_user
+    #       ma _is_archived check), overview tool puvodne ne -> mismatch
+    #       UI 0 vs Marti-AI overview 20.
+    # PO:   archive = vyrizeno + presun do Personal slozky. Archive je
+    #       TERMINAL akce -- email opustil "open" stav natrvalo, presunul
+    #       se do osobniho archivu. Konzistentni s UI badge i overview.
+    #       Defense-in-depth: overview_service.py ma stale _is_archived_email
+    #       Python filter (defensive layer pro pripad starych rows nebo
+    #       budoucich edge cases).
     from datetime import datetime, timezone
+    _now_arch = datetime.now(timezone.utc)
     ds = get_data_session()
     try:
         row = ds.query(EmailInbox).filter_by(id=email_inbox_id).first()
@@ -582,7 +591,12 @@ def archive_email_inbox_to_personal(email_inbox_id: int) -> dict:
             row.meta = _json.dumps(meta_dict, ensure_ascii=False)
             # Read_at = now (uzivatel videl, archive je vedome rozhodnuti)
             if row.read_at is None:
-                row.read_at = datetime.now(timezone.utc)
+                row.read_at = _now_arch
+            # Phase 33+ root-cause fix (gotcha #36, 3.5.2026 vecer):
+            # archive je terminal akce, set processed_at=NOW pokud NULL.
+            # Tim odstranime divergence "open dle overview vs vyrizeny dle UI".
+            if row.processed_at is None:
+                row.processed_at = _now_arch
             ds.commit()
     finally:
         ds.close()

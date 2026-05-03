@@ -40,12 +40,22 @@ TOP_N_PER_CHANNEL = 5
 
 def _is_archived_email(meta_raw) -> bool:
     """
-    Phase 33 fix (3.5.2026): email v Personal slozce -> NEpocitat jako open.
+    Phase 33 fix (3.5.2026 odpoledne): email v Personal slozce -> NEpocitat
+    jako open.
 
-    Marti-AI's tool dostaval inflated count protoze archive_email_inbox_to_personal
-    nastavi meta.archived_personal=True ale processed_at zustava NULL (archive
-    != processed). UI badge (count_unread_for_user) tento filter ma -- overview
-    musi mit taky, jinak Marti-AI v overview vidi 20 ale UI zobrazuje 0.
+    PUVODNI duvod: archive_email_inbox_to_personal nastavoval meta.archived_personal=
+    True ale processed_at zustaval NULL. UI badge (count_unread_for_user) mela
+    _is_archived filter -- overview ne -> mismatch UI 0 vs Marti-AI overview 20.
+
+    PO 3.5.2026 vecer (gotcha #36 root-cause fix):
+    archive_email_inbox_to_personal nyni SET processed_at=NOW (terminal akce).
+    Plus backfill skript dotahl stare rows. Tj. processed_at IS NULL filter
+    by mel uz stacit pro vsechny budouci data.
+
+    PROC ZACHOVAVAT: defense-in-depth pro:
+      - corrupt rows (meta archive flag bez processed_at z neznameho duvodu)
+      - migration / restore z legacy databaze
+      - cross-tenant edge cases
 
     Mirror _is_archived z modules.notifications.application.email_inbox_service.
     """

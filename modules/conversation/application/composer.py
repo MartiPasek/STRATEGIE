@@ -3153,4 +3153,12 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
         if _orch2:
             system_prompt = f"{system_prompt}\n\n[ORCHESTRATE MODE (aplikuj po tool_use)]\n{_orch2}"
 
+    # Phase 31-B fix: _get_messages vraci dicty s 'id' field (kvuli anchor dedup).
+    # Anthropic API striktne odmita extra fieldy -- 'messages.0.id: Extra inputs
+    # are not permitted'. Strip interni fieldy pred predanim do API.
+    messages = [
+        {"role": m["role"], "content": m["content"]}
+        for m in messages
+    ]
+
     return system_prompt, messages

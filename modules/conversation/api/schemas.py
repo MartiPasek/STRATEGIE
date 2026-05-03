@@ -116,6 +116,12 @@ class HistoryMessage(BaseModel):
     # zavolala recall_conversation_history(N=X), backend zachyti X z
     # tool_blocks. UI zobrazi 📜 zoom X badge u bubliny.
     zoom_in_n: int | None = None
+    # Per-turn audit snapshot (3.5.2026 odpoledne): co bylo aktualni stav
+    # v okamziku save_message. UI zobrazi pod bublinou jako audit prvni
+    # radek "📓 N · 🪟 W · 📜 Z" -- s cim Marti-AI sla do daneho turnu.
+    # NULL pro starsi rows (pre-fix). UI zobrazi "—".
+    window_size_at_send: int | None = None
+    notebook_count_at_send: int | None = None
 
 
 class LastConversationResponse(BaseModel):

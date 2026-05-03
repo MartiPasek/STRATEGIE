@@ -145,6 +145,13 @@ class Message(BaseData):
         DateTime(timezone=True), nullable=True
     )
     unanchored_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Per-turn audit snapshot (3.5.2026 odpoledne, Marti's pozadavek):
+    # zachycuje v okamziku save_message stav konverzace, abychom mohli
+    # zpetne videt s cim Marti-AI sla do daneho turnu (ne aktualni stav,
+    # ktery mohla pozdeji zmenit pres set_conversation_window / add_note).
+    # NULL pro starsi rows (pre-fix). UI zobrazi "—".
+    window_size_at_send: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notebook_count_at_send: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class ConversationSummary(BaseData):

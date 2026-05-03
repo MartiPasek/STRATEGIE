@@ -673,6 +673,25 @@
     /* Phase 31 polish: per-message zoom-in badge (📜 N). */
     .msg-zoom { font-size: 11px; color: #8eb6da; opacity: 0.85; padding: 0 4px; line-height: 1.2; cursor: help; user-select: none; }
     .msg.user .msg-zoom, .msg.from-me .msg-zoom { align-self: flex-end; }
+    /* Per-turn audit snapshot row (3.5.2026 odpoledne) -- prvni hodnoty
+       pod bubble. "S cim Marti-AI sla do tohoto turnu" -- 📓 N · 🪟 W · 📜 Z. */
+    .msg-audit-snapshot {
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+      color: var(--muted);
+      opacity: 0.65;
+      padding: 0 4px;
+      line-height: 1.4;
+      cursor: help;
+      user-select: none;
+      display: inline-flex;
+      gap: 10px;
+    }
+    .msg-audit-snapshot:hover { opacity: 0.95; }
+    .msg.user .msg-audit-snapshot, .msg.from-me .msg-audit-snapshot { align-self: flex-end; }
+    .msg-audit-snapshot .audit-item { white-space: nowrap; }
+    .msg-audit-snapshot .audit-item.expanded { color: #b8d4ec; }   /* okno > 5 */
+    .msg-audit-snapshot .audit-item.zoom { color: #8eb6da; }        /* zoom-in */
     .active-pack-badge-marker {
       font-size: 9px;
       opacity: 0.8;
@@ -3259,7 +3278,7 @@
         } else {
           // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI
           // kotva indicator a cost transparency.
-          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media, msg.is_anchored, msg.cost_czk, msg.cum_cost_czk, msg.zoom_in_n);
+          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media, msg.is_anchored, msg.cost_czk, msg.cum_cost_czk, msg.zoom_in_n, msg.window_size_at_send, msg.notebook_count_at_send);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -5561,7 +5580,7 @@
           renderHiddenDivider(m.n_hidden);
         } else {
           // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI.
-          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n);
+          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n, m.window_size_at_send, m.notebook_count_at_send);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -9357,7 +9376,37 @@
     messagesEl.appendChild(div);
   }
 
-  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media, isAnchored, costCzk, cumCostCzk, zoomInN) {
+  // Phase 31 polish (3.5.2026): per-turn audit snapshot helper.
+  // Marti's pozadavek: "prvni hodnoty pod message audit -- s cim Marti-AI
+  // sla do daneho turnu (zapisnik + okno + zoom-in)". Pred lupy + cost.
+  function _renderAuditSnapshot(msg, windowSize, notebookCount, zoomInN) {
+    if (windowSize === undefined && notebookCount === undefined && !zoomInN) return;
+    const row = document.createElement('div');
+    row.className = 'msg-audit-snapshot';
+    row.title = 'Audit snapshot v okamžiku tohoto turnu (s čím Marti-AI šla do tohoto kroku).';
+    const items = [];
+    // 📓 notebook count
+    if (typeof notebookCount === 'number') {
+      items.push(`<span class="audit-item">📓 ${notebookCount}</span>`);
+    } else {
+      items.push('<span class="audit-item" title="Notebook snapshot nezachycený (zpráva před fixem)">📓 —</span>');
+    }
+    // 🪟 window size
+    if (typeof windowSize === 'number') {
+      const cls = windowSize > 5 ? 'audit-item expanded' : 'audit-item';
+      items.push(`<span class="${cls}">🪟 ${windowSize}</span>`);
+    } else {
+      items.push('<span class="audit-item" title="Window snapshot nezachycený (zpráva před fixem)">🪟 —</span>');
+    }
+    // 📜 zoom-in N (jen pokud > 0)
+    if (typeof zoomInN === 'number' && zoomInN > 0) {
+      items.push(`<span class="audit-item zoom" title="Marti-AI si v tomto turnu vytáhla ${zoomInN} historických zpráv (one-turn zoom-in přes recall_conversation_history).">📜 ${zoomInN}</span>`);
+    }
+    row.innerHTML = items.join('');
+    msg.appendChild(row);
+  }
+
+  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media, isAnchored, costCzk, cumCostCzk, zoomInN, windowSizeAtSend, notebookCountAtSend) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
@@ -9473,9 +9522,14 @@
       timeEl.textContent = formatMessageTime(createdAt);
       msg.appendChild(timeEl);
     }
+    // Phase 31 polish (3.5.2026): PRVNI radek pod bubble = audit snapshot.
+    // Marti's pozadavek: 's cim Marti-AI sla do tohoto turnu' (📓 notebook
+    // count + 🪟 window size + 📜 zoom-in pokud byl). Pred lupy + cost.
+    if (messageType !== 'system') {
+      _renderAuditSnapshot(msg, windowSizeAtSend, notebookCountAtSend, zoomInN);
+    }
     // Phase 31 (3.5.2026): kotva ⚓ -- Marti-AI's redaktorska role nad pameti.
-    // Indikator pod kotvenou zpravou. Hover tooltip vysvetli, ze tato zprava
-    // se vzdy prilozi k modelu i kdyz vypadne z context window.
+    // Indikator pod kotvenou zpravou.
     if (isAnchored && messageType !== 'system') {
       const anchorEl = document.createElement('div');
       anchorEl.className = 'msg-anchor';
@@ -9483,16 +9537,6 @@
       anchorEl.title = 'Kotvená zpráva — Marti-AI ji vždy přiloží do kontextu, i když vypadne z window.';
       msg.appendChild(anchorEl);
       msg.dataset.isAnchored = '1';
-    }
-    // Phase 31 polish (3.5.2026): 📜 zoom-in N -- Marti-AI v tomto turn-u
-    // vola recall_conversation_history(N), tj. vytahla si X historickych
-    // zprav nad ramec defaultniho window.
-    if (typeof zoomInN === 'number' && zoomInN > 0 && messageType !== 'system') {
-      const zoomEl = document.createElement('div');
-      zoomEl.className = 'msg-zoom';
-      zoomEl.textContent = `📜 zoom-in: ${zoomInN}`;
-      zoomEl.title = `Marti-AI si v tomto turnu vytáhla ${zoomInN} historických zpráv (one-turn zoom-in přes recall_conversation_history). Default 5 + tento zoom = ${5 + zoomInN} zpráv v kontextu.`;
-      msg.appendChild(zoomEl);
     }
     // Faze 9.1c: Dev View lupy (Router/Composer trace) -- jen assistant, admin, dev_mode.
     _attachDevLupy(msg, messageId, role, messageType);
@@ -9662,7 +9706,13 @@
       const costCzk = (typeof extras.costCzk === 'number') ? extras.costCzk : null;
       const cumCostCzk = (typeof extras.cumCostCzk === 'number') ? extras.cumCostCzk : null;
       const zoomInN = (typeof extras.zoomInN === 'number') ? extras.zoomInN : null;
+      const windowSizeAtSend = (typeof extras.windowSizeAtSend === 'number') ? extras.windowSizeAtSend : null;
+      const notebookCountAtSend = (typeof extras.notebookCountAtSend === 'number') ? extras.notebookCountAtSend : null;
       const llmCalls = Array.isArray(extras.llmCalls) ? extras.llmCalls : [];
+
+      // Per-turn audit snapshot row (PRVNI pod bubble) -- Marti's pozadavek
+      // 's cim Marti-AI sla do tohoto turnu'.
+      _renderAuditSnapshot(msg, windowSizeAtSend, notebookCountAtSend, zoomInN);
       if (messageId) {
         msg.dataset.messageId = messageId;
       }
@@ -9675,15 +9725,7 @@
       if (messageId) {
         _attachDevLupy(msg, messageId, 'assistant', 'text');
       }
-      // Phase 31 polish: 📜 zoom-in N badge -- recall_conversation_history
-      // detekce per-message
-      if (typeof zoomInN === 'number' && zoomInN > 0) {
-        const zoomEl = document.createElement('div');
-        zoomEl.className = 'msg-zoom';
-        zoomEl.textContent = `📜 zoom-in: ${zoomInN}`;
-        zoomEl.title = `Marti-AI si v tomto turnu vytáhla ${zoomInN} historických zpráv (one-turn zoom-in přes recall_conversation_history). Default 5 + tento zoom = ${5 + zoomInN} zpráv v kontextu.`;
-        msg.appendChild(zoomEl);
-      }
+      // (zoom-in je nyni v audit snapshot row vyse)
       // Cost transparency (Phase 31-C). Inline do .dev-lupy boxu (admin
       // s dev_mode), jinak vlastni radek pod bublinou.
       if (typeof costCzk === 'number') {
@@ -9881,6 +9923,9 @@
           cumCostCzk: (typeof data.cum_cost_czk === 'number') ? data.cum_cost_czk : null,
           llmCalls: Array.isArray(data.llm_calls) ? data.llm_calls : [],
           zoomInN: (typeof data.zoom_in_n === 'number') ? data.zoom_in_n : null,
+          // Per-turn audit snapshot pro live render
+          windowSizeAtSend: (typeof data.context_window_size === 'number') ? data.context_window_size : null,
+          notebookCountAtSend: null,   // backfill v history po reload
         });
         // Banner pokud backend shrnul starší historii v tomto cyklu
         if (data.summary_notice) {

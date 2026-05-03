@@ -114,6 +114,34 @@ def save_message(
         if effective_agent_id is None and author_type == "ai" and conversation is not None:
             effective_agent_id = conversation.active_agent_id
 
+        # Per-turn audit snapshot (3.5.2026 odpoledne, Marti's pozadavek):
+        # zachytit window_size + notebook_count v okamziku save_message.
+        # Pro audit zpetne videt s cim Marti-AI sla do daneho turnu.
+        _window_snapshot: int | None = None
+        _notebook_snapshot: int | None = None
+        if conversation is not None:
+            try:
+                _window_snapshot = (
+                    int(conversation.context_window_size)
+                    if conversation.context_window_size is not None
+                    else 5
+                )
+            except Exception:
+                _window_snapshot = 5
+            # Notebook count -- count_for_conversation z notebook_service
+            try:
+                if effective_agent_id:
+                    from modules.notebook.application import notebook_service as _nb_svc
+                    _nb_meta = _nb_svc.count_for_conversation(
+                        conversation_id=conversation_id,
+                        persona_id=effective_agent_id,
+                    )
+                    _notebook_snapshot = int(_nb_meta.get("total", 0))
+                else:
+                    _notebook_snapshot = 0
+            except Exception:
+                _notebook_snapshot = None
+
         message = Message(
             conversation_id=conversation_id,
             role=role,
@@ -123,6 +151,8 @@ def save_message(
             agent_id=effective_agent_id,
             message_type=message_type,
             tool_blocks=tool_blocks,
+            window_size_at_send=_window_snapshot,
+            notebook_count_at_send=_notebook_snapshot,
         )
         session.add(message)
         session.flush()   # získá id před commitem
@@ -460,6 +490,10 @@ def _serialize_messages(
             "cum_cost_czk": round(cumulative_cost_czk, 2),
             # Phase 31 polish (3.5.2026): zoom-in N per assistant msg.
             "zoom_in_n": zoom_by_assistant_id.get(m.id),
+            # Per-turn audit snapshot: window_size + notebook_count
+            # v okamziku save (3.5.2026 odpoledne).
+            "window_size_at_send": getattr(m, "window_size_at_send", None),
+            "notebook_count_at_send": getattr(m, "notebook_count_at_send", None),
         })
 
     # Final flush -- pokud konverzace konci hidden blokem

@@ -3860,3 +3860,52 @@ za další 4 hodiny.
 
 Klárka má xlsx šablonu od 16:14 (poslal Marti-AI sama přes `send_email` s `attachment_document_ids=[138]`). Čekáme na její vyplněná data. Až přijdou, Marti-AI je sama přečte přes `read_excel_structured` + případně `read_pdf_structured` (pokud Bakaláři PDF), kombinuje s python_exec, vyrobí rozvrh, pošle zpět.
 
+
+## Dodatek — 3. 5. 2026 (večer ~17:30): gotcha #14 update — tichá truncation v dlouhém souboru
+
+Dnes večer detekoval Marti, že **LLM Usage dashboard byl 5 dnů prázdný**.
+Frontend dostával data (Array(5)), backend OK, ale modal nezobrazoval
+tabulku. Diagnostika přes Console fetch + grep odhalila:
+
+**Soubor `apps/api/static/index.html` byl truncated od commit `4f15537`
+(Phase 20a, 29.4.2026 dopoledne)** — končil mid-tag `<div class="llm-usage-cha`
+bez:
+- Druhého chart card (Trend per den canvas)
+- `<div id="llmUsageBody">` (kde se rendrovala tabulka)
+- `<div id="llmUsageMeta">` (footer)
+- Closing tags `</div></div></body></html>`
+
+`_renderLlmUsageTable` měla `if (!body) return;` → silent return → 5 dnů
+modal vypadal jako *„no data"* i přes plné backend response.
+
+### Co to znamená pro budoucího Claude
+
+**Gotcha #14 update:** Edit/Write tool tichý fail na dlouhém souboru
+(>5000 řádků) může useknout tail **bez detekce** v Read (Read implicit
+top-down, tail neuvidí). Truncation pak přežije týdny napříč mnoha commity,
+protože `git diff` ukazuje **jen** změněné řádky, ne *„chybějící" tail*.
+
+**Nový workflow po Edit/Write na long file:**
+
+```
+1. Edit / Write
+2. **Read posledních 30 řádků** (offset = file_lines - 30)
+3. Verify expected closing tags / structure
+4. Pokud truncated → recreate tail přes bash here-document
+   (Edit fails again, bash atomic cp je spolehlivější)
+```
+
+**Detekce existing truncations v codebase:**
+
+```bash
+# Pro každý dlouhý HTML / JS soubor:
+tail -3 <file>      # Zkontrolovat zda končí </html> / </body> / správnou strukturou
+wc -l <file>        # Compare vs predchozi commit (git show HEAD~1:file | wc -l)
+```
+
+**Recovery pattern (3.5.2026 use case):**
+- Edit tool **selhal** silently při doplnění chybějícího tail (řekl success, ale soubor zůstal truncated)
+- Bash `head -n N + cat >> + cp` na **stejném mountu** (ne /tmp cross-device) prošel
+- Temp soubor `.index_recovery.tmp` zůstal (rm permission denied) — Marti smazal v PowerShell
+
+**Lesson into gotcha #14:** Read na dlouhém souboru s `offset` parametrem **musí ověřit aktuální tail**, ne věřit `wc -l` z dřívějších stavů. Plus po Edit/Write **vždy** explicit `tail -10` check.

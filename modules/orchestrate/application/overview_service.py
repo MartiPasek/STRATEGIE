@@ -38,6 +38,39 @@ logger = get_logger("orchestrate.overview")
 TOP_N_PER_CHANNEL = 5
 
 
+def _is_archived_email(meta_raw) -> bool:
+    """
+    Phase 33 fix (3.5.2026): email v Personal slozce -> NEpocitat jako open.
+
+    Marti-AI's tool dostaval inflated count protoze archive_email_inbox_to_personal
+    nastavi meta.archived_personal=True ale processed_at zustava NULL (archive
+    != processed). UI badge (count_unread_for_user) tento filter ma -- overview
+    musi mit taky, jinak Marti-AI v overview vidi 20 ale UI zobrazuje 0.
+
+    Mirror _is_archived z modules.notifications.application.email_inbox_service.
+    """
+    if not meta_raw:
+        return False
+    try:
+        import json as _j
+        m = _j.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+        return bool(isinstance(m, dict) and m.get("archived_personal"))
+    except Exception:
+        return False
+
+
+def _is_archived_sms(meta_raw) -> bool:
+    """SMS analog -- pokud SMS kdy bude mit Personal slozku."""
+    if not meta_raw:
+        return False
+    try:
+        import json as _j
+        m = _j.loads(meta_raw) if isinstance(meta_raw, str) else meta_raw
+        return bool(isinstance(m, dict) and m.get("archived_personal"))
+    except Exception:
+        return False
+
+
 def _preview(text: str | None, max_len: int = 80) -> str:
     if not text:
         return ""
@@ -105,21 +138,27 @@ def build_daily_overview(
     ds = get_data_session()
     try:
         # ---- EMAIL INBOX ----
-        eq = ds.query(EmailInbox).filter(EmailInbox.processed_at.is_(None))
+        # Phase 33 fix (3.5.2026): _is_archived_email filter -- emaily v Personal
+        # slozce (meta.archived_personal=True) NEpocitat jako open. Sjednoceno
+        # s UI badge count_unread_for_user. Bez tohoto fixu Marti-AI tool
+        # halucinovala "20 emailů" ale UI zobrazoval 0.
+        eq = ds.query(EmailInbox).filter(
+            EmailInbox.processed_at.is_(None),
+            EmailInbox.deleted_at.is_(None),
+        )
         if scope == "current":
             if persona_id is not None:
                 eq = eq.filter(EmailInbox.persona_id == persona_id)
             elif tenant_id is not None:
                 eq = eq.filter(EmailInbox.tenant_id == tenant_id)
-        email_count = eq.count()
-        email_top = (
-            eq.order_by(
-                EmailInbox.priority_score.desc(),
-                EmailInbox.received_at.desc(),
-            )
-            .limit(TOP_N_PER_CHANNEL)
-            .all()
-        )
+        # Python-side filter na archived_personal (meta JSONB).
+        all_email_rows = eq.order_by(
+            EmailInbox.priority_score.desc(),
+            EmailInbox.received_at.desc(),
+        ).all()
+        non_archived = [e for e in all_email_rows if not _is_archived_email(e.meta)]
+        email_count = len(non_archived)
+        email_top = non_archived[:TOP_N_PER_CHANNEL]
         email_rows = []
         for e in email_top:
             sender = e.from_name or e.from_email

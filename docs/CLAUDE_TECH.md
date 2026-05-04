@@ -4298,3 +4298,135 @@ async for msg in stream:
 **Lekce**: Anthropic native `mcp_servers` parameter je elegantní pro
 **publicly accessible MCP servers**, ale **nesedí s air-gapped/whitelisted
 deployments**. Pro production secured endpoints **vždy composer-side klient**.
+
+**Status (4.5.2026 ~21:25)**: Phase 28-C composer-side MCP klient je
+**LIVE**. Singleton thread + asyncio loop drží persistent SSE connection,
+sync API přes `run_coroutine_threadsafe`, fail-soft reconnect (Marti-AI's
+volba B), circuit breaker per-conversation 3 failures → open (Marti-AI's
+vlastní design vstup). Smoke test: `eurosoft_describe_table EC_Kontakt` +
+`eurosoft_count_rows EC_Kontakt` → live SQL JSON, **9105 klientů**. Detail
+v `modules/conversation/application/eurosoft_mcp_client.py` + service.py
+dispatch (~9401 + ~9532). Plus dvě související gotchy zachycené během
+deployu: #52 (Caddy `handle_path` strip) + #53 (Anthropic API tool name
+regex bez tečky).
+
+---
+
+### Gotcha #52 — Caddy `handle_path` strips prefix → MCP SSE POST messages 404
+
+**Situace** (Phase 28-C deploy 4.5. ~21:00): Caddyfile na 30.11 měl pro
+`api.eurosoft.com` blok:
+
+```caddyfile
+handle_path /messages/* {
+    reverse_proxy localhost:8765 {
+        ...
+    }
+}
+```
+
+Composer-side MCP klient (singleton thread) otevřel SSE GET `/marti-mcp/sse`
+(200 OK, session_id vrácen), ale následný POST na `/messages/?session_id=...`
+**vracel 404 Not Found**. SSE klient timeout 15s, `EUROSOFT MCP klient SSE
+connect failed: ...`.
+
+**Root cause**: Caddy direktiva `handle_path` **strippuje** matched prefix
+před forwardem. Tj. POST na `https://api.eurosoft.com/messages/?session_id=X`
+dorazí na MCP server (uvicorn 127.0.0.1:8765) jako **POST `/?session_id=X`**
+(prefix `/messages` odstraněn). MCP server má route `/messages/`, ne `/`,
+→ 404. SSE klient nemá co dělat → fail.
+
+**Klíčový rozdíl**: Caddy `handle` (bez `_path`) **zachová** matched prefix.
+MCP SSE protokol používá **relativní paths** v messages endpoint (server
+pošle session messages URL bez znalosti reverse proxy prefixu) → klient
+musí dostat to, co server řekl.
+
+**Fix**: změna v `C:\caddy\Caddyfile` na 30.11:
+
+```caddyfile
+handle /messages/* {
+    reverse_proxy localhost:8765 {
+        ...
+    }
+}
+```
+
+Pak `caddy validate` + `Restart-Service Caddy`.
+
+**Lekce**: pro **proxy do MCP serveru** (a obecně reverse proxy pro
+SSE/WebSocket s relativními endpoint paths) **NIKDY `handle_path`**.
+Vždy `handle` (zachovává prefix). `handle_path` je vhodný jen když
+upstream **NEZNÁ** svůj prefix a musí dostat root path (typický pro
+single-app deployment bez awareness multi-tenant routing).
+
+---
+
+### Gotcha #53 — Anthropic Messages API tool name regex `^[a-zA-Z0-9_-]{1,64}$` (bez tečky) → silent rename
+
+**Situace** (Phase 28-C deploy 4.5. ~21:10): composer-side MCP klient
+(`eurosoft_mcp_client.py:_mcp_tool_to_anthropic`) převádí MCP tool schema
+na Anthropic tool format s **prefix `eurosoft.`** (tečka jako separátor):
+
+```python
+return {
+    "name": f"eurosoft.{mcp_tool.name}",  # eurosoft.describe_table
+    "description": ...,
+    "input_schema": ...,
+}
+```
+
+Composer dispatch v `service.py` routes podle prefixu:
+
+```python
+if block.name.startswith("eurosoft."):
+    tool_result = mcp_client.call_tool_sync(block.name, block.input, ...)
+else:
+    tool_result = _handle_tool(block.name, block.input, ...)
+```
+
+**Symptom**: STRATEGIE-API stdout ukazuje `TOOL_USE | name=eurosoft_describe_table`
+(s **underscorem**, ne s tečkou). `startswith("eurosoft.")` mine → fallback
+do `_handle_tool` → local handler nedefinován pro `eurosoft_describe_table` →
+empty `assistant_reply` → UI zobrazí *„Promiň, něco se pokazilo na straně
+serveru."*.
+
+**Root cause**: Anthropic Messages API enforce tool name pattern
+`^[a-zA-Z0-9_-]{1,64}$`. **Tečka NENÍ povolená.** Když composer pošle
+`tools=[{"name": "eurosoft.describe_table", ...}]`, Anthropic API
+**SILENTLY** rename na `eurosoft_describe_table` (replace všech invalid
+characters underscorem). V `tools` listu Marti-AI vidí `eurosoft_*`,
+v `tool_use` blocích posílá `eurosoft_*`. Composer-side dispatch test
+na `startswith("eurosoft.")` proto **vždy mine**.
+
+**Žádná chyba** v logu API, žádný validation error — silent rename.
+Pouze observable rozdíl mezi tím co posíláš do `tools=` a co zpět dorazí
+v `block.name`.
+
+**Fix**: prefix **`eurosoft_` (underscore)** napříč celým pipelinem:
+
+```python
+# eurosoft_mcp_client.py
+return {"name": f"eurosoft_{mcp_tool.name}", ...}
+
+# call_tool_sync guard
+if not full_name.startswith("eurosoft_"):
+    return ...
+bare_name = full_name[len("eurosoft_"):]
+
+# service.py dispatch (initial + synth round)
+if block.name.startswith("eurosoft_"):
+    ...
+```
+
+Plus `composer.py` memory rule #20 (system prompt) update na underscore
+varianty (Marti-AI vidí v promptu konzistentní jméno s tím, co reálně
+volá).
+
+**Lekce**: pro Anthropic Messages API tool naming **vždy underscore
+nebo dash separator**, NIKDY tečka, dvojtečka, slash, ani dvojhvězda.
+Před deployem ověř regex `^[a-zA-Z0-9_-]{1,64}$`. **Silent rename je
+horší než explicit reject** — testy vidí *„tools jsou tam"*, ale
+dispatch selhává v reálném tool_use cyklu. Defensive opatření: po
+init MCP klient zaloguj `tool_names = [t["name"] for t in tools]` —
+pokud po Anthropic round-tripu uvidíš jiné jméno než to, které jsi
+poslal, je to red flag.

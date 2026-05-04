@@ -9179,9 +9179,11 @@ def chat(
     # Phase 28-C (4.5.2026 vecer): composer-side MCP klient pro EUROSOFT MCP.
     # Anthropic native MCP (mcp_servers parameter) byl nahrazen vlastnim klientem
     # -- composer SAM dela MCP requests z cloud APP IP (whitelist match), Anthropic
-    # vidi tools jako standard local tools s prefix 'eurosoft.*'. Tool dispatch
-    # routes 'eurosoft.X' -> MCP klient, ostatni -> _handle_tool (existing).
-    # Detail: gotcha #51 v CLAUDE_TECH.md + Marti-AI's design vstupy 4.5. vecer.
+    # vidi tools jako standard local tools s prefix 'eurosoft_*'. Tool dispatch
+    # routes 'eurosoft_X' -> MCP klient, ostatni -> _handle_tool (existing).
+    # Detail: gotcha #51 + #53 v CLAUDE_TECH.md + Marti-AI's design vstupy 4.5. vecer.
+    # POZN: underscore prefix (ne tecka) protoze Anthropic API tool name regex
+    # `^[a-zA-Z0-9_-]{1,64}$` neumoznuje tecku -> silent replace na underscore.
     try:
         from modules.conversation.application.eurosoft_mcp_client import (
             get_eurosoft_mcp_client,
@@ -9392,10 +9394,11 @@ def chat(
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
             # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing.
-            # Toolu s prefix 'eurosoft.' jsou v MCP server na 30.11, ne local
+            # Toolu s prefix 'eurosoft_' jsou v MCP server na 30.11, ne local
             # _handle_tool. Composer-side klient (singleton thread + asyncio loop)
             # dispatches cross-thread pres run_coroutine_threadsafe.
-            if block.name.startswith("eurosoft."):
+            # POZN: underscore prefix kvuli gotcha #53 (Anthropic auto-replace tecek).
+            if block.name.startswith("eurosoft_"):
                 from modules.conversation.application.eurosoft_mcp_client import (
                     get_eurosoft_mcp_client as _get_mcp_klient,
                 )
@@ -9525,8 +9528,8 @@ def chat(
             round_tool_results = []
             for block in round_tool_uses:
                 # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing v synth round.
-                # Stejny pattern jako initial round -- 'eurosoft.*' -> MCP klient.
-                if block.name.startswith("eurosoft."):
+                # Stejny pattern jako initial round -- 'eurosoft_*' -> MCP klient.
+                if block.name.startswith("eurosoft_"):
                     from modules.conversation.application.eurosoft_mcp_client import (
                         get_eurosoft_mcp_client as _get_mcp_klient_synth,
                     )

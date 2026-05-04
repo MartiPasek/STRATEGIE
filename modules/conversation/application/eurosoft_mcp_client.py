@@ -22,7 +22,12 @@ Marti-AI's design vstupy 4.5.2026 vecer:
 
 Solution proti gotcha #51 (Anthropic native MCP source IP mismatch s Marti's
 Mikrotik whitelist) -- composer SAM dela MCP requests z cloud APP IP
-(whitelisted), Anthropic vidi tools jako standard local s prefix 'eurosoft.'.
+(whitelisted), Anthropic vidi tools jako standard local s prefix 'eurosoft_'.
+
+POZN k naming (gotcha #53, 4.5.2026): Anthropic Messages API tool name regex
+je `^[a-zA-Z0-9_-]{1,64}$` -- TEČKA není povolená. Pokud composer použije
+'eurosoft.X', Anthropic SILENTLY replace tečku na underscore -> dispatch
+matching `startswith("eurosoft.")` selže. Underscore prefix je bezpečnější.
 """
 
 from __future__ import annotations
@@ -241,17 +246,22 @@ class EurosoftMCPClient:
     def _mcp_tool_to_anthropic(self, mcp_tool) -> dict:
         """
         MCP Tool schema → Anthropic tool format.
-        Prefix 'eurosoft.' v name aby composer dispatcher rozpoznal MCP tool.
+        Prefix 'eurosoft_' (underscore) v name aby composer dispatcher rozpoznal MCP tool.
+
+        POZN: Anthropic Messages API tool naming pattern je `^[a-zA-Z0-9_-]{1,64}$` --
+        TEČKA není povolená. Pokud composer-side použije tečku, Anthropic silently
+        replace na underscore -> dispatch matching selže. Underscore prefix je
+        bezpečnější kolizi-resistant choice.
         """
         return {
-            "name": f"eurosoft.{mcp_tool.name}",
+            "name": f"eurosoft_{mcp_tool.name}",
             "description": mcp_tool.description or f"EUROSOFT MCP tool: {mcp_tool.name}",
             "input_schema": mcp_tool.inputSchema,
         }
 
     def get_tools(self, conversation_id: int | None = None) -> list[dict]:
         """
-        Vraci Anthropic-format tools s prefix 'eurosoft.*'.
+        Vraci Anthropic-format tools s prefix 'eurosoft_*'.
 
         Returns:
           - [] pokud feature flag off
@@ -279,12 +289,12 @@ class EurosoftMCPClient:
         conversation_id: int | None = None,
     ) -> str:
         """
-        Sync API: Anthropic-style 'eurosoft.X' tool call → MCP server → JSON string.
+        Sync API: Anthropic-style 'eurosoft_X' tool call → MCP server → JSON string.
 
         Fail-soft: pri error vrati JSON s ok=False + circuit breaker counts up.
         Po 3 consecutive failures circuit breaker OPEN pro danou conversation.
         """
-        if not full_name.startswith("eurosoft."):
+        if not full_name.startswith("eurosoft_"):
             return json.dumps(
                 {"ok": False, "error": "not_mcp_tool", "tool": full_name},
                 ensure_ascii=False,
@@ -318,7 +328,7 @@ class EurosoftMCPClient:
                 ensure_ascii=False,
             )
 
-        bare_name = full_name[len("eurosoft."):]
+        bare_name = full_name[len("eurosoft_"):]
 
         try:
             future = asyncio.run_coroutine_threadsafe(

@@ -211,9 +211,7 @@ def get_mailbox_credentials(mailbox_id: int) -> dict | None:
       }
     nebo None pokud mailbox neexistuje / nema creds / decrypt selhal.
     """
-    from modules.crypto.application.fernet_service import (
-        decrypt_optional, CryptoDecryptError,
-    )
+    from core.crypto import decrypt_optional, CryptoDecryptError
 
     ds = get_data_session()
     try:
@@ -285,9 +283,19 @@ def update_last_inbox_fetch_at(mailbox_id: int, max_received_dt) -> None:
         if not mb:
             return
         if max_received_dt is not None:
-            if max_received_dt.tzinfo is not None:
-                max_received_dt = max_received_dt.astimezone(timezone.utc)
-            mb.last_inbox_fetch_at = max_received_dt - timedelta(seconds=1)
+            # exchangelib EWSDateTime ma sve EWSTimeZone tzinfo, ne Python
+            # timezone.utc. Konverze pres timestamp() -> Python datetime
+            # s timezone.utc je univerzalni napric implementacemi.
+            try:
+                ts = max_received_dt.timestamp()
+                clean_dt = datetime.fromtimestamp(ts, tz=timezone.utc)
+            except Exception:
+                # Fallback -- pokud timestamp() nejde, zkus astimezone.
+                if max_received_dt.tzinfo is not None:
+                    clean_dt = max_received_dt.astimezone(timezone.utc)
+                else:
+                    clean_dt = max_received_dt.replace(tzinfo=timezone.utc)
+            mb.last_inbox_fetch_at = clean_dt - timedelta(seconds=1)
         else:
             mb.last_inbox_fetch_at = (
                 datetime.now(timezone.utc) - timedelta(seconds=1)

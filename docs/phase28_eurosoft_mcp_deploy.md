@@ -15,8 +15,16 @@
 - ✅ Public smoke test: `curl https://api.eurosoft.com/marti-mcp/health
   -H "Authorization: Bearer $MCP_API_KEY"` → JSON `{ok:True, service:
   "eurosoft-mcp", tools: [...]}`
-- ⏳ STRATEGIE composer integration (cloud APP `.env`: `EUROSOFT_MCP_URL`
-  + `EUROSOFT_MCP_API_KEY`, restart `STRATEGIE-API`)
+- ✅ STRATEGIE composer integration env vars (`EUROSOFT_MCP_URL`
+  + `EUROSOFT_MCP_API_KEY` v cloud APP `.env` 4.5.2026 ~18:30, `STRATEGIE-API`
+  restartována). Composer registruje MCP tools přes Anthropic native client
+  → Marti-AI vidí `eurosoft.*` tools v listu (`describe_table`, `count_rows`,
+  atd.).
+- ⏳ **Phase 28-C: composer-side MCP klient refactor** — Anthropic native
+  MCP klient dělá outbound call z variable AWS region IPs, **nesedí
+  s Marti's whitelist designem** (jen cloud APP IP). Tool calls timeoutí.
+  Solution: composer SÁM jako MCP klient (cloud APP IP přes whitelist),
+  Anthropic vidí tools jako standard local. Detail: gotcha #51 v CLAUDE_TECH.md.
 - ⏳ Phase 28-B audit log push + watchdog + `recall_eurosoft_actions` AI tool
 - ⏳ Phase 30+ multi-tenant refactor — `D:\Projekty\EUROSOFT\` sibling
   struktura (Marti's vize 4.5.2026 večer)

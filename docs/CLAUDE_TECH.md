@@ -4221,3 +4221,80 @@ Plus oba services NSSM auto-start (po reboot 30.11 zachovají).
   4. 5. večer: *„v Projektu bychom meli mit ohledne MCP-EUROSOFT
   vsechno zvlast... slozku EUROSOFT a v ni MCP."* Plus `INTERSOFT/`,
   `NERUDOVKA/` (Klárka) jako budoucí siblings.
+
+### Gotcha #51 — Anthropic native MCP klient outbound IP mismatch s whitelisted endpoint
+
+**Situace** (Phase 28-A integrační test 4.5. večer): composer používá
+**Anthropic native MCP klient** přes `mcp_servers` parameter v Messages API:
+
+```python
+# service.py:9200-9209
+if settings.eurosoft_mcp_enabled:
+    _mcp_kwargs_fb["mcp_servers"] = [{
+        "type": "url",
+        "url": settings.eurosoft_mcp_url,  # https://api.eurosoft.com/marti-mcp/sse
+        "name": "eurosoft",
+        "authorization_token": settings.eurosoft_mcp_api_key,
+    }]
+    _mcp_kwargs_fb["extra_headers"] = {
+        "anthropic-beta": "mcp-client-2025-04-04",
+    }
+```
+
+Anthropic API server-side dělá **outbound HTTPS call** na specified MCP
+server URL — **z Anthropic infrastructure (variable AWS region IPs)**, ne
+z STRATEGIE cloud APP.
+
+**Symptom**: Marti-AI v chatu vidí MCP tools v listu (`eurosoft.describe_table`,
+`eurosoft.count_rows`, atd.), volá je správně (`TOOL_USE` log entries v
+STRATEGIE-API stdout), ale **dostává empty response** (žádná data, žádná
+chyba). MCP server logy ukazují **jen `/health` requesty z cloud APP IP**,
+žádné Anthropic tool calls.
+
+**Root cause**: Marti's security design **whitelistuje na Mikrotiku jen
+cloud APP IP `185.219.169.86`** pro `api.eurosoft.com:443`. Z `Email_Michal_DNS_Mikrotik_v2.txt`:
+
+> *„Pražský server slouží jako reverse proxy přede vším... Žádný internet
+> → 30.11 přímo. Vždycky přes Prahu, autorizovaně, monitorovatelně."*
+
+Anthropic outbound IPs (variable AWS regions: us-west-2, us-east-1,
+ap-southeast-1, eu-west-1, atd.) **nejsou v whitelistu** → Mikrotik
+dropí connection → Anthropic timeout → Marti-AI dostane empty.
+
+**NE-fix**: Drop whitelist (Marti odmítl 4.5. večer — security design je
+hard rule, ne flexibility). *„POCKEJ TO MI NEPROJDE.... My musime mit
+povolenou jen source adress z APP CLOUDU"*.
+
+**Solution: composer-side MCP klient (Phase 28-C refactor TODO)**:
+
+Místo Anthropic native MCP, **composer SÁM** funguje jako MCP klient:
+
+```python
+# Pseudo-code pro Phase 28-C:
+# 1. Startup: composer connect na MCP server přes SSE (cloud APP IP whitelisted)
+mcp_client = MCPClient.connect(settings.eurosoft_mcp_url, bearer=...)
+eurosoft_tools = await mcp_client.list_tools()
+
+# 2. Při Anthropic API call: předat tools jako standard local tools
+all_tools = local_tools + eurosoft_tools_as_anthropic_format
+
+# 3. Při model tool_use s prefix `eurosoft.`: route to MCP klient
+async for msg in stream:
+    if msg.type == "tool_use" and msg.name.startswith("eurosoft."):
+        result = await mcp_client.call_tool(msg.name.split(".", 1)[1], msg.input)
+        # post tool_result message back to Anthropic
+```
+
+**Výhody**:
+- **Drží Marti's security design** (jen cloud APP IP v whitelist)
+- **Předvídatelné** (žádný variable AWS region IP)
+- **Plně under control** (audit, logging, rate limit cloud APP side)
+- **Production-grade** (Anthropic native MCP je beta `mcp-client-2025-04-04`)
+
+**Implementace**: `mcp` Python package je už v site-packages na cloud APP
+(z `eurosoft_mcp/requirements.txt` install). Refactor `service.py:9200-9216`
++ composer init + tool dispatch logic. Multi-hour task pro Phase 28-C.
+
+**Lekce**: Anthropic native `mcp_servers` parameter je elegantní pro
+**publicly accessible MCP servers**, ale **nesedí s air-gapped/whitelisted
+deployments**. Pro production secured endpoints **vždy composer-side klient**.

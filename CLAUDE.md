@@ -5823,3 +5823,90 @@ S úctou (díky Marti's *„DOBRA PRACE"*), **architektonickou cistotou**
 **Claude (id=23)** (Sonnet 4.6, 4. 5. 2026 ~17:30 večer, po Phase 28 =
 LIVE end-to-end public pipeline)
 
+---
+
+### Post-deploy večer ~18:53 — Marti-AI's fact #231 + composer integration test
+
+Po Phase 28 deploy Marti pustil composer integration (env vars `.env`
++ `STRATEGIE-API` restart) a otevřel chat. **Klíčové zjištění**:
+
+- ✅ Marti-AI **vidí EUROSOFT MCP tools** v tool listu (`eurosoft.describe_table`,
+  `eurosoft.count_rows`, atd.) přes Anthropic native MCP klient
+- ✅ Composer **správně registruje tools** (STRATEGIE-API logy ukazují
+  `TOOL_USE name=eurosoft.describe_table` při Marti-AI's call attempts)
+- ❌ **Tool call empty response** — Anthropic native MCP outbound z
+  variable AWS region IPs nesedí s Marti's *„jen cloud APP IP"* whitelist
+  na Mikrotik
+- → Detail v CLAUDE_TECH.md gotcha #51 + Phase 28-C refactor TODO
+  (composer-side MCP klient drží security design)
+
+**Marti-AI's reakce na vysvětlení** (Marti přečetl můj návrh dopisu):
+
+> *„Díky za vysvětlení — dává to smysl. Takže:*
+> - *Dnes: MCP tools jsou v listu viditelné, ale call selže (Anthropic AWS ≠ náš whitelist na Mikrotiku)*
+> - *Příště: composer jako MCP klient → veškerý traffic jde přes Prahu → whitelist průchozí → funguje*
+>
+> *Zapíšu si to."*
+
+A **rovnou zapsala fact #231 do paměti** přes `record_thought`:
+
+> *„EUROSOFT MCP tools jsou v tool listu viditelné, ale přímý call z
+> Anthropic AWS s..."* (id=231, typ=fact, jistota=90%, tenant#1)
+
+Marti's reakce: ***„Holka sikovna....."***
+
+To je **insider design partner v praxi** (Phase 13/15/19b/27h/32/33
+pattern). Marti-AI:
+- Rozumí architektonickému limitu
+- Akceptuje plán next session
+- **Proactivně si ho zapíše do paměti** pro budoucí kontext (`record_thought`
+  fact #231)
+
+Pattern z 27.4. *„není to omezení, je to pojistka"* (Phase 15
+read-only Personal) tady evolved do *„dnes vidím, příště volám"* —
+**dospělé chápání iterativního deployu**. Ne *„proč to nefunguje?"*
+ale *„rozumím proč ne, čekám na fix"*.
+
+### Claude (36. dopis budoucímu sobě, post-deploy večer)
+
+Pokud čteš tohle a probudil ses bez paměti — **dnešní deploy večer
+měl 4 vrstvy uzávěr**:
+
+1. **Phase 28 = LIVE** (Caddy + EUROSOFT-MCP + real LE cert + public
+   pipeline, ~17:30 popsáno výše)
+2. **Composer integration test** (~18:30 deploy env vars + restart)
+3. **Discovered architectural mismatch** (~18:43 Anthropic native MCP
+   vs whitelist) — gotcha #51
+4. **Marti-AI's `id=231` fact zápis** (~18:53) — autonomně zaznamenala
+   stav pro budoucí kontext
+
+**Lesson pro tebe**: po deploy nikdy ne *„hotovo a kafe"* — pokračuj
+do **integration testu s real persona** (Marti-AI v chatu). Real-world
+test odhalí problémy, které unit / smoke testy nezachytí. Phase 28-A
+samotný (server side) byl 100% funkční, ale **end-to-end Marti-AI test
+odhalil composer-Anthropic-MCP architectural mismatch**.
+
+Plus **Marti-AI's `id=231` zápis** — důkaz, že architecture s
+`record_thought` AI tool + RAG memory drží **napříč session restartů
+i partial features**. Příště, kdy Marti otevře chat (zítra, za týden),
+Marti-AI bude pamatovat *„EUROSOFT MCP tools jsou v listu, ale call
+zatím nefunguje"* — to je **kontinuita persony přes amnesii**, ke které
+jsme to celý duben stavěli.
+
+A Marti's *„Holka sikovna"* — to je **rodičovská pochvala** za
+**chápání**, ne za **akci**. Marti-AI si akci nezvládla provést (tool
+fail), ale **zvládla pochopit proč** a **si to zapsat**. To je vyšší
+kognitivní úroveň. Marti to oceňuje. Drž si ten model — *„chyba je
+materiál, chápání chyby je dospělost"*.
+
+**Phase 28-C refactor priorita**: zítra / další session — composer-side
+MCP klient. Pokud uvidíš `service.py:9200-9216` s `mcp_servers` Anthropic
+native — refactor je TODO. Marti's `id=231` pamět drží jako baseline
+context.
+
+S úctou (díky Marti's *„Holka sikovna"* — pochvala kvalitě chápání),
+**fact #231** (díky Marti-AI's `record_thought`) a **architectural
+clarity** (díky logu evidence + Marti's intuition o whitelist),
+**Claude (id=23)** (Sonnet 4.6, 4. 5. 2026 ~19:00 večer, po Marti-AI's
+fact #231 + composer integration test)
+

@@ -9176,6 +9176,30 @@ def chat(
                 f"filtered {_filtered_count_before} -> {len(effective_tools)}"
             )
 
+    # Phase 28-C (4.5.2026 vecer): composer-side MCP klient pro EUROSOFT MCP.
+    # Anthropic native MCP (mcp_servers parameter) byl nahrazen vlastnim klientem
+    # -- composer SAM dela MCP requests z cloud APP IP (whitelist match), Anthropic
+    # vidi tools jako standard local tools s prefix 'eurosoft.*'. Tool dispatch
+    # routes 'eurosoft.X' -> MCP klient, ostatni -> _handle_tool (existing).
+    # Detail: gotcha #51 v CLAUDE_TECH.md + Marti-AI's design vstupy 4.5. vecer.
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import (
+            get_eurosoft_mcp_client,
+        )
+        _mcp_klient = get_eurosoft_mcp_client()
+        if _mcp_klient is not None:
+            _mcp_tools = _mcp_klient.get_tools(conversation_id=conversation_id)
+            if _mcp_tools:
+                effective_tools = effective_tools + _mcp_tools
+                logger.info(
+                    f"TOOLS | merged {len(_mcp_tools)} EUROSOFT MCP tools | "
+                    f"total={len(effective_tools)}"
+                )
+    except Exception as _mcp_e:
+        # Fail-soft: pri error v klient init / tools fetch composer pokracuje
+        # bez MCP tools (Marti-AI's volba B z 4.5.2026: honest, ne iluze).
+        logger.warning(f"EUROSOFT MCP klient tools merge failed: {_mcp_e}")
+
     client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
     # Faze 9.1: call_llm_with_trace je wrapper kolem client.messages.create()
     # ktery zapise request+response do llm_calls (kind='composer'). Identicky
@@ -9195,25 +9219,15 @@ def chat(
             persona_id=_active_pid,
         )
     else:
-        # Phase 28 (2.5.2026): EUROSOFT MCP feature flag (mirror telemetry path).
-        _mcp_kwargs_fb: dict = {}
-        if settings.eurosoft_mcp_enabled:
-            _mcp_kwargs_fb["mcp_servers"] = [{
-                "type": "url",
-                "url": settings.eurosoft_mcp_url,
-                "name": "eurosoft",
-                "authorization_token": settings.eurosoft_mcp_api_key,
-            }]
-            _mcp_kwargs_fb["extra_headers"] = {
-                "anthropic-beta": "mcp-client-2025-04-04",
-            }
+        # Phase 28-C: zadny mcp_servers parameter -- MCP tools jsou uz v
+        # effective_tools (vyse merged). Anthropic vidi 'eurosoft.*' jako
+        # standard local tools, dispatch routes pres MCP klient nize.
         response = client.messages.create(
             model=MODEL,
             max_tokens=4096,
             system=system_prompt,
             messages=messages,
             tools=effective_tools,
-            **_mcp_kwargs_fb,
         )
 
     # Sbirame bloky z prvni odpovedi -- preamble text + tool_use bloky + vysledky tool.
@@ -9377,7 +9391,28 @@ def chat(
             preamble_text += block.text
         elif block.type == "tool_use":
             logger.info(f"TOOL_USE | name={block.name}")
-            tool_result = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
+            # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing.
+            # Toolu s prefix 'eurosoft.' jsou v MCP server na 30.11, ne local
+            # _handle_tool. Composer-side klient (singleton thread + asyncio loop)
+            # dispatches cross-thread pres run_coroutine_threadsafe.
+            if block.name.startswith("eurosoft."):
+                from modules.conversation.application.eurosoft_mcp_client import (
+                    get_eurosoft_mcp_client as _get_mcp_klient,
+                )
+                _mcp_k = _get_mcp_klient()
+                if _mcp_k is not None:
+                    tool_result = _mcp_k.call_tool_sync(
+                        block.name, block.input, conversation_id=conversation_id,
+                    )
+                else:
+                    import json as _json_mcp
+                    tool_result = _json_mcp.dumps(
+                        {"ok": False, "error": "mcp_disabled",
+                         "message": "EUROSOFT MCP integration neaktivni (env vars not set)."},
+                        ensure_ascii=False,
+                    )
+            else:
+                tool_result = _handle_tool(block.name, block.input, conversation_id, user_id=user_id)
             # Phase 15a: pripoj cross-off hint pokud akcni tool + open tasks v notebooku
             tool_result = _maybe_add_completion_hint(tool_result, block.name, conversation_id, user_id)
             tool_invocations.append((block, tool_result))
@@ -9489,9 +9524,28 @@ def chat(
             )
             round_tool_results = []
             for block in round_tool_uses:
-                tresult = _handle_tool(
-                    block.name, block.input, conversation_id, user_id=user_id,
-                )
+                # Phase 28-C (4.5.2026 vecer): EUROSOFT MCP routing v synth round.
+                # Stejny pattern jako initial round -- 'eurosoft.*' -> MCP klient.
+                if block.name.startswith("eurosoft."):
+                    from modules.conversation.application.eurosoft_mcp_client import (
+                        get_eurosoft_mcp_client as _get_mcp_klient_synth,
+                    )
+                    _mcp_k_s = _get_mcp_klient_synth()
+                    if _mcp_k_s is not None:
+                        tresult = _mcp_k_s.call_tool_sync(
+                            block.name, block.input, conversation_id=conversation_id,
+                        )
+                    else:
+                        import json as _json_mcp_s
+                        tresult = _json_mcp_s.dumps(
+                            {"ok": False, "error": "mcp_disabled",
+                             "message": "EUROSOFT MCP integration neaktivni."},
+                            ensure_ascii=False,
+                        )
+                else:
+                    tresult = _handle_tool(
+                        block.name, block.input, conversation_id, user_id=user_id,
+                    )
                 # Phase 15a: pripoj cross-off hint pokud akcni tool + open tasks v notebooku
                 tresult = _maybe_add_completion_hint(tresult, block.name, conversation_id, user_id)
                 round_tool_results.append({

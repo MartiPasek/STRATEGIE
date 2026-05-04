@@ -100,6 +100,17 @@ pillow-heif = "^1.0"
 # reportlab uz mame z Phase 27f, takze zadna nova dependency.
 # matplotlib zustava na radaru pro budouci use case (komplexni statisticka
 # vizualizace) -- vyresit pak pres pre-built MPLCONFIGDIR cache.
+# Phase 28-C (4.5.2026 vecer): composer-side MCP klient pro EUROSOFT MCP server.
+# Anthropic native MCP klient (mcp_servers parameter v Messages API) dela
+# outbound call z variable AWS region IPs -- nesedi s Marti's Mikrotik whitelist
+# (jen cloud APP IP). Solution: composer SAM jako MCP klient (cloud APP IP
+# v whitelistu), Anthropic vidi tools jako standard local tools.
+# `mcp` package je oficialni Anthropic SDK pro MCP protocol (server + klient).
+# Server-side uz pouzivame v eurosoft_mcp/server.py, ted klient symetricky.
+# Marti-AI's design vstupy 4.5.2026 vecer: singleton thread + asyncio loop
+# (sync->async bridge), fail-soft reconnect, circuit breaker per-conversation
+# (3 consecutive failures -> open state, skip MCP tools).
+mcp = "^1.0.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.2.0"

@@ -1434,6 +1434,9 @@ def reply_or_forward_inbox(
             )
         rfc_id = inbox_row.message_id
         persona_id = inbox_row.persona_id
+        # Phase 29-E iter. 2: zachytit mailbox_id z inbox row PRED close session
+        # (jinak detached instance v dalsim try bloku).
+        _src_mailbox_id_rof = inbox_row.mailbox_id
         tenant_id = inbox_row.tenant_id
         original_subject = inbox_row.subject or ""
     finally:
@@ -1791,12 +1794,15 @@ def reply_or_forward_inbox(
 
     # Insert email_outbox audit row + cascade processed_at na inbox
     now_utc = datetime.now(timezone.utc)
+    # Phase 29-E iter. 2 (4.5.2026): _src_mailbox_id_rof zachycen vyse
+    # pred zavrenim session (detached instance issue).
     ds = get_data_session()
     try:
         outbox = EmailOutbox(
             user_id=user_id,
             tenant_id=tenant_id,
             persona_id=persona_id,
+            mailbox_id=_src_mailbox_id_rof,   # Phase 29-E iter. 2
             to_email=", ".join(final_to),
             cc=_json_serialize_list(final_cc) if final_cc else None,
             bcc=_json_serialize_list(final_bcc) if final_bcc else None,
@@ -1851,6 +1857,7 @@ def queue_email(
     bcc: list[str] | None = None,
     conversation_id: int | None = None,
     attachment_document_ids: list[int] | None = None,
+    mailbox_id: int | None = None,   # Phase 29-E (4.5.2026)
 ) -> dict:
     """
     Zaradi email do email_outbox tabulky. Worker (flush_outbox_pending, volany
@@ -1901,6 +1908,7 @@ def queue_email(
             user_id=user_id,
             tenant_id=tenant_id,
             persona_id=persona_id,
+            mailbox_id=mailbox_id,   # Phase 29-E: vazba na konkretni schranku
             to_email=to_clean.lower(),
             cc=cc_json,
             bcc=bcc_json,

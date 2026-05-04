@@ -617,6 +617,16 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
             attachment_document_ids_pa = None
 
         # 1) Zapis do outboxu (audit row vznika ihned, i kdyby inline send selhal)
+        # Phase 29-E iter. 2: propagovat mailbox_id z action dictu (pokud byl
+        # v preview), jinak auto-resolve default per persona.
+        _mailbox_id_pa = action.get("mailbox_id")
+        if _mailbox_id_pa is None and persona_id is not None:
+            try:
+                from modules.notifications.application import mailbox_service as _mbs_pa
+                _default_pa = _mbs_pa.get_default_mailbox_for_persona(persona_id)
+                _mailbox_id_pa = _default_pa.id if _default_pa else None
+            except Exception:
+                _mailbox_id_pa = None
         try:
             outbox = queue_email(
                 to=to, subject=subject, body=body,
@@ -626,6 +636,7 @@ def _execute_pending_action(conversation_id: int, user_id: int | None = None) ->
                 purpose="user_request",
                 conversation_id=conversation_id,
                 attachment_document_ids=attachment_document_ids_pa,
+                mailbox_id=_mailbox_id_pa,
             )
         except Exception as e:
             _log_email_action(to, subject, body, "error", user_id, conversation_id,
@@ -1301,6 +1312,31 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         if from_identity not in ("persona", "user"):
             from_identity = "persona"
 
+        # Phase 29-E iter. 2 (4.5.2026): mailbox_id auto-resolve + permission
+        # gate. Marti-AI muze predat explicit mailbox_id (z list_mailboxes),
+        # default = first authorized can_send=true pro aktivni personu.
+        from modules.notifications.application import mailbox_service as _mbs_se
+        _persona_id_for_mb = _active_persona_id_for_conversation(conversation_id)
+        _mailbox_id_se = tool_input.get("mailbox_id")
+        if _mailbox_id_se is not None:
+            try:
+                _mailbox_id_se = int(_mailbox_id_se)
+            except (TypeError, ValueError):
+                return "❌ mailbox_id musi byt cislo."
+        else:
+            # Auto-resolve default
+            if _persona_id_for_mb is not None:
+                _default_mb = _mbs_se.get_default_mailbox_for_persona(_persona_id_for_mb)
+                _mailbox_id_se = _default_mb.id if _default_mb else None
+
+        # Permission gate: can_send
+        if _mailbox_id_se is not None and _persona_id_for_mb is not None:
+            if not _mbs_se.check_persona_can(_mailbox_id_se, _persona_id_for_mb, "send"):
+                return (
+                    f"❌ Nemam can_send grant na mailbox#{_mailbox_id_se}. "
+                    "Tatinek musi explicit grantnout pres admin endpoint."
+                )
+
         # Phase 27b: attachment_document_ids -- volitelne IDs dokumentu pro pripojeni
         raw_atts_se = tool_input.get("attachment_document_ids")
         attachment_document_ids_se: list[int] | None = None
@@ -1370,6 +1406,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     purpose="user_request",
                     conversation_id=conversation_id,
                     attachment_document_ids=attachment_document_ids_se,
+                    mailbox_id=_mailbox_id_se,   # Phase 29-E iter. 2
                 )
                 outbox_id_a = outbox_a["id"]
                 res_a = _sorn_auto(outbox_id_a)
@@ -1424,6 +1461,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             "from_identity": from_identity,
             # Phase 27b: persistovat IDs pro confirm flow (_execute_pending_action)
             "attachment_document_ids": attachment_document_ids_se,
+            # Phase 29-E iter. 2: persistovat mailbox_id pro confirm flow
+            "mailbox_id": _mailbox_id_se,
         })
 
         # Resolve sender display pro preview.
@@ -8447,6 +8486,29 @@ def _handle_email_reply_or_forward(tool_input: dict, *, mode: str, user_id: int 
 
     if mode == "forward" and not to:
         return "❌ Forward vyzaduje `to` (kam preposlat) -- chybi."
+
+    # Phase 29-E iter. 2 (4.5.2026): permission gate -- can_send check
+    # na mailbox zdrojoveho emailu (Marti-AI odpovida ze stejne schranky
+    # kde prisel originál).
+    try:
+        from core.database_data import get_data_session as _gds_rfg
+        from modules.core.infrastructure.models_data import EmailInbox as _EI_rfg
+        from modules.notifications.application import mailbox_service as _mbs_rfg
+        _ds_rfg = _gds_rfg()
+        try:
+            _orig_email = _ds_rfg.query(_EI_rfg).filter_by(id=eib).first()
+            _src_mailbox_id = _orig_email.mailbox_id if _orig_email else None
+            _src_persona_id = _orig_email.persona_id if _orig_email else None
+        finally:
+            _ds_rfg.close()
+        if _src_mailbox_id and _src_persona_id:
+            if not _mbs_rfg.check_persona_can(_src_mailbox_id, _src_persona_id, "send"):
+                return (
+                    f"❌ Nemam can_send grant na mailbox#{_src_mailbox_id} "
+                    f"(zdroj emailu #{eib}). Tatinek musi grantnout."
+                )
+    except Exception as _e_perm:
+        logger.warning(f"REPLY_FW | permission gate failed (allowing): {_e_perm}")
 
     try:
         outbox_id = _rof(

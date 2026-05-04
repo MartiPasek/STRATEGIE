@@ -285,6 +285,19 @@ TOOLS = [
                         "Klárka ti ho poslala -> volej tool s [doc_id1, doc_id2]."
                     ),
                 },
+                "mailbox_id": {
+                    "type": "integer",
+                    "description": (
+                        "Phase 29 (4.5.2026): volitelne -- z které schránky "
+                        "odeslat. Default = první authorized can_send=true "
+                        "pro tvou personu (typicky tvá personal mailbox). "
+                        "Pokud chceš odeslat ze sdílené schránky (např. "
+                        "Pavlova pavel.zeman@), předej její id z list_mailboxes. "
+                        "POZOR: pro sdílené mailbox použij identity rules z "
+                        "[AKTIVNÍ MAILBOXY] bloku (1st turn = vlastník, RE = "
+                        "dual signature)."
+                    ),
+                },
             },
             "required": ["to", "subject", "body"],
         },

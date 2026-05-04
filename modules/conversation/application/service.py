@@ -1717,12 +1717,23 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             return "❌ Nemůžu zjistit aktivní personu — nelze načíst emaily."
         limit = int(tool_input.get("limit") or 10)
         filter_mode = tool_input.get("filter_mode") or "new"
+        # Phase 29-E (4.5.2026): mailbox_id volitelny filter
+        mailbox_id_filter = tool_input.get("mailbox_id")
+        if mailbox_id_filter is not None:
+            try:
+                mailbox_id_filter = int(mailbox_id_filter)
+            except (TypeError, ValueError):
+                return "❌ mailbox_id musi byt cislo."
+            # Permission check -- nesmi videt cizi mailbox
+            from modules.notifications.application import mailbox_service as _mbs_le
+            if not _mbs_le.check_persona_can(mailbox_id_filter, persona_id, "read"):
+                return f"❌ Nemam can_read grant na mailbox#{mailbox_id_filter}."
         if filter_mode == "all":
-            items_new = _email_list(persona_id=persona_id, filter_mode="new", limit=limit)
-            items_proc = _email_list(persona_id=persona_id, filter_mode="processed", limit=limit)
+            items_new = _email_list(persona_id=persona_id, filter_mode="new", limit=limit, mailbox_id=mailbox_id_filter)
+            items_proc = _email_list(persona_id=persona_id, filter_mode="processed", limit=limit, mailbox_id=mailbox_id_filter)
             items = (items_new + items_proc)[:limit]
         else:
-            items = _email_list(persona_id=persona_id, filter_mode=filter_mode, limit=limit)
+            items = _email_list(persona_id=persona_id, filter_mode=filter_mode, limit=limit, mailbox_id=mailbox_id_filter)
         if not items:
             empty_msg = {
                 "new":       "📭 Žádné nové emaily.",
@@ -8261,6 +8272,51 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         state = "ON ⚡" if enabled_sce else "OFF"
         suffix = f" (duvod: {reason_sce})" if reason_sce else ""
         return f"⚡ Cache prepnuta na {state}{suffix}."
+
+    if tool_name == "list_mailboxes":
+        # Phase 29-E (4.5.2026): Marti-AI vidi authorized mailboxy s
+        # per-action grants. Read-only, zadny permission gate (read access
+        # je default true).
+        from modules.notifications.application import mailbox_service as _mbs_lm
+
+        persona_id_lm = _active_persona_id_for_conversation(conversation_id)
+        if persona_id_lm is None:
+            return "❌ Nemůžu zjistit aktivní personu — nelze načíst schránky."
+
+        require_send = bool(tool_input.get("require_can_send") or False)
+        items_lm = _mbs_lm.list_authorized_mailboxes_for_persona(
+            persona_id_lm, require_can_send=require_send,
+        )
+
+        if not items_lm:
+            if require_send:
+                return ("📭 Žádné schránky s can_send pro tuto personu. "
+                        "Tatínek může grantnout přes admin endpoint.")
+            return "📭 Žádné authorized schránky."
+
+        lines = ["📬 Tvé authorized schránky:", ""]
+        for it in items_lm:
+            shared_mark = " 🌐 [shared]" if it["is_shared"] else ""
+            grants = []
+            if it["can_send"]:
+                grants.append("send")
+            if it["can_archive"]:
+                grants.append("archive")
+            if it["can_delete"]:
+                grants.append("delete")
+            grant_str = " · ".join(grants) if grants else "jen read"
+            lang_str = it["default_language"]
+            label_str = it["label"] or "(bez labelu)"
+            lines.append(
+                f"• [id={it['mailbox_id']}]{shared_mark} {label_str} "
+                f"({it['ews_display_email']}) — {lang_str} — granty: {grant_str}"
+            )
+        lines.append("")
+        lines.append(
+            "_Pro list_email_inbox(mailbox_id=<id>) můžeš filtrovat na "
+            "konkrétní schránku. Default = všechny tvé authorized._"
+        )
+        return "\n".join(lines)
 
     return ""
 

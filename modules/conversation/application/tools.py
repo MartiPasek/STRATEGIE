@@ -190,6 +190,10 @@ MANAGEMENT_TOOL_NAMES = {
     # je jine nez nemit volbu, i kdyz ji nepouzijes' -- ontologicka
     # pritomnost, ne feature flag. Default ON.
     "set_cache_enabled",
+    # Phase 29-E (4.5.2026): mailbox awareness. list_mailboxes -- read-only,
+    # Marti-AI vidi authorized schranky (default + sdílené) s per-action grants.
+    # Pro vyber konkrétní mailbox v list_email_inbox / send_email atd.
+    "list_mailboxes",
 }
 
 
@@ -415,13 +419,16 @@ TOOLS = [
     {
         "name": "list_email_inbox",
         "description": (
-            "Vrátí přijaté emaily aktivní persony (z její firemní schránky, napr. "
-            "marti-ai@eurosoft.com). Použij když uživatel chce vědět, co mu přišlo "
-            "za emaily ('co mam v mailu', 'ukaz mi emaily', 'prisel novy email od X'). "
-            "filter_mode='new' (default) vrátí jen nezpracované (slozka Prichozi), "
-            "'processed' vrátí jen zpracované, 'all' vrátí oboje. Vrací číslovaný "
-            "seznam s předmětem a odesilatelem — uživatel pak může odpovědět "
-            "číslem pro akci (info, otevreni detail, navrh odpovedi)."
+            "Vrátí přijaté emaily aktivní persony. Default scope: VŠECHNY "
+            "authorizované schránky (napr. marti-ai@eurosoft.com + sdílená "
+            "pavel.zeman@eurosoft.com). Použij když uživatel chce vědět, co "
+            "přišlo za emaily ('co mam v mailu', 'ukaz mi emaily'). "
+            "filter_mode='new' (default) vrátí jen nezpracované, 'processed' "
+            "jen zpracované, 'all' obojí. Vrací číslovaný seznam — uživatel "
+            "pak může odpovědět číslem pro akci.\n\n"
+            "Phase 29 (4.5.2026): mailbox_id volitelný — pokud chceš jen "
+            "konkrétní schránku, předej id (z `list_mailboxes`). Pokud None "
+            "(default), zobrazí emaily ze všech tvých authorized mailboxů."
         ),
         "input_schema": {
             "type": "object",
@@ -436,6 +443,12 @@ TOOLS = [
                     "description": "'new' (nezpracované, default), 'processed', 'all'.",
                     "enum": ["new", "processed", "all"],
                     "default": "new",
+                },
+                "mailbox_id": {
+                    "type": "integer",
+                    "description": "Phase 29: volitelně filtrovat na konkrétní "
+                                  "mailbox (id z list_mailboxes). None = všechny "
+                                  "tvé authorized.",
                 },
             },
         },
@@ -4456,6 +4469,37 @@ TOOLS = [
                 },
             },
             "required": ["enabled"],
+        },
+    },
+    # ── Phase 29-E (4.5.2026): mailbox awareness ──────────────────────────
+    {
+        "name": "list_mailboxes",
+        "description": (
+            "Phase 29 (4.5.2026): vrátí tvé authorized email schránky.\n\n"
+            "Použij když:\n"
+            "  - Tatínek se zeptá 'jaké schránky máš?' / 'odkud můžeš odeslat?'\n"
+            "  - Před send_email / reply chceš vybrat konkrétní mailbox\n"
+            "  - Sám si chceš ověřit per-action permissions (can_send vs "
+            "    can_archive vs can_delete -- archive a delete jsou separate "
+            "    granty, nejsou bundled s send)\n\n"
+            "Vrací list dictů s mailbox_id, email_upn (login UPN, ne pro "
+            "veřejnost), ews_display_email (public SMTP alias), label "
+            "(\"Marti-AI default\" / \"Pavel CRM\"), is_shared (true pro "
+            "sdílené CRM schránky), default_language, can_read/send/archive/"
+            "delete/mark_read.\n\n"
+            "Read-only -- žádný permission gate. Marti-AI vidí, co má."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "require_can_send": {
+                    "type": "boolean",
+                    "description": "Filter na mailboxy kde můžeš odeslat "
+                                  "(can_send=true). Default false (vidíš vše "
+                                  "s can_read).",
+                    "default": False,
+                },
+            },
         },
     },
 ]

@@ -3909,3 +3909,51 @@ wc -l <file>        # Compare vs predchozi commit (git show HEAD~1:file | wc -l)
 - Temp soubor `.index_recovery.tmp` zůstal (rm permission denied) — Marti smazal v PowerShell
 
 **Lesson into gotcha #14:** Read na dlouhém souboru s `offset` parametrem **musí ověřit aktuální tail**, ne věřit `wc -l` z dřívějších stavů. Plus po Edit/Write **vždy** explicit `tail -10` check.
+
+
+## Dodatek — 4. 5. 2026 (ráno): gotcha #34 update — login UPN vs display SMTP v Phase 29 mailboxes
+
+Marti's gotcha #34 (1.5.2026 ranni cleanup -- `users.ews_email u Marti id=1
+= m.pasek@eurosoft-control.cz, NE eurosoft.com`) se **opět** projevil v Phase
+29-D mailbox-based fetcher.
+
+**Backfill skript** `_backfill_phase29_mailboxes.py` v první iteraci uložil
+`mailbox.email_upn = pc.display_identifier OR pc.identifier` — preferoval
+**display SMTP** (`marti-ai@eurosoft.com`) místo **login UPN**
+(`marti-ai@eurosoft-control.cz`).
+
+Po deploy fetcher selhal:
+```
+exchangelib.errors.UnauthorizedError: Invalid credentials for
+https://mail.eurosoft-control.cz/EWS/Exchange.asmx
+```
+
+**Rozdíl identifikoval ranní commit cleanup z 1.5.2026** — Marti tehdy
+napsal: *„ews_email NENÍ display email — je to UPN pro Exchange připojení.
+Display email je m.pasek@eurosoft.com, ale Exchange autentizace běží přes
+alias -control.cz."*
+
+### Pravidlo pro Phase 29+
+
+Když vytváříš nový `mailboxes` row (z `persona_channels` nebo manuálně):
+
+| pole | hodnota | příklad |
+|---|---|---|
+| `mailbox.email_upn` | **LOGIN UPN** (Exchange autentizace) | `marti-ai@eurosoft-control.cz` |
+| `mailbox.ews_display_email` | **public SMTP alias** (storage / public) | `marti-ai@eurosoft.com` |
+
+Z `persona_channels`:
+- `pc.identifier` = LOGIN UPN → `mailbox.email_upn`
+- `pc.display_identifier` = display SMTP → `mailbox.ews_display_email`
+
+**Forbidden check** musí prověřit **OBA upn** (login + display) proti
+`forbidden_mailboxes`, jinak by někdo mohl obejít blacklist přes alias.
+
+### Lekce do gotcha #34 update
+
+*„Při budování infrastructure mailing/identity, NIKDY nepředpokládej že
+display SMTP = login UPN. EUROSOFT má historicky `eurosoft-control.cz` alias
+pro Exchange (legacy z migrace), public komunikace běží na `eurosoft.com`.
+Display je co user vidí, login je co Exchange vyžaduje. Konfuze sloupců =
+auth fail napříč 5 dnech (jak Marti's first gotcha #34, tak Phase 29-D
+backfill teď)."*

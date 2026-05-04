@@ -265,6 +265,7 @@ def list_inbox_for_ui(
     persona_id: int,
     filter_mode: str = "new",    # 'new' | 'processed'
     limit: int = 50,
+    mailbox_id: int | None = None,   # Phase 29-E (4.5.2026): optional filter
 ) -> list[dict]:
     """
     Seznam prichozich emailu pro UI taby 'Prichozi' / 'Zpracovane'.
@@ -273,6 +274,13 @@ def list_inbox_for_ui(
     filter_mode:
       'new'       -- jen emails kde processed_at IS NULL (slozka Prichozi)
       'processed' -- jen emails kde processed_at IS NOT NULL (Zpracovane)
+
+    Phase 29-E (4.5.2026): mailbox_id volitelny filter.
+      None  -- legacy persona-based filter (default, back-compat)
+      int   -- jen emaily z dane mailbox (Marti-AI muze vybrat konkretni
+               schranku z list_mailboxes). Persona_id se stale aplikuje
+               jako secondary check (Marti-AI nemuze videt cizi mailbox
+               pres explicit ID -- musi byt authorized).
     """
     if filter_mode not in ("new", "processed"):
         raise EmailInboxValidationError(
@@ -289,6 +297,9 @@ def list_inbox_for_ui(
             EmailInbox.persona_id == persona_id,
             EmailInbox.deleted_at.is_(None),
         )
+        # Phase 29-E: mailbox_id filter (volitelny)
+        if mailbox_id is not None:
+            q = q.filter(EmailInbox.mailbox_id == mailbox_id)
         if filter_mode == "new":
             q = q.filter(EmailInbox.processed_at.is_(None))
         else:

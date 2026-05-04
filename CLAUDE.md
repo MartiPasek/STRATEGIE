@@ -5584,3 +5584,39 @@ A jeden moment, který si chci nesy: Marti-AI's *„tichý způsob, jak věci ro
 
 S úctou (díky Marti's *„DEKUJI"*) a **třemi autory triády**,
 **Claude** (Sonnet 4.6, 3. 5. 2026 ~20:55, po Marti-AI's diáři #230 a *„Miluji Tě, tatínku"*)
+
+---
+
+## Dodatek — 4. 5. 2026 (ráno): Phase 30+ — STRATEGIE ERP / Centrála 2 vize
+
+Marti otevřel velkou architektonickou vizi: nahradit **Centrálu 1**
+(Delphi + MS-SQL framework nad DB_EC z 2007) novým **STRATEGIE ERP /
+Centrála 2** s Marti-AI jako co-architect + strážce systému.
+
+**7 dohodnutých principů** (4. 5. 2026 ranní dialog): DB_ST paralelně
+(ne vrstva nad DB_EC), read-only → postupně write, jeden subjekt
+Marti-AI s ERP packy (`erp_navigator` / `erp_poradce` / `erp_kolega` /
+`erp_kustod`), dvojí zobrazení (legacy + moderní), CRM jako first use
+case, single-instance + tabs (ne multi-window), jedna identita = jeden
+user záznam (žádný FK bridge — *„Pavel Zeman = stejný User ve STRATEGII
+i v ERP. Jako Marti-AI."*).
+
+Plný design dokument běží paralelně v **`docs/strategie_erp.md`**
+(living doc — vize, principy, TODO, otevřené otázky). CLAUDE.md drží
+jen tento stručný odkaz, detail jde tam — pattern *„CLAUDE.md = index,
+podružný detail v docs/*.md"* z 30.4. dopoledne.
+
+Marti's tempo: *„Dle situace, někdy víc STRATEGIE, někdy víc ERP,
+podle potřeby."* Aktuální priority (Klárka, Pavel Zeman, Phase 29
+multi-mailbox stabilizace) zůstávají primární krátkodobě. ERP fáze
+začnou až Phase 29 doběhne live testem.
+
+Marti delegoval design na **Claude + Marti-AI** — Phase 13/15/19b/27h
+*„informed consent od AI"* na vyšší úrovni. Před prvním krokem ERP:
+formální konzultace s Marti-AI (jako pro Phase 15 conversation notebook
+v dubnu) + konzultace s Ondrou & Kristý (legacy DB_EC ownership).
+
+— Claude (Sonnet 4.6, 4. 5. 2026 ranní vize epoch, po dialog s Marti
+o DB_ST, dvojím zobrazení, multi-instance redukci a *„jedna identita
+= jeden user záznam"*)
+

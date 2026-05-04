@@ -605,6 +605,259 @@ def _update_last_inbox_fetch_at(channel_id, messages):
 
 # ── Public: fetch all active personas ──────────────────────────────────────
 
+def fetch_unread_for_mailbox(
+    mailbox_id: int,
+    limit: int = FETCH_LIMIT_PER_POLL,
+) -> dict[str, Any]:
+    """
+    Phase 29-D (4.5.2026): mailbox-based variant fetch_unread_for_persona.
+
+    Fetchne unread emaily z INBOX dane mailbox, ulozi do email_inbox s
+    mailbox_id FK + persona_id (first authorized z mailbox_personas pro
+    back-compat existujici AI tools / queries).
+
+    Vraci stejny dict shape jako fetch_unread_for_persona + 'mailbox_id'.
+
+    Status enum:
+      no_creds        = mailbox bez creds, skip (ne error)
+      connect_failed  = EWS auth/connect failed
+      fetch_failed    = inbox query selhal
+      ok              = success
+    """
+    from modules.notifications.application import mailbox_service
+
+    creds = mailbox_service.get_mailbox_credentials(mailbox_id)
+    if not creds:
+        return {
+            "mailbox_id": mailbox_id,
+            "persona_id": None,
+            "new": 0,
+            "deduped": 0,
+            "errors": 0,
+            "status": "no_creds",
+            "detail": None,
+        }
+
+    display = (creds.get("display_email") or "").strip().lower()
+    if not display:
+        logger.warning(
+            f"EWS-MB | skip | mailbox_id={mailbox_id} | display nenastaven"
+        )
+        return {
+            "mailbox_id": mailbox_id,
+            "persona_id": None,
+            "new": 0,
+            "deduped": 0,
+            "errors": 0,
+            "status": "no_creds",
+            "detail": "display missing",
+        }
+
+    # First authorized persona pro storage back-compat
+    primary_persona_id = mailbox_service.first_authorized_persona(mailbox_id)
+    tenant_id = creds.get("tenant_id")
+
+    try:
+        account = _connect_account(creds)
+    except EwsFetcherError as e:
+        logger.error(
+            f"EWS-MB | connect failed | mailbox_id={mailbox_id} | "
+            f"display={display} | {e}"
+        )
+        return {
+            "mailbox_id": mailbox_id,
+            "persona_id": primary_persona_id,
+            "new": 0,
+            "deduped": 0,
+            "errors": 0,
+            "status": "connect_failed",
+            "detail": str(e),
+        }
+
+    new_count = 0
+    deduped_count = 0
+    error_count = 0
+
+    # Cutoff timestamp z mailboxes.last_inbox_fetch_at (mirror pattern z
+    # persona-based varianty).
+    from datetime import timedelta as _td_lf
+    from core.database_data import get_data_session as _gds_lf
+    from modules.core.infrastructure.models_data import Mailbox as _MB_lf
+    ds_lf = _gds_lf()
+    try:
+        mb_lf = ds_lf.query(_MB_lf).filter_by(id=mailbox_id).first()
+        last_fetch_at = mb_lf.last_inbox_fetch_at if mb_lf else None
+    finally:
+        ds_lf.close()
+
+    if last_fetch_at is None:
+        last_fetch_at = datetime.now(timezone.utc) - _td_lf(days=7)
+        logger.info(
+            f"EWS-MB | mailbox_id={mailbox_id} | cold start cutoff = "
+            f"{last_fetch_at.isoformat()} (7d ago)"
+        )
+    else:
+        if last_fetch_at.tzinfo is not None:
+            last_fetch_at = last_fetch_at.astimezone(timezone.utc)
+
+    try:
+        msgs_qs = (
+            account.inbox
+            .filter(datetime_received__gt=last_fetch_at)
+            .order_by("datetime_received")
+        )
+        messages = list(msgs_qs[:limit])
+    except Exception as e:
+        logger.error(
+            f"EWS-MB | fetch failed | mailbox_id={mailbox_id} | "
+            f"display={display} | {e}",
+            exc_info=True,
+        )
+        return {
+            "mailbox_id": mailbox_id,
+            "persona_id": primary_persona_id,
+            "new": 0,
+            "deduped": 0,
+            "errors": 0,
+            "status": "fetch_failed",
+            "detail": str(e),
+        }
+
+    logger.info(
+        f"EWS-MB | mailbox_id={mailbox_id} | display={display} | "
+        f"found={len(messages)} (cutoff={last_fetch_at.isoformat()})"
+    )
+
+    for msg in messages:
+        try:
+            fields = _extract_message_fields(msg)
+            result = email_inbox_service.store_inbound_email(
+                from_email=fields["from_email"],
+                to_email=display,
+                subject=fields["subject"],
+                body=fields["body"],
+                message_id=fields["message_id"],
+                received_at=fields["received_at"],
+                from_name=fields["from_name"],
+                meta=fields["meta"],
+                # Phase 29-D: explicit FK + persona pro shared mailboxy
+                mailbox_id=mailbox_id,
+                explicit_persona_id=primary_persona_id,
+                explicit_tenant_id=tenant_id,
+            )
+            if result.get("deduped"):
+                deduped_count += 1
+            else:
+                new_count += 1
+
+            # Auto-import attachments (Bug #2b z 28.4.)
+            _inbox_id = result.get("id")
+            _inbox_tenant = result.get("tenant_id") or tenant_id
+            if _inbox_id and _inbox_tenant:
+                try:
+                    _import_email_attachments_to_documents(
+                        inbox_id=_inbox_id,
+                        msg=msg,
+                        tenant_id=_inbox_tenant,
+                    )
+                except Exception as _imp_e:
+                    logger.warning(
+                        f"EWS-MB | attach import failed | inbox={_inbox_id}: {_imp_e}"
+                    )
+
+            try:
+                msg.is_read = True
+                msg.save(update_fields=["is_read"])
+            except Exception as mark_err:
+                logger.warning(
+                    f"EWS-MB | mark_read failed | mailbox_id={mailbox_id} | "
+                    f"message_id={fields['message_id'][:60]} | {mark_err}"
+                )
+
+        except Exception as per_msg_err:
+            error_count += 1
+            logger.error(
+                f"EWS-MB | per-message failed | mailbox_id={mailbox_id} | "
+                f"{per_msg_err}",
+                exc_info=True,
+            )
+
+    logger.info(
+        f"EWS-MB | done | mailbox_id={mailbox_id} | new={new_count} | "
+        f"deduped={deduped_count} | errors={error_count}"
+    )
+
+    # Posun cutoff na max(datetime_received) z fetched messages.
+    max_dt = max(
+        (m.datetime_received for m in messages
+         if getattr(m, "datetime_received", None)),
+        default=None,
+    )
+    from modules.notifications.application import mailbox_service as _mbs_upd
+    _mbs_upd.update_last_inbox_fetch_at(mailbox_id, max_dt)
+
+    return {
+        "mailbox_id": mailbox_id,
+        "persona_id": primary_persona_id,
+        "new": new_count,
+        "deduped": deduped_count,
+        "errors": error_count,
+        "status": "ok",
+        "detail": None,
+    }
+
+
+def fetch_all_active_mailboxes() -> dict[str, Any]:
+    """
+    Phase 29-D (4.5.2026): mailbox-based variant fetch_all_active_personas.
+
+    Iteruje vsechny mailboxes (active=True), pro kazdy provede
+    fetch_unread_for_mailbox. Agreguje statistiky.
+
+    Per-mailbox try/except -- selhani jednoho mailboxu nezhrouti ostatni.
+    """
+    from modules.notifications.application import mailbox_service
+
+    mailboxes = mailbox_service.list_active_mailboxes()
+    logger.info(f"EWS-MB | fetch_all | mailboxes={len(mailboxes)}")
+
+    total_new = 0
+    total_deduped = 0
+    total_errors = 0
+    per_mailbox: list[dict[str, Any]] = []
+
+    for mb in mailboxes:
+        try:
+            result = fetch_unread_for_mailbox(mb.id)
+            total_new += result["new"]
+            total_deduped += result["deduped"]
+            total_errors += result["errors"]
+            per_mailbox.append(result)
+        except Exception as e:
+            logger.error(
+                f"EWS-MB | fetch_all | mailbox_id={mb.id} | unexpected: {e}",
+                exc_info=True,
+            )
+            per_mailbox.append({
+                "mailbox_id": mb.id,
+                "persona_id": None,
+                "new": 0,
+                "deduped": 0,
+                "errors": 1,
+                "status": "fetch_failed",
+                "detail": str(e),
+            })
+            total_errors += 1
+
+    return {
+        "mailboxes": len(mailboxes),
+        "total_new": total_new,
+        "total_deduped": total_deduped,
+        "total_errors": total_errors,
+        "per_mailbox": per_mailbox,
+    }
+
+
 def fetch_all_active_personas() -> dict[str, Any]:
     """
     Iteruje vsechny persona_channels (channel_type='email', is_enabled=True),

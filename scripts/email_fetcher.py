@@ -80,10 +80,14 @@ def run_worker(poll_interval: float = 60.0) -> int:
 
     while not _shutdown_requested:
         try:
-            # 1) Inbound -- stahne unread z Exchange do email_inbox
-            result_in = ews_fetcher.fetch_all_active_personas()
+            # 1) Inbound -- stahne unread z Exchange do email_inbox.
+            # Phase 29-D (4.5.2026): clean cut na mailbox-based variant.
+            # Pollne mailboxes (active=True) misto persona_channels.
+            # Shared mailbox = single EWS connection, multiple authorized
+            # personas vidi inbox skrz mailbox_id FK + AI tools filter.
+            result_in = ews_fetcher.fetch_all_active_mailboxes()
             logger.info(
-                f"EMAIL FETCHER | inbound | targets={result_in['targets']} | "
+                f"EMAIL FETCHER | inbound | mailboxes={result_in['mailboxes']} | "
                 f"new={result_in['total_new']} | deduped={result_in['total_deduped']} | "
                 f"errors={result_in['total_errors']}"
             )

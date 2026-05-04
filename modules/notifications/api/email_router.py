@@ -63,5 +63,6 @@ def fetch_all(req: Request):
     """
     user_id = _get_uid(req)
     logger.info(f"EMAIL | fetch-all trigger | user_id={user_id}")
-    result = ews_fetcher.fetch_all_active_personas()
+    # Phase 29-D (4.5.2026): clean cut na mailbox-based variant.
+    result = ews_fetcher.fetch_all_active_mailboxes()
     return result

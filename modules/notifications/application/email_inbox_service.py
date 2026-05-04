@@ -125,6 +125,9 @@ def store_inbound_email(
     received_at: datetime | None = None,
     from_name: str | None = None,
     meta: str | None = None,
+    mailbox_id: int | None = None,            # Phase 29-D: explicitni FK
+    explicit_persona_id: int | None = None,   # Phase 29-D: pokud caller zna
+    explicit_tenant_id: int | None = None,
 ) -> dict:
     """
     Zapise prichozi email do email_inbox. Rucne se mape persona podle to_email.
@@ -152,7 +155,14 @@ def store_inbound_email(
     body_clean = (body or "").strip() or None
     subject_clean = (subject or "").strip()[:998] or None
 
-    persona_id, tenant_id = _resolve_persona_by_email(to_email_norm)
+    # Phase 29-D: caller (mailbox-based fetcher) muze predat explicit
+    # persona_id + tenant_id misto fallback resolve. Default = legacy resolve
+    # pres to_email.
+    if explicit_persona_id is not None:
+        persona_id = explicit_persona_id
+        tenant_id = explicit_tenant_id
+    else:
+        persona_id, tenant_id = _resolve_persona_by_email(to_email_norm)
 
     if received_at is None:
         received_at = datetime.now(timezone.utc)
@@ -162,6 +172,7 @@ def store_inbound_email(
         row = EmailInbox(
             persona_id=persona_id,
             tenant_id=tenant_id,
+            mailbox_id=mailbox_id,           # Phase 29-D: FK na mailbox
             from_email=from_email_norm,
             from_name=(from_name or None),
             to_email=to_email_norm,

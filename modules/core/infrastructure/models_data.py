@@ -1565,6 +1565,13 @@ class Mailbox(BaseData):
     is_shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, server_default=sa_false())
     tenant_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # Phase 29-D (4.5.2026): timestamp-based fetcher cutoff. Mirror
+    # persona_channels.last_inbox_fetch_at -- filter datetime_received > X
+    # zachytava i emaily oznacene read v Outlook pred polleem. NULL = cold
+    # start, default 7 dni zpatky.
+    last_inbox_fetch_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
 
 

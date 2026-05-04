@@ -196,6 +196,111 @@ def list_active_mailboxes(tenant_id: int | None = None) -> list[Mailbox]:
         ds.close()
 
 
+def get_mailbox_credentials(mailbox_id: int) -> dict | None:
+    """
+    Phase 29-D (4.5.2026): EWS connection creds pro mailbox-based fetcher.
+
+    Vraci dict ve stejnem formatu jako persona_channel_service.get_email_credentials:
+      {
+        "email": str,         # login UPN (autentizace)
+        "display_email": str, # primary SMTP alias (storage / public)
+        "password": str,      # decrypted z Fernet
+        "server": str,
+        "mailbox_id": int,
+        "tenant_id": int | None,
+      }
+    nebo None pokud mailbox neexistuje / nema creds / decrypt selhal.
+    """
+    from modules.crypto.application.fernet_service import (
+        decrypt_optional, CryptoDecryptError,
+    )
+
+    ds = get_data_session()
+    try:
+        mb = ds.query(Mailbox).filter_by(id=mailbox_id, active=True).first()
+        if not mb:
+            return None
+        if not mb.ews_credentials_encrypted:
+            logger.warning(
+                f"MAILBOX | id={mailbox_id} ({mb.email_upn}) ma mailbox bez creds"
+            )
+            return None
+        try:
+            password = decrypt_optional(mb.ews_credentials_encrypted)
+        except CryptoDecryptError as e:
+            logger.error(f"MAILBOX | decrypt failed | id={mailbox_id}: {e}")
+            return None
+        return {
+            "email": mb.email_upn,
+            "display_email": mb.ews_display_email or mb.email_upn,
+            "password": password or "",
+            "server": mb.ews_server or "",
+            "mailbox_id": mailbox_id,
+            "tenant_id": mb.tenant_id,
+        }
+    finally:
+        ds.close()
+
+
+def first_authorized_persona(mailbox_id: int) -> int | None:
+    """
+    Phase 29-D: vraci first persona_id authorized pro tento mailbox
+    (can_read=true). Pouzivane pri storage prichozich emailu -- email_inbox
+    row ma mailbox_id jako primary FK, ale persona_id zustava back-compat
+    pole pro existing AI tools / queries.
+
+    Pro shared mailbox s vice authorized AI personas (vzacne) je to
+    deterministicke (nizsi persona_id wins).
+    """
+    ds = get_data_session()
+    try:
+        row = (
+            ds.query(MailboxPersona.persona_id)
+            .filter(
+                MailboxPersona.mailbox_id == mailbox_id,
+                MailboxPersona.can_read.is_(True),
+            )
+            .order_by(MailboxPersona.persona_id.asc())
+            .first()
+        )
+        return row.persona_id if row else None
+    finally:
+        ds.close()
+
+
+def update_last_inbox_fetch_at(mailbox_id: int, max_received_dt) -> None:
+    """
+    Phase 29-D: posunout cutoff timestamp po fetch cycle. Mirror
+    persona_channels.last_inbox_fetch_at logiky.
+
+    Args:
+      mailbox_id -- ktery mailbox aktualizovat
+      max_received_dt -- max(datetime_received) z fetched messages, nebo
+                         None pokud zadne (pak posun na now-1s)
+    """
+    from datetime import datetime, timezone, timedelta
+    ds = get_data_session()
+    try:
+        mb = ds.query(Mailbox).filter_by(id=mailbox_id).first()
+        if not mb:
+            return
+        if max_received_dt is not None:
+            if max_received_dt.tzinfo is not None:
+                max_received_dt = max_received_dt.astimezone(timezone.utc)
+            mb.last_inbox_fetch_at = max_received_dt - timedelta(seconds=1)
+        else:
+            mb.last_inbox_fetch_at = (
+                datetime.now(timezone.utc) - timedelta(seconds=1)
+            )
+        ds.commit()
+    except Exception as e:
+        logger.warning(
+            f"MAILBOX | last_fetch_at update failed | id={mailbox_id}: {e}"
+        )
+    finally:
+        ds.close()
+
+
 # ── PERSONA AUTHORIZATION ─────────────────────────────────────────────────
 
 def get_default_mailbox_for_persona(persona_id: int) -> Mailbox | None:

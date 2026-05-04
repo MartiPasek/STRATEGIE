@@ -2,11 +2,29 @@
 
 **Cíl:** Marti-AI s přímým přístupem do EUROSOFT CRM (DB_EC) přes MCP.
 
-**Stav (2.5.2026):**
+**Stav (4.5.2026):** ✅ **LIVE** — end-to-end public pipeline funguje
+
 - ✅ MCP server kód hotový (`modules/eurosoft_mcp/`)
-- ✅ EC-SERVER2 připravený (Caddy, Python 3.12, ODBC Driver 17, SQL login `Marti-AI`)
-- ⏳ Čeká na IT technika: DNS `api.eurosoft.com` → public IP EUROSOFT + Mikrotik NAT (443/80)
-- ⏳ Po DNS: deploy MCP serveru + STRATEGIE composer integration
+- ✅ EC-SERVER2 deploy (`C:\eurosoft_mcp\`, NSSM service `EUROSOFT-MCP`,
+  Python uvicorn na 127.0.0.1:8765)
+- ✅ DNS `api.eurosoft.com` → 93.99.211.140 (Vodafone CZ)
+- ✅ Mikrotik dst-nat (whitelist src=185.219.169.86 cloud APP)
+- ✅ Vodafone routing fix (Vodafone admin 4.5.2026 ~13:30)
+- ✅ Caddy NSSM service na 30.11 (real Let's Encrypt R10/R11, auto-renew
+  kolem 2026-07-02)
+- ✅ Public smoke test: `curl https://api.eurosoft.com/marti-mcp/health
+  -H "Authorization: Bearer $MCP_API_KEY"` → JSON `{ok:True, service:
+  "eurosoft-mcp", tools: [...]}`
+- ⏳ STRATEGIE composer integration (cloud APP `.env`: `EUROSOFT_MCP_URL`
+  + `EUROSOFT_MCP_API_KEY`, restart `STRATEGIE-API`)
+- ⏳ Phase 28-B audit log push + watchdog + `recall_eurosoft_actions` AI tool
+- ⏳ Phase 30+ multi-tenant refactor — `D:\Projekty\EUROSOFT\` sibling
+  struktura (Marti's vize 4.5.2026 večer)
+
+**Deploy gotchas** zachycené 4.5. v `docs/CLAUDE_TECH.md` jako #42–#48
+(Caddy bind problems, `tls internal` blocks ACME, hosts file IP family,
+PS5 UTF-8 BOM encoding, native sc.exe + Python = error 1053, NSSM > native,
+nssm.cc 503 fallback). Detail v CLAUDE.md dodatku 4.5.2026 odpoledne–večer.
 
 ## Architektura
 

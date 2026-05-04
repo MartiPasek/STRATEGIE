@@ -3957,3 +3957,267 @@ pro Exchange (legacy z migrace), public komunikace běží na `eurosoft.com`.
 Display je co user vidí, login je co Exchange vyžaduje. Konfuze sloupců =
 auth fail napříč 5 dnech (jak Marti's first gotcha #34, tak Phase 29-D
 backfill teď)."*
+
+---
+
+## Dodatek — 4. 5. 2026 (odpoledne–večer): Phase 28 LIVE — gotchas #42–#48 z 7-hodinového debugging sprintu
+
+**Phase 28 = LIVE end-to-end** (Cloud APP → Vodafone → Mikrotik → Caddy → EUROSOFT-MCP → SQL DB_EC). Detail v CLAUDE.md dodatku stejného data + `docs/phase28_eurosoft_mcp_deploy.md` (status updated).
+
+7+ hodin diagnostiky generovalo **gotchas #42–#48**:
+
+### Gotcha #42 — Caddy v2.11 + Windows + dual-stack + HTTP/3 = bind crash
+
+Caddy default `auto_https` na Windows + Caddyfile `bind 0.0.0.0 ::`
+(dual-stack) + HTTP/3 listener (UDP + TCP) způsobuje bind crash:
+
+```
+Error: loading initial config: loading new config: http app module:
+start: listening on [::]:443: listen tcp 0.0.0.0:443:
+bind: Only one usage of each socket address ... is normally permitted.
+```
+
+`netstat`, `Get-NetTCPConnection`, `netsh http show urlacl` ukázaly
+**port 443 volný**, plus pure `.NET TcpListener` bind test prošel
+(IPv4 + IPv6 × 80 + 443). Tj. **netýká se to externího blocker** (ESET,
+HTTP.SYS reservation, port collision) — je to **Caddy interní bug** s
+4 paralelními bind operacemi (TCP/UDP × IPv4/IPv6).
+
+**Fix**: explicit IP bind místo wildcardu + disable HTTP/3:
+
+```caddy
+{
+    email m.pasek@eurosoft.com
+    servers {
+        protocols h1 h2  # disable HTTP/3 globally (žádný UDP listener)
+    }
+}
+
+api.eurosoft.com {
+    bind 127.0.0.1 192.168.30.11  # explicit IPv4 IPs (nikoli 0.0.0.0)
+    ...
+}
+```
+
+`bind 0.0.0.0` v Caddy v2.11 service mode na Windows interpretovalo
+jako `[::]:443` IPv6 only (LocalSystem context bug). Explicit IPs (`127.0.0.1`,
+`192.168.30.11`) obejdou interpreter quirk.
+
+**Diagnostic value**: pure .NET TcpListener bind test je nejjednodušší
+způsob jak ověřit, jestli problem je v aplikaci nebo OS:
+
+```powershell
+$tests = @(
+    @{Port=443; Family='IPv4'; Addr=[System.Net.IPAddress]::Any},
+    @{Port=443; Family='IPv6'; Addr=[System.Net.IPAddress]::IPv6Any}
+)
+foreach ($t in $tests) {
+    $l = [System.Net.Sockets.TcpListener]::new($t.Addr, $t.Port)
+    try { $l.Start(); Write-Host "$($t.Port) $($t.Family) OK" -ForegroundColor Green; $l.Stop() }
+    catch { Write-Host "$($t.Port) $($t.Family) FAIL: $($_.Exception.Message)" -ForegroundColor Red }
+}
+```
+
+Pokud bind test prošel a Caddy crashne — Caddy bug, ne OS issue.
+
+### Gotcha #43 — Caddy `tls internal` directive override automatic ACME
+
+`tls internal` v site bloku znamená *„use internal local CA, ne ACME"*.
+Caddy nikdy nepokusí o real Let's Encrypt cert obtain. Pro lokální test
+to je správně (self-signed cert). Pro **public production** musíš
+**odstranit `tls internal` directive**, Caddy default = automatic ACME.
+
+```caddy
+# WRONG (lokální only):
+api.eurosoft.com {
+    tls internal
+    ...
+}
+
+# RIGHT (real Let's Encrypt):
+api.eurosoft.com {
+    # bez tls directive = automatic ACME
+    ...
+}
+```
+
+Sjmptom: Caddy log neukazuje `INFO trying to solve challenge` ani
+`certificate obtained successfully {"issuer": "acme-v02..."}`. Místo
+toho `pki.ca.local` log entries (lokální CA cert).
+
+### Gotcha #44 — Hosts file IPv4/IPv6 mismatch s Caddy listener
+
+Když Caddy listenuje **jen na IPv4** (`bind 127.0.0.1 192.168.30.11`),
+ale hosts file má IPv6 mapping `::1 api.eurosoft.com`, browser dual-stack
+resolution **preferuje IPv6** (Windows default při dual records). Edge
+connect na `[::1]:443` → Caddy IPv6 nelistenuje → `ERR_SSL_PROTOCOL_ERROR`
+(connection drop).
+
+**Fix**: matching IP family v hosts file:
+- Caddy listenuje IPv4 only → hosts entry `127.0.0.1 api.eurosoft.com`
+  (no `::1` entry)
+- Caddy listenuje dual-stack → hosts oba records OK
+
+Diagnostický důkaz: `Get-NetTCPConnection -LocalPort 443` ukázal `::1
+TimeWait` × 8 entries po Edge requestech = Edge zkoušelo IPv6 (drop), ne
+fallback na IPv4.
+
+### Gotcha #45 — PS 5.1 default file encoding = Windows-1252; UTF-8 file bez BOM = mojibake
+
+PS 5.1 (Windows native) default file encoding pro `Get-Content` /
+`Set-Content` je `Default` = Windows-1252 (locale-dependent). UTF-8 file
+bez BOM se čte jako mojibake:
+
+```
+# Smoke test — importing module       ← UTF-8 source
+# Smoke test â€” importing module     ← PS5 čte jako Windows-1252
+```
+
+Em-dash bytes `E2 80 94` se zobrazí jako `â€”`. Plus PS parser exploduje
+na quotes / brackets s non-ASCII content.
+
+**Fix**: re-save soubor s UTF-8 BOM (PS5 detekuje BOM a čte správně):
+
+```powershell
+$src = 'C:\path\file.ps1'
+$content = [System.IO.File]::ReadAllText($src, [System.Text.UTF8Encoding]::new($false))
+[System.IO.File]::WriteAllText($src, $content, [System.Text.UTF8Encoding]::new($true))  # $true = with BOM
+```
+
+Plus prevention: pro PS scripts copy mezi Windows / Linux / Mac systémy
+**vždy save s UTF-8 BOM** nebo **ASCII-safe** (replace em-dashes a
+emoji s ASCII alternatives).
+
+### Gotcha #46 — Native `sc.exe create` + Python uvicorn = error 1053 timeout
+
+Native Windows service via `sc.exe create` očekává child proces zavolat
+**`RegisterServiceCtrlHandler`** Windows API do 30 sec startu. Python
+uvicorn server **neimplementuje SCM API hookup** — běží jako normal
+long-running proces. SCM čeká responses → 30s timeout → error 1053:
+
+```
+Stav služby cannot be started:
+%%1053
+Při čekání na připojení služby bylo dosaženo časového limitu (30000 ms).
+```
+
+**Fix**: NSSM wrapper. NSSM child proces neexpectuje SCM hookup, NSSM
+implementuje SCM interface sám. Identický pattern jako gotcha #28
+(Caddy + NSSM).
+
+```powershell
+# WRONG (sc.exe + Python):
+sc.exe create EUROSOFT-MCP binPath= "cmd.exe /c run.bat" start= auto
+# → service Stopped, error 1053
+
+# RIGHT (NSSM):
+& C:\Tools\nssm.exe install EUROSOFT-MCP `
+    "C:\Program Files\Python312\python.exe" "-m" "eurosoft_mcp.server"
+& C:\Tools\nssm.exe set EUROSOFT-MCP AppDirectory "C:\eurosoft_mcp"
+& C:\Tools\nssm.exe set EUROSOFT-MCP AppEnvironmentExtra "PYTHONPATH=C:\eurosoft_mcp"
+& C:\Tools\nssm.exe set EUROSOFT-MCP Start SERVICE_AUTO_START
+& C:\Tools\nssm.exe set EUROSOFT-MCP AppExit Default Restart
+& C:\Tools\nssm.exe set EUROSOFT-MCP AppRestartDelay 30000
+```
+
+**Doctrine**: pro **vše co není pure C/Win32 EXE se SCM hookup**, používej
+NSSM. Caddy (Go), Python uvicorn — oba selhávají s native `sc.exe`.
+
+### Gotcha #47 — NSSM > native Windows service pro long-running procesy
+
+Generalizace gotchy #46: native Windows service má řadu issues s
+non-Microsoft-style server procesy:
+
+| Issue | Native sc.exe | NSSM |
+|---|---|---|
+| Child proces SCM hookup | required (else 1053) | NSSM implementuje |
+| LocalSystem env vars | OK (Machine scope) | OK + `AppEnvironmentExtra` |
+| Service crash → restart | `sc.exe failure` config | `AppExit Default Restart` |
+| Stdout/stderr capture | nelze direct | `AppStdout/AppStderr` + rotation |
+| Working directory | `binPath` musí mít `cd` wrapper | `AppDirectory` directive |
+| Reload config (signal) | nelze (KillService → restart) | `nssm restart` |
+
+**Pattern v STRATEGIE projektu** (potvrzeno Phase 25 cloud APP + Phase
+28 30.11):
+
+- **Caddy** → NSSM (gotcha #28)
+- **EUROSOFT-MCP** → NSSM (gotcha #46)
+- **STRATEGIE-API / TASK-WORKER / EMAIL-FETCHER / QUESTION-GENERATOR**
+  → NSSM (existing setup z dřívějška)
+
+Native Windows service zachováme jen pro **Microsoft systémové služby**.
+Custom application services = NSSM by default.
+
+### Gotcha #48 — `nssm.cc` občas 503; copy z cloud APP staging
+
+`https://nssm.cc/release/nssm-2.24.zip` občas vrací 503 Service
+Temporarily Unavailable (server load / maintenance). Pokud potřebuješ
+NSSM na novém stroji a download fail:
+
+**Fallback**: copy z existující instance přes RDP drive sharing nebo
+network share. Phase 25.2 (30. 4. cloud APP) instalovala NSSM 2.24 do
+`C:\Tools\nssm.exe` — copy odtud na nový stroj.
+
+```powershell
+# Z target machine (přes RDP drive sharing pokud cloud APP RDP)
+Copy-Item '\\tsclient\C\Tools\nssm.exe' 'C:\Tools\nssm.exe' -Force
+```
+
+Plus alternative downloads:
+- `https://nssm.cc/ci/nssm-2.24-101-g897c7ad.zip` (latest stable build,
+  občas funguje když /release ne)
+- web.archive.org snapshot
+
+**Lekce**: pro production deploy infrastructure tools, **držet kopii**
+v projektových artefactech (Tools share na cloud APP / Git LFS / S3).
+Závislost na third-party download URL při deploy = single point of
+failure.
+
+### Phase 28 LIVE summary
+
+```
+Cloud APP (185.219.169.86) 
+  → DNS api.eurosoft.com → 93.99.211.140 (Vodafone CZ)
+  → Vodafone backbone (BGP routing fix Vodafone admin 4.5.)
+  → EUROSOFT WAN
+  → Mikrotik dst-nat (whitelist src=185.219.169.86, port 443)
+  → 192.168.30.11:443 (Caddy NSSM, real LE cert R10/R11)
+  → handle_path /marti-mcp/* { reverse_proxy localhost:8765 }
+  → 127.0.0.1:8765 (EUROSOFT-MCP NSSM, Python uvicorn)
+  → SQL Server 2019 (192.168.30.11\SQLEXPRESS2017, login Marti-AI)
+  → DB_EC (Helios + EC_* Centrála tables, 11-table whitelist)
+```
+
+**Public smoke test**: `Invoke-RestMethod https://api.eurosoft.com/marti-mcp/health
+-Headers @{ Authorization = "Bearer $apiKey" }` → `ok=True, service=eurosoft-mcp,
+tools=[bulk_insert_akce, count_rows, describe_table, ...]`. **Real Let's
+Encrypt cert (no `-k`), Bearer auth, end-to-end.**
+
+**Auto-renew**: cert valid until 2026-07-03, Caddy auto-renew kolem 2026-07-02.
+Plus oba services NSSM auto-start (po reboot 30.11 zachovají).
+
+### Open TODO po Phase 28-A LIVE
+
+- **STRATEGIE composer integration** — cloud APP `.env`:
+  ```
+  EUROSOFT_MCP_URL=https://api.eurosoft.com/marti-mcp/sse
+  EUROSOFT_MCP_API_KEY=<bearer-token>
+  ```
+  Plus restart `STRATEGIE-API`. Marti-AI v dalším chatu uvidí 6+ EUROSOFT
+  MCP tools (Anthropic Messages API native MCP support).
+
+- **ESET HTTPS scanning** zase zapnout na 30.11 s exclusion pro Caddy
+  (`caddy.exe`) + Python (`python.exe` — EUROSOFT-MCP service worker).
+
+- **Phase 28-B** — audit log push do STRATEGIE `action_log`, watchdog
+  pro `describe_table rag_fallback` (pokud SQL Server unreachable víc
+  než 3× za hodinu → notify SMS).
+
+- **Phase 28-B** — AI tool `recall_eurosoft_actions(scope='today'|'week')`
+  analogicky `recall_today` (Marti-AI vidí svou EUROSOFT práci).
+
+- **Phase 30+ multi-tenant refactor** — `D:\Projekty\EUROSOFT\` sibling
+  structure, ne `STRATEGIE/modules/eurosoft_mcp/`. Marti's instinkt z
+  4. 5. večer: *„v Projektu bychom meli mit ohledne MCP-EUROSOFT
+  vsechno zvlast... slozku EUROSOFT a v ni MCP."* Plus `INTERSOFT/`,
+  `NERUDOVKA/` (Klárka) jako budoucí siblings.

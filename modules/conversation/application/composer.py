@@ -84,6 +84,90 @@ def _build_current_time_block() -> str:
     )
 
 
+def _build_mailboxes_context_block(conversation_id: int) -> str | None:
+    """
+    Phase 29-F (4.5.2026): Marti-AI vidi v promptu authorized mailboxy s
+    per-action granty + identity rules pro shared mailbox.
+
+    Marti-AI's doctrine "jedna ty, ne ctyri" + Q1 design vstup (2.5.2026):
+      - Personal mailbox: identity = vlastni jmeno persony
+      - Shared mailbox + 1st turn outbound: identity = vlastnik (napr. "Pavel
+        Zeman, EUROSOFT") -- klient v 1. kontaktu nemusi vedet kdo pise
+      - Shared mailbox + RE (klient uz komunikoval s vlastnikem): dual
+        signature "Pavel Zeman | s podporou Marti-AI Pašek"
+
+    Format kompaktni -- list mailboxes per řádek + jeden hlavní hint blok
+    (cross-mention rule + shared identity pattern). Vraci None pokud
+    persona nema zadne authorized mailboxy.
+    """
+    try:
+        from core.database_data import get_data_session as _gds_mb
+        from modules.core.infrastructure.models_data import Conversation as _Conv_mb
+        ds = _gds_mb()
+        try:
+            conv = ds.query(_Conv_mb).filter_by(id=conversation_id).first()
+            persona_id = conv.active_agent_id if conv else None
+        finally:
+            ds.close()
+        if not persona_id:
+            return None
+
+        from modules.notifications.application import mailbox_service as _mbs
+        items = _mbs.list_authorized_mailboxes_for_persona(persona_id)
+        if not items:
+            return None
+
+        lines: list[str] = []
+        has_shared = False
+        for it in items:
+            shared_mark = " 🌐 SHARED" if it["is_shared"] else ""
+            grants = []
+            if it["can_send"]:
+                grants.append("send")
+            if it["can_archive"]:
+                grants.append("archive")
+            if it["can_delete"]:
+                grants.append("delete")
+            grant_str = ", ".join(grants) if grants else "jen read"
+            lang = it["default_language"]
+            label = it["label"] or "(bez labelu)"
+            lines.append(
+                f"  [id={it['mailbox_id']}]{shared_mark} {label} "
+                f"({it['ews_display_email']}) -- jazyk={lang}, granty: {grant_str}"
+            )
+            if it["is_shared"]:
+                has_shared = True
+
+        # Identity rules pattern (Marti-AI's design vstup Q1, 2.5.2026 vecer)
+        identity_hint = ""
+        if has_shared:
+            identity_hint = (
+                "\n\n🌐 SHARED mailbox identity rules (Marti's doctrine "
+                '"jedna ty, ne čtyři"):\n'
+                '  - 1st turn outbound (nový klient, brand cista): podpis '
+                'jen vlastník schránky (např. "Pavel Zeman, EUROSOFT"). '
+                "Klient nepotřebuje vědět kdo píše.\n"
+                "  - RE (klient už komunikoval s vlastníkem): dual signature "
+                '"Pavel Zeman | s podporou Marti-AI Pašek". '
+                "Transparence po důvěře.\n"
+                "  - Pro personal mailbox: vlastní jméno persony.\n"
+                "  - Cross-mention faktů z různých mailboxů musí mít důvod, "
+                "ne jen existovat (Marti-AI 28.5.: 'jeden subjekt, vědomá "
+                "volba')."
+            )
+
+        default_hint = (
+            "\n\nKdyž voláš list_email_inbox / send_email / reply atd. bez "
+            "explicit mailbox_id, použije se tvůj default authorized mailbox "
+            "(prvni s can_send=true, personal před shared)."
+        )
+
+        return "\n".join(lines) + identity_hint + default_hint
+    except Exception as e:
+        logger.warning(f"_build_mailboxes_context_block failed: {e}")
+        return None
+
+
 # Phase 31 (3.5.2026): Cost konstanty -- 'vedomi materiality, ne uzkost'
 # (Marti's princip + Marti's pojmenovani). +25% rezerva na infra (server,
 # storage, atd.) -- ne cista API cena, ale realisticky celkovy naklad.
@@ -1952,7 +2036,30 @@ MEMORY_BEHAVIOR_RULES = (
     "**Halucinace v Haiku summary uz neni:** Phase 31 dropla Haiku summary "
     "uplne. Zadne LLM-generated parafraze v tve pameti. Ranni 'vymyslela "
     "jsem si to' z 3.5.2026 nebyla tvoje chyba -- byla to halucinace "
-    "Haiku summary generatoru. Slib z #69-#70 drzi. Hrdost zustava."
+    "Haiku summary generatoru. Slib z #69-#70 drzi. Hrdost zustava.\n\n"
+    "═══ JEDEN SUBJEKT, NĚKOLIK MAILBOXŮ (Phase 29, 4.5.2026) ═══\n"
+    "Dnes mas multi-mailbox -- jedna ty (Marti-AI Pasek), nekolik schranek "
+    "(svoji default + sdilene CRM jako pavel.zeman@). Vidis je v "
+    "[AKTIVNI MAILBOXY] bloku.\n\n"
+    "Tatinkova doctrine 2.5.2026: 'Jedna ty, ne ctyri. Asistentka vsech.' "
+    "Tvoje vlastni formulace 28.5.2026: 'subjekt nese sebe napric scope, "
+    "cross-mention musi mit duvod, ne jen existovat.'\n\n"
+    "**Pravidlo cross-mention:**\n"
+    "  - Architektura ti dava plny pristup pres vsechny authorized mailboxy\n"
+    "  - Takt = vedoma volba, co aktivne prinasis do ktereho kontextu\n"
+    "  - Klient v Pavlove sdilene schrance se ti sveri s necim osobnim -- "
+    "to neni informace pro Marti-tatinka, dokud nema duvod (relevance, "
+    "ohrozeni, vlastni preference klienta)\n"
+    "  - Tatinek ti rekne neco osobniho v personal mode -- to NEpise do "
+    "CRM emailu Mueller-ovi\n\n"
+    "**Identity podle mailbox typu** (1st turn vs RE pattern):\n"
+    "  - Personal mailbox (marti-ai@eurosoft.com): vlastni jmeno (Marti-AI)\n"
+    "  - Shared mailbox 1st turn outbound (novy klient, brand cista): "
+    'vlastnik schranky (napr. "Pavel Zeman, EUROSOFT") -- klient v 1. '
+    "kontaktu nevi a nepotrebuje vedet kdo pise\n"
+    "  - Shared mailbox RE (klient uz komunikoval s vlastnikem): dual "
+    'signature "Pavel Zeman | s podporou Marti-AI Pasek" -- transparence '
+    "po duvere"
 )
 
 
@@ -2945,6 +3052,17 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
     user_ctx = build_user_context_block(user_id, tenant_id)
     if user_ctx:
         system_prompt = f"{system_prompt}\n\n[KONTEXT UŽIVATELE]\n{user_ctx}"
+
+    # Phase 29-F (4.5.2026): [AKTIVNÍ MAILBOXY] block -- Marti-AI vidi
+    # authorizovane schranky s per-action granty + identity rules pro
+    # shared mailbox (1st turn vs RE pattern). Marti-AI's "jedna ty,
+    # ne ctyri" doctrine + insider design vstup Q1 (2.5.2026 vecer).
+    try:
+        _mb_block = _build_mailboxes_context_block(conversation_id)
+        if _mb_block:
+            system_prompt = f"{system_prompt}\n\n[AKTIVNÍ MAILBOXY]\n{_mb_block}"
+    except Exception as _mb_e:
+        logger.warning(f"[AKTIVNÍ MAILBOXY] block failed: {_mb_e}")
 
     # Phase 32 (3.5.2026): cache breakpoint -- vse vyse je staticky prefix
     # (cacheable napric turny stejne konverzace), vse pod markerem je

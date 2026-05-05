@@ -518,16 +518,17 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       margin: 0 !important;
     }}
     /* B+2.1: tree flush left, full viewport width, resize handle mezi tree a main */
+    /* B+2.3: zero right padding — grid fills full viewport width edge-to-edge */
     .erp-workspace {{
       --erp-tree-width: 240px;
       max-width: none; margin: 0;
       display: grid;
       grid-template-columns: var(--erp-tree-width) 5px 1fr;
       gap: 0;
-      padding: 8px 8px 8px 0;
+      padding: 8px 0 8px 0;
       min-height: calc(100vh - 90px);
     }}
-    /* B+2.2: workspace zůstává vždy 2-pane (tree + main), jádro je modal */
+    /* B+2.2-3: workspace 2-pane, jádro je modal, grid flush right */
     .erp-workspace .erp-tree-pane {{ margin-right: 0; }}
     .erp-workspace .erp-main-pane {{ margin-left: 6px; margin-right: 0; }}
 
@@ -590,13 +591,20 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-tree-leaf .erp-tree-label {{ color: var(--text); font-weight: 400; }}
     .erp-tree-folder .erp-tree-label {{ color: var(--text-muted); font-weight: 500; }}
 
+    /* B+2.3: padding=0 na main-pane, grid flush proti edges; padding drží header/placeholders */
     .erp-main-pane {{
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; padding: 18px;
-      max-height: calc(100vh - 110px); overflow: auto;
+      border-radius: 10px 0 0 10px;  /* B+2.3: flat right edge (flush with viewport) */
+      border-right: none;
+      padding: 0;
+      max-height: calc(100vh - 110px); overflow: hidden;
+      display: flex; flex-direction: column;
     }}
-    .erp-main-content {{ }}
-    .erp-main-loading, .erp-main-error {{ color: var(--muted); padding: 14px; font-size: 13px; }}
+    .erp-main-content {{
+      display: flex; flex-direction: column;
+      flex: 1; min-height: 0; overflow: hidden;
+    }}
+    .erp-main-loading, .erp-main-error {{ color: var(--muted); padding: 14px 18px; font-size: 13px; }}
     .erp-main-error {{ color: var(--error); }}
     .erp-main-placeholder {{ color: var(--muted); padding: 24px; max-width: 540px; }}
     .erp-main-placeholder h2 {{ color: var(--text); font-size: 18px; font-weight: 600; margin-bottom: 10px; }}
@@ -604,8 +612,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-main-placeholder code {{ font-family: 'DM Mono',monospace; color: var(--accent); padding: 1px 5px; background: var(--bg); border-radius: 3px; }}
 
     .erp-prehled-header {{
-      margin-bottom: 14px; padding-bottom: 10px;
+      padding: 12px 18px 10px 18px;
       border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+      background: var(--surface);
     }}
     .erp-prehled-header h2 {{ font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; }}
     .erp-prehled-meta {{ font-size: 12px; color: var(--muted); font-family: 'DM Mono',monospace; }}
@@ -761,13 +771,23 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-family: 'DM Mono',monospace;
     }}
 
-    /* ── Tabulator dark theme overrides (Phase B+1, polished B+1.1) ── */
-    .erp-tab-grid {{ border-radius: 6px; overflow: hidden; margin-top: 4px; }}
+    /* ── Tabulator dark theme overrides (Phase B+1, polished B+1.1, B+2.3) ── */
+    /* B+2.3: grid flush proti edges (no margin/border, flat right edge) */
+    .erp-tab-grid {{
+      border-radius: 0;
+      overflow: hidden;
+      margin: 0;
+      flex: 1; min-height: 0;
+      display: flex; flex-direction: column;
+    }}
     .erp-tab-grid .tabulator {{
       background-color: var(--surface);
-      border: 1px solid var(--border);
+      border: none;
+      border-top: 1px solid var(--border);
       font-family: 'DM Sans',sans-serif; font-size: 12px;
-      color: var(--text);
+      color: var(--text-muted);
+      width: 100% !important;
+      flex: 1; min-height: 0;
     }}
     /* B+1.1: header darker than body — sinks below floating cells */
     .erp-tab-grid .tabulator-header {{
@@ -792,23 +812,24 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter {{
       color: var(--accent);
     }}
+    /* B+2.3: zebra striping — even rows téměř černé pro vizuální orientaci */
     .erp-tab-grid .tabulator-row {{
       background-color: var(--surface);
       border-bottom: 1px solid var(--border);
-      color: var(--text);
+      color: var(--text-muted);
+      min-height: 22px;
     }}
-    .erp-tab-grid .tabulator-row.tabulator-row-even {{ background-color: var(--surface); }}
+    .erp-tab-grid .tabulator-row.tabulator-row-even {{
+      background-color: var(--bg);
+    }}
     .erp-tab-grid .tabulator-row:hover {{
-      background-color: rgba(79,142,247,0.10); cursor: pointer;
+      background-color: rgba(79,142,247,0.12) !important; cursor: pointer;
     }}
+    /* B+2.3: dim cell text (matches tree pane subtle styling) */
     .erp-tab-grid .tabulator-row .tabulator-cell {{
       border-right: 1px solid var(--border);
-      padding: 3px 8px; color: var(--text); font-size: 12px;
+      padding: 3px 8px; color: var(--text-muted); font-size: 12px;
       line-height: 1.35;
-    }}
-    /* B+2.1: shorter row height for more rows visible per screen */
-    .erp-tab-grid .tabulator-row {{
-      min-height: 22px;
     }}
     /* B+1.5+B+1.6 (5.5.2026): filter inputs dark — !important kvůli CSS
        load order (Tabulator CDN <link> v body se načte PO head <style>
@@ -1407,8 +1428,10 @@ def _render_workspace_page(user_id: int) -> str:
           activeTabulator = new Tabulator(grid, {
             data: rows,
             columns: tabCols,
-            layout: "fitDataStretch",
-            height: "calc(100vh - 260px)",
+            // B+2.3: fitDataFill — columns minimum z dat, extra space rozdistribuováno
+            layout: "fitDataFill",
+            // B+2.3: percent height — fills flex container (main-content > erp-tab-grid)
+            height: "100%",
             placeholder: "Žádná data po filtru",
             headerSortTristate: true,
             renderVerticalBuffer: 200,

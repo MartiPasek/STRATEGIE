@@ -21,7 +21,7 @@ import logging
 import time
 from typing import Any
 
-from .config import ALLOWED_TABLES, can
+from .config import can, permissions
 from .sql_client import fetchall_as_dicts, get_cursor, quote_identifier
 
 logger = logging.getLogger("eurosoft_mcp.tools")
@@ -56,14 +56,22 @@ def _idempotency_store(key: str, result: dict[str, Any]) -> None:
 # ── Validation helpers ─────────────────────────────────────────────────
 
 def _validate_table(table: str, action: str) -> None:
-    if table not in ALLOWED_TABLES:
-        raise ValueError(
-            f"Table '{table}' not in whitelist. Allowed: {sorted(ALLOWED_TABLES)}"
-        )
+    """
+    Validate table + action permissions.
+
+    Phase B+1.2 (5.5.2026): SELECT je default-allow na vsechny tabulky DB_EC
+    (pokud ALLOW_ALL_SELECT env-flag je on, default true). Write akce
+    (insert/update/delete) zustavaji STRIKTNE whitelist pres TABLE_PERMISSIONS.
+    """
     if not can(action, table):
+        perms = permissions(table)
+        if not perms:
+            raise ValueError(
+                f"Action '{action}' not allowed on '{table}' "
+                f"(table not in whitelist; ALLOW_ALL_SELECT is off)."
+            )
         raise ValueError(
-            f"Action '{action}' not allowed on '{table}'. "
-            f"Permissions: {sorted(can.__globals__['TABLE_PERMISSIONS'][table])}"
+            f"Action '{action}' not allowed on '{table}'. Permissions: {perms}"
         )
 
 
@@ -493,7 +501,7 @@ async def describe_table(table: str) -> dict[str, Any]:
             "columns": columns,
             "indexes": indexes,
             "row_count_estimate": int(row_count_estimate) if row_count_estimate else 0,
-            "permissions": sorted(can.__globals__["TABLE_PERMISSIONS"][table]),
+            "permissions": permissions(table),
         }
     except Exception as sql_e:
         logger.warning(
@@ -541,7 +549,7 @@ async def describe_table(table: str) -> dict[str, Any]:
         ),
         "table": table,
         "markdown": markdown,
-        "permissions": sorted(can.__globals__["TABLE_PERMISSIONS"][table]),
+        "permissions": permissions(table),
         "fallback_source_path": str(md_path),
     }
 

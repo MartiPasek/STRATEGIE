@@ -85,9 +85,43 @@ TABLE_PERMISSIONS = {
 ALLOWED_TABLES: set[str] = set(TABLE_PERMISSIONS.keys())
 
 
+# ── Phase B+1.2 (5.5.2026 odpoledne): ALL-tables read-only mode ─────
+#
+# Marti's volba: pro ladění Centrály 1 renderer (Phase A/B) potřebujeme
+# SELECT na libovolnou tabulku DB_EC. Per-table whitelist (Phase 28-A2
+# konzultace 2.5.2026) drhl na každý nový soudeček, který má nový
+# target_table v EC_DELPHI_TabObecnyPrehled.
+#
+# Default: True (env var MCP_ALLOW_ALL_SELECT). Write akce
+# (insert/update/delete) zůstávají STRIKTNĚ whitelist přes
+# TABLE_PERMISSIONS — tato pojistka není dotčena.
+ALLOW_ALL_SELECT: bool = os.getenv("MCP_ALLOW_ALL_SELECT", "true").lower() in ("true", "1", "yes")
+
+
 def can(action: str, table: str) -> bool:
-    """Returns True iff action is allowed on table."""
+    """Returns True iff action is allowed on table.
+
+    Phase B+1.2 (5.5.): pokud table neni v TABLE_PERMISSIONS a action je 'select'
+    a ALLOW_ALL_SELECT je on, vraci True (default-allow read-only mode).
+    """
     perms = TABLE_PERMISSIONS.get(table)
-    if perms is None:
-        return False
-    return action in perms
+    if perms is not None and action in perms:
+        return True
+    # Phase B+1.2: ALL-tables read-only fallback (env-driven, default on)
+    if action == "select" and ALLOW_ALL_SELECT:
+        return True
+    return False
+
+
+def permissions(table: str) -> list[str]:
+    """Returns sorted list of allowed actions for table.
+
+    Phase B+1.2 (5.5.): pokud table neni v TABLE_PERMISSIONS a ALLOW_ALL_SELECT
+    je on, vraci ['select'] jako implicit read-only mode.
+    """
+    perms = TABLE_PERMISSIONS.get(table)
+    if perms:
+        return sorted(perms)
+    if ALLOW_ALL_SELECT:
+        return ["select"]
+    return []

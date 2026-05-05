@@ -620,7 +620,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-family: 'DM Mono',monospace;
     }}
 
-    /* ── Tabulator dark theme overrides (Phase B+1) ── */
+    /* ── Tabulator dark theme overrides (Phase B+1, polished B+1.1) ── */
     .erp-tab-grid {{ border-radius: 6px; overflow: hidden; margin-top: 4px; }}
     .erp-tab-grid .tabulator {{
       background-color: var(--surface);
@@ -628,14 +628,15 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-family: 'DM Sans',sans-serif; font-size: 12px;
       color: var(--text);
     }}
+    /* B+1.1: header darker than body — sinks below floating cells */
     .erp-tab-grid .tabulator-header {{
-      background-color: var(--surface2);
+      background-color: var(--bg);
       border-bottom: 1px solid var(--border-strong);
       color: var(--text-muted);
     }}
     .erp-tab-grid .tabulator-header .tabulator-col {{
-      background-color: var(--surface2);
-      border-right: 1px solid var(--border);
+      background-color: var(--bg);
+      border-right: 1px solid var(--surface2);
       color: var(--text-muted);
     }}
     .erp-tab-grid .tabulator-header .tabulator-col-content {{ padding: 6px 8px; }}
@@ -644,7 +645,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       letter-spacing: 0.02em;
     }}
     .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable:hover {{
-      background-color: var(--surface);
+      background-color: var(--surface2);
     }}
     .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-content .tabulator-col-sorter,
     .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter {{
@@ -664,19 +665,19 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       padding: 5px 8px; color: var(--text); font-size: 12px;
     }}
     .erp-tab-grid .tabulator-header .tabulator-header-filter input {{
-      background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 4px;
+      background: var(--surface); color: var(--text);
+      border: 1px solid var(--border-strong); border-radius: 4px;
       padding: 3px 6px; font-size: 11px; width: 100%;
       font-family: 'DM Sans',sans-serif; outline: none;
     }}
     .erp-tab-grid .tabulator-header .tabulator-header-filter input:focus {{
-      border-color: var(--accent);
+      border-color: var(--accent); background: var(--surface2);
     }}
     .erp-tab-grid .tabulator .tabulator-tableholder {{
       background-color: var(--surface);
     }}
     .erp-tab-grid .tabulator .tabulator-footer {{
-      background-color: var(--surface2);
+      background-color: var(--bg);
       color: var(--text-muted);
       border-top: 1px solid var(--border-strong);
     }}
@@ -686,6 +687,29 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-tab-grid .tabulator-placeholder {{
       color: var(--muted); font-style: italic; padding: 24px;
       background-color: var(--surface);
+    }}
+
+    /* ── Phase B+1.1: dark scrollbars (webkit + firefox) ── */
+    .erp-workspace ::-webkit-scrollbar {{
+      width: 10px; height: 10px;
+    }}
+    .erp-workspace ::-webkit-scrollbar-track {{
+      background: var(--bg);
+    }}
+    .erp-workspace ::-webkit-scrollbar-thumb {{
+      background: var(--border-strong);
+      border-radius: 5px;
+      border: 2px solid var(--bg);
+    }}
+    .erp-workspace ::-webkit-scrollbar-thumb:hover {{
+      background: var(--muted);
+    }}
+    .erp-workspace ::-webkit-scrollbar-corner {{
+      background: var(--bg);
+    }}
+    .erp-workspace, .erp-workspace * {{
+      scrollbar-color: var(--border-strong) var(--bg);
+      scrollbar-width: thin;
     }}
 
     /* ── Footer ── */

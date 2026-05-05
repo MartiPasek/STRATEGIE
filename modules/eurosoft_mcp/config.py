@@ -55,6 +55,7 @@ settings = Settings()
 #   - TabCisOrg, TabCisZam: SELECT (Helios identity refs pro lookup)
 #   - NIKDY UPDATE/DELETE v Phase 28-A
 TABLE_PERMISSIONS = {
+    # Phase 28 (2.5.2026) — CRM srdce + Helios identity refs (11 tabulek)
     "EC_Kontakt": {"select"},
     "EC_KontaktAkce": {"select", "insert"},
     "EC_KontaktAkceCis": {"select"},
@@ -66,6 +67,19 @@ TABLE_PERMISSIONS = {
     "EC_KontaktZemeCis": {"select"},
     "TabCisOrg": {"select"},
     "TabCisZam": {"select"},
+
+    # Phase A — STRATEGIE ERP renderer (5.5.2026 ráno).
+    # Read-only přístup k Centrála framework metadatům pro generování
+    # moderní web verze. Žádné UPDATE/INSERT — modifikace definic frameworku
+    # zůstává v Centrále 1. Detail: docs/strategie_erp_renderer_proposal.md
+    "EC_FormDef": {"select"},                # jádro header (form definitions)
+    "EC_FormDefEdit": {"select"},            # komponenty jádra
+    "EC_FormDefEditProperty": {"select"},    # property komponent (key/value)
+    "EC_CentralaMenu": {"select"},           # strom soudečků
+    "EC_CentralaMenuUziv": {"select"},       # per-user override stromu
+    "EC_DELPHI_TabObecnyPrehled": {"select"}, # přehledy (DefView SQL)
+    "EC_GlobKonst": {"select"},              # tenant config (Firma=EC/IAP)
+    "EC_GlobKonstUziv": {"select"},          # per-user customization
 }
 
 ALLOWED_TABLES: set[str] = set(TABLE_PERMISSIONS.keys())

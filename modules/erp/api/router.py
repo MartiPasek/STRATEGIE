@@ -1786,6 +1786,13 @@ def _render_workspace_page(user_id: int) -> str:
           mount.className = "erp-lookup-mount";
           fieldEl.appendChild(mount);
 
+          // B+6.4+++ (5.5.2026): schovat sourozenecký FK Edit field
+          // (pokud existuje). FK value je teď viditelně uvnitř ErpFormList,
+          // separátní Edit pole = duplikát. Heuristic: stejný .erp-fields
+          // grid container, .erp-field který není .erp-formlist, jehož
+          // input.value matchne FK string.
+          hideSiblingFkField(fieldEl, currentFk);
+
           // Lazy load při prvním focus / open / browse
           let loaded = false;
           const loadItems = async () => {
@@ -1838,6 +1845,34 @@ def _render_workspace_page(user_id: int) -> str:
             },
           });
         });
+      }
+
+      // B+6.4+++ (5.5.2026): schovat sourozenecký FK field
+      function hideSiblingFkField(formListEl, fkValue) {
+        if (!fkValue) return;
+        // Container priorita: .erp-fields grid > .erp-group
+        const container =
+          formListEl.closest(".erp-fields") ||
+          formListEl.closest(".erp-group");
+        if (!container) return;
+        // Hledej sibling .erp-field ktere NENI .erp-formlist (tj. neni
+        // jiny lookup picker) a JEŠTĚ NENÍ schovany. Match na input.value.
+        const fkStr = String(fkValue).trim();
+        const candidates = container.querySelectorAll(
+          ".erp-field:not(.erp-formlist):not([data-erp-hidden-sibling])"
+        );
+        for (const sib of candidates) {
+          if (sib === formListEl) continue;
+          // Pole je obvykle [label][input], hledame input s textovou
+          // hodnotou (Edit Typ=2 pro FK ID je readonly text).
+          const input = sib.querySelector('input[type="text"]');
+          if (!input) continue;
+          if (String(input.value).trim() === fkStr) {
+            sib.style.display = "none";
+            sib.setAttribute("data-erp-hidden-sibling", "true");
+            break;  // jen první match — viz odkaz vyse
+          }
+        }
       }
 
       function jadroToast(msg) {

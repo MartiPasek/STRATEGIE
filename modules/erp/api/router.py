@@ -509,21 +509,48 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-error h1 {{ color: var(--error); font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
     .erp-error p {{ color: var(--muted); font-size: 14px; line-height: 1.6; }}
 
-    /* ── Phase B nástřel + B+2 (5.5.2026): 3-pane → 2-pane / 3-pane ── */
+    /* ── Phase B nástřel + B+2 + B+2.1 (5.5.2026): full-width workspace ── */
+    /* B+2.1: tree flush left (žádný max-width centering), workspace edge-to-edge,
+       resize handle mezi tree a main, CSS variable pro tree width (drag-resize) */
     .erp-workspace {{
-      max-width: 1800px; margin: 0 auto;
-      display: grid; grid-template-columns: 260px 1fr;
-      gap: 14px; padding: 14px;
+      --erp-tree-width: 240px;
+      max-width: none; margin: 0;
+      display: grid;
+      grid-template-columns: var(--erp-tree-width) 5px 1fr;
+      gap: 0;  /* gap=0 — separation drží resize-handle */
+      padding: 8px 8px 8px 0;  /* tree flush left, ostatní strany 8px */
       min-height: calc(100vh - 90px);
     }}
-    /* B+2: when jádro pane visible, expand to 3-pane layout */
+    /* B+2.1: when jádro pane visible, 4-col layout */
     .erp-workspace.with-jadro {{
-      grid-template-columns: 240px minmax(360px, 1fr) minmax(420px, 1.4fr);
+      grid-template-columns: var(--erp-tree-width) 5px minmax(320px, 1fr) minmax(420px, 1.4fr);
+    }}
+    /* Drobné mezery mezi panes (kromě tree-handle které drží přilípnuté) */
+    .erp-workspace .erp-tree-pane {{ margin-right: 0; }}
+    .erp-workspace .erp-main-pane {{ margin-left: 6px; margin-right: 6px; }}
+    .erp-workspace.with-jadro .erp-main-pane {{ margin-right: 6px; }}
+
+    /* B+2.1: resize handle mezi tree a main */
+    .erp-resize-handle {{
+      background: var(--border);
+      cursor: col-resize;
+      transition: background .15s;
+      position: relative;
+    }}
+    .erp-resize-handle:hover {{ background: var(--accent); }}
+    .erp-resize-handle.dragging {{ background: var(--accent); }}
+    .erp-resize-handle::before {{
+      content: ""; position: absolute; left: -3px; right: -3px; top: 0; bottom: 0;
+      /* expanded hit area — easier to grab */
     }}
     .erp-tree-pane {{
       background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px; overflow: hidden;
-      max-height: calc(100vh - 110px); display: flex; flex-direction: column;
+      /* B+2.1: flush-left → border-radius jen vpravo (nahoře+dole),
+         vlevo plynule splývá s viewport edge */
+      border-radius: 0 10px 10px 0;
+      border-left: none;
+      overflow: hidden;
+      max-height: calc(100vh - 90px); display: flex; flex-direction: column;
     }}
     .erp-tree-header {{
       padding: 12px 14px; border-bottom: 1px solid var(--border);
@@ -726,7 +753,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-right: 1px solid var(--surface2);
       color: var(--text-muted);
     }}
-    .erp-tab-grid .tabulator-header .tabulator-col-content {{ padding: 6px 8px; }}
+    .erp-tab-grid .tabulator-header .tabulator-col-content {{ padding: 4px 8px; }}
     .erp-tab-grid .tabulator-header .tabulator-col-title {{
       color: var(--text-muted); font-weight: 600; font-size: 11px;
       letter-spacing: 0.02em;
@@ -749,7 +776,12 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-tab-grid .tabulator-row .tabulator-cell {{
       border-right: 1px solid var(--border);
-      padding: 5px 8px; color: var(--text); font-size: 12px;
+      padding: 3px 8px; color: var(--text); font-size: 12px;
+      line-height: 1.35;
+    }}
+    /* B+2.1: shorter row height for more rows visible per screen */
+    .erp-tab-grid .tabulator-row {{
+      min-height: 22px;
     }}
     /* B+1.5+B+1.6 (5.5.2026): filter inputs dark — !important kvůli CSS
        load order (Tabulator CDN <link> v body se načte PO head <style>
@@ -765,10 +797,11 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       background: var(--bg) !important;
       color: var(--text) !important;
       border: 1px solid var(--border) !important;
-      border-radius: 4px !important;
-      padding: 3px 6px !important;
+      border-radius: 3px !important;
+      padding: 2px 5px !important;
       font-size: 11px !important;
       width: 100% !important;
+      height: 18px !important;
       font-family: 'DM Sans',sans-serif !important;
       outline: none !important;
       -webkit-appearance: none !important;
@@ -951,6 +984,7 @@ def _render_workspace_page(user_id: int) -> str:
           </div>
         </div>
       </aside>
+      <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
       <main class="erp-main-pane">
         <div id="erpMainContent" class="erp-main-content">
           <div class="erp-main-placeholder">
@@ -988,14 +1022,71 @@ def _render_workspace_page(user_id: int) -> str:
       const jadroTitle = document.getElementById("erpJadroTitle");
       const jadroMeta = document.getElementById("erpJadroMeta");
       const jadroCloseBtn = document.getElementById("erpJadroClose");
+      // B+2.1: resize handle pro tree width
+      const resizeHandle = document.getElementById("erpResizeHandle");
 
       const EXPAND_KEY = "erp.tree.expanded";
       const ACTIVE_KEY = "erp.tree.active";
+      const TREE_WIDTH_KEY = "erp.tree.width";
 
       let activeTabulator = null;        // current Tabulator instance
       let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
       let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+
+      // B+2.1: tree width persistence + drag-resize
+      function loadTreeWidth() {
+        try {
+          const v = parseInt(localStorage.getItem(TREE_WIDTH_KEY), 10);
+          return (v && v >= 160 && v <= 600) ? v : 240;
+        } catch (e) { return 240; }
+      }
+      function saveTreeWidth(w) {
+        try { localStorage.setItem(TREE_WIDTH_KEY, String(w)); } catch (e) {}
+      }
+      function applyTreeWidth(w) {
+        const clamped = Math.max(160, Math.min(600, w));
+        if (workspaceEl) workspaceEl.style.setProperty("--erp-tree-width", clamped + "px");
+        saveTreeWidth(clamped);
+        // Tabulator container width changed -> redraw to recalc column widths
+        if (activeTabulator) {
+          requestAnimationFrame(() => {
+            try { activeTabulator.redraw(true); } catch (e) {}
+          });
+        }
+        return clamped;
+      }
+      // Initial apply (load persisted)
+      applyTreeWidth(loadTreeWidth());
+
+      if (resizeHandle) {
+        resizeHandle.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+          const startX = ev.clientX;
+          const startWidth = loadTreeWidth();
+          resizeHandle.classList.add("dragging");
+          document.body.style.cursor = "col-resize";
+          document.body.style.userSelect = "none";
+
+          function onMove(e) {
+            const delta = e.clientX - startX;
+            applyTreeWidth(startWidth + delta);
+          }
+          function onUp() {
+            document.removeEventListener("mousemove", onMove);
+            document.removeEventListener("mouseup", onUp);
+            resizeHandle.classList.remove("dragging");
+            document.body.style.cursor = "";
+            document.body.style.userSelect = "";
+          }
+          document.addEventListener("mousemove", onMove);
+          document.addEventListener("mouseup", onUp);
+        });
+        // Double-click resets to default
+        resizeHandle.addEventListener("dblclick", () => {
+          applyTreeWidth(240);
+        });
+      }
 
       // ── localStorage helpers ─────────────────────────────────────
       function loadExpanded() {
@@ -1343,6 +1434,13 @@ def _render_workspace_page(user_id: int) -> str:
         currentJadro = { form_id: formId, row_id: rowId };
         if (workspaceEl) workspaceEl.classList.add("with-jadro");
         jadroPane.removeAttribute("hidden");
+        // B+2.1: Tabulator redraw po layout shift (3-pane = užší container,
+        // jinak grid vyčnívá za jádro pane = "popup vyjizdi za gridem" bug)
+        if (activeTabulator) {
+          requestAnimationFrame(() => {
+            try { activeTabulator.redraw(true); } catch (e) {}
+          });
+        }
         if (jadroTitle) jadroTitle.textContent = "Načítám jádro…";
         if (jadroMeta) jadroMeta.textContent = "#" + formId + " / " + rowId;
         jadroContent.innerHTML =
@@ -1383,6 +1481,12 @@ def _render_workspace_page(user_id: int) -> str:
         if (workspaceEl) workspaceEl.classList.remove("with-jadro");
         if (jadroContent) jadroContent.innerHTML = "";
         currentJadro = null;
+        // B+2.1: Tabulator redraw po návratu do 2-pane (širší container)
+        if (activeTabulator) {
+          requestAnimationFrame(() => {
+            try { activeTabulator.redraw(true); } catch (e) {}
+          });
+        }
       }
 
       if (jadroCloseBtn) {

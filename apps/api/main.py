@@ -1,5 +1,6 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 import os
 
@@ -75,6 +76,11 @@ app.include_router(erp_api_router)
 static_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "static")
 os.makedirs(static_dir, exist_ok=True)
 INDEX = os.path.join(static_dir, "index.html")
+
+# B+4 PoC (5.5.2026): mount /static -> apps/api/static/ pro reusable komponenty
+# (ErpDataGrid, fonts, atd.). Caddy file_server na cloud APP řeší rovněž; tento
+# mount je pojistka pro lokální dev + pokud Caddy /static/* neproxuje k FastAPI.
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
 
 @app.get("/")

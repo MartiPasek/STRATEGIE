@@ -1,0 +1,139 @@
+/*
+ * ErpDataGrid theme overrides — STRATEGIE BLACK fit nad AG Grid Quartz Dark.
+ *
+ * Reusable napříč Centrála views (workspace přehled, modal forms,
+ * master-detail, dashboards, Phase 30+ moduly).
+ *
+ * Závislost: ag-grid-enterprise/styles/ag-grid.css + ag-theme-quartz.css
+ * (CDN nebo local — komponenta očekává AG Grid již načtený).
+ *
+ * Phase B+4 PoC (5.5.2026 odpoledne).
+ */
+
+/* ── Container layout ─────────────────────────────────────────────── */
+.erp-ag-grid {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  height: 100%;
+}
+
+/* ── Quartz Dark theme overrides (CSS variables) ──────────────────── */
+.ag-theme-quartz-dark.erp-ag-grid {
+  /* Background hierarchy — STRATEGIE BLACK palette */
+  --ag-background-color: var(--surface, #1c1e23);
+  --ag-foreground-color: var(--text-muted, #b0b3bc);
+  --ag-header-background-color: var(--bg, #0e0f11);
+  --ag-header-foreground-color: var(--text-muted, #b0b3bc);
+  --ag-odd-row-background-color: var(--surface, #1c1e23);
+  --ag-even-row-background-color: var(--bg, #0e0f11);
+  --ag-row-hover-color: rgba(79, 142, 247, 0.12);
+  --ag-selected-row-background-color: rgba(79, 142, 247, 0.20);
+  --ag-range-selection-background-color: rgba(79, 142, 247, 0.18);
+  --ag-range-selection-border-color: var(--accent, #4f8ef7);
+
+  /* Borders */
+  --ag-border-color: var(--border, #3a3d44);
+  --ag-secondary-border-color: var(--border, #3a3d44);
+  --ag-row-border-color: var(--border, #3a3d44);
+
+  /* Inputs */
+  --ag-input-border-color: var(--border, #3a3d44);
+  --ag-input-focus-border-color: var(--accent, #4f8ef7);
+  --ag-input-background-color: var(--bg, #0e0f11);
+  --ag-input-disabled-background-color: var(--surface, #1c1e23);
+
+  /* Panels (side bar, status bar) */
+  --ag-control-panel-background-color: var(--surface, #1c1e23);
+  --ag-subheader-background-color: var(--bg, #0e0f11);
+  --ag-tool-panel-background-color: var(--surface, #1c1e23);
+
+  /* Typography */
+  --ag-font-family: 'DM Sans', -apple-system, sans-serif;
+  --ag-font-size: 12px;
+
+  /* Spacing (compact) */
+  --ag-grid-size: 5px;
+  --ag-row-height: 26px;
+  --ag-header-height: 32px;
+  --ag-list-item-height: 26px;
+  --ag-cell-horizontal-padding: 8px;
+
+  /* Icons + interactive */
+  --ag-icon-color: var(--text-muted, #b0b3bc);
+  --ag-icon-font-color-hover: var(--text, #f0f1f5);
+  --ag-checkbox-checked-color: var(--accent, #4f8ef7);
+  --ag-active-color: var(--accent, #4f8ef7);
+  --ag-alpine-active-color: var(--accent, #4f8ef7);
+  --ag-disabled-foreground-color: var(--muted, #8a8d96);
+
+  /* Tooltips */
+  --ag-tooltip-background-color: var(--surface2, #252830);
+  --ag-tooltip-foreground-color: var(--text, #f0f1f5);
+}
+
+/* ID column — accent + monospace (parita s Tabulator B+1.7 visual) */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-id {
+  color: var(--accent, #4f8ef7);
+  font-family: 'DM Mono', monospace;
+}
+
+/* Header bottom border drobně silnější (visual separation) */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header {
+  border-bottom: 1px solid var(--border-strong, #4a4e57);
+}
+
+/* Floating filter row — drobně tmavší pro vizuální rytmus */
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter {
+  background-color: var(--bg, #0e0f11);
+}
+
+/* Status bar (counts) drobně dimmer */
+.ag-theme-quartz-dark.erp-ag-grid .ag-status-bar {
+  font-size: 11px;
+  color: var(--muted, #8a8d96);
+  background-color: var(--bg, #0e0f11);
+  border-top: 1px solid var(--border, #3a3d44);
+}
+
+/* Side bar (columns/filters tool panels) */
+.ag-theme-quartz-dark.erp-ag-grid .ag-tool-panel-wrapper {
+  border-left: 1px solid var(--border, #3a3d44);
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-side-buttons {
+  background-color: var(--surface, #1c1e23);
+  border-left: 1px solid var(--border, #3a3d44);
+}
+
+/* Master-detail expansion area */
+.ag-theme-quartz-dark.erp-ag-grid .ag-details-row {
+  background-color: var(--bg, #0e0f11);
+  padding: 8px;
+}
+
+/* Cell editor inputs */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell-edit-wrapper input {
+  background: var(--bg, #0e0f11) !important;
+  color: var(--text, #f0f1f5) !important;
+  border: 1px solid var(--accent, #4f8ef7) !important;
+}
+
+/* Right-aligned numeric headers */
+.ag-theme-quartz-dark.erp-ag-grid .ag-right-aligned-header .ag-header-cell-label {
+  justify-content: flex-end;
+}
+
+/* Loading overlay */
+.ag-theme-quartz-dark.erp-ag-grid .ag-overlay-loading-center {
+  background-color: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 6px;
+  padding: 14px 22px;
+  font-size: 13px;
+}
+
+/* Light theme variant (placeholder — full mode unused for now) */
+.ag-theme-quartz.erp-ag-grid {
+  /* Use AG Grid's default light theme as-is for now */
+}

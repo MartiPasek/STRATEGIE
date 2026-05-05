@@ -898,6 +898,9 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       background-color: var(--surface);
     }}
 
+    /* B+4 PoC: AG Grid theme overrides moved to /static/erp/datagrid.css
+       (reusable napříč Centrála views — workspace, modal forms, master-detail). */
+
     /* ── Phase B+1.1: dark scrollbars (webkit + firefox) ── */
     .erp-workspace ::-webkit-scrollbar {{
       width: 10px; height: 10px;
@@ -1026,6 +1029,13 @@ def _render_workspace_page(user_id: int) -> str:
     content = '''
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/css/tabulator.min.css">
     <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/js/tabulator.min.js"></script>
+    <!-- B+4 PoC (5.5.2026 odpoledne): AG Grid Enterprise trial (toggle ?grid=ag) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-grid.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-theme-quartz.css">
+    <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/dist/ag-grid-enterprise.min.js"></script>
+    <!-- ErpDataGrid komponenta (reusable napříč Centrála views) -->
+    <link rel="stylesheet" href="/static/erp/datagrid.css">
+    <script src="/static/erp/datagrid.js"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
@@ -1089,9 +1099,12 @@ def _render_workspace_page(user_id: int) -> str:
       const TREE_WIDTH_KEY = "erp.tree.width";
 
       let activeTabulator = null;        // current Tabulator instance
+      let activeErpDataGrid = null;      // current ErpDataGrid component (B+4 PoC)
       let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
       let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
+      // B+4 PoC: ?grid=ag toggle — Tabulator default, AG Grid trial alternativa
+      const useAgGrid = (new URLSearchParams(location.search).get("grid") === "ag");
 
       // B+2.1: tree width persistence + drag-resize
       function loadTreeWidth() {
@@ -1367,10 +1380,14 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       function renderPrehled(cislo, item, data, breadcrumb) {
-        // Cleanup previous Tabulator instance
+        // Cleanup previous instances (Tabulator + ErpDataGrid komponenta)
         if (activeTabulator) {
           try { activeTabulator.destroy(); } catch (e) {}
           activeTabulator = null;
+        }
+        if (activeErpDataGrid) {
+          try { activeErpDataGrid.destroy(); } catch (e) {}
+          activeErpDataGrid = null;
         }
 
         const cols = data.columns || [];
@@ -1384,6 +1401,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (data.has_more) html += ' (zobrazeno ' + rows.length + ', má víc)';
         if (data.target_table) html += ' · <code>' + escapeHtml(data.target_table) + '</code>';
         if (data.id_edit) html += ' · jádro #' + data.id_edit;
+        if (useAgGrid) html += ' · <code style="color:var(--accent2)">ErpDataGrid (AG Grid)</code>';
         html += '</div>';
         html += '</div>';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
@@ -1392,6 +1410,24 @@ def _render_workspace_page(user_id: int) -> str:
         if (rows.length === 0) {
           html += '<div class="erp-prehled-empty">Přehled je prázdný.</div>';
           mainContent.innerHTML = html;
+          return;
+        }
+
+        // B+4 PoC: branch — ErpDataGrid komponenta (?grid=ag) vs Tabulator (default)
+        if (useAgGrid && typeof window.ErpDataGrid !== "undefined") {
+          html += '<div id="erpDataGridContainer" class="erp-ag-grid ag-theme-quartz-dark"></div>';
+          mainContent.innerHTML = html;
+          const container = document.getElementById("erpDataGridContainer");
+          activeErpDataGrid = new window.ErpDataGrid(container, {
+            rowData: rows,
+            columns: cols,
+            autoColumns: true,
+            onRowClick: (rowData) => {
+              const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
+              if (rowId == null || data.id_edit == null) return;
+              openJadroInPane(data.id_edit, rowId);
+            },
+          });
           return;
         }
 

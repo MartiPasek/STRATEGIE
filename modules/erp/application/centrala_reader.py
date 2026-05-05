@@ -469,13 +469,20 @@ class CentralaReader:
         existuje, jinak fallback na raw value.
         """
         enriched = dict(data)  # nezasahujeme do originálu
+        # Phase A.5+ case-insensitive data lookup helper (Centrála data row
+        # má klíče v různém case než FieldName property)
+        data_lower = {k.lower(): v for k, v in data.items()}
         for c in components:
             if c.typ != 6:  # jen FormList
                 continue
             field_name = c.c_field_name
-            if not field_name or field_name not in data:
+            if not field_name:
                 continue
-            fk_value = data[field_name]
+            fk_value = data.get(field_name)
+            if fk_value is None:
+                fk_value = data_lower.get(field_name.lower())
+            if fk_value is None:
+                continue
             if fk_value is None or fk_value == "":
                 continue
 

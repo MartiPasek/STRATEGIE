@@ -259,8 +259,18 @@ def _render_section(section: dict, data: dict, read_only: bool) -> str:
 def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
     """Render jednoho komponenta podle Typ."""
     bound_value = ""
-    if comp.c_field_name and comp.c_field_name in data:
-        v = data[comp.c_field_name]
+    if comp.c_field_name:
+        # Phase A.5+ case-insensitive field lookup. Centrála komponenty
+        # mají FieldName někdy lowercase ('id'), data row z SQL_Select
+        # uppercase ('ID'). Bez tohoto fallbacku Edit #4665 (ID v sekci
+        # Vzhled) by zobrazil prázdno.
+        v = data.get(comp.c_field_name)
+        if v is None:
+            target = comp.c_field_name.lower()
+            for k, val in data.items():
+                if k.lower() == target:
+                    v = val
+                    break
         bound_value = "" if v is None else str(v)
 
     if comp.typ == 1:  # Label

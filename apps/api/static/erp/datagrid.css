@@ -203,7 +203,27 @@
   gap: 6px;
 }
 
-.erp-grid-toolbar .erp-layout-select {
+/* B+6.3+ (5.5.2026): layout selector teď renderuje ErpDropdown
+   uvnitř .erp-layout-mount (visual styling z components.css).
+   Tady jen šířka mountu a compact override trigger pro toolbar. */
+.erp-grid-toolbar .erp-layout-mount {
+  min-width: 220px;
+  max-width: 320px;
+}
+/* Compact dropdown trigger v toolbaru (3/8 padding, 11px font — sedí
+   s erp-toolbar-btn density). */
+.erp-grid-toolbar .erp-layout-mount .erp-dropdown-trigger {
+  padding: 3px 8px;
+  font-size: 11px;
+  min-height: 24px;
+  border-radius: 4px;
+}
+.erp-grid-toolbar .erp-layout-mount .erp-dropdown-caret {
+  font-size: 9px;
+}
+
+/* Fallback pokud ErpDropdown není načtený — drží původní styling */
+.erp-grid-toolbar .erp-layout-select-fallback {
   background: var(--surface, #1c1e23);
   color: var(--text, #f0f1f5);
   border: 1px solid var(--border, #3a3d44);
@@ -214,10 +234,6 @@
   min-width: 200px;
   cursor: pointer;
   outline: none;
-}
-.erp-grid-toolbar .erp-layout-select:hover,
-.erp-grid-toolbar .erp-layout-select:focus {
-  border-color: var(--accent, #4f8ef7);
 }
 
 .erp-grid-toolbar .erp-dirty-indicator {

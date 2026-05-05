@@ -783,12 +783,11 @@
     // ── Phase B+5.3: toolbar UI ───────────────────────────────────────
 
     _renderToolbarHtml() {
-      // Initial empty state — _refreshToolbar() po listLayouts vyplní options
+      // B+6.3+ (5.5.2026): native <select> nahrazen ErpDropdown — wire-up
+      // proběhne v _refreshToolbar (lazy create instance do .erp-layout-mount).
       return (
         '<div class="erp-toolbar-left">' +
-          '<select class="erp-layout-select" data-erp-layout-select>' +
-            '<option value="">— bez sestavy —</option>' +
-          '</select>' +
+          '<div class="erp-layout-mount" data-erp-layout-mount></div>' +
           '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
         '</div>' +
         '<div class="erp-toolbar-right">' +
@@ -804,24 +803,11 @@
 
     _wireToolbar() {
       if (!this.toolbarEl) return;
-      const sel = this.toolbarEl.querySelector("[data-erp-layout-select]");
+      // Layout dropdown handler je přidán uvnitř _refreshToolbar při lazy
+      // ErpDropdown create (B+6.3+ refactor).
       const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
       const saveAsBtn = this.toolbarEl.querySelector("[data-erp-saveas-btn]");
       const manageBtn = this.toolbarEl.querySelector("[data-erp-manage-btn]");
-
-      if (sel) {
-        sel.addEventListener("change", async (ev) => {
-          const id = ev.target.value;
-          if (!id) {
-            // "— bez sestavy —" → reset na auto-detect
-            await this.resetToDefault();
-            await this._refreshToolbar();
-            return;
-          }
-          await this.loadLayoutById(parseInt(id, 10));
-          await this._refreshToolbar();
-        });
-      }
 
       if (saveBtn) {
         saveBtn.addEventListener("click", async () => {
@@ -849,44 +835,89 @@
       }
     }
 
-    /** Refresh toolbar UI (dropdown options + button states). */
-    async _refreshToolbar() {
-      if (!this.toolbarEl) return;
-      const sel = this.toolbarEl.querySelector("[data-erp-layout-select]");
-      const dirty = this.toolbarEl.querySelector("[data-erp-dirty]");
-      const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
-      if (!sel) return;
-
-      // Fetch list a populate
-      const result = await this.listLayouts();
-      const optionsHtml = ['<option value="">— bez sestavy —</option>'];
+    /** Build items array pro ErpDropdown z listLayouts() result. */
+    _buildLayoutItems(result) {
+      const items = [{ value: "", label: "— bez sestavy —" }];
       if (result && result.shared && result.shared.length > 0) {
-        optionsHtml.push('<optgroup label="🔵 Sdílené">');
+        items.push({ divider: true, label: "🔵 Sdílené" });
         for (const l of result.shared) {
-          const sel = (l.id === this._currentLayoutId) ? " selected" : "";
           const star = l.is_default ? " ⭐" : "";
-          optionsHtml.push(
-            '<option value="' + l.id + '"' + sel + '>' +
-              this._escapeHtml(l.name) + star +
-            '</option>'
-          );
+          items.push({ value: l.id, label: l.name + star });
         }
-        optionsHtml.push('</optgroup>');
       }
       if (result && result.personal && result.personal.length > 0) {
-        optionsHtml.push('<optgroup label="👤 Moje">');
+        items.push({ divider: true, label: "👤 Moje" });
         for (const l of result.personal) {
-          const sel = (l.id === this._currentLayoutId) ? " selected" : "";
           const star = l.is_default ? " ⭐" : "";
-          optionsHtml.push(
-            '<option value="' + l.id + '"' + sel + '>' +
-              this._escapeHtml(l.name) + star +
-            '</option>'
-          );
+          items.push({ value: l.id, label: l.name + star });
         }
-        optionsHtml.push('</optgroup>');
       }
-      sel.innerHTML = optionsHtml.join("");
+      return items;
+    }
+
+    /** Refresh toolbar UI (dropdown items + button states). */
+    async _refreshToolbar() {
+      if (!this.toolbarEl) return;
+      const mount = this.toolbarEl.querySelector("[data-erp-layout-mount]");
+      const dirty = this.toolbarEl.querySelector("[data-erp-dirty]");
+      const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
+      if (!mount) return;
+
+      // Fetch list + build items
+      const result = await this.listLayouts();
+      const items = this._buildLayoutItems(result);
+      const currentValue = (this._currentLayoutId != null) ? this._currentLayoutId : "";
+
+      // Lazy-create / reuse ErpDropdown instance
+      const HasErpDD = (typeof window !== "undefined" && typeof window.ErpDropdown === "function");
+      const wrapperLost = this._layoutDropdown
+        && this._layoutDropdown.wrapperElement
+        && !mount.contains(this._layoutDropdown.wrapperElement());
+      if (HasErpDD) {
+        if (!this._layoutDropdown || wrapperLost) {
+          if (this._layoutDropdown) {
+            try { this._layoutDropdown.destroy(); } catch (e) {}
+            this._layoutDropdown = null;
+          }
+          mount.innerHTML = "";
+          this._layoutDropdown = new window.ErpDropdown(mount, {
+            items: items,
+            value: currentValue,
+            placeholder: "— bez sestavy —",
+            onChange: async (val) => {
+              if (val === "" || val == null) {
+                await this.resetToDefault();
+                await this._refreshToolbar();
+                return;
+              }
+              await this.loadLayoutById(parseInt(val, 10));
+              await this._refreshToolbar();
+            },
+          });
+        } else {
+          this._layoutDropdown.setItems(items);
+          this._layoutDropdown.setValue(currentValue, /*silent*/true);
+        }
+      } else {
+        // Fallback — pokud ErpDropdown není načtený, render native select
+        const optionsHtml = items.map(it => {
+          if (it.divider) return '<optgroup label="' + this._escapeHtml(it.label || "") + '">';
+          return '<option value="' + this._escapeHtml(String(it.value)) + '"' +
+                 (it.value === currentValue ? ' selected' : '') + '>' +
+                 this._escapeHtml(it.label) + '</option>';
+        }).join("");
+        mount.innerHTML = '<select class="erp-layout-select-fallback">' + optionsHtml + '</select>';
+        const fallbackSel = mount.querySelector("select");
+        if (fallbackSel && !fallbackSel._wired) {
+          fallbackSel._wired = true;
+          fallbackSel.addEventListener("change", async (ev) => {
+            const id = ev.target.value;
+            if (!id) { await this.resetToDefault(); await this._refreshToolbar(); return; }
+            await this.loadLayoutById(parseInt(id, 10));
+            await this._refreshToolbar();
+          });
+        }
+      }
 
       // Dirty indicator
       if (dirty) {
@@ -1291,6 +1322,11 @@
     destroy() {
       if (this._destroyed) return;
       this._destroyed = true;
+      // B+6.3+ (5.5.2026): cleanup ErpDropdown layout selector
+      if (this._layoutDropdown) {
+        try { this._layoutDropdown.destroy(); } catch (e) {}
+        this._layoutDropdown = null;
+      }
       try {
         if (this.gridApi && typeof this.gridApi.destroy === "function") {
           this.gridApi.destroy();

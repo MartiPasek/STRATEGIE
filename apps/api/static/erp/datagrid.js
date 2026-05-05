@@ -901,96 +901,296 @@
       }
     }
 
-    async _openSaveAsDialog() {
-      const name = window.prompt(
-        "Název nové sestavy:",
-        this._currentLayoutId ? "" : "Můj pohled"
-      );
-      if (!name || !name.trim()) return;
-      // Scope: shared dialog jen pokud uživatel je admin (server-side check stejně proběhne)
-      const wantShared = window.confirm(
-        "Uložit jako SDÍLENÝ layout (viditelný všem uživatelům)?\n\n" +
-        "OK = sdílený (vyžaduje admin oprávnění)\n" +
-        "Zrušit = osobní (jen pro tebe)"
-      );
-      const isDefault = window.confirm(
-        "Označit tento layout jako výchozí (auto-load při otevření přehledu)?\n\n" +
-        "OK = ano, je výchozí\n" +
-        "Zrušit = ne, jen jedna z více sestav"
-      );
-      try {
-        await this.saveAsLayout({
-          name: name.trim(),
-          scope: wantShared ? "shared" : "user",
-          isDefault: isDefault,
+    // ── B+5.3.2: Custom dark theme modal helper ─────────────────────
+
+    /**
+     * Show custom modal dialog with dark theme.
+     * Returns Promise resolving to button.value or null (Esc/cancel).
+     *
+     * opts: { title, bodyHtml, buttons: [{label, value, primary?, destructive?, handler?(modal)}] }
+     */
+    _showModal(opts) {
+      return new Promise((resolve) => {
+        const backdrop = document.createElement("div");
+        backdrop.className = "erp-modal-backdrop";
+        const modal = document.createElement("div");
+        modal.className = "erp-modal";
+        modal.innerHTML =
+          '<div class="erp-modal-header">' +
+            '<h3>' + this._escapeHtml(opts.title || "") + '</h3>' +
+            '<button class="erp-modal-close" type="button" aria-label="Zavřít">×</button>' +
+          '</div>' +
+          '<div class="erp-modal-body">' + (opts.bodyHtml || "") + '</div>' +
+          '<div class="erp-modal-footer">' +
+            (opts.buttons || []).map((b, i) =>
+              '<button class="erp-modal-btn ' +
+              (b.primary ? 'primary ' : '') +
+              (b.destructive ? 'destructive ' : '') +
+              '" data-erp-mb="' + i + '" type="button">' +
+              this._escapeHtml(b.label) +
+              '</button>'
+            ).join("") +
+          '</div>';
+        backdrop.appendChild(modal);
+        document.body.appendChild(backdrop);
+
+        let resolved = false;
+        const close = (val) => {
+          if (resolved) return;
+          resolved = true;
+          document.removeEventListener("keydown", onKey);
+          backdrop.remove();
+          resolve(val);
+        };
+        const onKey = (ev) => {
+          if (ev.key === "Escape") close(null);
+          else if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") {
+            // Find primary button + invoke
+            const primary = (opts.buttons || []).findIndex(b => b.primary);
+            if (primary >= 0) {
+              ev.preventDefault();
+              const btn = modal.querySelector('[data-erp-mb="' + primary + '"]');
+              if (btn) btn.click();
+            }
+          }
+        };
+
+        modal.querySelector(".erp-modal-close").addEventListener("click", () => close(null));
+        backdrop.addEventListener("click", (ev) => {
+          if (ev.target === backdrop) close(null);
         });
+        document.addEventListener("keydown", onKey);
+
+        (opts.buttons || []).forEach((b, i) => {
+          const btn = modal.querySelector('[data-erp-mb="' + i + '"]');
+          if (!btn) return;
+          btn.addEventListener("click", () => {
+            try {
+              const val = (typeof b.handler === "function") ? b.handler(modal) : b.value;
+              close(val);
+            } catch (e) {
+              alert("Modal action error: " + (e.message || e));
+              close(null);
+            }
+          });
+        });
+
+        // Auto-focus first input
+        setTimeout(() => {
+          const input = modal.querySelector("input, textarea, select, button.erp-modal-btn.primary");
+          if (input) input.focus();
+          if (input && input.select) try { input.select(); } catch (e) {}
+        }, 60);
+      });
+    }
+
+    /** Custom confirm dialog (Promise<boolean>). */
+    _modalConfirm(opts) {
+      return this._showModal({
+        title: opts.title || "Potvrdit",
+        bodyHtml:
+          '<div class="erp-modal-field">' +
+            '<p style="margin:0; line-height:1.5;">' + this._escapeHtml(opts.message || "") + '</p>' +
+          '</div>',
+        buttons: [
+          { label: opts.cancelLabel || "Zrušit", value: false },
+          {
+            label: opts.confirmLabel || "OK",
+            value: true,
+            primary: !opts.destructive,
+            destructive: !!opts.destructive,
+          },
+        ],
+      }).then(v => v === true);
+    }
+
+    async _openSaveAsDialog() {
+      const result = await this._showModal({
+        title: "Uložit jako novou sestavu",
+        bodyHtml:
+          '<div class="erp-modal-field">' +
+            '<label for="erp-save-name">Název sestavy:</label>' +
+            '<input type="text" id="erp-save-name" placeholder="Můj pohled" maxlength="80">' +
+          '</div>' +
+          '<div class="erp-modal-field">' +
+            '<label>Typ:</label>' +
+            '<div class="erp-radio-group">' +
+              '<label><input type="radio" name="erp-scope" value="user" checked> ' +
+                '👤 Osobní <span class="erp-field-hint" style="display:inline; margin:0 0 0 4px;">— jen pro tebe</span></label>' +
+              '<label><input type="radio" name="erp-scope" value="shared"> ' +
+                '🔵 Sdílený <span class="erp-field-hint" style="display:inline; margin:0 0 0 4px;">— pro všechny uživatele (admin)</span></label>' +
+            '</div>' +
+          '</div>' +
+          '<div class="erp-modal-field">' +
+            '<div class="erp-checkbox-group">' +
+              '<label><input type="checkbox" id="erp-save-default"> ' +
+                '⭐ Označit jako výchozí <span class="erp-field-hint" style="display:inline; margin:0 0 0 4px;">— auto-load při otevření přehledu</span></label>' +
+            '</div>' +
+          '</div>',
+        buttons: [
+          { label: "Zrušit", value: null },
+          {
+            label: "Uložit",
+            primary: true,
+            handler: (m) => {
+              const name = m.querySelector("#erp-save-name").value.trim();
+              if (!name) {
+                alert("Vyplň název sestavy.");
+                return undefined;  // continues — but Promise resolves with undefined
+              }
+              const scope = m.querySelector("input[name='erp-scope']:checked").value;
+              const isDefault = m.querySelector("#erp-save-default").checked;
+              return { name, scope, isDefault };
+            },
+          },
+        ],
+      });
+      if (!result || !result.name) return;
+      try {
+        await this.saveAsLayout(result);
         await this._refreshToolbar();
-        this._toast("Sestava '" + name + "' vytvořena.");
+        this._toast("Sestava '" + result.name + "' vytvořena.");
       } catch (e) {
-        alert("Chyba při ukládání: " + (e.message || e));
+        this._toast("Chyba: " + (e.message || e), "error");
       }
     }
 
     async _openManagePanel() {
-      // B+5.3 MVP: simple alert s actions, B+5.3.2 → proper modal
       const result = await this.listLayouts();
       if (!result) {
-        alert("Nelze načíst seznam sestav.");
+        this._toast("Nelze načíst seznam sestav.", "error");
         return;
       }
       const all = [
-        ...result.shared.map(l => ({...l, _label: "🔵 " + l.name})),
-        ...result.personal.map(l => ({...l, _label: "👤 " + l.name})),
+        ...(result.shared || []).map(l => ({...l, _section: "shared"})),
+        ...(result.personal || []).map(l => ({...l, _section: "personal"})),
       ];
+
+      let bodyHtml;
       if (all.length === 0) {
-        alert("Žádné uložené sestavy. Vytvoř první přes '+ Uložit jako…'.");
-        return;
+        bodyHtml = '<div class="erp-modal-empty">Zatím žádné uložené sestavy.<br>Vytvoř první přes <strong>+ Uložit jako…</strong></div>';
+      } else {
+        bodyHtml =
+          '<table class="erp-modal-table">' +
+            '<thead><tr>' +
+              '<th>Název</th>' +
+              '<th>Typ</th>' +
+              '<th>Stav</th>' +
+              '<th></th>' +
+            '</tr></thead>' +
+            '<tbody>' +
+              all.map(l => {
+                const isCurrent = (l.id === this._currentLayoutId);
+                const cls = isCurrent ? ' class="erp-current"' : '';
+                const typeIcon = l._section === "shared" ? "🔵 Sdílená" : "👤 Osobní";
+                const stateBadges = [];
+                if (l.is_default) stateBadges.push('⭐ výchozí');
+                if (isCurrent) stateBadges.push('✓ aktivní');
+                return (
+                  '<tr' + cls + ' data-erp-row-id="' + l.id + '" data-erp-row-name="' + this._escapeHtml(l.name) + '">' +
+                    '<td>' + this._escapeHtml(l.name) +
+                      (l.description ? '<br><span style="font-size:11px;color:var(--muted)">' + this._escapeHtml(l.description) + '</span>' : '') +
+                    '</td>' +
+                    '<td>' + typeIcon + '</td>' +
+                    '<td>' + stateBadges.join(", ") + '</td>' +
+                    '<td><div class="erp-row-actions">' +
+                      '<button class="erp-modal-action" data-erp-action="setdefault" ' +
+                        (l.is_default ? 'disabled ' : '') + 'title="Označit jako výchozí">⭐</button>' +
+                      '<button class="erp-modal-action" data-erp-action="rename" title="Přejmenovat">✏️</button>' +
+                      '<button class="erp-modal-action destructive" data-erp-action="delete" title="Smazat">🗑️</button>' +
+                    '</div></td>' +
+                  '</tr>'
+                );
+              }).join("") +
+            '</tbody>' +
+          '</table>';
       }
-      const lines = all.map((l, i) =>
-        (i + 1) + ". " + l._label +
-        (l.is_default ? " ⭐" : "") +
-        (l.id === this._currentLayoutId ? " ✓ (aktivní)" : "")
-      );
-      const choice = window.prompt(
-        "SPRÁVA SESTAV\n\n" +
-        lines.join("\n") +
-        "\n\nZadej číslo + akci:\n" +
-        "  '1 default' — označit jako výchozí\n" +
-        "  '1 rename' — přejmenovat\n" +
-        "  '1 delete' — smazat\n\n" +
-        "(Prázdné = zrušit)"
-      );
-      if (!choice || !choice.trim()) return;
-      const m = choice.trim().match(/^(\d+)\s+(default|rename|delete)$/i);
-      if (!m) {
-        alert("Neplatný formát. Použij '<číslo> default|rename|delete'.");
-        return;
+
+      // Show modal s "table actions" handlers — modal nezavřeme po actionu, musíme refreshnout uvnitř
+      let modalEl = null;
+      const modalP = this._showModal({
+        title: "Správa sestav",
+        bodyHtml: bodyHtml,
+        buttons: [
+          { label: "Zavřít", value: null },
+        ],
+      });
+
+      // Setup row action handlers — backdrop už je v DOMu
+      modalEl = document.querySelector(".erp-modal-backdrop:last-of-type .erp-modal");
+      if (modalEl) {
+        modalEl.querySelectorAll("[data-erp-action]").forEach(btn => {
+          btn.addEventListener("click", async (ev) => {
+            ev.stopPropagation();
+            const tr = btn.closest("tr[data-erp-row-id]");
+            if (!tr) return;
+            const id = parseInt(tr.getAttribute("data-erp-row-id"), 10);
+            const name = tr.getAttribute("data-erp-row-name");
+            const action = btn.getAttribute("data-erp-action");
+            try {
+              if (action === "setdefault") {
+                await this.setDefaultLayout(id);
+                this._toast("Sestava '" + name + "' je výchozí.");
+              } else if (action === "rename") {
+                const newName = await this._modalPrompt({
+                  title: "Přejmenovat sestavu",
+                  label: "Nový název:",
+                  defaultValue: name,
+                  maxLength: 80,
+                });
+                if (!newName || !newName.trim() || newName.trim() === name) return;
+                await this._renameLayout(id, newName.trim());
+                this._toast("Přejmenováno na '" + newName + "'.");
+              } else if (action === "delete") {
+                const ok = await this._modalConfirm({
+                  title: "Smazat sestavu",
+                  message: "Opravdu smazat sestavu '" + name + "'? Tato akce je nevratná.",
+                  confirmLabel: "Smazat",
+                  destructive: true,
+                });
+                if (!ok) return;
+                await this.deleteLayout(id);
+                this._toast("Sestava '" + name + "' smazána.");
+              }
+              // Close modal + refresh + reopen (jednoduchý refresh — UI re-renders)
+              const backdrop = modalEl.closest(".erp-modal-backdrop");
+              if (backdrop) backdrop.remove();
+              await this._refreshToolbar();
+              this._openManagePanel();  // re-open with fresh data
+            } catch (e) {
+              this._toast("Chyba: " + (e.message || e), "error");
+            }
+          });
+        });
       }
-      const idx = parseInt(m[1], 10) - 1;
-      const action = m[2].toLowerCase();
-      if (idx < 0 || idx >= all.length) {
-        alert("Číslo mimo rozsah.");
-        return;
-      }
-      const layout = all[idx];
-      try {
-        if (action === "default") {
-          await this.setDefaultLayout(layout.id);
-          this._toast("Sestava '" + layout.name + "' označena jako výchozí.");
-        } else if (action === "rename") {
-          const newName = window.prompt("Nový název:", layout.name);
-          if (!newName || !newName.trim()) return;
-          await this._renameLayout(layout.id, newName.trim());
-          this._toast("Přejmenováno na '" + newName + "'.");
-        } else if (action === "delete") {
-          if (!window.confirm("Opravdu smazat sestavu '" + layout.name + "'?")) return;
-          await this.deleteLayout(layout.id);
-          this._toast("Sestava '" + layout.name + "' smazána.");
-        }
-        await this._refreshToolbar();
-      } catch (e) {
-        alert("Chyba: " + (e.message || e));
-      }
+      await modalP;
+    }
+
+    /** Custom prompt dialog (Promise<string|null>). */
+    _modalPrompt(opts) {
+      return this._showModal({
+        title: opts.title || "Zadej hodnotu",
+        bodyHtml:
+          '<div class="erp-modal-field">' +
+            (opts.label ? '<label for="erp-prompt-input">' + this._escapeHtml(opts.label) + '</label>' : '') +
+            '<input type="text" id="erp-prompt-input" ' +
+              'value="' + this._escapeHtml(opts.defaultValue || "") + '" ' +
+              (opts.maxLength ? 'maxlength="' + opts.maxLength + '" ' : '') +
+              (opts.placeholder ? 'placeholder="' + this._escapeHtml(opts.placeholder) + '" ' : '') +
+            '>' +
+          '</div>',
+        buttons: [
+          { label: "Zrušit", value: null },
+          {
+            label: opts.confirmLabel || "OK",
+            primary: true,
+            handler: (m) => {
+              const v = m.querySelector("#erp-prompt-input").value;
+              return v;
+            },
+          },
+        ],
+      });
     }
 
     async _renameLayout(layoutId, newName) {
@@ -1007,23 +1207,23 @@
       return await r.json();
     }
 
-    /** Toast notification — MVP: console + brief alert-free overlay. */
-    _toast(msg) {
-      // B+5.3.2 → real toast component. Pro MVP jen console + DOM injection.
+    /** Toast notification — fixed bottom-right, dark theme. */
+    _toast(msg, kind) {
+      // B+5.3.2: fixed-position toast (žádné dependency na toolbar DOM)
       console.info("[ErpDataGrid]", msg);
-      if (!this.toolbarEl) return;
-      let toast = this.toolbarEl.querySelector(".erp-toast");
-      if (!toast) {
-        toast = document.createElement("span");
-        toast.className = "erp-toast";
-        this.toolbarEl.appendChild(toast);
-      }
+      let toast = document.body.querySelector(".erp-toast-fixed");
+      if (toast) toast.remove();
+      toast = document.createElement("div");
+      toast.className = "erp-toast-fixed" + (kind === "error" ? " erp-toast-error" : "");
       toast.textContent = msg;
-      toast.style.opacity = "1";
+      document.body.appendChild(toast);
       clearTimeout(this._toastTimer);
       this._toastTimer = setTimeout(() => {
-        if (toast) toast.style.opacity = "0";
-      }, 2500);
+        if (toast && toast.parentNode) {
+          toast.style.opacity = "0";
+          setTimeout(() => toast.remove(), 400);
+        }
+      }, 3000);
     }
 
     _escapeHtml(s) {

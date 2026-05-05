@@ -248,3 +248,275 @@
   margin-left: 8px;
   transition: opacity 0.4s ease-out;
 }
+
+/* ── Phase B+5.3.2: dark theme modals (Save As + Manage panel) ────── */
+
+.erp-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: erp-modal-fade-in 150ms ease-out;
+}
+@keyframes erp-modal-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.erp-modal {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 10px;
+  min-width: 440px;
+  max-width: min(90vw, 800px);
+  max-height: 85vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.6);
+  color: var(--text, #f0f1f5);
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  animation: erp-modal-pop-in 180ms ease-out;
+}
+@keyframes erp-modal-pop-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+.erp-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  border-radius: 10px 10px 0 0;
+}
+.erp-modal-header h3 {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text, #f0f1f5);
+  letter-spacing: 0.02em;
+}
+.erp-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #b0b3bc);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  transition: color 0.12s;
+}
+.erp-modal-close:hover {
+  color: var(--accent, #4f8ef7);
+}
+
+.erp-modal-body {
+  padding: 16px;
+  flex: 1;
+  overflow-y: auto;
+  min-height: 50px;
+}
+
+.erp-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  border-radius: 0 0 10px 10px;
+}
+
+.erp-modal-btn {
+  background: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 5px;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+  min-width: 80px;
+}
+.erp-modal-btn:hover {
+  border-color: var(--accent, #4f8ef7);
+  background: var(--surface, #1c1e23);
+}
+.erp-modal-btn.primary {
+  background: var(--accent, #4f8ef7);
+  color: white;
+  border-color: var(--accent, #4f8ef7);
+}
+.erp-modal-btn.primary:hover {
+  background: var(--accent2, #7c5cfc);
+  border-color: var(--accent2, #7c5cfc);
+}
+.erp-modal-btn.destructive {
+  background: rgba(248, 113, 113, 0.12);
+  color: var(--error, #f87171);
+  border-color: rgba(248, 113, 113, 0.4);
+}
+.erp-modal-btn.destructive:hover {
+  background: var(--error, #f87171);
+  color: white;
+}
+
+/* Form fields v modalu */
+.erp-modal-field {
+  margin-bottom: 14px;
+}
+.erp-modal-field:last-child {
+  margin-bottom: 0;
+}
+.erp-modal-field > label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-muted, #b0b3bc);
+  margin-bottom: 5px;
+  font-weight: 500;
+}
+.erp-modal-field input[type="text"],
+.erp-modal-field textarea {
+  width: 100%;
+  background: var(--bg, #0e0f11);
+  color: var(--text, #f0f1f5);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 5px;
+  padding: 7px 10px;
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+  box-sizing: border-box;
+}
+.erp-modal-field input[type="text"]:focus,
+.erp-modal-field textarea:focus {
+  border-color: var(--accent, #4f8ef7);
+}
+.erp-modal-field textarea {
+  min-height: 60px;
+  resize: vertical;
+}
+.erp-modal-field .erp-radio-group,
+.erp-modal-field .erp-checkbox-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.erp-modal-field .erp-radio-group label,
+.erp-modal-field .erp-checkbox-group label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text, #f0f1f5);
+  cursor: pointer;
+  font-weight: 400;
+  margin-bottom: 0;
+}
+.erp-modal-field input[type="radio"],
+.erp-modal-field input[type="checkbox"] {
+  accent-color: var(--accent, #4f8ef7);
+  cursor: pointer;
+}
+.erp-modal-field .erp-field-hint {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--muted, #8a8d96);
+  font-style: italic;
+}
+
+/* Manage panel — table */
+.erp-modal-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+.erp-modal-table th {
+  text-align: left;
+  padding: 6px 10px;
+  background: var(--bg, #0e0f11);
+  color: var(--text-muted, #b0b3bc);
+  font-weight: 600;
+  font-size: 11px;
+  border-bottom: 1px solid var(--border-strong, #4a4e57);
+}
+.erp-modal-table td {
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  color: var(--text, #f0f1f5);
+  vertical-align: middle;
+}
+.erp-modal-table tr:hover td {
+  background: var(--bg, #0e0f11);
+}
+.erp-modal-table tr.erp-current td {
+  background: rgba(79, 142, 247, 0.08);
+}
+.erp-modal-table .erp-row-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+.erp-modal-action {
+  background: transparent;
+  color: var(--text-muted, #b0b3bc);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 4px;
+  padding: 2px 7px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.12s;
+}
+.erp-modal-action:hover:not(:disabled) {
+  border-color: var(--accent, #4f8ef7);
+  color: var(--accent, #4f8ef7);
+}
+.erp-modal-action:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.erp-modal-action.destructive:hover {
+  color: var(--error, #f87171);
+  border-color: var(--error, #f87171);
+}
+
+.erp-modal-empty {
+  text-align: center;
+  color: var(--muted, #8a8d96);
+  padding: 24px;
+  font-style: italic;
+}
+
+/* Toast notification — moved out of toolbar (fixed position) */
+.erp-toast-fixed {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border: 1px solid var(--accent, #4f8ef7);
+  border-radius: 6px;
+  padding: 10px 16px;
+  font-size: 13px;
+  font-family: 'DM Sans', sans-serif;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  z-index: 300;
+  animation: erp-toast-slide 200ms ease-out;
+}
+@keyframes erp-toast-slide {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.erp-toast-fixed.erp-toast-error {
+  border-color: var(--error, #f87171);
+}

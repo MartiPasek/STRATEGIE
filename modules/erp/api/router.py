@@ -314,12 +314,13 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     a:hover {{ opacity: .85; }}
 
     /* ── Header ── */
+    /* B+2.4 (5.5.2026): logo doleva — žádné centering, full viewport width */
     .erp-header {{
       background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 14px 24px; position: sticky; top: 0; z-index: 10;
+      padding: 12px 16px; position: sticky; top: 0; z-index: 10;
     }}
     .erp-header-inner {{
-      max-width: 1280px; margin: 0 auto;
+      max-width: none; margin: 0;
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }}
     .erp-logo {{
@@ -788,6 +789,12 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       color: var(--text-muted);
       width: 100% !important;
       flex: 1; min-height: 0;
+    }}
+    /* B+2.4: pojistka — všechny vnitřní Tabulator elementy fill 100% width */
+    .erp-tab-grid .tabulator-tableholder,
+    .erp-tab-grid .tabulator-table,
+    .erp-tab-grid .tabulator-headers {{
+      width: 100% !important;
     }}
     /* B+1.1: header darker than body — sinks below floating cells */
     .erp-tab-grid .tabulator-header {{
@@ -1407,6 +1414,10 @@ def _render_workspace_page(user_id: int) -> str:
             sorter: isId ? "number" : "string",
             resizable: true,
             cssClass: isId ? "erp-tab-col-id" : "",
+            // B+2.4: ID column narrow fixed; others share container width equally
+            width: isId ? 70 : undefined,
+            widthGrow: isId ? 0 : 1,
+            minWidth: 60,
             formatter: function(cell) {
               const v = cell.getValue();
               if (v == null) return "";
@@ -1428,9 +1439,10 @@ def _render_workspace_page(user_id: int) -> str:
           activeTabulator = new Tabulator(grid, {
             data: rows,
             columns: tabCols,
-            // B+2.3: fitDataFill — columns minimum z dat, extra space rozdistribuováno
-            layout: "fitDataFill",
-            // B+2.3: percent height — fills flex container (main-content > erp-tab-grid)
+            // B+2.4: fitColumns — všechny columns rozdělí container width rovnoměrně
+            // (proportional distribution, never leaves dead space on right)
+            layout: "fitColumns",
+            // Percent height — fills flex container (main-content > erp-tab-grid)
             height: "100%",
             placeholder: "Žádná data po filtru",
             headerSortTristate: true,

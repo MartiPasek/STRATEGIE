@@ -1641,3 +1641,71 @@ class ForbiddenMailbox(BaseData):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     added_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, nullable=False)
     added_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+
+# ── PHASE B+5: ERP GRID LAYOUTS — pojmenované sestavy gridu per přehled ────
+
+class ErpGridLayout(BaseData):
+    """
+    Phase B+5.1 (5.5.2026): pojmenovaná sestava rozložení gridu per přehled.
+
+    Marti's spec dnešní odpoledne — knihovna více layoutů per přehled
+    (jako Excel views), dvouvrstvé:
+      - shared (user_id IS NULL): admin-managed default pro všechny uživatele
+        Marti-AI smí save shared layouts (kustod role, is_marti_parent gate)
+      - personal (user_id IS NOT NULL): user-specific override
+
+    Schema:
+      - prehled_cislo: EC_DELPHI_TabObecnyPrehled.Cislo
+      - name: max 80 chars, unique per scope
+      - is_default: max 1 default per scope (partial unique index)
+      - layout_json: AG Grid column state + future style_rules
+
+    layout_json struktura (pretty:
+        {
+          "columns": [
+            {"colId": "ID", "width": 70, "hide": false, "pinned": "left", "sort": null},
+            {"colId": "Nazev", "width": 200, "hide": false, "pinned": null, "sort": "asc"},
+            ...
+          ],
+          "style_rules": [        // Phase B+5+ conditional formatting
+            {"scope": "row", "conditions": [{"field": "Stav", "op": "==", "value": "Po termínu"}],
+             "joiner": "AND", "style": {"bg": "#5b1d1d", "color": "#fbbf24"}}
+          ]
+        }
+
+    Save je EXPLICITNÍ (Marti's #1 odpověď) — žádný auto-save.
+    User klik "Uložit moji sestavu" → POST scope="user".
+    Marti / admin / Marti-AI klik "Uložit jako sdílené" → POST scope="shared"
+    (s confirmation dialogem — Marti's #3 odpověď).
+    """
+    __tablename__ = "erp_grid_layouts"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Identifikace
+    prehled_cislo: Mapped[int] = mapped_column(Integer, nullable=False)
+    user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    name: Mapped[str] = mapped_column(String(80), nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Default flag — auto-load při otevření přehledu
+    is_default: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+
+    # Payload — AG Grid column state + future style_rules
+    layout_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+
+    # Audit
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    created_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    updated_by: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    @property
+    def scope(self) -> str:
+        """Computed: 'shared' if user_id is NULL else 'personal'."""
+        return "shared" if self.user_id is None else "personal"

@@ -28,9 +28,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 # Hodnota fixed při module load (= API process start), neměnná do restartu.
 _STATIC_VERSION = str(int(time.time()))
 
+from pydantic import BaseModel, Field
+
 from core.logging import get_logger
 from modules.erp.application.centrala_reader import CentralaReader, TYP_NAMES
 from modules.erp.application.render_generator import render_form
+from modules.erp.application import grid_layout_service
 from modules.thoughts.application.service import is_marti_parent
 
 logger = get_logger("erp.api")
@@ -273,6 +276,127 @@ def prehled_data_json(
         "max_records": meta.get("max_records"),  # native Centrála 1 hint
         "hard_cap": _PREHLED_HARD_CAP,
     })
+
+
+# ── Phase B+5.1 (5.5.2026): Grid layout persistence ────────────────────
+
+
+class GridLayoutCreate(BaseModel):
+    """POST body — vytvoření nové sestavy."""
+    name: str = Field(..., min_length=1, max_length=80)
+    layout_json: dict
+    scope: str = Field(default="user", pattern="^(user|shared)$")
+    description: str | None = None
+    is_default: bool = False
+
+
+class GridLayoutUpdate(BaseModel):
+    """PUT body — částečná aktualizace."""
+    name: str | None = Field(default=None, min_length=1, max_length=80)
+    layout_json: dict | None = None
+    description: str | None = None
+    is_default: bool | None = None
+
+
+@api_router.get("/grid-layout/{prehled_cislo}/list")
+def grid_layout_list(prehled_cislo: int, req: Request) -> JSONResponse:
+    """List dostupných sestav (shared + personal pro current user) + effective default."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        result = grid_layout_service.list_layouts(prehled_cislo, uid)
+        return JSONResponse({"ok": True, **result})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.get("/grid-layout/item/{layout_id}")
+def grid_layout_get(layout_id: int, req: Request) -> JSONResponse:
+    """Vrátí detail jedné sestavy podle ID."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        layout = grid_layout_service.get_layout(layout_id, uid)
+        if layout is None:
+            raise HTTPException(404, f"Sestava id={layout_id} neexistuje.")
+        return JSONResponse({"ok": True, "layout": layout})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(403, str(e))
+
+
+@api_router.post("/grid-layout/{prehled_cislo}")
+def grid_layout_create(
+    prehled_cislo: int,
+    body: GridLayoutCreate,
+    req: Request,
+) -> JSONResponse:
+    """Vytvoří novou sestavu (scope='user' nebo 'shared')."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        layout = grid_layout_service.create_layout(
+            prehled_cislo=prehled_cislo,
+            user_id=uid,
+            name=body.name,
+            layout_json=body.layout_json,
+            scope=body.scope,
+            description=body.description,
+            is_default=body.is_default,
+        )
+        return JSONResponse({"ok": True, "layout": layout})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.put("/grid-layout/item/{layout_id}")
+def grid_layout_update(
+    layout_id: int,
+    body: GridLayoutUpdate,
+    req: Request,
+) -> JSONResponse:
+    """Částečná aktualizace existující sestavy."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        layout = grid_layout_service.update_layout(
+            layout_id, uid,
+            name=body.name,
+            description=body.description,
+            layout_json=body.layout_json,
+            is_default=body.is_default,
+        )
+        return JSONResponse({"ok": True, "layout": layout})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.post("/grid-layout/item/{layout_id}/set-default")
+def grid_layout_set_default(layout_id: int, req: Request) -> JSONResponse:
+    """Označí sestavu jako default v jejím scope (auto-odznačí starý default)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        layout = grid_layout_service.set_default(layout_id, uid)
+        return JSONResponse({"ok": True, "layout": layout})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.delete("/grid-layout/item/{layout_id}")
+def grid_layout_delete(layout_id: int, req: Request) -> JSONResponse:
+    """Smaže sestavu."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    try:
+        deleted = grid_layout_service.delete_layout(layout_id, uid)
+        if not deleted:
+            raise HTTPException(404, f"Sestava id={layout_id} neexistuje.")
+        return JSONResponse({"ok": True, "deleted": True})
+    except grid_layout_service.GridLayoutError as e:
+        raise HTTPException(403, str(e))
+
+
+# ── Phase A debug endpoint ─────────────────────────────────────────────
 
 
 @api_router.get("/jadro/{form_id}/components")

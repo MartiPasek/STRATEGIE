@@ -219,9 +219,11 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
   <style>
     *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
     :root {{
-      --bg: #0e0f11; --surface: #16181c; --border: #2a2d33;
-      --accent: #4f8ef7; --accent2: #7c5cfc; --text: #e8eaf0;
-      --muted: #6b7280; --error: #f87171;
+      --bg: #0e0f11; --surface: #1c1e23; --surface2: #252830;
+      --border: #3a3d44; --border-strong: #4a4e57;
+      --accent: #4f8ef7; --accent2: #7c5cfc;
+      --text: #f0f1f5; --text-muted: #b0b3bc;
+      --muted: #8a8d96; --error: #f87171;
     }}
     html, body {{ height: 100%; background: var(--bg); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 15px; }}
     a {{ color: var(--accent); text-decoration: none; }}
@@ -244,14 +246,14 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-phase-badge {{
       font-size: 11px; padding: 2px 8px; border-radius: 6px;
-      background: rgba(124,92,252,0.12); color: var(--accent2);
-      border: 1px solid rgba(124,92,252,0.3);
+      background: rgba(124,92,252,0.18); color: #a78bfa;
+      border: 1px solid rgba(124,92,252,0.4);
       font-family: 'DM Mono',monospace; letter-spacing: 0.05em;
     }}
     .erp-bc {{ font-size: 13px; }}
-    .erp-bc-link {{ color: var(--muted); }}
+    .erp-bc-link {{ color: var(--text-muted); }}
     .erp-bc-link:hover {{ color: var(--accent); }}
-    .erp-bc-current {{ color: var(--text); }}
+    .erp-bc-current {{ color: var(--text); font-weight: 500; }}
     .erp-bc-sep {{ color: var(--border); margin: 0 4px; }}
 
     /* ── Main ── */
@@ -264,70 +266,79 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-radius: 12px; padding: 28px;
     }}
     .erp-form-header {{ margin-bottom: 24px; padding-bottom: 16px; border-bottom: 1px solid var(--border); }}
-    .erp-form-title {{ font-size: 20px; font-weight: 500; color: var(--text); }}
+    .erp-form-title {{ font-size: 22px; font-weight: 600; color: var(--text); }}
 
     /* ── Section (GroupBox) ── */
     .erp-group {{
-      background: var(--bg); border: 1px solid var(--border);
-      border-radius: 10px; padding: 16px; margin-bottom: 14px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px; margin-bottom: 14px;
     }}
     .erp-group-header {{
-      font-family: 'DM Mono',monospace; font-size: 11px; font-weight: 500;
-      color: var(--muted); letter-spacing: 0.06em; text-transform: uppercase;
-      margin-bottom: 12px;
+      font-family: 'DM Mono',monospace; font-size: 12px; font-weight: 500;
+      color: #c8cad2; letter-spacing: 0.08em; text-transform: uppercase;
+      margin-bottom: 14px; padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
     }}
-    .erp-group-empty {{ opacity: 0.55; }}
+    .erp-group-orphan {{ background: var(--surface2); border: 1px dashed var(--border); }}
+    .erp-group-empty {{ opacity: 0.6; }}
     .erp-group-empty-hint {{ font-size: 12px; color: var(--muted); font-style: italic; }}
     .erp-fields {{
-      display: grid; gap: 10px;
+      display: grid; gap: 12px;
       grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
     }}
 
     /* ── Field ── */
-    .erp-field {{ display: flex; flex-direction: column; gap: 4px; }}
+    .erp-field {{ display: flex; flex-direction: column; gap: 5px; }}
     .erp-field-label {{
-      font-size: 11px; color: var(--muted);
+      font-size: 11px; color: var(--text-muted);
       font-family: 'DM Mono',monospace; letter-spacing: 0.05em;
-      text-transform: uppercase;
+      text-transform: uppercase; font-weight: 500;
     }}
     .erp-input {{
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 8px 12px;
+      background: #2c2f37; border: 1px solid var(--border-strong);
+      border-radius: 8px; padding: 9px 12px;
       color: var(--text); font-family: 'DM Sans',sans-serif; font-size: 14px;
-      outline: none; width: 100%; transition: border-color .15s;
+      outline: none; width: 100%; transition: all .15s;
     }}
-    .erp-input:focus {{ border-color: var(--accent); }}
+    .erp-input:focus {{ border-color: var(--accent); background: #313540; }}
     .erp-input[readonly], .erp-input:disabled {{
-      background: var(--bg); color: var(--muted); cursor: not-allowed;
+      background: #1a1c21; color: var(--text-muted);
+      border-color: var(--border); cursor: default;
     }}
-    .erp-input-id {{ font-family: 'DM Mono',monospace; color: var(--muted); }}
-    .erp-input-readonly {{ background: var(--bg); color: var(--muted); }}
+    .erp-input-id {{ font-family: 'DM Mono',monospace; color: var(--accent); }}
+    .erp-input-readonly {{
+      background: #1a1c21; color: var(--text-muted);
+      border-color: var(--border);
+    }}
 
     /* ── CheckBox ── */
     .erp-checkbox {{
       display: flex; align-items: center; gap: 10px;
-      padding: 8px 0; cursor: pointer;
+      padding: 9px 12px; cursor: pointer;
+      background: #2c2f37; border: 1px solid var(--border-strong);
+      border-radius: 8px;
     }}
     .erp-check {{
       width: 16px; height: 16px;
       accent-color: var(--accent);
     }}
     .erp-checkbox-label {{ font-size: 14px; color: var(--text); }}
-    .erp-checkbox input:disabled + .erp-checkbox-label {{ color: var(--muted); }}
+    .erp-checkbox input:disabled + .erp-checkbox-label {{ color: var(--text-muted); }}
 
     /* ── FormList (lookup) ── */
     .erp-formlist .erp-formlist-inner {{
       display: flex; gap: 4px; align-items: stretch;
     }}
     .erp-lookup-btn {{
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 0 12px;
-      color: var(--muted); cursor: pointer; transition: all .15s;
+      background: #2c2f37; border: 1px solid var(--border-strong);
+      border-radius: 8px; padding: 0 14px;
+      color: var(--text-muted); cursor: pointer; transition: all .15s;
+      font-size: 14px;
     }}
     .erp-lookup-btn:hover:not(:disabled) {{
       border-color: var(--accent); color: var(--accent);
     }}
-    .erp-lookup-btn:disabled {{ opacity: 0.4; cursor: not-allowed; }}
+    .erp-lookup-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
 
     /* ── Footer (buttons) ── */
     .erp-form-footer {{
@@ -336,29 +347,29 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-top: 1px solid var(--border);
     }}
     .erp-btn {{
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 8px 16px;
+      background: #2c2f37; border: 1px solid var(--border-strong);
+      border-radius: 8px; padding: 9px 18px;
       color: var(--text); font-family: 'DM Sans',sans-serif; font-size: 13px; font-weight: 500;
       cursor: pointer; transition: all .15s;
     }}
     .erp-btn:hover:not(:disabled) {{
       border-color: var(--accent); color: var(--accent);
     }}
-    .erp-btn:disabled {{ opacity: 0.5; cursor: not-allowed; }}
+    .erp-btn:disabled {{ opacity: 0.6; cursor: not-allowed; }}
     .erp-btn-primary {{
       background: linear-gradient(135deg, var(--accent), var(--accent2));
-      border-color: transparent; color: #fff;
+      border-color: transparent; color: #fff; font-weight: 600;
     }}
     .erp-btn-primary:hover:not(:disabled) {{ opacity: .9; color: #fff; }}
-    .erp-btn-cancel {{ color: var(--muted); }}
+    .erp-btn-cancel {{ color: var(--text-muted); }}
 
     /* ── Unknown / fallback ── */
     .erp-unknown {{
-      padding: 8px 12px; border: 1px dashed var(--border);
-      border-radius: 6px; background: rgba(248,113,113,0.06);
+      padding: 8px 12px; border: 1px dashed var(--error);
+      border-radius: 6px; background: rgba(248,113,113,0.08);
       color: var(--error); font-size: 12px;
     }}
-    .erp-unknown-hint {{ color: var(--muted); }}
+    .erp-unknown-hint {{ color: var(--text-muted); }}
     .erp-label-only {{ font-size: 13px; color: var(--text); padding: 6px 0; }}
 
     /* ── Debug panel ── */
@@ -370,7 +381,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-debug-summary {{
       cursor: pointer; font-family: 'DM Mono',monospace;
-      color: var(--muted); letter-spacing: 0.05em;
+      color: var(--text-muted); letter-spacing: 0.05em;
     }}
     .erp-debug-summary:hover {{ color: var(--text); }}
     .erp-debug-grid {{
@@ -379,7 +390,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-debug-section-title {{ font-weight: 600; color: var(--text); margin-bottom: 6px; }}
     .erp-debug-list {{ list-style: none; padding: 0; }}
-    .erp-debug-list li {{ color: var(--muted); padding: 2px 0; font-family: 'DM Mono',monospace; }}
+    .erp-debug-list li {{ color: var(--text-muted); padding: 2px 0; font-family: 'DM Mono',monospace; }}
 
     /* ── Landing page ── */
     .erp-landing {{

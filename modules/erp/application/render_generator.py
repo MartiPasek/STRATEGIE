@@ -138,7 +138,9 @@ def _build_sections(components: list[FormComponent]) -> list[dict]:
     #  GroupBox přidává na začátek. Použijeme ID DESC.)
     sections.sort(key=lambda s: s["groupbox_id"], reverse=True)
 
-    # 4. Komponenty bez cParent (orphans) — pokud nejsou button/groupbox/non-visual
+    # 4. Komponenty bez cParent (orphans) — pokud nejsou button/groupbox/non-visual.
+    # Orphany řadíme PO GroupBoxech (před footer) — to jsou typicky "Číslo výjimky",
+    # "Alternativní text", které v Centrále jsou pod GroupBoxes.
     orphans = [
         c
         for c in components
@@ -147,16 +149,17 @@ def _build_sections(components: list[FormComponent]) -> list[dict]:
         and c.typ != 8
     ]
     if orphans:
-        sections.insert(0, {
-            "caption": "",  # bez header
+        # Sort orphans by ID (= pořadí vytvoření v Centrále)
+        orphans.sort(key=lambda c: c.id)
+        sections.append({
+            "caption": "_orphans",  # speciální caption — render bez header
             "components": orphans,
             "groupbox_id": None,
         })
 
-    # 5. Buttony → footer
+    # 5. Buttony → footer (úplně dole)
     buttons = [c for c in components if c.typ == 8]
     if buttons:
-        # Sort buttons by ID ascending (= pořadí vytvoření)
         buttons.sort(key=lambda c: c.id)
         sections.append({
             "caption": "_footer",
@@ -176,9 +179,7 @@ def _render_section(section: dict, data: dict, read_only: bool) -> str:
     components = section["components"]
 
     if not components:
-        # Prázdná sekce (žádné children) — skip nebo jen header?
-        # Pro Phase A: render jen pokud je caption (debug viditelnost)
-        if not caption or caption == "_footer":
+        if not caption or caption in ("_footer", "_orphans"):
             return ""
         return (
             f'  <section role="group" class="erp-group erp-group-empty">\n'
@@ -196,7 +197,17 @@ def _render_section(section: dict, data: dict, read_only: bool) -> str:
             + "\n  </footer>"
         )
 
-    # Sekce s GroupBox header (nebo orphan root sekce bez header)
+    # Orphan sekce (komponenty bez cParent — render bez header)
+    if caption == "_orphans":
+        section_html = ['  <section class="erp-group erp-group-orphan">']
+        section_html.append('    <div class="erp-fields">')
+        for comp in components:
+            section_html.append(_render_component(comp, data, read_only=read_only))
+        section_html.append('    </div>')
+        section_html.append('  </section>')
+        return "\n".join(section_html)
+
+    # Standard sekce s GroupBox header
     section_html = ['  <section role="group" class="erp-group">']
     if caption:
         section_html.append(

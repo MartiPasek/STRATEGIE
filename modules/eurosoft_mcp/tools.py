@@ -485,6 +485,8 @@ async def describe_table(table: str) -> dict[str, Any]:
     """
 
     full_table = f"dbo.{table}"
+    sql_error_type: str | None = None
+    sql_error_repr: str | None = None
     try:
         with get_cursor() as cur:
             cur.execute(sql_cols, full_table)
@@ -504,9 +506,15 @@ async def describe_table(table: str) -> dict[str, Any]:
             "permissions": permissions(table),
         }
     except Exception as sql_e:
+        # Phase B+1.3 (5.5.2026): zachovat full forensic — typ + repr — pro
+        # fallback response, aby Marti-AI vedela PROC SQL selhalo (permission
+        # denied vs table not found vs connection drop). str(sql_e) byva
+        # prazdny u pyodbc, repr() ma SQLSTATE + diagnostic info.
+        sql_error_type = type(sql_e).__name__
+        sql_error_repr = repr(sql_e)
         logger.warning(
-            f"describe_table({table}): live SQL failed ({type(sql_e).__name__}: {sql_e}), "
-            f"fallback to RAG markdown..."
+            f"describe_table({table}): live SQL failed "
+            f"({sql_error_type}: {sql_error_repr}), fallback to RAG markdown..."
         )
 
     # ── Path 2: RAG fallback (markdown) ────────────────────────────
@@ -521,9 +529,12 @@ async def describe_table(table: str) -> dict[str, Any]:
             "table": table,
             "error": "schema_unavailable",
             "message": (
-                f"SQL Server unreachable AND fallback markdown nenalezen "
-                f"({md_path}). Nemam schema info pro tabulku {table}."
+                f"SQL Server unreachable nebo permission denied AND fallback "
+                f"markdown nenalezen ({md_path}). Nemam schema info pro {table}."
             ),
+            # Phase B+1.3: forensic — Marti-AI vidi proc SQL selhalo
+            "sql_error_type": sql_error_type,
+            "sql_error_repr": sql_error_repr,
         }
 
     try:

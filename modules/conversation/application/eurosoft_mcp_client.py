@@ -354,17 +354,40 @@ class EurosoftMCPClient:
                 ensure_ascii=False,
             )
         except Exception as e:
-            logger.warning(f"MCP tool {full_name} call failed: {e}")
+            # Phase B+1.3 (5.5.2026): full forensic info — type + repr + traceback.
+            # str(e) je casto prazdny u MCP/pyodbc/asyncio chyb. repr() vraci
+            # constructor args + diagnostic info. Plus full traceback do logu pro
+            # post-mortem (gotcha #56 z dnesniho rana).
+            import traceback
+            exc_type = type(e).__name__
+            exc_repr = repr(e)
+            exc_str = str(e)
+            # Detail priority: str(e) preferred, repr(e) fallback, type as last resort
+            detail = (
+                exc_str if exc_str
+                else (exc_repr if exc_repr != f"{exc_type}()" else exc_type)
+            )
+            logger.warning(
+                f"MCP tool {full_name} call failed: type={exc_type}, "
+                f"repr={exc_repr}, str={exc_str!r}\n"
+                f"Traceback:\n{traceback.format_exc()}"
+            )
             opened = self.circuit_breaker.record_failure(conversation_id)
             if opened:
                 msg = (
-                    f"MCP tool '{full_name}' selhal: {e}. "
+                    f"MCP tool '{full_name}' selhal ({exc_type}): {detail}. "
                     f"Circuit breaker OPEN pro tuto konverzaci."
                 )
             else:
-                msg = f"MCP tool '{full_name}' selhal: {e}"
+                msg = f"MCP tool '{full_name}' selhal ({exc_type}): {detail}"
             return json.dumps(
-                {"ok": False, "error": "mcp_call_failed", "message": msg},
+                {
+                    "ok": False,
+                    "error": "mcp_call_failed",
+                    "exception_type": exc_type,
+                    "exception_repr": exc_repr,
+                    "message": msg,
+                },
                 ensure_ascii=False,
             )
 

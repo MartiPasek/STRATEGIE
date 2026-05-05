@@ -138,13 +138,26 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
             ensure_ascii=False,
         ))]
     except Exception as e:
-        # SQL / pyodbc / unexpected
-        msg = f"{type(e).__name__}: {e}"
+        # SQL / pyodbc / unexpected.
+        # Phase B+1.3 (5.5.2026): full forensic info — type + repr + str.
+        # str(e) je casto prazdny u pyodbc (gotcha #56 z dnesniho rana).
+        # repr(e) ma constructor args + diagnostic info (sqlstate, errcode).
+        exc_type = type(e).__name__
+        exc_repr = repr(e)
+        exc_str = str(e)
+        detail = exc_str if exc_str else (exc_repr if exc_repr != f"{exc_type}()" else exc_type)
+        msg = f"{exc_type}: {detail}"
         runtime_ms = int((time.monotonic() - t0) * 1000)
-        logger.exception(f"Tool {name} failed")
+        logger.exception(f"Tool {name} failed: type={exc_type}, repr={exc_repr}")
         audit_log(name, arguments, error=msg, runtime_ms=runtime_ms)
         return [TextContent(type="text", text=json.dumps(
-            {"ok": False, "error": "internal_error", "message": msg},
+            {
+                "ok": False,
+                "error": "internal_error",
+                "exception_type": exc_type,
+                "exception_repr": exc_repr,
+                "message": msg,
+            },
             ensure_ascii=False,
         ))]
 

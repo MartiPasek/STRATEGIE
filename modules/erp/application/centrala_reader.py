@@ -278,13 +278,19 @@ class CentralaReader:
                 if fname:
                     c.c_field_name = fname
 
-            # Plus cParent fallback z properties (ParentName) -- některé
-            # orphan komponenty mají parent referenci v properties, ne v
-            # EC_FormDefEdit.cParent. Hodnoty typu 'Def' (=root form) nebo
-            # 'GroupBox_VzhledNazev' bychom měli umět vyhodnotit; pro Phase A.4
-            # zatim jen pokud cParent je prázdný a properties má 'ParentName'
-            # (mapping na c{id} bude až Phase A.5 -- potřebujeme parent name
-            # registry napříč form, což chce další query).
+            # Phase A.5 (5.5.2026): cParent fallback z properties.ParentName.
+            # Diagnostika ukázala, že orphan Edit #4665 (ID) má v EC_FormDefEdit
+            # cParent='', ale property ParentName='c469' (= GroupBox "Vzhled").
+            # ParentName sémantika:
+            #   'c{id}' = parent komponenta (typically GroupBox)
+            #   'Def'   = root form (= true orphan, bez parent komponenty)
+            # Reused stejný `c{id}` formát jako c_parent → snadná konverze.
+            if not c.c_parent:
+                pname = (c.properties.get("ParentName") or "").strip()
+                if pname and pname.startswith("c") and pname[1:].isdigit():
+                    c.c_parent = pname
+                # 'Def' a ostatní nezachycené hodnoty necháváme prázdné
+                # (= true orphan, řadí se do orphan section)
 
         logger.info(
             f"CentralaReader: form_id={form_id} -> "
@@ -343,6 +349,155 @@ class CentralaReader:
             )
             return None
         return result["row"]
+
+    # ── Phase A.5: Lookup display resolution ──────────────────────────
+
+    def _get_lookup_view_meta(self, view_cislo: int) -> tuple[str, str] | None:
+        """
+        Načti přehled (EC_DELPHI_TabObecnyPrehled) podle Cislo.
+        Vraci (target_table, default_display_field) nebo None.
+
+        Cache per-instance: opakovaný lookup stejného přehledu se nezeptá
+        SQL znova.
+        """
+        if not hasattr(self, "_view_meta_cache"):
+            self._view_meta_cache = {}
+        if view_cislo in self._view_meta_cache:
+            return self._view_meta_cache[view_cislo]
+
+        result = self._call_mcp(
+            "query_table",
+            {
+                "table": "EC_DELPHI_TabObecnyPrehled",
+                "filters": {"Cislo": view_cislo},
+                "limit": 1,
+            },
+        )
+        if not result or not result.get("rows"):
+            self._view_meta_cache[view_cislo] = None
+            return None
+
+        view_row = result["rows"][0]
+        sql_select = view_row.get("SQL_Select") or view_row.get("DefView") or ""
+
+        # Parse target tabulku z "...FROM <table> WHERE..." nebo "...FROM <table>"
+        import re
+        m = re.search(
+            r"\bFROM\s+\[?(\w+)\]?",
+            sql_select,
+            re.IGNORECASE,
+        )
+        target_table = m.group(1) if m else ""
+        if not target_table:
+            logger.warning(
+                f"_get_lookup_view_meta: nelze parse FROM table z přehledu "
+                f"#{view_cislo} SQL: {sql_select[:120]!r}"
+            )
+            self._view_meta_cache[view_cislo] = None
+            return None
+
+        meta = (target_table, "")  # default_display_field nepoužíváme zatím
+        self._view_meta_cache[view_cislo] = meta
+        return meta
+
+    def lookup_display_value(
+        self,
+        view_cislo: int,
+        lookup_field: str,
+        fk_value: Any,
+        display_field: str = "Nazev",
+    ) -> str | None:
+        """
+        Vytáhni display string z lookup přehledu.
+
+        Phase A.5: pro FormList komponenty s LookupView/LookupField/LookupDisplay
+        properties. Cache per-instance.
+
+        Returns: string (display value) nebo None pokud lookup selhal.
+        """
+        if fk_value is None or fk_value == "":
+            return None
+
+        if not hasattr(self, "_lookup_value_cache"):
+            self._lookup_value_cache = {}
+        cache_key = (view_cislo, lookup_field, str(fk_value), display_field)
+        if cache_key in self._lookup_value_cache:
+            return self._lookup_value_cache[cache_key]
+
+        meta = self._get_lookup_view_meta(view_cislo)
+        if meta is None:
+            self._lookup_value_cache[cache_key] = None
+            return None
+        target_table, _ = meta
+
+        # Query target table podle FK
+        try:
+            fk_int = int(fk_value)
+        except (TypeError, ValueError):
+            fk_int = fk_value  # nech original (může být string FK)
+
+        result = self._call_mcp(
+            "query_table",
+            {
+                "table": target_table,
+                "filters": {lookup_field: fk_int},
+                "columns": [display_field],
+                "limit": 1,
+            },
+        )
+        if not result or not result.get("rows"):
+            self._lookup_value_cache[cache_key] = None
+            return None
+
+        row = result["rows"][0]
+        display_value = row.get(display_field)
+        result_str = str(display_value) if display_value is not None else None
+        self._lookup_value_cache[cache_key] = result_str
+        return result_str
+
+    def enrich_data_with_lookups(
+        self,
+        data: dict[str, Any],
+        components: list[FormComponent],
+    ) -> dict[str, Any]:
+        """
+        Phase A.5: pro každý FormList (Typ=6) s lookup properties --
+        resolveni FK value na display string. Zápis do data dict pod
+        klíčem '_lookup_{cFieldName}' (preserve original FK pod orig klíč).
+
+        Render pak v _render_formlist použije data['_lookup_{field}'] pokud
+        existuje, jinak fallback na raw value.
+        """
+        enriched = dict(data)  # nezasahujeme do originálu
+        for c in components:
+            if c.typ != 6:  # jen FormList
+                continue
+            field_name = c.c_field_name
+            if not field_name or field_name not in data:
+                continue
+            fk_value = data[field_name]
+            if fk_value is None or fk_value == "":
+                continue
+
+            # Properties config
+            view_str = (c.properties.get("LookupView") or "").strip()
+            lookup_field = (c.properties.get("LookupField") or "").strip()
+            display_field = (c.properties.get("LookupDisplay") or "Nazev").strip()
+
+            if not view_str or not view_str.isdigit() or not lookup_field:
+                continue
+            view_cislo = int(view_str)
+
+            display_value = self.lookup_display_value(
+                view_cislo=view_cislo,
+                lookup_field=lookup_field,
+                fk_value=fk_value,
+                display_field=display_field,
+            )
+            if display_value:
+                enriched[f"_lookup_{field_name}"] = display_value
+
+        return enriched
 
     # ── debug helpers ──────────────────────────────────────────────
 

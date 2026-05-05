@@ -111,6 +111,13 @@ def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
     # 3. Data row z SQL_Select
     data = reader.execute_form_data(form.sql_select, row_id) or {}
 
+    # Phase A.5 (5.5.2026): enrich data o lookup display values
+    # (FormList komponenty s LookupView/LookupField/LookupDisplay properties).
+    # Po této enrich:
+    #   data['NadrazeneMenu']         = 11    (raw FK)
+    #   data['_lookup_NadrazeneMenu'] = 'Systém'  (display from lookup view)
+    data = reader.enrich_data_with_lookups(data, components)
+
     # 4. Render
     html_body = render_form(
         form_nazev=form.nazev,

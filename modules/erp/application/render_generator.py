@@ -356,16 +356,28 @@ def _render_formlist(
 
     Marti-AI's Q4 vstup: command palette pattern (Cmd+K Spotlight).
     Phase A: zobrazí jen current value + ▼ button (modal not yet wired).
+
+    Phase A.5 (5.5.2026): pokud reader.enrich_data_with_lookups vyplnil
+    data['_lookup_{cFieldName}'], zobraz display value místo raw FK.
+    Reader resolve přes properties LookupView/LookupField/LookupDisplay.
     """
     readonly_attr = "readonly" if read_only else ""
     caption = _resolve_caption(comp)
+
+    # Phase A.5: prefer lookup display value pokud reader ho vyřešil
+    lookup_key = f"_lookup_{comp.c_field_name}" if comp.c_field_name else None
+    display_value = (
+        data.get(lookup_key) if lookup_key and lookup_key in data
+        else value
+    )
+
     return (
         f'      <div class="erp-field erp-formlist">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
         f'        <div class="erp-formlist-inner">\n'
         f'          <input type="text" '
         f'name="{html.escape(comp.c_field_name)}" '
-        f'value="{html.escape(value)}" '
+        f'value="{html.escape(str(display_value))}" '
         f'class="erp-input erp-input-readonly" '
         f'{readonly_attr}>\n'
         f'          <button type="button" class="erp-lookup-btn" disabled>▼</button>\n'
@@ -434,9 +446,9 @@ def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_v
     for c in components[:30]:  # cap 30 aby se debug panel neutopil
         typ_name = debug_info.get("typ_names", {}).get(c.typ, f"Typ={c.typ}")
         prop_keys = sorted(c.properties.keys()) if c.properties else []
-        # Zobraz prvních 8 klíčů + počet zbývajících
-        if len(prop_keys) > 8:
-            keys_str = ", ".join(prop_keys[:8]) + f" … (+{len(prop_keys) - 8})"
+        # Zobraz prvních 20 klíčů + počet zbývajících (Phase A.4 zvýšeno z 8)
+        if len(prop_keys) > 20:
+            keys_str = ", ".join(prop_keys[:20]) + f" … (+{len(prop_keys) - 20})"
         else:
             keys_str = ", ".join(prop_keys) if prop_keys else "(žádné)"
         # Caption sample

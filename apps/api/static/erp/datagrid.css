@@ -50,10 +50,11 @@
 
   /* Typography */
   --ag-font-family: 'DM Sans', -apple-system, sans-serif;
-  --ag-font-size: 10px;
+  --ag-font-size: 11px;
 
-  /* Spacing (ultra-compact) — B+2.7+ (5.5.2026): další -25% per Marti's
-     "Jeste bych to vsechno o 25 procent zmensil... Grid i jadro" */
+  /* Spacing (ultra-compact) — B+2.7+ (5.5.2026): -25% density.
+     B+2.7++ (5.5.2026 follow-up): font 10→11 (čitelnost), heights drží
+     beze změny (Marti: "ubrat mezeru nad a pod textem v bunkach"). */
   --ag-grid-size: 3px;
   --ag-row-height: 15px;
   --ag-header-height: 18px;
@@ -88,10 +89,14 @@
    bez nich grid vypadá jako splývající text, s nimi je orientace lepší. */
 .ag-theme-quartz-dark.erp-ag-grid .ag-cell {
   border-right: 1px solid var(--border, #3a3d44);
-  /* B+4.5+ (5.5.2026): vertikálně vystředit hodnoty (gap nahoře = gap dole) */
+  /* B+4.5+ (5.5.2026): vertikálně vystředit hodnoty (gap nahoře = gap dole)
+     B+2.7++ (5.5.2026): line-height 1.2 → 1, padding-y 0 — "ubrat mezeru
+     nad a pod textem v bunkach" (font 11 / row 15 = těsně bez paddingu) */
   display: flex;
   align-items: center;
-  line-height: 1.2;
+  line-height: 1;
+  padding-top: 0;
+  padding-bottom: 0;
 }
 /* Header cells stejně */
 .ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-label {

@@ -222,9 +222,23 @@ def strom_json(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "tree": tree, "root_count": len(tree)})
 
 
+_PREHLED_DEFAULT_LIMIT = 1000   # když přehled nemá MaxRecords ani user override
+_PREHLED_HARD_CAP = 100_000     # absolutní strop "Vše" (B+8 server-side row model = lift)
+
+
 @api_router.get("/prehled/{cislo}")
-def prehled_data_json(cislo: int, req: Request) -> JSONResponse:
-    """JSON data z přehledu Cislo=N (Phase B nástřel)."""
+def prehled_data_json(
+    cislo: int,
+    req: Request,
+    limit: int | None = None,
+) -> JSONResponse:
+    """JSON data z přehledu Cislo=N.
+
+    Phase B+4.4 (5.5.2026): limit precedence —
+      1. Query param ?limit=N (user override, capped na _PREHLED_HARD_CAP)
+      2. EC_DELPHI_TabObecnyPrehled.MaxRecords (per-přehled native limit)
+      3. _PREHLED_DEFAULT_LIMIT (1000)
+    """
     uid = _get_uid(req)
     _require_parent(uid)
 
@@ -233,7 +247,15 @@ def prehled_data_json(cislo: int, req: Request) -> JSONResponse:
     if not meta:
         raise HTTPException(404, f"EC_DELPHI_TabObecnyPrehled Cislo={cislo} nenalezen")
 
-    data = reader.execute_prehled_data(meta, limit=100)
+    # B+4.4: resolve effective limit
+    if limit is not None and limit > 0:
+        effective_limit = min(limit, _PREHLED_HARD_CAP)
+    elif meta.get("max_records"):
+        effective_limit = min(meta["max_records"], _PREHLED_HARD_CAP)
+    else:
+        effective_limit = _PREHLED_DEFAULT_LIMIT
+
+    data = reader.execute_prehled_data(meta, limit=effective_limit)
 
     return JSONResponse({
         "ok": True,
@@ -246,6 +268,10 @@ def prehled_data_json(cislo: int, req: Request) -> JSONResponse:
         "total": data["total"],
         "has_more": data.get("has_more", False),
         "warning": data.get("warning"),
+        # B+4.4: client-side limit awareness
+        "applied_limit": effective_limit,
+        "max_records": meta.get("max_records"),  # native Centrála 1 hint
+        "hard_cap": _PREHLED_HARD_CAP,
     })
 
 
@@ -625,7 +651,34 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       background: var(--surface);
     }}
     .erp-prehled-header h2 {{ font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; }}
-    .erp-prehled-meta {{ font-size: 12px; color: var(--muted); font-family: 'DM Mono',monospace; }}
+    .erp-prehled-meta {{
+      font-size: 12px; color: var(--muted); font-family: 'DM Mono',monospace;
+      display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+    }}
+    /* B+4.4: limit dropdown — inline v meta line */
+    .erp-prehled-meta .erp-limit-label {{
+      display: inline-flex; align-items: center; gap: 5px;
+      font-family: 'DM Mono',monospace; font-size: 12px;
+      color: var(--text-muted);
+    }}
+    .erp-prehled-meta .erp-limit-select {{
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 1px 6px;
+      font-size: 11px;
+      font-family: 'DM Mono',monospace;
+      cursor: pointer;
+      outline: none;
+    }}
+    .erp-prehled-meta .erp-limit-select:hover {{ border-color: var(--accent); }}
+    .erp-prehled-meta .erp-limit-select:focus {{ border-color: var(--accent); }}
+    .erp-prehled-meta .erp-prehled-hasmore {{
+      color: #fbbf24;  /* amber — ohlas, že je tam víc */
+      font-size: 11px;
+      font-style: italic;
+    }}
     .erp-prehled-meta code {{ color: var(--accent); padding: 0 3px; }}
     .erp-prehled-warning {{
       margin-top: 8px; padding: 6px 10px;
@@ -1214,7 +1267,22 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       // ── Přehled fetch + Tabulator render ────────────────────────
-      async function loadPrehled(cislo, item) {
+      // B+4.4: per-přehled limit choice persisted v localStorage
+      const PREHLED_LIMIT_KEY_PREFIX = "erp.prehled.limit.";
+      function loadPrehledLimit(cislo) {
+        try {
+          const v = parseInt(localStorage.getItem(PREHLED_LIMIT_KEY_PREFIX + cislo), 10);
+          return (v && v > 0) ? v : null;
+        } catch (e) { return null; }
+      }
+      function savePrehledLimit(cislo, limit) {
+        try {
+          if (limit && limit > 0) localStorage.setItem(PREHLED_LIMIT_KEY_PREFIX + cislo, String(limit));
+          else localStorage.removeItem(PREHLED_LIMIT_KEY_PREFIX + cislo);
+        } catch (e) {}
+      }
+
+      async function loadPrehled(cislo, item, limitOverride) {
         // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
         if (currentJadro) closeJadroPane();
         const itemId = item.getAttribute("data-id");
@@ -1229,8 +1297,15 @@ def _render_workspace_page(user_id: int) -> str:
           '</div>' +
           '<div class="erp-prehled-loading-msg">Načítám přehled #' + cislo + '…</div>' +
           '</div>';
+        // B+4.4: limit precedence — explicit override > localStorage > server default
+        const userLimit = (limitOverride != null && limitOverride > 0)
+          ? limitOverride
+          : loadPrehledLimit(cislo);
+        const url = userLimit
+          ? ("/api/v1/erp/prehled/" + cislo + "?limit=" + userLimit)
+          : ("/api/v1/erp/prehled/" + cislo);
         try {
-          const r = await fetch("/api/v1/erp/prehled/" + cislo, { credentials: "include" });
+          const r = await fetch(url, { credentials: "include" });
           if (!r.ok) { renderPrehledError(cislo, item, "Status " + r.status); return; }
           const data = await r.json();
           renderPrehled(cislo, item, data, breadcrumb);
@@ -1262,14 +1337,28 @@ def _render_workspace_page(user_id: int) -> str:
         const cols = data.columns || [];
         const rows = data.rows || [];
 
+        // B+4.4: limit dropdown — render po headeru, before grid
+        const appliedLimit = data.applied_limit || rows.length;
+        const limitOptions = [100, 500, 1000, 5000, 100000];
+        let limitSelectHtml = '<select id="erpLimitSelect" class="erp-limit-select" title="Maximum řádků">';
+        for (const opt of limitOptions) {
+          const selected = (opt === appliedLimit) ? ' selected' : '';
+          const label = (opt === 100000) ? 'Vše (max 100k)' : opt.toLocaleString("cs-CZ");
+          limitSelectHtml += '<option value="' + opt + '"' + selected + '>' + label + '</option>';
+        }
+        limitSelectHtml += '</select>';
+
         let html = '<div class="erp-prehled-header">';
         html += '<div class="erp-bc-path">' + breadcrumb + '</div>';
         html += '<div class="erp-prehled-titlebar">';
         html += '<h2>' + escapeHtml(data.nazev || ("Přehled #" + data.cislo)) + '</h2>';
-        html += '<div class="erp-prehled-meta">' + rows.length + ' řádků';
-        if (data.has_more) html += ' (zobrazeno ' + rows.length + ', má víc)';
+        html += '<div class="erp-prehled-meta">';
+        html += '<span class="erp-prehled-rowcount">' + rows.length.toLocaleString("cs-CZ") + ' řádků';
+        if (data.has_more) html += ' <span class="erp-prehled-hasmore">(limit, má víc)</span>';
+        html += '</span>';
         if (data.target_table) html += ' · <code>' + escapeHtml(data.target_table) + '</code>';
         if (data.id_edit) html += ' · jádro #' + data.id_edit;
+        html += ' · <label class="erp-limit-label">limit ' + limitSelectHtml + '</label>';
         html += '</div>';
         html += '</div>';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
@@ -1303,6 +1392,17 @@ def _render_workspace_page(user_id: int) -> str:
             openJadroInPane(data.id_edit, rowId);
           },
         });
+
+        // B+4.4: limit dropdown change → re-fetch s novým limitem + persist
+        const limitSelect = document.getElementById("erpLimitSelect");
+        if (limitSelect) {
+          limitSelect.addEventListener("change", (ev) => {
+            const newLimit = parseInt(ev.target.value, 10);
+            if (!newLimit || newLimit <= 0) return;
+            savePrehledLimit(cislo, newLimit);
+            loadPrehled(cislo, item, newLimit);
+          });
+        }
       }
 
       // ── Phase B+2.2: jádro modal popup (centered overlay) ───────

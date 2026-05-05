@@ -430,11 +430,17 @@ class CentralaReader:
         if not result or not result.get("rows"):
             return None
         row = result["rows"][0]
+        # B+4.4 (5.5.2026): MaxRecords per přehled (Centrála 1 native limit).
+        # Hodnota 0 nebo NULL = unlimited (Phase B+4.4: cap fallback v router).
+        mr = row.get("MaxRecords")
+        max_records = int(mr) if (mr is not None and int(mr) > 0) else None
+
         return {
             "cislo": row.get("Cislo"),
             "nazev": row.get("Nazev") or "",
             "sql_select": row.get("SQL_Select") or row.get("DefView") or "",
             "id_edit": row.get("ID_Edit"),  # FK na EC_FormDef.ID pro edit dialog
+            "max_records": max_records,     # B+4.4: per-přehled limit z metadata
             "raw": row,
         }
 

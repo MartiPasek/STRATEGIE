@@ -177,9 +177,150 @@
   border-bottom-left-radius: 0;
 }
 
-/* ── Phase B+6.2+: ErpInput / ErpCheckbox / ErpDropdown ─────────────
-   Placeholder rules (filled in next iterations):
-   - .erp-input { ... }
-   - .erp-checkbox { ... }
-   - .erp-dropdown { ... }
+/* ── Phase B+6.2: ErpInput ────────────────────────────────────────── */
+
+.erp-input-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.erp-input-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #b0b3bc);
+  letter-spacing: 0.02em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.erp-input-required {
+  color: var(--error, #f87171);
+  font-weight: 600;
+}
+
+.erp-input-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 5px;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  overflow: hidden;
+}
+
+.erp-input-row:hover:not(:focus-within) {
+  border-color: var(--border-strong, #4a4e57);
+}
+
+.erp-input-row:focus-within {
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+  background: var(--surface, #1c1e23);
+}
+
+.erp-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.erp-input::placeholder {
+  color: var(--text-faint, #6c7076);
+  opacity: 1;
+}
+
+.erp-input:read-only,
+.erp-input[readonly] {
+  background: var(--surface, #1c1e23);
+  color: var(--text-muted, #b0b3bc);
+  cursor: default;
+}
+
+.erp-input:disabled {
+  background: var(--surface, #1c1e23);
+  color: var(--text-faint, #6c7076);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.erp-input-row:has(.erp-input:disabled) {
+  background: var(--surface, #1c1e23);
+  border-color: var(--border, #3a3d44);
+  opacity: 0.7;
+}
+
+.erp-input-prefix,
+.erp-input-suffix {
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  background: var(--surface2, #252830);
+  color: var(--text-muted, #b0b3bc);
+  font-size: 12px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.erp-input-prefix {
+  border-right: 1px solid var(--border, #3a3d44);
+}
+
+.erp-input-suffix {
+  border-left: 1px solid var(--border, #3a3d44);
+}
+
+/* Invalid / error visual */
+
+.erp-input-row:has(.erp-input-invalid) {
+  border-color: var(--error, #f87171);
+}
+
+.erp-input-row:has(.erp-input-invalid):focus-within {
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22);
+}
+
+.erp-input-error {
+  font-size: 11px;
+  color: var(--error, #f87171);
+  line-height: 1.3;
+  padding-left: 2px;
+  margin-top: 1px;
+}
+
+.erp-input-hint {
+  font-size: 11px;
+  color: var(--text-faint, #6c7076);
+  line-height: 1.3;
+  padding-left: 2px;
+}
+
+/* Type-specific accents (decorative) */
+
+.erp-input-type-ico .erp-input,
+.erp-input-type-dic .erp-input,
+.erp-input-type-phone .erp-input,
+.erp-input-type-number .erp-input {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.erp-input-type-number .erp-input {
+  text-align: right;
+}
+
+/* ── Phase B+6.3+: ErpCheckbox / ErpDropdown / ErpFormList ─────────
+   Placeholder rules (filled in next iterations).
    ----------------------------------------------------------------- */

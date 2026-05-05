@@ -335,39 +335,11 @@
   border-radius: 0 0 10px 10px;
 }
 
-.erp-modal-btn {
-  background: var(--surface2, #252830);
-  color: var(--text, #f0f1f5);
-  border: 1px solid var(--border-strong, #4a4e57);
-  border-radius: 5px;
-  padding: 6px 14px;
-  font-size: 13px;
-  font-family: inherit;
-  cursor: pointer;
-  transition: all 0.12s;
+/* Modal buttons — Phase B+6.1+ (5.5.2026) refactor:
+   nyní renderované přes window.ErpButton (components.css → .erp-btn).
+   Min-width pro footer button konzistenci je tady, zbytek dělá ErpButton. */
+.erp-modal-footer .erp-btn {
   min-width: 80px;
-}
-.erp-modal-btn:hover {
-  border-color: var(--accent, #4f8ef7);
-  background: var(--surface, #1c1e23);
-}
-.erp-modal-btn.primary {
-  background: var(--accent, #4f8ef7);
-  color: white;
-  border-color: var(--accent, #4f8ef7);
-}
-.erp-modal-btn.primary:hover {
-  background: var(--accent2, #7c5cfc);
-  border-color: var(--accent2, #7c5cfc);
-}
-.erp-modal-btn.destructive {
-  background: rgba(248, 113, 113, 0.12);
-  color: var(--error, #f87171);
-  border-color: rgba(248, 113, 113, 0.4);
-}
-.erp-modal-btn.destructive:hover {
-  background: var(--error, #f87171);
-  color: white;
 }
 
 /* Form fields v modalu */

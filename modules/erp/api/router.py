@@ -1093,9 +1093,10 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/dist/ag-grid-enterprise.min.js"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
-    <!-- B+6.1 (5.5.2026): ErpUiKit components — reusable napříč Centrála views -->
+    <!-- B+6.1+ (5.5.2026): ErpUiKit components — reusable napříč Centrála views -->
     <link rel="stylesheet" href="/static/erp/components/components.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/components/button.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/input.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">

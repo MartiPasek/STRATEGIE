@@ -915,42 +915,37 @@
         backdrop.className = "erp-modal-backdrop";
         const modal = document.createElement("div");
         modal.className = "erp-modal";
+        // Header (title + close ×) + body kontejner. Footer buttons appendneme přes ErpButton níže.
         modal.innerHTML =
           '<div class="erp-modal-header">' +
             '<h3>' + this._escapeHtml(opts.title || "") + '</h3>' +
             '<button class="erp-modal-close" type="button" aria-label="Zavřít">×</button>' +
           '</div>' +
           '<div class="erp-modal-body">' + (opts.bodyHtml || "") + '</div>' +
-          '<div class="erp-modal-footer">' +
-            (opts.buttons || []).map((b, i) =>
-              '<button class="erp-modal-btn ' +
-              (b.primary ? 'primary ' : '') +
-              (b.destructive ? 'destructive ' : '') +
-              '" data-erp-mb="' + i + '" type="button">' +
-              this._escapeHtml(b.label) +
-              '</button>'
-            ).join("") +
-          '</div>';
+          '<div class="erp-modal-footer"></div>';
         backdrop.appendChild(modal);
         document.body.appendChild(backdrop);
 
         let resolved = false;
+        const buttonInstances = [];  // ErpButton instances pro cleanup + Enter trigger
+
         const close = (val) => {
           if (resolved) return;
           resolved = true;
           document.removeEventListener("keydown", onKey);
+          // Destroy ErpButton instances (uvolni listeners)
+          buttonInstances.forEach(b => { try { b.destroy(); } catch (e) {} });
           backdrop.remove();
           resolve(val);
         };
         const onKey = (ev) => {
           if (ev.key === "Escape") close(null);
           else if (ev.key === "Enter" && ev.target.tagName !== "TEXTAREA") {
-            // Find primary button + invoke
-            const primary = (opts.buttons || []).findIndex(b => b.primary);
-            if (primary >= 0) {
+            // Find primary button → trigger jeho onClick
+            const primaryIdx = (opts.buttons || []).findIndex(b => b.primary);
+            if (primaryIdx >= 0 && buttonInstances[primaryIdx]) {
               ev.preventDefault();
-              const btn = modal.querySelector('[data-erp-mb="' + primary + '"]');
-              if (btn) btn.click();
+              buttonInstances[primaryIdx].click();
             }
           }
         };
@@ -961,10 +956,14 @@
         });
         document.addEventListener("keydown", onKey);
 
-        (opts.buttons || []).forEach((b, i) => {
-          const btn = modal.querySelector('[data-erp-mb="' + i + '"]');
-          if (!btn) return;
-          btn.addEventListener("click", () => {
+        // Footer — render buttons přes ErpButton (B+6.1 dogfooding)
+        const footer = modal.querySelector(".erp-modal-footer");
+        const HasErpBtn = (typeof window !== "undefined" && typeof window.ErpButton === "function");
+        (opts.buttons || []).forEach((b) => {
+          const variant = b.primary
+            ? "primary"
+            : (b.destructive ? "destructive" : "secondary");
+          const onClick = () => {
             try {
               const val = (typeof b.handler === "function") ? b.handler(modal) : b.value;
               close(val);
@@ -972,14 +971,50 @@
               alert("Modal action error: " + (e.message || e));
               close(null);
             }
-          });
+          };
+          if (HasErpBtn) {
+            const erpBtn = new window.ErpButton(footer, {
+              label: b.label,
+              variant: variant,
+              size: "medium",
+              onClick: onClick,
+            });
+            buttonInstances.push(erpBtn);
+          } else {
+            // Fallback — pokud ErpButton není načtený, fallback na nativní button
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.className = "erp-btn" +
+              (variant === "primary" ? " erp-btn-primary"
+              : variant === "destructive" ? " erp-btn-destructive"
+              : "");
+            btn.textContent = b.label;
+            btn.addEventListener("click", onClick);
+            footer.appendChild(btn);
+            // Stub instance (jen click() shim) aby Enter handler fungoval
+            buttonInstances.push({ click: () => btn.click(), destroy: () => {} });
+          }
         });
 
-        // Auto-focus first input
+        // Auto-focus first input nebo primary button
         setTimeout(() => {
-          const input = modal.querySelector("input, textarea, select, button.erp-modal-btn.primary");
-          if (input) input.focus();
-          if (input && input.select) try { input.select(); } catch (e) {}
+          const focusTarget =
+            modal.querySelector(".erp-modal-body input, .erp-modal-body textarea, .erp-modal-body select");
+          if (focusTarget) {
+            focusTarget.focus();
+            if (focusTarget.select) { try { focusTarget.select(); } catch (e) {} }
+            return;
+          }
+          // Fallback — focus primary button (přes ErpButton.focus())
+          const primaryIdx = (opts.buttons || []).findIndex(b => b.primary);
+          if (primaryIdx >= 0 && buttonInstances[primaryIdx]) {
+            const inst = buttonInstances[primaryIdx];
+            if (typeof inst.focus === "function") {
+              try { inst.focus(); } catch (e) {}
+            } else if (inst.element) {
+              try { inst.element().focus(); } catch (e) {}
+            }
+          }
         }, 60);
       });
     }

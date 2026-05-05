@@ -87,6 +87,14 @@
    bez nich grid vypadá jako splývající text, s nimi je orientace lepší. */
 .ag-theme-quartz-dark.erp-ag-grid .ag-cell {
   border-right: 1px solid var(--border, #3a3d44);
+  /* B+4.5+ (5.5.2026): vertikálně vystředit hodnoty (gap nahoře = gap dole) */
+  display: flex;
+  align-items: center;
+  line-height: 1.2;
+}
+/* Header cells stejně */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-label {
+  align-items: center;
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-cell:last-child {
   border-right: none;

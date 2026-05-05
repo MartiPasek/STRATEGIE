@@ -69,7 +69,15 @@ def _require_parent(user_id: int) -> None:
 
 @router.get("/", response_class=HTMLResponse)
 def erp_home(req: Request) -> HTMLResponse:
-    """Landing page Centrály 2 (Phase A placeholder)."""
+    """Phase B nástřel: 3-pane workspace (sidebar tree + main pane prehled+jadro)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    return HTMLResponse(content=_render_workspace_page(uid))
+
+
+@router.get("/landing", response_class=HTMLResponse)
+def erp_landing(req: Request) -> HTMLResponse:
+    """Phase A landing zachovaný pod /erp/landing pro reference."""
     uid = _get_uid(req)
     _require_parent(uid)
     return HTMLResponse(content=_render_landing_page(uid))
@@ -163,6 +171,48 @@ def health(req: Request) -> JSONResponse:
         "mcp_klient_available": mcp_ok,
         "supported_typs": len(TYP_NAMES),
         "user_id": uid,
+    })
+
+
+# ── Phase B (5.5.2026): Tree + Přehled JSON endpoints ────────────────
+
+
+@api_router.get("/strom")
+def strom_json(req: Request) -> JSONResponse:
+    """JSON tree z EC_CentralaMenu (Phase B nástřel)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    reader = CentralaReader()
+    tree = reader.load_menu_tree()
+
+    return JSONResponse({"ok": True, "tree": tree, "root_count": len(tree)})
+
+
+@api_router.get("/prehled/{cislo}")
+def prehled_data_json(cislo: int, req: Request) -> JSONResponse:
+    """JSON data z přehledu Cislo=N (Phase B nástřel)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    reader = CentralaReader()
+    meta = reader.load_prehled_meta(cislo)
+    if not meta:
+        raise HTTPException(404, f"EC_DELPHI_TabObecnyPrehled Cislo={cislo} nenalezen")
+
+    data = reader.execute_prehled_data(meta, limit=100)
+
+    return JSONResponse({
+        "ok": True,
+        "cislo": cislo,
+        "nazev": meta["nazev"],
+        "id_edit": meta["id_edit"],
+        "target_table": data.get("target_table"),
+        "columns": data["columns"],
+        "rows": data["rows"],
+        "total": data["total"],
+        "has_more": data.get("has_more", False),
+        "warning": data.get("warning"),
     })
 
 
@@ -432,6 +482,89 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-error h1 {{ color: var(--error); font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
     .erp-error p {{ color: var(--muted); font-size: 14px; line-height: 1.6; }}
 
+    /* ── Phase B nástřel: 3-pane workspace (5.5.2026) ── */
+    .erp-workspace {{
+      max-width: 1280px; margin: 0 auto;
+      display: grid; grid-template-columns: 280px 1fr;
+      gap: 14px; padding: 14px;
+      min-height: calc(100vh - 90px);
+    }}
+    .erp-tree-pane {{
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; overflow: hidden;
+      max-height: calc(100vh - 110px); display: flex; flex-direction: column;
+    }}
+    .erp-tree-header {{
+      padding: 12px 14px; border-bottom: 1px solid var(--border);
+      font-size: 13px; font-weight: 600; color: var(--text);
+      background: var(--surface2);
+    }}
+    .erp-tree-root {{
+      overflow-y: auto; padding: 6px 0; flex: 1;
+    }}
+    .erp-tree-loading, .erp-tree-error {{
+      padding: 14px; color: var(--muted); font-size: 13px;
+    }}
+    .erp-tree-list {{ list-style: none; padding: 0; margin: 0; }}
+    .erp-tree-item {{ }}
+    .erp-tree-row {{
+      padding: 5px 12px; cursor: pointer;
+      display: flex; align-items: center; gap: 6px;
+      font-size: 13px; color: var(--text-muted);
+      transition: background .12s, color .12s;
+    }}
+    .erp-tree-row:hover {{ background: var(--surface2); color: var(--text); }}
+    .erp-tree-row.active {{ background: rgba(79,142,247,0.15); color: var(--accent); }}
+    .erp-tree-toggle {{ width: 12px; font-size: 9px; color: var(--muted); flex-shrink: 0; }}
+    .erp-tree-spacer {{ width: 12px; flex-shrink: 0; }}
+    .erp-tree-ico {{ font-size: 11px; color: var(--muted); padding: 0 4px; flex-shrink: 0; }}
+    .erp-tree-label {{ flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
+    .erp-tree-leaf .erp-tree-label {{ color: var(--text); }}
+
+    .erp-main-pane {{
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 18px;
+      max-height: calc(100vh - 110px); overflow: auto;
+    }}
+    .erp-main-content {{ }}
+    .erp-main-loading, .erp-main-error {{ color: var(--muted); padding: 14px; font-size: 13px; }}
+    .erp-main-error {{ color: var(--error); }}
+    .erp-main-placeholder {{ color: var(--muted); padding: 24px; max-width: 540px; }}
+    .erp-main-placeholder h2 {{ color: var(--text); font-size: 18px; font-weight: 600; margin-bottom: 10px; }}
+    .erp-main-placeholder p {{ font-size: 14px; line-height: 1.6; margin-bottom: 8px; }}
+    .erp-main-placeholder code {{ font-family: 'DM Mono',monospace; color: var(--accent); padding: 1px 5px; background: var(--bg); border-radius: 3px; }}
+
+    .erp-prehled-header {{
+      margin-bottom: 14px; padding-bottom: 10px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .erp-prehled-header h2 {{ font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; }}
+    .erp-prehled-meta {{ font-size: 12px; color: var(--muted); font-family: 'DM Mono',monospace; }}
+    .erp-prehled-meta code {{ color: var(--accent); padding: 0 3px; }}
+    .erp-prehled-warning {{
+      margin-top: 8px; padding: 6px 10px;
+      background: rgba(245,158,11,0.10); border: 1px solid rgba(245,158,11,0.3);
+      border-radius: 6px; color: #fbbf24; font-size: 12px;
+    }}
+    .erp-prehled-tablewrap {{ overflow: auto; }}
+    .erp-prehled-table {{
+      width: 100%; border-collapse: collapse; font-size: 12px;
+      font-family: 'DM Sans',sans-serif;
+    }}
+    .erp-prehled-table th {{
+      background: var(--surface2); color: var(--text-muted);
+      font-weight: 600; padding: 8px 10px; text-align: left;
+      border-bottom: 1px solid var(--border-strong);
+      position: sticky; top: 0;
+    }}
+    .erp-prehled-table td {{
+      padding: 6px 10px; border-bottom: 1px solid var(--border);
+      color: var(--text);
+    }}
+    .erp-prehled-row {{ cursor: pointer; transition: background .12s; }}
+    .erp-prehled-row:hover {{ background: rgba(79,142,247,0.08); }}
+    .erp-prehled-empty {{ color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }}
+
     /* ── Footer ── */
     .erp-footer {{
       text-align: center; font-size: 11px; color: var(--muted);
@@ -497,6 +630,202 @@ def _render_landing_page(user_id: int) -> str:
         <li>Marti-AI integrace (Phase E)</li>
       </ul>
     </div>
+    '''
+    return _render_full_page(
+        title="STRATEGIE ERP",
+        content=content,
+        breadcrumb=[("ERP", None)],
+    )
+
+
+def _render_workspace_page(user_id: int) -> str:
+    """
+    Phase B nástřel (5.5.2026): 3-pane workspace.
+
+    Layout:
+      ┌─────────────┬────────────────────────────────────┐
+      │ Sidebar     │ Main pane                          │
+      │ (tree)      │ ┌──────────────────────────────┐   │
+      │ ec_menu     │ │ Toolbar (Nazev přehledu)     │   │
+      │ recursive   │ ├──────────────────────────────┤   │
+      │             │ │ Prehled (HTML table)         │   │
+      │             │ │ Click row → /erp/jadro/...   │   │
+      │             │ └──────────────────────────────┘   │
+      └─────────────┴────────────────────────────────────┘
+
+    Vanilla JS (no Tabulator yet, no HTMX yet -- Phase B+1).
+    Fetch tree on load, fetch prehled on tree-node click.
+    """
+    content = '''
+    <div class="erp-workspace">
+      <aside class="erp-tree-pane">
+        <div class="erp-tree-header">Centrála — moduly</div>
+        <div id="erpTreeRoot" class="erp-tree-root">
+          <div class="erp-tree-loading">Načítám strom…</div>
+        </div>
+      </aside>
+      <main class="erp-main-pane">
+        <div id="erpMainContent" class="erp-main-content">
+          <div class="erp-main-placeholder">
+            <h2>Vyber modul ze stromu vlevo</h2>
+            <p>
+              Klikni na uzel v levém stromě. Pokud má přehled
+              (<code>CisloDef</code>), zobrazí se vpravo. Klik na řádek
+              v přehledu otevře jádro pro tu položku.
+            </p>
+            <p style="margin-top: 12px; font-size: 12px;">
+              <em>Phase B nástřel — vanilla HTML, žádný Tabulator/HTMX zatím.</em>
+            </p>
+          </div>
+        </div>
+      </main>
+    </div>
+
+    <script>
+    (function() {
+      const treeRoot = document.getElementById("erpTreeRoot");
+      const mainContent = document.getElementById("erpMainContent");
+
+      // ── Tree fetch + render ────────────────────────────────────
+      async function loadTree() {
+        try {
+          const r = await fetch("/api/v1/erp/strom", { credentials: "include" });
+          if (!r.ok) {
+            treeRoot.innerHTML = '<div class="erp-tree-error">Strom nelze načíst (status ' + r.status + ').</div>';
+            return;
+          }
+          const data = await r.json();
+          if (!data.tree || data.tree.length === 0) {
+            treeRoot.innerHTML = '<div class="erp-tree-error">Strom prázdný.</div>';
+            return;
+          }
+          treeRoot.innerHTML = renderTreeNodes(data.tree, 0);
+          attachTreeHandlers();
+        } catch (e) {
+          treeRoot.innerHTML = '<div class="erp-tree-error">Chyba: ' + e.message + '</div>';
+        }
+      }
+
+      function renderTreeNodes(nodes, depth) {
+        let html = '<ul class="erp-tree-list">';
+        for (const n of nodes) {
+          const hasChildren = n.children && n.children.length > 0;
+          const hasPrehled = n.cislo_def != null;
+          const cls = hasPrehled ? "erp-tree-leaf" : "erp-tree-folder";
+          const toggle = hasChildren ? '<span class="erp-tree-toggle">▶</span>' : '<span class="erp-tree-spacer"></span>';
+          const ico = n.ikona ? '<span class="erp-tree-ico">' + (n.ikona % 100) + '</span>' : '';
+          html += '<li class="erp-tree-item ' + cls + '" data-id="' + n.id + '" data-cislo-def="' + (n.cislo_def || '') + '" data-text="' + escapeAttr(n.menu_text) + '">';
+          html += '  <div class="erp-tree-row" style="padding-left: ' + (depth * 14) + 'px;">';
+          html += toggle + ico + '<span class="erp-tree-label">' + escapeHtml(n.menu_text) + '</span>';
+          html += '  </div>';
+          if (hasChildren) {
+            html += '<div class="erp-tree-children" style="display: none;">' + renderTreeNodes(n.children, depth + 1) + '</div>';
+          }
+          html += '</li>';
+        }
+        html += '</ul>';
+        return html;
+      }
+
+      function attachTreeHandlers() {
+        treeRoot.querySelectorAll(".erp-tree-row").forEach(row => {
+          row.addEventListener("click", (ev) => {
+            const item = row.closest(".erp-tree-item");
+            const childrenWrap = item.querySelector(":scope > .erp-tree-children");
+            const toggle = row.querySelector(".erp-tree-toggle");
+            // Expand/collapse if has children
+            if (childrenWrap) {
+              const isOpen = childrenWrap.style.display !== "none";
+              childrenWrap.style.display = isOpen ? "none" : "block";
+              if (toggle) toggle.textContent = isOpen ? "▶" : "▼";
+            }
+            // Load přehled if cislo_def
+            const cisloDef = item.getAttribute("data-cislo-def");
+            if (cisloDef && cisloDef !== "") {
+              loadPrehled(parseInt(cisloDef, 10), item.getAttribute("data-text"));
+              treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+              row.classList.add("active");
+            }
+          });
+        });
+      }
+
+      // ── Přehled fetch + render ────────────────────────────────
+      async function loadPrehled(cislo, label) {
+        mainContent.innerHTML = '<div class="erp-main-loading">Načítám přehled #' + cislo + '…</div>';
+        try {
+          const r = await fetch("/api/v1/erp/prehled/" + cislo, { credentials: "include" });
+          if (!r.ok) {
+            mainContent.innerHTML = '<div class="erp-main-error">Přehled #' + cislo + ' nelze načíst (' + r.status + ').</div>';
+            return;
+          }
+          const data = await r.json();
+          mainContent.innerHTML = renderPrehled(data);
+          attachPrehledHandlers(data);
+        } catch (e) {
+          mainContent.innerHTML = '<div class="erp-main-error">Chyba: ' + e.message + '</div>';
+        }
+      }
+
+      function renderPrehled(data) {
+        const cols = data.columns || [];
+        const rows = data.rows || [];
+        let html = '<div class="erp-prehled-header">';
+        html += '  <h2>' + escapeHtml(data.nazev || ('Přehled #' + data.cislo)) + '</h2>';
+        html += '  <div class="erp-prehled-meta">' + rows.length + ' řádků';
+        if (data.has_more) html += ' (zobrazeno ' + rows.length + ', má víc)';
+        if (data.target_table) html += ' · <code>' + escapeHtml(data.target_table) + '</code>';
+        if (data.id_edit) html += ' · jádro #' + data.id_edit;
+        html += '  </div>';
+        if (data.warning) html += '  <div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
+        html += '</div>';
+        if (rows.length === 0) {
+          html += '<div class="erp-prehled-empty">Přehled je prázdný.</div>';
+          return html;
+        }
+        html += '<div class="erp-prehled-tablewrap"><table class="erp-prehled-table">';
+        html += '<thead><tr>';
+        for (const c of cols) html += '<th>' + escapeHtml(c) + '</th>';
+        html += '</tr></thead><tbody>';
+        for (const row of rows) {
+          const rowId = row.ID != null ? row.ID : (row.id != null ? row.id : '');
+          html += '<tr data-row-id="' + rowId + '" class="erp-prehled-row">';
+          for (const c of cols) {
+            let v = row[c];
+            if (v == null) v = '';
+            else if (typeof v === 'object') v = JSON.stringify(v);
+            else v = String(v);
+            if (v.length > 80) v = v.slice(0, 80) + '…';
+            html += '<td>' + escapeHtml(v) + '</td>';
+          }
+          html += '</tr>';
+        }
+        html += '</tbody></table></div>';
+        return html;
+      }
+
+      function attachPrehledHandlers(data) {
+        if (!data.id_edit) return;  // bez jádra nemá smysl klik na řádek
+        mainContent.querySelectorAll(".erp-prehled-row").forEach(tr => {
+          tr.addEventListener("click", () => {
+            const rowId = tr.getAttribute("data-row-id");
+            if (!rowId) return;
+            window.location.href = "/erp/jadro/" + data.id_edit + "/" + rowId;
+          });
+        });
+      }
+
+      // ── Helpers ────────────────────────────────────────────────
+      function escapeHtml(s) {
+        return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"}[c]));
+      }
+      function escapeAttr(s) {
+        return escapeHtml(s).replace(/"/g, "&quot;");
+      }
+
+      loadTree();
+    })();
+    </script>
     '''
     return _render_full_page(
         title="STRATEGIE ERP",

@@ -350,6 +350,145 @@ class CentralaReader:
             return None
         return result["row"]
 
+    # ── Phase B: Tree (EC_CentralaMenu) + Přehled (EC_DELPHI_TabObecnyPrehled) ──
+
+    def load_menu_tree(self) -> list[dict]:
+        """
+        Phase B (5.5.2026): Načti EC_CentralaMenu, build hierarchii podle
+        NadrazeneMenu FK, sort by Poradi.
+
+        Returns: list root uzlů (NadrazeneMenu IS NULL nebo 0), každý má
+        children: [...] rekurzivně.
+
+        Klíčové sloupce per uzel:
+          - id
+          - menu_text (display name v sidebaru)
+          - nadrazene_menu (parent FK)
+          - poradi (sort within parent)
+          - ikona (TODO Phase B+1: emoji/SVG mapping)
+          - cislo_def (FK na EC_DELPHI_TabObecnyPrehled.Cislo, NULL pro
+            složkové uzly bez přehledu)
+        """
+        result = self._call_mcp(
+            "query_table",
+            {
+                "table": "EC_CentralaMenu",
+                "order_by": ["NadrazeneMenu", "Poradi", "ID"],
+                "limit": 1000,  # MCP cap, EC_CentralaMenu typicky <500
+            },
+        )
+        if not result or not result.get("rows"):
+            return []
+
+        nodes_by_id: dict[int, dict] = {}
+        for row in result["rows"]:
+            nid = row.get("ID")
+            if nid is None:
+                continue
+            nodes_by_id[nid] = {
+                "id": nid,
+                "menu_text": row.get("MenuText") or f"#{nid}",
+                "nadrazene_menu": row.get("NadrazeneMenu"),
+                "poradi": row.get("Poradi") or 0,
+                "ikona": row.get("Ikona"),
+                "cislo_def": row.get("CisloDef"),
+                "children": [],
+            }
+
+        # Build tree
+        roots: list[dict] = []
+        for node in nodes_by_id.values():
+            parent_id = node["nadrazene_menu"]
+            if parent_id and parent_id in nodes_by_id:
+                nodes_by_id[parent_id]["children"].append(node)
+            else:
+                roots.append(node)
+
+        # Sort children by poradi+id rekurzivně
+        def sort_recurse(items: list[dict]) -> None:
+            items.sort(key=lambda n: (n["poradi"], n["id"]))
+            for n in items:
+                sort_recurse(n["children"])
+
+        sort_recurse(roots)
+        return roots
+
+    def load_prehled_meta(self, cislo: int) -> dict | None:
+        """
+        Phase B: Načti meta o přehledu (EC_DELPHI_TabObecnyPrehled WHERE Cislo=N).
+
+        Returns dict s klíči: cislo, nazev, sql_select, id_edit, ... nebo None.
+        """
+        result = self._call_mcp(
+            "query_table",
+            {
+                "table": "EC_DELPHI_TabObecnyPrehled",
+                "filters": {"Cislo": cislo},
+                "limit": 1,
+            },
+        )
+        if not result or not result.get("rows"):
+            return None
+        row = result["rows"][0]
+        return {
+            "cislo": row.get("Cislo"),
+            "nazev": row.get("Nazev") or "",
+            "sql_select": row.get("SQL_Select") or row.get("DefView") or "",
+            "id_edit": row.get("ID_Edit"),  # FK na EC_FormDef.ID pro edit dialog
+            "raw": row,
+        }
+
+    def execute_prehled_data(
+        self, prehled_meta: dict, limit: int = 100
+    ) -> dict:
+        """
+        Phase B (nástřel, no pagination/filter): spustí DefView SQL z přehledu.
+
+        Phase B MVP: parsuje target tabulku z `FROM <table>` a volá
+        query_table. Composite SQL (JOINs, WHERE podmínky) Phase B+1
+        vyžaduje raw SQL execute v MCP serveru.
+
+        Returns: {columns: [...], rows: [...], total: N}
+        """
+        sql_select = prehled_meta.get("sql_select", "")
+        if not sql_select.strip():
+            return {"columns": [], "rows": [], "total": 0, "warning": "no SQL"}
+
+        import re
+        m = re.search(r"\bFROM\s+\[?(\w+)\]?", sql_select, re.IGNORECASE)
+        if not m:
+            return {
+                "columns": [],
+                "rows": [],
+                "total": 0,
+                "warning": f"FROM table not parsed from SQL_Select: {sql_select[:120]!r}",
+            }
+
+        target_table = m.group(1)
+        result = self._call_mcp(
+            "query_table",
+            {"table": target_table, "limit": limit},
+        )
+        if not result or not result.get("rows"):
+            return {
+                "columns": [],
+                "rows": [],
+                "total": 0,
+                "warning": f"target table {target_table} empty or query failed",
+            }
+
+        rows = result["rows"]
+        # Sloupce z prvního row (pořadí keys)
+        columns = list(rows[0].keys()) if rows else []
+
+        return {
+            "columns": columns,
+            "rows": rows,
+            "total": len(rows),
+            "target_table": target_table,
+            "has_more": result.get("has_more", False),
+        }
+
     # ── Phase A.5: Lookup display resolution ──────────────────────────
 
     def _get_lookup_view_meta(self, view_cislo: int) -> tuple[str, str] | None:

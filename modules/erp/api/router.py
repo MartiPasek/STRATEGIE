@@ -509,26 +509,27 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-error h1 {{ color: var(--error); font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
     .erp-error p {{ color: var(--muted); font-size: 14px; line-height: 1.6; }}
 
-    /* ── Phase B nástřel + B+2 + B+2.1 (5.5.2026): full-width workspace ── */
-    /* B+2.1: tree flush left (žádný max-width centering), workspace edge-to-edge,
-       resize handle mezi tree a main, CSS variable pro tree width (drag-resize) */
+    /* ── Phase B+2.2 (5.5.2026): full-width workspace + jádro modal ── */
+    /* Override <main> wrapper max-width pro workspace stranky (jiné stránky
+       jako landing/jadro full-page si max-width 1280px ponechávají). */
+    main:has(.erp-workspace) {{
+      max-width: none !important;
+      padding: 0 !important;
+      margin: 0 !important;
+    }}
+    /* B+2.1: tree flush left, full viewport width, resize handle mezi tree a main */
     .erp-workspace {{
       --erp-tree-width: 240px;
       max-width: none; margin: 0;
       display: grid;
       grid-template-columns: var(--erp-tree-width) 5px 1fr;
-      gap: 0;  /* gap=0 — separation drží resize-handle */
-      padding: 8px 8px 8px 0;  /* tree flush left, ostatní strany 8px */
+      gap: 0;
+      padding: 8px 8px 8px 0;
       min-height: calc(100vh - 90px);
     }}
-    /* B+2.1: when jádro pane visible, 4-col layout */
-    .erp-workspace.with-jadro {{
-      grid-template-columns: var(--erp-tree-width) 5px minmax(320px, 1fr) minmax(420px, 1.4fr);
-    }}
-    /* Drobné mezery mezi panes (kromě tree-handle které drží přilípnuté) */
+    /* B+2.2: workspace zůstává vždy 2-pane (tree + main), jádro je modal */
     .erp-workspace .erp-tree-pane {{ margin-right: 0; }}
-    .erp-workspace .erp-main-pane {{ margin-left: 6px; margin-right: 6px; }}
-    .erp-workspace.with-jadro .erp-main-pane {{ margin-right: 6px; }}
+    .erp-workspace .erp-main-pane {{ margin-left: 6px; margin-right: 0; }}
 
     /* B+2.1: resize handle mezi tree a main */
     .erp-resize-handle {{
@@ -633,13 +634,39 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-prehled-row:hover {{ background: rgba(79,142,247,0.08); }}
     .erp-prehled-empty {{ color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }}
 
-    /* ── Phase B+2 (5.5.2026): inline jádro split-pane ── */
+    /* ── Phase B+2.2 (5.5.2026): jádro modal popup (centered overlay) ── */
+    .erp-jadro-backdrop {{
+      position: fixed; inset: 0;
+      background: rgba(0, 0, 0, 0.65);
+      backdrop-filter: blur(2px);
+      -webkit-backdrop-filter: blur(2px);
+      z-index: 99;
+      animation: erp-fade-in 150ms ease-out;
+    }}
+    .erp-jadro-backdrop[hidden] {{ display: none; }}
+    @keyframes erp-fade-in {{
+      from {{ opacity: 0; }}
+      to {{ opacity: 1; }}
+    }}
+    @keyframes erp-modal-pop {{
+      from {{ opacity: 0; transform: translate(-50%, -50%) scale(0.96); }}
+      to   {{ opacity: 1; transform: translate(-50%, -50%) scale(1); }}
+    }}
     .erp-jadro-pane {{
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px;
-      max-height: calc(100vh - 110px);
+      position: fixed;
+      top: 50%; left: 50%;
+      transform: translate(-50%, -50%);
+      width: min(92vw, 1200px);
+      height: min(90vh, 920px);
+      max-height: 90vh;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 12px;
+      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      z-index: 100;
       display: flex; flex-direction: column;
       overflow: hidden;
+      animation: erp-modal-pop 180ms ease-out;
     }}
     .erp-jadro-pane[hidden] {{ display: none; }}
     .erp-jadro-header {{
@@ -1000,28 +1027,31 @@ def _render_workspace_page(user_id: int) -> str:
           </div>
         </div>
       </main>
-      <aside id="erpJadroPane" class="erp-jadro-pane" hidden>
-        <div class="erp-jadro-header">
-          <span id="erpJadroTitle" class="erp-jadro-title">Jádro</span>
-          <span id="erpJadroMeta" class="erp-jadro-meta"></span>
-          <button id="erpJadroClose" class="erp-jadro-close" aria-label="Zavřít jádro" title="Zavřít jádro (Esc)">×</button>
-        </div>
-        <div id="erpJadroContent" class="erp-jadro-content"></div>
-      </aside>
     </div>
+    <!-- B+2.2: jádro modal — fixed overlay, mimo workspace grid -->
+    <div id="erpJadroBackdrop" class="erp-jadro-backdrop" hidden></div>
+    <aside id="erpJadroPane" class="erp-jadro-pane" hidden role="dialog" aria-modal="true" aria-labelledby="erpJadroTitle">
+      <div class="erp-jadro-header">
+        <span id="erpJadroTitle" class="erp-jadro-title">Jádro</span>
+        <span id="erpJadroMeta" class="erp-jadro-meta"></span>
+        <button id="erpJadroClose" class="erp-jadro-close" aria-label="Zavřít jádro" title="Zavřít jádro (Esc)">×</button>
+      </div>
+      <div id="erpJadroContent" class="erp-jadro-content"></div>
+    </aside>
 
     <script>
     (function() {
       "use strict";
       const treeRoot = document.getElementById("erpTreeRoot");
       const mainContent = document.getElementById("erpMainContent");
-      // B+2 (5.5.2026): jádro split-pane elements
+      // B+2 → B+2.2 (5.5.2026): jádro modal popup elements
       const workspaceEl = document.querySelector(".erp-workspace");
       const jadroPane = document.getElementById("erpJadroPane");
       const jadroContent = document.getElementById("erpJadroContent");
       const jadroTitle = document.getElementById("erpJadroTitle");
       const jadroMeta = document.getElementById("erpJadroMeta");
       const jadroCloseBtn = document.getElementById("erpJadroClose");
+      const jadroBackdrop = document.getElementById("erpJadroBackdrop");
       // B+2.1: resize handle pro tree width
       const resizeHandle = document.getElementById("erpResizeHandle");
 
@@ -1428,19 +1458,13 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
-      // ── Phase B+2: jádro split-pane ─────────────────────────────
+      // ── Phase B+2.2: jádro modal popup (centered overlay) ───────
       async function openJadroInPane(formId, rowId) {
         if (!jadroPane || !jadroContent) return;
         currentJadro = { form_id: formId, row_id: rowId };
-        if (workspaceEl) workspaceEl.classList.add("with-jadro");
+        // B+2.2: modal overlay — žádný grid template shift, tabulka beze změny
+        if (jadroBackdrop) jadroBackdrop.removeAttribute("hidden");
         jadroPane.removeAttribute("hidden");
-        // B+2.1: Tabulator redraw po layout shift (3-pane = užší container,
-        // jinak grid vyčnívá za jádro pane = "popup vyjizdi za gridem" bug)
-        if (activeTabulator) {
-          requestAnimationFrame(() => {
-            try { activeTabulator.redraw(true); } catch (e) {}
-          });
-        }
         if (jadroTitle) jadroTitle.textContent = "Načítám jádro…";
         if (jadroMeta) jadroMeta.textContent = "#" + formId + " / " + rowId;
         jadroContent.innerHTML =
@@ -1478,21 +1502,20 @@ def _render_workspace_page(user_id: int) -> str:
 
       function closeJadroPane() {
         if (jadroPane) jadroPane.setAttribute("hidden", "");
-        if (workspaceEl) workspaceEl.classList.remove("with-jadro");
+        if (jadroBackdrop) jadroBackdrop.setAttribute("hidden", "");
         if (jadroContent) jadroContent.innerHTML = "";
         currentJadro = null;
-        // B+2.1: Tabulator redraw po návratu do 2-pane (širší container)
-        if (activeTabulator) {
-          requestAnimationFrame(() => {
-            try { activeTabulator.redraw(true); } catch (e) {}
-          });
-        }
+        // B+2.2: workspace nemění layout (jádro je modal), žádný Tabulator redraw
       }
 
       if (jadroCloseBtn) {
         jadroCloseBtn.addEventListener("click", closeJadroPane);
       }
-      // Esc key zavře jádro pane
+      // B+2.2: backdrop click → close
+      if (jadroBackdrop) {
+        jadroBackdrop.addEventListener("click", closeJadroPane);
+      }
+      // Esc key zavře jádro modal
       document.addEventListener("keydown", (ev) => {
         if (ev.key === "Escape" && currentJadro) {
           closeJadroPane();

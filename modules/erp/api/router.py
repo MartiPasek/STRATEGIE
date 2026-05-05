@@ -507,19 +507,29 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-tree-list {{ list-style: none; padding: 0; margin: 0; }}
     .erp-tree-item {{ }}
+    /* B+1.7 (5.5.2026): tree polish — clear hierarchy, active accent border */
     .erp-tree-row {{
       padding: 5px 12px; cursor: pointer;
       display: flex; align-items: center; gap: 6px;
       font-size: 13px; color: var(--text-muted);
-      transition: background .12s, color .12s;
+      transition: background .12s, color .12s, border-color .12s;
+      border-left: 3px solid transparent;
     }}
     .erp-tree-row:hover {{ background: var(--surface2); color: var(--text); }}
-    .erp-tree-row.active {{ background: rgba(79,142,247,0.15); color: var(--accent); }}
+    .erp-tree-row.active {{
+      background: rgba(79,142,247,0.18);
+      color: var(--accent);
+      border-left-color: var(--accent);
+      font-weight: 500;
+    }}
     .erp-tree-toggle {{ width: 12px; font-size: 9px; color: var(--muted); flex-shrink: 0; }}
     .erp-tree-spacer {{ width: 12px; flex-shrink: 0; }}
-    .erp-tree-ico {{ font-size: 11px; color: var(--muted); padding: 0 4px; flex-shrink: 0; }}
+    /* Tree icon numbers (n.ikona % 100) hidden — were noise.
+       Future: map to Unicode icons (📁/📋/🛒/...) per ikona category. */
+    .erp-tree-ico {{ display: none; }}
     .erp-tree-label {{ flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .erp-tree-leaf .erp-tree-label {{ color: var(--text); }}
+    .erp-tree-leaf .erp-tree-label {{ color: var(--text); font-weight: 400; }}
+    .erp-tree-folder .erp-tree-label {{ color: var(--text-muted); font-weight: 500; }}
 
     .erp-main-pane {{
       background: var(--surface); border: 1px solid var(--border);
@@ -984,7 +994,7 @@ def _render_workspace_page(user_id: int) -> str:
           html += '<li class="erp-tree-item ' + cls + '" data-id="' + nid +
                   '" data-cislo-def="' + (n.cislo_def || '') +
                   '" data-text="' + escapeAttr(n.menu_text) + '">';
-          html += '<div class="erp-tree-row" style="padding-left: ' + (depth * 14) + 'px;">';
+          html += '<div class="erp-tree-row" style="padding-left: ' + (depth * 16) + 'px;">';
           html += toggle + ico + '<span class="erp-tree-label">' + escapeHtml(n.menu_text) + '</span>';
           html += '</div>';
           if (hasChildren) {

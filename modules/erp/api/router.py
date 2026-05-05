@@ -157,6 +157,7 @@ def jadro_render(
         components=components,
         data=data,
         read_only=True,
+        form_id=form_id,  # B+6.4 (5.5.2026): pro frontend lookup endpoint hook
         debug_info={
             "form_id": form_id,
             "row_id": row_id,
@@ -432,6 +433,42 @@ def jadro_components_json(form_id: int, req: Request) -> JSONResponse:
             }
             for c in components
         ],
+    })
+
+
+@api_router.get("/jadro/{form_id}/lookup/{field_name}")
+def jadro_lookup_options(form_id: int, field_name: str, req: Request) -> JSONResponse:
+    """
+    Phase B+6.4 (5.5.2026): list lookup options pro FormList/Combobox
+    field v jádru. Frontend ErpFormList ho lazy-loaduje při prvním
+    open dropdown panelu.
+
+    Returns: {"ok": true, "items": [{"value": ..., "label": "..."}, ...]}
+
+    Read-only Phase A; výběr se persistuje až s OK tlačítkem (Phase C).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    reader = CentralaReader()
+    form = reader.load_form_def(form_id)
+    if not form:
+        raise HTTPException(404, f"FormDef ID={form_id} nenalezen")
+
+    try:
+        items = reader.list_lookup_options(form_id, field_name)
+    except Exception as e:
+        logger.exception(
+            f"jadro_lookup_options: form_id={form_id} field={field_name!r} chyba"
+        )
+        raise HTTPException(500, f"Lookup options chyba: {e}")
+
+    return JSONResponse({
+        "ok": True,
+        "form_id": form_id,
+        "field_name": field_name,
+        "items": items,
+        "count": len(items),
     })
 
 
@@ -974,6 +1011,50 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       padding: 3px 6px;
       font-size: 10px;
       border-radius: 3px;
+    }}
+
+    /* ── Phase B+6.4 (5.5.2026): jádro lookup ErpDropdown mount ── */
+    .erp-jadro-content .erp-lookup-mount {{
+      width: 100%;
+    }}
+    /* Compact ErpDropdown trigger v jádro modalu (sedí s ostatními inputy) */
+    .erp-jadro-content .erp-lookup-mount .erp-dropdown-trigger {{
+      padding: 3px 6px;
+      font-size: 11px;
+      min-height: 22px;
+      border-radius: 4px;
+    }}
+    .erp-jadro-content .erp-lookup-mount .erp-dropdown-caret {{
+      font-size: 9px;
+    }}
+    /* B+6.4: Lookup button fallback (před JS hook + při ErpDropdown failure)
+       — vyhodit stigmu disabled, přidat hover accent */
+    .erp-formlist .erp-lookup-btn {{
+      cursor: pointer;
+    }}
+
+    /* B+6.4: jadroToast — fixed bottom-right notice (Phase A read-only změna) */
+    .erp-jadro-toast {{
+      position: fixed;
+      bottom: 24px;
+      right: 24px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--accent);
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-size: 12px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.45);
+      z-index: 200;
+      opacity: 0;
+      transform: translateY(8px);
+      transition: opacity 220ms ease, transform 220ms ease;
+      pointer-events: none;
+      max-width: 320px;
+    }}
+    .erp-jadro-toast.erp-jadro-toast-show {{
+      opacity: 1;
+      transform: translateY(0);
     }}
 
     /* ── Phase B+1 production MVP (5.5.2026): polish ── */
@@ -1648,12 +1729,110 @@ def _render_workspace_page(user_id: int) -> str:
           }
           const html = await r.text();
           jadroContent.innerHTML = html;
+          // B+6.4 (5.5.2026): wire ErpDropdown na lookup fields v jádře
+          wireJadroLookups(jadroContent);
         } catch (e) {
           jadroContent.innerHTML =
             '<div class="erp-jadro-error">Nelze načíst: ' +
             escapeHtml(e.message || String(e)) + '</div>';
           if (jadroTitle) jadroTitle.textContent = "Chyba";
         }
+      }
+
+      // ── B+6.4 (5.5.2026): jádro lookup fields → ErpDropdown ────────
+      // Po každém načtení jádro modalu scanneme [data-erp-lookup] elements
+      // a wire ErpDropdown s lazy-load options při onOpen. Read-only Phase A:
+      // výběr update display + data-erp-fk-value (in-memory state); persist
+      // do DB přijde Phase C OK button.
+      function wireJadroLookups(rootEl) {
+        if (!rootEl || typeof window.ErpDropdown !== "function") return;
+        const formEl = rootEl.querySelector(".erp-form[data-erp-form-id]");
+        if (!formEl) return;
+        const formId = formEl.dataset.erpFormId;
+        if (!formId) return;
+        const fields = rootEl.querySelectorAll('[data-erp-lookup]');
+        fields.forEach((fieldEl) => {
+          const fieldName = fieldEl.dataset.erpFieldName || "";
+          const currentFk = fieldEl.dataset.erpFkValue || "";
+          const currentDisplay = fieldEl.dataset.erpDisplay || "";
+          if (!fieldName) return;
+          // Skrýt original input+button row, vložit mount za label
+          const innerEl = fieldEl.querySelector(".erp-formlist-inner");
+          if (!innerEl) return;
+          const mount = document.createElement("div");
+          mount.className = "erp-lookup-mount";
+          innerEl.parentNode.insertBefore(mount, innerEl);
+          innerEl.style.display = "none";
+
+          const initialItems = currentFk
+            ? [{ value: currentFk, label: currentDisplay || String(currentFk) }]
+            : [];
+          let loaded = false;
+          let dd = null;
+          const lazyLoad = async () => {
+            if (loaded) return;
+            loaded = true;
+            try {
+              const r = await fetch(
+                "/api/v1/erp/jadro/" + encodeURIComponent(formId) +
+                  "/lookup/" + encodeURIComponent(fieldName),
+                { credentials: "include" }
+              );
+              if (!r.ok) {
+                console.warn("Lookup options fetch", fieldName, r.status);
+                return;
+              }
+              const j = await r.json();
+              if (!j.ok || !Array.isArray(j.items)) return;
+              let items = j.items.slice();
+              // Zajisti že current value je v list (pokud ne, prepend + divider)
+              if (currentFk) {
+                const hasCurrent = items.some(it =>
+                  String(it.value) === String(currentFk)
+                );
+                if (!hasCurrent) {
+                  items = [
+                    { value: currentFk, label: currentDisplay || String(currentFk) },
+                    { divider: true, label: "Všechny možnosti" },
+                  ].concat(items);
+                }
+              }
+              if (dd) {
+                dd.setItems(items);
+                if (currentFk) dd.setValue(currentFk, /*silent*/true);
+              }
+            } catch (e) {
+              console.warn("Lookup load error", fieldName, e);
+            }
+          };
+
+          dd = new window.ErpDropdown(mount, {
+            items: initialItems,
+            value: currentFk || null,
+            placeholder: currentDisplay || "(klikni pro výběr)",
+            onOpen: lazyLoad,
+            onChange: (val, item) => {
+              fieldEl.dataset.erpFkValue = String(val);
+              const lbl = (item && item.label) ? item.label : String(val);
+              fieldEl.dataset.erpDisplay = lbl;
+              jadroToast(
+                "Hodnota změněna lokálně. Uloží se s tlačítkem OK (Phase C)."
+              );
+            },
+          });
+        });
+      }
+
+      function jadroToast(msg) {
+        const t = document.createElement("div");
+        t.className = "erp-jadro-toast";
+        t.textContent = msg;
+        document.body.appendChild(t);
+        setTimeout(() => { t.classList.add("erp-jadro-toast-show"); }, 10);
+        setTimeout(() => {
+          t.classList.remove("erp-jadro-toast-show");
+          setTimeout(() => { t.remove(); }, 240);
+        }, 2400);
       }
 
       function closeJadroPane() {

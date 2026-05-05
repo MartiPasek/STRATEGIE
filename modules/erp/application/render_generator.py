@@ -90,6 +90,7 @@ def render_form(
     *,
     read_only: bool = True,
     debug_info: dict | None = None,
+    form_id: int | None = None,
 ) -> str:
     """Render kompletní formulář (jádro) jako HTML string (STRATEGIE BLACK theme)."""
     data = data or {}
@@ -116,8 +117,12 @@ def render_form(
     sections = _build_sections(visual_components)
 
     # Render
+    # Phase B+6.4 (5.5.2026): data-erp-form-id na <form> elementu — frontend
+    # JS hook si form_id najde přes closest('.erp-form').dataset.erpFormId
+    # při lazy-load lookup options pro FormList/Combobox fields.
+    form_id_attr = f' data-erp-form-id="{form_id}"' if form_id is not None else ''
     parts = [
-        '<form class="erp-form" data-read-only="true">',
+        f'<form class="erp-form" data-read-only="true"{form_id_attr}>',
         f'  <header class="erp-form-header">',
         f'    <h2 class="erp-form-title">{html.escape(title)}</h2>',
         f'  </header>',
@@ -301,8 +306,8 @@ def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
     if comp.typ == 6:  # FormList — modal picker (command palette pattern)
         return _render_formlist(comp, bound_value, data, read_only)
 
-    if comp.typ == 7:  # Combobox
-        return _render_combobox(comp, bound_value, read_only)
+    if comp.typ == 7:  # Combobox — unified s FormList (B+6.4)
+        return _render_combobox(comp, bound_value, data, read_only)
 
     if comp.typ == 8:  # Button
         return _render_button(comp, read_only)
@@ -375,52 +380,83 @@ def _render_date(comp: FormComponent, value: str, read_only: bool) -> str:
 def _render_formlist(
     comp: FormComponent, value: str, data: dict, read_only: bool
 ) -> str:
-    """FormList (Typ=6) → command palette modal trigger.
+    """FormList (Typ=6) → lookup picker.
 
     Marti-AI's Q4 vstup: command palette pattern (Cmd+K Spotlight).
-    Phase A: zobrazí jen current value + ▼ button (modal not yet wired).
-
-    Phase A.5 (5.5.2026): pokud reader.enrich_data_with_lookups vyplnil
+    Phase A.5: pokud reader.enrich_data_with_lookups vyplnil
     data['_lookup_{cFieldName}'], zobraz display value místo raw FK.
-    Reader resolve přes properties LookupView/LookupField/LookupDisplay.
+
+    Phase B+6.4 (5.5.2026): button enabled, data atributy pro frontend
+    JS hook (workspace page) který wire ErpDropdown s lazy-load options
+    z /api/v1/erp/jadro/{form_id}/lookup/{field_name}. Read-only Phase A:
+    výběr update display + data-erp-fk-value (in-memory state); persist
+    do DB přijde Phase C OK button.
     """
     readonly_attr = "readonly" if read_only else ""
     caption = _resolve_caption(comp)
+    field_name = comp.c_field_name or ""
 
     # Phase A.5: prefer lookup display value pokud reader ho vyřešil
-    lookup_key = f"_lookup_{comp.c_field_name}" if comp.c_field_name else None
+    lookup_key = f"_lookup_{field_name}" if field_name else None
     display_value = (
         data.get(lookup_key) if lookup_key and lookup_key in data
         else value
     )
 
     return (
-        f'      <div class="erp-field erp-formlist">\n'
+        f'      <div class="erp-field erp-formlist" '
+        f'data-erp-lookup="formlist" '
+        f'data-erp-field-name="{html.escape(field_name)}" '
+        f'data-erp-fk-value="{html.escape(str(value))}" '
+        f'data-erp-display="{html.escape(str(display_value))}">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
         f'        <div class="erp-formlist-inner">\n'
         f'          <input type="text" '
-        f'name="{html.escape(comp.c_field_name)}" '
+        f'name="{html.escape(field_name)}" '
         f'value="{html.escape(str(display_value))}" '
         f'class="erp-input erp-input-readonly" '
         f'{readonly_attr}>\n'
-        f'          <button type="button" class="erp-lookup-btn" disabled>▼</button>\n'
+        f'          <button type="button" class="erp-lookup-btn" '
+        f'aria-label="Vybrat hodnotu" title="Vybrat hodnotu">▼</button>\n'
         f'        </div>\n'
         f'      </div>'
     )
 
 
-def _render_combobox(comp: FormComponent, value: str, read_only: bool) -> str:
-    """Combobox (Typ=7) → <select>."""
-    readonly_attr = "disabled" if read_only else ""
+def _render_combobox(comp: FormComponent, value: str, data: dict, read_only: bool) -> str:
+    """Combobox (Typ=7) → lookup picker (unified s FormList Typ=6).
+
+    Phase B+6.4 (5.5.2026): visualně i funkčně stejné jako Typ=6 — input
+    readonly + ▼ button. Frontend JS hook ho wire stejnou cestou (lookup
+    endpoint, ErpDropdown overlay).
+    """
+    readonly_attr = "readonly" if read_only else ""
     caption = _resolve_caption(comp)
+    field_name = comp.c_field_name or ""
+
+    # Phase A.5: prefer lookup display value pokud reader ho vyřešil
+    lookup_key = f"_lookup_{field_name}" if field_name else None
+    display_value = (
+        data.get(lookup_key) if lookup_key and lookup_key in data
+        else value
+    )
+
     return (
-        f'      <div class="erp-field">\n'
+        f'      <div class="erp-field erp-formlist erp-combobox" '
+        f'data-erp-lookup="combobox" '
+        f'data-erp-field-name="{html.escape(field_name)}" '
+        f'data-erp-fk-value="{html.escape(str(value))}" '
+        f'data-erp-display="{html.escape(str(display_value))}">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
-        f'        <select name="{html.escape(comp.c_field_name)}" '
-        f'class="erp-input" '
+        f'        <div class="erp-formlist-inner">\n'
+        f'          <input type="text" '
+        f'name="{html.escape(field_name)}" '
+        f'value="{html.escape(str(display_value or value or ""))}" '
+        f'class="erp-input erp-input-readonly" '
         f'{readonly_attr}>\n'
-        f'          <option value="{html.escape(value)}" selected>{html.escape(value or "—")}</option>\n'
-        f'        </select>\n'
+        f'          <button type="button" class="erp-lookup-btn" '
+        f'aria-label="Vybrat hodnotu" title="Vybrat hodnotu">▼</button>\n'
+        f'        </div>\n'
         f'      </div>'
     )
 

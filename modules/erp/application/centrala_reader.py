@@ -600,6 +600,78 @@ class CentralaReader:
         self._lookup_value_cache[cache_key] = result_str
         return result_str
 
+    def list_lookup_options(
+        self,
+        form_id: int,
+        field_name: str,
+        limit: int = 500,
+    ) -> list[dict[str, Any]]:
+        """
+        Phase B+6.4 (5.5.2026): list všech possible lookup hodnot pro
+        daný FormList/Combobox field v jádru.
+
+        Použije EC_FormDefEdit + EC_FormDefEditProperty pro detection
+        LookupView (přehled #) / LookupField (FK column) / LookupDisplay
+        (display column). Pak query_table na target table přes
+        _get_lookup_view_meta resolve.
+
+        Returns: [{"value": fk_id, "label": "Display name"}, ...]
+                 ordered by display column.
+        """
+        components = self.load_form_components(form_id)
+        target_comp = None
+        for c in components:
+            if c.c_field_name == field_name and c.typ in (6, 7):
+                target_comp = c
+                break
+        if not target_comp:
+            return []
+
+        view_str = (target_comp.properties.get("LookupView") or "").strip()
+        lookup_field = (target_comp.properties.get("LookupField") or "").strip()
+        display_field = (target_comp.properties.get("LookupDisplay") or "Nazev").strip()
+
+        if not view_str or not view_str.isdigit() or not lookup_field:
+            logger.info(
+                f"list_lookup_options: form_id={form_id} field={field_name!r} — "
+                f"chybí LookupView nebo LookupField property "
+                f"(view={view_str!r}, field={lookup_field!r})"
+            )
+            return []
+        view_cislo = int(view_str)
+
+        meta = self._get_lookup_view_meta(view_cislo)
+        if meta is None:
+            return []
+        target_table, _ = meta
+
+        # Query target table — FK + display column. Bez Smazana filter
+        # (ne všechny lookup tabulky mají soft-delete; pokud má, vrátí
+        # i smazané, ale to je acceptable read-only browse).
+        result = self._call_mcp(
+            "query_table",
+            {
+                "table": target_table,
+                "columns": [lookup_field, display_field],
+                "order_by": [display_field],
+                "limit": limit,
+            },
+        )
+        if not result or not result.get("rows"):
+            return []
+
+        options: list[dict[str, Any]] = []
+        for row in result["rows"]:
+            fk = row.get(lookup_field)
+            disp = row.get(display_field)
+            if fk is None:
+                continue
+            options.append({
+                "value": fk,
+                "label": str(disp) if disp is not None else str(fk),
+            })
+        return options
+
     def enrich_data_with_lookups(
         self,
         data: dict[str, Any],

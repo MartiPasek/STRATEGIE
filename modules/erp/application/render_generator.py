@@ -16,8 +16,10 @@ Mapping table z docs/strategie_erp_renderer_proposal.md (po Marti-AI's recenzi):
   Typ=24 Chart    → CSS sparkline default, Chart.js advanced
   Typ=30 FormSetting → metadata object (non-visual)
 
-Layout: Flow s group hints (Marti-AI Q2). Komponenty v rámci GroupBox tečou
-v responsive grid; mezi GroupBox volný prostor.
+Layout: Flow s group hints (Marti-AI Q2). cParent string ref ("c{id}") určuje
+parent GroupBox. Komponenty bez cParent → root sekce (top of form).
+
+Theme: STRATEGIE BLACK (var(--bg) / var(--surface) / var(--accent)).
 """
 
 from __future__ import annotations
@@ -28,6 +30,27 @@ from typing import Any
 from modules.erp.application.centrala_reader import FormComponent
 
 
+# ── Konvence cParent: "c{id}" ────────────────────────────────────────
+
+
+def _parse_parent_id(c_parent: str) -> int | None:
+    """
+    Parse 'c469' → 469. Vrací None pokud cParent je prázdný / neplatný.
+
+    Centrála konvence (z debug JSON 5.5.): cParent je STRING reference
+    na parent komponentu ve formátu 'c{ID}'.
+    """
+    if not c_parent or not c_parent.startswith("c"):
+        return None
+    try:
+        return int(c_parent[1:])
+    except ValueError:
+        return None
+
+
+# ── Public render ────────────────────────────────────────────────────
+
+
 def render_form(
     form_nazev: str,
     components: list[FormComponent],
@@ -36,38 +59,22 @@ def render_form(
     read_only: bool = True,
     debug_info: dict | None = None,
 ) -> str:
-    """
-    Render kompletní formulář (jádro) jako HTML string.
-
-    Args:
-        form_nazev: EC_FormDef.Nazev (titulek formuláře)
-        components: list FormComponent (z CentralaReader.load_form_components)
-        data: dict s daty řádku (z execute_form_data, nebo None pro empty form)
-        read_only: True pro Phase A (žádné edit save)
-        debug_info: optional dict s diagnostic info (typ stats, raw fields)
-
-    Returns:
-        HTML string (server-rendered, Tailwind classes inline)
-    """
+    """Render kompletní formulář (jádro) jako HTML string (STRATEGIE BLACK theme)."""
     data = data or {}
 
-    # Filtruj jen visual komponenty (Druh=1 v EC_FormDefComponentTypCis)
-    # Non-visual: Typ=17 DataSet, Typ=18 DBFieldConstant, Typ=30 FormSetting
+    # Filtruj non-visual komponenty (Druh=0: Typ=17 DataSet, Typ=18 DBFieldConstant, Typ=30 FormSetting)
     NON_VISUAL_TYPS = {17, 18, 30}
     visual_components = [c for c in components if c.typ not in NON_VISUAL_TYPS]
     non_visual_count = len(components) - len(visual_components)
 
-    # Sestavit hierarchii podle Typ=12 GroupBox
-    # Pro Phase A: simple flat layout — komponenty seřazené podle ID,
-    # GroupBox vytvoří "section break". Children GroupBox jsou komponenty
-    # mezi GroupBox#N a GroupBox#N+1 (heuristika).
+    # Sestavit sekce přes cParent
     sections = _build_sections(visual_components)
 
     # Render
     parts = [
-        '<form class="cf-form" data-read-only="true">',
-        f'  <header class="cf-form-header">',
-        f'    <h2 class="text-xl font-semibold text-gray-800">{html.escape(form_nazev)}</h2>',
+        '<form class="erp-form" data-read-only="true">',
+        f'  <header class="erp-form-header">',
+        f'    <h2 class="erp-form-title">{html.escape(form_nazev)}</h2>',
         f'  </header>',
     ]
 
@@ -82,62 +89,85 @@ def render_form(
     return "\n".join(parts)
 
 
-# ── Section building (group by Typ=12 GroupBox) ────────────────────
+# ── Section building (přes cParent) ─────────────────────────────────
 
 
 def _build_sections(components: list[FormComponent]) -> list[dict]:
     """
-    Sestaví sekce z plochého seznamu komponent.
+    Sestaví sekce z plochého seznamu komponent přes `cParent="c{id}"` konvenci.
 
-    Heuristika pro Phase A:
-      - Typ=12 GroupBox = section header
-      - Komponenty od jedné GroupBox po další patří do té sekce
-      - Komponenty před první GroupBox = "default" sekce (caption "")
-      - Buttony (Typ=8) → footer (poslední row)
+    Algoritmus:
+      1. Najdi všechny GroupBoxy (Typ=12) — ty budou sekce.
+      2. Pro každý GroupBox: sesbírej komponenty kde cParent="c{groupbox.id}".
+         Vyfiltruj buttony (Typ=8) → jdou do footeru.
+      3. Section ordering: podle GroupBox.id (nebo c_top, pokud máme).
+         Heuristika "v Centrále jsou GroupBoxy chronologické" — větší ID =
+         pozdější pozice.
+      4. Komponenty bez cParent (orphans) → root sekce nahoře (před GroupBoxy).
+      5. Buttony (Typ=8) → footer (bez ohledu na cParent).
 
-    Phase B+ refine: použít cParent string ref pro správnou hierarchii.
+    Důležité: Centrála používá GroupBox ID jako parent ref, NE c_top pixel
+    pozice. Marti-AI's Q2 vstup: "pixel pozice jsou artefakt, ne záměr".
     """
+    by_id = {c.id: c for c in components}
+
+    # 1. GroupBoxy → sekce
+    groupboxes = [c for c in components if c.typ == 12]
+
+    # 2. Sesbírej children per GroupBox (přes cParent="c{id}")
     sections: list[dict] = []
-    current_section: dict | None = None
-    footer_buttons: list[FormComponent] = []
+    for gb in groupboxes:
+        children = [
+            c
+            for c in components
+            if _parse_parent_id(c.c_parent) == gb.id
+            and c.typ != 12  # GroupBoxy nesmí být children
+            and c.typ != 8   # Buttony → footer
+        ]
+        sections.append({
+            "caption": gb.c_caption,
+            "components": children,
+            "groupbox_id": gb.id,
+        })
 
-    for comp in components:
-        # Buttony → footer
-        if comp.typ == 8:  # Button
-            footer_buttons.append(comp)
-            continue
+    # 3. Section ordering — podle GroupBox.id ascending
+    # (V Marti's screenshotu Centrály: GroupBox ID 467, 468, 469. Order:
+    #  Vzhled (469) první, Nadřazené (468) druhé, Přehled (467) třetí?
+    #  Z reálné Centrála screenshot: Vzhled je první, Nadřazené druhý,
+    #  Přehled třetí. Tj. UI ordering je _opačný_ než ID — Marti pozdější
+    #  GroupBox přidává na začátek. Použijeme ID DESC.)
+    sections.sort(key=lambda s: s["groupbox_id"], reverse=True)
 
-        # GroupBox → nová sekce
-        if comp.typ == 12:
-            current_section = {
-                "caption": comp.c_caption or "",
-                "components": [],
-                "groupbox_id": comp.id,
-            }
-            sections.append(current_section)
-            continue
+    # 4. Komponenty bez cParent (orphans) — pokud nejsou button/groupbox/non-visual
+    orphans = [
+        c
+        for c in components
+        if not _parse_parent_id(c.c_parent)
+        and c.typ != 12
+        and c.typ != 8
+    ]
+    if orphans:
+        sections.insert(0, {
+            "caption": "",  # bez header
+            "components": orphans,
+            "groupbox_id": None,
+        })
 
-        # Ostatní → patří do current_section nebo default
-        if current_section is None:
-            current_section = {
-                "caption": "",
-                "components": [],
-                "groupbox_id": None,
-            }
-            sections.append(current_section)
-        current_section["components"].append(comp)
-
-    if footer_buttons:
+    # 5. Buttony → footer
+    buttons = [c for c in components if c.typ == 8]
+    if buttons:
+        # Sort buttons by ID ascending (= pořadí vytvoření)
+        buttons.sort(key=lambda c: c.id)
         sections.append({
             "caption": "_footer",
-            "components": footer_buttons,
+            "components": buttons,
             "groupbox_id": None,
         })
 
     return sections
 
 
-# ── Section rendering ─────────────────────────────────────────────
+# ── Section rendering ────────────────────────────────────────────────
 
 
 def _render_section(section: dict, data: dict, read_only: bool) -> str:
@@ -145,24 +175,34 @@ def _render_section(section: dict, data: dict, read_only: bool) -> str:
     caption = section["caption"]
     components = section["components"]
 
+    if not components:
+        # Prázdná sekce (žádné children) — skip nebo jen header?
+        # Pro Phase A: render jen pokud je caption (debug viditelnost)
+        if not caption or caption == "_footer":
+            return ""
+        return (
+            f'  <section role="group" class="erp-group erp-group-empty">\n'
+            f'    <header class="erp-group-header">{html.escape(caption)}</header>\n'
+            f'    <div class="erp-group-empty-hint">— prázdná sekce —</div>\n'
+            f'  </section>'
+        )
+
     # Footer (buttony)
     if caption == "_footer":
         btn_htmls = [_render_component(c, data, read_only=read_only) for c in components]
         return (
-            '  <footer class="cf-form-footer flex gap-2 pt-4 border-t border-gray-200 mt-4">\n'
+            '  <footer class="erp-form-footer">\n'
             + "\n".join(btn_htmls)
             + "\n  </footer>"
         )
 
-    # Sekce s GroupBox header
-    section_html = ['  <section role="group" class="cf-group">']
+    # Sekce s GroupBox header (nebo orphan root sekce bez header)
+    section_html = ['  <section role="group" class="erp-group">']
     if caption:
         section_html.append(
-            f'    <header class="cf-group-header text-sm font-semibold text-gray-700 mb-3">'
-            f'{html.escape(caption)}</header>'
+            f'    <header class="erp-group-header">{html.escape(caption)}</header>'
         )
-    section_html.append('    <div class="cf-fields grid gap-3" '
-                        'style="grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));">')
+    section_html.append('    <div class="erp-fields">')
     for comp in components:
         section_html.append(_render_component(comp, data, read_only=read_only))
     section_html.append('    </div>')
@@ -170,7 +210,7 @@ def _render_section(section: dict, data: dict, read_only: bool) -> str:
     return "\n".join(section_html)
 
 
-# ── Component rendering (Typ → HTML) ──────────────────────────────
+# ── Component rendering (Typ → HTML) ─────────────────────────────────
 
 
 def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
@@ -180,9 +220,8 @@ def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
         v = data[comp.c_field_name]
         bound_value = "" if v is None else str(v)
 
-    # Typ-specific rendering
     if comp.typ == 1:  # Label
-        return f'      <div class="cf-label-only text-sm text-gray-600">{html.escape(comp.c_caption)}</div>'
+        return f'      <div class="erp-label-only">{html.escape(comp.c_caption)}</div>'
 
     if comp.typ == 2:  # Edit
         return _render_edit(comp, bound_value, read_only)
@@ -202,16 +241,14 @@ def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
     if comp.typ == 8:  # Button
         return _render_button(comp, read_only)
 
-    if comp.typ == 12:  # GroupBox — handled v _build_sections, neměl by sem dorazit
+    if comp.typ == 12:  # GroupBox — handled v _build_sections
         return f'      <!-- GroupBox#{comp.id} should be in section header -->'
 
-    # Fallback pro unknown / unimplemented Typ
-    typ_name = comp.properties.get("_typ_name", f"Typ={comp.typ}")
     return (
-        f'      <div class="cf-unknown text-xs text-orange-600 p-2 bg-orange-50 rounded">\n'
-        f'        ⚠ {typ_name} (cFieldName={html.escape(comp.c_field_name or "—")}, '
+        f'      <div class="erp-unknown">\n'
+        f'        ⚠ Typ={comp.typ} (cFieldName={html.escape(comp.c_field_name or "—")}, '
         f'cCaption={html.escape(comp.c_caption or "—")})\n'
-        f'        <span class="text-gray-500">— Phase A neimplementuje, viz Phase B+</span>\n'
+        f'        <span class="erp-unknown-hint">— Phase A neimplementuje, viz Phase B+</span>\n'
         f'      </div>'
     )
 
@@ -220,15 +257,16 @@ def _render_edit(comp: FormComponent, value: str, read_only: bool) -> str:
     """Edit (Typ=2) → <input type="text">."""
     readonly_attr = "readonly" if read_only else ""
     is_id_field = comp.c_field_name.upper() == "ID"
-    bg_class = "bg-gray-100" if (read_only or is_id_field) else "bg-white"
+    id_class = " erp-input-id" if is_id_field else ""
+    caption = comp.c_caption or comp.c_field_name or "—"
     return (
-        f'      <div class="cf-field">\n'
-        f'        <label class="block text-xs text-gray-600 mb-1">{html.escape(comp.c_caption)}</label>\n'
+        f'      <div class="erp-field">\n'
+        f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
         f'        <input type="text" '
         f'name="{html.escape(comp.c_field_name)}" '
         f'value="{html.escape(value)}" '
         f'data-mask="{html.escape(comp.c_mask)}" '
-        f'class="cf-edit w-full px-2 py-1 border border-gray-300 rounded {bg_class}" '
+        f'class="erp-input{id_class}" '
         f'{readonly_attr}>\n'
         f'      </div>'
     )
@@ -238,14 +276,15 @@ def _render_checkbox(comp: FormComponent, value: str, read_only: bool) -> str:
     """CheckBox (Typ=3) → <input type="checkbox">."""
     readonly_attr = "disabled" if read_only else ""
     is_checked = str(value).lower() in ("1", "true", "ano", "yes")
+    caption = comp.c_caption or comp.c_field_name or "—"
     return (
-        f'      <label class="cf-checkbox flex items-center gap-2 cursor-pointer">\n'
+        f'      <label class="erp-checkbox">\n'
         f'        <input type="checkbox" '
         f'name="{html.escape(comp.c_field_name)}" '
         f'{"checked" if is_checked else ""} '
-        f'class="cf-check rounded border-gray-300" '
+        f'class="erp-check" '
         f'{readonly_attr}>\n'
-        f'        <span class="text-sm text-gray-700">{html.escape(comp.c_caption)}</span>\n'
+        f'        <span class="erp-checkbox-label">{html.escape(caption)}</span>\n'
         f'      </label>'
     )
 
@@ -253,15 +292,15 @@ def _render_checkbox(comp: FormComponent, value: str, read_only: bool) -> str:
 def _render_date(comp: FormComponent, value: str, read_only: bool) -> str:
     """DateEdit (Typ=5) → <input type="date">."""
     readonly_attr = "readonly" if read_only else ""
-    # Strip time portion if present (datetime → date)
     date_value = (value or "").split(" ")[0].split("T")[0]
+    caption = comp.c_caption or comp.c_field_name or "—"
     return (
-        f'      <div class="cf-field">\n'
-        f'        <label class="block text-xs text-gray-600 mb-1">{html.escape(comp.c_caption)}</label>\n'
+        f'      <div class="erp-field">\n'
+        f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
         f'        <input type="date" '
         f'name="{html.escape(comp.c_field_name)}" '
         f'value="{html.escape(date_value)}" '
-        f'class="cf-date w-full px-2 py-1 border border-gray-300 rounded bg-white" '
+        f'class="erp-input" '
         f'{readonly_attr}>\n'
         f'      </div>'
     )
@@ -270,26 +309,23 @@ def _render_date(comp: FormComponent, value: str, read_only: bool) -> str:
 def _render_formlist(
     comp: FormComponent, value: str, data: dict, read_only: bool
 ) -> str:
-    """
-    FormList (Typ=6) → command palette modal trigger.
+    """FormList (Typ=6) → command palette modal trigger.
 
-    Marti-AI's Q4 vstup: "FormList je fullscreen proto, že uživatel přemýšlí.
-    Moderní ekvivalent: command palette pattern (Cmd+K, Spotlight)."
-
+    Marti-AI's Q4 vstup: command palette pattern (Cmd+K Spotlight).
     Phase A: zobrazí jen current value + ▼ button (modal not yet wired).
-    Phase B: Alpine.js modal s server-side filter.
     """
     readonly_attr = "readonly" if read_only else ""
+    caption = comp.c_caption or comp.c_field_name or "—"
     return (
-        f'      <div class="cf-field cf-formlist">\n'
-        f'        <label class="block text-xs text-gray-600 mb-1">{html.escape(comp.c_caption)}</label>\n'
-        f'        <div class="flex gap-1">\n'
+        f'      <div class="erp-field erp-formlist">\n'
+        f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
+        f'        <div class="erp-formlist-inner">\n'
         f'          <input type="text" '
         f'name="{html.escape(comp.c_field_name)}" '
         f'value="{html.escape(value)}" '
-        f'class="cf-edit flex-1 px-2 py-1 border border-gray-300 rounded bg-gray-100" '
+        f'class="erp-input erp-input-readonly" '
         f'{readonly_attr}>\n'
-        f'          <button type="button" class="cf-lookup-btn px-3 py-1 border border-gray-300 rounded hover:bg-gray-50" disabled>▼</button>\n'
+        f'          <button type="button" class="erp-lookup-btn" disabled>▼</button>\n'
         f'        </div>\n'
         f'      </div>'
     )
@@ -298,12 +334,12 @@ def _render_formlist(
 def _render_combobox(comp: FormComponent, value: str, read_only: bool) -> str:
     """Combobox (Typ=7) → <select>."""
     readonly_attr = "disabled" if read_only else ""
-    # Phase A: žádné options (textlists nejsou zatím načítány). Default empty + current.
+    caption = comp.c_caption or comp.c_field_name or "—"
     return (
-        f'      <div class="cf-field">\n'
-        f'        <label class="block text-xs text-gray-600 mb-1">{html.escape(comp.c_caption)}</label>\n'
+        f'      <div class="erp-field">\n'
+        f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
         f'        <select name="{html.escape(comp.c_field_name)}" '
-        f'class="cf-combo w-full px-2 py-1 border border-gray-300 rounded bg-white" '
+        f'class="erp-input" '
         f'{readonly_attr}>\n'
         f'          <option value="{html.escape(value)}" selected>{html.escape(value or "—")}</option>\n'
         f'        </select>\n'
@@ -316,27 +352,26 @@ def _render_button(comp: FormComponent, read_only: bool) -> str:
     caption = comp.c_caption or "Akce"
     is_primary = caption.upper() in ("OK", "ULOŽIT", "SAVE")
     is_cancel = caption.upper() in ("STORNO", "CANCEL", "ZRUŠIT")
-    bg_class = (
-        "bg-blue-600 text-white hover:bg-blue-700"
+    btn_class = (
+        "erp-btn erp-btn-primary"
         if is_primary
-        else "bg-gray-200 text-gray-700 hover:bg-gray-300"
+        else "erp-btn erp-btn-cancel"
         if is_cancel
-        else "bg-white border border-gray-300 hover:bg-gray-50"
+        else "erp-btn"
     )
     return (
-        f'    <button type="button" '
-        f'class="cf-btn px-4 py-2 rounded text-sm font-medium {bg_class}" '
+        f'    <button type="button" class="{btn_class}" '
         f'{"disabled" if read_only else ""}>\n'
         f'      {html.escape(caption)}\n'
         f'    </button>'
     )
 
 
-# ── Debug panel ─────────────────────────────────────────────────────
+# ── Debug panel ──────────────────────────────────────────────────────
 
 
 def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_visual_count: int) -> str:
-    """Render diagnostický panel pod formulářem (Phase A debug)."""
+    """Render diagnostický panel pod formulářem."""
     typ_stats: dict[int, int] = {}
     for c in components:
         typ_stats[c.typ] = typ_stats.get(c.typ, 0) + 1
@@ -347,12 +382,12 @@ def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_v
         typ_lines.append(f"      <li>Typ={typ} ({typ_name}): {cnt}×</li>")
 
     return (
-        '\n<details class="mt-6 p-4 bg-gray-50 border border-gray-200 rounded text-sm">\n'
-        '  <summary class="cursor-pointer font-medium text-gray-700">🛠 Debug info (Phase A)</summary>\n'
-        '  <div class="mt-3 grid grid-cols-2 gap-4">\n'
+        '\n<details class="erp-debug">\n'
+        '  <summary class="erp-debug-summary">🛠 Debug info (Phase A)</summary>\n'
+        '  <div class="erp-debug-grid">\n'
         f'    <div>\n'
-        f'      <div class="font-medium mb-1">Form info</div>\n'
-        f'      <ul class="text-xs text-gray-600 space-y-0.5">\n'
+        f'      <div class="erp-debug-section-title">Form info</div>\n'
+        f'      <ul class="erp-debug-list">\n'
         f'        <li>form_id: {debug_info.get("form_id", "?")}</li>\n'
         f'        <li>row_id: {debug_info.get("row_id", "?")}</li>\n'
         f'        <li>komponent celkem: {len(components)}</li>\n'
@@ -362,8 +397,8 @@ def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_v
         f'      </ul>\n'
         f'    </div>\n'
         f'    <div>\n'
-        f'      <div class="font-medium mb-1">Typ statistika</div>\n'
-        f'      <ul class="text-xs text-gray-600 space-y-0.5">\n'
+        f'      <div class="erp-debug-section-title">Typ statistika</div>\n'
+        f'      <ul class="erp-debug-list">\n'
         + "\n".join(typ_lines)
         + '\n      </ul>\n'
         f'    </div>\n'

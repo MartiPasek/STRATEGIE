@@ -270,6 +270,10 @@
       this.options = Object.assign({}, this._defaults(), options || {});
       this.gridApi = null;
       this._destroyed = false;
+      // B+5.2: layout persistence state
+      this._currentLayoutId = null;
+      this._isDirty = false;
+      this._dirtyEventsAttached = false;
       this._init();
     }
 
@@ -285,6 +289,7 @@
         onRowDoubleClick: null,   // double click — typicky open detail/jádro
         onCellEdit: null,
         onSelectionChange: null,
+        onLayoutChange: null,     // B+5.2: ({layoutId, isDirty}) => void — UI badge update
         enableExport: true,
         enableFilters: true,
         enableEdit: false,
@@ -293,6 +298,9 @@
         enableGrouping: false,
         enablePivot: false,
         enableRangeSelection: true,
+        // B+5.2: layout persistence
+        layoutKey: null,          // string — identifikuje persistence scope, např. "prehled_103"
+        autoLoadDefault: true,    // při init load effective_default ze server
         // Visual
         theme: "dark",
         height: "100%",
@@ -385,6 +393,11 @@
         // Events
         onGridReady: (params) => {
           this.gridApi = params.api;
+          // B+5.2: setup dirty tracking + auto-load default
+          this._setupDirtyTracking();
+          if (this.options.autoLoadDefault && this.options.layoutKey) {
+            this._autoLoadDefault();
+          }
         },
         onRowClicked: (event) => {
           // Default selection behavior (single/Ctrl/Shift) handled by AG Grid.
@@ -500,6 +513,258 @@
       } else {
         // Community fallback
         this.exportCsv(filename ? filename.replace(/\.xlsx$/, ".csv") : "export.csv");
+      }
+    }
+
+    // ── Phase B+5.2: layout persistence API ───────────────────────────
+
+    /**
+     * Vrací URL prefix pro grid-layout API endpointy. layoutKey ve formátu
+     * "prehled_<cislo>" — z toho extrahuje cislo. Pokud chybí, vrací null.
+     */
+    _layoutApiBase() {
+      const key = this.options.layoutKey;
+      if (!key || typeof key !== "string") return null;
+      const m = key.match(/^prehled_(\d+)$/);
+      if (!m) {
+        console.warn("ErpDataGrid: layoutKey expected 'prehled_<cislo>', got:", key);
+        return null;
+      }
+      return { cislo: parseInt(m[1], 10) };
+    }
+
+    /**
+     * GET /api/v1/erp/grid-layout/{cislo}/list
+     * Returns: {ok, shared, personal, effective_default} | null on error
+     */
+    async listLayouts() {
+      const base = this._layoutApiBase();
+      if (!base) return null;
+      try {
+        const r = await fetch(
+          "/api/v1/erp/grid-layout/" + base.cislo + "/list",
+          { credentials: "include" }
+        );
+        if (!r.ok) return null;
+        const data = await r.json();
+        return data.ok ? data : null;
+      } catch (e) {
+        console.warn("ErpDataGrid.listLayouts failed:", e);
+        return null;
+      }
+    }
+
+    /**
+     * Aplikuje uložený layout na grid (column state via AG Grid applyColumnState).
+     * Internal — caller používá loadLayoutById().
+     */
+    _applyLayout(layoutObj) {
+      if (this._destroyed || !this.gridApi || !layoutObj) return false;
+      const cols = layoutObj.layout_json && layoutObj.layout_json.columns;
+      if (!Array.isArray(cols) || cols.length === 0) return false;
+      try {
+        this.gridApi.applyColumnState({
+          state: cols,
+          applyOrder: true,
+        });
+        this._currentLayoutId = layoutObj.id;
+        this._isDirty = false;
+        this._notifyLayoutChange();
+        return true;
+      } catch (e) {
+        console.warn("ErpDataGrid._applyLayout failed:", e);
+        return false;
+      }
+    }
+
+    /**
+     * Auto-load při init — pokud existuje effective_default, aplikuje.
+     */
+    async _autoLoadDefault() {
+      const result = await this.listLayouts();
+      if (!result || !result.effective_default) return;
+      this._applyLayout(result.effective_default);
+    }
+
+    /**
+     * Load specific layout podle ID a aplikuje na grid.
+     * Returns: true if applied, false if not found / error.
+     */
+    async loadLayoutById(layoutId) {
+      if (!layoutId) return false;
+      try {
+        const r = await fetch(
+          "/api/v1/erp/grid-layout/item/" + layoutId,
+          { credentials: "include" }
+        );
+        if (!r.ok) return false;
+        const data = await r.json();
+        if (!data.ok || !data.layout) return false;
+        return this._applyLayout(data.layout);
+      } catch (e) {
+        console.warn("ErpDataGrid.loadLayoutById failed:", e);
+        return false;
+      }
+    }
+
+    /**
+     * POST /api/v1/erp/grid-layout/{cislo} — vytvoří novou pojmenovanou sestavu.
+     * scope: "user" (default) | "shared" (admin only)
+     * Returns: layout object | throws on error.
+     */
+    async saveAsLayout(opts) {
+      const base = this._layoutApiBase();
+      if (!base) throw new Error("layoutKey not set or invalid");
+      if (!opts || !opts.name) throw new Error("name required");
+      const body = {
+        name: opts.name,
+        scope: opts.scope || "user",
+        description: opts.description || null,
+        is_default: !!opts.isDefault,
+        layout_json: { columns: this.getCurrentColumnState() },
+      };
+      const r = await fetch("/api/v1/erp/grid-layout/" + base.cislo, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || ("Status " + r.status));
+      }
+      const data = await r.json();
+      if (data.ok && data.layout) {
+        this._currentLayoutId = data.layout.id;
+        this._isDirty = false;
+        this._notifyLayoutChange();
+        return data.layout;
+      }
+      throw new Error("Save failed: " + JSON.stringify(data));
+    }
+
+    /**
+     * PUT /api/v1/erp/grid-layout/item/{layoutId} — uloží current state do
+     * existující sestavy. Pokud layoutId neuvedeno, použije _currentLayoutId.
+     */
+    async updateLayout(layoutId) {
+      const id = layoutId || this._currentLayoutId;
+      if (!id) throw new Error("No current layout to update — saveAsLayout first");
+      const body = {
+        layout_json: { columns: this.getCurrentColumnState() },
+      };
+      const r = await fetch("/api/v1/erp/grid-layout/item/" + id, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || ("Status " + r.status));
+      }
+      const data = await r.json();
+      if (data.ok && data.layout) {
+        this._currentLayoutId = data.layout.id;
+        this._isDirty = false;
+        this._notifyLayoutChange();
+        return data.layout;
+      }
+      throw new Error("Update failed");
+    }
+
+    /**
+     * POST /api/v1/erp/grid-layout/item/{layoutId}/set-default — označí
+     * sestavu jako default ve svém scope (auto-odznačí starý).
+     */
+    async setDefaultLayout(layoutId) {
+      const r = await fetch(
+        "/api/v1/erp/grid-layout/item/" + layoutId + "/set-default",
+        { method: "POST", credentials: "include" }
+      );
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || ("Status " + r.status));
+      }
+      return await r.json();
+    }
+
+    /**
+     * DELETE /api/v1/erp/grid-layout/item/{layoutId}.
+     * Pokud byl tento layout currentLoadId, reset state.
+     */
+    async deleteLayout(layoutId) {
+      const r = await fetch(
+        "/api/v1/erp/grid-layout/item/" + layoutId,
+        { method: "DELETE", credentials: "include" }
+      );
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || ("Status " + r.status));
+      }
+      if (this._currentLayoutId === layoutId) {
+        this._currentLayoutId = null;
+        this._isDirty = false;
+        this._notifyLayoutChange();
+      }
+      return true;
+    }
+
+    /** Vrací aktuální AG Grid column state — pro saveAsLayout / updateLayout. */
+    getCurrentColumnState() {
+      if (this._destroyed || !this.gridApi) return [];
+      try { return this.gridApi.getColumnState(); }
+      catch (e) { return []; }
+    }
+
+    /** Returns currently loaded layout ID (or null = unsaved/auto). */
+    getCurrentLayoutId() { return this._currentLayoutId; }
+
+    /** Boolean — current state has unsaved changes vs loaded layout. */
+    isDirty() { return this._isDirty; }
+
+    /** Discard current state, re-load effective default ze server. */
+    async resetToDefault() {
+      this._currentLayoutId = null;
+      this._isDirty = false;
+      if (this.gridApi) {
+        try { this.gridApi.resetColumnState(); } catch (e) {}
+      }
+      await this._autoLoadDefault();
+    }
+
+    /** Internal: emit onLayoutChange callback for UI badge updates. */
+    _notifyLayoutChange() {
+      if (typeof this.options.onLayoutChange === "function") {
+        try {
+          this.options.onLayoutChange({
+            layoutId: this._currentLayoutId,
+            isDirty: this._isDirty,
+          });
+        } catch (e) {
+          console.warn("onLayoutChange callback error:", e);
+        }
+      }
+    }
+
+    /** Internal: hook AG Grid events for dirty tracking. */
+    _setupDirtyTracking() {
+      if (this._dirtyEventsAttached || !this.gridApi) return;
+      this._dirtyEventsAttached = true;
+      const dirtyEvents = [
+        "columnMoved", "columnResized", "columnVisible",
+        "columnPinned", "sortChanged",
+      ];
+      const markDirty = () => {
+        if (!this._isDirty) {
+          this._isDirty = true;
+          this._notifyLayoutChange();
+        }
+      };
+      for (const evt of dirtyEvents) {
+        try {
+          this.gridApi.addEventListener(evt, markDirty);
+        } catch (e) {}
       }
     }
 

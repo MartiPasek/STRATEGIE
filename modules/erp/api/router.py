@@ -1156,6 +1156,9 @@ def _render_workspace_page(user_id: int) -> str:
       const TREE_WIDTH_KEY = "erp.tree.width";
 
       let activeErpDataGrid = null;      // current ErpDataGrid component (B+4 → default since B+4.3)
+      // B+5.2 smoke testing: expose getter na window pro DevTools console.
+      // Použití: await erpGrid().listLayouts()  /  erpGrid().getCurrentColumnState()
+      window.erpGrid = () => activeErpDataGrid;
       let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
       let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};

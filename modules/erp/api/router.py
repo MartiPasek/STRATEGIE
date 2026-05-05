@@ -664,21 +664,47 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-right: 1px solid var(--border);
       padding: 5px 8px; color: var(--text); font-size: 12px;
     }}
-    /* B+1.5 (5.5.2026): filter inputs match header bg, dim placeholder */
+    /* B+1.5+B+1.6 (5.5.2026): filter inputs dark — !important kvůli CSS
+       load order (Tabulator CDN <link> v body se načte PO head <style>
+       a vyhraje při shodné specificity) + appearance:none aby přebít
+       browser default styling pro <input type="search"> */
     .erp-tab-grid .tabulator-header .tabulator-header-filter {{
-      background: var(--bg);
+      background: var(--bg) !important;
     }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input {{
-      background: var(--bg); color: var(--text);
-      border: 1px solid var(--border); border-radius: 4px;
-      padding: 3px 6px; font-size: 11px; width: 100%;
-      font-family: 'DM Sans',sans-serif; outline: none;
+    .erp-tab-grid .tabulator-header .tabulator-header-filter input,
+    .erp-tab-grid .tabulator-headers input,
+    .erp-tab-grid input[type="search"],
+    .erp-tab-grid input[type="text"] {{
+      background: var(--bg) !important;
+      color: var(--text) !important;
+      border: 1px solid var(--border) !important;
+      border-radius: 4px !important;
+      padding: 3px 6px !important;
+      font-size: 11px !important;
+      width: 100% !important;
+      font-family: 'DM Sans',sans-serif !important;
+      outline: none !important;
+      -webkit-appearance: none !important;
+      appearance: none !important;
+      box-shadow: none !important;
     }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input:focus {{
-      border-color: var(--accent); background: var(--surface);
+    .erp-tab-grid .tabulator-header .tabulator-header-filter input:focus,
+    .erp-tab-grid input[type="search"]:focus,
+    .erp-tab-grid input[type="text"]:focus {{
+      border-color: var(--accent) !important;
+      background: var(--surface) !important;
     }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input::placeholder {{
-      color: var(--muted); font-style: italic; opacity: 0.7;
+    .erp-tab-grid .tabulator-header .tabulator-header-filter input::placeholder,
+    .erp-tab-grid input::placeholder {{
+      color: var(--muted) !important;
+      font-style: italic;
+      opacity: 0.7 !important;
+    }}
+    /* WebKit search input clear button — odebrat (rušivý v dark theme) */
+    .erp-tab-grid input[type="search"]::-webkit-search-cancel-button,
+    .erp-tab-grid input[type="search"]::-webkit-search-decoration {{
+      -webkit-appearance: none;
+      display: none;
     }}
     .erp-tab-grid .tabulator .tabulator-tableholder {{
       background-color: var(--surface);

@@ -281,8 +281,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-radius: 10px; padding: 18px; margin-bottom: 14px;
     }}
     .erp-group-header {{
-      font-family: 'DM Mono',monospace; font-size: 12px; font-weight: 500;
-      color: #c8cad2; letter-spacing: 0.08em; text-transform: uppercase;
+      /* Phase A.5++ (5.5.2026): match Centrála 1 case (regular, not uppercase).
+         Marti's review: "ty texty, aby nebyly UpperCase". */
+      font-family: 'DM Sans',sans-serif; font-size: 13px; font-weight: 600;
+      color: #c8cad2; letter-spacing: 0;
       margin-bottom: 14px; padding-bottom: 8px;
       border-bottom: 1px solid var(--border);
     }}
@@ -297,9 +299,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     /* ── Field ── */
     .erp-field {{ display: flex; flex-direction: column; gap: 5px; }}
     .erp-field-label {{
-      font-size: 11px; color: var(--text-muted);
-      font-family: 'DM Mono',monospace; letter-spacing: 0.05em;
-      text-transform: uppercase; font-weight: 500;
+      /* Phase A.5++: match Centrála regular case (not uppercase). */
+      font-size: 12px; color: var(--text-muted);
+      font-family: 'DM Sans',sans-serif; letter-spacing: 0;
+      font-weight: 500;
     }}
     .erp-input {{
       background: #2c2f37; border: 1px solid var(--border-strong);

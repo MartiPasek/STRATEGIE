@@ -99,6 +99,19 @@ def render_form(
     visual_components = [c for c in components if c.typ not in NON_VISUAL_TYPS]
     non_visual_count = len(components) - len(visual_components)
 
+    # Phase A.5++ (5.5.2026): FormSetting (Typ=30) může mít property
+    # FormCaption -- override pro page title. Centrála pattern: jádro #6
+    # má EC_FormDef.Nazev='Definice menu - úprava', ale FormSetting.FormCaption
+    # = 'Nastavení soudečku' (= reálný title v UI). Náš render preferuje
+    # FormCaption pokud existuje, fallback na EC_FormDef.Nazev.
+    title = form_nazev
+    for c in components:
+        if c.typ == 30:  # FormSetting
+            fc = (c.properties.get("FormCaption") or "").strip()
+            if fc:
+                title = fc
+                break
+
     # Sestavit sekce přes cParent
     sections = _build_sections(visual_components)
 
@@ -106,7 +119,7 @@ def render_form(
     parts = [
         '<form class="erp-form" data-read-only="true">',
         f'  <header class="erp-form-header">',
-        f'    <h2 class="erp-form-title">{html.escape(form_nazev)}</h2>',
+        f'    <h2 class="erp-form-title">{html.escape(title)}</h2>',
         f'  </header>',
     ]
 

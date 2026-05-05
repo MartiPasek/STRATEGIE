@@ -324,6 +324,21 @@
         this.container.style.height = this.options.height;
       }
 
+      // B+5.3: build wrapper structure — toolbar nad gridem (pokud layoutKey set).
+      // Bez layoutKey žádný toolbar (component fungování beze změny pro non-persistent grids).
+      this.gridContainer = this.container;  // default — AG Grid renders přímo do containeru
+      if (this.options.layoutKey) {
+        this.container.classList.add("erp-grid-with-toolbar");
+        this.toolbarEl = document.createElement("div");
+        this.toolbarEl.className = "erp-grid-toolbar";
+        this.toolbarEl.innerHTML = this._renderToolbarHtml();
+        this.gridContainer = document.createElement("div");
+        this.gridContainer.className = "erp-grid-inner";
+        this.container.appendChild(this.toolbarEl);
+        this.container.appendChild(this.gridContainer);
+        this._wireToolbar();
+      }
+
       // Resolve columnDefs
       const rowData = this.options.rowData || [];
       let columnDefs = this.options.columnDefs;
@@ -427,7 +442,8 @@
       };
 
       // AG Grid v32+ API: createGrid()
-      this.gridApi = window.agGrid.createGrid(this.container, gridOptions);
+      // B+5.3: AG Grid renders do gridContainer (= container nebo wrapper inner)
+      this.gridApi = window.agGrid.createGrid(this.gridContainer, gridOptions);
 
       // If dataUrl, fetch async
       if (opts.dataUrl) {
@@ -578,12 +594,15 @@
     }
 
     /**
-     * Auto-load při init — pokud existuje effective_default, aplikuje.
+     * Auto-load při init — pokud existuje effective_default, aplikuje + refresh toolbar.
      */
     async _autoLoadDefault() {
       const result = await this.listLayouts();
-      if (!result || !result.effective_default) return;
-      this._applyLayout(result.effective_default);
+      if (result && result.effective_default) {
+        this._applyLayout(result.effective_default);
+      }
+      // B+5.3: po fetch list vždy refresh toolbar dropdown (i pokud žádný default)
+      await this._refreshToolbar();
     }
 
     /**
@@ -733,8 +752,22 @@
       await this._autoLoadDefault();
     }
 
-    /** Internal: emit onLayoutChange callback for UI badge updates. */
+    /** Internal: emit onLayoutChange callback + refresh toolbar UI. */
     _notifyLayoutChange() {
+      // B+5.3: auto-update toolbar dropdown + dirty indicator + save button
+      if (this.toolbarEl) {
+        // Update jen UI bits (dropdown options + indicator), nedělej refetch
+        const dirty = this.toolbarEl.querySelector("[data-erp-dirty]");
+        const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
+        if (dirty) {
+          if (this._isDirty && this._currentLayoutId) dirty.removeAttribute("hidden");
+          else dirty.setAttribute("hidden", "");
+        }
+        if (saveBtn) {
+          if (this._currentLayoutId && this._isDirty) saveBtn.removeAttribute("hidden");
+          else saveBtn.setAttribute("hidden", "");
+        }
+      }
       if (typeof this.options.onLayoutChange === "function") {
         try {
           this.options.onLayoutChange({
@@ -745,6 +778,258 @@
           console.warn("onLayoutChange callback error:", e);
         }
       }
+    }
+
+    // ── Phase B+5.3: toolbar UI ───────────────────────────────────────
+
+    _renderToolbarHtml() {
+      // Initial empty state — _refreshToolbar() po listLayouts vyplní options
+      return (
+        '<div class="erp-toolbar-left">' +
+          '<select class="erp-layout-select" data-erp-layout-select>' +
+            '<option value="">— bez sestavy —</option>' +
+          '</select>' +
+          '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
+        '</div>' +
+        '<div class="erp-toolbar-right">' +
+          '<button class="erp-toolbar-btn" data-erp-save-btn hidden ' +
+            'title="Uložit změny do aktuální sestavy">💾 Uložit</button>' +
+          '<button class="erp-toolbar-btn" data-erp-saveas-btn ' +
+            'title="Uložit aktuální stav jako novou sestavu">+ Uložit jako…</button>' +
+          '<button class="erp-toolbar-btn" data-erp-manage-btn ' +
+            'title="Spravovat sestavy (rename, delete, set default)">⋮</button>' +
+        '</div>'
+      );
+    }
+
+    _wireToolbar() {
+      if (!this.toolbarEl) return;
+      const sel = this.toolbarEl.querySelector("[data-erp-layout-select]");
+      const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
+      const saveAsBtn = this.toolbarEl.querySelector("[data-erp-saveas-btn]");
+      const manageBtn = this.toolbarEl.querySelector("[data-erp-manage-btn]");
+
+      if (sel) {
+        sel.addEventListener("change", async (ev) => {
+          const id = ev.target.value;
+          if (!id) {
+            // "— bez sestavy —" → reset na auto-detect
+            await this.resetToDefault();
+            await this._refreshToolbar();
+            return;
+          }
+          await this.loadLayoutById(parseInt(id, 10));
+          await this._refreshToolbar();
+        });
+      }
+
+      if (saveBtn) {
+        saveBtn.addEventListener("click", async () => {
+          if (!this._currentLayoutId) return;
+          try {
+            await this.updateLayout(this._currentLayoutId);
+            await this._refreshToolbar();
+            this._toast("Sestava uložena.");
+          } catch (e) {
+            alert("Chyba při ukládání: " + (e.message || e));
+          }
+        });
+      }
+
+      if (saveAsBtn) {
+        saveAsBtn.addEventListener("click", async () => {
+          await this._openSaveAsDialog();
+        });
+      }
+
+      if (manageBtn) {
+        manageBtn.addEventListener("click", async () => {
+          await this._openManagePanel();
+        });
+      }
+    }
+
+    /** Refresh toolbar UI (dropdown options + button states). */
+    async _refreshToolbar() {
+      if (!this.toolbarEl) return;
+      const sel = this.toolbarEl.querySelector("[data-erp-layout-select]");
+      const dirty = this.toolbarEl.querySelector("[data-erp-dirty]");
+      const saveBtn = this.toolbarEl.querySelector("[data-erp-save-btn]");
+      if (!sel) return;
+
+      // Fetch list a populate
+      const result = await this.listLayouts();
+      const optionsHtml = ['<option value="">— bez sestavy —</option>'];
+      if (result && result.shared && result.shared.length > 0) {
+        optionsHtml.push('<optgroup label="🔵 Sdílené">');
+        for (const l of result.shared) {
+          const sel = (l.id === this._currentLayoutId) ? " selected" : "";
+          const star = l.is_default ? " ⭐" : "";
+          optionsHtml.push(
+            '<option value="' + l.id + '"' + sel + '>' +
+              this._escapeHtml(l.name) + star +
+            '</option>'
+          );
+        }
+        optionsHtml.push('</optgroup>');
+      }
+      if (result && result.personal && result.personal.length > 0) {
+        optionsHtml.push('<optgroup label="👤 Moje">');
+        for (const l of result.personal) {
+          const sel = (l.id === this._currentLayoutId) ? " selected" : "";
+          const star = l.is_default ? " ⭐" : "";
+          optionsHtml.push(
+            '<option value="' + l.id + '"' + sel + '>' +
+              this._escapeHtml(l.name) + star +
+            '</option>'
+          );
+        }
+        optionsHtml.push('</optgroup>');
+      }
+      sel.innerHTML = optionsHtml.join("");
+
+      // Dirty indicator
+      if (dirty) {
+        if (this._isDirty && this._currentLayoutId) dirty.removeAttribute("hidden");
+        else dirty.setAttribute("hidden", "");
+      }
+
+      // Save button — viditelné jen když current loaded + dirty
+      if (saveBtn) {
+        if (this._currentLayoutId && this._isDirty) saveBtn.removeAttribute("hidden");
+        else saveBtn.setAttribute("hidden", "");
+      }
+    }
+
+    async _openSaveAsDialog() {
+      const name = window.prompt(
+        "Název nové sestavy:",
+        this._currentLayoutId ? "" : "Můj pohled"
+      );
+      if (!name || !name.trim()) return;
+      // Scope: shared dialog jen pokud uživatel je admin (server-side check stejně proběhne)
+      const wantShared = window.confirm(
+        "Uložit jako SDÍLENÝ layout (viditelný všem uživatelům)?\n\n" +
+        "OK = sdílený (vyžaduje admin oprávnění)\n" +
+        "Zrušit = osobní (jen pro tebe)"
+      );
+      const isDefault = window.confirm(
+        "Označit tento layout jako výchozí (auto-load při otevření přehledu)?\n\n" +
+        "OK = ano, je výchozí\n" +
+        "Zrušit = ne, jen jedna z více sestav"
+      );
+      try {
+        await this.saveAsLayout({
+          name: name.trim(),
+          scope: wantShared ? "shared" : "user",
+          isDefault: isDefault,
+        });
+        await this._refreshToolbar();
+        this._toast("Sestava '" + name + "' vytvořena.");
+      } catch (e) {
+        alert("Chyba při ukládání: " + (e.message || e));
+      }
+    }
+
+    async _openManagePanel() {
+      // B+5.3 MVP: simple alert s actions, B+5.3.2 → proper modal
+      const result = await this.listLayouts();
+      if (!result) {
+        alert("Nelze načíst seznam sestav.");
+        return;
+      }
+      const all = [
+        ...result.shared.map(l => ({...l, _label: "🔵 " + l.name})),
+        ...result.personal.map(l => ({...l, _label: "👤 " + l.name})),
+      ];
+      if (all.length === 0) {
+        alert("Žádné uložené sestavy. Vytvoř první přes '+ Uložit jako…'.");
+        return;
+      }
+      const lines = all.map((l, i) =>
+        (i + 1) + ". " + l._label +
+        (l.is_default ? " ⭐" : "") +
+        (l.id === this._currentLayoutId ? " ✓ (aktivní)" : "")
+      );
+      const choice = window.prompt(
+        "SPRÁVA SESTAV\n\n" +
+        lines.join("\n") +
+        "\n\nZadej číslo + akci:\n" +
+        "  '1 default' — označit jako výchozí\n" +
+        "  '1 rename' — přejmenovat\n" +
+        "  '1 delete' — smazat\n\n" +
+        "(Prázdné = zrušit)"
+      );
+      if (!choice || !choice.trim()) return;
+      const m = choice.trim().match(/^(\d+)\s+(default|rename|delete)$/i);
+      if (!m) {
+        alert("Neplatný formát. Použij '<číslo> default|rename|delete'.");
+        return;
+      }
+      const idx = parseInt(m[1], 10) - 1;
+      const action = m[2].toLowerCase();
+      if (idx < 0 || idx >= all.length) {
+        alert("Číslo mimo rozsah.");
+        return;
+      }
+      const layout = all[idx];
+      try {
+        if (action === "default") {
+          await this.setDefaultLayout(layout.id);
+          this._toast("Sestava '" + layout.name + "' označena jako výchozí.");
+        } else if (action === "rename") {
+          const newName = window.prompt("Nový název:", layout.name);
+          if (!newName || !newName.trim()) return;
+          await this._renameLayout(layout.id, newName.trim());
+          this._toast("Přejmenováno na '" + newName + "'.");
+        } else if (action === "delete") {
+          if (!window.confirm("Opravdu smazat sestavu '" + layout.name + "'?")) return;
+          await this.deleteLayout(layout.id);
+          this._toast("Sestava '" + layout.name + "' smazána.");
+        }
+        await this._refreshToolbar();
+      } catch (e) {
+        alert("Chyba: " + (e.message || e));
+      }
+    }
+
+    async _renameLayout(layoutId, newName) {
+      const r = await fetch("/api/v1/erp/grid-layout/item/" + layoutId, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      });
+      if (!r.ok) {
+        const err = await r.json().catch(() => ({}));
+        throw new Error(err.detail || ("Status " + r.status));
+      }
+      return await r.json();
+    }
+
+    /** Toast notification — MVP: console + brief alert-free overlay. */
+    _toast(msg) {
+      // B+5.3.2 → real toast component. Pro MVP jen console + DOM injection.
+      console.info("[ErpDataGrid]", msg);
+      if (!this.toolbarEl) return;
+      let toast = this.toolbarEl.querySelector(".erp-toast");
+      if (!toast) {
+        toast = document.createElement("span");
+        toast.className = "erp-toast";
+        this.toolbarEl.appendChild(toast);
+      }
+      toast.textContent = msg;
+      toast.style.opacity = "1";
+      clearTimeout(this._toastTimer);
+      this._toastTimer = setTimeout(() => {
+        if (toast) toast.style.opacity = "0";
+      }, 2500);
+    }
+
+    _escapeHtml(s) {
+      return String(s).replace(/[&<>"']/g, c =>
+        ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])
+      );
     }
 
     /** Internal: hook AG Grid events for dirty tracking. */

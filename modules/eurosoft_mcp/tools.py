@@ -135,8 +135,9 @@ async def query_table(
 ) -> dict[str, Any]:
     _validate_table(table, "select")
 
-    # Cap limits
-    limit = max(1, min(int(limit or 100), 1000))
+    # Cap limits — B+4.4 fix (5.5.2026): bumped 1000 → 100_000 pro Centrála 2
+    # přehledy (Marti's MVP request). Pro >100k → server-side row model (Phase B+8).
+    limit = max(1, min(int(limit or 100), 100_000))
     offset = max(0, int(offset or 0))
 
     # Build columns
@@ -585,7 +586,7 @@ TOOL_SPECS = [
         "name": "query_table",
         "description": (
             "Query a whitelisted EUROSOFT table with optional filters, columns, "
-            "ordering, and pagination. Default limit=100, hard cap 1000. Returns "
+            "ordering, and pagination. Default limit=100, hard cap 100000 (B+4.4). Returns "
             "rows as list of dicts plus has_more flag.\n\n"
             "Filter syntax: {col: value} for equality, {col: None} for NULL, "
             "{col: [v1, v2]} for IN, {col: {'>=': 5}} for comparison ops.\n\n"
@@ -600,7 +601,7 @@ TOOL_SPECS = [
                             "description": "Columns to return (default all)"},
                 "order_by": {"type": "array", "items": {"type": "string"},
                              "description": "ORDER BY clauses (e.g. ['DatPorizeni DESC'])"},
-                "limit": {"type": "integer", "description": "Max rows (default 100, max 1000)"},
+                "limit": {"type": "integer", "description": "Max rows (default 100, max 100000)"},
                 "offset": {"type": "integer", "description": "Pagination offset (default 0)"},
             },
             "required": ["table"],

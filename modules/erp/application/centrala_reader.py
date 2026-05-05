@@ -224,13 +224,22 @@ class CentralaReader:
 
         # 2. Načti properties pro všechny komponenty najednou
         # query_table API: filters dict + IN syntax přes list value
+        #
+        # ⚠ Phase A.4 (5.5.2026): Smazana filter ODSTRANĚN. Diagnostika
+        # ukázala, že VŠECHNY rows v EC_FormDefEditProperty mají
+        # Smazana=true, vč. aktivně používaných (Caption "Požadovat
+        # přihlášení" pro CheckBox #1717). Centrála flag ignoruje --
+        # není to soft-delete, ale pravděpodobně migration marker.
+        # Framework doc (řádek 1524) tvrdí "soft delete", ale reálně to
+        # tak nefunguje. EC_FormDefEdit.Smazana je pravý soft-delete,
+        # EC_FormDefEditProperty.Smazana není.
         props_result = self._call_mcp(
             "query_table",
             {
                 "table": "EC_FormDefEditProperty",
                 "filters": {
                     "ID_FormDefEdit": comp_ids,  # list → IN (...)
-                    "Smazana": 0,
+                    # NO Smazana filter -- viz komentář výše
                 },
                 "order_by": ["ID_FormDefEdit", "EditCislo"],
                 "limit": 1000,  # MCP cap je 1000 per call
@@ -254,10 +263,34 @@ class CentralaReader:
         for c in components:
             c.properties = props_by_comp.get(c.id, {})
 
+            # Phase A.4 (5.5.2026): orphan komponenty (cParent='', cFieldName='')
+            # mají binding info v properties (FieldName, ParentName).
+            # Diagnostika ukázala např. CheckBox #1717 cFieldName='', ale
+            # property FieldName='PozadovatPrihlaseni'. Fallback z properties
+            # na c_field_name aby render našel data binding.
+            if not c.c_field_name:
+                fname = (
+                    c.properties.get("FieldName")
+                    or c.properties.get("DataField")
+                    or c.properties.get("cFieldName")
+                    or ""
+                )
+                if fname:
+                    c.c_field_name = fname
+
+            # Plus cParent fallback z properties (ParentName) -- některé
+            # orphan komponenty mají parent referenci v properties, ne v
+            # EC_FormDefEdit.cParent. Hodnoty typu 'Def' (=root form) nebo
+            # 'GroupBox_VzhledNazev' bychom měli umět vyhodnotit; pro Phase A.4
+            # zatim jen pokud cParent je prázdný a properties má 'ParentName'
+            # (mapping na c{id} bude až Phase A.5 -- potřebujeme parent name
+            # registry napříč form, což chce další query).
+
         logger.info(
             f"CentralaReader: form_id={form_id} -> "
             f"{len(components)} komponent, "
-            f"{sum(len(c.properties) for c in components)} properties total"
+            f"{sum(len(c.properties) for c in components)} properties total, "
+            f"{sum(1 for c in components if c.properties)} komponent s properties"
         )
         return components
 

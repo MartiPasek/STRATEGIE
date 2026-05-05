@@ -1422,7 +1422,9 @@ def _render_workspace_page(user_id: int) -> str:
             rowData: rows,
             columns: cols,
             autoColumns: true,
-            onRowClick: (rowData) => {
+            // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
+            // double click = open jádro detail. Šipky pouze navigují (Excel-like).
+            onRowDoubleClick: (rowData) => {
               const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
               if (rowId == null || data.id_edit == null) return;
               openJadroInPane(data.id_edit, rowId);

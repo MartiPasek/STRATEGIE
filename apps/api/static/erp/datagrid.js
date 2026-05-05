@@ -20,7 +20,8 @@
  *     columns: ["ID", "Nazev", ...],   // column names for autoColumns
  *
  *     // Behavior
- *     onRowClick: (row, event) => { ... },
+ *     onRowClick: (row, event) => { ... },         // single click — selection only by default
+ *     onRowDoubleClick: (row, event) => { ... },   // double click — typicky open detail/jádro
  *     onCellEdit: (row, field, oldVal, newVal) => Promise<bool>,
  *     onSelectionChange: (selectedRows) => { ... },
  *     enableExport: true,              // CSV + Excel buttons (default: true)
@@ -54,6 +55,16 @@
  *   grid.getSelectedRows();            // currently selected rows
  *   grid.refresh();                    // redraw
  *   grid.destroy();                    // cleanup (release AG Grid api)
+ *
+ * ── Keyboard + mouse interaction (MVP standard, Excel/Windows-like) ──
+ *   - Single click on row     = select that row (deselect others)
+ *   - Ctrl+click on row       = toggle individual row (multi-select)
+ *   - Shift+click on row      = range select from last selected
+ *   - Double click on row     = onRowDoubleClick callback (typicky open detail)
+ *   - Arrow Up/Down/Left/Right = navigate focus (NIC neotevírá, jen pohyb)
+ *   - Tab/Shift+Tab           = next/prev cell horizontally
+ *   - Ctrl+arrow              = jump to data edge
+ *   - Shift+arrow             = extend selection range (if rangeSelection enabled)
  *
  * Phase B+4 PoC (5.5.2026 odpoledne): AG Grid Enterprise trial, no license key.
  * Refs: docs/strategie_erp.md, Marti's pivot from Tabulator (~70% of ERP know-how
@@ -270,7 +281,8 @@
         columns: null,
         dataUrl: null,
         // Behavior
-        onRowClick: null,
+        onRowClick: null,         // single click — typicky NIC (selection má default behavior)
+        onRowDoubleClick: null,   // double click — typicky open detail/jádro
         onCellEdit: null,
         onSelectionChange: null,
         enableExport: true,
@@ -330,9 +342,17 @@
         headerHeight: opts.compact ? 32 : 40,
         // Layout
         domLayout: "normal",
-        // Selection
+        // Selection — Excel/Windows-style standard:
+        //   - Single click  = select that row (deselect others)
+        //   - Ctrl+click    = toggle individual row (multi-select)
+        //   - Shift+click   = range select from last selected
+        //   - Double click  = onRowDoubleClick (typicky open detail/jádro)
+        // rowMultiSelectWithClick=false → vyžaduje modifier pro multi-select
+        // (to chceme — bez Ctrl/Shift každý click replace selection).
         rowSelection: "multiple",
+        rowMultiSelectWithClick: false,
         suppressRowClickSelection: false,
+        suppressRowDeselection: false,
         enableRangeSelection: opts.enableRangeSelection !== false,
         // Master-detail
         masterDetail: opts.enableMasterDetail === true,
@@ -359,13 +379,24 @@
             { statusPanel: "agAggregationComponent" },
           ],
         },
+        // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)
+        enterMovesDown: true,
+        enterMovesDownAfterEdit: true,
         // Events
         onGridReady: (params) => {
           this.gridApi = params.api;
         },
         onRowClicked: (event) => {
+          // Default selection behavior (single/Ctrl/Shift) handled by AG Grid.
+          // onRowClick je optional callback — typicky NEvolá detail (to dělá double-click).
           if (typeof opts.onRowClick === "function") {
             opts.onRowClick(event.data, event.event);
+          }
+        },
+        onRowDoubleClicked: (event) => {
+          // Excel/Windows standard — double-click opens detail/jádro
+          if (typeof opts.onRowDoubleClick === "function") {
+            opts.onRowDoubleClick(event.data, event.event);
           }
         },
         onCellValueChanged: (event) => {
@@ -381,11 +412,6 @@
         // Animation
         animateRows: true,
       };
-
-      // Suppress row click if onRowClick missing (avoid accidental selection)
-      if (typeof opts.onRowClick !== "function") {
-        gridOptions.suppressRowClickSelection = true;
-      }
 
       // AG Grid v32+ API: createGrid()
       this.gridApi = window.agGrid.createGrid(this.container, gridOptions);

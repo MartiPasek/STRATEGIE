@@ -1097,6 +1097,8 @@ def _render_workspace_page(user_id: int) -> str:
     <link rel="stylesheet" href="/static/erp/components/components.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/components/button.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/input.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/checkbox.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/dropdown.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">

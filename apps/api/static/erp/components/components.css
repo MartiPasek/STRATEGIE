@@ -321,6 +321,384 @@
   text-align: right;
 }
 
-/* ── Phase B+6.3+: ErpCheckbox / ErpDropdown / ErpFormList ─────────
+/* ── Phase B+6.3: ErpCheckbox ─────────────────────────────────────── */
+
+.erp-checkbox-wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--text, #f0f1f5);
+  user-select: none;
+  -webkit-user-select: none;
+  flex-wrap: wrap;
+  position: relative;
+}
+
+.erp-checkbox-label-left {
+  flex-direction: row;
+}
+
+.erp-checkbox-input {
+  position: absolute;
+  opacity: 0;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  cursor: inherit;
+  pointer-events: none;
+}
+
+.erp-checkbox-box {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 3px;
+  background: var(--bg, #14161b);
+  transition: background 0.12s, border-color 0.12s, box-shadow 0.12s;
+  position: relative;
+  box-sizing: border-box;
+}
+
+.erp-checkbox-wrapper:hover:not(.erp-checkbox-disabled):not(.erp-checkbox-readonly) .erp-checkbox-box {
+  border-color: var(--accent, #4f8ef7);
+}
+
+.erp-checkbox-input:focus-visible + .erp-checkbox-box {
+  outline: 2px solid var(--accent, #4f8ef7);
+  outline-offset: 2px;
+}
+
+/* Checked state */
+.erp-checkbox-input:checked + .erp-checkbox-box {
+  background: var(--accent, #4f8ef7);
+  border-color: var(--accent, #4f8ef7);
+}
+
+.erp-checkbox-input:checked + .erp-checkbox-box::after {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 1px;
+  width: 5px;
+  height: 9px;
+  border: solid white;
+  border-width: 0 2px 2px 0;
+  transform: rotate(45deg);
+}
+
+/* Indeterminate state */
+.erp-checkbox-indeterminate .erp-checkbox-box {
+  background: var(--accent, #4f8ef7);
+  border-color: var(--accent, #4f8ef7);
+}
+
+.erp-checkbox-indeterminate .erp-checkbox-box::after {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 6px;
+  width: 8px;
+  height: 2px;
+  background: white;
+  border: none;
+  transform: none;
+}
+
+/* Disabled */
+.erp-checkbox-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.erp-checkbox-readonly {
+  cursor: default;
+}
+
+.erp-checkbox-readonly .erp-checkbox-box {
+  border-color: var(--border, #3a3d44);
+}
+
+.erp-checkbox-label {
+  font-size: 13px;
+  line-height: 1.3;
+}
+
+.erp-checkbox-hint {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--text-faint, #6c7076);
+  margin-left: 24px;
+  line-height: 1.3;
+  margin-top: -2px;
+}
+
+/* Switch variant — toggle slider */
+
+.erp-checkbox-switch .erp-checkbox-box {
+  width: 30px;
+  height: 16px;
+  border-radius: 9px;
+  border: 1px solid var(--border-strong, #4a4e57);
+  background: var(--surface2, #252830);
+}
+
+.erp-checkbox-switch .erp-checkbox-box::before {
+  content: "";
+  position: absolute;
+  left: 1px;
+  top: 1px;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--text-muted, #b0b3bc);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+
+.erp-checkbox-switch .erp-checkbox-input:checked + .erp-checkbox-box {
+  background: var(--accent, #4f8ef7);
+  border-color: var(--accent, #4f8ef7);
+}
+
+.erp-checkbox-switch .erp-checkbox-input:checked + .erp-checkbox-box::before {
+  transform: translateX(14px);
+  background: white;
+}
+
+/* Switch — vyhoď default ::after checkmark */
+.erp-checkbox-switch .erp-checkbox-input:checked + .erp-checkbox-box::after,
+.erp-checkbox-switch.erp-checkbox-indeterminate .erp-checkbox-box::after {
+  display: none;
+}
+
+/* ── Phase B+6.3: ErpDropdown ─────────────────────────────────────── */
+
+.erp-dropdown-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+  position: relative;
+}
+
+.erp-dropdown-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #b0b3bc);
+  letter-spacing: 0.02em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.erp-dropdown-required {
+  color: var(--error, #f87171);
+  font-weight: 600;
+}
+
+.erp-dropdown-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 5px;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  width: 100%;
+  box-sizing: border-box;
+  min-height: 30px;
+}
+
+.erp-dropdown-trigger:hover:not(:disabled) {
+  border-color: var(--border-strong, #4a4e57);
+}
+
+.erp-dropdown-trigger:focus-visible,
+.erp-dropdown-open .erp-dropdown-trigger {
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+  background: var(--surface, #1c1e23);
+}
+
+.erp-dropdown-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  background: var(--surface, #1c1e23);
+}
+
+.erp-dropdown-readonly .erp-dropdown-trigger {
+  cursor: default;
+  background: var(--surface, #1c1e23);
+  color: var(--text-muted, #b0b3bc);
+}
+
+.erp-dropdown-trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.erp-dropdown-placeholder {
+  color: var(--text-faint, #6c7076);
+}
+
+.erp-dropdown-caret {
+  flex-shrink: 0;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text-muted, #b0b3bc);
+  transition: transform 0.18s;
+}
+
+.erp-dropdown-open .erp-dropdown-caret {
+  transform: rotate(180deg);
+}
+
+/* Loading */
+.erp-dropdown-loading .erp-dropdown-trigger {
+  cursor: wait;
+}
+.erp-dropdown-loading .erp-dropdown-caret {
+  border: 2px solid var(--text-muted, #b0b3bc);
+  border-top-color: transparent;
+  border-radius: 50%;
+  width: 12px;
+  height: 12px;
+  animation: erp-btn-spin 0.65s linear infinite;
+  font-size: 0;
+}
+
+/* Invalid */
+.erp-dropdown-invalid .erp-dropdown-trigger {
+  border-color: var(--error, #f87171);
+}
+.erp-dropdown-invalid .erp-dropdown-trigger:focus-visible,
+.erp-dropdown-invalid.erp-dropdown-open .erp-dropdown-trigger {
+  box-shadow: 0 0 0 2px rgba(248, 113, 113, 0.22);
+}
+
+.erp-dropdown-error {
+  font-size: 11px;
+  color: var(--error, #f87171);
+  line-height: 1.3;
+  padding-left: 2px;
+}
+
+.erp-dropdown-hint {
+  font-size: 11px;
+  color: var(--text-faint, #6c7076);
+  line-height: 1.3;
+  padding-left: 2px;
+}
+
+/* Panel — appended to body při open() */
+
+.erp-dropdown-panel {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  padding: 4px 0;
+  overflow-y: auto;
+  z-index: 9999;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--text, #f0f1f5);
+  min-width: 160px;
+}
+
+.erp-dropdown-item {
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.erp-dropdown-item-highlight {
+  background: var(--surface2, #252830);
+}
+
+.erp-dropdown-item-selected {
+  color: var(--accent, #4f8ef7);
+  font-weight: 500;
+}
+
+.erp-dropdown-item-selected.erp-dropdown-item-highlight {
+  background: rgba(79, 142, 247, 0.12);
+}
+
+.erp-dropdown-item-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.erp-dropdown-item-disabled.erp-dropdown-item-highlight {
+  background: transparent;
+}
+
+.erp-dropdown-divider {
+  height: 1px;
+  background: var(--border, #3a3d44);
+  margin: 4px 0;
+  font-size: 10px;
+  color: var(--text-faint, #6c7076);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0;
+}
+
+/* Divider with label — vyšší než plain line */
+.erp-dropdown-divider:not(:empty) {
+  height: auto;
+  background: transparent;
+  padding: 8px 12px 4px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+}
+
+.erp-dropdown-empty {
+  padding: 10px 12px;
+  color: var(--text-faint, #6c7076);
+  font-style: italic;
+  text-align: center;
+}
+
+/* Custom scrollbar pro panel (dark) */
+.erp-dropdown-panel::-webkit-scrollbar {
+  width: 8px;
+}
+.erp-dropdown-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-dropdown-panel::-webkit-scrollbar-thumb {
+  background: var(--border-strong, #4a4e57);
+  border-radius: 4px;
+}
+.erp-dropdown-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint, #6c7076);
+}
+
+/* ── Phase B+6.4+: ErpFormList / ErpFormSection / ErpForm ──────────
    Placeholder rules (filled in next iterations).
    ----------------------------------------------------------------- */

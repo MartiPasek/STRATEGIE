@@ -48,6 +48,38 @@ def _parse_parent_id(c_parent: str) -> int | None:
         return None
 
 
+def _resolve_caption(comp: FormComponent) -> str:
+    """
+    Phase A.3 fix #2 (5.5.2026): real Caption je v EC_FormDefEditProperty,
+    NE v EC_FormDefEdit.cCaption (= "NOVÁ" default při vytvoření).
+
+    Centrála pattern: autor vytvoří komponentu (cCaption="NOVÁ" default)
+    a pak property "Caption" doplní real label. V některých forms může
+    být přímo cCaption pravdivá hodnota (legacy / přejmenované) — fallback.
+
+    Priorita:
+      1. properties["Caption"] — autoritativní real label
+      2. properties["cCaption"] — alternative key (FMX vs VCL)
+      3. comp.c_caption (pokud != "NOVÁ", kterou Centrála používá jako default)
+      4. comp.c_field_name — last resort, technický field name
+      5. "—" placeholder
+    """
+    props = comp.properties or {}
+    # Property name varianty (VCL Centrála 1, FMX bridge, atd.)
+    for key in ("Caption", "cCaption", "PropertyCaption", "Text", "cText"):
+        v = props.get(key)
+        if v and v.strip():
+            return v.strip()
+    # Fallback na c_caption — ale jen pokud NENÍ default "NOVÁ"
+    cc = (comp.c_caption or "").strip()
+    if cc and cc.upper() != "NOVÁ":
+        return cc
+    # Last resort: technický field name
+    if comp.c_field_name and comp.c_field_name.strip():
+        return comp.c_field_name.strip()
+    return "—"
+
+
 # ── Public render ────────────────────────────────────────────────────
 
 
@@ -125,7 +157,7 @@ def _build_sections(components: list[FormComponent]) -> list[dict]:
             and c.typ != 8   # Buttony → footer
         ]
         sections.append({
-            "caption": gb.c_caption,
+            "caption": _resolve_caption(gb),  # Phase A.3: real Caption z properties
             "components": children,
             "groupbox_id": gb.id,
         })
@@ -232,7 +264,7 @@ def _render_component(comp: FormComponent, data: dict, read_only: bool) -> str:
         bound_value = "" if v is None else str(v)
 
     if comp.typ == 1:  # Label
-        return f'      <div class="erp-label-only">{html.escape(comp.c_caption)}</div>'
+        return f'      <div class="erp-label-only">{html.escape(_resolve_caption(comp))}</div>'
 
     if comp.typ == 2:  # Edit
         return _render_edit(comp, bound_value, read_only)
@@ -269,7 +301,7 @@ def _render_edit(comp: FormComponent, value: str, read_only: bool) -> str:
     readonly_attr = "readonly" if read_only else ""
     is_id_field = comp.c_field_name.upper() == "ID"
     id_class = " erp-input-id" if is_id_field else ""
-    caption = comp.c_caption or comp.c_field_name or "—"
+    caption = _resolve_caption(comp)
     return (
         f'      <div class="erp-field">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
@@ -287,7 +319,7 @@ def _render_checkbox(comp: FormComponent, value: str, read_only: bool) -> str:
     """CheckBox (Typ=3) → <input type="checkbox">."""
     readonly_attr = "disabled" if read_only else ""
     is_checked = str(value).lower() in ("1", "true", "ano", "yes")
-    caption = comp.c_caption or comp.c_field_name or "—"
+    caption = _resolve_caption(comp)
     return (
         f'      <label class="erp-checkbox">\n'
         f'        <input type="checkbox" '
@@ -304,7 +336,7 @@ def _render_date(comp: FormComponent, value: str, read_only: bool) -> str:
     """DateEdit (Typ=5) → <input type="date">."""
     readonly_attr = "readonly" if read_only else ""
     date_value = (value or "").split(" ")[0].split("T")[0]
-    caption = comp.c_caption or comp.c_field_name or "—"
+    caption = _resolve_caption(comp)
     return (
         f'      <div class="erp-field">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
@@ -326,7 +358,7 @@ def _render_formlist(
     Phase A: zobrazí jen current value + ▼ button (modal not yet wired).
     """
     readonly_attr = "readonly" if read_only else ""
-    caption = comp.c_caption or comp.c_field_name or "—"
+    caption = _resolve_caption(comp)
     return (
         f'      <div class="erp-field erp-formlist">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
@@ -345,7 +377,7 @@ def _render_formlist(
 def _render_combobox(comp: FormComponent, value: str, read_only: bool) -> str:
     """Combobox (Typ=7) → <select>."""
     readonly_attr = "disabled" if read_only else ""
-    caption = comp.c_caption or comp.c_field_name or "—"
+    caption = _resolve_caption(comp)
     return (
         f'      <div class="erp-field">\n'
         f'        <label class="erp-field-label">{html.escape(caption)}</label>\n'
@@ -360,7 +392,9 @@ def _render_combobox(comp: FormComponent, value: str, read_only: bool) -> str:
 
 def _render_button(comp: FormComponent, read_only: bool) -> str:
     """Button (Typ=8) → <button>."""
-    caption = comp.c_caption or "Akce"
+    caption = _resolve_caption(comp)
+    if caption == "—":
+        caption = "Akce"
     is_primary = caption.upper() in ("OK", "ULOŽIT", "SAVE")
     is_cancel = caption.upper() in ("STORNO", "CANCEL", "ZRUŠIT")
     btn_class = (
@@ -392,6 +426,30 @@ def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_v
         typ_name = debug_info.get("typ_names", {}).get(typ, f"Typ={typ}")
         typ_lines.append(f"      <li>Typ={typ} ({typ_name}): {cnt}×</li>")
 
+    # Phase A.3 (5.5.2026): per-component properties dump.
+    # Cíl: vidět jaké klíče jsou v EC_FormDefEditProperty (Caption,
+    # LookupTable, LookupField, ...) -- pomůže najít bug #1 (lookup
+    # display) root cause.
+    comp_prop_lines = []
+    for c in components[:30]:  # cap 30 aby se debug panel neutopil
+        typ_name = debug_info.get("typ_names", {}).get(c.typ, f"Typ={c.typ}")
+        prop_keys = sorted(c.properties.keys()) if c.properties else []
+        # Zobraz prvních 8 klíčů + počet zbývajících
+        if len(prop_keys) > 8:
+            keys_str = ", ".join(prop_keys[:8]) + f" … (+{len(prop_keys) - 8})"
+        else:
+            keys_str = ", ".join(prop_keys) if prop_keys else "(žádné)"
+        # Caption sample
+        cap_caption = _resolve_caption(c)
+        cap_short = (cap_caption[:30] + "…") if len(cap_caption) > 30 else cap_caption
+        comp_prop_lines.append(
+            f"      <li><b>#{c.id}</b> {typ_name} "
+            f'<span style="color:#999">cParent={html.escape(c.c_parent or "—")}</span> '
+            f'<span style="color:#aaa">field={html.escape(c.c_field_name or "—")}</span> '
+            f'→ <i>{html.escape(cap_short)}</i> '
+            f'<span style="color:#888">[{html.escape(keys_str)}]</span></li>'
+        )
+
     return (
         '\n<details class="erp-debug">\n'
         '  <summary class="erp-debug-summary">🛠 Debug info (Phase A)</summary>\n'
@@ -414,5 +472,9 @@ def _render_debug_panel(debug_info: dict, components: list[FormComponent], non_v
         + '\n      </ul>\n'
         f'    </div>\n'
         '  </div>\n'
+        '  <div class="erp-debug-section-title" style="margin-top:1em">Komponenty + properties (Phase A.3 diag)</div>\n'
+        '  <ul class="erp-debug-list" style="font-family:monospace;font-size:11px">\n'
+        + "\n".join(comp_prop_lines)
+        + '\n  </ul>\n'
         '</details>'
     )

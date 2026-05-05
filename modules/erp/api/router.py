@@ -18,9 +18,15 @@ Phase A scope:
 from __future__ import annotations
 
 import html
+import time
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+
+# B+4.2 (5.5.2026): cache busting pro static assets — každý API restart
+# = nová version = browser donucen stáhnout čerstvé /static/erp/datagrid.js+css.
+# Hodnota fixed při module load (= API process start), neměnná do restartu.
+_STATIC_VERSION = str(int(time.time()))
 
 from core.logging import get_logger
 from modules.erp.application.centrala_reader import CentralaReader, TYP_NAMES
@@ -772,134 +778,8 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-family: 'DM Mono',monospace;
     }}
 
-    /* ── Tabulator dark theme overrides (Phase B+1, polished B+1.1, B+2.3) ── */
-    /* B+2.3: grid flush proti edges (no margin/border, flat right edge) */
-    .erp-tab-grid {{
-      border-radius: 0;
-      overflow: hidden;
-      margin: 0;
-      flex: 1; min-height: 0;
-      display: flex; flex-direction: column;
-    }}
-    .erp-tab-grid .tabulator {{
-      background-color: var(--surface);
-      border: none;
-      border-top: 1px solid var(--border);
-      font-family: 'DM Sans',sans-serif; font-size: 12px;
-      color: var(--text-muted);
-      width: 100% !important;
-      flex: 1; min-height: 0;
-    }}
-    /* B+2.4-2.5: pojistka — všechny vnitřní Tabulator elementy fill 100% width */
-    .erp-tab-grid .tabulator-tableholder,
-    .erp-tab-grid .tabulator-table,
-    .erp-tab-grid .tabulator-headers,
-    .erp-tab-grid .tabulator-row {{
-      width: 100% !important;
-    }}
-    /* B+1.1: header darker than body — sinks below floating cells */
-    .erp-tab-grid .tabulator-header {{
-      background-color: var(--bg);
-      border-bottom: 1px solid var(--border-strong);
-      color: var(--text-muted);
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-col {{
-      background-color: var(--bg);
-      border-right: 1px solid var(--surface2);
-      color: var(--text-muted);
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-col-content {{ padding: 4px 8px; }}
-    .erp-tab-grid .tabulator-header .tabulator-col-title {{
-      color: var(--text-muted); font-weight: 600; font-size: 11px;
-      letter-spacing: 0.02em;
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable:hover {{
-      background-color: var(--surface2);
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="ascending"] .tabulator-col-content .tabulator-col-sorter,
-    .erp-tab-grid .tabulator-header .tabulator-col.tabulator-sortable[aria-sort="descending"] .tabulator-col-content .tabulator-col-sorter {{
-      color: var(--accent);
-    }}
-    /* B+2.3: zebra striping — even rows téměř černé pro vizuální orientaci */
-    .erp-tab-grid .tabulator-row {{
-      background-color: var(--surface);
-      border-bottom: 1px solid var(--border);
-      color: var(--text-muted);
-      min-height: 22px;
-    }}
-    .erp-tab-grid .tabulator-row.tabulator-row-even {{
-      background-color: var(--bg);
-    }}
-    .erp-tab-grid .tabulator-row:hover {{
-      background-color: rgba(79,142,247,0.12) !important; cursor: pointer;
-    }}
-    /* B+2.3: dim cell text (matches tree pane subtle styling) */
-    .erp-tab-grid .tabulator-row .tabulator-cell {{
-      border-right: 1px solid var(--border);
-      padding: 3px 8px; color: var(--text-muted); font-size: 12px;
-      line-height: 1.35;
-    }}
-    /* B+1.5+B+1.6 (5.5.2026): filter inputs dark — !important kvůli CSS
-       load order (Tabulator CDN <link> v body se načte PO head <style>
-       a vyhraje při shodné specificity) + appearance:none aby přebít
-       browser default styling pro <input type="search"> */
-    .erp-tab-grid .tabulator-header .tabulator-header-filter {{
-      background: var(--bg) !important;
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input,
-    .erp-tab-grid .tabulator-headers input,
-    .erp-tab-grid input[type="search"],
-    .erp-tab-grid input[type="text"] {{
-      background: var(--bg) !important;
-      color: var(--text) !important;
-      border: 1px solid var(--border) !important;
-      border-radius: 3px !important;
-      padding: 2px 5px !important;
-      font-size: 11px !important;
-      width: 100% !important;
-      height: 18px !important;
-      font-family: 'DM Sans',sans-serif !important;
-      outline: none !important;
-      -webkit-appearance: none !important;
-      appearance: none !important;
-      box-shadow: none !important;
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input:focus,
-    .erp-tab-grid input[type="search"]:focus,
-    .erp-tab-grid input[type="text"]:focus {{
-      border-color: var(--accent) !important;
-      background: var(--surface) !important;
-    }}
-    .erp-tab-grid .tabulator-header .tabulator-header-filter input::placeholder,
-    .erp-tab-grid input::placeholder {{
-      color: var(--muted) !important;
-      font-style: italic;
-      opacity: 0.7 !important;
-    }}
-    /* WebKit search input clear button — odebrat (rušivý v dark theme) */
-    .erp-tab-grid input[type="search"]::-webkit-search-cancel-button,
-    .erp-tab-grid input[type="search"]::-webkit-search-decoration {{
-      -webkit-appearance: none;
-      display: none;
-    }}
-    .erp-tab-grid .tabulator .tabulator-tableholder {{
-      background-color: var(--surface);
-    }}
-    .erp-tab-grid .tabulator .tabulator-footer {{
-      background-color: var(--bg);
-      color: var(--text-muted);
-      border-top: 1px solid var(--border-strong);
-    }}
-    .erp-tab-grid .tabulator-cell.erp-tab-col-id {{
-      color: var(--accent); font-family: 'DM Mono',monospace;
-    }}
-    .erp-tab-grid .tabulator-placeholder {{
-      color: var(--muted); font-style: italic; padding: 24px;
-      background-color: var(--surface);
-    }}
-
-    /* B+4 PoC: AG Grid theme overrides moved to /static/erp/datagrid.css
-       (reusable napříč Centrála views — workspace, modal forms, master-detail). */
+    /* B+4.3 (5.5.2026): Tabulator pohřben, AG Grid via ErpDataGrid komponenta.
+       Theme overrides žijí v /static/erp/datagrid.css (reusable napříč Centrála views). */
 
     /* ── Phase B+1.1: dark scrollbars (webkit + firefox) ── */
     .erp-workspace ::-webkit-scrollbar {{
@@ -999,7 +879,7 @@ def _render_landing_page(user_id: int) -> str:
 
 def _render_workspace_page(user_id: int) -> str:
     """
-    Phase B+1 production MVP (5.5.2026): 3-pane workspace.
+    Phase B production MVP (5.5.2026): 2-pane workspace + modal jádro detail.
 
     Layout:
       ┌─────────────┬────────────────────────────────────┐
@@ -1008,14 +888,15 @@ def _render_workspace_page(user_id: int) -> str:
       │ EC_Centra-  │ │ Breadcrumb path              │   │
       │ laMenu      │ │ Title + meta                 │   │
       │ recursive   │ ├──────────────────────────────┤   │
-      │ persistent  │ │ Tabulator grid (sortable,    │   │
-      │ expand      │ │ virtual scroll, filter)      │   │
-      │             │ │ Click row → /erp/jadro/...   │   │
+      │ persistent  │ │ ErpDataGrid (AG Grid Ent)    │   │
+      │ expand      │ │ Excel-like keyb, multi-sel   │   │
+      │             │ │ Double-click → modal jádro   │   │
       │             │ └──────────────────────────────┘   │
       └─────────────┴────────────────────────────────────┘
 
-    Features over Phase B nástřel (5.5. odpoledne):
-      - Tabulator.js for přehled grid (virtual scroll, sortable, header filters)
+    Features (deployed phases):
+      - ErpDataGrid komponenta (AG Grid Enterprise, B+4 → default since B+4.3)
+      - Excel-like UX (B+4.1): single-click select, Ctrl/Shift multi, double-click detail
       - Persistent expand state (localStorage erp.tree.expanded)
       - Persistent active selection (localStorage erp.tree.active)
       - Auto-restore last přehled on page load (incl. expand ancestors + scroll)
@@ -1027,15 +908,14 @@ def _render_workspace_page(user_id: int) -> str:
     Tabulator pinned to @6 (latest 6.x) from jsdelivr CDN.
     """
     content = '''
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/css/tabulator.min.css">
-    <script src="https://cdn.jsdelivr.net/npm/tabulator-tables@6/dist/js/tabulator.min.js"></script>
-    <!-- B+4 PoC (5.5.2026 odpoledne): AG Grid Enterprise trial (toggle ?grid=ag) -->
+    <!-- B+4.3 (5.5.2026): AG Grid Enterprise = jediný grid, Tabulator pohřben.
+         ErpDataGrid komponenta (reusable napříč Centrála views) je default.
+         Cache-busting via ?v=<API_start_timestamp> — každý restart = fresh download. -->
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-grid.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-theme-quartz.css">
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/dist/ag-grid-enterprise.min.js"></script>
-    <!-- ErpDataGrid komponenta (reusable napříč Centrála views) -->
-    <link rel="stylesheet" href="/static/erp/datagrid.css">
-    <script src="/static/erp/datagrid.js"></script>
+    <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
+    <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
@@ -1098,13 +978,10 @@ def _render_workspace_page(user_id: int) -> str:
       const ACTIVE_KEY = "erp.tree.active";
       const TREE_WIDTH_KEY = "erp.tree.width";
 
-      let activeTabulator = null;        // current Tabulator instance
-      let activeErpDataGrid = null;      // current ErpDataGrid component (B+4 PoC)
+      let activeErpDataGrid = null;      // current ErpDataGrid component (B+4 → default since B+4.3)
       let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
       let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
-      // B+4 PoC: ?grid=ag toggle — Tabulator default, AG Grid trial alternativa
-      const useAgGrid = (new URLSearchParams(location.search).get("grid") === "ag");
 
       // B+2.1: tree width persistence + drag-resize
       function loadTreeWidth() {
@@ -1120,12 +997,8 @@ def _render_workspace_page(user_id: int) -> str:
         const clamped = Math.max(160, Math.min(600, w));
         if (workspaceEl) workspaceEl.style.setProperty("--erp-tree-width", clamped + "px");
         saveTreeWidth(clamped);
-        // Tabulator container width changed -> redraw to recalc column widths
-        if (activeTabulator) {
-          requestAnimationFrame(() => {
-            try { activeTabulator.redraw(true); } catch (e) {}
-          });
-        }
+        // B+4.3: AG Grid handles container resize natively (ResizeObserver),
+        // žádný explicit redraw call potřeba.
         return clamped;
       }
       // Initial apply (load persisted)
@@ -1380,11 +1253,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       function renderPrehled(cislo, item, data, breadcrumb) {
-        // Cleanup previous instances (Tabulator + ErpDataGrid komponenta)
-        if (activeTabulator) {
-          try { activeTabulator.destroy(); } catch (e) {}
-          activeTabulator = null;
-        }
+        // B+4.3: vše přes ErpDataGrid komponentu (AG Grid Enterprise wrapper)
         if (activeErpDataGrid) {
           try { activeErpDataGrid.destroy(); } catch (e) {}
           activeErpDataGrid = null;
@@ -1401,7 +1270,6 @@ def _render_workspace_page(user_id: int) -> str:
         if (data.has_more) html += ' (zobrazeno ' + rows.length + ', má víc)';
         if (data.target_table) html += ' · <code>' + escapeHtml(data.target_table) + '</code>';
         if (data.id_edit) html += ' · jádro #' + data.id_edit;
-        if (useAgGrid) html += ' · <code style="color:var(--accent2)">ErpDataGrid (AG Grid)</code>';
         html += '</div>';
         html += '</div>';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
@@ -1413,137 +1281,28 @@ def _render_workspace_page(user_id: int) -> str:
           return;
         }
 
-        // B+4 PoC: branch — ErpDataGrid komponenta (?grid=ag) vs Tabulator (default)
-        if (useAgGrid && typeof window.ErpDataGrid !== "undefined") {
-          html += '<div id="erpDataGridContainer" class="erp-ag-grid ag-theme-quartz-dark"></div>';
-          mainContent.innerHTML = html;
-          const container = document.getElementById("erpDataGridContainer");
-          activeErpDataGrid = new window.ErpDataGrid(container, {
-            rowData: rows,
-            columns: cols,
-            autoColumns: true,
-            // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
-            // double click = open jádro detail. Šipky pouze navigují (Excel-like).
-            onRowDoubleClick: (rowData) => {
-              const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
-              if (rowId == null || data.id_edit == null) return;
-              openJadroInPane(data.id_edit, rowId);
-            },
-          });
-          return;
-        }
-
-        html += '<div id="erpTabGrid" class="erp-tab-grid"></div>';
+        // ErpDataGrid komponenta (B+4 → default since B+4.3)
+        html += '<div id="erpDataGridContainer" class="erp-ag-grid ag-theme-quartz-dark"></div>';
         mainContent.innerHTML = html;
-
-        const grid = document.getElementById("erpTabGrid");
-        if (!grid || typeof Tabulator === "undefined") {
-          // Fallback if Tabulator CDN failed to load
-          renderPrehledFallback(grid || mainContent, cols, rows, data);
+        if (typeof window.ErpDataGrid === "undefined") {
+          mainContent.innerHTML = html +
+            '<div class="erp-main-error">ErpDataGrid komponenta se nenačetla — refresh stránky.</div>';
           return;
         }
-
-        const tabCols = cols.map(c => {
-          const isId = (c === "ID" || c === "Id" || c === "id");
-          // B+2.6 (Marti-AI's nezávislý fix): wide columns dostanou víc widthGrow,
-          // aby SQL preview/Nazev/atd byl čitelný a grid zároveň fills container.
-          // Detekce: explicit známé názvy + heuristic (SQL/Sql/Nazev/Text suffix).
-          const cLow = String(c).toLowerCase();
-          const isWide = (
-            c === "DefView" || c === "DefViewSQLite" ||
-            c === "BeforeOpenSQL" || c === "InsertSQL" || c === "UpdateSQL" || c === "DeleteSQL" ||
-            cLow.endsWith("sql") || cLow.endsWith("query") ||
-            cLow.startsWith("nazev") || cLow.startsWith("popis") ||
-            cLow === "menutext" || cLow.endsWith("text")
-          );
-          return {
-            title: c,
-            field: c,
-            headerFilter: isId ? false : "input",
-            headerFilterPlaceholder: isId ? "" : "filtr…",
-            sorter: isId ? "number" : "string",
-            resizable: true,
-            cssClass: isId ? "erp-tab-col-id" : "",
-            // B+2.5+2.6: ID narrow, wide columns 3× grow, ostatní 1× grow
-            width: isId ? 70 : undefined,
-            widthGrow: isId ? 0 : (isWide ? 3 : 1),
-            minWidth: isId ? 70 : 50,
-            formatter: function(cell) {
-              const v = cell.getValue();
-              if (v == null) return "";
-              if (typeof v === "object") {
-                try { return JSON.stringify(v); } catch (e) { return "[object]"; }
-              }
-              const s = String(v);
-              return s.length > 200 ? s.slice(0, 200) + "…" : s;
-            },
-            tooltip: function(e, cell) {
-              const v = cell.getValue();
-              if (v == null) return "";
-              return (typeof v === "object") ? JSON.stringify(v) : String(v);
-            },
-          };
+        const container = document.getElementById("erpDataGridContainer");
+        activeErpDataGrid = new window.ErpDataGrid(container, {
+          rowData: rows,
+          columns: cols,
+          autoColumns: true,
+          layoutKey: "prehled_" + cislo,  // B+5 grid layout persistence (TODO)
+          // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
+          // double click = open jádro detail. Šipky pouze navigují (Excel-like).
+          onRowDoubleClick: (rowData) => {
+            const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
+            if (rowId == null || data.id_edit == null) return;
+            openJadroInPane(data.id_edit, rowId);
+          },
         });
-
-        try {
-          activeTabulator = new Tabulator(grid, {
-            data: rows,
-            columns: tabCols,
-            // B+2.5: fitColumns + responsive layout — distribute container width
-            // proporcionálně via widthGrow, columns nikdy nezůstanou s dead space
-            // vpravo. Wide columns (DefView etc.) grow 3×, ostatní 1×, ID 0×.
-            layout: "fitColumns",
-            // Percent height — fills flex container (main-content > erp-tab-grid)
-            height: "100%",
-            placeholder: "Žádná data po filtru",
-            headerSortTristate: true,
-            renderVerticalBuffer: 200,
-            // B+2.5: redraw on container resize (Tabulator default, but explicit)
-            responsiveLayout: false,
-          });
-          if (data.id_edit) {
-            activeTabulator.on("rowClick", (e, row) => {
-              const rd = row.getData();
-              const rowId = rd.ID != null ? rd.ID : (rd.id != null ? rd.id : null);
-              if (rowId == null) return;
-              // B+2: inline split-pane (žádný full page redirect)
-              openJadroInPane(data.id_edit, rowId);
-            });
-          }
-        } catch (err) {
-          // Fallback if Tabulator init fails
-          renderPrehledFallback(grid, cols, rows, data);
-        }
-      }
-
-      function renderPrehledFallback(container, cols, rows, data) {
-        let html = '<div class="erp-prehled-tablewrap"><table class="erp-prehled-table">';
-        html += '<thead><tr>';
-        for (const c of cols) html += '<th>' + escapeHtml(c) + '</th>';
-        html += '</tr></thead><tbody>';
-        for (const row of rows) {
-          const rowId = row.ID != null ? row.ID : (row.id != null ? row.id : "");
-          html += '<tr data-row-id="' + rowId + '" class="erp-prehled-row">';
-          for (const c of cols) {
-            let v = row[c];
-            if (v == null) v = "";
-            else if (typeof v === "object") v = JSON.stringify(v);
-            else v = String(v);
-            if (v.length > 100) v = v.slice(0, 100) + "…";
-            html += '<td>' + escapeHtml(v) + '</td>';
-          }
-          html += '</tr>';
-        }
-        html += '</tbody></table></div>';
-        container.innerHTML = html;
-        if (data.id_edit) {
-          container.querySelectorAll(".erp-prehled-row").forEach(tr => {
-            tr.addEventListener("click", () => {
-              const rid = tr.getAttribute("data-row-id");
-              if (rid) openJadroInPane(data.id_edit, rid);
-            });
-          });
-        }
       }
 
       // ── Phase B+2.2: jádro modal popup (centered overlay) ───────

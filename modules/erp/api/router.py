@@ -664,14 +664,21 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-right: 1px solid var(--border);
       padding: 5px 8px; color: var(--text); font-size: 12px;
     }}
+    /* B+1.5 (5.5.2026): filter inputs match header bg, dim placeholder */
+    .erp-tab-grid .tabulator-header .tabulator-header-filter {{
+      background: var(--bg);
+    }}
     .erp-tab-grid .tabulator-header .tabulator-header-filter input {{
-      background: var(--surface); color: var(--text);
-      border: 1px solid var(--border-strong); border-radius: 4px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 4px;
       padding: 3px 6px; font-size: 11px; width: 100%;
       font-family: 'DM Sans',sans-serif; outline: none;
     }}
     .erp-tab-grid .tabulator-header .tabulator-header-filter input:focus {{
-      border-color: var(--accent); background: var(--surface2);
+      border-color: var(--accent); background: var(--surface);
+    }}
+    .erp-tab-grid .tabulator-header .tabulator-header-filter input::placeholder {{
+      color: var(--muted); font-style: italic; opacity: 0.7;
     }}
     .erp-tab-grid .tabulator .tabulator-tableholder {{
       background-color: var(--surface);

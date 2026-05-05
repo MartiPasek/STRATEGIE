@@ -50,14 +50,15 @@
 
   /* Typography */
   --ag-font-family: 'DM Sans', -apple-system, sans-serif;
-  --ag-font-size: 12px;
+  --ag-font-size: 10px;
 
-  /* Spacing (compact) — B+4.5: ~25% lower density per Marti's request */
-  --ag-grid-size: 4px;
-  --ag-row-height: 20px;
-  --ag-header-height: 24px;
-  --ag-list-item-height: 20px;
-  --ag-cell-horizontal-padding: 7px;
+  /* Spacing (ultra-compact) — B+2.7+ (5.5.2026): další -25% per Marti's
+     "Jeste bych to vsechno o 25 procent zmensil... Grid i jadro" */
+  --ag-grid-size: 3px;
+  --ag-row-height: 15px;
+  --ag-header-height: 18px;
+  --ag-list-item-height: 15px;
+  --ag-cell-horizontal-padding: 5px;
 
   /* Icons + interactive */
   --ag-icon-color: var(--text-muted, #b0b3bc);

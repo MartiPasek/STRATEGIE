@@ -179,8 +179,8 @@
 .erp-grid-toolbar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 10px;
+  justify-content: flex-start;  /* B+5.3.1 (5.5.2026): vše doleva — Marti's request */
+  gap: 6px;
   padding: 5px 8px;
   background: var(--bg, #0e0f11);
   border-bottom: 1px solid var(--border, #3a3d44);

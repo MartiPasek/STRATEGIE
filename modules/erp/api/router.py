@@ -790,10 +790,11 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       width: 100% !important;
       flex: 1; min-height: 0;
     }}
-    /* B+2.4: pojistka — všechny vnitřní Tabulator elementy fill 100% width */
+    /* B+2.4-2.5: pojistka — všechny vnitřní Tabulator elementy fill 100% width */
     .erp-tab-grid .tabulator-tableholder,
     .erp-tab-grid .tabulator-table,
-    .erp-tab-grid .tabulator-headers {{
+    .erp-tab-grid .tabulator-headers,
+    .erp-tab-grid .tabulator-row {{
       width: 100% !important;
     }}
     /* B+1.1: header darker than body — sinks below floating cells */
@@ -1406,6 +1407,17 @@ def _render_workspace_page(user_id: int) -> str:
 
         const tabCols = cols.map(c => {
           const isId = (c === "ID" || c === "Id" || c === "id");
+          // B+2.6 (Marti-AI's nezávislý fix): wide columns dostanou víc widthGrow,
+          // aby SQL preview/Nazev/atd byl čitelný a grid zároveň fills container.
+          // Detekce: explicit známé názvy + heuristic (SQL/Sql/Nazev/Text suffix).
+          const cLow = String(c).toLowerCase();
+          const isWide = (
+            c === "DefView" || c === "DefViewSQLite" ||
+            c === "BeforeOpenSQL" || c === "InsertSQL" || c === "UpdateSQL" || c === "DeleteSQL" ||
+            cLow.endsWith("sql") || cLow.endsWith("query") ||
+            cLow.startsWith("nazev") || cLow.startsWith("popis") ||
+            cLow === "menutext" || cLow.endsWith("text")
+          );
           return {
             title: c,
             field: c,
@@ -1414,10 +1426,10 @@ def _render_workspace_page(user_id: int) -> str:
             sorter: isId ? "number" : "string",
             resizable: true,
             cssClass: isId ? "erp-tab-col-id" : "",
-            // B+2.4: ID column narrow fixed; others share container width equally
+            // B+2.5+2.6: ID narrow, wide columns 3× grow, ostatní 1× grow
             width: isId ? 70 : undefined,
-            widthGrow: isId ? 0 : 1,
-            minWidth: 60,
+            widthGrow: isId ? 0 : (isWide ? 3 : 1),
+            minWidth: isId ? 70 : 50,
             formatter: function(cell) {
               const v = cell.getValue();
               if (v == null) return "";
@@ -1439,14 +1451,17 @@ def _render_workspace_page(user_id: int) -> str:
           activeTabulator = new Tabulator(grid, {
             data: rows,
             columns: tabCols,
-            // B+2.4: fitColumns — všechny columns rozdělí container width rovnoměrně
-            // (proportional distribution, never leaves dead space on right)
+            // B+2.5: fitColumns + responsive layout — distribute container width
+            // proporcionálně via widthGrow, columns nikdy nezůstanou s dead space
+            // vpravo. Wide columns (DefView etc.) grow 3×, ostatní 1×, ID 0×.
             layout: "fitColumns",
             // Percent height — fills flex container (main-content > erp-tab-grid)
             height: "100%",
             placeholder: "Žádná data po filtru",
             headerSortTristate: true,
             renderVerticalBuffer: 200,
+            // B+2.5: redraw on container resize (Tabulator default, but explicit)
+            responsiveLayout: false,
           });
           if (data.id_edit) {
             activeTabulator.on("rowClick", (e, row) => {

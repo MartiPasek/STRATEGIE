@@ -97,6 +97,12 @@
         onChange: null,
         onBlur: null,
         onFocus: null,
+        // B+6.4++ (5.5.2026): klíčová FK hodnota viditelně uvnitř komponenty
+        // (Marti's spec: "ta hodnota patri a mela by byt soucasti teto
+        // komponenty... aby tam bylo citelne to cislo a trochu mista").
+        // To je **klíč pro DB save** — Phase C OK button píše tuhle value.
+        showValuePrefix: false,
+        valuePrefixWidth: "60px",
         // Browse modal:
         browseTitle: "Vybrat hodnotu",
         browseColumns: null,    // [{field, header, width}] — default = [Číslo, Název]
@@ -132,9 +138,22 @@
         this.wrapper.appendChild(lbl);
       }
 
-      // Row: input + caret + browse
+      // Row: [value prefix] + input + caret + browse
       const row = document.createElement("div");
       row.className = "erp-formlist2-row";
+
+      // B+6.4++ (5.5.2026): value prefix vlevo (FK / klíč pro DB save)
+      if (this.options.showValuePrefix) {
+        this.valuePrefixEl = document.createElement("span");
+        this.valuePrefixEl.className = "erp-formlist2-value-prefix";
+        this.valuePrefixEl.style.flex = "0 0 " + this.options.valuePrefixWidth;
+        this.valuePrefixEl.style.width = this.options.valuePrefixWidth;
+        this.valuePrefixEl.title = "Klíč (FK)";
+        this.valuePrefixEl.setAttribute("aria-label", "Klíčová hodnota (FK)");
+        this.valuePrefixEl.textContent = this._currentValue != null
+          ? String(this._currentValue) : "";
+        row.appendChild(this.valuePrefixEl);
+      }
 
       this.input = document.createElement("input");
       this.input.type = "text";
@@ -420,6 +439,11 @@
       this._currentValue = item.value;
       this._currentDisplay = item.label != null ? String(item.label) : String(item.value);
       this.input.value = this._currentDisplay;
+      // B+6.4++ (5.5.2026): sync FK value prefix vlevo
+      if (this.valuePrefixEl) {
+        this.valuePrefixEl.textContent = item.value != null
+          ? String(item.value) : "";
+      }
       if (oldValue !== item.value && typeof this.options.onChange === "function") {
         try { this.options.onChange(item.value, item); }
         catch (e) { console.warn("ErpFormList onChange error:", e); }
@@ -745,6 +769,10 @@
       this._currentValue = value;
       this._currentDisplay = displayValue || (value != null ? String(value) : "");
       this.input.value = this._currentDisplay;
+      // B+6.4++ (5.5.2026): sync FK value prefix vlevo
+      if (this.valuePrefixEl) {
+        this.valuePrefixEl.textContent = value != null ? String(value) : "";
+      }
     }
 
     setItems(items) {

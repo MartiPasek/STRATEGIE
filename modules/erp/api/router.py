@@ -1032,6 +1032,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       padding: 3px 6px;
       font-size: 11px;
     }}
+    .erp-jadro-content .erp-formlist2-value-prefix {{
+      padding: 0 6px;
+      font-size: 11px;
+    }}
     .erp-jadro-content .erp-formlist2-caret,
     .erp-jadro-content .erp-formlist2-browse {{
       padding: 0 7px;
@@ -1813,6 +1817,10 @@ def _render_workspace_page(user_id: int) -> str:
             items: [],   // empty initial — onLoadItems naplní
             placeholder: "Začni psát nebo klikni na ⋮",
             onLoadItems: loadItems,
+            // B+6.4++ (5.5.2026): klíč (FK) viditelně uvnitř komponenty
+            // — Marti's spec, hodnota co se zapisuje do DB při Phase C OK
+            showValuePrefix: true,
+            valuePrefixWidth: "60px",
             browseTitle: labelText
               ? ("Vybrat hodnotu — " + labelText)
               : "Vybrat hodnotu",

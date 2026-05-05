@@ -850,24 +850,23 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       position: fixed;
       top: 50%; left: 50%;
       transform: translate(-50%, -50%);
-      width: min(92vw, 1200px);
-      height: min(90vh, 920px);
-      max-height: 90vh;
+      width: min(88vw, 1100px);
+      max-height: 86vh;
       background: var(--surface);
       border: 1px solid var(--border-strong);
-      border-radius: 12px;
-      box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+      border-radius: 10px;
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.55);
       z-index: 100;
       display: flex; flex-direction: column;
       overflow: hidden;
-      animation: erp-modal-pop 180ms ease-out;
+      animation: erp-modal-pop 160ms ease-out;
     }}
     .erp-jadro-pane[hidden] {{ display: none; }}
     .erp-jadro-header {{
-      padding: 10px 14px;
+      padding: 7px 12px;
       border-bottom: 1px solid var(--border);
       background: var(--bg);
-      display: flex; align-items: center; gap: 12px;
+      display: flex; align-items: center; gap: 10px;
       flex-shrink: 0;
     }}
     .erp-jadro-title {{
@@ -881,7 +880,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-jadro-close {{
       background: transparent; border: none; color: var(--text-muted);
-      font-size: 20px; cursor: pointer; padding: 0 6px;
+      font-size: 18px; cursor: pointer; padding: 0 5px;
       line-height: 1; transition: color .12s;
       flex-shrink: 0;
     }}
@@ -890,15 +889,93 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       flex: 1; overflow-y: auto; padding: 0;
       background: var(--surface);
     }}
-    .erp-jadro-content .erp-form {{
-      max-width: none;
-      margin: 14px;
-      padding: 18px;
-    }}
     .erp-jadro-loading, .erp-jadro-error {{
-      padding: 24px; color: var(--muted); font-size: 13px;
+      padding: 16px; color: var(--muted); font-size: 12px;
     }}
     .erp-jadro-error {{ color: var(--error); }}
+
+    /* ── Phase B+2.7 (5.5.2026): jádro MODAL compact density ──
+       Standalone /erp/jadro/{{id}}/{{row}} full-page si zachovává
+       původní landing/full-page design (řádky 504+). V modal
+       přepíšeme všechno proporcionálně menší aby vizuálně
+       sedělo s compact gridem (--ag-row-height: 20px,
+       --ag-header-height: 24px, font 13px). */
+
+    .erp-jadro-content .erp-form {{
+      max-width: none;
+      margin: 0;
+      padding: 12px 14px;
+      background: transparent;
+      border: none;
+      border-radius: 0;
+    }}
+    .erp-jadro-content .erp-form-header {{
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+    }}
+    .erp-jadro-content .erp-form-title {{
+      font-size: 15px;
+    }}
+    .erp-jadro-content .erp-group {{
+      padding: 10px 12px;
+      margin-bottom: 8px;
+      border-radius: 6px;
+    }}
+    .erp-jadro-content .erp-group-header {{
+      font-size: 12px;
+      margin-bottom: 8px;
+      padding-bottom: 5px;
+    }}
+    .erp-jadro-content .erp-fields {{
+      gap: 8px;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    }}
+    .erp-jadro-content .erp-field {{
+      gap: 3px;
+    }}
+    .erp-jadro-content .erp-field-label {{
+      font-size: 11px;
+    }}
+    .erp-jadro-content .erp-form .erp-input {{
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 5px;
+    }}
+    .erp-jadro-content .erp-checkbox {{
+      padding: 5px 8px;
+      border-radius: 5px;
+      gap: 8px;
+    }}
+    .erp-jadro-content .erp-check {{
+      width: 14px; height: 14px;
+    }}
+    .erp-jadro-content .erp-checkbox-label {{
+      font-size: 12px;
+    }}
+    .erp-jadro-content .erp-lookup-btn {{
+      padding: 0 10px;
+      font-size: 12px;
+      border-radius: 5px;
+    }}
+    .erp-jadro-content .erp-form-footer {{
+      padding-top: 12px;
+      margin-top: 12px;
+      gap: 6px;
+    }}
+    .erp-jadro-content .erp-form .erp-btn {{
+      padding: 5px 12px;
+      font-size: 12px;
+      border-radius: 5px;
+    }}
+    .erp-jadro-content .erp-label-only {{
+      font-size: 12px;
+      padding: 4px 0;
+    }}
+    .erp-jadro-content .erp-unknown {{
+      padding: 5px 8px;
+      font-size: 11px;
+      border-radius: 4px;
+    }}
 
     /* ── Phase B+1 production MVP (5.5.2026): polish ── */
     @keyframes erp-shimmer {{

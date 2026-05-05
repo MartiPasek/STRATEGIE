@@ -84,7 +84,12 @@ def erp_landing(req: Request) -> HTMLResponse:
 
 
 @router.get("/jadro/{form_id}/{row_id}", response_class=HTMLResponse)
-def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
+def jadro_render(
+    form_id: int,
+    row_id: int,
+    req: Request,
+    fragment: bool = False,
+) -> HTMLResponse:
     """
     Read-only render jednoho Centrála jádra.
 
@@ -93,11 +98,15 @@ def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
       2. Načti EC_FormDefEdit + EC_FormDefEditProperty → komponenty
       3. Substituuj :ID = {row_id} v SQL_Select, execute → data
       4. Render HTML přes render_generator
+
+    Phase B+2 (5.5.2026): query param ?fragment=1 vrací jen html_body
+    (bez _render_full_page wrapperu) pro embed v 3-pane workspace.
     """
     uid = _get_uid(req)
     _require_parent(uid)
     logger.info(
-        f"ERP | jadro render | user={uid} form_id={form_id} row_id={row_id}"
+        f"ERP | jadro render | user={uid} form_id={form_id} row_id={row_id} "
+        f"fragment={fragment}"
     )
 
     reader = CentralaReader()
@@ -105,6 +114,16 @@ def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
     # 1. Form header
     form = reader.load_form_def(form_id)
     if not form:
+        if fragment:
+            return HTMLResponse(
+                content=(
+                    f'<div class="erp-jadro-error">'
+                    f'<strong>Jádro #{form_id} nenalezeno</strong><br>'
+                    f'<small>EC_FormDef.ID={form_id} v DB_EC neexistuje.</small>'
+                    f'</div>'
+                ),
+                status_code=404,
+            )
         return HTMLResponse(
             content=_render_error_page(
                 title="Jádro nenalezeno",
@@ -121,9 +140,6 @@ def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
 
     # Phase A.5 (5.5.2026): enrich data o lookup display values
     # (FormList komponenty s LookupView/LookupField/LookupDisplay properties).
-    # Po této enrich:
-    #   data['NadrazeneMenu']         = 11    (raw FK)
-    #   data['_lookup_NadrazeneMenu'] = 'Systém'  (display from lookup view)
     data = reader.enrich_data_with_lookups(data, components)
 
     # 4. Render
@@ -140,6 +156,17 @@ def jadro_render(form_id: int, row_id: int, req: Request) -> HTMLResponse:
             "sql_select": form.sql_select[:200] + "…" if len(form.sql_select) > 200 else form.sql_select,
         },
     )
+
+    # Phase B+2: fragment mode → vrať jen html_body s X-Jadro-Title headerem
+    if fragment:
+        response = HTMLResponse(content=html_body)
+        # X-Jadro-Title pro JS na workspace straně (název jádra do header lišty pane)
+        # ASCII-only safe encoding aby HTTP header neselhal na UTF-8
+        try:
+            response.headers["X-Jadro-Title"] = form.nazev.encode("ascii", "replace").decode("ascii")
+        except Exception:
+            pass
+        return response
 
     full_page = _render_full_page(
         title=f"{form.nazev} (#{form_id}/{row_id})",
@@ -482,12 +509,16 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-error h1 {{ color: var(--error); font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
     .erp-error p {{ color: var(--muted); font-size: 14px; line-height: 1.6; }}
 
-    /* ── Phase B nástřel: 3-pane workspace (5.5.2026) ── */
+    /* ── Phase B nástřel + B+2 (5.5.2026): 3-pane → 2-pane / 3-pane ── */
     .erp-workspace {{
-      max-width: 1280px; margin: 0 auto;
-      display: grid; grid-template-columns: 280px 1fr;
+      max-width: 1800px; margin: 0 auto;
+      display: grid; grid-template-columns: 260px 1fr;
       gap: 14px; padding: 14px;
       min-height: calc(100vh - 90px);
+    }}
+    /* B+2: when jádro pane visible, expand to 3-pane layout */
+    .erp-workspace.with-jadro {{
+      grid-template-columns: 240px minmax(360px, 1fr) minmax(420px, 1.4fr);
     }}
     .erp-tree-pane {{
       background: var(--surface); border: 1px solid var(--border);
@@ -574,6 +605,52 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-prehled-row {{ cursor: pointer; transition: background .12s; }}
     .erp-prehled-row:hover {{ background: rgba(79,142,247,0.08); }}
     .erp-prehled-empty {{ color: var(--muted); padding: 24px; text-align: center; font-size: 13px; }}
+
+    /* ── Phase B+2 (5.5.2026): inline jádro split-pane ── */
+    .erp-jadro-pane {{
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px;
+      max-height: calc(100vh - 110px);
+      display: flex; flex-direction: column;
+      overflow: hidden;
+    }}
+    .erp-jadro-pane[hidden] {{ display: none; }}
+    .erp-jadro-header {{
+      padding: 10px 14px;
+      border-bottom: 1px solid var(--border);
+      background: var(--bg);
+      display: flex; align-items: center; gap: 12px;
+      flex-shrink: 0;
+    }}
+    .erp-jadro-title {{
+      font-size: 13px; font-weight: 600; color: var(--text);
+      flex: 1; min-width: 0;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }}
+    .erp-jadro-meta {{
+      font-size: 11px; color: var(--muted);
+      font-family: 'DM Mono',monospace; flex-shrink: 0;
+    }}
+    .erp-jadro-close {{
+      background: transparent; border: none; color: var(--text-muted);
+      font-size: 20px; cursor: pointer; padding: 0 6px;
+      line-height: 1; transition: color .12s;
+      flex-shrink: 0;
+    }}
+    .erp-jadro-close:hover {{ color: var(--accent); }}
+    .erp-jadro-content {{
+      flex: 1; overflow-y: auto; padding: 0;
+      background: var(--surface);
+    }}
+    .erp-jadro-content .erp-form {{
+      max-width: none;
+      margin: 14px;
+      padding: 18px;
+    }}
+    .erp-jadro-loading, .erp-jadro-error {{
+      padding: 24px; color: var(--muted); font-size: 13px;
+    }}
+    .erp-jadro-error {{ color: var(--error); }}
 
     /* ── Phase B+1 production MVP (5.5.2026): polish ── */
     @keyframes erp-shimmer {{
@@ -880,15 +957,23 @@ def _render_workspace_page(user_id: int) -> str:
             <h2>Vyber přehled ze stromu vlevo</h2>
             <p>
               Klikni na uzel se symbolem <code>▶/▼</code> pro rozbalení.
-              Listy stromu (modré) otevřou přehled vpravo. Strom si pamatuje
-              rozbalení i poslední vybraný přehled mezi reloady.
+              Listy stromu (modré) otevřou přehled vpravo. Klik na řádek
+              přehledu otevře jádro v třetí pane vpravo (B+2).
             </p>
             <p style="margin-top: 12px; font-size: 12px;">
-              <em>Phase B+1 production MVP — Tabulator, persistence, breadcrumbs.</em>
+              <em>Phase B+2 — split-pane workspace, inline jádro detail.</em>
             </p>
           </div>
         </div>
       </main>
+      <aside id="erpJadroPane" class="erp-jadro-pane" hidden>
+        <div class="erp-jadro-header">
+          <span id="erpJadroTitle" class="erp-jadro-title">Jádro</span>
+          <span id="erpJadroMeta" class="erp-jadro-meta"></span>
+          <button id="erpJadroClose" class="erp-jadro-close" aria-label="Zavřít jádro" title="Zavřít jádro (Esc)">×</button>
+        </div>
+        <div id="erpJadroContent" class="erp-jadro-content"></div>
+      </aside>
     </div>
 
     <script>
@@ -896,12 +981,20 @@ def _render_workspace_page(user_id: int) -> str:
       "use strict";
       const treeRoot = document.getElementById("erpTreeRoot");
       const mainContent = document.getElementById("erpMainContent");
+      // B+2 (5.5.2026): jádro split-pane elements
+      const workspaceEl = document.querySelector(".erp-workspace");
+      const jadroPane = document.getElementById("erpJadroPane");
+      const jadroContent = document.getElementById("erpJadroContent");
+      const jadroTitle = document.getElementById("erpJadroTitle");
+      const jadroMeta = document.getElementById("erpJadroMeta");
+      const jadroCloseBtn = document.getElementById("erpJadroClose");
 
       const EXPAND_KEY = "erp.tree.expanded";
       const ACTIVE_KEY = "erp.tree.active";
 
       let activeTabulator = null;        // current Tabulator instance
       let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
+      let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
 
       // ── localStorage helpers ─────────────────────────────────────
@@ -1086,6 +1179,8 @@ def _render_workspace_page(user_id: int) -> str:
 
       // ── Přehled fetch + Tabulator render ────────────────────────
       async function loadPrehled(cislo, item) {
+        // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
+        if (currentJadro) closeJadroPane();
         const itemId = item.getAttribute("data-id");
         const breadcrumb = buildBreadcrumbHtml(itemId);
         mainContent.innerHTML =
@@ -1202,7 +1297,8 @@ def _render_workspace_page(user_id: int) -> str:
               const rd = row.getData();
               const rowId = rd.ID != null ? rd.ID : (rd.id != null ? rd.id : null);
               if (rowId == null) return;
-              window.location.href = "/erp/jadro/" + data.id_edit + "/" + rowId;
+              // B+2: inline split-pane (žádný full page redirect)
+              openJadroInPane(data.id_edit, rowId);
             });
           }
         } catch (err) {
@@ -1235,11 +1331,69 @@ def _render_workspace_page(user_id: int) -> str:
           container.querySelectorAll(".erp-prehled-row").forEach(tr => {
             tr.addEventListener("click", () => {
               const rid = tr.getAttribute("data-row-id");
-              if (rid) window.location.href = "/erp/jadro/" + data.id_edit + "/" + rid;
+              if (rid) openJadroInPane(data.id_edit, rid);
             });
           });
         }
       }
+
+      // ── Phase B+2: jádro split-pane ─────────────────────────────
+      async function openJadroInPane(formId, rowId) {
+        if (!jadroPane || !jadroContent) return;
+        currentJadro = { form_id: formId, row_id: rowId };
+        if (workspaceEl) workspaceEl.classList.add("with-jadro");
+        jadroPane.removeAttribute("hidden");
+        if (jadroTitle) jadroTitle.textContent = "Načítám jádro…";
+        if (jadroMeta) jadroMeta.textContent = "#" + formId + " / " + rowId;
+        jadroContent.innerHTML =
+          '<div class="erp-jadro-loading">' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line short"></div>' +
+          '</div>';
+        try {
+          const r = await fetch(
+            "/erp/jadro/" + formId + "/" + rowId + "?fragment=1",
+            { credentials: "include" }
+          );
+          if (!r.ok) {
+            const txt = await r.text();
+            jadroContent.innerHTML = txt || (
+              '<div class="erp-jadro-error">Status ' + r.status + '</div>'
+            );
+            if (jadroTitle) jadroTitle.textContent = "Chyba";
+            return;
+          }
+          const headerTitle = r.headers.get("X-Jadro-Title");
+          if (jadroTitle) {
+            jadroTitle.textContent = headerTitle || ("Jádro #" + formId);
+          }
+          const html = await r.text();
+          jadroContent.innerHTML = html;
+        } catch (e) {
+          jadroContent.innerHTML =
+            '<div class="erp-jadro-error">Nelze načíst: ' +
+            escapeHtml(e.message || String(e)) + '</div>';
+          if (jadroTitle) jadroTitle.textContent = "Chyba";
+        }
+      }
+
+      function closeJadroPane() {
+        if (jadroPane) jadroPane.setAttribute("hidden", "");
+        if (workspaceEl) workspaceEl.classList.remove("with-jadro");
+        if (jadroContent) jadroContent.innerHTML = "";
+        currentJadro = null;
+      }
+
+      if (jadroCloseBtn) {
+        jadroCloseBtn.addEventListener("click", closeJadroPane);
+      }
+      // Esc key zavře jádro pane
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape" && currentJadro) {
+          closeJadroPane();
+        }
+      });
 
       // ── Helpers ─────────────────────────────────────────────────
       function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => _ESC[c]); }

@@ -1013,21 +1013,35 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-radius: 3px;
     }}
 
-    /* ── Phase B+6.4 (5.5.2026): jádro lookup ErpDropdown mount ── */
+    /* ── Phase B+6.4+ (5.5.2026): jádro lookup ErpFormList mount ── */
     .erp-jadro-content .erp-lookup-mount {{
       width: 100%;
     }}
-    /* Compact ErpDropdown trigger v jádro modalu (sedí s ostatními inputy) */
-    .erp-jadro-content .erp-lookup-mount .erp-dropdown-trigger {{
-      padding: 3px 6px;
-      font-size: 11px;
-      min-height: 22px;
+    /* Compact ErpFormList v jádro modalu (B+2.7+ ultra-compact density,
+       font 11 / padding 3-6 / radius 4) */
+    .erp-jadro-content .erp-formlist2-wrapper {{
+      gap: 2px;
+    }}
+    .erp-jadro-content .erp-formlist2-label {{
+      font-size: 10px;
+    }}
+    .erp-jadro-content .erp-formlist2-row {{
       border-radius: 4px;
     }}
-    .erp-jadro-content .erp-lookup-mount .erp-dropdown-caret {{
-      font-size: 9px;
+    .erp-jadro-content .erp-formlist2-input {{
+      padding: 3px 6px;
+      font-size: 11px;
     }}
-    /* B+6.4: Lookup button fallback (před JS hook + při ErpDropdown failure)
+    .erp-jadro-content .erp-formlist2-caret,
+    .erp-jadro-content .erp-formlist2-browse {{
+      padding: 0 7px;
+      font-size: 11px;
+      min-width: 22px;
+    }}
+    .erp-jadro-content .erp-formlist2-browse {{
+      font-size: 14px;
+    }}
+    /* B+6.4: Lookup button fallback (před JS hook + při ErpFormList failure)
        — vyhodit stigmu disabled, přidat hover accent */
     .erp-formlist .erp-lookup-btn {{
       cursor: pointer;
@@ -1256,6 +1270,7 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/input.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/checkbox.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/dropdown.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/formlist.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
@@ -1739,13 +1754,14 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
-      // ── B+6.4 (5.5.2026): jádro lookup fields → ErpDropdown ────────
+      // ── B+6.4+ (5.5.2026): jádro lookup fields → ErpFormList ───────
       // Po každém načtení jádro modalu scanneme [data-erp-lookup] elements
-      // a wire ErpDropdown s lazy-load options při onOpen. Read-only Phase A:
-      // výběr update display + data-erp-fk-value (in-memory state); persist
-      // do DB přijde Phase C OK button.
+      // a wire ErpFormList (typeable input + autocomplete + browse modal).
+      // Marti's spec: stejně nebo lépe než Centrála 1 native FormList.
+      // Read-only Phase A: výběr update data-erp-fk-value (in-memory state);
+      // persist do DB přijde Phase C OK button.
       function wireJadroLookups(rootEl) {
-        if (!rootEl || typeof window.ErpDropdown !== "function") return;
+        if (!rootEl || typeof window.ErpFormList !== "function") return;
         const formEl = rootEl.querySelector(".erp-form[data-erp-form-id]");
         if (!formEl) return;
         const formId = formEl.dataset.erpFormId;
@@ -1755,22 +1771,21 @@ def _render_workspace_page(user_id: int) -> str:
           const fieldName = fieldEl.dataset.erpFieldName || "";
           const currentFk = fieldEl.dataset.erpFkValue || "";
           const currentDisplay = fieldEl.dataset.erpDisplay || "";
+          const labelEl = fieldEl.querySelector(".erp-field-label");
+          const labelText = labelEl ? labelEl.textContent : "";
           if (!fieldName) return;
-          // Skrýt original input+button row, vložit mount za label
+          // Skrýt original label + input+button row, vložit ErpFormList mount
           const innerEl = fieldEl.querySelector(".erp-formlist-inner");
-          if (!innerEl) return;
+          if (innerEl) innerEl.style.display = "none";
+          if (labelEl) labelEl.style.display = "none";
           const mount = document.createElement("div");
           mount.className = "erp-lookup-mount";
-          innerEl.parentNode.insertBefore(mount, innerEl);
-          innerEl.style.display = "none";
+          fieldEl.appendChild(mount);
 
-          const initialItems = currentFk
-            ? [{ value: currentFk, label: currentDisplay || String(currentFk) }]
-            : [];
+          // Lazy load při prvním focus / open / browse
           let loaded = false;
-          let dd = null;
-          const lazyLoad = async () => {
-            if (loaded) return;
+          const loadItems = async () => {
+            if (loaded) return [];
             loaded = true;
             try {
               const r = await fetch(
@@ -1780,37 +1795,31 @@ def _render_workspace_page(user_id: int) -> str:
               );
               if (!r.ok) {
                 console.warn("Lookup options fetch", fieldName, r.status);
-                return;
+                return [];
               }
               const j = await r.json();
-              if (!j.ok || !Array.isArray(j.items)) return;
-              let items = j.items.slice();
-              // Zajisti že current value je v list (pokud ne, prepend + divider)
-              if (currentFk) {
-                const hasCurrent = items.some(it =>
-                  String(it.value) === String(currentFk)
-                );
-                if (!hasCurrent) {
-                  items = [
-                    { value: currentFk, label: currentDisplay || String(currentFk) },
-                    { divider: true, label: "Všechny možnosti" },
-                  ].concat(items);
-                }
-              }
-              if (dd) {
-                dd.setItems(items);
-                if (currentFk) dd.setValue(currentFk, /*silent*/true);
-              }
+              if (!j.ok || !Array.isArray(j.items)) return [];
+              return j.items;
             } catch (e) {
               console.warn("Lookup load error", fieldName, e);
+              return [];
             }
           };
 
-          dd = new window.ErpDropdown(mount, {
-            items: initialItems,
+          new window.ErpFormList(mount, {
+            label: labelText,  // re-render label uvnitř ErpFormList
             value: currentFk || null,
-            placeholder: currentDisplay || "(klikni pro výběr)",
-            onOpen: lazyLoad,
+            displayValue: currentDisplay || "",
+            items: [],   // empty initial — onLoadItems naplní
+            placeholder: "Začni psát nebo klikni na ⋮",
+            onLoadItems: loadItems,
+            browseTitle: labelText
+              ? ("Vybrat hodnotu — " + labelText)
+              : "Vybrat hodnotu",
+            browseColumns: [
+              { field: "value", header: "Číslo", width: "100px" },
+              { field: "label", header: "Název", width: "auto" },
+            ],
             onChange: (val, item) => {
               fieldEl.dataset.erpFkValue = String(val);
               const lbl = (item && item.label) ? item.label : String(val);

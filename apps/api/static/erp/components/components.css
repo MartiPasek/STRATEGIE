@@ -699,6 +699,426 @@
   background: var(--text-faint, #6c7076);
 }
 
-/* ── Phase B+6.4+: ErpFormList / ErpFormSection / ErpForm ──────────
+/* ── Phase B+6.4+: ErpFormList (typeable + autocomplete + browse modal) ── */
+
+.erp-formlist2-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+  position: relative;
+}
+
+.erp-formlist2-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-muted, #b0b3bc);
+  letter-spacing: 0.02em;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.erp-formlist2-required {
+  color: var(--error, #f87171);
+  font-weight: 600;
+}
+
+.erp-formlist2-row {
+  display: flex;
+  align-items: stretch;
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 5px;
+  transition: border-color 0.12s, background 0.12s, box-shadow 0.12s;
+  overflow: hidden;
+}
+
+.erp-formlist2-row:hover {
+  border-color: var(--border-strong, #4a4e57);
+}
+
+.erp-formlist2-row:focus-within,
+.erp-formlist2-open .erp-formlist2-row {
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+  background: var(--surface, #1c1e23);
+}
+
+.erp-formlist2-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 6px 10px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  box-sizing: border-box;
+}
+
+.erp-formlist2-input::placeholder {
+  color: var(--text-faint, #6c7076);
+  opacity: 1;
+}
+
+.erp-formlist2-input:read-only {
+  background: var(--surface, #1c1e23);
+  color: var(--text-muted, #b0b3bc);
+}
+
+.erp-formlist2-input:disabled {
+  color: var(--text-faint, #6c7076);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.erp-formlist2-caret,
+.erp-formlist2-browse {
+  flex-shrink: 0;
+  background: var(--surface2, #252830);
+  border: none;
+  border-left: 1px solid var(--border, #3a3d44);
+  color: var(--text-muted, #b0b3bc);
+  cursor: pointer;
+  padding: 0 9px;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.12s, color 0.12s;
+  min-width: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.erp-formlist2-caret:hover:not(:disabled),
+.erp-formlist2-browse:hover:not(:disabled) {
+  background: var(--surface, #1c1e23);
+  color: var(--accent, #4f8ef7);
+}
+
+.erp-formlist2-caret:disabled,
+.erp-formlist2-browse:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.erp-formlist2-open .erp-formlist2-caret {
+  color: var(--accent, #4f8ef7);
+  transform: rotate(180deg);
+}
+
+.erp-formlist2-browse {
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -1px;
+}
+
+.erp-formlist2-hint {
+  font-size: 11px;
+  color: var(--text-faint, #6c7076);
+  line-height: 1.3;
+  padding-left: 2px;
+}
+
+/* Inline panel (autocomplete dropdown) */
+
+.erp-formlist2-panel {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 6px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+  padding: 4px 0;
+  overflow-y: auto;
+  z-index: 9999;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--text, #f0f1f5);
+  min-width: 200px;
+}
+
+.erp-formlist2-item {
+  padding: 5px 12px;
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+}
+
+.erp-formlist2-item-highlight {
+  background: var(--surface2, #252830);
+}
+
+.erp-formlist2-item-selected {
+  color: var(--accent, #4f8ef7);
+  font-weight: 500;
+}
+
+.erp-formlist2-item-selected.erp-formlist2-item-highlight {
+  background: rgba(79, 142, 247, 0.12);
+}
+
+.erp-formlist2-item-disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.erp-formlist2-mark {
+  background: rgba(79, 142, 247, 0.28);
+  color: var(--text, #f0f1f5);
+  font-weight: 600;
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+.erp-formlist2-empty {
+  padding: 10px 12px;
+  color: var(--text-faint, #6c7076);
+  font-style: italic;
+  text-align: center;
+}
+
+.erp-formlist2-panel::-webkit-scrollbar {
+  width: 8px;
+}
+.erp-formlist2-panel::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-formlist2-panel::-webkit-scrollbar-thumb {
+  background: var(--border-strong, #4a4e57);
+  border-radius: 4px;
+}
+.erp-formlist2-panel::-webkit-scrollbar-thumb:hover {
+  background: var(--text-faint, #6c7076);
+}
+
+/* ── Browse modal (popup grid s search) ──────────────────────────── */
+
+.erp-formlist2-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  z-index: 10000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: erp-formlist2-fade-in 150ms ease-out;
+}
+
+@keyframes erp-formlist2-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+.erp-formlist2-modal {
+  width: min(80vw, 720px);
+  max-height: 78vh;
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.6);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  color: var(--text, #f0f1f5);
+}
+
+.erp-formlist2-modal-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  flex-shrink: 0;
+}
+
+.erp-formlist2-modal-header h3 {
+  flex: 1;
+  margin: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text, #f0f1f5);
+}
+
+.erp-formlist2-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #b0b3bc);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  transition: color 0.12s;
+}
+
+.erp-formlist2-modal-close:hover {
+  color: var(--accent, #4f8ef7);
+}
+
+.erp-formlist2-modal-toolbar {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  flex-shrink: 0;
+}
+
+.erp-formlist2-modal-search {
+  width: 100%;
+  padding: 5px 9px;
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 4px;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 12px;
+  outline: none;
+  transition: border-color 0.12s, box-shadow 0.12s;
+  box-sizing: border-box;
+}
+
+.erp-formlist2-modal-search:focus {
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+}
+
+.erp-formlist2-modal-table-wrap {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.erp-formlist2-modal-thead,
+.erp-formlist2-modal-tr {
+  display: flex;
+  align-items: center;
+  font-size: 11px;
+}
+
+.erp-formlist2-modal-thead {
+  flex-shrink: 0;
+  background: var(--bg, #0e0f11);
+  border-bottom: 1px solid var(--border-strong, #4a4e57);
+  color: var(--text-muted, #b0b3bc);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.erp-formlist2-modal-th,
+.erp-formlist2-modal-td {
+  padding: 4px 8px;
+  border-right: 1px solid var(--border, #3a3d44);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-sizing: border-box;
+}
+
+.erp-formlist2-modal-th:last-child,
+.erp-formlist2-modal-td:last-child {
+  border-right: none;
+}
+
+.erp-formlist2-modal-tbody {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  background: var(--surface, #1c1e23);
+}
+
+.erp-formlist2-modal-tr {
+  cursor: pointer;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  color: var(--text, #f0f1f5);
+  transition: background 0.08s;
+}
+
+.erp-formlist2-modal-tr:hover {
+  background: var(--surface2, #252830);
+}
+
+.erp-formlist2-modal-tr-highlight {
+  background: var(--surface2, #252830);
+}
+
+.erp-formlist2-modal-tr-selected {
+  background: rgba(79, 142, 247, 0.14);
+  color: var(--accent, #4f8ef7);
+  font-weight: 500;
+}
+
+.erp-formlist2-modal-tr-selected.erp-formlist2-modal-tr-highlight {
+  background: rgba(79, 142, 247, 0.22);
+}
+
+.erp-formlist2-modal-empty {
+  padding: 24px;
+  color: var(--text-faint, #6c7076);
+  text-align: center;
+  font-style: italic;
+}
+
+.erp-formlist2-modal-tbody::-webkit-scrollbar {
+  width: 8px;
+}
+.erp-formlist2-modal-tbody::-webkit-scrollbar-track {
+  background: transparent;
+}
+.erp-formlist2-modal-tbody::-webkit-scrollbar-thumb {
+  background: var(--border-strong, #4a4e57);
+  border-radius: 4px;
+}
+
+.erp-formlist2-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 8px 12px;
+  border-top: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  flex-shrink: 0;
+}
+
+.erp-formlist2-modal-btn {
+  background: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 5px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.12s;
+  min-width: 70px;
+}
+
+.erp-formlist2-modal-btn:hover {
+  border-color: var(--accent, #4f8ef7);
+  background: var(--surface, #1c1e23);
+}
+
+.erp-formlist2-modal-btn.primary {
+  background: var(--accent, #4f8ef7);
+  color: white;
+  border-color: var(--accent, #4f8ef7);
+}
+
+.erp-formlist2-modal-btn.primary:hover {
+  background: var(--accent2, #7c5cfc);
+  border-color: var(--accent2, #7c5cfc);
+}
+
+/* ── Phase B+6.5+: ErpFormSection / ErpForm ──────────────────────
    Placeholder rules (filled in next iterations).
    ----------------------------------------------------------------- */

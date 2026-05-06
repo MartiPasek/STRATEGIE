@@ -65,6 +65,20 @@
   }
 
   /**
+   * Parse cParent="c{id}" → integer ID. Vrací null pokud format nesedí.
+   * Centrála konvence: cParent string ref na GroupBox.id přes prefix "c".
+   * Např. "c12" → 12, "c469" → 469.
+   * Mirror server-side render_generator._parse_parent_id().
+   */
+  function _parseParentId(cParent) {
+    if (!cParent) return null;
+    const s = String(cParent).trim();
+    if (!s.startsWith("c") && !s.startsWith("C")) return null;
+    const n = parseInt(s.slice(1), 10);
+    return Number.isFinite(n) ? n : null;
+  }
+
+  /**
    * Resolve real caption — replikuje server-side _resolve_caption().
    * Phase A.3 (render_generator.py): real Caption je v properties,
    * ne v EC_FormDefEdit.cCaption (= "NOVÁ" default při vytvoření).
@@ -188,24 +202,17 @@
 
       // Sekce per GroupBox (lookup podle cParent na fieldech)
       // Plus orphan section pro fields bez parenta nebo s neznámým parentem
-      const sectionByName = new Map();  // group identifier → ErpFormSection
-      const groupIdentifiers = new Set();
+      // B+6.6c-fix4 (6.5.2026): c_parent konvence je "c{id}" (např. "c12")
+      // — string referent na ID GroupBoxu, NE jeho caption. Match přes
+      // section by ID, ne by name. (Server-side render_generator.py
+      // _parse_parent_id má stejnou logiku.)
+      const sectionById = new Map();  // groupbox.id (number) → ErpFormSection
       groups.forEach(g => {
         const realCaption = _resolveCaption(g);
-        // Match cParent na BOTH c_caption a real resolved caption — Centrála
-        // pattern občas má cParent = c_caption raw (= "NOVÁ"), ale nikdy
-        // resolved name. Mapuj přes obě varianty.
-        const ident = realCaption || ("group_" + g.id);
-        groupIdentifiers.add(_normalize(ident));
         const sec = new global.ErpFormSection(this.wrapper, {
           title: realCaption,
         });
-        sectionByName.set(_normalize(ident), sec);
-        // Plus alias na raw c_caption (pokud rozdílné) pro cParent matching
-        const raw = String(g.c_caption || "").trim();
-        if (raw && _normalize(raw) !== _normalize(ident)) {
-          sectionByName.set(_normalize(raw), sec);
-        }
+        sectionById.set(g.id, sec);
         this._sections.push(sec);
       });
 
@@ -259,17 +266,14 @@
           });
         }
 
-        // Place do sekce — match cParent na GroupBox c_caption
-        const parentName = (comp.c_parent || "").trim();
-        const parentNorm = _normalize(parentName);
+        // Place do sekce — match cParent="c{id}" na GroupBox.id
+        const parentRaw = String(comp.c_parent || "").trim();
+        const parentId = _parseParentId(parentRaw);
         let targetSec = null;
-        if (parentNorm && sectionByName.has(parentNorm)) {
-          targetSec = sectionByName.get(parentNorm);
-        } else if (parentNorm) {
-          // Parent specified but not matching → orphan
-          targetSec = ensureOrphan();
+        if (parentId != null && sectionById.has(parentId)) {
+          targetSec = sectionById.get(parentId);
         } else {
-          // No parent — orphan
+          // No parent OR parent ID nenalezen mezi GroupBoxes → orphan
           targetSec = ensureOrphan();
         }
         if (entry.component) {

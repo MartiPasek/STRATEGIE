@@ -1049,12 +1049,12 @@ def _render_full_page(
     }}
     .erp-marti-btn-label {{
       /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): gradient stejný
-         jako logo STRATEGIE (sjednocený brand visual). */
+         jako logo STRATEGIE (sjednocený brand visual). Mixed case
+         "Tvoje Marti" — bez text-transform uppercase. */
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
-      font-size: 16px;
+      font-size: 18px;
       font-weight: 700;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
+      letter-spacing: 0.02em;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -1083,6 +1083,47 @@ def _render_full_page(
       user-select: none;
       -webkit-user-select: none;
       flex-shrink: 0;
+    }}
+    /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): generic dark hint
+       tooltip na elementech s `data-hint` attribute. Pure CSS, žádný JS.
+       Stejný pattern jako u status baru Celkem. */
+    [data-hint] {{
+      position: relative;
+    }}
+    [data-hint]:hover::after {{
+      content: attr(data-hint);
+      position: absolute;
+      top: calc(100% + 8px);
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--bg);
+      color: var(--text);
+      border: 1px solid var(--border-strong);
+      padding: 6px 10px;
+      border-radius: 5px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 12px;
+      font-weight: 500;
+      white-space: nowrap;
+      pointer-events: none;
+      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
+      z-index: 9999;
+      letter-spacing: 0.01em;
+      /* Reset gradient text inheritance pokud parent má clip:text */
+      -webkit-text-fill-color: var(--text);
+      background-clip: padding-box;
+    }}
+    [data-hint]:hover::before {{
+      /* Šipka nad hintem směrem nahoru ke cílovému elementu */
+      content: "";
+      position: absolute;
+      top: calc(100% + 3px);
+      left: 50%;
+      transform: translateX(-50%);
+      border: 5px solid transparent;
+      border-bottom-color: var(--border-strong);
+      pointer-events: none;
+      z-index: 9999;
     }}
     .erp-header-sep {{
       color: var(--border-strong);
@@ -2293,10 +2334,11 @@ def _render_full_page(
       <!-- B+10+++ (Marti's drobnost 6.5.2026): logo "STRATEGIE" + dynamický
            "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
       <div class="erp-header-brand-row">
-        <a href="/erp/" class="erp-logo">STRATEGIE</a>
+        <a href="/erp/" class="erp-logo" id="erpLogoLink"
+           data-hint="Obnovit  ·  Ctrl+Shift+klik = hard reset (vymaže cache)">STRATEGIE</a>
         <span class="erp-header-dot" aria-hidden="true">·</span>
         <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
-                title="Tvoje Marti — otevři chat">
+                data-hint="Otevři chat s Marti-AI v novém tabu">
           <span class="erp-marti-btn-avatar">
             <img id="erpMartiAiAvatar" src="" alt="Marti" />
           </span>
@@ -4607,6 +4649,29 @@ def _render_workspace_page(user_id: int) -> str:
         _martiBtn.addEventListener("click", () => {
           // Open chat v novém tabu — uživatel se vrátí do ERP přes back/tab
           window.open("/", "_blank");
+        });
+      }
+      // B+10++++ (Marti's drobnost 6.5.2026 po návratu): Ctrl+Shift+klik
+      // na logo = hard reset (vymaž SW cache + force reload). Default klik
+      // ponechán jako navigate na /erp/ (soft reload).
+      const _logoLink = document.getElementById("erpLogoLink");
+      if (_logoLink) {
+        _logoLink.addEventListener("click", async (ev) => {
+          if (ev.ctrlKey && ev.shiftKey) {
+            ev.preventDefault();
+            // Hard reset — clear SW caches + force reload bypass cache
+            try {
+              if ("caches" in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              if ("serviceWorker" in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+              }
+            } catch (e) { /* silent */ }
+            location.reload();
+          }
         });
       }
 

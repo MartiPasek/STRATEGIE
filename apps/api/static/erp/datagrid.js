@@ -1019,6 +1019,12 @@
         context: {
           limitContext: opts.limitContext || null,
         },
+        // B+10++++ (Marti's drobnost 6.5.2026 po návratu): zakázat browser
+        // native context menu na grid (Marti: "kdyz se klikne pravym
+        // tlacitkem... kde neni zadna volba... se obevi tento dialog menu
+        // — jde to zakazat?"). preventDefaultOnContextMenu: true potlačí
+        // OS browser menu i když AG Grid sám nemá menu items pro daný target.
+        preventDefaultOnContextMenu: true,
         // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)
         enterMovesDown: true,
         enterMovesDownAfterEdit: true,

@@ -914,14 +914,17 @@
       // Bez layoutKey žádný toolbar (component fungování beze změny pro non-persistent grids).
       this.gridContainer = this.container;  // default — AG Grid renders přímo do containeru
       if (this.options.layoutKey) {
-        this.container.classList.add("erp-grid-with-toolbar");
+        // B+10+++ (Marti's drobnost 6.5.2026): toolbar (layout dropdown +
+        // 🎨 Pravidla + Uložit jako… + ⋮) přesunut POD grid (po status baru).
+        // DOM order: gridContainer → toolbar.
+        this.container.classList.add("erp-grid-with-toolbar", "erp-grid-toolbar-bottom");
         this.toolbarEl = document.createElement("div");
-        this.toolbarEl.className = "erp-grid-toolbar";
+        this.toolbarEl.className = "erp-grid-toolbar erp-grid-toolbar-bottom";
         this.toolbarEl.innerHTML = this._renderToolbarHtml();
         this.gridContainer = document.createElement("div");
         this.gridContainer.className = "erp-grid-inner";
-        this.container.appendChild(this.toolbarEl);
         this.container.appendChild(this.gridContainer);
+        this.container.appendChild(this.toolbarEl);
         this._wireToolbar();
       }
 
@@ -995,15 +998,16 @@
         // B+10++ (6.5.2026 drobnost): Marti chce CS thousands separator
         // (1 000 ne 1,000). AG Grid native agTotalRowCountComponent
         // hardcoduje en-US comma format → custom status panel s Intl.
+        // B+10+++ (6.5.2026 odpoledne): smazán "Filtrováno" (duplikát),
+        // Celkem přesunut doprava (Marti: "ten zleva Celkem 1000 limit ma
+        // vic presun do prava").
         statusBar: {
           statusPanels: [
+            { statusPanel: "agSelectedRowCountComponent", align: "left" },
+            { statusPanel: "agAggregationComponent", align: "center" },
             { statusPanel: CzRowCountStatusPanel,
               statusPanelParams: { label: "Celkem", mode: "total" },
-              align: "left" },
-            { statusPanel: CzRowCountStatusPanel,
-              statusPanelParams: { label: "Filtrováno", mode: "filtered" } },
-            { statusPanel: "agSelectedRowCountComponent" },
-            { statusPanel: "agAggregationComponent" },
+              align: "right" },
           ],
         },
         // B+10++ (6.5.2026): context passthrough — status panely + custom

@@ -398,6 +398,12 @@
   flex-wrap: wrap;
 }
 
+/* B+10+++ (Marti's drobnost 6.5.2026): toolbar pod gridem (po status baru). */
+.erp-grid-toolbar.erp-grid-toolbar-bottom {
+  border-bottom: none;
+  border-top: 1px solid var(--border, #3a3d44);
+}
+
 .erp-grid-toolbar .erp-toolbar-left,
 .erp-grid-toolbar .erp-toolbar-right {
   display: flex;

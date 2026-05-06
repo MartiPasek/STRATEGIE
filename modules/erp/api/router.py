@@ -1682,34 +1682,36 @@ def _render_full_page(
       overflow: hidden;
     }}
     /* ── B+8 (6.5.2026): multi-tab přehled bar ───────────────────── */
+    /* B+10+++ (Marti's drobnost 6.5.2026): tabs zvýrazněné, těsně nad
+       gridem, bez border-bottom (visually splývá s gridem). */
     .erp-tabs-bar {{
       flex: 0 0 auto;
       display: flex;
       align-items: stretch;
       gap: 0;
       background: var(--bg);
-      border-bottom: 1px solid var(--border-strong);
       padding: 0 6px 0 0;
       overflow-x: auto;
       overflow-y: hidden;
       scrollbar-width: thin;
+      /* Žádný margin-bottom — tabs těsně nad gridem */
     }}
     .erp-tabs-bar[hidden] {{ display: none; }}
     .erp-tab {{
       display: inline-flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 8px 5px 12px;
-      max-width: 240px;
-      min-width: 80px;
+      gap: 8px;
+      padding: 8px 12px 8px 16px;
+      max-width: 280px;
+      min-width: 100px;
       background: var(--surface2);
       border-right: 1px solid var(--border);
       color: var(--text-muted);
-      font-size: 12px;
+      font-size: 13px;
       cursor: pointer;
       user-select: none;
       -webkit-user-select: none;
-      transition: background 0.12s, color 0.12s;
+      transition: background 0.12s, color 0.12s, transform 0.12s;
       flex-shrink: 0;
       position: relative;
     }}
@@ -1719,9 +1721,17 @@ def _render_full_page(
     }}
     .erp-tab.active {{
       background: var(--surface);
-      color: var(--accent);
-      font-weight: 500;
-      box-shadow: inset 0 -2px 0 var(--accent);
+      color: var(--text);
+      font-weight: 600;
+      box-shadow: inset 0 3px 0 var(--accent);
+      /* Active tab visually splývá s gridem dole — žádné spodní pruhy */
+      z-index: 2;
+    }}
+    .erp-tab.active .erp-tab-label {{
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
     }}
     .erp-tab-label {{
       flex: 1 1 auto;
@@ -1790,12 +1800,15 @@ def _render_full_page(
     .erp-main-placeholder p {{ font-size: 14px; line-height: 1.6; margin-bottom: 8px; }}
     .erp-main-placeholder code {{ font-family: 'DM Mono',monospace; color: var(--accent); padding: 1px 5px; background: var(--bg); border-radius: 3px; }}
 
+    /* B+10+++ (Marti's drobnost 6.5.2026): prehled-header redukován —
+       h2 nazev smazan (duplikat s tab labelem), tj. minimal padding +
+       hide pokud prazdny aby tabs byly tesne nad gridem. */
     .erp-prehled-header {{
-      padding: 12px 18px 10px 18px;
-      border-bottom: 1px solid var(--border);
+      padding: 0 18px;
       flex-shrink: 0;
       background: var(--surface);
     }}
+    .erp-prehled-header:empty {{ display: none; }}
     .erp-prehled-header h2 {{ font-size: 16px; font-weight: 600; color: var(--text); margin-bottom: 4px; }}
     .erp-prehled-meta {{
       font-size: 12px; color: var(--muted); font-family: 'DM Mono',monospace;
@@ -2759,11 +2772,11 @@ def _render_workspace_page(user_id: int) -> str:
         const appliedLimit = data.applied_limit || rows.length;
         const limitOptions = [1000, 10000, 50000, 100000];
 
+        // B+10+++ (Marti's drobnost 6.5.2026): h2 nazev smazan — duplikat
+        // s tab labelem. Hlavička přehledu redukována na breadcrumb only
+        // (může být i prázdná pokud breadcrumb nedefinován).
         let html = '<div class="erp-prehled-header">';
-        html += '<div class="erp-bc-path">' + breadcrumb + '</div>';
-        html += '<div class="erp-prehled-titlebar">';
-        html += '<h2>' + escapeHtml(data.nazev || ("Přehled #" + data.cislo)) + '</h2>';
-        html += '</div>';
+        if (breadcrumb) html += '<div class="erp-bc-path">' + breadcrumb + '</div>';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
         html += '</div>';
 
@@ -3220,7 +3233,7 @@ def _render_workspace_page(user_id: int) -> str:
         document.body.classList.remove("erp-zoom-small", "erp-zoom-large");
         if (mode === "small") document.body.classList.add("erp-zoom-small");
         else if (mode === "large") document.body.classList.add("erp-zoom-large");
-        // Update toggle UI
+        // Update toggle UI — query each call (footer buttons existing post-init)
         document.querySelectorAll(".erp-zoom-toggle button").forEach(b => {
           b.classList.toggle("active", b.getAttribute("data-zoom") === mode);
         });
@@ -3232,15 +3245,28 @@ def _render_workspace_page(user_id: int) -> str:
           }, 80);
         }
       }
-      // Init z localStorage
-      applyZoom(loadZoom());
-      // Wire buttons
-      document.querySelectorAll(".erp-zoom-toggle button").forEach(b => {
-        b.addEventListener("click", () => {
-          const m = b.getAttribute("data-zoom");
+      // B+10++ (Marti's drobnost 6.5.2026): zoom toggle přesunut z header
+      // do footer aplikace. Workspace IIFE běží INLINE ve <main> PŘED
+      // <footer> parsed → buttons ještě neexistují. Fix: event delegation
+      // (zachycuje clicks i pozdě připojené buttony) + delayed applyZoom.
+      document.addEventListener("click", (ev) => {
+        const btn = ev.target && ev.target.closest
+          ? ev.target.closest(".erp-zoom-toggle button")
+          : null;
+        if (btn) {
+          const m = btn.getAttribute("data-zoom");
           if (m) applyZoom(m);
-        });
+        }
       });
+      // Init z localStorage — delay aby footer buttons existovaly při
+      // prvním nastavení active class
+      const _zoomInit = () => applyZoom(loadZoom());
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", _zoomInit, { once: true });
+      } else {
+        // Document již plně parsed — DOM má footer; ale pojistka přes RAF
+        requestAnimationFrame(_zoomInit);
+      }
 
       // ── B+7++++ (6.5.2026): tree collapse / expand toggle ──────────
       const TREE_COLLAPSED_KEY = "erp.tree.collapsed";

@@ -1042,7 +1042,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       overflow: hidden;
       display: flex; flex-direction: column;
       /* B+7+++ (6.5.2026): KLÍČOVÝ override — inner <main> dědí default
-         "main { max-width: 1280px; margin: 0 auto }" co centruje grid
+         "main {{ max-width 1280px, margin 0 auto }}" co centruje grid
          na fullscreenu. Marti's UI feedback "danou maximalni sirku
          toho gridu". Force max-width none + margin 0. */
       max-width: none !important;

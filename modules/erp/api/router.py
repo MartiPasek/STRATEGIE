@@ -436,6 +436,100 @@ def jadro_components_json(form_id: int, req: Request) -> JSONResponse:
     })
 
 
+@api_router.get("/jadro/{form_id}/{row_id}/data")
+def jadro_data_json(form_id: int, row_id: int, req: Request) -> JSONResponse:
+    """
+    Phase B+6.6b (6.5.2026): JSON metadata jádra pro frontend ErpForm
+    orchestrator. Vrací form definition + komponenty + data row +
+    lookup-enriched display values.
+
+    Klient (apps/api/static/erp/components/form.js) si z toho postaví
+    DOM přes UI Kit komponenty (ErpInput / ErpCheckbox / ErpFormList /
+    ErpFormSection / ErpButton). Server-side render_form() pro
+    standalone /erp/jadro/{id}/{row} zůstává beze změny.
+
+    Returns: {
+      ok: bool,
+      form_id: int,
+      row_id: int,
+      form: { id, nazev, sql_select, ... },
+      components: [{id, typ, c_field_name, c_caption, c_parent,
+                    c_mask, c_top, c_left, c_height, c_width,
+                    properties: {...}}, ...],
+      data: { field_name: value, _lookup_{field}: display, ... },
+      typ_names: { 1: "Label", 2: "Edit", ... },
+      debug: { ... },
+    }
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    logger.info(
+        f"ERP | jadro data JSON | user={uid} form_id={form_id} row_id={row_id}"
+    )
+
+    reader = CentralaReader()
+    form = reader.load_form_def(form_id)
+    if not form:
+        raise HTTPException(404, f"FormDef ID={form_id} nenalezen")
+
+    components = reader.load_form_components(form_id)
+    data = reader.execute_form_data(form.sql_select, row_id) or {}
+    data = reader.enrich_data_with_lookups(data, components)
+
+    # Serializovat komponenty
+    comps_json = []
+    for c in components:
+        comps_json.append({
+            "id": c.id,
+            "typ": c.typ,
+            "typ_name": TYP_NAMES.get(c.typ, "?"),
+            "c_field_name": c.c_field_name or "",
+            "c_caption": c.c_caption or "",
+            "c_parent": c.c_parent or "",
+            "c_mask": c.c_mask or "",
+            "c_top": c.c_top or 0,
+            "c_left": c.c_left or 0,
+            "c_height": c.c_height or 20,
+            "c_width": c.c_width or 100,
+            "smazana": c.smazana,
+            "properties": c.properties or {},
+        })
+
+    # Serializovat data (Date/Decimal coerce na string pro JSON safety)
+    data_json = {}
+    for k, v in (data or {}).items():
+        if v is None:
+            data_json[k] = None
+        elif isinstance(v, (str, int, float, bool)):
+            data_json[k] = v
+        else:
+            data_json[k] = str(v)
+
+    return JSONResponse({
+        "ok": True,
+        "form_id": form_id,
+        "row_id": row_id,
+        "form": {
+            "id": form.id,
+            "nazev": form.nazev,
+            "sql_select": form.sql_select,
+        },
+        "components": comps_json,
+        "data": data_json,
+        "typ_names": TYP_NAMES,
+        "debug": {
+            "form_id": form_id,
+            "row_id": row_id,
+            "components_count": len(comps_json),
+            "data_keys": list(data_json.keys()),
+            "sql_select_preview": (
+                form.sql_select[:200] + "…"
+                if len(form.sql_select) > 200 else form.sql_select
+            ),
+        },
+    })
+
+
 @api_router.get("/jadro/{form_id}/lookup/{field_name}")
 def jadro_lookup_options(form_id: int, field_name: str, req: Request) -> JSONResponse:
     """
@@ -1275,6 +1369,8 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/checkbox.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/dropdown.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formlist.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/formsection.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/form.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
@@ -1715,10 +1811,17 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       // ── Phase B+2.2: jádro modal popup (centered overlay) ───────
+      // ── Phase B+6.6c (6.5.2026): JSON metadata + ErpForm orchestrator
+      // (auto-render přes UI Kit komponenty, klient-side state pro Phase C)
+      let currentJadroForm = null;  // ErpForm instance pro destroy na close
       async function openJadroInPane(formId, rowId) {
         if (!jadroPane || !jadroContent) return;
         currentJadro = { form_id: formId, row_id: rowId };
-        // B+2.2: modal overlay — žádný grid template shift, tabulka beze změny
+        // Cleanup předchozí instance
+        if (currentJadroForm) {
+          try { currentJadroForm.destroy(); } catch (e) {}
+          currentJadroForm = null;
+        }
         if (jadroBackdrop) jadroBackdrop.removeAttribute("hidden");
         jadroPane.removeAttribute("hidden");
         if (jadroTitle) jadroTitle.textContent = "Načítám jádro…";
@@ -1731,25 +1834,66 @@ def _render_workspace_page(user_id: int) -> str:
           '</div>';
         try {
           const r = await fetch(
-            "/erp/jadro/" + formId + "/" + rowId + "?fragment=1",
+            "/api/v1/erp/jadro/" + encodeURIComponent(formId) + "/" +
+              encodeURIComponent(rowId) + "/data",
             { credentials: "include" }
           );
           if (!r.ok) {
-            const txt = await r.text();
-            jadroContent.innerHTML = txt || (
-              '<div class="erp-jadro-error">Status ' + r.status + '</div>'
-            );
+            const txt = await r.text().catch(() => "");
+            jadroContent.innerHTML =
+              '<div class="erp-jadro-error">' +
+              'Status ' + r.status +
+              (txt ? ' — ' + escapeHtml(txt.slice(0, 200)) : '') +
+              '</div>';
             if (jadroTitle) jadroTitle.textContent = "Chyba";
             return;
           }
-          const headerTitle = r.headers.get("X-Jadro-Title");
-          if (jadroTitle) {
-            jadroTitle.textContent = headerTitle || ("Jádro #" + formId);
+          const meta = await r.json();
+          if (!meta || !meta.ok) {
+            jadroContent.innerHTML =
+              '<div class="erp-jadro-error">Backend vrátil ' +
+              'ok=false: ' + escapeHtml(JSON.stringify(meta).slice(0, 240)) +
+              '</div>';
+            if (jadroTitle) jadroTitle.textContent = "Chyba";
+            return;
           }
-          const html = await r.text();
-          jadroContent.innerHTML = html;
-          // B+6.4 (5.5.2026): wire ErpDropdown na lookup fields v jádře
-          wireJadroLookups(jadroContent);
+
+          // Title — preferuj FormSetting.FormCaption, pak FormDef.Nazev
+          let title = (meta.form && meta.form.nazev) || ("Jádro #" + formId);
+          if (Array.isArray(meta.components)) {
+            for (const c of meta.components) {
+              if (c.typ === 30 && c.properties && c.properties.FormCaption) {
+                const fc = String(c.properties.FormCaption).trim();
+                if (fc) { title = fc; break; }
+              }
+            }
+          }
+          if (jadroTitle) jadroTitle.textContent = title;
+
+          // Build form přes ErpForm orchestrator
+          if (typeof window.ErpForm !== "function") {
+            jadroContent.innerHTML =
+              '<div class="erp-jadro-error">' +
+              'ErpForm komponenta se nenačetla — refresh stránky.' +
+              '</div>';
+            return;
+          }
+          jadroContent.innerHTML = "";
+          currentJadroForm = new window.ErpForm(jadroContent, {
+            formId: meta.form_id,
+            formNazev: meta.form && meta.form.nazev,
+            components: meta.components || [],
+            data: meta.data || {},
+            readOnly: true,  // Phase A — Phase C otevře pro edit
+            onChange: (fieldName, newVal, oldVal) => {
+              // Per-field change — toast info pro Phase A
+              jadroToast(
+                "Změna „" + fieldName + "\" lokálně. " +
+                "Uloží se s tlačítkem OK (Phase C)."
+              );
+            },
+            debugInfo: meta.debug,
+          });
         } catch (e) {
           jadroContent.innerHTML =
             '<div class="erp-jadro-error">Nelze načíst: ' +
@@ -1758,12 +1902,12 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
-      // ── B+6.4+ (5.5.2026): jádro lookup fields → ErpFormList ───────
-      // Po každém načtení jádro modalu scanneme [data-erp-lookup] elements
-      // a wire ErpFormList (typeable input + autocomplete + browse modal).
-      // Marti's spec: stejně nebo lépe než Centrála 1 native FormList.
-      // Read-only Phase A: výběr update data-erp-fk-value (in-memory state);
-      // persist do DB přijde Phase C OK button.
+      // ── DEAD CODE — B+6.4+ post-render hook nahrazen ErpForm
+      // orchestratorem (B+6.6 6.5.2026). ErpForm staví ErpFormList
+      // přímo z metadat a používá LookupField property pro sibling
+      // hide + FK sync. Tyto funkce nikdo nevolá; smaž v cleanup
+      // commitu, zatím ponecháno pro reference.
+      // ──────────────────────────────────────────────────────────────
       function wireJadroLookups(rootEl) {
         if (!rootEl || typeof window.ErpFormList !== "function") return;
         const formEl = rootEl.querySelector(".erp-form[data-erp-form-id]");
@@ -1888,6 +2032,11 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       function closeJadroPane() {
+        // B+6.6c (6.5.2026): destroy ErpForm + uvolni FormList instances
+        if (currentJadroForm) {
+          try { currentJadroForm.destroy(); } catch (e) {}
+          currentJadroForm = null;
+        }
         if (jadroPane) jadroPane.setAttribute("hidden", "");
         if (jadroBackdrop) jadroBackdrop.setAttribute("hidden", "");
         if (jadroContent) jadroContent.innerHTML = "";

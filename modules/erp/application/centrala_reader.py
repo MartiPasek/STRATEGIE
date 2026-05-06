@@ -373,9 +373,60 @@ class CentralaReader:
 
         Tj. always single-row lookup po PK. Pro 95 % Centrála jádra to
         funguje. Phase B+ může přidat raw SQL execute tool do MCP serveru.
+
+        Phase A.6 (6.5.2026 večer): SQL_Select může být integer string
+        (např. "2708") — to je FK reference na EC_DELPHI_DefView záznam,
+        kde leží real SQL string. Pre-pass dereference před regex parse.
         """
         if not sql_select or not sql_select.strip():
             return None
+
+        # Phase A.6 (6.5.2026 večer): TabObecnyPrehled reference dereference.
+        # Marti's diagnóza: pokud SQL_Select je integer string (např. "2708"),
+        # je to vždy `Cislo` v `EC_DELPHI_TabObecnyPrehled`, kde leží real SQL
+        # string (sloupec `SQL_Select` nebo `DefView`).
+        # Pattern: Centrála 1 indirection — jádro #4 Editace přehledu má
+        # SQL_Select="2708" → query `EC_DELPHI_TabObecnyPrehled WHERE Cislo=2708`
+        # → row.SQL_Select = "SELECT [ID],[GUID],...FROM EC_DELPHI_TabObecnyPrehled
+        #                     WHERE ID = :ID" → standard pattern parse.
+        sql_stripped = sql_select.strip()
+        if sql_stripped.isdigit():
+            cislo = int(sql_stripped)
+            logger.info(
+                f"CentralaReader: dereferencing TabObecnyPrehled Cislo={cislo} "
+                f"(SQL_Select je integer reference, ne plain SQL)"
+            )
+            ref_result = self._call_mcp(
+                "query_table",
+                {
+                    "table": "EC_DELPHI_TabObecnyPrehled",
+                    "filters": {"Cislo": cislo},
+                    "limit": 1,
+                },
+            )
+            if not ref_result or not ref_result.get("rows"):
+                logger.warning(
+                    f"CentralaReader: TabObecnyPrehled Cislo={cislo} nenalezen"
+                )
+                return None
+            ref_row = ref_result["rows"][0]
+            # Real SQL je v `SQL_Select` (primary) nebo `DefView` (fallback).
+            real_sql = (
+                (ref_row.get("SQL_Select") or "").strip()
+                or (ref_row.get("DefView") or "").strip()
+            )
+            if not real_sql:
+                avail = sorted(ref_row.keys())
+                logger.warning(
+                    f"CentralaReader: TabObecnyPrehled Cislo={cislo} "
+                    f"prázdný real SQL field. Available columns: {avail}"
+                )
+                return None
+            logger.info(
+                f"CentralaReader: TabObecnyPrehled Cislo={cislo} → real SQL "
+                f"{real_sql[:80]!r}..."
+            )
+            sql_select = real_sql
 
         # Detekce dummy SQL (jádro bez dat — actions only / legend panel)
         sql_lower = sql_select.lower().strip()

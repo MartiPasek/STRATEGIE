@@ -267,6 +267,10 @@
       }
     }
 
+    /** UI Kit pattern — vrací wrapper element (pro ErpFormSection.addField()
+     *  nebo ErpForm dispatch loop). */
+    wrapperElement() { return this.wrapper; }
+
     /**
      * Notify Ace, že container resizoval (např. po tabsheet switch
      * nebo zoom toggle). Bez resize Ace render je sticky až do user

@@ -237,6 +237,10 @@
       this._renderTabsBar();
     }
 
+    /** UI Kit pattern — vrací wrapper element (pro ErpFormSection.addField()
+     *  nebo ErpForm dispatch loop). */
+    wrapperElement() { return this.wrapper; }
+
     destroy() {
       if (this._destroyed) return;
       this._destroyed = true;

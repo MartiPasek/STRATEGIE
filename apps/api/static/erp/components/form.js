@@ -199,17 +199,24 @@
       // Filter visual components
       const visuals = components.filter(c => !NON_VISUAL_TYPS.has(c.typ));
 
-      // Build sections (Typ=12 = GroupBox)
+      // B+6.10b (6.5.2026 večer): rozšíření o PageControl + TabSheet jako
+      // parent containers. Marti's screenshot 2: PageControl má TabSheet
+      // children, TabSheet má RichEdit children. Convention c_parent="c{id}"
+      // unified napříč GroupBox / PageControl / TabSheet.
       const groups = visuals.filter(c => c.typ === TYP_GROUPBOX);
-      const fields = visuals.filter(c => c.typ !== TYP_GROUPBOX);
+      const pageControls = visuals.filter(c => c.typ === TYP_PAGECONTROL);
+      const tabSheets = visuals.filter(c => c.typ === TYP_TABSHEET);
+      const fields = visuals.filter(c =>
+        c.typ !== TYP_GROUPBOX &&
+        c.typ !== TYP_PAGECONTROL &&
+        c.typ !== TYP_TABSHEET
+      );
 
       // Sekce per GroupBox (lookup podle cParent na fieldech)
-      // Plus orphan section pro fields bez parenta nebo s neznámým parentem
       // B+6.6c-fix4 (6.5.2026): c_parent konvence je "c{id}" (např. "c12")
-      // — string referent na ID GroupBoxu, NE jeho caption. Match přes
-      // section by ID, ne by name. (Server-side render_generator.py
-      // _parse_parent_id má stejnou logiku.)
-      const sectionById = new Map();  // groupbox.id (number) → ErpFormSection
+      // — string referent na ID parent, NE jeho caption. Match přes
+      // ID, ne by name.
+      const sectionById = new Map();  // groupbox.id → ErpFormSection
       groups.forEach(g => {
         const realCaption = _resolveCaption(g);
         const sec = new global.ErpFormSection(this.wrapper, {
@@ -217,6 +224,45 @@
         });
         sectionById.set(g.id, sec);
         this._sections.push(sec);
+      });
+
+      // B+6.10b: PageControly jako section-like wrappery na root úrovni.
+      // Každý PageControl je samostatný container (žádný group-box title).
+      const pageControlById = new Map();  // pc.id → { instance, comp }
+      pageControls.forEach(pc => {
+        const entry = this._buildField(pc, null, null);
+        if (entry && entry.instance && entry.instance.wrapper) {
+          // Append PageControl wrapper directly (vedle GroupBox sekcí)
+          this.wrapper.appendChild(entry.instance.wrapper);
+          pageControlById.set(pc.id, { comp: pc, instance: entry.instance });
+        }
+      });
+
+      // B+6.10b: TabSheety — pro každý najít parent PageControl + addTab.
+      // Plus uchovat reference na contentEl pro pozdější dispatch fields.
+      const tabSheetById = new Map();  // ts.id → { contentEl, label, comp }
+      tabSheets.forEach(ts => {
+        const entry = this._buildField(ts, null, null);
+        if (!entry || !entry.element) return;
+        const parentRaw = String(ts.c_parent || "").trim();
+        const parentId = _parseParentId(parentRaw);
+        const pc = (parentId != null) ? pageControlById.get(parentId) : null;
+        if (pc) {
+          pc.instance.addTab({
+            id: ts.id,
+            label: entry._tabLabel,
+            content: entry.element,
+          });
+        } else {
+          // TabSheet bez parent PageControl — orphan, append do form wrapper
+          // (defensive — Centrála 1 vždy má parent, ale pojistka).
+          this.wrapper.appendChild(entry.element);
+        }
+        tabSheetById.set(ts.id, {
+          comp: ts,
+          contentEl: entry.element,
+          label: entry._tabLabel,
+        });
       });
 
       // Orphan section (lazy create — jen pokud je potřeba)
@@ -269,20 +315,41 @@
           });
         }
 
-        // Place do sekce — match cParent="c{id}" na GroupBox.id
+        // Place do parent — match cParent="c{id}" na TabSheet.id NEBO
+        // GroupBox.id. B+6.10b (6.5.2026 večer): priorita TabSheet >
+        // GroupBox > orphan. RichEdit jako child TabSheet appendá svůj
+        // wrapper přímo do contentEl (plain div, není ErpFormSection).
         const parentRaw = String(comp.c_parent || "").trim();
         const parentId = _parseParentId(parentRaw);
-        let targetSec = null;
-        if (parentId != null && sectionById.has(parentId)) {
-          targetSec = sectionById.get(parentId);
+
+        if (parentId != null && tabSheetById.has(parentId)) {
+          // TabSheet child → append wrapper přímo do contentEl
+          const ts = tabSheetById.get(parentId);
+          let el = null;
+          if (entry.component) {
+            if (typeof entry.component.wrapperElement === "function") {
+              el = entry.component.wrapperElement();
+            } else if (entry.component.wrapper) {
+              el = entry.component.wrapper;
+            }
+          } else if (entry.element) {
+            el = entry.element;
+          }
+          if (el) ts.contentEl.appendChild(el);
         } else {
-          // No parent OR parent ID nenalezen mezi GroupBoxes → orphan
-          targetSec = ensureOrphan();
-        }
-        if (entry.component) {
-          targetSec.addField(entry.component);
-        } else if (entry.element) {
-          targetSec.addField(entry.element);
+          // GroupBox child NEBO orphan → ErpFormSection.addField()
+          let targetSec = null;
+          if (parentId != null && sectionById.has(parentId)) {
+            targetSec = sectionById.get(parentId);
+          } else {
+            // No parent OR parent ID nenalezen mezi GroupBoxes → orphan
+            targetSec = ensureOrphan();
+          }
+          if (entry.component) {
+            targetSec.addField(entry.component);
+          } else if (entry.element) {
+            targetSec.addField(entry.element);
+          }
         }
       }
 
@@ -306,6 +373,22 @@
           }
         }
       }
+
+      // B+6.10b (6.5.2026 večer): post-build resize sweep — Ace Editory
+      // jsou inicializované v detached stavu (parent contentEl ještě
+      // neexistoval při _buildField). Po appendu do TabSheet contentEl
+      // mají reálné dimenze, ale Ace o tom neví — musíme resize()
+      // explicitně. Idempotentní: resize na hidden tab je harmless.
+      // setTimeout aby DOM stihl layout pass před resize().
+      setTimeout(() => {
+        if (this._destroyed) return;
+        for (const [, entry] of this._components.entries()) {
+          if (entry.typ === TYP_RICHEDIT && entry.instance &&
+              typeof entry.instance.resize === "function") {
+            try { entry.instance.resize(); } catch (e) {}
+          }
+        }
+      }, 0);
 
       // Footer s Buttons (Typ=8) — Phase A: žádný save flow, jen render
       // labels jako readonly buttons. Phase C: OK/Storno bind handlers.
@@ -834,10 +917,13 @@
     LABEL_ONLY: TYP_LABEL_ONLY,
     EDIT: TYP_EDIT,
     CHECKBOX: TYP_CHECKBOX,
+    RICHEDIT: TYP_RICHEDIT,
     DATE: TYP_DATE,
     FORMLIST: TYP_FORMLIST,
     COMBOBOX: TYP_COMBOBOX,
     BUTTON: TYP_BUTTON,
     GROUPBOX: TYP_GROUPBOX,
+    PAGECONTROL: TYP_PAGECONTROL,
+    TABSHEET: TYP_TABSHEET,
   };
 })(typeof window !== "undefined" ? window : this);

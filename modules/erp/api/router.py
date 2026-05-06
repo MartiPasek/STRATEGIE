@@ -1049,10 +1049,12 @@ def _render_full_page(
     }}
     .erp-marti-btn-label {{
       /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): gradient stejný
-         jako logo STRATEGIE (sjednocený brand visual).
-         B+10+++++ (znovu po návratu): visual center s avatarem — label je
-         display flex s height = avatar (36px) → vlastní container vertical
-         center text. Žádné margin/padding hacking, just flex internal. */
+         jako logo STRATEGIE.
+         B+10++++++ (znovu): Galano má visual cap-height usazený vysoko
+         v line-box, takže `align-items: center` na flex parent posune
+         text-box center s avatar-box center, ale **glyph-visual center**
+         je výš. Fix: padding-top 4px aby glyphy klesly o ~4px = visual
+         center s avatarem. */
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
       font-size: 18px;
       font-weight: 700;
@@ -1064,7 +1066,9 @@ def _render_full_page(
       line-height: 1;
       display: inline-flex;
       align-items: center;
-      height: 36px;  /* match avatar height — text is true-center v containeru */
+      height: 36px;
+      padding-top: 4px;  /* Galano optical center correction (cap-height bias) */
+      box-sizing: border-box;
     }}
     /* B+10+++ (6.5.2026 Marti's drobnost): brand row s · separátorem
        a Marti-AI ploškou. B+10++++: gap 10→20px (Marti's drobnost po

@@ -1388,3 +1388,19 @@
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* B+10++++++ (znovu po návratu): vystřeď Selected + Celkem v pravém
+   panelu status baru. AG Grid default různé vertical paddings —
+   sjednotíme přes flex align-items center + uniform line-height. */
+.ag-theme-quartz-dark .ag-status-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+.ag-theme-quartz-dark .ag-status-bar-right .ag-status-name-value,
+.ag-theme-quartz-dark .ag-status-bar-right .ag-status-panel {
+  display: inline-flex;
+  align-items: center;
+  line-height: 1.4;
+  padding: 0 4px !important;
+}

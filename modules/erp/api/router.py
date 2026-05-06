@@ -1091,21 +1091,26 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       line-height: 1.5;
     }}
 
-    /* Star ikona u pinned row — visible v všech views (Vše/MRU/Oblíbené) */
+    /* Star ikona u pinned row — visible v všech views (Vše/MRU/Oblíbené).
+       Žlutá/zlatá (gold) — klasický favorite pattern. */
     .erp-tree-row .erp-tree-star {{
       display: none;
       flex-shrink: 0;
-      color: var(--accent2);
-      font-size: 11px;
+      color: #fbbf24;  /* gold */
+      font-size: 12px;
       margin-left: 4px;
       cursor: pointer;
-      transition: opacity 0.12s;
-      opacity: 0.85;
+      transition: opacity 0.12s, transform 0.12s;
+      opacity: 0.95;
+      text-shadow: 0 0 4px rgba(251, 191, 36, 0.45);
     }}
     .erp-tree-row.erp-tree-pinned .erp-tree-star {{
       display: inline;
     }}
-    .erp-tree-row .erp-tree-star:hover {{ opacity: 1; }}
+    .erp-tree-row .erp-tree-star:hover {{
+      opacity: 1;
+      transform: scale(1.15);
+    }}
 
     /* B+8.2a+ (6.5.2026): Ctrl+klik selection — fialová highlight,
        odlišná od accent (modré) co znamená "open in main pane" */
@@ -2809,15 +2814,26 @@ def _render_workspace_page(user_id: int) -> str:
         if (idx >= 0) arr.splice(idx, 1);
         else arr.push(c);
         saveTreeFavorites(arr);
-        // Update star ikona v DOM
+        const isPinnedNow = isTreeFavorite(c);
+        // Update DOM — pinned class + zajisti že ★ span existuje
         treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
           const cd = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
-          if (cd === c) {
-            const row = item.querySelector(":scope > .erp-tree-row");
-            if (row) row.classList.toggle("erp-tree-pinned", isTreeFavorite(c));
+          if (cd !== c) return;
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (!row) return;
+          row.classList.toggle("erp-tree-pinned", isPinnedNow);
+          // B+8.2a+ fix (6.5.2026): při prvním pin musíme vložit ★ span,
+          // protože _markPinnedTreeRows běžel jen po init renderTreeNodes.
+          if (isPinnedNow && !row.querySelector(".erp-tree-star")) {
+            const star = document.createElement("span");
+            star.className = "erp-tree-star";
+            star.textContent = "★";
+            star.title = "Odepnout (klik) nebo pravý-klik";
+            row.appendChild(star);
           }
         });
-        // Re-apply view filter pokud je v favorites
+        // Re-apply view filter pokud je v favorites view (nebo pokud unpinned
+        // odebral jediný viditelný row — empty state by měl scvyltnout)
         if (treeViewMode === "favorites") applyTreeViewFilter();
       }
 

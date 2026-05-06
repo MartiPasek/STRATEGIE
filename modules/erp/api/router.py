@@ -2116,6 +2116,8 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/input.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/checkbox.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/dropdown.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/date.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/memo.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formlist.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formsection.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/form.js?v=''' + _STATIC_VERSION + '''"></script>

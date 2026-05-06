@@ -1147,3 +1147,367 @@
 /* ── Phase B+6.5+: ErpFormSection / ErpForm ──────────────────────
    Placeholder rules (filled in next iterations).
    ----------------------------------------------------------------- */
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+6.7 (6.5.2026): ErpDate (date / datetime / time picker)
+   ══════════════════════════════════════════════════════════════════ */
+
+.erp-date-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+  position: relative;
+}
+
+.erp-date-row {
+  align-items: stretch;
+}
+
+.erp-date-trigger {
+  background: var(--surface2, #252830);
+  border: none;
+  border-left: 1px solid var(--border, #3a3d44);
+  color: var(--text-muted, #b0b3bc);
+  padding: 0 10px;
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.12s, color 0.12s;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.erp-date-trigger:hover:not(:disabled) {
+  background: var(--surface3, #2d3038);
+  color: var(--text, #f0f1f5);
+}
+
+.erp-date-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.erp-date-wrapper.erp-date-open .erp-date-trigger {
+  background: var(--accent, #4f8ef7);
+  color: white;
+  border-left-color: var(--accent, #4f8ef7);
+}
+
+/* ── Popup container ───────────────────────────────────────────── */
+
+.erp-date-popup {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 6px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55);
+  padding: 8px;
+  min-width: 260px;
+  z-index: 9000;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  color: var(--text, #f0f1f5);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ── Header (month nav) ─────────────────────────────────────────── */
+
+.erp-date-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  padding: 4px 4px 8px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  margin-bottom: 6px;
+}
+
+.erp-date-nav {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted, #b0b3bc);
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.erp-date-nav:hover {
+  background: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border-color: var(--border, #3a3d44);
+}
+
+.erp-date-month-label {
+  flex: 1 1 auto;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text, #f0f1f5);
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  text-align: center;
+  transition: background 0.12s, border-color 0.12s;
+}
+
+.erp-date-month-label:hover {
+  background: var(--surface2, #252830);
+  border-color: var(--border, #3a3d44);
+}
+
+/* ── Calendar grid ──────────────────────────────────────────────── */
+
+.erp-date-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 2px;
+}
+
+.erp-date-weekday {
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-faint, #6c7076);
+  letter-spacing: 0.04em;
+  padding: 4px 0 6px;
+  text-transform: uppercase;
+}
+
+.erp-date-day {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text, #f0f1f5);
+  font-size: 12px;
+  font-family: inherit;
+  padding: 6px 0;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+  min-width: 32px;
+}
+
+.erp-date-day:hover:not(.erp-date-day-disabled) {
+  background: var(--surface2, #252830);
+  border-color: var(--border, #3a3d44);
+}
+
+.erp-date-day-other {
+  color: var(--text-faint, #6c7076);
+  opacity: 0.55;
+}
+
+.erp-date-day-weekend {
+  color: var(--text-muted, #b0b3bc);
+}
+
+.erp-date-day-other.erp-date-day-weekend {
+  color: var(--text-faint, #6c7076);
+}
+
+.erp-date-day-today {
+  border-color: var(--accent, #4f8ef7);
+  font-weight: 600;
+}
+
+.erp-date-day-selected {
+  background: var(--accent, #4f8ef7);
+  color: white;
+  border-color: var(--accent, #4f8ef7);
+  font-weight: 600;
+}
+
+.erp-date-day-selected:hover {
+  background: var(--accent2, #7c5cfc);
+  border-color: var(--accent2, #7c5cfc);
+}
+
+.erp-date-day-disabled {
+  color: var(--text-faint, #6c7076);
+  opacity: 0.35;
+  cursor: not-allowed;
+  text-decoration: line-through;
+}
+
+/* ── Time picker (datetime / time mode) ────────────────────────── */
+
+.erp-date-timepicker {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  padding: 8px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border, #3a3d44);
+}
+
+.erp-date-time-input {
+  width: 48px;
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 4px;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  text-align: center;
+  padding: 4px 0;
+  -moz-appearance: textfield;
+}
+
+.erp-date-time-input:focus {
+  outline: none;
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+}
+
+/* Hide native number spin controls */
+.erp-date-time-input::-webkit-outer-spin-button,
+.erp-date-time-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.erp-date-time-colon {
+  color: var(--text-muted, #b0b3bc);
+  font-size: 16px;
+  font-weight: 600;
+  padding: 0 4px;
+}
+
+/* ── Footer (Dnes / Včera / Zítra / Smazat) ────────────────────── */
+
+.erp-date-footer {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 8px 4px 4px;
+  margin-top: 6px;
+  border-top: 1px solid var(--border, #3a3d44);
+  flex-wrap: wrap;
+}
+
+.erp-date-footer-spacer {
+  flex: 1 1 auto;
+}
+
+.erp-date-footer-btn {
+  background: var(--surface2, #252830);
+  border: 1px solid var(--border, #3a3d44);
+  color: var(--text-muted, #b0b3bc);
+  font-size: 11px;
+  font-family: inherit;
+  padding: 5px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+.erp-date-footer-btn:hover {
+  background: var(--surface3, #2d3038);
+  color: var(--text, #f0f1f5);
+  border-color: var(--border-strong, #4a4e57);
+}
+
+.erp-date-footer-btn-danger:hover {
+  color: var(--error, #f87171);
+  border-color: var(--error, #f87171);
+}
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+6.7 (6.5.2026): ErpMemo (auto-resize textarea + counter)
+   ══════════════════════════════════════════════════════════════════ */
+
+.erp-memo-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  box-sizing: border-box;
+  width: 100%;
+}
+
+.erp-memo-row {
+  /* Reuses .erp-input-row tokens — same border/focus chrome */
+  display: flex;
+}
+
+.erp-memo-textarea {
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 22px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.45;
+  resize: none;          /* auto-resize via JS */
+  box-sizing: border-box;
+  overflow-y: hidden;    /* JS toggles to "auto" when content exceeds maxRows */
+}
+
+.erp-memo-textarea::placeholder {
+  color: var(--text-faint, #6c7076);
+  opacity: 1;
+}
+
+.erp-memo-textarea:read-only,
+.erp-memo-textarea[readonly] {
+  background: var(--surface, #1c1e23);
+  color: var(--text-muted, #b0b3bc);
+  cursor: default;
+}
+
+.erp-memo-textarea:disabled {
+  background: var(--surface, #1c1e23);
+  color: var(--text-faint, #6c7076);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.erp-memo-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+  padding-left: 2px;
+}
+
+.erp-memo-footer .erp-input-error,
+.erp-memo-footer .erp-input-hint {
+  flex: 1 1 auto;
+}
+
+.erp-memo-counter {
+  font-size: 11px;
+  color: var(--text-faint, #6c7076);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+.erp-memo-counter-near {
+  color: var(--warning, #fbbf24);
+}
+
+.erp-memo-counter-full {
+  color: var(--error, #f87171);
+  font-weight: 600;
+}

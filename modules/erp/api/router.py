@@ -1214,10 +1214,21 @@ def _render_full_page(
     }}
     body:has(.erp-workspace) > footer {{
       flex: 0 0 auto;
-      padding: 4px 12px !important;
-      font-size: 10px;
+      /* B+10++ (Marti's drobnost 6.5.2026): zarovnej doleva +
+         o stupeň zvětši písmo (10 → 12). */
+      padding: 5px 14px !important;
+      font-size: 12px;
+      text-align: left !important;
       border-top: 1px solid var(--border);
       background: var(--surface);
+    }}
+    body:has(.erp-workspace) > footer .erp-footer-user {{
+      color: var(--accent);
+      font-weight: 500;
+    }}
+    body:has(.erp-workspace) > footer .erp-footer-tenant {{
+      color: var(--accent2);
+      font-weight: 500;
     }}
     main:has(.erp-workspace) {{
       flex: 1;
@@ -2112,7 +2123,10 @@ def _render_full_page(
 
     /* ── Footer ── */
     .erp-footer {{
-      text-align: center; font-size: 11px; color: var(--muted);
+      /* B+10++ (Marti's drobnost 6.5.2026): zarovnej doleva +
+         o stupeň zvětši písmo (11 → 13). Workspace varianta má vlastní
+         override — viz body:has(.erp-workspace) > footer výše. */
+      text-align: left; font-size: 13px; color: var(--muted);
       padding: 32px 16px 16px; font-family: 'DM Mono',monospace;
     }}
   </style>
@@ -2714,8 +2728,13 @@ def _render_workspace_page(user_id: int) -> str:
         const rows = data.rows || [];
 
         // B+4.4: limit dropdown — render po headeru, before grid
+        // B+10++ (Marti's drobnost 6.5.2026): zúženo na 4 hodnoty (1000,
+        // 10000, 50000, vše=100k). Hodnota se zobrazuje i v status baru
+        // pod gridem (kliknutelné Celkem) — Marti: "v paticce gridu, kdyz
+        // je limitovan, tak Celkem: 1000 probarvit oranzove. Take to bude
+        // aktivni a kdyz se na to klikne mysi, tak se rozbali drop".
         const appliedLimit = data.applied_limit || rows.length;
-        const limitOptions = [100, 500, 1000, 5000, 100000];
+        const limitOptions = [1000, 10000, 50000, 100000];
         let limitSelectHtml = '<select id="erpLimitSelect" class="erp-limit-select" title="Maximum řádků">';
         for (const opt of limitOptions) {
           const selected = (opt === appliedLimit) ? ' selected' : '';
@@ -2760,6 +2779,20 @@ def _render_workspace_page(user_id: int) -> str:
           columns: cols,
           autoColumns: true,
           layoutKey: "prehled_" + cislo,  // B+5 grid layout persistence (TODO)
+          // B+10++ (Marti's drobnost 6.5.2026): limit context pro status bar.
+          // Status panel renderuje "Celkem" oranzove kdyz hasMore=true a klik
+          // otevre dropdown s options (1k/10k/50k/Vse). Stejny user flow jako
+          // header limit select, jen z paticky gridu.
+          limitContext: {
+            applied: appliedLimit,
+            hasMore: !!data.has_more,
+            options: limitOptions,
+            onChange: (newLimit) => {
+              if (!newLimit || newLimit <= 0) return;
+              savePrehledLimit(cislo, newLimit);
+              loadPrehled(cislo, item, newLimit);
+            },
+          },
           // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
           // double click = open jádro detail. Šipky pouze navigují (Excel-like).
           onRowDoubleClick: (rowData) => {

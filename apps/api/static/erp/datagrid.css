@@ -1160,3 +1160,70 @@
   border-color: var(--accent, #4f8ef7);
   border-style: solid;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+10++ (Marti's drobnost 6.5.2026): CzRowCountStatusPanel
+   "Celkem" v status baru oranzove kdyz limit dosazen + click → dropdown
+   ══════════════════════════════════════════════════════════════════ */
+
+.erp-cz-rowcount-limited .ag-status-name-value-value {
+  color: #f97316 !important;  /* orange — match preset color "orange" pillu */
+  font-weight: 600;
+}
+.erp-cz-rowcount-limited .ag-status-name-value-label {
+  color: #fdba74 !important;  /* lighter orange */
+}
+
+.erp-cz-rowcount-clickable {
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition: background 0.12s;
+  border-radius: 3px;
+}
+.erp-cz-rowcount-clickable:hover {
+  background: rgba(249, 115, 22, 0.12);
+}
+
+/* Dropdown menu (po kliknutí na "Celkem") */
+
+.erp-cz-rowcount-menu {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 6px;
+  box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.55);
+  padding: 4px;
+  min-width: 160px;
+  z-index: 9300;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.erp-cz-rowcount-menu-item {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  padding: 7px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+
+.erp-cz-rowcount-menu-item:hover {
+  background: var(--surface2, #252830);
+  border-color: var(--border, #3a3d44);
+}
+
+.erp-cz-rowcount-menu-item.active {
+  background: rgba(249, 115, 22, 0.18);
+  border-color: #f97316;
+  color: #fdba74;
+  font-weight: 600;
+}

@@ -665,7 +665,7 @@
       this.label = params.label || "Celkem";
       this.mode = params.mode || "total";  // "total" | "filtered"
       this.eGui = document.createElement("div");
-      this.eGui.className = "ag-status-name-value";
+      this.eGui.className = "ag-status-name-value erp-cz-rowcount";
       this.refresh();
       // AG Grid v32 events for row count changes
       this._listener = () => this.refresh();
@@ -673,7 +673,25 @@
         this.api.addEventListener("modelUpdated", this._listener);
         this.api.addEventListener("filterChanged", this._listener);
       } catch (e) {}
+      // B+10++ (Marti's drobnost 6.5.2026): klik na "Celkem" otevře limit
+      // dropdown — jen v "total" módu a pokud je limit context set.
+      this._clickListener = (ev) => this._onClick(ev);
+      this.eGui.addEventListener("click", this._clickListener);
     }
+
+    _getLimitContext() {
+      try {
+        const ctx = this.api.getGridOption
+          ? this.api.getGridOption("context")
+          : (this.api.gridOptionsService
+              ? this.api.gridOptionsService.get("context")
+              : null);
+        return (ctx && ctx.limitContext) ? ctx.limitContext : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
     refresh() {
       let n = 0;
       try {
@@ -698,13 +716,105 @@
         }
       } catch (e) { n = 0; }
       const formatted = _CZ_NUM_FMT.format(n);
+
+      // B+10++ (Marti's drobnost): limited state — orange + clickable
+      const limitCtx = (this.mode === "total") ? this._getLimitContext() : null;
+      const isLimited = !!(limitCtx && limitCtx.hasMore);
+      this.eGui.classList.toggle("erp-cz-rowcount-limited", isLimited);
+      this.eGui.classList.toggle("erp-cz-rowcount-clickable", isLimited);
+      const titleAttr = isLimited
+        ? ' title="Limit dosažen — klikni pro změnu"'
+        : "";
+
       this.eGui.innerHTML =
         '<span class="ag-status-name-value-label">' +
         this.label + ':</span> ' +
-        '<span class="ag-status-name-value-value">' + formatted + '</span>';
+        '<span class="ag-status-name-value-value"' + titleAttr + '>' +
+        formatted +
+        (isLimited ? ' ▾' : '') +
+        '</span>';
     }
+
+    _onClick(ev) {
+      if (this.mode !== "total") return;
+      const ctx = this._getLimitContext();
+      if (!ctx || !ctx.hasMore) return;
+      ev.stopPropagation();
+      this._showLimitMenu(ctx);
+    }
+
+    _showLimitMenu(ctx) {
+      // Close any existing menu
+      this._closeLimitMenu();
+      const menu = document.createElement("div");
+      menu.className = "erp-cz-rowcount-menu";
+      const opts = ctx.options || [1000, 10000, 50000, 100000];
+      const current = parseInt(ctx.applied, 10);
+      opts.forEach(opt => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = "erp-cz-rowcount-menu-item";
+        if (opt === current) btn.classList.add("active");
+        const label = (opt >= 100000)
+          ? "Vše (max 100k)"
+          : _CZ_NUM_FMT.format(opt);
+        btn.textContent = label;
+        btn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          this._closeLimitMenu();
+          if (typeof ctx.onChange === "function") {
+            try { ctx.onChange(opt); } catch (e) { console.warn("limit onChange:", e); }
+          }
+        });
+        menu.appendChild(btn);
+      });
+      // Position above the cell (status bar je dole, takže menu jde nahoru)
+      const rect = this.eGui.getBoundingClientRect();
+      menu.style.position = "fixed";
+      menu.style.left = rect.left + "px";
+      menu.style.bottom = (window.innerHeight - rect.top + 2) + "px";
+      document.body.appendChild(menu);
+      this._menu = menu;
+      // Outside click closes
+      this._outsideListener = (ev) => {
+        if (!menu.contains(ev.target) && !this.eGui.contains(ev.target)) {
+          this._closeLimitMenu();
+        }
+      };
+      this._escListener = (ev) => {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          this._closeLimitMenu();
+        }
+      };
+      setTimeout(() => {
+        document.addEventListener("mousedown", this._outsideListener);
+        document.addEventListener("keydown", this._escListener);
+      }, 0);
+    }
+
+    _closeLimitMenu() {
+      if (this._menu && this._menu.parentNode) {
+        this._menu.parentNode.removeChild(this._menu);
+      }
+      this._menu = null;
+      if (this._outsideListener) {
+        document.removeEventListener("mousedown", this._outsideListener);
+        this._outsideListener = null;
+      }
+      if (this._escListener) {
+        document.removeEventListener("keydown", this._escListener);
+        this._escListener = null;
+      }
+    }
+
     getGui() { return this.eGui; }
+
     destroy() {
+      this._closeLimitMenu();
+      if (this._clickListener && this.eGui) {
+        try { this.eGui.removeEventListener("click", this._clickListener); } catch (e) {}
+      }
       if (this._listener && this.api) {
         try {
           this.api.removeEventListener("modelUpdated", this._listener);
@@ -759,6 +869,10 @@
         // B+5.2: layout persistence
         layoutKey: null,          // string — identifikuje persistence scope, např. "prehled_103"
         autoLoadDefault: true,    // při init load effective_default ze server
+        // B+10++ (6.5.2026): limit context pro status bar Celkem
+        // { applied: int, hasMore: bool, options: [int...], onChange: (newLimit) => void }
+        // Pokud null → status panel renderuje běžný "Celkem: N" bez click handleru.
+        limitContext: null,
         // Visual
         theme: "dark",
         height: "100%",
@@ -877,6 +991,11 @@
             { statusPanel: "agSelectedRowCountComponent" },
             { statusPanel: "agAggregationComponent" },
           ],
+        },
+        // B+10++ (6.5.2026): context passthrough — status panely + custom
+        // components mají k němu přístup přes params.context.
+        context: {
+          limitContext: opts.limitContext || null,
         },
         // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)
         enterMovesDown: true,

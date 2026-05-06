@@ -1888,7 +1888,7 @@ def _render_workspace_page(user_id: int) -> str:
             onChange: (fieldName, newVal, oldVal) => {
               // Per-field change — toast info pro Phase A
               jadroToast(
-                "Změna „" + fieldName + "\" lokálně. " +
+                "Změna " + fieldName + " lokálně. " +
                 "Uloží se s tlačítkem OK (Phase C)."
               );
             },

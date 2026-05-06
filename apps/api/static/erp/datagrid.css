@@ -101,6 +101,26 @@
 /* Header cells stejně */
 .ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-label {
   align-items: center;
+  /* B+6.6c-fix (6.5.2026): label flex-grow → menu/sort/filter ikony
+     vždy zarovnané vpravo (předtím cik-cak podle text width). */
+  flex: 1 1 auto;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-text {
+  flex: 1 1 auto;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Menu button (column menu ⋮) — vždy vpravo, auto margin push */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-menu-button,
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-icon.ag-header-cell-menu-button {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+/* Sort + filter ikony stejné — drž pevně vpravo vedle menu */
+.ag-theme-quartz-dark.erp-ag-grid .ag-sort-indicator-container,
+.ag-theme-quartz-dark.erp-ag-grid .ag-filter-icon {
+  flex-shrink: 0;
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-cell:last-child {
   border-right: none;

@@ -34,6 +34,7 @@ from core.logging import get_logger
 from modules.erp.application.centrala_reader import CentralaReader, TYP_NAMES
 from modules.erp.application.render_generator import render_form
 from modules.erp.application import grid_layout_service
+from modules.erp.application import erp_user_state_service as user_state_svc
 from modules.thoughts.application.service import is_marti_parent
 
 logger = get_logger("erp.api")
@@ -71,6 +72,23 @@ def _require_parent(user_id: int) -> None:
                 "Centrála LoginName."
             ),
         )
+
+
+def _get_tenant_id(user_id: int) -> int:
+    """
+    Phase B+8.1 (6.5.2026): resolve current tenant pro per-tenant user state.
+    Bere users.last_active_tenant_id, fallback na 1 (EUROSOFT default).
+    """
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import User
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter(User.id == user_id).one_or_none()
+        if u and getattr(u, "last_active_tenant_id", None):
+            return int(u.last_active_tenant_id)
+        return 1  # EUROSOFT default
+    finally:
+        cs.close()
 
 
 # ── Public endpoints ────────────────────────────────────────────────
@@ -564,6 +582,191 @@ def jadro_lookup_options(form_id: int, field_name: str, req: Request) -> JSONRes
         "items": items,
         "count": len(items),
     })
+
+
+# ── Phase B+8.1 (6.5.2026): user state endpoints ────────────────────
+
+
+class _CisloBody(BaseModel):
+    cislo: int
+    label: str | None = None
+    item_id: str | None = None
+
+
+class _ReorderBody(BaseModel):
+    cislos: list[int]
+
+
+class _TreeOrderBody(BaseModel):
+    group_key: str
+    order: list[str]
+
+
+# TABS
+
+@api_router.get("/tabs")
+def user_tabs_list(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    return JSONResponse({"ok": True, **user_state_svc.list_tabs(uid, tid)})
+
+
+@api_router.post("/tabs")
+def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    try:
+        tab = user_state_svc.open_tab(
+            user_id=uid, tenant_id=tid,
+            cislo_def=body.cislo,
+            label=body.label or f"Přehled #{body.cislo}",
+            item_id=body.item_id,
+        )
+        return JSONResponse({"ok": True, "tab": tab})
+    except user_state_svc.ErpUserStateError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.delete("/tabs/{cislo_def}")
+def user_tabs_close(cislo_def: int, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    removed = user_state_svc.close_tab(uid, tid, cislo_def)
+    return JSONResponse({"ok": True, "removed": removed})
+
+
+@api_router.post("/tabs/{cislo_def}/active")
+def user_tabs_set_active(cislo_def: int, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    found = user_state_svc.set_active_tab(uid, tid, cislo_def)
+    return JSONResponse({"ok": True, "found": found})
+
+
+@api_router.post("/tabs/reorder")
+def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    updated = user_state_svc.reorder_tabs(uid, tid, body.cislos)
+    return JSONResponse({"ok": True, "updated": updated})
+
+
+# FAVORITES
+
+@api_router.get("/favorites")
+def user_favorites_list(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    return JSONResponse({"ok": True, "favorites": user_state_svc.list_favorites(uid, tid)})
+
+
+@api_router.post("/favorites")
+def user_favorites_add(body: _CisloBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    try:
+        fav = user_state_svc.add_favorite(uid, tid, body.cislo)
+        return JSONResponse({"ok": True, "favorite": fav})
+    except user_state_svc.ErpUserStateError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.delete("/favorites/{cislo_def}")
+def user_favorites_remove(cislo_def: int, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    removed = user_state_svc.remove_favorite(uid, tid, cislo_def)
+    return JSONResponse({"ok": True, "removed": removed})
+
+
+@api_router.post("/favorites/reorder")
+def user_favorites_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    updated = user_state_svc.reorder_favorites(uid, tid, body.cislos)
+    return JSONResponse({"ok": True, "updated": updated})
+
+
+@api_router.delete("/favorites")
+def user_favorites_clear(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    deleted = user_state_svc.clear_favorites(uid, tid)
+    return JSONResponse({"ok": True, "deleted": deleted})
+
+
+# RECENT (MRU)
+
+@api_router.get("/recent")
+def user_recent_list(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    return JSONResponse({"ok": True, "recent": user_state_svc.list_recent(uid, tid)})
+
+
+@api_router.post("/recent")
+def user_recent_track(body: _CisloBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    try:
+        rec = user_state_svc.track_recent(
+            uid, tid, body.cislo, body.label
+        )
+        return JSONResponse({"ok": True, "recent": rec})
+    except user_state_svc.ErpUserStateError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.delete("/recent")
+def user_recent_clear(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    deleted = user_state_svc.clear_recent(uid, tid)
+    return JSONResponse({"ok": True, "deleted": deleted})
+
+
+# TREE ORDER (D&D persistence per skupina)
+
+@api_router.get("/tree-order")
+def user_tree_order_get(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    return JSONResponse({"ok": True, "order": user_state_svc.get_tree_order(uid, tid)})
+
+
+@api_router.put("/tree-order")
+def user_tree_order_save(body: _TreeOrderBody, req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    try:
+        user_state_svc.save_tree_order(uid, tid, body.group_key, body.order)
+        return JSONResponse({"ok": True})
+    except user_state_svc.ErpUserStateError as e:
+        raise HTTPException(400, str(e))
+
+
+@api_router.delete("/tree-order")
+def user_tree_order_reset(req: Request) -> JSONResponse:
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    deleted = user_state_svc.reset_tree_order(uid, tid)
+    return JSONResponse({"ok": True, "deleted": deleted})
 
 
 # ── HTML page builders ──────────────────────────────────────────────
@@ -2936,6 +3139,33 @@ def _render_workspace_page(user_id: int) -> str:
         }
       });
 
+      // ── B+8.1c (6.5.2026): API client pro user state persistence ──
+      // Write-through pattern: localStorage = optimistic cache, API =
+      // source of truth (cross-device, per user/tenant). Pokud API fail
+      // (offline/network), cache stays — sync proběhne při příštím
+      // network OK. Marti's spec: "Per user, per tenant... do data_db".
+      async function _apiCall(method, path, body) {
+        try {
+          const opts = {
+            method: method,
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+          };
+          if (body !== undefined && body !== null) {
+            opts.body = JSON.stringify(body);
+          }
+          const r = await fetch(path, opts);
+          if (!r.ok) {
+            console.warn("API " + method + " " + path + " status " + r.status);
+            return null;
+          }
+          return await r.json();
+        } catch (e) {
+          console.warn("API " + method + " " + path + " error", e);
+          return null;
+        }
+      }
+
       // ── B+8.2a (6.5.2026): tree view modes (Vše / Oblíbené / MRU) ──
       const TREE_VIEW_KEY = "erp.tree.view";
       const TREE_FAVORITES_KEY = "erp.tree.favorites";
@@ -2965,10 +3195,17 @@ def _render_workspace_page(user_id: int) -> str:
         const arr = loadTreeFavorites();
         const c = parseInt(cislo, 10);
         const idx = arr.indexOf(c);
+        const willBePinned = (idx < 0);
         if (idx >= 0) arr.splice(idx, 1);
         else arr.push(c);
         saveTreeFavorites(arr);
         const isPinnedNow = isTreeFavorite(c);
+        // B+8.1c: API sync (fire-and-forget; localStorage stays jako cache)
+        if (willBePinned) {
+          _apiCall("POST", "/api/v1/erp/favorites", { cislo: c });
+        } else {
+          _apiCall("DELETE", "/api/v1/erp/favorites/" + c);
+        }
         // Update DOM — pinned class + zajisti že ★ span existuje
         treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
           const cd = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
@@ -3012,6 +3249,10 @@ def _render_workspace_page(user_id: int) -> str:
         if (arr.length > TREE_RECENT_MAX) arr.length = TREE_RECENT_MAX;
         saveTreeRecent(arr);
         if (treeViewMode === "recent") applyTreeViewFilter();
+        // B+8.1c: API track (fire-and-forget)
+        _apiCall("POST", "/api/v1/erp/recent", {
+          cislo: c, label: label || null
+        });
       }
 
       function applyTreeViewFilter() {
@@ -3450,6 +3691,10 @@ def _render_workspace_page(user_id: int) -> str:
         const map = _loadTreeOrderMap();
         map[key] = order;
         _saveTreeOrderMap(map);
+        // B+8.1c: API sync (fire-and-forget)
+        _apiCall("PUT", "/api/v1/erp/tree-order", {
+          group_key: key, order: order
+        });
       }
       function _applyTreeOrderFromStorage() {
         if (!treeRoot) return;
@@ -3713,6 +3958,14 @@ def _render_workspace_page(user_id: int) -> str:
           gridState: null,
         };
         tabsState.tabs.push(tab);
+        // B+8.1c: API persist new tab — AWAIT aby následný switchTab
+        // (POST /tabs/{cislo}/active) nezávodil s create. Pokud network
+        // fail, _apiCall vrátí null bez throw → switchTab pokračuje.
+        await _apiCall("POST", "/api/v1/erp/tabs", {
+          cislo: cislo,
+          label: labelText,
+          item_id: itemId,
+        });
         await switchTab(tabsState.tabs.length - 1);
       }
 
@@ -3733,6 +3986,8 @@ def _render_workspace_page(user_id: int) -> str:
         tabsState.activeIndex = idx;
         renderTabsBar();
         const tab = tabsState.tabs[idx];
+        // B+8.1c: API persist active tab (fire-and-forget)
+        _apiCall("POST", "/api/v1/erp/tabs/" + tab.cislo + "/active");
         // Sync tree active state — highlight + expand ancestors + scroll
         // (Marti's UX 6.5.2026: pri prepinani zalozek automaticky vyhledat
         // a oznacit v levem panelu prislusnou vetu).
@@ -3769,7 +4024,10 @@ def _render_workspace_page(user_id: int) -> str:
 
       function closeTab(idx) {
         if (idx < 0 || idx >= tabsState.tabs.length) return;
+        const closedCislo = tabsState.tabs[idx].cislo;
         tabsState.tabs.splice(idx, 1);
+        // B+8.1c: API persist tab close (fire-and-forget)
+        _apiCall("DELETE", "/api/v1/erp/tabs/" + closedCislo);
         if (tabsState.tabs.length === 0) {
           tabsState.activeIndex = -1;
           // Cleanup grid + reset main content
@@ -3927,9 +4185,67 @@ def _render_workspace_page(user_id: int) -> str:
         switchTab(idx);
       }
 
-      loadTree();
-      // Po load tree (async) zkus restore tabs — počkej krátce na DOM
-      setTimeout(restoreTabsFromStorage, 200);
+      // B+8.1c (6.5.2026): API hydration — fetch user state z DB,
+      // seed localStorage cache, pak loadTree() + restoreTabsFromStorage().
+      // Write-through pattern: API = source of truth, localStorage = cache.
+      // Pokud API fail (offline/network), fallback na localStorage.
+      async function hydrateUserStateFromAPI() {
+        try {
+          const [tabsR, favR, recR, ordR] = await Promise.all([
+            _apiCall("GET", "/api/v1/erp/tabs"),
+            _apiCall("GET", "/api/v1/erp/favorites"),
+            _apiCall("GET", "/api/v1/erp/recent"),
+            _apiCall("GET", "/api/v1/erp/tree-order"),
+          ]);
+          // Tabs → seed localStorage (restoreTabsFromStorage to pak prečte)
+          if (tabsR && Array.isArray(tabsR.tabs)) {
+            const persist = {
+              tabs: tabsR.tabs.map(t => ({
+                cislo: t.cislo,
+                itemId: t.itemId,
+                label: t.label,
+              })),
+              activeIndex: (typeof tabsR.activeIndex === "number")
+                ? tabsR.activeIndex : -1,
+            };
+            try { localStorage.setItem(TABS_STATE_KEY, JSON.stringify(persist)); }
+            catch (e) {}
+          }
+          // Favorites → seed (jen čísla — UI z čísel rekonstruuje)
+          if (favR && Array.isArray(favR.favorites)) {
+            const arr = favR.favorites
+              .map(f => parseInt(f.cislo, 10))
+              .filter(n => !isNaN(n));
+            try { localStorage.setItem(TREE_FAVORITES_KEY, JSON.stringify(arr)); }
+            catch (e) {}
+          }
+          // Recent → seed (cislo + label + ts derivovaný z lastUsedAt)
+          if (recR && Array.isArray(recR.recent)) {
+            const arr = recR.recent.map(r => ({
+              cislo: parseInt(r.cislo, 10),
+              label: r.label || ("Přehled #" + r.cislo),
+              ts: r.lastUsedAt ? Date.parse(r.lastUsedAt) : Date.now(),
+            })).filter(r => !isNaN(r.cislo));
+            try { localStorage.setItem(TREE_RECENT_KEY, JSON.stringify(arr)); }
+            catch (e) {}
+          }
+          // Tree order → seed (server vrací map group_key → array)
+          if (ordR && ordR.order && typeof ordR.order === "object") {
+            try { localStorage.setItem(TREE_ORDER_KEY, JSON.stringify(ordR.order)); }
+            catch (e) {}
+          }
+        } catch (e) {
+          console.warn("hydrateUserStateFromAPI failed, using localStorage cache", e);
+        }
+      }
+
+      // Bootstrap: hydrate API → loadTree → restore tabs.
+      // Použij .finally() aby loadTree() běžela i při API fail (offline mode).
+      hydrateUserStateFromAPI().finally(() => {
+        loadTree();
+        // Po load tree (async) zkus restore tabs — počkej krátce na DOM
+        setTimeout(restoreTabsFromStorage, 200);
+      });
     })();
     </script>
     '''

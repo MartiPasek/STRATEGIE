@@ -283,8 +283,15 @@
         }
       }
 
-      // Post-build: hide sourozenecké FK fields (B+6.4+++ logic přesunutá
-      // do ErpForm — má cleaner detection přes LookupField property)
+      // Post-build: hide sourozenecké FK fields. Dvě cesty:
+      // (1) Primary — LookupField property z Centrála metadat (clean)
+      // (2) Fallback heuristic — value match (B+6.4+++ logic): FK value
+      //     v lookup === input.value sourozence Edit fieldu.
+      // Centrála nemusí mít LookupField property na všech FormList /
+      // Combobox — Marti's UI feedback po B+6.6c-fix4 ukázal že fallback
+      // je nutný.
+      const hiddenFieldNames = new Set();
+      // (1) LookupField property
       for (const ref of lookupFieldRefs) {
         const lookupFieldName = ref.lookupField;
         if (!lookupFieldName) continue;
@@ -295,7 +302,36 @@
           if (el) {
             el.style.display = "none";
             el.setAttribute("data-erp-hidden-sibling", "true");
+            hiddenFieldNames.add(lookupFieldName);
           }
+        }
+      }
+      // (2) Heuristic fallback — pro každý FormList/Combobox najdi
+      // Edit sourozence jehož initial value === lookup FK value.
+      for (const [name, entry] of this._components.entries()) {
+        if (entry.typ !== TYP_FORMLIST && entry.typ !== TYP_COMBOBOX) continue;
+        const fk = entry.getValue();
+        if (fk == null || fk === "") continue;
+        const fkStr = String(fk).trim();
+        for (const [otherName, otherEntry] of this._components.entries()) {
+          if (otherName === name) continue;
+          if (hiddenFieldNames.has(otherName)) continue;
+          if (otherEntry.typ !== TYP_EDIT) continue;
+          // Initial value match (snapshot from _initialValues)
+          const otherInitial = this._initialValues[otherName];
+          if (otherInitial == null) continue;
+          if (String(otherInitial).trim() !== fkStr) continue;
+          // Match — schovat
+          if (otherEntry.component &&
+              typeof otherEntry.component.wrapperElement === "function") {
+            const el = otherEntry.component.wrapperElement();
+            if (el) {
+              el.style.display = "none";
+              el.setAttribute("data-erp-hidden-sibling", "true");
+              hiddenFieldNames.add(otherName);
+            }
+          }
+          break;  // jen první match per lookup
         }
       }
 

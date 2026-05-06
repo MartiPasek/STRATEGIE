@@ -786,8 +786,22 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
 <html lang="cs">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>{html.escape(title)} | STRATEGIE ERP</title>
+
+  <!-- B+9+++ (6.5.2026): PWA install — Add to Home Screen na mobilu
+       → standalone mode bez URL bar / browser chrome.
+       Marti's spec: "A da se to udelat, aby ten Chrom nebyl videt..." -->
+  <link rel="manifest" href="/static/erp/manifest.json">
+  <meta name="theme-color" content="#0e0f11">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="STRATEGIE">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/static/erp/icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/erp/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/static/erp/icon-512.png">
+
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>">
   <style>
@@ -857,18 +871,25 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     body.erp-zoom-small {{
       zoom: 0.75;
       width: calc(100vw / 0.75);
+      /* B+9++ (6.5.2026 mobile fix): dvh = dynamic viewport height,
+         adjustuje jak browser chrome retract. Mobile bez dvh: tree footer +
+         grid status bar schované pod URL bar. vh fallback pro pre-2022 browsers. */
       min-height: calc(100vh / 0.75);
+      min-height: calc(100dvh / 0.75);
     }}
     body.erp-zoom-small:has(.erp-workspace) {{
-      height: calc(100vh / 0.75);  /* override B+7 hardcoded 100vh */
+      height: calc(100vh / 0.75);  /* fallback */
+      height: calc(100dvh / 0.75);  /* override B+7 hardcoded 100vh + mobile chrome aware */
     }}
     body.erp-zoom-large {{
       zoom: 1.25;
       width: calc(100vw / 1.25);
       min-height: calc(100vh / 1.25);
+      min-height: calc(100dvh / 1.25);
     }}
     body.erp-zoom-large:has(.erp-workspace) {{
       height: calc(100vh / 1.25);
+      height: calc(100dvh / 1.25);
     }}
     /* Header + footer dědí zoom z body. Tabs + grid + jádro modal
        (position: fixed) také dědí. */
@@ -1082,9 +1103,19 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     */
     html:has(.erp-workspace),
     body:has(.erp-workspace) {{
+      /* B+9++ (6.5.2026 mobile fix): dvh adjustuje jak browser chrome
+         retract/show. Bez dvh tree footer + grid status bar schované
+         pod URL bar na mobilu. vh fallback pro pre-2022 browsers.
+         B+9+++ (6.5.2026 PWA): safe-area-inset respektuje iOS notch
+         když app běží v standalone mode (Add to Home Screen). */
       height: 100vh;
+      height: 100dvh;
       margin: 0;
       overflow: hidden;
+      padding-top: env(safe-area-inset-top, 0);
+      padding-bottom: env(safe-area-inset-bottom, 0);
+      padding-left: env(safe-area-inset-left, 0);
+      padding-right: env(safe-area-inset-right, 0);
     }}
     body:has(.erp-workspace) {{
       display: flex;

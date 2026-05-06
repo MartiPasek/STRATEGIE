@@ -1,0 +1,34 @@
+{
+  "name": "STRATEGIE ERP",
+  "short_name": "STRATEGIE",
+  "description": "STRATEGIE ERP — Centrála 2 (Marti's modular enterprise AI platform).",
+  "start_url": "/erp/",
+  "scope": "/erp/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#0e0f11",
+  "theme_color": "#0e0f11",
+  "lang": "cs",
+  "dir": "ltr",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/static/erp/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/erp/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/static/erp/icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

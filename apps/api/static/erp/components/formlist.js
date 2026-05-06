@@ -468,10 +468,17 @@
 
     _handleFocus(ev) {
       if (this.options.disabled) return;
-      // Auto-open panel + select all (rychlé přepisování)
-      if (!this.options.readonly) {
-        try { this.input.select(); } catch (e) {}
-      }
+      // B+10++++++ (Marti's drobnost 6.5.2026 večer): select-all při prvním
+      // focusu (i v readonly — user smí filtrovat, jen ne commit). Marti:
+      // "pri prvnim kliku do toho input textu oznacit (vybrat) cely text.
+      // Aby az pak user zmackne klavesu, tak aby se puvodni obsah smazal".
+      // setTimeout 0 odloží select past click mouseup (browser jinak
+      // mouseup-deselect ruší focus selection).
+      try {
+        setTimeout(() => {
+          try { this.input.select(); } catch (e) {}
+        }, 0);
+      } catch (e) {}
       this.openPanel(/*reset*/false);
       if (typeof this.options.onFocus === "function") {
         try { this.options.onFocus(ev); } catch (e) {}

@@ -434,15 +434,13 @@
     _selectFiltered(idx) {
       const it = this._filtered[idx];
       if (!it || it.disabled) return;
-      // B+10++++++ (Marti's bug fix 6.5.2026): readonly gate **při commitu**
-      // (ne při typu). User mohl filtrovat, ale Enter / klik na item v
-      // read-only mode jen zavře panel + restore display, neměnit value.
-      if (this.options.readonly) {
-        this.closePanel();
-        this.input.value = this._currentDisplay;
-        this.input.focus();
-        return;
-      }
+      // B+10+++++++ (Marti's bug fix 6.5.2026 večer): read-only gate
+      // přesunut k save flow, ne k UI selection. User v Phase A read-only
+      // klikne na item → display + value se updatuje v UI (in-memory).
+      // Save flow (Phase C edit pipeline) bude gate isFieldReadOnly per
+      // field, žádný read-only field se nepošle do UPDATE statementu.
+      // Marti: "kdyz pres drop list vyberu nejakou polozku a kliknu mysi,
+      // tak se dropbox zavre ale vybrana polozka se neaktivuje".
       this._setSelectedItem(it);
       this.closePanel();
       this.input.focus();

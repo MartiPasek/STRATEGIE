@@ -1104,6 +1104,100 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       width: 100%;
       overflow: hidden;
     }}
+    /* ── B+8 (6.5.2026): multi-tab přehled bar ───────────────────── */
+    .erp-tabs-bar {{
+      flex: 0 0 auto;
+      display: flex;
+      align-items: stretch;
+      gap: 0;
+      background: var(--bg);
+      border-bottom: 1px solid var(--border-strong);
+      padding: 0 6px 0 0;
+      overflow-x: auto;
+      overflow-y: hidden;
+      scrollbar-width: thin;
+    }}
+    .erp-tabs-bar[hidden] {{ display: none; }}
+    .erp-tab {{
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 8px 5px 12px;
+      max-width: 240px;
+      min-width: 80px;
+      background: var(--surface2);
+      border-right: 1px solid var(--border);
+      color: var(--text-muted);
+      font-size: 12px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.12s, color 0.12s;
+      flex-shrink: 0;
+      position: relative;
+    }}
+    .erp-tab:hover {{
+      background: var(--surface);
+      color: var(--text);
+    }}
+    .erp-tab.active {{
+      background: var(--surface);
+      color: var(--accent);
+      font-weight: 500;
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }}
+    .erp-tab-label {{
+      flex: 1 1 auto;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+    .erp-tab-close {{
+      flex-shrink: 0;
+      width: 16px; height: 16px;
+      background: transparent;
+      border: none;
+      color: var(--text-faint);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      border-radius: 3px;
+      transition: all 0.12s;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .erp-tab-close:hover {{
+      background: var(--surface2);
+      color: var(--error);
+    }}
+    .erp-tab-add {{
+      flex-shrink: 0;
+      width: 28px; height: 28px;
+      align-self: center;
+      margin: 0 0 0 6px;
+      background: transparent;
+      border: 1px dashed var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-size: 16px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      transition: all 0.12s;
+    }}
+    .erp-tab-add:hover {{
+      border-color: var(--accent);
+      border-style: solid;
+      color: var(--accent);
+      background: var(--surface);
+    }}
+    .erp-tabs-bar::-webkit-scrollbar {{ height: 4px; }}
+    .erp-tabs-bar::-webkit-scrollbar-thumb {{
+      background: var(--border-strong);
+      border-radius: 2px;
+    }}
     /* B+7+ (6.5.2026): grid container fills full width of main-content */
     .erp-main-content > #erpDataGridContainer,
     .erp-main-content > .erp-ag-grid {{
@@ -1628,6 +1722,8 @@ def _render_workspace_page(user_id: int) -> str:
       </aside>
       <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
       <main class="erp-main-pane">
+        <!-- B+8 (6.5.2026): tabs bar nad main-content (Centrála 1 multi-přehled pattern) -->
+        <div id="erpTabsBar" class="erp-tabs-bar" hidden></div>
         <div id="erpMainContent" class="erp-main-content">
           <div class="erp-main-placeholder">
             <h2>Vyber přehled ze stromu vlevo</h2>
@@ -1865,10 +1961,14 @@ def _render_workspace_page(user_id: int) -> str:
         const row = item.querySelector(":scope > .erp-tree-row");
         if (row) row.classList.add("active");
         saveActive(String(cislo));
-        loadPrehled(cislo, item);
+        // B+8 (6.5.2026): místo loadPrehled → openTab (multi-tab pattern)
+        openTab(cislo, item);
       }
 
       function tryRestoreActive() {
+        // B+8 (6.5.2026): tabs state má vlastní restore (restoreTabsFromStorage).
+        // Tato funkce zachována pro tree highlight + scrollIntoView ale neotevírá
+        // přehled — to dělá tab restore (s itemId resolve z stromu).
         const cislo = loadActive();
         if (!cislo) return;
         const item = treeRoot.querySelector('.erp-tree-item[data-cislo-def="' + cislo + '"]');
@@ -1879,7 +1979,11 @@ def _render_workspace_page(user_id: int) -> str:
         if (row && row.scrollIntoView) {
           try { row.scrollIntoView({ block: "nearest" }); } catch (e) {}
         }
-        loadPrehled(parseInt(cislo, 10), item);
+        // Pokud nejsou žádné persisted tabs, otevři podle aktivního tree node
+        const persisted = loadTabsState();
+        if (!persisted || !persisted.tabs || persisted.tabs.length === 0) {
+          openTab(parseInt(cislo, 10), item);
+        }
       }
 
       function expandAncestors(item) {
@@ -2511,7 +2615,265 @@ def _render_workspace_page(user_id: int) -> str:
         });
       }
 
+      // ── B+8 (6.5.2026): Multi-tab přehled state + UI ───────────────
+      // MVP localStorage. Phase B+8.1 přepne na backend persistence
+      // (per user, per tenant — Marti's spec — endpoint /api/v1/erp/tabs).
+      const TABS_STATE_KEY = "erp.tabs.state.v1";
+      const tabsBarEl = document.getElementById("erpTabsBar");
+      const tabsState = {
+        tabs: [],            // [{cislo, itemId, label, data, gridState}]
+        activeIndex: -1,
+      };
+
+      function loadTabsState() {
+        try {
+          const s = localStorage.getItem(TABS_STATE_KEY);
+          if (!s) return null;
+          const parsed = JSON.parse(s);
+          if (!parsed || !Array.isArray(parsed.tabs)) return null;
+          return parsed;
+        } catch (e) { return null; }
+      }
+      function saveTabsState() {
+        try {
+          // Persistuj jen lehkou meta — ne data ani gridState (ty se znovu fetchnou)
+          const persist = {
+            tabs: tabsState.tabs.map(t => ({
+              cislo: t.cislo,
+              itemId: t.itemId,
+              label: t.label,
+            })),
+            activeIndex: tabsState.activeIndex,
+          };
+          localStorage.setItem(TABS_STATE_KEY, JSON.stringify(persist));
+        } catch (e) {}
+      }
+
+      function _findTabIndex(cislo) {
+        return tabsState.tabs.findIndex(t => t.cislo === cislo);
+      }
+
+      async function openTab(cislo, item) {
+        const idx = _findTabIndex(cislo);
+        if (idx >= 0) {
+          await switchTab(idx);
+          return;
+        }
+        // Nový tab
+        const itemId = item ? item.getAttribute("data-id") : null;
+        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
+        const labelText = (labelEl && (labelEl.dataset.erpOrigText || labelEl.textContent))
+          || ("Přehled #" + cislo);
+        const tab = {
+          cislo: cislo,
+          itemId: itemId,
+          label: labelText,
+          data: null,
+          gridState: null,
+        };
+        tabsState.tabs.push(tab);
+        await switchTab(tabsState.tabs.length - 1);
+      }
+
+      async function switchTab(idx) {
+        if (idx < 0 || idx >= tabsState.tabs.length) return;
+        // Save current grid state před switch
+        if (tabsState.activeIndex >= 0 && tabsState.activeIndex < tabsState.tabs.length) {
+          const cur = tabsState.tabs[tabsState.activeIndex];
+          if (cur && activeErpDataGrid && activeErpDataGrid.gridApi) {
+            try {
+              cur.gridState = {
+                columnState: activeErpDataGrid.gridApi.getColumnState(),
+                filterModel: activeErpDataGrid.gridApi.getFilterModel(),
+              };
+            } catch (e) {}
+          }
+        }
+        tabsState.activeIndex = idx;
+        renderTabsBar();
+        const tab = tabsState.tabs[idx];
+        // Sync tree active state
+        if (tab.itemId) {
+          treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+          const treeItem = treeRoot.querySelector('.erp-tree-item[data-id="' + tab.itemId + '"]');
+          if (treeItem) {
+            const row = treeItem.querySelector(":scope > .erp-tree-row");
+            if (row) row.classList.add("active");
+            saveActive(String(tab.cislo));
+          }
+        }
+        saveTabsState();
+        // Load data + render
+        if (!tab.data) {
+          await _loadTabData(tab);
+        } else {
+          _renderTabIntoMain(tab);
+        }
+      }
+
+      function closeTab(idx) {
+        if (idx < 0 || idx >= tabsState.tabs.length) return;
+        tabsState.tabs.splice(idx, 1);
+        if (tabsState.tabs.length === 0) {
+          tabsState.activeIndex = -1;
+          // Cleanup grid + reset main content
+          if (activeErpDataGrid) {
+            try { activeErpDataGrid.destroy(); } catch (e) {}
+            activeErpDataGrid = null;
+          }
+          mainContent.innerHTML =
+            '<div class="erp-main-placeholder">' +
+            '<h2>Vyber přehled ze stromu vlevo</h2>' +
+            '<p>Klikni na uzel pro otevření přehledu jako záložka.</p>' +
+            '</div>';
+          treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+          saveActive("");
+          renderTabsBar();
+          saveTabsState();
+          return;
+        }
+        // Auto-switch — pokud se zavřel aktivní, jdi na předchozí (nebo první)
+        if (idx <= tabsState.activeIndex) {
+          tabsState.activeIndex = Math.max(0, tabsState.activeIndex - 1);
+        }
+        renderTabsBar();
+        saveTabsState();
+        switchTab(tabsState.activeIndex);
+      }
+
+      function renderTabsBar() {
+        if (!tabsBarEl) return;
+        if (tabsState.tabs.length === 0) {
+          tabsBarEl.setAttribute("hidden", "");
+          tabsBarEl.innerHTML = "";
+          return;
+        }
+        tabsBarEl.removeAttribute("hidden");
+        let html = "";
+        tabsState.tabs.forEach((t, i) => {
+          const active = (i === tabsState.activeIndex);
+          html += '<div class="erp-tab' + (active ? ' active' : '') +
+                  '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) + '">';
+          html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
+          html += '<button type="button" class="erp-tab-close" data-tab-close="' + i +
+                  '" title="Zavřít záložku">×</button>';
+          html += '</div>';
+        });
+        html += '<button type="button" class="erp-tab-add" id="erpTabAdd" ' +
+                'title="Otevřít nový přehled (vyber ve stromu)">+</button>';
+        tabsBarEl.innerHTML = html;
+        // Event delegation
+        tabsBarEl.querySelectorAll(".erp-tab").forEach(el => {
+          el.addEventListener("click", (ev) => {
+            if (ev.target.classList.contains("erp-tab-close")) return;
+            const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
+            if (!isNaN(idx)) switchTab(idx);
+          });
+        });
+        tabsBarEl.querySelectorAll(".erp-tab-close").forEach(el => {
+          el.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            const idx = parseInt(el.getAttribute("data-tab-close"), 10);
+            if (!isNaN(idx)) closeTab(idx);
+          });
+        });
+        const addBtn = document.getElementById("erpTabAdd");
+        if (addBtn && treeSearchInput) {
+          addBtn.addEventListener("click", () => {
+            // + button = focus tree filter (pak user vybere přehled = openTab)
+            if (workspaceEl && workspaceEl.classList.contains("tree-collapsed")) {
+              applyTreeCollapsed(false);
+              saveTreeCollapsed(false);
+            }
+            try { treeSearchInput.focus(); treeSearchInput.select(); } catch (e) {}
+          });
+        }
+      }
+
+      async function _loadTabData(tab) {
+        const userLimit = loadPrehledLimit(tab.cislo);
+        const url = userLimit
+          ? ("/api/v1/erp/prehled/" + tab.cislo + "?limit=" + userLimit)
+          : ("/api/v1/erp/prehled/" + tab.cislo);
+        const itemId = tab.itemId;
+        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
+        mainContent.innerHTML =
+          '<div class="erp-prehled-header">' +
+          '<div class="erp-bc-path">' + breadcrumb + '</div>' +
+          '<div class="erp-prehled-loading">' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line short"></div>' +
+          '</div>' +
+          '<div class="erp-prehled-loading-msg">Načítám přehled #' + tab.cislo + '…</div>' +
+          '</div>';
+        try {
+          const r = await fetch(url, { credentials: "include" });
+          if (!r.ok) {
+            mainContent.innerHTML =
+              '<div class="erp-main-error">Přehled #' + tab.cislo +
+              ' nelze načíst: Status ' + r.status + '</div>';
+            return;
+          }
+          const data = await r.json();
+          tab.data = data;
+          _renderTabIntoMain(tab);
+        } catch (e) {
+          mainContent.innerHTML =
+            '<div class="erp-main-error">Chyba: ' +
+            escapeHtml(e.message || String(e)) + '</div>';
+        }
+      }
+
+      function _renderTabIntoMain(tab) {
+        // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
+        if (currentJadro) closeJadroPane();
+        const data = tab.data;
+        if (!data) return;
+        const itemId = tab.itemId;
+        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
+        // Reuse existing renderPrehled logic (refactored)
+        renderPrehled(tab.cislo, { getAttribute: (k) => k === "data-id" ? itemId : null }, data, breadcrumb);
+        // Restore grid state pokud cached
+        if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
+          setTimeout(() => {
+            try {
+              if (tab.gridState.columnState) {
+                activeErpDataGrid.gridApi.applyColumnState({
+                  state: tab.gridState.columnState,
+                  applyOrder: true,
+                });
+              }
+              if (tab.gridState.filterModel) {
+                activeErpDataGrid.gridApi.setFilterModel(tab.gridState.filterModel);
+              }
+            } catch (e) {}
+          }, 30);
+        }
+      }
+
+      // Restore tabs state z localStorage (po loadTree() — potřebujeme tree pro itemId resolve)
+      function restoreTabsFromStorage() {
+        const persisted = loadTabsState();
+        if (!persisted || !persisted.tabs || persisted.tabs.length === 0) return;
+        // Re-create tab metadata (data + gridState se znovu fetchnou)
+        tabsState.tabs = persisted.tabs.map(t => ({
+          cislo: t.cislo,
+          itemId: t.itemId,
+          label: t.label,
+          data: null,
+          gridState: null,
+        }));
+        const idx = (persisted.activeIndex >= 0 && persisted.activeIndex < tabsState.tabs.length)
+          ? persisted.activeIndex
+          : 0;
+        renderTabsBar();
+        switchTab(idx);
+      }
+
       loadTree();
+      // Po load tree (async) zkus restore tabs — počkej krátce na DOM
+      setTimeout(restoreTabsFromStorage, 200);
     })();
     </script>
     '''

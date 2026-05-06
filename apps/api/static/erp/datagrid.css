@@ -716,3 +716,447 @@
 .erp-toast-fixed.erp-toast-error {
   border-color: var(--error, #f87171);
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+10+ (6.5.2026): Conditional formatting — preset colors
+   AG-native rendering (cellClassRules / rowClassRules)
+   8 preset pastel colors + strike variant
+   ══════════════════════════════════════════════════════════════════ */
+
+/* ── Cell-level color classes ──────────────────────────────────────
+   Apply jen pozadí + foreground tint (ne celý řádek). Účelně mírné
+   alpha aby čitelnost textu přes default text color. */
+
+.ag-theme-quartz-dark .erp-fmt-cell-red {
+  background-color: rgba(239, 68, 68, 0.18) !important;
+  color: #fca5a5 !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-orange {
+  background-color: rgba(249, 115, 22, 0.18) !important;
+  color: #fdba74 !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-yellow {
+  background-color: rgba(234, 179, 8, 0.18) !important;
+  color: #fcd34d !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-green {
+  background-color: rgba(34, 197, 94, 0.18) !important;
+  color: #86efac !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-blue {
+  background-color: rgba(59, 130, 246, 0.18) !important;
+  color: #93c5fd !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-purple {
+  background-color: rgba(168, 85, 247, 0.18) !important;
+  color: #d8b4fe !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-gray {
+  background-color: rgba(107, 114, 128, 0.22) !important;
+  color: #d1d5db !important;
+}
+.ag-theme-quartz-dark .erp-fmt-cell-strike {
+  text-decoration: line-through !important;
+  color: #94a3b8 !important;
+  opacity: 0.7;
+}
+
+/* ── Row-level color classes ───────────────────────────────────────
+   Aplikace na celý řádek. Zachovat zebra-stripe contrast — proto
+   alpha mírnější (0.10 vs 0.18 pro cells). */
+
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-red {
+  background-color: rgba(239, 68, 68, 0.10) !important;
+  color: #fca5a5;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-orange {
+  background-color: rgba(249, 115, 22, 0.10) !important;
+  color: #fdba74;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-yellow {
+  background-color: rgba(234, 179, 8, 0.10) !important;
+  color: #fcd34d;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-green {
+  background-color: rgba(34, 197, 94, 0.10) !important;
+  color: #86efac;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-blue {
+  background-color: rgba(59, 130, 246, 0.10) !important;
+  color: #93c5fd;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-purple {
+  background-color: rgba(168, 85, 247, 0.10) !important;
+  color: #d8b4fe;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-gray {
+  background-color: rgba(107, 114, 128, 0.14) !important;
+  color: #d1d5db;
+}
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-strike {
+  text-decoration: line-through !important;
+  color: #94a3b8 !important;
+  opacity: 0.65;
+}
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+10+ (6.5.2026): Formatting Editor — modal styling
+   ══════════════════════════════════════════════════════════════════ */
+
+.erp-fmt-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.65);
+  z-index: 9500;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 32px;
+  font-family: 'DM Sans', -apple-system, sans-serif;
+}
+
+.erp-fmt-modal {
+  background: var(--surface, #1c1e23);
+  border: 1px solid var(--border-strong, #4a4e57);
+  border-radius: 10px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.6);
+  width: 100%;
+  max-width: 920px;
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.erp-fmt-modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  border-radius: 10px 10px 0 0;
+}
+
+.erp-fmt-modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text, #f0f1f5);
+  letter-spacing: 0.01em;
+}
+
+.erp-fmt-modal-close {
+  background: transparent;
+  border: none;
+  color: var(--text-muted, #b0b3bc);
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.erp-fmt-modal-close:hover {
+  color: var(--text, #f0f1f5);
+  background: var(--surface2, #252830);
+}
+
+.erp-fmt-modal-body {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  padding: 16px 18px;
+  min-height: 200px;
+}
+
+.erp-fmt-modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 18px;
+  border-top: 1px solid var(--border, #3a3d44);
+  background: var(--bg, #0e0f11);
+  border-radius: 0 0 10px 10px;
+}
+
+.erp-fmt-modal-btn {
+  background: var(--surface2, #252830);
+  border: 1px solid var(--border, #3a3d44);
+  color: var(--text-muted, #b0b3bc);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 7px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.erp-fmt-modal-btn:hover {
+  background: var(--surface3, #2d3038);
+  color: var(--text, #f0f1f5);
+  border-color: var(--border-strong, #4a4e57);
+}
+.erp-fmt-modal-btn.primary {
+  background: var(--accent, #4f8ef7);
+  border-color: var(--accent, #4f8ef7);
+  color: white;
+  font-weight: 600;
+}
+.erp-fmt-modal-btn.primary:hover {
+  background: var(--accent2, #7c5cfc);
+  border-color: var(--accent2, #7c5cfc);
+}
+
+/* ── Empty state ─────────────────────────────────────────────────── */
+
+.erp-fmt-empty {
+  text-align: center;
+  padding: 48px 16px;
+  color: var(--text-muted, #b0b3bc);
+}
+.erp-fmt-empty-icon {
+  font-size: 36px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+.erp-fmt-empty-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: var(--text-faint, #6c7076);
+}
+
+/* ── Rules list ──────────────────────────────────────────────────── */
+
+.erp-fmt-rules-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-bottom: 16px;
+}
+
+.erp-fmt-rules-header,
+.erp-fmt-rule-row {
+  display: grid;
+  grid-template-columns:
+    24px           /* grip */
+    32px           /* order */
+    minmax(120px, 1.4fr)  /* target */
+    minmax(110px, 1fr)    /* operator */
+    minmax(110px, 1.2fr)  /* value */
+    minmax(140px, 1.2fr)  /* color */
+    80px           /* scope */
+    72px;          /* actions */
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.erp-fmt-rules-header {
+  background: var(--bg, #0e0f11);
+  border-radius: 5px;
+  font-weight: 600;
+  color: var(--text-faint, #6c7076);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+
+.erp-fmt-rule-row {
+  background: var(--bg, #0e0f11);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 5px;
+  cursor: grab;
+  transition: border-color 0.12s, background 0.12s;
+}
+.erp-fmt-rule-row:hover {
+  border-color: var(--border-strong, #4a4e57);
+  background: var(--surface2, #252830);
+}
+.erp-fmt-rule-row.erp-fmt-drag-source {
+  opacity: 0.4;
+  cursor: grabbing;
+}
+.erp-fmt-rule-row.erp-fmt-drag-over {
+  border-color: var(--accent, #4f8ef7);
+  background: rgba(79, 142, 247, 0.08);
+}
+
+.erp-fmt-col-grip {
+  cursor: grab;
+  color: var(--text-faint, #6c7076);
+  font-size: 14px;
+  user-select: none;
+  -webkit-user-select: none;
+}
+.erp-fmt-col-grip:hover {
+  color: var(--text, #f0f1f5);
+}
+.erp-fmt-col-order {
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-muted, #b0b3bc);
+  font-variant-numeric: tabular-nums;
+}
+.erp-fmt-col-target,
+.erp-fmt-col-op,
+.erp-fmt-col-value,
+.erp-fmt-col-color,
+.erp-fmt-col-scope {
+  color: var(--text, #f0f1f5);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.erp-fmt-col-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.erp-fmt-na {
+  color: var(--text-faint, #6c7076);
+  font-style: italic;
+}
+
+.erp-fmt-swatch {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  vertical-align: middle;
+}
+
+.erp-fmt-icon-btn {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-muted, #b0b3bc);
+  font-size: 13px;
+  font-family: inherit;
+  width: 28px;
+  height: 26px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.erp-fmt-icon-btn:hover {
+  background: var(--surface3, #2d3038);
+  color: var(--text, #f0f1f5);
+  border-color: var(--border, #3a3d44);
+}
+
+/* ── Edit form (in-row expansion) ──────────────────────────────── */
+
+.erp-fmt-rule-edit {
+  display: block !important;
+  background: var(--surface2, #252830) !important;
+  border-color: var(--accent, #4f8ef7) !important;
+  cursor: default !important;
+  padding: 14px !important;
+}
+
+.erp-fmt-edit-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.erp-fmt-edit-label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-faint, #6c7076);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.erp-fmt-edit-label-text {
+  display: block;
+  margin-bottom: 4px;
+}
+
+.erp-fmt-edit-label select,
+.erp-fmt-edit-label input[type="text"] {
+  background: var(--bg, #14161b);
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 4px;
+  color: var(--text, #f0f1f5);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: normal;
+  padding: 6px 8px;
+  letter-spacing: normal;
+  text-transform: none;
+}
+
+.erp-fmt-edit-label select:focus,
+.erp-fmt-edit-label input[type="text"]:focus {
+  outline: none;
+  border-color: var(--accent, #4f8ef7);
+  box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+}
+
+.erp-fmt-edit-color {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  grid-column: 1 / -1;
+}
+
+.erp-fmt-color-pills {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.erp-fmt-color-pill {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.12s, border-color 0.12s, box-shadow 0.12s;
+  padding: 0;
+}
+.erp-fmt-color-pill:hover {
+  transform: scale(1.1);
+}
+.erp-fmt-color-pill.selected {
+  border-color: white;
+  box-shadow: 0 0 0 2px var(--accent, #4f8ef7);
+}
+
+.erp-fmt-edit-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* ── Add button ──────────────────────────────────────────────────── */
+
+.erp-fmt-add-wrap {
+  display: flex;
+  justify-content: flex-start;
+  margin-top: 8px;
+}
+
+.erp-fmt-add-btn {
+  background: transparent;
+  border: 1px dashed var(--border-strong, #4a4e57);
+  color: var(--text-muted, #b0b3bc);
+  font-size: 13px;
+  font-family: inherit;
+  padding: 8px 14px;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.erp-fmt-add-btn:hover {
+  background: var(--surface2, #252830);
+  color: var(--text, #f0f1f5);
+  border-color: var(--accent, #4f8ef7);
+  border-style: solid;
+}

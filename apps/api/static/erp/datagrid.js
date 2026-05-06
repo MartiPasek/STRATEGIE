@@ -566,20 +566,23 @@
         def.valueFormatter = (params) => _formatNumberCS(params.value, decimals);
         // B+10 (6.5.2026): conditional formatting — záporná = červená,
         // nula = dim. AG Grid cellClassRules vyhodnocuje per-cell.
-        def.cellClassRules = {
-          "erp-ag-numeric-negative": (params) => {
-            const v = params.value;
-            if (v == null || v === "") return false;
-            const n = (typeof v === "number") ? v : parseFloat(v);
-            return Number.isFinite(n) && n < 0;
-          },
-          "erp-ag-numeric-zero": (params) => {
-            const v = params.value;
-            if (v == null || v === "") return false;
-            const n = (typeof v === "number") ? v : parseFloat(v);
-            return Number.isFinite(n) && n === 0;
-          },
-        };
+        // B+10+ (6.5.2026): heuristics opt-in jen když options.heuristicsEnabled.
+        if (options && options.heuristicsEnabled) {
+          def.cellClassRules = {
+            "erp-ag-numeric-negative": (params) => {
+              const v = params.value;
+              if (v == null || v === "") return false;
+              const n = (typeof v === "number") ? v : parseFloat(v);
+              return Number.isFinite(n) && n < 0;
+            },
+            "erp-ag-numeric-zero": (params) => {
+              const v = params.value;
+              if (v == null || v === "") return false;
+              const n = (typeof v === "number") ? v : parseFloat(v);
+              return Number.isFinite(n) && n === 0;
+            },
+          };
+        }
       }
       // Center-align booleans (checkbox-like flag columns).
       // B+6.6c-fix3 (6.5.2026): Marti's "checkboxy by chteli vystredovat
@@ -590,35 +593,40 @@
         def.headerClass = "erp-ag-boolean-header";
         // Width hint — booleans nepotřebují širokou cellu
         if (!def.minWidth || def.minWidth > 80) def.minWidth = 60;
-        // B+10: conditional — true = green, false = dim
-        def.cellClassRules = {
-          "erp-ag-bool-true": (params) => {
-            const v = params.value;
-            return v === true || v === 1 || v === "1" ||
-                   String(v).toLowerCase() === "true";
-          },
-          "erp-ag-bool-false": (params) => {
-            const v = params.value;
-            if (v == null || v === "") return false;
-            return v === false || v === 0 || v === "0" ||
-                   String(v).toLowerCase() === "false";
-          },
-        };
+        // B+10: conditional — true = green, false = dim (heuristic, opt-in B+10+)
+        if (options && options.heuristicsEnabled) {
+          def.cellClassRules = {
+            "erp-ag-bool-true": (params) => {
+              const v = params.value;
+              return v === true || v === 1 || v === "1" ||
+                     String(v).toLowerCase() === "true";
+            },
+            "erp-ag-bool-false": (params) => {
+              const v = params.value;
+              if (v == null || v === "") return false;
+              return v === false || v === 0 || v === "0" ||
+                     String(v).toLowerCase() === "false";
+            },
+          };
+        }
       }
       // B+7+++ (6.5.2026): date formatter — ISO → "D.M.YYYY" (CS).
       // Pokud datetime má time = 00:00:00, zobrazit jen datum.
       if (colType === "date") {
         def.valueFormatter = (params) => _formatDateCS(params.value);
-        // B+10: conditional — past = red, today = accent, soon = amber
-        def.cellClassRules = {
-          "erp-ag-date-past": (params) => _classifyDate(params.value) === "past",
-          "erp-ag-date-today": (params) => _classifyDate(params.value) === "today",
-          "erp-ag-date-soon": (params) => _classifyDate(params.value) === "soon",
-        };
+        // B+10: conditional — past = red, today = accent, soon = amber (heuristic, opt-in B+10+)
+        if (options && options.heuristicsEnabled) {
+          def.cellClassRules = {
+            "erp-ag-date-past": (params) => _classifyDate(params.value) === "past",
+            "erp-ag-date-today": (params) => _classifyDate(params.value) === "today",
+            "erp-ag-date-soon": (params) => _classifyDate(params.value) === "soon",
+          };
+        }
       }
       // B+10: Status column heuristic — column name vypadá jako "Stav"
       // a/nebo data values matchují status keywords (OK/Chyba/Pending).
-      if (colType === "string" && _looksLikeStatusName(c)) {
+      // B+10+ (6.5.2026): heuristic, opt-in.
+      if (colType === "string" && _looksLikeStatusName(c) && options && options.heuristicsEnabled) {
         def.cellClassRules = {
           "erp-ag-status-ok": (params) => _classifyStatusValue(params.value) === "ok",
           "erp-ag-status-error": (params) => _classifyStatusValue(params.value) === "error",
@@ -656,6 +664,9 @@
       this._currentLayoutId = null;
       this._isDirty = false;
       this._dirtyEventsAttached = false;
+      // B+10+ (6.5.2026): user-defined conditional formatting state
+      this._formattingRules = [];        // array of rule objects (viz datagrid_formatting.js)
+      this._heuristicsEnabled = false;   // B+10 auto-classification = opt-in
       this._init();
     }
 
@@ -727,16 +738,25 @@
       if (!columnDefs && this.options.autoColumns) {
         const cols = this.options.columns ||
           (rowData.length > 0 ? Object.keys(rowData[0]) : []);
-        columnDefs = buildAutoColumnDefs(cols, rowData, this.options);
+        // B+10+ (6.5.2026): pass heuristicsEnabled flag — auto-classification
+        // pro numeric/bool/date/status columns je teď opt-in (default off).
+        const buildOpts = Object.assign({}, this.options, {
+          heuristicsEnabled: this._heuristicsEnabled === true,
+        });
+        columnDefs = buildAutoColumnDefs(cols, rowData, buildOpts);
       }
 
       const opts = this.options;
+      // B+10+ (6.5.2026): merge user-defined formatting rules + heuristics.
+      // Initial state: žádné user rules, heuristics off → empty rowClassRules.
+      // Re-applied v _applyLayout() po načtení layout.
+      const initialRowRules = this._buildEffectiveRowClassRules();
       const gridOptions = {
         columnDefs: columnDefs || [],
         rowData: rowData,
-        // B+10 (6.5.2026): row-level conditional formatting (whole-row
-        // coloring per data state — deleted/inactive/error/warn/success).
-        rowClassRules: _buildRowClassRules(),
+        // B+10 (6.5.2026): row-level conditional formatting.
+        // B+10+ (6.5.2026): merge heuristics (opt-in) + user rules (compiled).
+        rowClassRules: initialRowRules,
         // Default column behavior
         defaultColDef: {
           sortable: true,
@@ -977,13 +997,21 @@
      */
     _applyLayout(layoutObj) {
       if (this._destroyed || !this.gridApi || !layoutObj) return false;
-      const cols = layoutObj.layout_json && layoutObj.layout_json.columns;
+      const lj = layoutObj.layout_json || {};
+      const cols = lj.columns;
       if (!Array.isArray(cols) || cols.length === 0) return false;
       try {
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
         });
+        // B+10+ (6.5.2026): extract conditional formatting state z layout
+        this._formattingRules = Array.isArray(lj.formatting_rules)
+          ? lj.formatting_rules.slice()
+          : [];
+        this._heuristicsEnabled = lj.heuristics_enabled === true;
+        // Re-apply formatting po column state change
+        this._rebuildGridFormatting();
         this._currentLayoutId = layoutObj.id;
         this._isDirty = false;
         this._notifyLayoutChange();
@@ -1041,7 +1069,12 @@
         scope: opts.scope || "user",
         description: opts.description || null,
         is_default: !!opts.isDefault,
-        layout_json: { columns: this.getCurrentColumnState() },
+        layout_json: {
+          columns: this.getCurrentColumnState(),
+          // B+10+ (6.5.2026): persist conditional formatting state
+          formatting_rules: this._formattingRules || [],
+          heuristics_enabled: this._heuristicsEnabled === true,
+        },
       };
       const r = await fetch("/api/v1/erp/grid-layout/" + base.cislo, {
         method: "POST",
@@ -1071,7 +1104,12 @@
       const id = layoutId || this._currentLayoutId;
       if (!id) throw new Error("No current layout to update — saveAsLayout first");
       const body = {
-        layout_json: { columns: this.getCurrentColumnState() },
+        layout_json: {
+          columns: this.getCurrentColumnState(),
+          // B+10+ (6.5.2026): persist conditional formatting state
+          formatting_rules: this._formattingRules || [],
+          heuristics_enabled: this._heuristicsEnabled === true,
+        },
       };
       const r = await fetch("/api/v1/erp/grid-layout/item/" + id, {
         method: "PUT",
@@ -1137,6 +1175,127 @@
       catch (e) { return []; }
     }
 
+    // ── B+10+ (6.5.2026): conditional formatting API ──────────────────
+
+    /** Vrací aktuální user-defined formatting rules (array). */
+    getFormattingRules() {
+      return this._formattingRules.slice();
+    }
+
+    /** Set new rules + re-apply to grid. */
+    setFormattingRules(rules) {
+      this._formattingRules = Array.isArray(rules) ? rules.slice() : [];
+      this._rebuildGridFormatting();
+      this._isDirty = true;
+      this._notifyLayoutChange();
+    }
+
+    getHeuristicsEnabled() {
+      return this._heuristicsEnabled === true;
+    }
+
+    setHeuristicsEnabled(enabled) {
+      const newVal = !!enabled;
+      if (this._heuristicsEnabled === newVal) return;
+      this._heuristicsEnabled = newVal;
+      this._rebuildGridFormatting();
+      this._isDirty = true;
+      this._notifyLayoutChange();
+    }
+
+    /**
+     * B+10+ (6.5.2026): build aggregate rowClassRules — heuristics (opt-in)
+     * + compiled user rules. Helper pro _init + _rebuildGridFormatting.
+     */
+    _buildEffectiveRowClassRules() {
+      const merged = {};
+      if (this._heuristicsEnabled) {
+        Object.assign(merged, _buildRowClassRules());
+      }
+      const Fmt = (typeof window !== "undefined") ? window.ErpGridFormatting : null;
+      if (Fmt && this._formattingRules && this._formattingRules.length > 0) {
+        const compiled = Fmt.compile(this._formattingRules, []);
+        Object.assign(merged, compiled.rowClassRules);
+      }
+      return merged;
+    }
+
+    /**
+     * B+10+ (6.5.2026): re-apply formatting state to AG Grid.
+     * Calls gridApi.setColumnDefs + setGridOption("rowClassRules", ...).
+     * Trigger po: layout load, user rules edit, heuristics toggle.
+     */
+    _rebuildGridFormatting() {
+      if (this._destroyed || !this.gridApi) return;
+      const Fmt = (typeof window !== "undefined") ? window.ErpGridFormatting : null;
+      // Per-column cellClassRules from user formatting_rules
+      const compiled = (Fmt && this._formattingRules && this._formattingRules.length > 0)
+        ? Fmt.compile(this._formattingRules, [])
+        : { cellClassRulesByCol: {}, rowClassRules: {} };
+      // Get current column defs, rebuild s heuristics flag + user rules merged
+      try {
+        // Easiest path: re-build column defs from current rowData using
+        // buildAutoColumnDefs + heuristicsEnabled flag, then merge user rules.
+        const rowData = [];
+        try {
+          this.gridApi.forEachNode(node => { if (node.data) rowData.push(node.data); });
+        } catch (e) {}
+        const cols = this.options.columns ||
+          (rowData.length > 0 ? Object.keys(rowData[0]) : []);
+        const buildOpts = Object.assign({}, this.options, {
+          heuristicsEnabled: this._heuristicsEnabled === true,
+        });
+        const newDefs = (cols.length > 0 && this.options.autoColumns)
+          ? buildAutoColumnDefs(cols, rowData, buildOpts)
+          : null;
+        // Merge per-column user rules into newDefs cellClassRules
+        if (newDefs) {
+          for (const def of newDefs) {
+            const userRules = compiled.cellClassRulesByCol[def.field];
+            if (userRules) {
+              def.cellClassRules = Object.assign({}, def.cellClassRules || {}, userRules);
+            }
+          }
+          this.gridApi.setGridOption("columnDefs", newDefs);
+        }
+        // Row-level: merge heuristics (opt-in) + user
+        const effRowRules = this._buildEffectiveRowClassRules();
+        this.gridApi.setGridOption("rowClassRules", effRowRules);
+        // Force redraw to re-evaluate class rules immediately
+        try { this.gridApi.redrawRows(); } catch (e) {}
+      } catch (e) {
+        console.warn("ErpDataGrid._rebuildGridFormatting failed:", e);
+      }
+    }
+
+    /** Otevři formatting rules editor — modal s drag-drop priority listem. */
+    async openFormattingEditor() {
+      const Fmt = (typeof window !== "undefined") ? window.ErpGridFormatting : null;
+      if (!Fmt) {
+        alert("ErpGridFormatting nebyl naloaděn — zkontroluj <script src=\"/static/erp/datagrid_formatting.js\">");
+        return;
+      }
+      // Build columns metadata pro editor (field + headerName + type)
+      const colDefs = (this.gridApi && this.gridApi.getColumnDefs) ? this.gridApi.getColumnDefs() : [];
+      const columnsMeta = colDefs
+        .filter(c => c && c.field)
+        .map(c => ({
+          field: c.field,
+          headerName: c.headerName || c.field,
+          type: (c.cellDataType || "string"),
+        }));
+      const result = await Fmt.openEditor({
+        rules: this._formattingRules,
+        columns: columnsMeta,
+        onSave: async (newRules) => {
+          this.setFormattingRules(newRules);
+        },
+      });
+      // result === null → user canceled, _formattingRules netknuté.
+      // result === array → onSave proběhlo, state již updated.
+      return result;
+    }
+
     /** Returns currently loaded layout ID (or null = unsaved/auto). */
     getCurrentLayoutId() { return this._currentLayoutId; }
 
@@ -1192,6 +1351,8 @@
           '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
         '</div>' +
         '<div class="erp-toolbar-right">' +
+          '<button class="erp-toolbar-btn" data-erp-fmt-btn ' +
+            'title="Barevná pravidla (per layout)">🎨 Pravidla</button>' +
           '<button class="erp-toolbar-btn" data-erp-save-btn hidden ' +
             'title="Uložit změny do aktuální sestavy">💾 Uložit</button>' +
           '<button class="erp-toolbar-btn" data-erp-saveas-btn ' +
@@ -1232,6 +1393,14 @@
       if (manageBtn) {
         manageBtn.addEventListener("click", async () => {
           await this._openManagePanel();
+        });
+      }
+
+      // B+10+ (6.5.2026): formatting rules editor button
+      const fmtBtn = this.toolbarEl.querySelector("[data-erp-fmt-btn]");
+      if (fmtBtn) {
+        fmtBtn.addEventListener("click", async () => {
+          await this.openFormattingEditor();
         });
       }
     }

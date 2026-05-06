@@ -494,6 +494,22 @@
           if (this.options.autoLoadDefault && this.options.layoutKey) {
             this._autoLoadDefault();
           }
+          // B+7+ (6.5.2026): force fit columns to container width po init.
+          // Marti's UI feedback "grid neni roztazen na celou sirku panelu".
+          // sizeColumnsToFit re-distribuje column flex proporcionálně do
+          // dostupného container width.
+          setTimeout(() => {
+            try { params.api.sizeColumnsToFit(); } catch (e) {}
+          }, 0);
+        },
+        onFirstDataRendered: (params) => {
+          // Po načtení prvního batch dat — re-fit columns
+          try { params.api.sizeColumnsToFit(); } catch (e) {}
+        },
+        onGridSizeChanged: (params) => {
+          // ResizeObserver-style: container width changed (window resize,
+          // tree pane resize, atd.) → fit columns
+          try { params.api.sizeColumnsToFit(); } catch (e) {}
         },
         onRowClicked: (event) => {
           // Default selection behavior (single/Ctrl/Shift) handled by AG Grid.

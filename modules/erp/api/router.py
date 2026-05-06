@@ -946,7 +946,17 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     }}
     .erp-main-content {{
       display: flex; flex-direction: column;
-      flex: 1; min-height: 0; overflow: hidden;
+      flex: 1; min-height: 0; min-width: 0;
+      width: 100%;
+      overflow: hidden;
+    }}
+    /* B+7+ (6.5.2026): grid container fills full width of main-content */
+    .erp-main-content > #erpDataGridContainer,
+    .erp-main-content > .erp-ag-grid {{
+      width: 100%;
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
     }}
     .erp-main-loading, .erp-main-error {{ color: var(--muted); padding: 14px 18px; font-size: 13px; }}
     .erp-main-error {{ color: var(--error); }}

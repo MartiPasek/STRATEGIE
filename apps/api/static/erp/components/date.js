@@ -260,7 +260,8 @@
           : this.options.mode === "datetime" ? "D.M.YYYY HH:MM"
           : "D.M.YYYY";
       }
-      if (this.options.readonly) this.input.readOnly = true;
+      // B+10++++++++ (6.5.2026): readonly gate jen save flow (Phase C).
+      // UI input + trigger button volně klikatelné.
       if (this.options.disabled) this.input.disabled = true;
       row.appendChild(this.input);
 
@@ -272,7 +273,7 @@
       this.trigger.innerHTML = this.options.mode === "time" ? "🕒" : "📅";
       this.trigger.title =
         this.options.mode === "time" ? "Vybrat čas" : "Otevřít kalendář";
-      if (this.options.disabled || this.options.readonly) {
+      if (this.options.disabled) {
         this.trigger.disabled = true;
       }
       row.appendChild(this.trigger);
@@ -459,7 +460,8 @@
     // ── Popup open / close / position ─────────────────────────────
 
     open() {
-      if (this._destroyed || this._isOpen || this.options.disabled || this.options.readonly) return;
+      // B+10++++++++ (6.5.2026): readonly gate jen save flow.
+      if (this._destroyed || this._isOpen || this.options.disabled) return;
       // Close any other open ErpDate first
       if (_OPEN_INSTANCE && _OPEN_INSTANCE !== this) {
         try { _OPEN_INSTANCE.close(); } catch (e) {}

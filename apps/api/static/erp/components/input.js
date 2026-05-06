@@ -315,7 +315,10 @@
       this.input.className = "erp-input";
       this.input.type = this._htmlInputType();
       if (this.options.placeholder) this.input.placeholder = this.options.placeholder;
-      if (this.options.readonly) this.input.readOnly = true;
+      // B+10++++++++ (drobnost 6.5.2026 večer): read-only gate přesunut
+      // k save flow (analog FormList). Marti: "povol i ostatni komponenty,
+      // at nejsou read only... checkboxy a inputy". V Phase A je vše save
+      // no-op, v Phase C bude save flow gate isFieldReadOnly per field.
       if (this.options.disabled) this.input.disabled = true;
       if (this.options.maxLength) this.input.maxLength = this.options.maxLength;
       row.appendChild(this.input);
@@ -489,8 +492,9 @@
 
     setReadonly(readonly) {
       if (this._destroyed) return;
+      // B+10++++++++ (6.5.2026): readonly tracked v options pro save flow
+      // gate (Phase C edit pipeline), ale UI input zůstane editovatelný.
       this.options.readonly = !!readonly;
-      this.input.readOnly = !!readonly;
     }
 
     setDisabled(disabled) {

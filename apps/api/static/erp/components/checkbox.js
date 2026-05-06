@@ -108,12 +108,10 @@
 
       // Event
       this.input.addEventListener("change", (ev) => this._handleChange(ev));
-      // Readonly intercept — blokuj toggle ale nech focus
-      this.input.addEventListener("click", (ev) => {
-        if (this.options.readonly) {
-          ev.preventDefault();
-        }
-      });
+      // B+10++++++++ (drobnost 6.5.2026 večer): readonly intercept smazán —
+      // user smí toggle. Save flow gate (Phase C edit pipeline) bude
+      // collect values + skip readonly fields. Marti: "povol i ostatni
+      // komponenty, at nejsou read only... checkboxy a inputy".
 
       this._updateState();
 
@@ -168,7 +166,9 @@
     }
 
     toggle() {
-      if (this._destroyed || this.options.disabled || this.options.readonly) return;
+      // B+10++++++++ (6.5.2026): readonly nebrání toggle UI. Save flow
+      // má vlastní gate (Phase C). Pouze disabled blokuje (HW-level).
+      if (this._destroyed || this.options.disabled) return;
       this.setValue(!this.options.checked);
       if (typeof this.options.onChange === "function") {
         try { this.options.onChange(this.options.checked); }

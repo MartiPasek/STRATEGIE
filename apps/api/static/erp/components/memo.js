@@ -115,7 +115,8 @@
       this.textarea.className = "erp-input erp-memo-textarea";
       this.textarea.rows = this.options.rows;
       if (this.options.placeholder) this.textarea.placeholder = this.options.placeholder;
-      if (this.options.readonly) this.textarea.readOnly = true;
+      // B+10++++++++ (6.5.2026): readonly gate jen save flow (Phase C).
+      // UI textarea volně editovatelný.
       if (this.options.disabled) this.textarea.disabled = true;
       if (this.options.maxLength) this.textarea.maxLength = this.options.maxLength;
       row.appendChild(this.textarea);

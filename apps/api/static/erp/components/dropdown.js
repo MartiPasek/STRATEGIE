@@ -161,14 +161,18 @@
 
     _handleTriggerClick(ev) {
       ev.preventDefault();
-      if (this.options.disabled || this.options.readonly || this.options.loading) return;
+      // B+10++++++++ (6.5.2026): readonly gate přesunut k save flow.
+      // UI dropdown smí otevřít + select. Disabled / loading drží blokádu.
+      if (this.options.disabled || this.options.loading) return;
       if (this._isOpen) this.close();
       else this.open();
     }
 
     open() {
       if (this._destroyed || this._isOpen) return;
-      if (this.options.disabled || this.options.readonly || this.options.loading) return;
+      // B+10++++++++ (6.5.2026): readonly gate přesunut k save flow.
+      // UI dropdown smí otevřít + select. Disabled / loading drží blokádu.
+      if (this.options.disabled || this.options.loading) return;
       // Close any other open dropdown
       if (_OPEN_INSTANCE && _OPEN_INSTANCE !== this) {
         try { _OPEN_INSTANCE.close(); } catch (e) {}
@@ -403,7 +407,8 @@
     // ── Keyboard handling ───────────────────────────────────────────
 
     _handleTriggerKeydown(ev) {
-      if (this.options.disabled || this.options.readonly) return;
+      // B+10++++++++ (6.5.2026): readonly gate jen na save (Phase C). UI free.
+      if (this.options.disabled) return;
       const key = ev.key;
       // Open panel
       if (!this._isOpen) {

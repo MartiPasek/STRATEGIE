@@ -223,6 +223,40 @@
           " tabSheets=" + tabSheets.length,
           typeCounts
         );
+        // Parent chain — PageControl + TabSheet + RichEdit (klíčové pro
+        // diagnostiku "kdo je child koho" v hierarchii TYP 15/16/4)
+        const _propPeek = (props) => {
+          // Vyber jen parent-related properties (Parent, ParentName, PageControl,
+          // Owner, Container, atd.) + Name (Delphi unique component name —
+          // může sloužit jako parent reference)
+          const out = {};
+          if (!props) return out;
+          const KEYS = ["Name", "Parent", "ParentName", "PageControl", "Owner",
+                        "Container", "TabSheet", "ParentID", "Page", "PageIndex"];
+          for (const k of KEYS) {
+            if (props[k] != null) out[k] = props[k];
+          }
+          return out;
+        };
+        const pcInfo = pageControls.map(c => ({
+          id: c.id, parent: c.c_parent || "-", caption: _resolveCaption(c),
+          props: _propPeek(c.properties),
+        }));
+        const tsInfo = tabSheets.map(c => ({
+          id: c.id, parent: c.c_parent || "-", caption: _resolveCaption(c),
+          props: _propPeek(c.properties),
+        }));
+        const reInfo = visuals.filter(c => c.typ === TYP_RICHEDIT).map(c => ({
+          id: c.id, parent: c.c_parent || "-", field: c.c_field_name,
+          props: _propPeek(c.properties),
+        }));
+        const gbInfo = groups.map(c => ({
+          id: c.id, parent: c.c_parent || "-", caption: _resolveCaption(c),
+        }));
+        console.log("[ErpForm] PageControls:", pcInfo);
+        console.log("[ErpForm] TabSheets:", tsInfo);
+        console.log("[ErpForm] GroupBoxes:", gbInfo);
+        console.log("[ErpForm] RichEdits:", reInfo);
       } catch (e) {}
       const fields = visuals.filter(c =>
         c.typ !== TYP_GROUPBOX &&

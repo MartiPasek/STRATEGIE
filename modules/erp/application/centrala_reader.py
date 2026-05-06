@@ -278,19 +278,49 @@ class CentralaReader:
                 if fname:
                     c.c_field_name = fname
 
-            # Phase A.5 (5.5.2026): cParent fallback z properties.ParentName.
-            # Diagnostika ukázala, že orphan Edit #4665 (ID) má v EC_FormDefEdit
-            # cParent='', ale property ParentName='c469' (= GroupBox "Vzhled").
-            # ParentName sémantika:
-            #   'c{id}' = parent komponenta (typically GroupBox)
-            #   'Def'   = root form (= true orphan, bez parent komponenty)
-            # Reused stejný `c{id}` formát jako c_parent → snadná konverze.
+        # Phase B+6.10c (6.5.2026 večer): lookup-by-Name pro Delphi VCL hierarchy.
+        # Délfi VCL ukládá Parent reference jako unique component Name
+        # (např. "PageControl1"), ne jako c{id}. Pre-build name → id map
+        # z properties.Name + zpřístupnit pro fallback níže.
+        name_to_id: dict[str, int] = {}
+        for c in components:
+            name = (c.properties.get("Name") or "").strip()
+            if name:
+                name_to_id[name] = c.id
+
+        # cParent fallback strategie (pokud cParent v EC_FormDefEdit prázdný).
+        # Delphi VCL ukládá Parent reference v různých property keys podle
+        # typu komponenty:
+        #   TTabSheet → "ParentPageControl" (specifický pro tab containment)
+        #   Obecné komponenty → "ParentName"
+        #   Legacy → "Parent"
+        # Marti's DB diagnostika 6.5.2026 večer: TabSheet 13367 měl
+        # ParentPageControl="c13365" v EC_FormDefEditProperty (NE ParentName)
+        # — bez tohoto fallbacku TabSheety zůstanou orphan a PageControly
+        # prázdné v UI.
+        #
+        # Resolution priority:
+        #   1. Property hodnota "c{id}" → použij přímo
+        #   2. Property hodnota = Delphi Name → resolve přes name_to_id
+        #   3. "Def" / unmatched → root form (true orphan)
+        PARENT_PROPERTY_KEYS = ("ParentName", "ParentPageControl", "Parent")
+        for c in components:
             if not c.c_parent:
-                pname = (c.properties.get("ParentName") or "").strip()
-                if pname and pname.startswith("c") and pname[1:].isdigit():
+                pname = ""
+                for key in PARENT_PROPERTY_KEYS:
+                    v = (c.properties.get(key) or "").strip()
+                    if v:
+                        pname = v
+                        break
+                if not pname:
+                    continue
+                # 1. c{id} formát (Phase A.5 existing)
+                if pname.startswith("c") and pname[1:].isdigit():
                     c.c_parent = pname
-                # 'Def' a ostatní nezachycené hodnoty necháváme prázdné
-                # (= true orphan, řadí se do orphan section)
+                # 2. Delphi Name lookup (Phase B+6.10c)
+                elif pname in name_to_id:
+                    c.c_parent = f"c{name_to_id[pname]}"
+                # 3. 'Def' a unmatched zůstávají prázdné
 
         logger.info(
             f"CentralaReader: form_id={form_id} -> "

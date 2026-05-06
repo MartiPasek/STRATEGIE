@@ -88,6 +88,29 @@ def index():
     return FileResponse(INDEX)
 
 
+@app.get("/sw.js")
+def core_service_worker():
+    """B+10+++++ (6.5.2026 odpoledne): Service Worker pro core STRATEGIE
+    chat. Served z root /sw.js (ne /static/sw.js) aby scope = /.
+    Bez SW Chrome nabídne jen "Přidat na plochu" (bookmark) místo
+    "Nainstalovat aplikaci" (standalone PWA bez chromu)."""
+    from fastapi import Response
+    sw_path = os.path.join(static_dir, "sw.js")
+    try:
+        with open(sw_path, "r", encoding="utf-8") as f:
+            content = f.read()
+    except Exception:
+        content = "// SW file not found"
+    return Response(
+        content=content,
+        media_type="application/javascript",
+        headers={
+            "Service-Worker-Allowed": "/",
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
+
+
 @app.get("/invite/{token}")
 def invite_page(token: str):
     """Pozvánkový link — vrátí stejný index.html, JS se postará o přijetí."""

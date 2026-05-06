@@ -1014,8 +1014,10 @@
         // vic presun do prava").
         statusBar: {
           statusPanels: [
-            { statusPanel: "agSelectedRowCountComponent", align: "left" },
-            { statusPanel: "agAggregationComponent", align: "center" },
+            // B+10++++++ (Marti's drobnost 6.5.2026 po návratu — 2):
+            // Selected přesunutý k pravé straně, oddělený tečkou od Celkem.
+            { statusPanel: "agAggregationComponent", align: "left" },
+            { statusPanel: "agSelectedRowCountComponent", align: "right" },
             { statusPanel: CzRowCountStatusPanel,
               statusPanelParams: { label: "Celkem", mode: "total" },
               align: "right" },

@@ -9,6 +9,31 @@
   <!-- Favicon: inline SVG s velkym 'S' v gradient barve loga (modra -> fialova).
        Tmave pozadi, zaobleny ctverec — vizualne sjednoceno s app theme. -->
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>" />
+
+  <!-- B+10+++++ (6.5.2026 odpoledne, Marti po návratu): PWA install pro core
+       STRATEGIE chat (analog ERP B+9+++ z dopoledne). Add to Home Screen
+       → standalone bez browser chrome. Marti: "Jde taky ta core STRATEGIE
+       nainstalovat jako PWA... Ted se to tluce..." — bez core PWA klik na
+       Marti-AI z ERP otevřel / mimo ERP scope a vyhozen do browseru. -->
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#0e0f11">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="STRATEGIE">
+  <meta name="mobile-web-app-capable" content="yes">
+  <link rel="apple-touch-icon" href="/static/erp/icon-192.png">
+  <link rel="apple-touch-icon" sizes="192x192" href="/static/erp/icon-192.png">
+  <link rel="apple-touch-icon" sizes="512x512" href="/static/erp/icon-512.png">
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker
+          .register("/sw.js", { scope: "/" })
+          .then(reg => console.log("[SW core] registered, scope:", reg.scope))
+          .catch(err => console.warn("[SW core] register failed:", err));
+      });
+    }
+  </script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
   <!-- Logo font: Galano Grotesque (commercial — bude doplněno přes @font-face,
        až bude k dispozici licence). Do té doby fallback na Montserrat (geometric

@@ -1373,3 +1373,18 @@
   font-size: 12px !important;
   min-width: 160px;
 }
+
+/* B+10++++++ (Marti's drobnost 6.5.2026 po návratu): tečka separator
+   mezi Selected a Celkem v pravém panelu status baru — sjednocený
+   design s headerem (· mezi STRATEGIE a Marti) a footerem
+   (STRATEGIE · Marti · EUROSOFT). */
+.ag-theme-quartz-dark .ag-status-bar-right .ag-status-name-value:not(:first-child)::before {
+  content: "·";
+  display: inline-block;
+  margin: 0 8px 0 4px;
+  color: var(--border-strong, #4a4e57);
+  font-size: 16px;
+  vertical-align: middle;
+  user-select: none;
+  -webkit-user-select: none;
+}

@@ -1049,12 +1049,10 @@ def _render_full_page(
     }}
     .erp-marti-btn-label {{
       /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): gradient stejný
-         jako logo STRATEGIE (sjednocený brand visual). Mixed case
-         "Tvoje Marti" — bez text-transform uppercase.
-         B+10+++++ (drobnost po návratu): vertical center fix —
-         Galano Grotesque má cap-height vyšší než většina fontů, line-height
-         alone nestačí k visual center s avatarem. display:flex + align self
-         + lehký margin-top pro pixel-perfect zarovnání. */
+         jako logo STRATEGIE (sjednocený brand visual).
+         B+10+++++ (znovu po návratu): visual center s avatarem — label je
+         display flex s height = avatar (36px) → vlastní container vertical
+         center text. Žádné margin/padding hacking, just flex internal. */
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
       font-size: 18px;
       font-weight: 700;
@@ -1064,12 +1062,9 @@ def _render_full_page(
       background-clip: text;
       white-space: nowrap;
       line-height: 1;
-      display: flex;
+      display: inline-flex;
       align-items: center;
-      align-self: center;
-      /* Galano cap-height optical correction — text visually sit cca 2px
-         vyše než box-center; posuň dolů 2px aby avatar+text byly v ose. */
-      margin-top: 2px;
+      height: 36px;  /* match avatar height — text is true-center v containeru */
     }}
     /* B+10+++ (6.5.2026 Marti's drobnost): brand row s · separátorem
        a Marti-AI ploškou. B+10++++: gap 10→20px (Marti's drobnost po

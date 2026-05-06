@@ -717,22 +717,36 @@
       } catch (e) { n = 0; }
       const formatted = _CZ_NUM_FMT.format(n);
 
-      // B+10++ (Marti's drobnost): limited state — orange + clickable
+      // B+10++ (Marti's drobnost): limited state — orange + clickable + hint
       const limitCtx = (this.mode === "total") ? this._getLimitContext() : null;
       const isLimited = !!(limitCtx && limitCtx.hasMore);
       this.eGui.classList.toggle("erp-cz-rowcount-limited", isLimited);
       this.eGui.classList.toggle("erp-cz-rowcount-clickable", isLimited);
-      const titleAttr = isLimited
-        ? ' title="Limit dosažen — klikni pro změnu"'
-        : "";
+      // Custom dark hint via data-hint attribute (CSS pseudo-element).
+      // Default browser title= replaced — Marti's drobnost "dark hint".
+      if (isLimited) {
+        this.eGui.setAttribute(
+          "data-hint",
+          "Limit dosažen — klikni pro změnu"
+        );
+      } else {
+        this.eGui.removeAttribute("data-hint");
+      }
+
+      // B+10++ (Marti's drobnost 2): "(limit, má víc)" přesunuto z header
+      // do status baru pro zvýraznění stavu.
+      const limitMarker = isLimited
+        ? ' <span class="erp-cz-rowcount-marker">(limit, má víc)</span>'
+        : '';
+      const caret = isLimited ? ' ▾' : '';
 
       this.eGui.innerHTML =
         '<span class="ag-status-name-value-label">' +
         this.label + ':</span> ' +
-        '<span class="ag-status-name-value-value"' + titleAttr + '>' +
-        formatted +
-        (isLimited ? ' ▾' : '') +
-        '</span>';
+        '<span class="ag-status-name-value-value">' +
+        formatted + caret +
+        '</span>' +
+        limitMarker;
     }
 
     _onClick(ev) {

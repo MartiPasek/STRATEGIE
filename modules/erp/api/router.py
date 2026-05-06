@@ -1215,12 +1215,23 @@ def _render_full_page(
     body:has(.erp-workspace) > footer {{
       flex: 0 0 auto;
       /* B+10++ (Marti's drobnost 6.5.2026): zarovnej doleva +
-         o stupeň zvětši písmo (10 → 12). */
-      padding: 5px 14px !important;
+         o stupeň zvětši písmo (10 → 12) + zoom toggle vpravo. */
+      padding: 4px 14px !important;
       font-size: 12px;
-      text-align: left !important;
       border-top: 1px solid var(--border);
       background: var(--surface);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+    }}
+    body:has(.erp-workspace) > footer .erp-footer-left {{
+      flex: 1 1 auto;
+      min-width: 0;
+      text-align: left;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
     }}
     body:has(.erp-workspace) > footer .erp-footer-user {{
       color: var(--accent);
@@ -1229,6 +1240,15 @@ def _render_full_page(
     body:has(.erp-workspace) > footer .erp-footer-tenant {{
       color: var(--accent2);
       font-weight: 500;
+    }}
+    /* Zoom toggle ve footeru — kompaktnější než header verze */
+    .erp-zoom-toggle-footer {{
+      flex-shrink: 0;
+    }}
+    .erp-zoom-toggle-footer button {{
+      padding: 2px 7px;
+      font-size: 10px;
+      min-width: 22px;
     }}
     main:has(.erp-workspace) {{
       flex: 1;
@@ -2140,20 +2160,24 @@ def _render_full_page(
       </div>
       <!-- breadcrumb smazán (Marti's drobnost 6.5.2026 odpoledne) -->
       <nav class="erp-bc"></nav>
-      <!-- B+9 (6.5.2026): UI zoom toggle (Marti's spec — 80% default,
-           někteří potřebují −25% / +25%). -->
-      <div class="erp-zoom-toggle" role="group" aria-label="Velikost UI">
-        <button type="button" data-zoom="small" title="Zmenšit (−25%)">A−</button>
-        <button type="button" data-zoom="normal" class="active" title="Standard">A</button>
-        <button type="button" data-zoom="large" title="Zvětšit (+25%)">A+</button>
-      </div>
+      <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přesunut do
+           footer aplikace doprava. Header tím zbavený posledního widgetu. -->
     </div>
   </header>
   <main>
     {content}
   </main>
   <footer class="erp-footer">
-    <span class="erp-footer-brand">STRATEGIE ERP</span>{user_name_html}{tenant_name_html}
+    <div class="erp-footer-left">
+      <span class="erp-footer-brand">STRATEGIE ERP</span>{user_name_html}{tenant_name_html}
+    </div>
+    <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přemístěn z header.
+         A− default zmenšuje (−25%), A+ zvětšuje (+25%), A reset. -->
+    <div class="erp-zoom-toggle erp-zoom-toggle-footer" role="group" aria-label="Velikost UI">
+      <button type="button" data-zoom="small" title="Zmenšit (−25%)">A−</button>
+      <button type="button" data-zoom="normal" class="active" title="Standard">A</button>
+      <button type="button" data-zoom="large" title="Zvětšit (+25%)">A+</button>
+    </div>
   </footer>
 </body>
 </html>'''
@@ -2727,34 +2751,18 @@ def _render_workspace_page(user_id: int) -> str:
         const cols = data.columns || [];
         const rows = data.rows || [];
 
-        // B+4.4: limit dropdown — render po headeru, before grid
-        // B+10++ (Marti's drobnost 6.5.2026): zúženo na 4 hodnoty (1000,
-        // 10000, 50000, vše=100k). Hodnota se zobrazuje i v status baru
-        // pod gridem (kliknutelné Celkem) — Marti: "v paticce gridu, kdyz
-        // je limitovan, tak Celkem: 1000 probarvit oranzove. Take to bude
-        // aktivni a kdyz se na to klikne mysi, tak se rozbali drop".
+        // B+10++ (Marti's drobnost 6.5.2026): limit options pro status bar.
+        // 4 hodnoty (1000, 10000, 50000, vše=100k). Limit selector v hlavičce
+        // smazán — celý <div class="erp-prehled-meta"> přesunut do footer
+        // gridu jako interaktivní "Celkem" v status baru. (limit, má víc)
+        // taky teď v status baru, oranžově zvýrazněno.
         const appliedLimit = data.applied_limit || rows.length;
         const limitOptions = [1000, 10000, 50000, 100000];
-        let limitSelectHtml = '<select id="erpLimitSelect" class="erp-limit-select" title="Maximum řádků">';
-        for (const opt of limitOptions) {
-          const selected = (opt === appliedLimit) ? ' selected' : '';
-          const label = (opt === 100000) ? 'Vše (max 100k)' : opt.toLocaleString("cs-CZ");
-          limitSelectHtml += '<option value="' + opt + '"' + selected + '>' + label + '</option>';
-        }
-        limitSelectHtml += '</select>';
 
         let html = '<div class="erp-prehled-header">';
         html += '<div class="erp-bc-path">' + breadcrumb + '</div>';
         html += '<div class="erp-prehled-titlebar">';
         html += '<h2>' + escapeHtml(data.nazev || ("Přehled #" + data.cislo)) + '</h2>';
-        html += '<div class="erp-prehled-meta">';
-        html += '<span class="erp-prehled-rowcount">' + rows.length.toLocaleString("cs-CZ") + ' řádků';
-        if (data.has_more) html += ' <span class="erp-prehled-hasmore">(limit, má víc)</span>';
-        html += '</span>';
-        if (data.target_table) html += ' · <code>' + escapeHtml(data.target_table) + '</code>';
-        if (data.id_edit) html += ' · jádro #' + data.id_edit;
-        html += ' · <label class="erp-limit-label">limit ' + limitSelectHtml + '</label>';
-        html += '</div>';
         html += '</div>';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
         html += '</div>';
@@ -2802,16 +2810,9 @@ def _render_workspace_page(user_id: int) -> str:
           },
         });
 
-        // B+4.4: limit dropdown change → re-fetch s novým limitem + persist
-        const limitSelect = document.getElementById("erpLimitSelect");
-        if (limitSelect) {
-          limitSelect.addEventListener("change", (ev) => {
-            const newLimit = parseInt(ev.target.value, 10);
-            if (!newLimit || newLimit <= 0) return;
-            savePrehledLimit(cislo, newLimit);
-            loadPrehled(cislo, item, newLimit);
-          });
-        }
+        // B+10++ (6.5.2026 Marti's drobnost): limit selector v hlavičce
+        // smazán — interakce teď přes status bar Celkem (CzRowCountStatusPanel
+        // limitContext.onChange v ErpDataGrid options).
       }
 
       // ── Phase B+2.2: jádro modal popup (centered overlay) ───────

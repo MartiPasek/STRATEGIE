@@ -1709,3 +1709,83 @@ class ErpGridLayout(BaseData):
     def scope(self) -> str:
         """Computed: 'shared' if user_id is NULL else 'personal'."""
         return "shared" if self.user_id is None else "personal"
+
+
+# ── PHASE B+8.1: ERP USER STATE — tabs / favorites / recent / tree order ──
+
+class ErpUserTab(BaseData):
+    """
+    Phase B+8.1 (6.5.2026): otevřené taby přehledů per user/tenant.
+
+    Marti's spec: "Per user, per tenant... do data_db". Multi-device sync —
+    user otevře tab v Chrome, vidí ho v Edge atd.
+
+    UNIQUE(user_id, tenant_id, cislo_def) — jeden přehled = jeden tab.
+    """
+    __tablename__ = "erp_user_tabs"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    opened_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+
+class ErpUserFavorite(BaseData):
+    """
+    Phase B+8.1: pinned přehledy (★) per user/tenant.
+    User pravý-klik na tree row → pin. Persistuje napříč zařízeními.
+    """
+    __tablename__ = "erp_user_favorites"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+
+class ErpUserRecent(BaseData):
+    """
+    Phase B+8.1: MRU (Naposledy použité) per user/tenant. Auto-track při
+    openTab. Server-side trim na max 20 entries (LRU eviction by use_count
+    + last_used_at).
+    """
+    __tablename__ = "erp_user_recent"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    last_used_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+    use_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
+
+
+class ErpUserTreeOrder(BaseData):
+    """
+    Phase B+8.1: drag-drop order tree položek per user/tenant.
+    group_key = parent tree-item ID (nebo "ROOT" pro top-level skupinu).
+    order_array = JSONB array of tree-item IDs v user-defined pořadí.
+    """
+    __tablename__ = "erp_user_tree_order"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    group_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    order_array: Mapped[list] = mapped_column(JSONB, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )

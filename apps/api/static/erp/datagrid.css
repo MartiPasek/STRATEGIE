@@ -1312,3 +1312,64 @@
   pointer-events: none;
   z-index: 9999;
 }
+
+
+/* ══════════════════════════════════════════════════════════════════
+   Phase B+10+++++ (Marti's drobnost 6.5.2026 po návratu): AG Grid
+   context menu compact — *humpolacké → adekvátní k gridu*. Plus ready
+   pro extension přes getContextMenuItems (custom items z jádra).
+   ══════════════════════════════════════════════════════════════════ */
+
+.ag-theme-quartz-dark .ag-menu {
+  font-size: 12px !important;
+  border-radius: 6px;
+  padding: 3px;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.55);
+}
+
+.ag-theme-quartz-dark .ag-menu-list {
+  padding: 0;
+}
+
+.ag-theme-quartz-dark .ag-menu-option {
+  padding: 5px 8px !important;
+  min-height: 26px !important;
+  border-radius: 4px;
+}
+
+.ag-theme-quartz-dark .ag-menu-option:hover,
+.ag-theme-quartz-dark .ag-menu-option-active {
+  background: var(--accent, #4f8ef7) !important;
+}
+
+.ag-theme-quartz-dark .ag-menu-option-text {
+  font-size: 12px !important;
+  letter-spacing: 0.01em;
+}
+
+.ag-theme-quartz-dark .ag-menu-option-shortcut {
+  font-size: 11px !important;
+  opacity: 0.65;
+  padding-left: 16px;
+}
+
+.ag-theme-quartz-dark .ag-menu-option-icon {
+  width: 18px !important;
+  font-size: 11px;
+}
+
+.ag-theme-quartz-dark .ag-menu-separator {
+  margin: 3px 0;
+  height: 1px;
+}
+
+.ag-theme-quartz-dark .ag-menu-option-disabled {
+  opacity: 0.45;
+}
+
+/* Submenu popup — stejné měřítko */
+.ag-theme-quartz-dark .ag-menu .ag-menu {
+  font-size: 12px !important;
+  min-width: 160px;
+}

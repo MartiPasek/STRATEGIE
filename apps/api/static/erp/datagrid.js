@@ -887,6 +887,13 @@
         // { applied: int, hasMore: bool, options: [int...], onChange: (newLimit) => void }
         // Pokud null → status panel renderuje běžný "Celkem: N" bez click handleru.
         limitContext: null,
+        // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): hook pro custom
+        // context menu items z jádra (Centrála 1). Array nebo fn(params)→array.
+        // Items append po standard built-ins (cut/copy/export). Format AG Grid
+        // MenuItemDef: { name, action, icon, shortcut, subMenu, ... }.
+        // Příklad jádrový item:
+        //   { name: "Otevřít detail", action: () => openJadro(params.node.data.ID) }
+        customContextMenuItems: null,
         // Visual
         theme: "dark",
         height: "100%",
@@ -1025,6 +1032,30 @@
         // — jde to zakazat?"). preventDefaultOnContextMenu: true potlačí
         // OS browser menu i když AG Grid sám nemá menu items pro daný target.
         preventDefaultOnContextMenu: true,
+        // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): hook pro custom
+        // context menu items z jádra Centrály 1 (Marti: "budeme jej
+        // potrebovat tam pridavat z jadra dalsi polozky"). Default behavior
+        // = AG Grid built-ins (cut/copy/paste/export). Pokud caller předá
+        // `customContextMenuItems` (array nebo fn), append po built-ins.
+        getContextMenuItems: (params) => {
+          const defaults = [
+            "cut", "copy", "copyWithHeaders", "copyWithGroupHeaders", "paste",
+            "separator", "export",
+          ];
+          // Custom items z opts (per-grid extension) — array nebo fn
+          let custom = [];
+          try {
+            if (typeof opts.customContextMenuItems === "function") {
+              custom = opts.customContextMenuItems(params) || [];
+            } else if (Array.isArray(opts.customContextMenuItems)) {
+              custom = opts.customContextMenuItems;
+            }
+          } catch (e) { console.warn("customContextMenuItems failed:", e); }
+          if (custom.length > 0) {
+            return [...defaults, "separator", ...custom];
+          }
+          return defaults;
+        },
         // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)
         enterMovesDown: true,
         enterMovesDownAfterEdit: true,

@@ -861,7 +861,10 @@ def _render_full_page(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>{html.escape(title)} | STRATEGIE ERP</title>
+  <!-- B+10+++ (6.5.2026 Marti's drobnost): title format zjednodušen na
+       "STRATEGIE | <přehled>" (bez "ERP"). Default při pageload je jen
+       "STRATEGIE", JS přidá " | <tab.label>" při switchTab. -->
+  <title>STRATEGIE</title>
 
   <!-- B+9+++ (6.5.2026): PWA install — Add to Home Screen na mobilu
        → standalone mode bez URL bar / browser chrome.
@@ -1325,6 +1328,17 @@ def _render_full_page(
       min-width: 0;
       /* placeholder pro budoucí widget — text "Centrála — moduly" smazán */
     }}
+    /* B+10+++ (6.5.2026 Marti's drobnost): filter input v tree-header
+       (sjednocená řádka s collapse buttonem). */
+    .erp-tree-search-inline {{
+      flex: 1 1 auto;
+      min-width: 0;
+      position: relative;
+      display: flex;
+    }}
+    .erp-tree-search-inline .erp-tree-search-input {{
+      flex: 1 1 auto;
+    }}
     .erp-tree-toggle-btn {{
       flex-shrink: 0;
       width: 22px; height: 22px;
@@ -1394,7 +1408,7 @@ def _render_full_page(
     }}
     .erp-tree-search-clear {{
       position: absolute;
-      right: 14px;
+      right: 6px;
       top: 50%;
       transform: translateY(-50%);
       width: 18px; height: 18px;
@@ -2298,22 +2312,21 @@ def _render_workspace_page(user_id: int) -> str:
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
-        <!-- B+7++++ (6.5.2026): tree header — text smazán (placeholder
-             pro budoucí features), collapse/expand button vpravo -->
+        <!-- B+7++++ (6.5.2026): tree header — collapse/expand button vpravo.
+             B+10+++ (6.5.2026 Marti's drobnost): filter input přesunut sem
+             (z .erp-tree-search row) — sjednocená řádka místo prázdné. -->
         <div class="erp-tree-header">
-          <div class="erp-tree-header-slot"></div>
+          <div class="erp-tree-search-inline">
+            <input type="text" id="erpTreeSearch" class="erp-tree-search-input"
+                   placeholder="🔍 Filtrovat strom…" autocomplete="off">
+            <button type="button" id="erpTreeSearchClear" class="erp-tree-search-clear"
+                    title="Vymazat filtr (Esc)" hidden>×</button>
+          </div>
           <button type="button" id="erpTreeToggle" class="erp-tree-toggle-btn"
                   aria-label="Skrýt strom" title="Skrýt strom (Ctrl+B)">
             <span class="erp-tree-toggle-collapse">‹</span>
             <span class="erp-tree-toggle-expand">›</span>
           </button>
-        </div>
-        <!-- B+7++ (6.5.2026): live filter input nad stromem (Marti's spec) -->
-        <div class="erp-tree-search">
-          <input type="text" id="erpTreeSearch" class="erp-tree-search-input"
-                 placeholder="🔍 Filtrovat strom…" autocomplete="off">
-          <button type="button" id="erpTreeSearchClear" class="erp-tree-search-clear"
-                  title="Vymazat filtr (Esc)" hidden>×</button>
         </div>
         <div id="erpTreeRoot" class="erp-tree-root">
           <div class="erp-tree-skeleton">
@@ -2772,13 +2785,12 @@ def _render_workspace_page(user_id: int) -> str:
         const appliedLimit = data.applied_limit || rows.length;
         const limitOptions = [1000, 10000, 50000, 100000];
 
-        // B+10+++ (Marti's drobnost 6.5.2026): h2 nazev smazan — duplikat
-        // s tab labelem. Hlavička přehledu redukována na breadcrumb only
-        // (může být i prázdná pokud breadcrumb nedefinován).
-        let html = '<div class="erp-prehled-header">';
-        if (breadcrumb) html += '<div class="erp-bc-path">' + breadcrumb + '</div>';
+        // B+10+++ (Marti's drobnost 6.5.2026): celá .erp-prehled-header
+        // smazána — název přehledu je v active tabu, breadcrumb v title
+        // (document.title = "STRATEGIE | <přehled>"). Tabs visually těsně
+        // nad gridem, žádný extra prostor.
+        let html = '';
         if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
-        html += '</div>';
 
         if (rows.length === 0) {
           html += '<div class="erp-prehled-empty">Přehled je prázdný.</div>';
@@ -4173,6 +4185,8 @@ def _render_workspace_page(user_id: int) -> str:
         const tab = tabsState.tabs[idx];
         // B+8.1c: API persist active tab (fire-and-forget)
         _apiCall("POST", "/api/v1/erp/tabs/" + tab.cislo + "/active");
+        // B+10+++ (6.5.2026 Marti's drobnost): document.title = "STRATEGIE | <tab>"
+        try { document.title = "STRATEGIE | " + (tab.label || ("Přehled #" + tab.cislo)); } catch (e) {}
         // Sync tree active state — highlight + expand ancestors + scroll
         // (Marti's UX 6.5.2026: pri prepinani zalozek automaticky vyhledat
         // a oznacit v levem panelu prislusnou vetu).
@@ -4229,6 +4243,8 @@ def _render_workspace_page(user_id: int) -> str:
           saveActive("");
           renderTabsBar();
           saveTabsState();
+          // B+10+++ (6.5.2026 Marti's drobnost): reset title bez tab suffixu
+          try { document.title = "STRATEGIE"; } catch (e) {}
           return;
         }
         // Auto-switch — pokud se zavřel aktivní, jdi na předchozí (nebo první)

@@ -900,9 +900,98 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       padding: 12px 14px; border-bottom: 1px solid var(--border);
       font-size: 13px; font-weight: 600; color: var(--text);
       background: var(--surface2);
+      flex-shrink: 0;
     }}
+    /* B+7++ (6.5.2026): tree filter search nad stromem */
+    .erp-tree-search {{
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+      position: relative;
+    }}
+    .erp-tree-search-input {{
+      width: 100%;
+      padding: 5px 24px 5px 9px;  /* right padding pro × clear button */
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 12px;
+      outline: none;
+      box-sizing: border-box;
+      transition: border-color 0.12s, box-shadow 0.12s;
+    }}
+    .erp-tree-search-input:focus {{
+      border-color: var(--accent);
+      box-shadow: 0 0 0 2px rgba(79, 142, 247, 0.18);
+    }}
+    .erp-tree-search-input::placeholder {{
+      color: var(--muted);
+    }}
+    .erp-tree-search-clear {{
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 18px; height: 18px;
+      background: transparent;
+      border: none;
+      color: var(--text-muted);
+      font-size: 14px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      transition: color 0.12s;
+    }}
+    .erp-tree-search-clear:hover {{ color: var(--accent); }}
+    /* Hide tree-rows co nematchují filter (JS přepíná class) */
+    .erp-tree-root.erp-tree-filtering .erp-tree-row:not(.erp-tree-match):not(.erp-tree-match-parent) {{
+      display: none;
+    }}
+    .erp-tree-root .erp-tree-match {{
+      background: rgba(79, 142, 247, 0.06);
+    }}
+    .erp-tree-root .erp-tree-match .erp-tree-label mark {{
+      background: rgba(79, 142, 247, 0.32);
+      color: var(--text);
+      padding: 0 1px;
+      border-radius: 2px;
+    }}
+
     .erp-tree-root {{
-      overflow-y: auto; padding: 6px 0; flex: 1;
+      overflow-y: auto; padding: 6px 0; flex: 1; min-height: 0;
+    }}
+    /* B+7++ (6.5.2026): tree footer (Oblíbené + akce) */
+    .erp-tree-footer {{
+      padding: 6px 8px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }}
+    .erp-tree-footer-btn {{
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 5px 10px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      font-family: inherit;
+      font-size: 12px;
+      cursor: pointer;
+      transition: all 0.12s;
+      text-align: left;
+    }}
+    .erp-tree-footer-btn:hover {{
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--surface);
     }}
     .erp-tree-loading, .erp-tree-error {{
       padding: 14px; color: var(--muted); font-size: 13px;
@@ -1441,6 +1530,13 @@ def _render_workspace_page(user_id: int) -> str:
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
         <div class="erp-tree-header">Centrála — moduly</div>
+        <!-- B+7++ (6.5.2026): live filter input nad stromem (Marti's spec) -->
+        <div class="erp-tree-search">
+          <input type="text" id="erpTreeSearch" class="erp-tree-search-input"
+                 placeholder="🔍 Filtrovat strom…" autocomplete="off">
+          <button type="button" id="erpTreeSearchClear" class="erp-tree-search-clear"
+                  title="Vymazat filtr (Esc)" hidden>×</button>
+        </div>
         <div id="erpTreeRoot" class="erp-tree-root">
           <div class="erp-tree-skeleton">
             <div class="erp-skel-line"></div>
@@ -1449,6 +1545,11 @@ def _render_workspace_page(user_id: int) -> str:
             <div class="erp-skel-line short"></div>
             <div class="erp-skel-line"></div>
           </div>
+        </div>
+        <!-- B+7++ (6.5.2026): footer slot pro Oblíbené + akce (Marti's spec) -->
+        <div id="erpTreeFooter" class="erp-tree-footer">
+          <button type="button" class="erp-tree-footer-btn" data-erp-tree-action="oblibene"
+                  title="Oblíbené přehledy">★ Oblíbené</button>
         </div>
       </aside>
       <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
@@ -2127,6 +2228,121 @@ def _render_workspace_page(user_id: int) -> str:
       // ── Helpers ─────────────────────────────────────────────────
       function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => _ESC[c]); }
       function escapeAttr(s) { return escapeHtml(s).replace(/"/g, "&quot;"); }
+
+      // ── B+7++ (6.5.2026): tree search filter ────────────────────
+      const treeSearchInput = document.getElementById("erpTreeSearch");
+      const treeSearchClear = document.getElementById("erpTreeSearchClear");
+
+      function _normalizeSearch(s) {
+        // Case-insensitive + diakritika strip
+        return String(s || "").toLowerCase()
+          .normalize("NFD").replace(/[̀-ͯ]/g, "");
+      }
+
+      function applyTreeFilter(text) {
+        if (!treeRoot) return;
+        const norm = _normalizeSearch(text || "").trim();
+        // Vymaž předchozí highlights + flags
+        const allItems = treeRoot.querySelectorAll(".erp-tree-item");
+        const allRows = treeRoot.querySelectorAll(".erp-tree-row");
+        allRows.forEach(r => {
+          r.classList.remove("erp-tree-match", "erp-tree-match-parent");
+          // Restore original label text (remove <mark>)
+          const lbl = r.querySelector(".erp-tree-label");
+          if (lbl && lbl.dataset.erpOrigText) {
+            lbl.textContent = lbl.dataset.erpOrigText;
+          }
+        });
+        if (!norm) {
+          treeRoot.classList.remove("erp-tree-filtering");
+          if (treeSearchClear) treeSearchClear.setAttribute("hidden", "");
+          return;
+        }
+        treeRoot.classList.add("erp-tree-filtering");
+        if (treeSearchClear) treeSearchClear.removeAttribute("hidden");
+        // Match: pro každý item, check menu_text contains norm
+        const matchingItems = [];
+        allItems.forEach(item => {
+          const text = item.dataset.text || "";
+          const labelEl = item.querySelector(".erp-tree-row .erp-tree-label");
+          if (!labelEl) return;
+          // Save original text pro restore
+          if (!labelEl.dataset.erpOrigText) {
+            labelEl.dataset.erpOrigText = labelEl.textContent;
+          }
+          const normText = _normalizeSearch(text);
+          const matchIdx = normText.indexOf(norm);
+          if (matchIdx >= 0) {
+            const rowEl = item.querySelector(":scope > .erp-tree-row");
+            if (rowEl) rowEl.classList.add("erp-tree-match");
+            matchingItems.push(item);
+            // Highlight match v label
+            const orig = labelEl.dataset.erpOrigText;
+            const before = orig.slice(0, matchIdx);
+            const match = orig.slice(matchIdx, matchIdx + norm.length);
+            const after = orig.slice(matchIdx + norm.length);
+            labelEl.innerHTML = escapeHtml(before) +
+              "<mark>" + escapeHtml(match) + "</mark>" +
+              escapeHtml(after);
+          }
+        });
+        // Auto-expand parent items + označit je jako match-parent (visible)
+        for (const item of matchingItems) {
+          let parent = item.parentElement;
+          while (parent && parent !== treeRoot) {
+            if (parent.classList && parent.classList.contains("erp-tree-children")) {
+              parent.style.display = "block";
+              const parentItem = parent.parentElement;
+              if (parentItem && parentItem.classList.contains("erp-tree-item")) {
+                const parentRow = parentItem.querySelector(":scope > .erp-tree-row");
+                if (parentRow) parentRow.classList.add("erp-tree-match-parent");
+                // Update toggle icon ▼
+                const toggle = parentRow ? parentRow.querySelector(".erp-tree-toggle") : null;
+                if (toggle) toggle.textContent = "▼";
+              }
+            }
+            parent = parent.parentElement;
+          }
+        }
+      }
+
+      if (treeSearchInput) {
+        let _searchDebounce = null;
+        treeSearchInput.addEventListener("input", (ev) => {
+          const v = ev.target.value;
+          // Debounce 80ms — large trees benefit z mírného delay
+          clearTimeout(_searchDebounce);
+          _searchDebounce = setTimeout(() => applyTreeFilter(v), 80);
+        });
+        treeSearchInput.addEventListener("keydown", (ev) => {
+          if (ev.key === "Escape") {
+            ev.preventDefault();
+            treeSearchInput.value = "";
+            applyTreeFilter("");
+            treeSearchInput.blur();
+          }
+        });
+      }
+      if (treeSearchClear) {
+        treeSearchClear.addEventListener("click", () => {
+          if (treeSearchInput) treeSearchInput.value = "";
+          applyTreeFilter("");
+          if (treeSearchInput) treeSearchInput.focus();
+        });
+      }
+
+      // Tree footer button placeholder handlers
+      const treeFooterEl = document.getElementById("erpTreeFooter");
+      if (treeFooterEl) {
+        treeFooterEl.addEventListener("click", (ev) => {
+          const btn = ev.target.closest("[data-erp-tree-action]");
+          if (!btn) return;
+          const action = btn.getAttribute("data-erp-tree-action");
+          // Phase A read-only: jen toast informující o budoucím feature
+          console.log("Tree footer action:", action);
+          // TODO: Phase ?? — implementovat Oblíbené (per-user list FK na cislo_def)
+        });
+      }
 
       loadTree();
     })();

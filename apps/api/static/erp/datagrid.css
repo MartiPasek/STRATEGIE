@@ -16,6 +16,21 @@
   min-height: 0;
   width: 100%;
   height: 100%;
+  /* B+7++ (6.5.2026): grid align-left, ne centrování (Marti's UI feedback
+     "ted kdyz je grid uzsi, na tendenci se na fullscrenu centrovat jako
+     web, ale to nevypada dobre, protoze patri k tomu left panelu"). */
+  margin-left: 0;
+  margin-right: auto;
+}
+/* AG Grid root wrapper — žádné margin auto centring */
+.erp-ag-grid .ag-root-wrapper,
+.erp-ag-grid .ag-root,
+.erp-ag-grid .ag-body-viewport,
+.erp-ag-grid .ag-center-cols-clipper,
+.erp-ag-grid .ag-center-cols-container,
+.erp-ag-grid .ag-header-container {
+  margin-left: 0 !important;
+  margin-right: 0 !important;
 }
 
 /* ── Quartz Dark theme overrides (CSS variables) ──────────────────── */

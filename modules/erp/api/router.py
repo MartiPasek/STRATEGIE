@@ -1060,6 +1060,17 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       background: var(--accent);
       color: white;
     }}
+    /* B+8.2a++++++ (6.5.2026): drag-drop highlight na footer buttons */
+    .erp-tree-view-btn.erp-tree-view-drop-pin {{
+      background: #fbbf24 !important;
+      color: #1c1e23 !important;
+      box-shadow: inset 0 0 0 2px #fde68a;
+    }}
+    .erp-tree-view-btn.erp-tree-view-drop-unpin {{
+      background: var(--error) !important;
+      color: white !important;
+      box-shadow: inset 0 0 0 2px rgba(248, 113, 113, 0.6);
+    }}
     .erp-tree-view-icon {{
       font-size: 12px;
       line-height: 1;
@@ -2964,6 +2975,73 @@ def _render_workspace_page(user_id: int) -> str:
           if (!btn) return;
           const mode = btn.getAttribute("data-tree-view");
           if (mode) setTreeViewMode(mode);
+        });
+
+        // B+8.2a++++++ (6.5.2026): drag-drop na footer ikony.
+        // Drag leaf z "Vše"/"MRU" → drop na ★ Oblíbené = PIN.
+        // Drag leaf z "Oblíbené" → drop na ≡ Vše = UNPIN.
+        // Drop na MRU = no-op (auto-tracked, manual řízení nedává smysl).
+        // Folders (bez cislo_def) → reject (folder nelze pinnout jako celek).
+        treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(btn => {
+          if (btn._dropWired) return;
+          btn._dropWired = true;
+          const targetView = btn.getAttribute("data-tree-view");
+
+          btn.addEventListener("dragover", (ev) => {
+            if (!_dragSourceItem) return;
+            const cislo = parseInt(
+              _dragSourceItem.getAttribute("data-cislo-def") || "0", 10
+            );
+            if (!cislo) return;  // folder = no drop
+            // Determine action based na cílový view + source view
+            let action = null;
+            if (targetView === "favorites" && !isTreeFavorite(cislo)) {
+              action = "pin";
+            } else if (targetView === "all" &&
+                       treeViewMode === "favorites" &&
+                       isTreeFavorite(cislo)) {
+              action = "unpin";
+            }
+            if (!action) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = "move";
+            // Visual highlight (zlatá pin / červená unpin)
+            btn.classList.remove(
+              "erp-tree-view-drop-pin", "erp-tree-view-drop-unpin"
+            );
+            btn.classList.add(
+              action === "pin"
+                ? "erp-tree-view-drop-pin"
+                : "erp-tree-view-drop-unpin"
+            );
+          });
+
+          btn.addEventListener("dragleave", () => {
+            btn.classList.remove(
+              "erp-tree-view-drop-pin", "erp-tree-view-drop-unpin"
+            );
+          });
+
+          btn.addEventListener("drop", (ev) => {
+            btn.classList.remove(
+              "erp-tree-view-drop-pin", "erp-tree-view-drop-unpin"
+            );
+            if (!_dragSourceItem) return;
+            const cislo = parseInt(
+              _dragSourceItem.getAttribute("data-cislo-def") || "0", 10
+            );
+            if (!cislo) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (targetView === "favorites" && !isTreeFavorite(cislo)) {
+              toggleTreeFavorite(cislo);  // pin
+            } else if (targetView === "all" &&
+                       treeViewMode === "favorites" &&
+                       isTreeFavorite(cislo)) {
+              toggleTreeFavorite(cislo);  // unpin
+            }
+            // dragend handler vyčistí _dragSourceItem
+          });
         });
       }
       // Init: restore last view mode (default all)

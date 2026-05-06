@@ -567,7 +567,7 @@
         // B+10 (6.5.2026): conditional formatting — záporná = červená,
         // nula = dim. AG Grid cellClassRules vyhodnocuje per-cell.
         // B+10+ (6.5.2026): heuristics opt-in jen když options.heuristicsEnabled.
-        if (options && options.heuristicsEnabled) {
+        if (opts && opts.heuristicsEnabled) {
           def.cellClassRules = {
             "erp-ag-numeric-negative": (params) => {
               const v = params.value;
@@ -594,7 +594,7 @@
         // Width hint — booleans nepotřebují širokou cellu
         if (!def.minWidth || def.minWidth > 80) def.minWidth = 60;
         // B+10: conditional — true = green, false = dim (heuristic, opt-in B+10+)
-        if (options && options.heuristicsEnabled) {
+        if (opts && opts.heuristicsEnabled) {
           def.cellClassRules = {
             "erp-ag-bool-true": (params) => {
               const v = params.value;
@@ -615,7 +615,7 @@
       if (colType === "date") {
         def.valueFormatter = (params) => _formatDateCS(params.value);
         // B+10: conditional — past = red, today = accent, soon = amber (heuristic, opt-in B+10+)
-        if (options && options.heuristicsEnabled) {
+        if (opts && opts.heuristicsEnabled) {
           def.cellClassRules = {
             "erp-ag-date-past": (params) => _classifyDate(params.value) === "past",
             "erp-ag-date-today": (params) => _classifyDate(params.value) === "today",
@@ -626,7 +626,7 @@
       // B+10: Status column heuristic — column name vypadá jako "Stav"
       // a/nebo data values matchují status keywords (OK/Chyba/Pending).
       // B+10+ (6.5.2026): heuristic, opt-in.
-      if (colType === "string" && _looksLikeStatusName(c) && options && options.heuristicsEnabled) {
+      if (colType === "string" && _looksLikeStatusName(c) && opts && opts.heuristicsEnabled) {
         def.cellClassRules = {
           "erp-ag-status-ok": (params) => _classifyStatusValue(params.value) === "ok",
           "erp-ag-status-error": (params) => _classifyStatusValue(params.value) === "error",

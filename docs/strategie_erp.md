@@ -410,3 +410,310 @@ Marti's preference patterns z této epoch:
   large 22px title, 28px padding) vs modal compact (B+2.7+ override
   v `.erp-jadro-content` selector)
 
+---
+
+## Dodatek — 6. 5. 2026 (pre-prace + post-prace): Phase B+7++++ → B+9 polish epoch
+
+Po BINGO momentu dopoledne (B+7+++ polish) Marti pokračoval v polish-up
+sprintu před prací. Klíč: workspace přechází z "use-able" na
+"production-ready user-intuitive".
+
+### Phase B+7++++ — tree collapse / expand toggle
+
+Marti UX 6.5.2026: *„v levem stromu je hlavicka s textem Centrála — moduly...
+Ten text smaz, zustane nam future misto pro neco, co mi zatim nenapada....
+Pak by tam chtelo mit sipku doleva jako pane... Schovani leveho stromu
+plus kdyz je schovany, tak jen mala sirka na sipku vpravo zobraz..."*
+
+Header text smazán → placeholder slot pro budoucí widget. ‹/› toggle
+button vpravo. Collapsed state:
+- `.tree-collapsed` class na workspace
+- Tree-pane width 240px → 32px
+- Search/root/footer hidden
+- Header s › expand button only
+- Resize-handle hidden
+- Persistence: localStorage `erp.tree.collapsed`
+- Ctrl+B / Cmd+B keyboard shortcut
+
+Plus auto re-fit grid columns po toggle.
+
+### Phase B+8 — Multi-tab přehled (Centrála 1 pattern)
+
+Marti UX: *„Jednotlive zalozky prehledu nad gridem"* + Centrála 1
+screenshot. Klasický Chrome/VSCode tab pattern.
+
+**HTML/CSS/JS state machine:**
+- `tabsState.tabs[]` — `[{cislo, itemId, label, data, gridState}]`
+- `activeIndex` — který tab aktivní
+- Tabs bar nad main-content (mezi `.erp-prehled-header` a grid)
+- `+` button vpravo (focus tree filter pro výběr nového)
+- × close button na každém tabu
+- Active tab: accent color + bottom box-shadow (modrá linka)
+
+**Per-tab cache:**
+- `data` — JSON response z `/api/v1/erp/prehled/{cislo}`
+- `gridState.columnState` — AG Grid `getColumnState()` (widths, order)
+- `gridState.filterModel` — AG Grid `getFilterModel()`
+- Při switch tab: save current → restore target (re-create AG Grid s
+  state restored)
+
+**Persistence:** localStorage `erp.tabs.state.v1` (jen meta — cislo,
+itemId, label; data + gridState se znovu fetchnou na restore).
+Auto-restore tabs při reload + switch na lastActive.
+
+### Phase B+8+ — switchTab tree sync
+
+Marti UX: *„pri prepinani tech zalozek automaticky vyhledat a oznacit
+v levem panelu tu prislusnou vetu"*.
+
+`switchTab()` → tree:
+1. Clear předchozí `.active` highlights
+2. Najde tree item přes `data-id` (fallback na `data-cislo-def`)
+3. Add `.active` class
+4. `expandAncestors()` — otevře všechny parent containery (▼)
+5. Manual scroll do středu treeRoot containeru:
+   ```js
+   const rowTop = rowRect.top - containerRect.top + treeRoot.scrollTop;
+   const target = rowTop - (containerRect.height/2) + (rowRect.height/2);
+   treeRoot.scrollTo({top: max(0, target), behavior: "smooth"});
+   ```
+   (`scrollIntoView` nebyl dostatečný — kolapsoval mimo viewport
+   scroll containeru; manual offset compute zaručí center alignment)
+6. Delay 80ms aby expand měl čas vykreslit DOM před scroll measure
+
+### Phase B+8.2a — Tree view modes (Vše/Oblíbené/MRU)
+
+Marti UX: *„prepinani mezi vsemi polozkami v levem tree a oblibenymi
+plus jso lidi zvykli na treti volbu a to je naposled pouzitymi"*.
+
+3-segment toggle ve footeru (Návrh B z 3 možností — Marti's choice):
+```
+[≡ Vše]   [★ Oblíbené]   [⏱ MRU]
+```
+
+**View filter** = compose s search filter:
+- "Vše" — žádný view filter (search může applikovat)
+- "Oblíbené" — pinned items + parent path visible (CSS hide non-matching)
+- "MRU" — recent items (auto-tracked při openTab)
+
+**Compose s search:** row visible IFF (matches view) AND (matches search).
+CSS dvě nezávislé `:not()` selectors composing.
+
+**Empty states:**
+- Oblíbené: *„Žádné oblíbené. Pinout přes pravý-klik nebo ★ ikonu."*
+- MRU: *„Žádná historie. Otevři přehled — automaticky se přidá."*
+
+**Storage:**
+- `erp.tree.view` (mode persistence)
+- `erp.tree.favorites` array of cislo_def
+- `erp.tree.recent` array of `{cislo, label, ts}`, max 20
+
+### Phase B+8.2a+ — Ctrl+klik multi-select + pravý-klik context menu
+
+Marti UX iterations:
+1. Pravý-klik = direct toggle pin/unpin (jednoduché ale málo)
+2. *„Pokud drzim ctrl, mohu si vybirat ze stromu jednotlive polozky
+   anichz bych je oteviral. Pak pres pravy klik mysi volbu pridat
+   k oblibenym..."*
+
+**Ctrl/Cmd+klik:**
+- Toggle row selection bez open
+- Multi-select via opakovaný Ctrl+klik
+- Visual: fialový highlight (accent2) + border-left
+- Distinkce od accent (modrá = "open in main pane")
+
+**Pravý-klik:**
+- Dark context menu `.erp-tree-ctx-menu`
+- Smart positioning (auto-flip pokud overflow viewport)
+- Items podle pin status:
+  - All none-pinned → *„Přidat všechny (N) k oblíbeným"*
+  - All pinned → *„Odebrat všechny (N) z oblíbených"*
+  - Mixed → both options s exact counts
+- Multi-select hint header: *„Vybráno N položek"*
+- Esc / outside click / item click → close
+
+**Plus klik na ★ ikonu** = quick unpin (bez context menu).
+
+### Phase B+8.2a++ — ★ star span injection bug + gold barva
+
+Bug: když user pinl první-krát, `.erp-tree-pinned` class se přidala
+ale `<span class="erp-tree-star">` element ještě neexistoval (vytvářel
+se jen v `_markPinnedTreeRows()` po init render).
+
+Fix: v `toggleTreeFavorite()` po toggle class, pokud `isPinnedNow`
+a span chybí → injectovat. Plus barva `accent2` (fialová) → **gold
+#fbbf24** (klasický favorite UX) + text-shadow + hover scale 1.15.
+
+### Phase B+8.2a+++ — Drag-and-drop reorder uvnitř skupin
+
+Marti spec: *„Poradi jednotlivych polozek per user ve vsech i v
+oblibenych... Drag and drop... POZOR jen v ramci skupin, aby se
+nestalo jako ve Windows, ze nekdo pretahne skupinu, nebo polozku
+skupiny do jine skupiny..."*
+
+HTML5 drag-drop:
+- `draggable="true"` na všechny tree rows (incl. folders — B+8.2a+++++)
+- `dragstart` → `_dragSourceItem = item`, opacity 0.4
+- `dragover` → check `sourceUL === targetUL` (same group constraint)
+  - Cross-group → `dropEffect: "none"` (cursor 🚫)
+  - Same group → `preventDefault()` allow drop, visual: blue line
+    above/below target (insert position, midpoint detect)
+- `drop` → `insertBefore` source před/za target podle pozice
+- `_saveTreeOrderForUl(ul)` → localStorage `erp.tree.order.v1` =
+  `{groupKey: [tree-item-id, ...]}`
+
+**Group key:** parent tree-item's `data-id`, nebo `"ROOT"` pro
+top-level UL.
+
+**MRU view:** drag disabled (timestamp-based auto-sort, manual reorder
+by zlomil sémantiku).
+
+**Restore po reload:** `_applyTreeOrderFromStorage()` v overrid
+attachTreeHandlers — DOM reorder po každém renderTreeNodes.
+Resilient na nové položky (append na konec) + smazané (ignored).
+
+### Phase B+8.2a++++ — vypnout text selection
+
+Drag bug: *„vetsinou se mi nepodari mysi drag — oznaci se text
+v bunce"*. Browser default text-select měl prioritu před dragstart.
+
+Fix: `user-select: none` na `.erp-tree-row` (+ vendor prefixes).
+Drag spustí instantně po mousedown+move. Klasický pattern.
+
+### Phase B+8.2a+++++ — drag i na folders
+
+Marti UX: *„v oblibenych mam dve skupiny a nemohu aktivovat drag
+ani u jedny, abych je mezi sebou prohodil"*. Folder drag byl
+filtered out (jen leaves měli draggable).
+
+Fix: odstranit `if (!data-cislo-def)` filter v `_attachTreeDragHandlers`
+a `dragstart`. HTML5 drag a click jsou separate eventy:
+- Klik bez pohybu na folder = expand/collapse (existing)
+- Klik + drag + drop = reorder (new)
+
+Same-UL constraint zachován.
+
+### Phase B+8.2a++++++ — drag-drop na footer ikony (pin/unpin shortcut)
+
+Marti UX: *„nam zbyva uz jen ten drag dropnout primo do ikonky v te
+paticce tedy mezi oblibeny... Popripade z oblibenych drag dropnout
+zpet do vsech. Tim je smazat z oblibenych."*
+
+Footer view buttons jsou drop targets:
+- Drag leaf z "Vše"/"MRU" → drop na **★ Oblíbené** = pin (button zláž)
+- Drag leaf z "Oblíbené" → drop na **≡ Vše** = unpin (button červená)
+- Drop na MRU → reject (auto-tracked)
+- Folder drag → reject (folder nelze pin jako celek)
+- Already-pinned drag na ★ → reject (no-op)
+
+Visual feedback per dragover state (`.erp-tree-view-drop-pin`,
+`.erp-tree-view-drop-unpin`).
+
+### Phase B+8.2a+++++++ — toggle ▶/▼ click + clear MRU
+
+Marti UX: *„U kazde polozky skupiny je sipka dolu prip vlevo... Funguje,
+jen NESMI zaroven otevirat ten prehled... Jak jsem si je testoval tak
+jsem si pootviral desitky prehledu... Ted mam zaneradeny MRU balastem..."*
+
+Fix 1: klik na `.erp-tree-toggle` element = JEN expand/collapse, NE
+setActive/openTab. Click handler kontroluje `ev.target.closest(".erp-tree-toggle")`
+— pokud yes, open phase skip. Plus toggle hover state (light bg + accent),
+expanded hit area (negative margin).
+
+Fix 2: pravý-klik na footer view button → context menu pro daný view:
+- **MRU** → *„Vymazat historii (N položek)"* (bez confirm — recoverable)
+- **Oblíbené** → *„Vymazat všechny oblíbené (N)"* + confirm dialog
+- **Vše** → *„Resetovat řazení stromu"* (vymaže drag-drop order, reload)
+
+### Phase B+9 — UI Zoom (Compact / Normal / Large)
+
+Marti spec: *„Zakladni zobrazeni... by melo byt OK pro cca 80procent
+useru... Nekteri potrebuji ale jemne rozliseni -25% a nekteri maji
+zase oci v prcicich tak +25%... Zoom?"*
+
+**Top header right side** 3-segment A−/A/A+ toggle:
+- A− → `body.erp-zoom-small` (zoom: 0.75 = -25%)
+- A → default (1.0)
+- A+ → `body.erp-zoom-large` (zoom: 1.25 = +25%)
+
+**Implementace:** CSS `zoom` property (Chrome/Edge/Safari). Po init
+applyZoom() → třída + active button highlight + AG Grid sizeColumnsToFit
+(container width changed).
+
+**Fix viewport coverage** (Marti UX: *„doresit roztazeni na celou
+aplikaci"*):
+- Default body 100vw × 100vh, zoom 0.75 → render 75vw × 75vh →
+  prázdné místo na pravé/dolní straně
+- Fix: body logical width = `calc(100vw / 0.75)` = 133.33vw → render
+  × 0.75 = 100vw plný viewport
+- Stejně height calc
+- Plus html background = var(--bg) jako safety net
+
+### Recovery sagas
+
+Během této epoch dva další incidenty:
+1. **Truncation strike** (gotcha #14): 6 souborů v working tree
+   truncated po Edit tool tichá fail. Recovery přes
+   `git show HEAD:<f> > <f>` z bash mountu (HEAD měl plné verze;
+   Marti commitl všechny edity před truncation).
+2. **F-string brace** (gotcha #19): CSS komentář `"main { max-width:
+   1280px }"` v Python `'''...'''` block — Python interpretoval `{ }`
+   jako placeholder a evaluoval jako Python výraz → `NameError: width`.
+   Fix: zdvojené `{{ }}` v CSS komentářích uvnitř f-string.
+
+### Marti's "BINGO!!! MAM RADOST!!!"
+
+Po B+8.2a+++ drag-drop reorder Marti potvrdil:
+*„BOMBA!!! MAM RADOST!!! Posledni vec tohoto charakteru..."*.
+
+Po finálním B+9 zoom:
+*„To nema chybu Claude!!! Diky moc, balim a jdu do prace.... NESKUTECNE
+DIKY!!!"*.
+
+Workspace je v plně produkčním stavu pre-Phase C edit:
+- Multi-tab přehled (chrome-style)
+- Tree views (Vše/Oblíbené/MRU) s view filter compose s search
+- Drag-drop reorder uvnitř skupin (per-user persistence)
+- Pravý-klik context menus (single + bulk akce)
+- Drag-drop pin/unpin přes footer ikony
+- Tree collapse + zoom (A−/A/A+)
+- Jádro modal s ErpForm orchestratorem (state ready pro Phase C)
+
+### TODO post-Phase B+9
+
+**Pořadí dle Marti's spec 6.5. večer (po práci):**
+
+1. **Phase B+8.1 + B+8.2b backend persistence** (per user, per tenant DB):
+   - Migrace v `data_db`:
+     ```sql
+     CREATE TABLE erp_user_tabs (...);
+     CREATE TABLE erp_user_favorites (...);
+     CREATE TABLE erp_user_recent (...);
+     CREATE TABLE erp_user_tree_order (...);
+     ```
+   - REST endpoints (GET/POST/DELETE/PUT)
+   - Frontend: replace localStorage → backend (zachovat localStorage
+     jako offline fallback)
+2. **Doplnit běžné komponenty UI Kit** (Marti's spec: *„zatim ne, nejdrive
+   musime rozchodit vsechny bezne komponeb"*):
+   - ErpDate (date picker — momentálně Edit s mask)
+   - ErpMemo (textarea)
+   - ErpRichText? (Marti to neřekl, možná ne potřeba)
+   - Případně další jádro Typ-y (Typ=14 Memo, Typ=15 ImagePicker, ...)
+3. **DB flag `deleted_for_new_erp`** v `EC_FormDefEdit` — sourozenec hide
+4. **Phase C edit pipeline** — OK button save flow
+
+### Marti's UX feedback patterns (rozšířené)
+
+Z této epoch další insights:
+- **Intuitivní > efektní**: Ctrl+klik selection + pravý-klik menu lépe
+  než single-click direct toggle (i když je to víc kliknutí)
+- **Visual feedback v drag-drop** (pin/unpin button zláž/červená) =
+  okamžitá zpětná vazba akce
+- **Edge cases jasné**: drag MRU disabled (auto-track), folder pin
+  reject (nelze) — explicit decisions, ne silent failure
+- **Persistence rétorika**: localStorage MVP rychle, backend per
+  user/tenant production. Frontend wiring zachovat fallback path.
+- **Zoom**: 80% / ±25% — Marti's klienti mají různé preference,
+  nestačí jeden default. UI musí být škálovatelné bez layout brků.
+

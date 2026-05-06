@@ -946,8 +946,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       transition: color 0.12s;
     }}
     .erp-tree-search-clear:hover {{ color: var(--accent); }}
-    /* Hide tree-rows co nematchují filter (JS přepíná class) */
-    .erp-tree-root.erp-tree-filtering .erp-tree-row:not(.erp-tree-match):not(.erp-tree-match-parent) {{
+    /* Hide tree-rows co nematchují filter (JS přepíná class).
+       Visible: match (přímý hit), match-parent (cesta k matchi), match-descendant
+       (potomci match folderu — Marti's UX "kdyz najdu Systém, chci videt jeho deti"). */
+    .erp-tree-root.erp-tree-filtering .erp-tree-row:not(.erp-tree-match):not(.erp-tree-match-parent):not(.erp-tree-match-descendant) {{
       display: none;
     }}
     .erp-tree-root .erp-tree-match {{
@@ -958,6 +960,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       color: var(--text);
       padding: 0 1px;
       border-radius: 2px;
+    }}
+    /* Descendants — subtle, ne tak hard jako match samotný */
+    .erp-tree-root .erp-tree-match-descendant {{
+      /* žádný highlight bg — jen visible, normální styling */
     }}
 
     .erp-tree-root {{
@@ -2246,7 +2252,11 @@ def _render_workspace_page(user_id: int) -> str:
         const allItems = treeRoot.querySelectorAll(".erp-tree-item");
         const allRows = treeRoot.querySelectorAll(".erp-tree-row");
         allRows.forEach(r => {
-          r.classList.remove("erp-tree-match", "erp-tree-match-parent");
+          r.classList.remove(
+            "erp-tree-match",
+            "erp-tree-match-parent",
+            "erp-tree-match-descendant"
+          );
           // Restore original label text (remove <mark>)
           const lbl = r.querySelector(".erp-tree-label");
           if (lbl && lbl.dataset.erpOrigText) {
@@ -2302,6 +2312,39 @@ def _render_workspace_page(user_id: int) -> str:
               }
             }
             parent = parent.parentElement;
+          }
+        }
+        // B+7+++ (6.5.2026): auto-expand match item samotný + označit
+        // VŠECHNY descendants jako match-descendant (visible v filteru).
+        // Marti's UX: "kdyz napisu sys, chci videt deti System menu —
+        // Definice soudecku, Definice SQL, ...".
+        for (const item of matchingItems) {
+          const childrenContainer = item.querySelector(":scope > .erp-tree-children");
+          if (childrenContainer) {
+            childrenContainer.style.display = "block";
+            // Update toggle ▼ na match item
+            const matchRow = item.querySelector(":scope > .erp-tree-row");
+            const toggle = matchRow ? matchRow.querySelector(".erp-tree-toggle") : null;
+            if (toggle) toggle.textContent = "▼";
+            // Mark VŠECHNY descendant rows (recursive)
+            const descendantRows = childrenContainer.querySelectorAll(".erp-tree-row");
+            descendantRows.forEach(r => {
+              r.classList.add("erp-tree-match-descendant");
+            });
+            // Plus expand všechny nested children containers (descendant folders
+            // co user pak může zase zavřít — ale defaultně viditelné aby uvidel
+            // celý podstrom)
+            const nestedContainers = childrenContainer.querySelectorAll(".erp-tree-children");
+            nestedContainers.forEach(c => {
+              c.style.display = "block";
+              // Update parent toggle ikonu
+              const parentItem = c.parentElement;
+              if (parentItem && parentItem.classList.contains("erp-tree-item")) {
+                const pRow = parentItem.querySelector(":scope > .erp-tree-row");
+                const pToggle = pRow ? pRow.querySelector(".erp-tree-toggle") : null;
+                if (pToggle) pToggle.textContent = "▼";
+              }
+            });
           }
         }
       }

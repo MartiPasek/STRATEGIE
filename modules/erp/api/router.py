@@ -797,30 +797,81 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-error h1 {{ color: var(--error); font-size: 18px; font-weight: 600; margin-bottom: 8px; }}
     .erp-error p {{ color: var(--muted); font-size: 14px; line-height: 1.6; }}
 
-    /* ── Phase B+2.2 (5.5.2026): full-width workspace + jádro modal ── */
-    /* Override <main> wrapper max-width pro workspace stranky (jiné stránky
-       jako landing/jadro full-page si max-width 1280px ponechávají). */
+    /* ── Phase B+7 (6.5.2026): panel layout (Centrála 1 Align pattern) ──
+       Marti's design 6.5.2026: "Cesta vede pres PANELY, ktere se davaji
+       Aling vzdy tim hlavnim smerem... Na ty panely se pak teprve davaji
+       dalsi komponenty... Ten grid je pak autosize vzdy na cely panel."
+
+       Web equivalent: flexbox cascade.
+         body         flex column, height: 100vh    (alClient root)
+         header       flex 0 0 auto                  (alTop)
+         main         flex 1, min-height: 0          (alClient)
+           .erp-workspace  flex row, flex: 1
+             .erp-tree-pane    flex 0 0 240px        (alLeft)
+             .erp-resize-handle flex 0 0 5px         (splitter)
+             .erp-main-pane    flex 1, min-height: 0  (alClient)
+               .erp-prehled-header  flex 0 0 auto    (alTop)
+               .erp-main-content    flex 1, min-h:0   (alClient)
+                 #erpDataGridContainer  flex 1        (autosize)
+
+       Visual continuity: žádný border-radius (panely flush edge-to-edge),
+       background stejný napříč (--bg root + --surface tree + --surface main),
+       borders 1px var(--border) jen jako subtle separators.
+    */
+    html:has(.erp-workspace),
+    body:has(.erp-workspace) {{
+      height: 100vh;
+      margin: 0;
+      overflow: hidden;
+    }}
+    body:has(.erp-workspace) {{
+      display: flex;
+      flex-direction: column;
+    }}
+    body:has(.erp-workspace) > header {{
+      flex: 0 0 auto;
+    }}
+    body:has(.erp-workspace) > footer {{
+      flex: 0 0 auto;
+      padding: 4px 12px !important;
+      font-size: 10px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }}
     main:has(.erp-workspace) {{
+      flex: 1;
+      min-height: 0;
       max-width: none !important;
       padding: 0 !important;
       margin: 0 !important;
+      display: flex;
+      flex-direction: column;
     }}
-    /* B+2.1: tree flush left, full viewport width, resize handle mezi tree a main */
-    /* B+2.3: zero right padding — grid fills full viewport width edge-to-edge */
     .erp-workspace {{
       --erp-tree-width: 240px;
-      max-width: none; margin: 0;
-      display: grid;
-      grid-template-columns: var(--erp-tree-width) 5px 1fr;
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: row;
       gap: 0;
-      padding: 8px 0 8px 0;
-      min-height: calc(100vh - 90px);
+      padding: 0;
+      max-width: none;
+      margin: 0;
     }}
-    /* B+2.2-3: workspace 2-pane, jádro je modal, grid flush right */
-    .erp-workspace .erp-tree-pane {{ margin-right: 0; }}
-    .erp-workspace .erp-main-pane {{ margin-left: 6px; margin-right: 0; }}
+    .erp-workspace .erp-tree-pane {{
+      flex: 0 0 var(--erp-tree-width);
+      min-height: 0;
+    }}
+    .erp-workspace .erp-resize-handle {{
+      flex: 0 0 5px;
+    }}
+    .erp-workspace .erp-main-pane {{
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
+    }}
 
-    /* B+2.1: resize handle mezi tree a main */
+    /* Resize handle mezi tree a main */
     .erp-resize-handle {{
       background: var(--border);
       cursor: col-resize;
@@ -834,13 +885,16 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       /* expanded hit area — easier to grab */
     }}
     .erp-tree-pane {{
-      background: var(--surface); border: 1px solid var(--border);
-      /* B+2.1: flush-left → border-radius jen vpravo (nahoře+dole),
-         vlevo plynule splývá s viewport edge */
-      border-radius: 0 10px 10px 0;
+      background: var(--surface);
+      border-right: 1px solid var(--border);
+      /* B+7: edge-to-edge — žádný border-radius, plně splývá s viewport */
+      border-radius: 0;
       border-left: none;
+      border-top: none;
+      border-bottom: none;
       overflow: hidden;
-      max-height: calc(100vh - 90px); display: flex; flex-direction: column;
+      display: flex;
+      flex-direction: column;
     }}
     .erp-tree-header {{
       padding: 12px 14px; border-bottom: 1px solid var(--border);
@@ -879,13 +933,15 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-tree-leaf .erp-tree-label {{ color: var(--text); font-weight: 400; }}
     .erp-tree-folder .erp-tree-label {{ color: var(--text-muted); font-weight: 500; }}
 
-    /* B+2.3: padding=0 na main-pane, grid flush proti edges; padding drží header/placeholders */
+    /* B+7 (6.5.2026): main-pane flush edge-to-edge, žádný border-radius */
     .erp-main-pane {{
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 10px 0 0 10px;  /* B+2.3: flat right edge (flush with viewport) */
-      border-right: none;
+      background: var(--surface);
+      /* Plain edge — žádný border ani radius. Tree-pane vpravo má border,
+         to dělá vizuální separator. */
+      border: none;
+      border-radius: 0;
       padding: 0;
-      max-height: calc(100vh - 110px); overflow: hidden;
+      overflow: hidden;
       display: flex; flex-direction: column;
     }}
     .erp-main-content {{

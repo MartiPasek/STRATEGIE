@@ -643,11 +643,32 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     /* Body zoom — Chrome/Edge/Safari respect zoom property.
        Firefox fallback: transform-based (rare browser pro Marti).
        Marti's spec ±25%. */
-    body.erp-zoom-small {{ zoom: 0.75; }}
-    body.erp-zoom-large {{ zoom: 1.25; }}
-    /* Header sám zachovat 1.0 (zoom toggle musí být dosažitelný plus
-       brand size konzistentní napříč zoom). Workspace + jádro modal
-       dědí zoom z body. */
+    /* B+9 (6.5.2026): html background + body dimension calc — bez nich
+       zoom 0.75 nechá 25% pravé/dolní strany prázdné (viewport bg).
+       Marti's UX feedback: "doresit roztazeni na celou aplikaci".
+       Trick: body logical width = 100vw / zoomFactor → render × zoomFactor
+       = 100vw (full viewport). */
+    html {{
+      background: var(--bg);
+    }}
+    body.erp-zoom-small {{
+      zoom: 0.75;
+      width: calc(100vw / 0.75);
+      min-height: calc(100vh / 0.75);
+    }}
+    body.erp-zoom-small:has(.erp-workspace) {{
+      height: calc(100vh / 0.75);  /* override B+7 hardcoded 100vh */
+    }}
+    body.erp-zoom-large {{
+      zoom: 1.25;
+      width: calc(100vw / 1.25);
+      min-height: calc(100vh / 1.25);
+    }}
+    body.erp-zoom-large:has(.erp-workspace) {{
+      height: calc(100vh / 1.25);
+    }}
+    /* Header + footer dědí zoom z body. Tabs + grid + jádro modal
+       (position: fixed) také dědí. */
     .erp-logo {{
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
       font-size: 18px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;

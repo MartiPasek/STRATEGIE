@@ -279,6 +279,173 @@
   }
 
   /**
+   * B+10 (6.5.2026): heuristic — vypadá column name jako STATUS column?
+   * (Stav, Status, Druh, Typ + "stat", "stav", "status", "result", "uspech")
+   * Plus exact data values musí matchnout known status keywords.
+   */
+  function _looksLikeStatusName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase();
+    const STATUS_PATTERNS = [
+      "stav", "status", "uspech", "result", "vysledek",
+    ];
+    for (const p of STATUS_PATTERNS) {
+      if (lower.includes(p)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * B+10: heuristic — money/currency column detection.
+   * "Cena", "Castka", "Suma", "Total", "Kc", "Eur", "Usd", "Kredit"...
+   */
+  function _looksLikeMoneyName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase();
+    const MONEY_PATTERNS = [
+      "cena", "castka", "částka", "suma", "total", "kc_", "_kc",
+      "eur", "usd", "czk", "kredit", "credit", "debit", "saldo",
+      "naklad", "vynos", "prijem", "vydaj", "zustatek",
+    ];
+    for (const p of MONEY_PATTERNS) {
+      if (lower.includes(p)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * B+10: heuristic — key/code column detection.
+   * "Kod", "Kód", "Klic", "ZkratkaC", "Identifier" — accent purple.
+   */
+  function _looksLikeKeyName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase();
+    const KEY_PATTERNS = ["kod", "kód", "klic", "klíč", "zkrat", "identifier"];
+    for (const p of KEY_PATTERNS) {
+      if (lower.includes(p)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * B+10: case-insensitive value extraction (Centrála rows mohou mít
+   * keys v různém case než column metadata).
+   */
+  function _getRowValueCI(row, fieldName) {
+    if (!row || !fieldName) return undefined;
+    if (row[fieldName] !== undefined) return row[fieldName];
+    const lower = fieldName.toLowerCase();
+    for (const k of Object.keys(row)) {
+      if (k.toLowerCase() === lower) return row[k];
+    }
+    return undefined;
+  }
+
+  /**
+   * B+10: row-level class rules (whole-row coloring).
+   * Marti's UX: "Conditial cell and rows color".
+   * Detekuje: deleted (Smazana=true), inactive (Aktivni=false),
+   * row error (status field má error value), warn, success, info.
+   */
+  function _buildRowClassRules() {
+    return {
+      "erp-ag-row-deleted": (params) => {
+        const d = params.data;
+        if (!d) return false;
+        const v = _getRowValueCI(d, "Smazana") ??
+                  _getRowValueCI(d, "Deleted") ??
+                  _getRowValueCI(d, "is_deleted");
+        return v === true || v === 1 || v === "1";
+      },
+      "erp-ag-row-inactive": (params) => {
+        const d = params.data;
+        if (!d) return false;
+        const v = _getRowValueCI(d, "Aktivni") ??
+                  _getRowValueCI(d, "Aktivní") ??
+                  _getRowValueCI(d, "Active") ??
+                  _getRowValueCI(d, "is_active");
+        if (v == null || v === "") return false;
+        return v === false || v === 0 || v === "0";
+      },
+      "erp-ag-row-error": (params) => {
+        const d = params.data;
+        if (!d) return false;
+        for (const k of Object.keys(d)) {
+          if (_looksLikeStatusName(k) && _classifyStatusValue(d[k]) === "error") {
+            return true;
+          }
+        }
+        return false;
+      },
+      "erp-ag-row-warn": (params) => {
+        const d = params.data;
+        if (!d) return false;
+        for (const k of Object.keys(d)) {
+          if (_looksLikeStatusName(k) && _classifyStatusValue(d[k]) === "warn") {
+            return true;
+          }
+        }
+        return false;
+      },
+      "erp-ag-row-success": (params) => {
+        const d = params.data;
+        if (!d) return false;
+        for (const k of Object.keys(d)) {
+          if (_looksLikeStatusName(k) && _classifyStatusValue(d[k]) === "ok") {
+            return true;
+          }
+        }
+        return false;
+      },
+    };
+  }
+
+  /**
+   * B+10: parse date string a vrátit "past" / "today" / "soon" (do 7 dnů)
+   * / "future" / null pokud nelze parse.
+   */
+  function _classifyDate(value) {
+    if (!value) return null;
+    const m = String(value).match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m) return null;
+    const target = new Date(parseInt(m[1], 10), parseInt(m[2], 10) - 1, parseInt(m[3], 10));
+    if (isNaN(target.getTime())) return null;
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const diffMs = target.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+    if (diffDays < 0) return "past";
+    if (diffDays === 0) return "today";
+    if (diffDays <= 7) return "soon";
+    return "future";
+  }
+
+  /**
+   * B+10: classify status text value → "ok" / "warn" / "error" / "info" / null
+   */
+  function _classifyStatusValue(value) {
+    if (value == null || value === "") return null;
+    const s = String(value).toLowerCase().trim();
+    // OK patterns
+    if (/^(ok|hotovo|done|done\b|completed|aktivni|aktivní|published|publikov|schválen|povolen|valid|finished|uspes|úspěš|approved)/i.test(s)) {
+      return "ok";
+    }
+    // Error / negative patterns
+    if (/^(chyba|error|failed|selh|storno|cancel|zrušen|zrusen|rejected|invalid|expired|expir|odmít|odmit|smaz|deleted)/i.test(s)) {
+      return "error";
+    }
+    // Warning / pending patterns
+    if (/^(warn|pending|cekajici|čekající|waiting|in_progress|inprogress|pripravuje|připravuje|recenz|review)/i.test(s)) {
+      return "warn";
+    }
+    // Info / neutral patterns
+    if (/^(info|new|nov|draft|otevr|open)/i.test(s)) {
+      return "info";
+    }
+    return null;
+  }
+
+  /**
    * Detect numeric column subtype: integer vs decimal.
    * Marti's UX: "Cisellne numericke hodnoty jsou v gridu defaultne
    * zobrazovane na 6 desetinych mist.. Stahni je na dve mista".
@@ -372,6 +539,19 @@
         def.flex = isWide ? 3 : 1;
         def.minWidth = isWide ? 180 : 80;
       }
+      // B+10 (6.5.2026): column-level coloring — money / key heuristics.
+      // Money columns mají numeric formatter + zelená/červená per sign.
+      // Key columns mají accent2 purple text + monospace feel.
+      const isMoney = !isId && colType === "number" && _looksLikeMoneyName(c);
+      const isKey = !isId && _looksLikeKeyName(c);
+      if (isMoney) {
+        def.cellClass = (def.cellClass ? def.cellClass + " " : "") +
+                        "erp-ag-col-money";
+      }
+      if (isKey) {
+        def.cellClass = (def.cellClass ? def.cellClass + " " : "") +
+                        "erp-ag-col-key";
+      }
       // Right-align numbers — cellClass approach (cellStyle nefunguje
       // pro flex container z B+4.6). Plus header label vpravo.
       if (colType === "number" && !isId) {
@@ -384,6 +564,22 @@
         // decimals=0. Jinak 2.
         const decimals = _detectNumericPrecision(c, rows);
         def.valueFormatter = (params) => _formatNumberCS(params.value, decimals);
+        // B+10 (6.5.2026): conditional formatting — záporná = červená,
+        // nula = dim. AG Grid cellClassRules vyhodnocuje per-cell.
+        def.cellClassRules = {
+          "erp-ag-numeric-negative": (params) => {
+            const v = params.value;
+            if (v == null || v === "") return false;
+            const n = (typeof v === "number") ? v : parseFloat(v);
+            return Number.isFinite(n) && n < 0;
+          },
+          "erp-ag-numeric-zero": (params) => {
+            const v = params.value;
+            if (v == null || v === "") return false;
+            const n = (typeof v === "number") ? v : parseFloat(v);
+            return Number.isFinite(n) && n === 0;
+          },
+        };
       }
       // Center-align booleans (checkbox-like flag columns).
       // B+6.6c-fix3 (6.5.2026): Marti's "checkboxy by chteli vystredovat
@@ -394,11 +590,41 @@
         def.headerClass = "erp-ag-boolean-header";
         // Width hint — booleans nepotřebují širokou cellu
         if (!def.minWidth || def.minWidth > 80) def.minWidth = 60;
+        // B+10: conditional — true = green, false = dim
+        def.cellClassRules = {
+          "erp-ag-bool-true": (params) => {
+            const v = params.value;
+            return v === true || v === 1 || v === "1" ||
+                   String(v).toLowerCase() === "true";
+          },
+          "erp-ag-bool-false": (params) => {
+            const v = params.value;
+            if (v == null || v === "") return false;
+            return v === false || v === 0 || v === "0" ||
+                   String(v).toLowerCase() === "false";
+          },
+        };
       }
       // B+7+++ (6.5.2026): date formatter — ISO → "D.M.YYYY" (CS).
       // Pokud datetime má time = 00:00:00, zobrazit jen datum.
       if (colType === "date") {
         def.valueFormatter = (params) => _formatDateCS(params.value);
+        // B+10: conditional — past = red, today = accent, soon = amber
+        def.cellClassRules = {
+          "erp-ag-date-past": (params) => _classifyDate(params.value) === "past",
+          "erp-ag-date-today": (params) => _classifyDate(params.value) === "today",
+          "erp-ag-date-soon": (params) => _classifyDate(params.value) === "soon",
+        };
+      }
+      // B+10: Status column heuristic — column name vypadá jako "Stav"
+      // a/nebo data values matchují status keywords (OK/Chyba/Pending).
+      if (colType === "string" && _looksLikeStatusName(c)) {
+        def.cellClassRules = {
+          "erp-ag-status-ok": (params) => _classifyStatusValue(params.value) === "ok",
+          "erp-ag-status-error": (params) => _classifyStatusValue(params.value) === "error",
+          "erp-ag-status-warn": (params) => _classifyStatusValue(params.value) === "warn",
+          "erp-ag-status-info": (params) => _classifyStatusValue(params.value) === "info",
+        };
       }
       // Tooltip pro long content (truncated) — používá formatted value
       def.tooltipValueGetter = (params) => {
@@ -508,6 +734,9 @@
       const gridOptions = {
         columnDefs: columnDefs || [],
         rowData: rowData,
+        // B+10 (6.5.2026): row-level conditional formatting (whole-row
+        // coloring per data state — deleted/inactive/error/warn/success).
+        rowClassRules: _buildRowClassRules(),
         // Default column behavior
         defaultColDef: {
           sortable: true,

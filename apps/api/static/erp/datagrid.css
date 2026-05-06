@@ -246,6 +246,118 @@
   flex: 0 1 auto;
 }
 
+/* ── B+10 (6.5.2026): Conditional formatting — heuristic cell colors ──
+   Subtle bg + colored text (ne aggressive). Drží AG Grid theme + dark
+   STRATEGIE BLACK feel. */
+
+/* Boolean true/false — ne aggressive, jen tint */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-bool-true {
+  color: #4ade80;  /* green-400 */
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-bool-false {
+  color: var(--text-faint, #6c7076);
+}
+
+/* Numeric záporná hodnota — accounting red */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-numeric-negative {
+  color: #f87171;  /* red-400 */
+  font-weight: 500;
+}
+/* Numeric zero — dimmer (často "no data" indikátor) */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-numeric-zero {
+  color: var(--text-faint, #6c7076);
+}
+
+/* Date past — overdue red */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-date-past {
+  color: #f87171;  /* red-400 */
+}
+/* Date soon (do 7 dnů) — amber warning */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-date-soon {
+  color: #fbbf24;  /* amber-400 */
+  font-weight: 500;
+}
+/* Date today — accent highlight */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-date-today {
+  color: var(--accent, #4f8ef7);
+  font-weight: 600;
+}
+
+/* Status text patterns — green/amber/red */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-status-ok {
+  color: #4ade80;  /* green */
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-status-warn {
+  color: #fbbf24;  /* amber */
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-status-error {
+  color: #f87171;  /* red */
+  font-weight: 500;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-status-info {
+  color: var(--accent, #4f8ef7);  /* modrá pro info */
+}
+
+/* Whole-row coloring (Marti UX: "Conditial cell and rows color") */
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-deleted .ag-cell {
+  color: var(--text-faint, #6c7076) !important;
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-inactive .ag-cell {
+  color: var(--text-faint, #6c7076);
+  font-style: italic;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-error .ag-cell {
+  background-color: rgba(248, 113, 113, 0.07);
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-warn .ag-cell {
+  background-color: rgba(251, 191, 36, 0.06);
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-success .ag-cell {
+  background-color: rgba(74, 222, 128, 0.05);
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-row.erp-ag-row-info .ag-cell {
+  background-color: rgba(79, 142, 247, 0.05);
+}
+
+/* ── B+10 column-level coloring ─────────────────────────────────
+   Klíčové / Money / ReadOnly / Highlight sloupce.
+   Per-cell class via cellClass v columnDefs (heuristic detection
+   nebo server hint). */
+
+/* Money columns — emphasize amounts */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-money {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+  color: #4ade80;  /* default green pro positive */
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-money.erp-ag-numeric-negative {
+  color: #f87171;  /* red pro negative */
+}
+
+/* Klíčové (key/code) columns — accent tint pro důležité identifikátory */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-key {
+  color: var(--accent2, #7c5cfc);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+/* ReadOnly / computed columns — dim bg, faint text */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-readonly {
+  background: rgba(255, 255, 255, 0.025);
+  color: var(--text-faint, #6c7076);
+  font-style: italic;
+}
+
+/* Highlight column — server-driven nebo manual hint, výrazná */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-highlight {
+  background: rgba(124, 92, 252, 0.08);
+}
+.ag-theme-quartz-dark.erp-ag-grid .erp-ag-col-highlight-header .ag-header-cell {
+  background: rgba(124, 92, 252, 0.12);
+}
+
 /* Loading overlay */
 .ag-theme-quartz-dark.erp-ag-grid .ag-overlay-loading-center {
   background-color: var(--surface2, #252830);

@@ -1091,11 +1091,11 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       line-height: 1.5;
     }}
 
-    /* Star ikona u pinned row */
+    /* Star ikona u pinned row — visible v všech views (Vše/MRU/Oblíbené) */
     .erp-tree-row .erp-tree-star {{
       display: none;
       flex-shrink: 0;
-      color: var(--accent);
+      color: var(--accent2);
       font-size: 11px;
       margin-left: 4px;
       cursor: pointer;
@@ -1106,6 +1106,64 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       display: inline;
     }}
     .erp-tree-row .erp-tree-star:hover {{ opacity: 1; }}
+
+    /* B+8.2a+ (6.5.2026): Ctrl+klik selection — fialová highlight,
+       odlišná od accent (modré) co znamená "open in main pane" */
+    .erp-tree-row.erp-tree-selected {{
+      background: rgba(124, 92, 252, 0.20);
+      box-shadow: inset 3px 0 0 var(--accent2);
+    }}
+    .erp-tree-row.erp-tree-selected.active {{
+      background: rgba(79, 142, 247, 0.22);
+      /* Active border-left z .active class má precedenci */
+    }}
+
+    /* B+8.2a+ tree context menu (pravý-klik) */
+    .erp-tree-ctx-menu {{
+      position: fixed;
+      background: var(--surface);
+      border: 1px solid var(--border-strong);
+      border-radius: 6px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.55);
+      padding: 4px 0;
+      min-width: 220px;
+      z-index: 9999;
+      font-family: inherit;
+      font-size: 13px;
+      color: var(--text);
+    }}
+    .erp-tree-ctx-item {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 7px 14px;
+      cursor: pointer;
+      user-select: none;
+      -webkit-user-select: none;
+      transition: background 0.08s;
+      white-space: nowrap;
+    }}
+    .erp-tree-ctx-item:hover {{
+      background: var(--surface2);
+      color: var(--accent);
+    }}
+    .erp-tree-ctx-item-icon {{
+      width: 16px;
+      text-align: center;
+      flex-shrink: 0;
+      font-size: 12px;
+    }}
+    .erp-tree-ctx-divider {{
+      height: 1px;
+      background: var(--border);
+      margin: 4px 0;
+    }}
+    .erp-tree-ctx-hint {{
+      padding: 4px 14px 6px;
+      color: var(--text-faint);
+      font-size: 11px;
+      font-style: italic;
+    }}
     .erp-tree-loading, .erp-tree-error {{
       padding: 14px; color: var(--muted); font-size: 13px;
     }}
@@ -2007,9 +2065,25 @@ def _render_workspace_page(user_id: int) -> str:
 
       function attachTreeHandlers() {
         treeRoot.querySelectorAll(".erp-tree-row").forEach(row => {
-          row.addEventListener("click", () => {
+          row.addEventListener("click", (ev) => {
             const item = row.closest(".erp-tree-item");
+            if (!item) return;
             const nid = item.getAttribute("data-id");
+
+            // B+8.2a+ (6.5.2026): Ctrl/Cmd+klik = jen vybrat (multi-select),
+            // ne otevřít. Pro context-menu bulk akce.
+            if (ev.ctrlKey || ev.metaKey) {
+              ev.preventDefault();
+              const cisloDef = item.getAttribute("data-cislo-def");
+              if (cisloDef) {
+                _toggleTreeSelection(item);
+              }
+              return;
+            }
+
+            // Klasický klik bez modifikátorů — clear selection + open
+            _clearTreeSelection();
+
             const childrenWrap = item.querySelector(":scope > .erp-tree-children");
             const toggle = row.querySelector(".erp-tree-toggle");
             // Expand/collapse if has children
@@ -2027,6 +2101,34 @@ def _render_workspace_page(user_id: int) -> str:
             }
           });
         });
+      }
+
+      // B+8.2a+ (6.5.2026): tree row selection (Ctrl+klik bez otevření)
+      const _selectedTreeCislos = new Set();
+      function _clearTreeSelection() {
+        _selectedTreeCislos.clear();
+        if (!treeRoot) return;
+        treeRoot.querySelectorAll(".erp-tree-row.erp-tree-selected").forEach(r => {
+          r.classList.remove("erp-tree-selected");
+        });
+      }
+      function _toggleTreeSelection(item) {
+        const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+        if (!cislo) return;
+        const row = item.querySelector(":scope > .erp-tree-row");
+        if (!row) return;
+        if (_selectedTreeCislos.has(cislo)) {
+          _selectedTreeCislos.delete(cislo);
+          row.classList.remove("erp-tree-selected");
+        } else {
+          _selectedTreeCislos.add(cislo);
+          row.classList.add("erp-tree-selected");
+        }
+      }
+      function _selectTreeRow(item) {
+        // single (non-additive) — clear pak select
+        _clearTreeSelection();
+        _toggleTreeSelection(item);
       }
 
       function setActive(item, cislo) {
@@ -2833,8 +2935,73 @@ def _render_workspace_page(user_id: int) -> str:
         }
       } catch (e) {}
 
-      // Pravý-klik na tree row → toggle pin
-      // (Plus star ikona inline — visible když pinned)
+      // B+8.2a+ (6.5.2026): tree context menu (pravý-klik) + ★ klik
+      function _showTreeContextMenu(x, y, items) {
+        _closeTreeContextMenu();
+        const menu = document.createElement("div");
+        menu.className = "erp-tree-ctx-menu";
+        menu.style.left = x + "px";
+        menu.style.top = y + "px";
+        items.forEach(it => {
+          if (it.divider) {
+            const d = document.createElement("div");
+            d.className = "erp-tree-ctx-divider";
+            menu.appendChild(d);
+            return;
+          }
+          if (it.hint) {
+            const h = document.createElement("div");
+            h.className = "erp-tree-ctx-hint";
+            h.textContent = it.hint;
+            menu.appendChild(h);
+            return;
+          }
+          const el = document.createElement("div");
+          el.className = "erp-tree-ctx-item";
+          const icon = it.icon != null ? it.icon : "";
+          el.innerHTML =
+            '<span class="erp-tree-ctx-item-icon">' + escapeHtml(icon) + '</span>' +
+            '<span>' + escapeHtml(it.label || "") + '</span>';
+          el.addEventListener("click", () => {
+            _closeTreeContextMenu();
+            try { it.handler && it.handler(); } catch (e) { console.warn(e); }
+          });
+          menu.appendChild(el);
+        });
+        document.body.appendChild(menu);
+        // Position adjust pokud overflow viewport
+        setTimeout(() => {
+          const rect = menu.getBoundingClientRect();
+          if (rect.right > window.innerWidth) {
+            menu.style.left = (window.innerWidth - rect.width - 6) + "px";
+          }
+          if (rect.bottom > window.innerHeight) {
+            menu.style.top = (window.innerHeight - rect.height - 6) + "px";
+          }
+        }, 0);
+        // Outside click + Esc close
+        const onDoc = (ev) => {
+          if (!menu.contains(ev.target)) _closeTreeContextMenu();
+        };
+        const onKey = (ev) => {
+          if (ev.key === "Escape") _closeTreeContextMenu();
+        };
+        setTimeout(() => {
+          document.addEventListener("mousedown", onDoc);
+          document.addEventListener("keydown", onKey);
+        }, 0);
+        menu._cleanup = () => {
+          document.removeEventListener("mousedown", onDoc);
+          document.removeEventListener("keydown", onKey);
+        };
+      }
+      function _closeTreeContextMenu() {
+        document.querySelectorAll(".erp-tree-ctx-menu").forEach(m => {
+          if (m._cleanup) try { m._cleanup(); } catch (e) {}
+          m.remove();
+        });
+      }
+
       function _attachTreePinHandlers() {
         if (!treeRoot) return;
         treeRoot.addEventListener("contextmenu", (ev) => {
@@ -2844,10 +3011,87 @@ def _render_workspace_page(user_id: int) -> str:
           if (!item) return;
           const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
           if (!cislo) return;  // jen leaves with cislo_def
+
           ev.preventDefault();
-          toggleTreeFavorite(cislo);
+
+          // Compute target cislos — pokud row je v selection a multi-select
+          // active, akce platí pro celou selection. Jinak jen tento řádek.
+          let targetCislos;
+          if (_selectedTreeCislos.has(cislo) && _selectedTreeCislos.size > 1) {
+            targetCislos = Array.from(_selectedTreeCislos);
+          } else {
+            targetCislos = [cislo];
+            // Single right-click — vyber pro visual feedback (pokud není v selection)
+            if (!_selectedTreeCislos.has(cislo)) {
+              _selectTreeRow(item);
+            }
+          }
+
+          // Determine pin status
+          const allPinned = targetCislos.every(c => isTreeFavorite(c));
+          const nonePinned = targetCislos.every(c => !isTreeFavorite(c));
+          const multi = targetCislos.length > 1;
+
+          const menuItems = [];
+
+          if (multi) {
+            menuItems.push({
+              hint: "Vybráno " + targetCislos.length + " položek",
+            });
+          }
+
+          if (nonePinned) {
+            menuItems.push({
+              icon: "★",
+              label: multi
+                ? ("Přidat všechny (" + targetCislos.length + ") k oblíbeným")
+                : "Přidat k oblíbeným",
+              handler: () => {
+                targetCislos.forEach(c => {
+                  if (!isTreeFavorite(c)) toggleTreeFavorite(c);
+                });
+              },
+            });
+          } else if (allPinned) {
+            menuItems.push({
+              icon: "✕",
+              label: multi
+                ? ("Odebrat všechny (" + targetCislos.length + ") z oblíbených")
+                : "Odebrat z oblíbených",
+              handler: () => {
+                targetCislos.forEach(c => {
+                  if (isTreeFavorite(c)) toggleTreeFavorite(c);
+                });
+              },
+            });
+          } else {
+            // Mixed — nabídni obě
+            const pinnedCount = targetCislos.filter(c => isTreeFavorite(c)).length;
+            const notPinnedCount = targetCislos.length - pinnedCount;
+            menuItems.push({
+              icon: "★",
+              label: "Přidat zbývajících (" + notPinnedCount + ") k oblíbeným",
+              handler: () => {
+                targetCislos.forEach(c => {
+                  if (!isTreeFavorite(c)) toggleTreeFavorite(c);
+                });
+              },
+            });
+            menuItems.push({
+              icon: "✕",
+              label: "Odebrat aktuálních (" + pinnedCount + ") z oblíbených",
+              handler: () => {
+                targetCislos.forEach(c => {
+                  if (isTreeFavorite(c)) toggleTreeFavorite(c);
+                });
+              },
+            });
+          }
+
+          _showTreeContextMenu(ev.clientX, ev.clientY, menuItems);
         });
-        // Plus klik na ★ ikonu = unpin
+
+        // Klik na ★ ikonu = quick unpin (bez context menu)
         treeRoot.addEventListener("click", (ev) => {
           const star = ev.target.closest(".erp-tree-star");
           if (!star) return;
@@ -2859,6 +3103,19 @@ def _render_workspace_page(user_id: int) -> str:
         });
       }
       _attachTreePinHandlers();
+
+      // Esc kdekoli — zavři context menu + clear selection
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") {
+          _closeTreeContextMenu();
+          // Pozn.: search Esc už handler clear input — to nesahá.
+          // Tree selection clear jen pokud focus není v inputu
+          const tag = ev.target && ev.target.tagName;
+          if (tag !== "INPUT" && tag !== "TEXTAREA") {
+            _clearTreeSelection();
+          }
+        }
+      });
 
       // Po každém renderTreeNodes inject ★ ikony pro pinned items
       function _markPinnedTreeRows() {

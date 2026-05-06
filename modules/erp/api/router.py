@@ -2653,6 +2653,30 @@ def _render_workspace_page(user_id: int) -> str:
         return tabsState.tabs.findIndex(t => t.cislo === cislo);
       }
 
+      // B+8++ (6.5.2026): scroll active tree row do středu TreeRoot containeru.
+      // Marti's UX feedback: scrollIntoView nedosáhl protože element byl
+      // mimo viewport scroll containeru. Manuální compute relative offset.
+      function _scrollTreeRowIntoCenter(row) {
+        if (!row || !treeRoot) return;
+        try {
+          const rowRect = row.getBoundingClientRect();
+          const containerRect = treeRoot.getBoundingClientRect();
+          // Row offset uvnitř scroll containeru
+          const rowTopInContainer = rowRect.top - containerRect.top + treeRoot.scrollTop;
+          // Cílový scroll = row top - half container + half row (= centered)
+          const targetScroll = rowTopInContainer
+            - (containerRect.height / 2)
+            + (rowRect.height / 2);
+          treeRoot.scrollTo({
+            top: Math.max(0, targetScroll),
+            behavior: "smooth",
+          });
+        } catch (e) {
+          // Fallback — alespoň scrollIntoView
+          try { row.scrollIntoView({ block: "center" }); } catch (e2) {}
+        }
+      }
+
       async function openTab(cislo, item) {
         const idx = _findTabIndex(cislo);
         if (idx >= 0) {
@@ -2710,12 +2734,11 @@ def _render_workspace_page(user_id: int) -> str:
             saveActive(String(tab.cislo));
             // Expand všechny parent containers aby active row byl visible
             expandAncestors(treeItem);
-            // Scroll into view (s delay aby expand měl čas vykreslit)
-            setTimeout(() => {
-              if (row && row.scrollIntoView) {
-                try { row.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (e) {}
-              }
-            }, 30);
+            // Scroll do středu viewport TreeRoot containeru — manuálně,
+            // protože scrollIntoView({block:"nearest"}) nescrolluje pokud
+            // je element úplně skrytý mimo scroll container.
+            // Delay 80ms aby expand měl čas vykreslit (DOM layout pass).
+            setTimeout(() => _scrollTreeRowIntoCenter(row), 80);
           }
         }
         saveTabsState();

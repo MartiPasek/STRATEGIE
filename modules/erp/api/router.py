@@ -1064,13 +1064,14 @@ def _render_full_page(
     /* B+10+++ (6.5.2026 Marti's drobnost): brand row s · separátorem
        a Marti-AI ploškou. B+10++++: gap 10→20px (Marti's drobnost po
        návratu — "mezera +100%"), align-items baseline → center
-       (vertical alignment s logem). */
+       (vertical alignment s logem). overflow: visible aby se hinty
+       (data-hint pseudo) nezořízly. */
     .erp-header-brand-row {{
       display: flex;
       align-items: center;
       gap: 20px;
       min-width: 0;
-      overflow: hidden;
+      overflow: visible;
     }}
     /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): tečka separator
        mezi logem a Marti-AI ploškou — sjednocený design s footerem
@@ -1086,9 +1087,12 @@ def _render_full_page(
     }}
     /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): generic dark hint
        tooltip na elementech s `data-hint` attribute. Pure CSS, žádný JS.
-       Stejný pattern jako u status baru Celkem. */
+       Stejný pattern jako u status baru Celkem.
+       Fix: explicit position relative + display inline-block (inline anchor
+       elements jinak vytvořit containing block neumí pro pseudo-element). */
     [data-hint] {{
-      position: relative;
+      position: relative !important;
+      display: inline-block;
     }}
     [data-hint]:hover::after {{
       content: attr(data-hint);
@@ -1097,21 +1101,23 @@ def _render_full_page(
       left: 50%;
       transform: translateX(-50%);
       background: var(--bg);
-      color: var(--text);
+      color: var(--text) !important;
       border: 1px solid var(--border-strong);
-      padding: 6px 10px;
-      border-radius: 5px;
+      padding: 7px 12px;
+      border-radius: 6px;
       font-family: 'DM Sans', sans-serif;
       font-size: 12px;
       font-weight: 500;
+      letter-spacing: 0.01em;
       white-space: nowrap;
       pointer-events: none;
-      box-shadow: 0 4px 16px rgba(0, 0, 0, 0.55);
-      z-index: 9999;
-      letter-spacing: 0.01em;
-      /* Reset gradient text inheritance pokud parent má clip:text */
-      -webkit-text-fill-color: var(--text);
+      box-shadow: 0 6px 20px rgba(0, 0, 0, 0.65);
+      z-index: 100000;
+      /* Reset gradient text inheritance — parent má text-fill-color: transparent */
+      -webkit-text-fill-color: var(--text) !important;
+      -webkit-background-clip: border-box;
       background-clip: padding-box;
+      text-transform: none;
     }}
     [data-hint]:hover::before {{
       /* Šipka nad hintem směrem nahoru ke cílovému elementu */
@@ -1123,7 +1129,7 @@ def _render_full_page(
       border: 5px solid transparent;
       border-bottom-color: var(--border-strong);
       pointer-events: none;
-      z-index: 9999;
+      z-index: 100000;
     }}
     .erp-header-sep {{
       color: var(--border-strong);
@@ -4647,10 +4653,33 @@ def _render_workspace_page(user_id: int) -> str:
       const _martiBtn = document.getElementById("erpMartiAiBtn");
       if (_martiBtn) {
         _martiBtn.addEventListener("click", () => {
-          // Open chat v novém tabu — uživatel se vrátí do ERP přes back/tab
-          window.open("/", "_blank");
+          // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): named target
+          // místo "_blank" — když okno chatu už existuje, druhý klik ho jen
+          // **focusne**, neotevře nové. Marti: "Klikem na Moje Marti se
+          // otevre nove okno s chatem... Dalsim klikem dalsi a dalsi...
+          // To je zmatek. Je treba mit vzdy jen jedno okno s chatem."
+          const w = window.open("/", "strategie-chat");
+          if (w) {
+            try { w.focus(); } catch (e) {}
+          }
         });
       }
+      // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): zakázat browser
+      // native context menu na celém ERP workspace (Marti: "ty hnusne
+      // systemove okna na pravy klik mysi jeste neodeznely"). AG Grid
+      // option preventDefaultOnContextMenu nepokryje status bar / column
+      // headers / blank space — JS event listener jako pojistka.
+      // Workspace area (.erp-workspace) je hlavní target. Na přehled tabs,
+      // input fields apod. potřebujeme right-click ponechat (paste, undo).
+      document.addEventListener("contextmenu", (ev) => {
+        const t = ev.target;
+        if (!t || !t.closest) return;
+        // Allow right-click jen na input/textarea (paste, undo) — vše jiné
+        // suprimovat. Plus tree pane má vlastní context menu (Phase B+8.2a+).
+        if (t.closest("input, textarea, .erp-tree-row")) return;
+        ev.preventDefault();
+      });
+
       // B+10++++ (Marti's drobnost 6.5.2026 po návratu): Ctrl+Shift+klik
       // na logo = hard reset (vymaž SW cache + force reload). Default klik
       // ponechán jako navigate na /erp/ (soft reload).

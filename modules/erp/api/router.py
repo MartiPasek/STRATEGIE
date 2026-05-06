@@ -1019,36 +1019,93 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     .erp-tree-root {{
       overflow-y: auto; padding: 6px 0; flex: 1; min-height: 0;
     }}
-    /* B+7++ (6.5.2026): tree footer (Oblíbené + akce) */
+    /* B+8.2a (6.5.2026): tree footer s 3-segment view toggle
+       (Vše / Oblíbené / Naposledy použité) */
     .erp-tree-footer {{
-      padding: 6px 8px;
+      padding: 5px 6px;
       border-top: 1px solid var(--border);
       background: var(--surface);
       flex-shrink: 0;
-      display: flex;
-      flex-direction: column;
-      gap: 4px;
     }}
-    .erp-tree-footer-btn {{
+    .erp-tree-view-toggle {{
+      display: flex;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+    }}
+    .erp-tree-view-btn {{
+      flex: 1 1 0;
       display: flex;
       align-items: center;
-      gap: 6px;
-      padding: 5px 10px;
-      background: var(--surface2);
-      border: 1px solid var(--border);
-      border-radius: 4px;
+      justify-content: center;
+      gap: 4px;
+      padding: 5px 6px;
+      background: transparent;
+      border: none;
       color: var(--text-muted);
       font-family: inherit;
-      font-size: 12px;
+      font-size: 11px;
       cursor: pointer;
       transition: all 0.12s;
-      text-align: left;
+      border-right: 1px solid var(--border);
+      min-width: 0;
     }}
-    .erp-tree-footer-btn:hover {{
-      border-color: var(--accent);
+    .erp-tree-view-btn:last-child {{ border-right: none; }}
+    .erp-tree-view-btn:hover:not(.active) {{
+      background: var(--surface2);
+      color: var(--text);
+    }}
+    .erp-tree-view-btn.active {{
+      background: var(--accent);
+      color: white;
+    }}
+    .erp-tree-view-icon {{
+      font-size: 12px;
+      line-height: 1;
+    }}
+    .erp-tree-view-label {{
+      font-size: 11px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }}
+
+    /* View filter — hide non-matching rows v favorites/recent mode */
+    .erp-tree-root.erp-tree-view-favorites .erp-tree-row:not(.erp-tree-view-match):not(.erp-tree-view-match-parent),
+    .erp-tree-root.erp-tree-view-recent .erp-tree-row:not(.erp-tree-view-match):not(.erp-tree-view-match-parent) {{
+      display: none;
+    }}
+    .erp-tree-root.erp-tree-view-favorites .erp-tree-view-match,
+    .erp-tree-root.erp-tree-view-recent .erp-tree-view-match {{
+      background: rgba(79, 142, 247, 0.06);
+    }}
+
+    /* Empty state — pinned/recent prázdné */
+    .erp-tree-empty-view {{
+      padding: 24px 14px;
+      color: var(--text-faint);
+      font-size: 12px;
+      text-align: center;
+      font-style: italic;
+      line-height: 1.5;
+    }}
+
+    /* Star ikona u pinned row */
+    .erp-tree-row .erp-tree-star {{
+      display: none;
+      flex-shrink: 0;
       color: var(--accent);
-      background: var(--surface);
+      font-size: 11px;
+      margin-left: 4px;
+      cursor: pointer;
+      transition: opacity 0.12s;
+      opacity: 0.85;
     }}
+    .erp-tree-row.erp-tree-pinned .erp-tree-star {{
+      display: inline;
+    }}
+    .erp-tree-row .erp-tree-star:hover {{ opacity: 1; }}
     .erp-tree-loading, .erp-tree-error {{
       padding: 14px; color: var(--muted); font-size: 13px;
     }}
@@ -1714,10 +1771,26 @@ def _render_workspace_page(user_id: int) -> str:
             <div class="erp-skel-line"></div>
           </div>
         </div>
-        <!-- B+7++ (6.5.2026): footer slot pro Oblíbené + akce (Marti's spec) -->
+        <!-- B+8.2a (6.5.2026): 3-segment toggle pro tree view mode
+             (Vše / Oblíbené / Naposledy použité) -->
         <div id="erpTreeFooter" class="erp-tree-footer">
-          <button type="button" class="erp-tree-footer-btn" data-erp-tree-action="oblibene"
-                  title="Oblíbené přehledy">★ Oblíbené</button>
+          <div class="erp-tree-view-toggle" role="tablist">
+            <button type="button" class="erp-tree-view-btn active"
+                    data-tree-view="all" role="tab" title="Všechny moduly">
+              <span class="erp-tree-view-icon">≡</span>
+              <span class="erp-tree-view-label">Vše</span>
+            </button>
+            <button type="button" class="erp-tree-view-btn"
+                    data-tree-view="favorites" role="tab" title="Oblíbené (pin přes pravý-klik)">
+              <span class="erp-tree-view-icon">★</span>
+              <span class="erp-tree-view-label">Oblíbené</span>
+            </button>
+            <button type="button" class="erp-tree-view-btn"
+                    data-tree-view="recent" role="tab" title="Naposledy použité (auto-track)">
+              <span class="erp-tree-view-icon">⏱</span>
+              <span class="erp-tree-view-label">MRU</span>
+            </button>
+          </div>
         </div>
       </aside>
       <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
@@ -2602,18 +2675,229 @@ def _render_workspace_page(user_id: int) -> str:
         }
       });
 
-      // Tree footer button placeholder handlers
+      // ── B+8.2a (6.5.2026): tree view modes (Vše / Oblíbené / MRU) ──
+      const TREE_VIEW_KEY = "erp.tree.view";
+      const TREE_FAVORITES_KEY = "erp.tree.favorites";
+      const TREE_RECENT_KEY = "erp.tree.recent";
+      const TREE_RECENT_MAX = 20;
       const treeFooterEl = document.getElementById("erpTreeFooter");
-      if (treeFooterEl) {
-        treeFooterEl.addEventListener("click", (ev) => {
-          const btn = ev.target.closest("[data-erp-tree-action]");
-          if (!btn) return;
-          const action = btn.getAttribute("data-erp-tree-action");
-          // Phase A read-only: jen toast informující o budoucím feature
-          console.log("Tree footer action:", action);
-          // TODO: Phase ?? — implementovat Oblíbené (per-user list FK na cislo_def)
+      let treeViewMode = "all";
+
+      function loadTreeFavorites() {
+        try {
+          const s = localStorage.getItem(TREE_FAVORITES_KEY);
+          if (!s) return [];
+          const arr = JSON.parse(s);
+          return Array.isArray(arr)
+            ? arr.map(x => parseInt(x, 10)).filter(n => !isNaN(n))
+            : [];
+        } catch (e) { return []; }
+      }
+      function saveTreeFavorites(arr) {
+        try { localStorage.setItem(TREE_FAVORITES_KEY, JSON.stringify(arr)); }
+        catch (e) {}
+      }
+      function isTreeFavorite(cislo) {
+        return loadTreeFavorites().includes(parseInt(cislo, 10));
+      }
+      function toggleTreeFavorite(cislo) {
+        const arr = loadTreeFavorites();
+        const c = parseInt(cislo, 10);
+        const idx = arr.indexOf(c);
+        if (idx >= 0) arr.splice(idx, 1);
+        else arr.push(c);
+        saveTreeFavorites(arr);
+        // Update star ikona v DOM
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          const cd = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (cd === c) {
+            const row = item.querySelector(":scope > .erp-tree-row");
+            if (row) row.classList.toggle("erp-tree-pinned", isTreeFavorite(c));
+          }
+        });
+        // Re-apply view filter pokud je v favorites
+        if (treeViewMode === "favorites") applyTreeViewFilter();
+      }
+
+      function loadTreeRecent() {
+        try {
+          const s = localStorage.getItem(TREE_RECENT_KEY);
+          if (!s) return [];
+          const arr = JSON.parse(s);
+          return Array.isArray(arr) ? arr : [];
+        } catch (e) { return []; }
+      }
+      function saveTreeRecent(arr) {
+        try { localStorage.setItem(TREE_RECENT_KEY, JSON.stringify(arr)); }
+        catch (e) {}
+      }
+      function trackTreeRecent(cislo, label) {
+        const arr = loadTreeRecent();
+        const c = parseInt(cislo, 10);
+        const idx = arr.findIndex(r => r.cislo === c);
+        if (idx >= 0) arr.splice(idx, 1);  // remove existing (move to top)
+        arr.unshift({ cislo: c, label: label || ("Přehled #" + c), ts: Date.now() });
+        if (arr.length > TREE_RECENT_MAX) arr.length = TREE_RECENT_MAX;
+        saveTreeRecent(arr);
+        if (treeViewMode === "recent") applyTreeViewFilter();
+      }
+
+      function applyTreeViewFilter() {
+        if (!treeRoot) return;
+        // Vyčisti view-related classes a empty-state placeholder
+        treeRoot.classList.remove("erp-tree-view-favorites", "erp-tree-view-recent");
+        treeRoot.querySelectorAll(".erp-tree-row").forEach(r => {
+          r.classList.remove("erp-tree-view-match", "erp-tree-view-match-parent");
+        });
+        // Remove existing empty state
+        const oldEmpty = treeRoot.querySelector(".erp-tree-empty-view");
+        if (oldEmpty) oldEmpty.remove();
+
+        if (treeViewMode === "all") return;
+
+        let matchingCislos;
+        let emptyMsg;
+        if (treeViewMode === "favorites") {
+          matchingCislos = new Set(loadTreeFavorites());
+          treeRoot.classList.add("erp-tree-view-favorites");
+          emptyMsg = "Žádné oblíbené.<br>Pinout položku přes <strong>pravý-klik</strong> na řádek nebo přes ★ ikonu.";
+        } else if (treeViewMode === "recent") {
+          matchingCislos = new Set(loadTreeRecent().map(r => r.cislo));
+          treeRoot.classList.add("erp-tree-view-recent");
+          emptyMsg = "Žádná historie.<br>Otevři přehled — automaticky se přidá do MRU.";
+        } else {
+          return;
+        }
+
+        if (matchingCislos.size === 0) {
+          // Empty state
+          const empty = document.createElement("div");
+          empty.className = "erp-tree-empty-view";
+          empty.innerHTML = emptyMsg;
+          treeRoot.appendChild(empty);
+          return;
+        }
+
+        // Mark match items + parent path
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (cislo && matchingCislos.has(cislo)) {
+            const row = item.querySelector(":scope > .erp-tree-row");
+            if (row) row.classList.add("erp-tree-view-match");
+            // Expand + označit parents
+            let parent = item.parentElement;
+            while (parent && parent !== treeRoot) {
+              if (parent.classList && parent.classList.contains("erp-tree-children")) {
+                parent.style.display = "block";
+                const parentItem = parent.parentElement;
+                if (parentItem && parentItem.classList &&
+                    parentItem.classList.contains("erp-tree-item")) {
+                  const pRow = parentItem.querySelector(":scope > .erp-tree-row");
+                  if (pRow) pRow.classList.add("erp-tree-view-match-parent");
+                  const tg = pRow ? pRow.querySelector(".erp-tree-toggle") : null;
+                  if (tg) tg.textContent = "▼";
+                }
+              }
+              parent = parent.parentElement;
+            }
+          }
         });
       }
+
+      function setTreeViewMode(mode) {
+        if (mode !== "all" && mode !== "favorites" && mode !== "recent") return;
+        treeViewMode = mode;
+        try { localStorage.setItem(TREE_VIEW_KEY, mode); } catch (e) {}
+        if (treeFooterEl) {
+          treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(b => {
+            b.classList.toggle("active", b.getAttribute("data-tree-view") === mode);
+          });
+        }
+        applyTreeViewFilter();
+      }
+
+      // Wire footer toggle
+      if (treeFooterEl) {
+        treeFooterEl.addEventListener("click", (ev) => {
+          const btn = ev.target.closest(".erp-tree-view-btn");
+          if (!btn) return;
+          const mode = btn.getAttribute("data-tree-view");
+          if (mode) setTreeViewMode(mode);
+        });
+      }
+      // Init: restore last view mode (default all)
+      try {
+        const saved = localStorage.getItem(TREE_VIEW_KEY);
+        if (saved === "favorites" || saved === "recent" || saved === "all") {
+          treeViewMode = saved;
+        }
+      } catch (e) {}
+
+      // Pravý-klik na tree row → toggle pin
+      // (Plus star ikona inline — visible když pinned)
+      function _attachTreePinHandlers() {
+        if (!treeRoot) return;
+        treeRoot.addEventListener("contextmenu", (ev) => {
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) return;
+          const item = row.closest(".erp-tree-item");
+          if (!item) return;
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (!cislo) return;  // jen leaves with cislo_def
+          ev.preventDefault();
+          toggleTreeFavorite(cislo);
+        });
+        // Plus klik na ★ ikonu = unpin
+        treeRoot.addEventListener("click", (ev) => {
+          const star = ev.target.closest(".erp-tree-star");
+          if (!star) return;
+          ev.stopPropagation();
+          const item = star.closest(".erp-tree-item");
+          if (!item) return;
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (cislo) toggleTreeFavorite(cislo);
+        });
+      }
+      _attachTreePinHandlers();
+
+      // Po každém renderTreeNodes inject ★ ikony pro pinned items
+      function _markPinnedTreeRows() {
+        if (!treeRoot) return;
+        const favSet = new Set(loadTreeFavorites());
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (!cislo) return;
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (!row) return;
+          if (favSet.has(cislo)) {
+            row.classList.add("erp-tree-pinned");
+            // Inject ★ ikona pokud chybí
+            if (!row.querySelector(".erp-tree-star")) {
+              const star = document.createElement("span");
+              star.className = "erp-tree-star";
+              star.textContent = "★";
+              star.title = "Odepnout (klik) nebo pravý-klik";
+              row.appendChild(star);
+            }
+          } else {
+            row.classList.remove("erp-tree-pinned");
+          }
+        });
+      }
+      // Hook do attachTreeHandlers — po renderu mark pinned + apply view filter
+      const _origAttachTreeHandlers = attachTreeHandlers;
+      attachTreeHandlers = function() {
+        _origAttachTreeHandlers();
+        _markPinnedTreeRows();
+        // Init footer toggle UI
+        if (treeFooterEl) {
+          treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(b => {
+            b.classList.toggle("active",
+              b.getAttribute("data-tree-view") === treeViewMode);
+          });
+        }
+        applyTreeViewFilter();
+      };
 
       // ── B+8 (6.5.2026): Multi-tab přehled state + UI ───────────────
       // MVP localStorage. Phase B+8.1 přepne na backend persistence
@@ -2679,15 +2963,17 @@ def _render_workspace_page(user_id: int) -> str:
 
       async function openTab(cislo, item) {
         const idx = _findTabIndex(cislo);
+        // B+8.2a: track recent (i pokud tab už existuje — recency = move to top)
+        const itemId = item ? item.getAttribute("data-id") : null;
+        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
+        const labelText = (labelEl && (labelEl.dataset.erpOrigText || labelEl.textContent))
+          || ("Přehled #" + cislo);
+        try { trackTreeRecent(cislo, labelText); } catch (e) {}
         if (idx >= 0) {
           await switchTab(idx);
           return;
         }
         // Nový tab
-        const itemId = item ? item.getAttribute("data-id") : null;
-        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
-        const labelText = (labelEl && (labelEl.dataset.erpOrigText || labelEl.textContent))
-          || ("Přehled #" + cislo);
         const tab = {
           cislo: cislo,
           itemId: itemId,

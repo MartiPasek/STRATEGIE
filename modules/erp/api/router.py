@@ -2692,14 +2692,30 @@ def _render_workspace_page(user_id: int) -> str:
         tabsState.activeIndex = idx;
         renderTabsBar();
         const tab = tabsState.tabs[idx];
-        // Sync tree active state
+        // Sync tree active state — highlight + expand ancestors + scroll
+        // (Marti's UX 6.5.2026: pri prepinani zalozek automaticky vyhledat
+        // a oznacit v levem panelu prislusnou vetu).
         if (tab.itemId) {
           treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
-          const treeItem = treeRoot.querySelector('.erp-tree-item[data-id="' + tab.itemId + '"]');
+          let treeItem = treeRoot.querySelector('.erp-tree-item[data-id="' + tab.itemId + '"]');
+          // Fallback: pokud item nenajdeme přes itemId, zkus přes cislo_def
+          if (!treeItem) {
+            treeItem = treeRoot.querySelector(
+              '.erp-tree-item[data-cislo-def="' + tab.cislo + '"]'
+            );
+          }
           if (treeItem) {
             const row = treeItem.querySelector(":scope > .erp-tree-row");
             if (row) row.classList.add("active");
             saveActive(String(tab.cislo));
+            // Expand všechny parent containers aby active row byl visible
+            expandAncestors(treeItem);
+            // Scroll into view (s delay aby expand měl čas vykreslit)
+            setTimeout(() => {
+              if (row && row.scrollIntoView) {
+                try { row.scrollIntoView({ block: "nearest", behavior: "smooth" }); } catch (e) {}
+              }
+            }, 30);
           }
         }
         saveTabsState();

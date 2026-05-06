@@ -2482,6 +2482,14 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/dropdown.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/date.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/memo.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- B+6.8 (6.5.2026 večer): ErpRichEdit (Ace Editor 1.32 z CDN, ~120KB,
+         no-conflict UMD). Mode SQL + monokai theme. Marti's Centrála 1
+         typ 4 RichEdit pro DefView SQL + INSERT/UPDATE/DELETE editory. -->
+    <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.6/src-min-noconflict/ace.js"></script>
+    <script src="/static/erp/components/richedit.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- B+6.9 (6.5.2026 večer): ErpPageControl + ErpTabSheet (in-form tabs).
+         Centrála 1 typ 15 PageControl + typ 16 TabSheet. -->
+    <script src="/static/erp/components/pagecontrol.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formlist.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formsection.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/form.js?v=''' + _STATIC_VERSION + '''"></script>

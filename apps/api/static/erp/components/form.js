@@ -43,11 +43,14 @@
   const TYP_LABEL_ONLY = 1;
   const TYP_EDIT = 2;
   const TYP_CHECKBOX = 3;
+  const TYP_RICHEDIT = 4;     // B+6.10 (6.5.2026): Ace Editor wrapper
   const TYP_DATE = 5;
   const TYP_FORMLIST = 6;
   const TYP_COMBOBOX = 7;
   const TYP_BUTTON = 8;
   const TYP_GROUPBOX = 12;
+  const TYP_PAGECONTROL = 15; // B+6.10: tabs container (parent)
+  const TYP_TABSHEET = 16;    // B+6.10: tab item (child of PageControl)
   const TYP_DATASET = 17;     // non-visual
   const TYP_DBFIELD = 18;     // non-visual
   const TYP_FORMSETTING = 30; // non-visual (FormCaption override)
@@ -514,6 +517,107 @@
         case TYP_GROUPBOX:
           // Handled v sections building — never reaches here normally
           return null;
+
+        case TYP_RICHEDIT: {
+          // B+6.10 (6.5.2026): Ace Editor wrapper. SQL syntax default.
+          // Language autodetect z FieldName / Caption — pokud field name má
+          // "SQL" nebo "Insert/Update/Delete", default sql; jinak text.
+          if (typeof global.ErpRichEdit !== "function") return null;
+          const fieldNameLower = (fieldName || "").toLowerCase();
+          const captionLower = (caption || "").toLowerCase();
+          let lang = "text";
+          if (/sql|select|insert|update|delete|defview|where|from/.test(
+                fieldNameLower + " " + captionLower)) {
+            lang = "sql";
+          } else if (/javascript|js|script/.test(fieldNameLower)) {
+            lang = "javascript";
+          } else if (/html|template/.test(fieldNameLower)) {
+            lang = "html";
+          } else if (/json/.test(fieldNameLower)) {
+            lang = "json";
+          }
+          // Height — RichEdit má fHeight v metadatech; pokud > 0 použij
+          const fHeight = comp.f_height || comp.fHeight || comp.height;
+          const heightCss = (fHeight && fHeight > 50)
+            ? Math.min(fHeight, 600) + "px"
+            : "200px";
+          const re = new global.ErpRichEdit(null, {
+            label: caption,
+            value: value != null ? String(value) : "",
+            language: lang,
+            readonly: isFieldReadOnly,
+            height: heightCss,
+            lineNumbers: true,
+            onChange: (newV) => {
+              const oldV = this._initialValues[fieldName];
+              emitChange(oldV, newV);
+            },
+          });
+          // Tabsheet visibility resize hook — když rodičovský tab switch
+          // odhalí RichEdit, Ace potřebuje resize() (init při display:none
+          // měl 0 dimenzí).
+          if (re.wrapper) {
+            re.wrapper.setAttribute("data-erp-resize-hook", "1");
+            re.wrapper.__erpResize = () => re.resize();
+          }
+          return {
+            component: re,
+            fieldName: fieldName,
+            getValue: () => re.value(),
+            setValue: (v) => re.setValue(v),
+            typ: typ,
+            instance: re,
+          };
+        }
+
+        case TYP_PAGECONTROL: {
+          // B+6.10 (6.5.2026): tabs container. Children TabSheet jsou v
+          // separate metadatech s c_parent="<id PageControlu>".
+          // Renderer: ErpForm po prvním pass identifikuje PageControly,
+          // collect jejich TabSheet children podle c_parent, vytvoří
+          // ErpPageControl s tab items pre-populated.
+          // Tady: jen create empty PageControl. _wirePageControlChildren
+          // (post-loop) ho naplní.
+          if (typeof global.ErpPageControl !== "function") return null;
+          const pc = new global.ErpPageControl(null, { tabs: [] });
+          if (pc.wrapper) {
+            pc.wrapper.setAttribute("data-erp-pagecontrol-id", String(comp.id));
+          }
+          return {
+            component: pc,
+            fieldName: null,
+            getValue: () => null,
+            setValue: () => {},
+            typ: typ,
+            instance: pc,
+            _isPageControl: true,
+          };
+        }
+
+        case TYP_TABSHEET: {
+          // B+6.10 (6.5.2026): tab item. Render-side: vytvoříme prázdný
+          // div jako contentEl (placeholder), který je later napuštěn
+          // child components s c_parent="t<TabSheet.id>".
+          // PageControl orchestrátor (post-loop) přebere tento contentEl
+          // do ErpPageControl jako tab.content.
+          const tabContent = document.createElement("div");
+          tabContent.className = "erp-tabsheet-content";
+          tabContent.setAttribute("data-erp-tabsheet-id", String(comp.id));
+          // Caption jde do parent PageControl jako tab label (resolved
+          // v _wirePageControlChildren).
+          tabContent.dataset.tabLabel = caption || ("Tab #" + comp.id);
+          return {
+            component: null,
+            element: tabContent,
+            fieldName: null,
+            getValue: () => null,
+            setValue: () => {},
+            typ: typ,
+            _isTabSheet: true,
+            _tabId: comp.id,
+            _tabLabel: caption || ("Tab #" + comp.id),
+          };
+        }
 
         default: {
           const el = document.createElement("div");

@@ -233,6 +233,12 @@ class CentralaReader:
         # Framework doc (řádek 1524) tvrdí "soft delete", ale reálně to
         # tak nefunguje. EC_FormDefEdit.Smazana je pravý soft-delete,
         # EC_FormDefEditProperty.Smazana není.
+        # ⚠ Phase B+6.10c-fix (6.5.2026 večer): limit 1000 byl bug. Velké formy
+        # (37+ komponent × 15-20 properties = 555+) mohou přesáhnout limit.
+        # TabSheety mají vysoké IDs (13367+) — v order_by ID_FormDefEdit ASC
+        # jsou na konci → jejich properties (ParentPageControl, ...) se
+        # uřízly = TabSheety zůstávaly orphan, PageControly prázdné.
+        # MCP query_table cap je 100000 (Phase B+4.4-fix), 10000 je bezpečný.
         props_result = self._call_mcp(
             "query_table",
             {
@@ -242,7 +248,7 @@ class CentralaReader:
                     # NO Smazana filter -- viz komentář výše
                 },
                 "order_by": ["ID_FormDefEdit", "EditCislo"],
-                "limit": 1000,  # MCP cap je 1000 per call
+                "limit": 10000,
             },
         )
 
@@ -304,23 +310,45 @@ class CentralaReader:
         #   2. Property hodnota = Delphi Name → resolve přes name_to_id
         #   3. "Def" / unmatched → root form (true orphan)
         PARENT_PROPERTY_KEYS = ("ParentName", "ParentPageControl", "Parent")
+        _fallback_stats = {"matched_cid": 0, "matched_name": 0, "unmatched": 0, "no_prop": 0}
         for c in components:
             if not c.c_parent:
                 pname = ""
+                pkey = ""
                 for key in PARENT_PROPERTY_KEYS:
                     v = (c.properties.get(key) or "").strip()
                     if v:
                         pname = v
+                        pkey = key
                         break
                 if not pname:
+                    _fallback_stats["no_prop"] += 1
                     continue
                 # 1. c{id} formát (Phase A.5 existing)
                 if pname.startswith("c") and pname[1:].isdigit():
                     c.c_parent = pname
+                    _fallback_stats["matched_cid"] += 1
                 # 2. Delphi Name lookup (Phase B+6.10c)
                 elif pname in name_to_id:
                     c.c_parent = f"c{name_to_id[pname]}"
+                    _fallback_stats["matched_name"] += 1
                 # 3. 'Def' a unmatched zůstávají prázdné
+                else:
+                    _fallback_stats["unmatched"] += 1
+                # Phase B+6.10c diag — jen pro hierarchické typy
+                if c.typ in (4, 15, 16):  # RichEdit / PageControl / TabSheet
+                    logger.info(
+                        f"[parent_fallback] form={form_id} comp#{c.id} "
+                        f"typ={c.typ} {pkey}={pname!r} → c_parent={c.c_parent!r}"
+                    )
+
+        # Diagnostika query_table truncation — pokud rows == limit, asi truncated
+        _rows_received = len(props_result.get("rows", [])) if props_result else 0
+        logger.info(
+            f"[parent_fallback] form={form_id} stats={_fallback_stats} "
+            f"name_to_id_size={len(name_to_id)} property_rows={_rows_received}"
+            + (" ⚠ POSSIBLY TRUNCATED" if _rows_received >= 10000 else "")
+        )
 
         logger.info(
             f"CentralaReader: form_id={form_id} -> "

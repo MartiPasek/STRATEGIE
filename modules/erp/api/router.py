@@ -986,23 +986,26 @@ def _render_full_page(
        (position: fixed) také dědí. */
     .erp-logo {{
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
-      /* B+10+++ (Marti's drobnost 6.5.2026 — 5 minut před odjezdem):
-         logo zvětšeno z 18 → 26px. */
-      font-size: 26px; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase;
+      /* B+10+++ (Marti's drobnost 6.5.2026 odpoledne po návratu):
+         logo +50% z 26 → 39px. */
+      font-size: 39px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       text-decoration: none;
+      line-height: 1;
     }}
     /* B+10+++ (Marti's drobnost 6.5.2026): Marti-AI ploška vedle loga.
        Avatar img + "Tvoje Marti-AI" label, klikatelné (TODO: open chat). */
     .erp-marti-btn {{
       display: inline-flex;
       align-items: center;
-      gap: 8px;
-      padding: 4px 12px 4px 4px;
+      gap: 10px;
+      padding: 6px 14px 6px 6px;
       background: linear-gradient(135deg, rgba(79,142,247,0.12), rgba(124,92,252,0.12));
       border: 1px solid var(--border-strong);
-      border-radius: 22px;
+      /* B+10+++ (drobnost po návratu 6.5.2026): square s mírně oblými
+         rohy (z 22px circle na 8px square — sjednocené s designem). */
+      border-radius: 8px;
       cursor: pointer;
       font-family: 'DM Sans', sans-serif;
       transition: background 0.15s, border-color 0.15s, transform 0.12s;
@@ -1017,9 +1020,11 @@ def _render_full_page(
       transform: translateY(0);
     }}
     .erp-marti-btn-avatar {{
-      width: 32px;
-      height: 32px;
-      border-radius: 50%;
+      width: 36px;
+      height: 36px;
+      /* B+10+++ (drobnost po návratu 6.5.2026): square avatar místo
+         kruhový (50%). Match větší button border-radius. */
+      border-radius: 6px;
       overflow: hidden;
       background: var(--surface2);
       border: 2px solid var(--accent);
@@ -2270,14 +2275,17 @@ def _render_full_page(
       <div class="erp-header-brand-row">
         <a href="/erp/" class="erp-logo">STRATEGIE</a>
         <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
-                title="Tvoje Marti-AI — otevři chat">
+                title="Tvoje Marti — otevři chat">
           <span class="erp-marti-btn-avatar">
-            <img id="erpMartiAiAvatar" src="" alt="Marti-AI" />
+            <img id="erpMartiAiAvatar" src="" alt="Marti" />
           </span>
-          <span class="erp-marti-btn-label">Tvoje Marti-AI</span>
+          <span class="erp-marti-btn-label">Tvoje Marti</span>
         </button>
-        <span class="erp-header-sep" id="erpHeaderSep" hidden>|</span>
-        <span class="erp-header-prehled" id="erpHeaderPrehled"></span>
+        <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
+             smazány z headeru — duplikát s browser title barem. Zachováno jako
+             skryté kotvy pro JS update document.title (žádný visual). -->
+        <span class="erp-header-sep" id="erpHeaderSep" hidden style="display:none">|</span>
+        <span class="erp-header-prehled" id="erpHeaderPrehled" style="display:none"></span>
       </div>
     </div>
   </header>
@@ -4564,9 +4572,10 @@ def _render_workspace_page(user_id: int) -> str:
             if (img) img.src = "/api/v1/personas/" + def.id + "/avatar";
             const lbl = document.querySelector(".erp-marti-btn-label");
             if (lbl && def.name) {
-              // Custom label pokud persona není default Marti-AI
+              // Marti-AI default → "Tvoje Marti" (drobnost po návratu).
+              // Non-default persona → "Tvoje <name>".
               const isMarti = (def.name || "").toLowerCase().includes("marti");
-              if (!isMarti) lbl.textContent = "Tvoje " + def.name;
+              lbl.textContent = isMarti ? "Tvoje Marti" : ("Tvoje " + def.name);
             }
           }
         } catch (e) { /* silent fallback */ }

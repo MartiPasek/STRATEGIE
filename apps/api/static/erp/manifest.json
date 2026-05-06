@@ -1,7 +1,7 @@
 {
-  "name": "STRATEGIE ERP",
+  "name": "STRATEGIE",
   "short_name": "STRATEGIE",
-  "description": "STRATEGIE ERP — Centrála 2 (Marti's modular enterprise AI platform).",
+  "description": "STRATEGIE — Centrála 2 (Marti's modular enterprise AI platform).",
   "start_url": "/erp/",
   "scope": "/erp/",
   "display": "standalone",

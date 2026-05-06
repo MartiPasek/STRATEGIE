@@ -914,16 +914,20 @@
       // Bez layoutKey žádný toolbar (component fungování beze změny pro non-persistent grids).
       this.gridContainer = this.container;  // default — AG Grid renders přímo do containeru
       if (this.options.layoutKey) {
-        // B+10+++ (Marti's drobnost 6.5.2026): toolbar (layout dropdown +
-        // 🎨 Pravidla + Uložit jako… + ⋮) přesunut POD grid (po status baru).
-        // DOM order: gridContainer → toolbar.
-        this.container.classList.add("erp-grid-with-toolbar", "erp-grid-toolbar-bottom");
+        // B+10++++ (Marti's drobnost 6.5.2026 po návratu): toolbar přesunut
+        // DO status baru (sloučení dvou řádek do jedné). Implementace:
+        // toolbar element vytvořený mimo grid, po onGridReady přesunut do
+        // .ag-status-bar-left-panel (DOM move zachovává event listenery).
+        this.container.classList.add("erp-grid-with-toolbar", "erp-grid-toolbar-in-statusbar");
         this.toolbarEl = document.createElement("div");
-        this.toolbarEl.className = "erp-grid-toolbar erp-grid-toolbar-bottom";
+        this.toolbarEl.className = "erp-grid-toolbar erp-grid-toolbar-in-statusbar";
         this.toolbarEl.innerHTML = this._renderToolbarHtml();
         this.gridContainer = document.createElement("div");
         this.gridContainer.className = "erp-grid-inner";
         this.container.appendChild(this.gridContainer);
+        // Toolbar zůstane neviditelný stranou — `_relocateToolbarToStatusBar`
+        // ho po onGridReady přesune do status baru.
+        this.toolbarEl.style.display = "none";
         this.container.appendChild(this.toolbarEl);
         this._wireToolbar();
       }
@@ -1033,6 +1037,9 @@
           setTimeout(() => {
             try { params.api.sizeColumnsToFit(); } catch (e) {}
           }, 0);
+          // B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbaru
+          // do AG Grid status baru — sloučení dvou řádek do jedné.
+          setTimeout(() => this._relocateToolbarToStatusBar(), 50);
         },
         onFirstDataRendered: (params) => {
           // Po načtení prvního batch dat — re-fit columns
@@ -1569,6 +1576,32 @@
             'title="Spravovat sestavy (rename, delete, set default)">⋮</button>' +
         '</div>'
       );
+    }
+
+    /**
+     * B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbar
+     * elementu do AG Grid status baru — sloučení dvou řádek do jedné.
+     *
+     * AG Grid status bar má 3 zóny: left, center, right (přes statusBar
+     * config s align). Custom statusPanel by chtěl rebuild z null. Místo
+     * toho: DOM move existujícího toolbarEl do .ag-status-bar-left-panel.
+     * Event listenery zachované (DOM appendChild = move).
+     *
+     * Fallback: pokud status bar element neexistuje (AG Grid neinitnul),
+     * toolbar zůstane na své původní pozici (skrytý).
+     */
+    _relocateToolbarToStatusBar() {
+      if (!this.toolbarEl || !this.gridContainer) return;
+      const statusBar = this.gridContainer.querySelector(".ag-status-bar");
+      if (!statusBar) return;
+      // AG Grid v32 má .ag-status-bar-left-panel / .ag-status-bar-center-panel /
+      // .ag-status-bar-right-panel. Vlož toolbar do left panelu na první pozici.
+      const leftPanel = statusBar.querySelector(".ag-status-bar-left-panel")
+        || statusBar.querySelector(".ag-status-panel")
+        || statusBar;
+      // Move toolbar do leftPanelu (DOM move, listenery zachované)
+      this.toolbarEl.style.display = "";  // zviditelni
+      leftPanel.insertBefore(this.toolbarEl, leftPanel.firstChild);
     }
 
     _wireToolbar() {

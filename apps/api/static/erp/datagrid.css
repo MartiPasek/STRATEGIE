@@ -404,6 +404,29 @@
   border-top: 1px solid var(--border, #3a3d44);
 }
 
+/* B+10++++ (Marti's drobnost 6.5.2026 po návratu): toolbar přesunutý
+   DO AG Grid status baru přes DOM move v _relocateToolbarToStatusBar.
+   Sloučí dvě řádky paticky do jedné — Marti's spec. */
+.erp-grid-toolbar.erp-grid-toolbar-in-statusbar {
+  border: none !important;
+  background: transparent !important;
+  padding: 0 6px 0 0 !important;
+  flex-wrap: nowrap !important;
+  gap: 4px !important;
+  font-size: 12px !important;
+  /* AG Grid status bar má padding ~6px — toolbar musí inside zarovnat */
+  align-self: center;
+}
+.ag-status-bar .erp-grid-toolbar.erp-grid-toolbar-in-statusbar {
+  margin-right: 8px;
+  border-right: 1px solid var(--border, #3a3d44) !important;
+  padding-right: 8px !important;
+}
+.erp-grid-toolbar.erp-grid-toolbar-in-statusbar .erp-toolbar-btn {
+  padding: 3px 7px !important;
+  font-size: 11px !important;
+}
+
 .erp-grid-toolbar .erp-toolbar-left,
 .erp-grid-toolbar .erp-toolbar-right {
   display: flex;

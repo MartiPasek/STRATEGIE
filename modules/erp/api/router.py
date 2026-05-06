@@ -1169,6 +1169,21 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-size: 11px;
       font-style: italic;
     }}
+
+    /* B+8.2a+++ (6.5.2026): drag-drop reorder visual */
+    .erp-tree-item.erp-tree-dragging > .erp-tree-row {{
+      opacity: 0.4;
+    }}
+    .erp-tree-row.erp-tree-drag-over-before {{
+      box-shadow: inset 0 2px 0 var(--accent);
+    }}
+    .erp-tree-row.erp-tree-drag-over-after {{
+      box-shadow: inset 0 -2px 0 var(--accent);
+    }}
+    .erp-tree-row[draggable="true"] {{
+      /* Cursor zachován pointer pro běžný klik; grab se zobrazí jen
+         když user pustí myš do drag (browser default) */
+    }}
     .erp-tree-loading, .erp-tree-error {{
       padding: 14px; color: var(--muted); font-size: 13px;
     }}
@@ -3133,6 +3148,182 @@ def _render_workspace_page(user_id: int) -> str:
         }
       });
 
+      // ── B+8.2a+++ (6.5.2026): drag-and-drop reorder uvnitř skupin ──
+      // Marti spec: "Poradi jednotlivych polozek per user ve vsech i v
+      // oblibenych... Drag and drop... POZOR jen v ramci skupin, aby se
+      // nestalo jako ve Windows, ze nekdo pretahne skupinu, nebo polozku
+      // skupiny do jine skupiny..."
+      const TREE_ORDER_KEY = "erp.tree.order.v1";
+      let _dragSourceItem = null;
+
+      function _loadTreeOrderMap() {
+        try { return JSON.parse(localStorage.getItem(TREE_ORDER_KEY) || "{}"); }
+        catch (e) { return {}; }
+      }
+      function _saveTreeOrderMap(map) {
+        try { localStorage.setItem(TREE_ORDER_KEY, JSON.stringify(map)); }
+        catch (e) {}
+      }
+      function _ulGroupKey(ul) {
+        // Identifier skupiny — parent .erp-tree-item.data-id, nebo "ROOT"
+        if (!ul) return "ROOT";
+        const childrenWrap = ul.parentElement;
+        const parentItem = childrenWrap && childrenWrap.classList.contains("erp-tree-children")
+          ? childrenWrap.parentElement
+          : null;
+        if (parentItem && parentItem.classList.contains("erp-tree-item")) {
+          return parentItem.getAttribute("data-id") || "ROOT";
+        }
+        return "ROOT";
+      }
+      function _saveTreeOrderForUl(ul) {
+        if (!ul) return;
+        const key = _ulGroupKey(ul);
+        const order = Array.from(ul.children)
+          .filter(li => li.classList.contains("erp-tree-item"))
+          .map(li => li.getAttribute("data-id"))
+          .filter(id => id != null);
+        const map = _loadTreeOrderMap();
+        map[key] = order;
+        _saveTreeOrderMap(map);
+      }
+      function _applyTreeOrderFromStorage() {
+        if (!treeRoot) return;
+        const map = _loadTreeOrderMap();
+        if (!map || Object.keys(map).length === 0) return;
+        treeRoot.querySelectorAll("ul.erp-tree-list").forEach(ul => {
+          const key = _ulGroupKey(ul);
+          const order = map[key];
+          if (!order || order.length === 0) return;
+          const items = Array.from(ul.children).filter(li =>
+            li.classList.contains("erp-tree-item")
+          );
+          const itemMap = new Map(items.map(li => [li.getAttribute("data-id"), li]));
+          // Reorder: nejdřív known IDs v saved order, pak unknown (nové) na konci
+          const seen = new Set();
+          order.forEach(id => {
+            if (itemMap.has(id)) {
+              ul.appendChild(itemMap.get(id));
+              seen.add(id);
+            }
+          });
+          items.forEach(li => {
+            const id = li.getAttribute("data-id");
+            if (!seen.has(id)) ul.appendChild(li);
+          });
+        });
+      }
+      function _attachTreeDragHandlers() {
+        if (!treeRoot) return;
+        // Mark leaf rows draggable. Folders nedáme draggable (collapse/expand
+        // pattern by konfliktoval s D&D).
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          if (!item.getAttribute("data-cislo-def")) return;  // jen leaves
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (!row) return;
+          row.setAttribute("draggable", "true");
+        });
+
+        // Single set listenerů na treeRoot (delegation)
+        if (treeRoot._dragWired) return;
+        treeRoot._dragWired = true;
+
+        treeRoot.addEventListener("dragstart", (ev) => {
+          // MRU view — drag disabled (auto-sort by timestamp)
+          if (treeViewMode === "recent") {
+            ev.preventDefault();
+            return;
+          }
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) { ev.preventDefault(); return; }
+          const item = row.closest(".erp-tree-item");
+          if (!item || !item.getAttribute("data-cislo-def")) {
+            ev.preventDefault();
+            return;
+          }
+          _dragSourceItem = item;
+          item.classList.add("erp-tree-dragging");
+          try {
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", item.getAttribute("data-id") || "");
+          } catch (e) {}
+        });
+
+        treeRoot.addEventListener("dragover", (ev) => {
+          if (!_dragSourceItem) return;
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) return;
+          const item = row.closest(".erp-tree-item");
+          if (!item || item === _dragSourceItem) return;
+          // Same group check — parent UL musí být totožný
+          const sourceUl = _dragSourceItem.parentElement;
+          const targetUl = item.parentElement;
+          if (sourceUl !== targetUl) {
+            ev.dataTransfer.dropEffect = "none";
+            return;
+          }
+          // Allow drop
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = "move";
+          // Visual: line above (insert before) nebo below (insert after)
+          treeRoot.querySelectorAll(
+            ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+          ).forEach(r => {
+            r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+          });
+          const rect = row.getBoundingClientRect();
+          const isAbove = ev.clientY < (rect.top + rect.height / 2);
+          row.classList.add(
+            isAbove ? "erp-tree-drag-over-before" : "erp-tree-drag-over-after"
+          );
+        });
+
+        treeRoot.addEventListener("dragleave", (ev) => {
+          // Pokud opustíme úplně tree, vyčisti indikátory
+          if (!treeRoot.contains(ev.relatedTarget)) {
+            treeRoot.querySelectorAll(
+              ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+            ).forEach(r => {
+              r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+            });
+          }
+        });
+
+        treeRoot.addEventListener("drop", (ev) => {
+          if (!_dragSourceItem) return;
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) return;
+          const targetItem = row.closest(".erp-tree-item");
+          if (!targetItem || targetItem === _dragSourceItem) return;
+          const sourceUl = _dragSourceItem.parentElement;
+          const targetUl = targetItem.parentElement;
+          if (sourceUl !== targetUl) return;
+          ev.preventDefault();
+
+          const rect = row.getBoundingClientRect();
+          const isAbove = ev.clientY < (rect.top + rect.height / 2);
+          if (isAbove) {
+            targetUl.insertBefore(_dragSourceItem, targetItem);
+          } else {
+            targetUl.insertBefore(_dragSourceItem, targetItem.nextSibling);
+          }
+          // Persist order pro tuto skupinu
+          _saveTreeOrderForUl(targetUl);
+        });
+
+        treeRoot.addEventListener("dragend", () => {
+          if (_dragSourceItem) {
+            _dragSourceItem.classList.remove("erp-tree-dragging");
+          }
+          _dragSourceItem = null;
+          treeRoot.querySelectorAll(
+            ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+          ).forEach(r => {
+            r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+          });
+        });
+      }
+
       // Po každém renderTreeNodes inject ★ ikony pro pinned items
       function _markPinnedTreeRows() {
         if (!treeRoot) return;
@@ -3161,7 +3352,11 @@ def _render_workspace_page(user_id: int) -> str:
       const _origAttachTreeHandlers = attachTreeHandlers;
       attachTreeHandlers = function() {
         _origAttachTreeHandlers();
+        // B+8.2a+++ (6.5.2026): apply saved per-group order PŘED markem pinned
+        // (apply změní DOM order, mark + drag setup pak fungují na finální layout)
+        _applyTreeOrderFromStorage();
         _markPinnedTreeRows();
+        _attachTreeDragHandlers();
         // Init footer toggle UI
         if (treeFooterEl) {
           treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(b => {

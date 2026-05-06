@@ -1048,20 +1048,41 @@ def _render_full_page(
       font-size: 14px;
     }}
     .erp-marti-btn-label {{
-      font-size: 13px;
-      font-weight: 500;
-      color: var(--text);
-      letter-spacing: 0.01em;
+      /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): gradient stejný
+         jako logo STRATEGIE (sjednocený brand visual). */
+      font-family: 'Galano Grotesque','Montserrat',sans-serif;
+      font-size: 16px;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
       white-space: nowrap;
+      line-height: 1;
     }}
-    /* B+10+++ (6.5.2026 Marti's drobnost): brand row s | separátorem
-       a názvem aktivního přehledu. Updated JS-em ve switchTab. */
+    /* B+10+++ (6.5.2026 Marti's drobnost): brand row s · separátorem
+       a Marti-AI ploškou. B+10++++: gap 10→20px (Marti's drobnost po
+       návratu — "mezera +100%"), align-items baseline → center
+       (vertical alignment s logem). */
     .erp-header-brand-row {{
       display: flex;
-      align-items: baseline;
-      gap: 10px;
+      align-items: center;
+      gap: 20px;
       min-width: 0;
       overflow: hidden;
+    }}
+    /* B+10++++ (Marti's drobnost 6.5.2026 po návratu): tečka separator
+       mezi logem a Marti-AI ploškou — sjednocený design s footerem
+       (`· Marti · EUROSOFT`) a browser title (`STRATEGIE · <přehled>`). */
+    .erp-header-dot {{
+      color: var(--border-strong);
+      font-size: 28px;
+      font-weight: 400;
+      line-height: 1;
+      user-select: none;
+      -webkit-user-select: none;
+      flex-shrink: 0;
     }}
     .erp-header-sep {{
       color: var(--border-strong);
@@ -2273,6 +2294,7 @@ def _render_full_page(
            "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
       <div class="erp-header-brand-row">
         <a href="/erp/" class="erp-logo">STRATEGIE</a>
+        <span class="erp-header-dot" aria-hidden="true">·</span>
         <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
                 title="Tvoje Marti — otevři chat">
           <span class="erp-marti-btn-avatar">
@@ -4283,9 +4305,10 @@ def _render_workspace_page(user_id: int) -> str:
         // B+8.1c: API persist active tab (fire-and-forget)
         _apiCall("POST", "/api/v1/erp/tabs/" + tab.cislo + "/active");
         // B+10+++ (6.5.2026 Marti's drobnost): document.title + UI header
-        // brand row "STRATEGIE | <přehled>" — synchronizováno s tab.
+        // brand row "STRATEGIE · <přehled>" — synchronizováno s tab.
+        // B+10++++ (po návratu): | → · (sjednocený separator s footerem).
         const _tabLabel = tab.label || ("Přehled #" + tab.cislo);
-        try { document.title = "STRATEGIE | " + _tabLabel; } catch (e) {}
+        try { document.title = "STRATEGIE · " + _tabLabel; } catch (e) {}
         try {
           const _hdrSep = document.getElementById("erpHeaderSep");
           const _hdrPre = document.getElementById("erpHeaderPrehled");

@@ -20,7 +20,7 @@ from __future__ import annotations
 import html
 import time
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, Response
 from fastapi.responses import HTMLResponse, JSONResponse
 
 # B+4.2 (5.5.2026): cache busting pro static assets — každý API restart
@@ -100,6 +100,37 @@ def erp_home(req: Request) -> HTMLResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     return HTMLResponse(content=_render_workspace_page(uid))
+
+
+@router.get("/sw.js")
+def erp_service_worker() -> Response:
+    """Phase B+9+++ (6.5.2026): Service Worker pro PWA install.
+
+    Served z /erp/sw.js (ne /static/erp/sw.js) aby scope = /erp/.
+    Bez SW Chrome nabídne jen "Přidat na plochu" (bookmark) místo
+    "Nainstalovat aplikaci" (standalone PWA bez chromu).
+
+    Marti's spec: "A da se to udelat, aby ten Chrom nebyl videt..."
+    """
+    import os as _os
+    from pathlib import Path as _Path
+    sw_path = _Path(__file__).resolve().parents[3] / "apps" / "api" / "static" / "erp" / "sw.js"
+    try:
+        content = sw_path.read_text(encoding="utf-8")
+    except Exception:
+        content = "// SW file not found at " + str(sw_path)
+    return Response(
+        content=content,
+        media_type="application/javascript",
+        headers={
+            # Service-Worker-Allowed lets SW claim broader scope. /erp/ stačí
+            # pro naše use case, ale set this header for future flexibility.
+            "Service-Worker-Allowed": "/erp/",
+            # Bypass cache — SW updates musí být fresh (24h Chrome cache by
+            # blokoval updates).
+            "Cache-Control": "no-cache, no-store, must-revalidate",
+        },
+    )
 
 
 @router.get("/landing", response_class=HTMLResponse)
@@ -801,6 +832,20 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
   <link rel="apple-touch-icon" href="/static/erp/icon-192.png">
   <link rel="apple-touch-icon" sizes="192x192" href="/static/erp/icon-192.png">
   <link rel="apple-touch-icon" sizes="512x512" href="/static/erp/icon-512.png">
+
+  <!-- Service Worker registration — Chrome's installability criteria.
+       Bez SW dostane user jen "Přidat na plochu" (bookmark s URL bar).
+       S SW → "Nainstalovat aplikaci" (standalone PWA bez chromu). -->
+  <script>
+    if ("serviceWorker" in navigator) {{
+      window.addEventListener("load", () => {{
+        navigator.serviceWorker
+          .register("/erp/sw.js", {{ scope: "/erp/" }})
+          .then(reg => console.log("[SW] registered, scope:", reg.scope))
+          .catch(err => console.warn("[SW] register failed:", err));
+      }});
+    }}
+  </script>
 
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet">
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'><defs><linearGradient id='g' x1='0' y1='0' x2='1' y2='1'><stop offset='0%25' stop-color='%234f8ef7'/><stop offset='100%25' stop-color='%237c5cfc'/></linearGradient></defs><rect width='64' height='64' rx='12' fill='%2316181c'/><text x='32' y='49' font-family='Montserrat,Arial,sans-serif' font-size='52' font-weight='800' fill='url(%23g)' text-anchor='middle'>S</text></svg>">

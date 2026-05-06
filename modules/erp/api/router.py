@@ -1196,6 +1196,14 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       font-size: 13px; color: var(--text-muted);
       transition: background .12s, color .12s, border-color .12s;
       border-left: 3px solid transparent;
+      /* B+8.2a+++ (6.5.2026): vypnout text selection v tree rows.
+         Marti's UX feedback: "vetsinou se mi nepodari mysi drag —
+         oznaci se text v bunce". Text-select default překrýval drag
+         start → drag se nespouštěl. */
+      user-select: none;
+      -webkit-user-select: none;
+      -moz-user-select: none;
+      -ms-user-select: none;
     }}
     .erp-tree-row:hover {{ background: var(--surface2); color: var(--text); }}
     .erp-tree-row.active {{

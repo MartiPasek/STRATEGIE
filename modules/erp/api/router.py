@@ -1223,7 +1223,18 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       border-left-color: var(--accent);
       font-weight: 500;
     }}
-    .erp-tree-toggle {{ width: 12px; font-size: 9px; color: var(--muted); flex-shrink: 0; }}
+    .erp-tree-toggle {{
+      width: 12px; font-size: 9px; color: var(--muted); flex-shrink: 0;
+      cursor: pointer;
+      padding: 2px;
+      margin: -2px 0;  /* expand hit area bez visible larger size */
+      border-radius: 2px;
+      transition: background 0.12s, color 0.12s;
+    }}
+    .erp-tree-toggle:hover {{
+      background: var(--surface2);
+      color: var(--accent);
+    }}
     .erp-tree-spacer {{ width: 12px; flex-shrink: 0; }}
     /* Tree icon numbers (n.ikona % 100) hidden — were noise.
        Future: map to Unicode icons (📁/📋/🛒/...) per ikona category. */
@@ -2120,7 +2131,12 @@ def _render_workspace_page(user_id: int) -> str:
               return;
             }
 
-            // Klasický klik bez modifikátorů — clear selection + open
+            // B+8.2a+++++++ (6.5.2026): klik na ▶/▼ toggle = JEN expand/collapse,
+            // bez otevření přehledu. Marti's UX feedback: "sipka NESMI zaroven
+            // otevirat ten prehled" (jinak user pri exploraci stromu zaplní MRU).
+            const toggleClicked = ev.target.closest(".erp-tree-toggle");
+
+            // Klasický klik bez modifikátorů — clear selection
             _clearTreeSelection();
 
             const childrenWrap = item.querySelector(":scope > .erp-tree-children");
@@ -2133,10 +2149,12 @@ def _render_workspace_page(user_id: int) -> str:
               if (isOpen) expanded.delete(nid); else expanded.add(nid);
               saveExpanded(expanded);
             }
-            // Load přehled if cislo_def
-            const cisloDef = item.getAttribute("data-cislo-def");
-            if (cisloDef && cisloDef !== "") {
-              setActive(item, parseInt(cisloDef, 10));
+            // Load přehled JEN POKUD klik nebyl na toggle šipku
+            if (!toggleClicked) {
+              const cisloDef = item.getAttribute("data-cislo-def");
+              if (cisloDef && cisloDef !== "") {
+                setActive(item, parseInt(cisloDef, 10));
+              }
             }
           });
         });
@@ -2975,6 +2993,64 @@ def _render_workspace_page(user_id: int) -> str:
           if (!btn) return;
           const mode = btn.getAttribute("data-tree-view");
           if (mode) setTreeViewMode(mode);
+        });
+
+        // B+8.2a+++++++ (6.5.2026): pravý-klik na footer view button =
+        // context menu pro správu daného view (zatím jen MRU clear).
+        treeFooterEl.addEventListener("contextmenu", (ev) => {
+          const btn = ev.target.closest(".erp-tree-view-btn");
+          if (!btn) return;
+          const mode = btn.getAttribute("data-tree-view");
+          ev.preventDefault();
+          const menuItems = [];
+          if (mode === "recent") {
+            const recCount = loadTreeRecent().length;
+            menuItems.push({
+              icon: "⊘",
+              label: recCount > 0
+                ? ("Vymazat historii (" + recCount + " položek)")
+                : "Vymazat historii (prázdná)",
+              handler: () => {
+                if (recCount === 0) return;
+                saveTreeRecent([]);
+                if (treeViewMode === "recent") applyTreeViewFilter();
+              },
+            });
+          } else if (mode === "favorites") {
+            const favCount = loadTreeFavorites().length;
+            menuItems.push({
+              icon: "⊘",
+              label: favCount > 0
+                ? ("Vymazat všechny oblíbené (" + favCount + ")")
+                : "Vymazat oblíbené (prázdné)",
+              handler: () => {
+                if (favCount === 0) return;
+                if (!window.confirm(
+                  "Opravdu vymazat všechny oblíbené (" + favCount + ")?"
+                )) return;
+                const fav = loadTreeFavorites();
+                fav.forEach(c => {
+                  // Použij toggleTreeFavorite per cislo aby se updatnula DOM
+                  if (isTreeFavorite(c)) toggleTreeFavorite(c);
+                });
+              },
+            });
+          } else if (mode === "all") {
+            menuItems.push({
+              icon: "⟲",
+              label: "Resetovat řazení stromu",
+              handler: () => {
+                if (!window.confirm(
+                  "Vrátit pořadí položek ve stromu na výchozí (z DB)?"
+                )) return;
+                try { localStorage.removeItem(TREE_ORDER_KEY); } catch (e) {}
+                // Reload tree → původní DB order
+                loadTree();
+              },
+            });
+          }
+          if (menuItems.length === 0) return;
+          _showTreeContextMenu(ev.clientX, ev.clientY, menuItems);
         });
 
         // B+8.2a++++++ (6.5.2026): drag-drop na footer ikony.

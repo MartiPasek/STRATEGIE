@@ -989,6 +989,31 @@ def _render_full_page(
       font-size: 18px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      text-decoration: none;
+    }}
+    /* B+10+++ (6.5.2026 Marti's drobnost): brand row s | separátorem
+       a názvem aktivního přehledu. Updated JS-em ve switchTab. */
+    .erp-header-brand-row {{
+      display: flex;
+      align-items: baseline;
+      gap: 10px;
+      min-width: 0;
+      overflow: hidden;
+    }}
+    .erp-header-sep {{
+      color: var(--border-strong);
+      font-size: 16px;
+      font-weight: 300;
+    }}
+    .erp-header-prehled {{
+      font-family: 'DM Sans', sans-serif;
+      font-size: 14px;
+      font-weight: 500;
+      color: var(--text);
+      letter-spacing: 0.01em;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
     }}
     .erp-phase-badge {{
       font-size: 11px; padding: 2px 8px; border-radius: 6px;
@@ -2181,14 +2206,14 @@ def _render_full_page(
 <body>
   <header class="erp-header">
     <div class="erp-header-inner">
-      <div style="display: flex; align-items: center; gap: 12px;">
-        <a href="/erp/" class="erp-logo">STRATEGIE ERP</a>
-        <!-- Phase A badge smazán (Marti's drobnost 6.5.2026 odpoledne) -->
+      <!-- B+10+++ (Marti's drobnost 6.5.2026): logo "STRATEGIE ERP" →
+           "STRATEGIE" (bez ERP) + dynamický suffix "| <přehled>" updatovaný
+           JS-em při switchTab. Header tím dělá to samé co browser tab title. -->
+      <div class="erp-header-brand-row">
+        <a href="/erp/" class="erp-logo">STRATEGIE</a>
+        <span class="erp-header-sep" id="erpHeaderSep" hidden>|</span>
+        <span class="erp-header-prehled" id="erpHeaderPrehled"></span>
       </div>
-      <!-- breadcrumb smazán (Marti's drobnost 6.5.2026 odpoledne) -->
-      <nav class="erp-bc"></nav>
-      <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přesunut do
-           footer aplikace doprava. Header tím zbavený posledního widgetu. -->
     </div>
   </header>
   <main>
@@ -4185,8 +4210,16 @@ def _render_workspace_page(user_id: int) -> str:
         const tab = tabsState.tabs[idx];
         // B+8.1c: API persist active tab (fire-and-forget)
         _apiCall("POST", "/api/v1/erp/tabs/" + tab.cislo + "/active");
-        // B+10+++ (6.5.2026 Marti's drobnost): document.title = "STRATEGIE | <tab>"
-        try { document.title = "STRATEGIE | " + (tab.label || ("Přehled #" + tab.cislo)); } catch (e) {}
+        // B+10+++ (6.5.2026 Marti's drobnost): document.title + UI header
+        // brand row "STRATEGIE | <přehled>" — synchronizováno s tab.
+        const _tabLabel = tab.label || ("Přehled #" + tab.cislo);
+        try { document.title = "STRATEGIE | " + _tabLabel; } catch (e) {}
+        try {
+          const _hdrSep = document.getElementById("erpHeaderSep");
+          const _hdrPre = document.getElementById("erpHeaderPrehled");
+          if (_hdrSep) _hdrSep.removeAttribute("hidden");
+          if (_hdrPre) _hdrPre.textContent = _tabLabel;
+        } catch (e) {}
         // Sync tree active state — highlight + expand ancestors + scroll
         // (Marti's UX 6.5.2026: pri prepinani zalozek automaticky vyhledat
         // a oznacit v levem panelu prislusnou vetu).
@@ -4243,8 +4276,15 @@ def _render_workspace_page(user_id: int) -> str:
           saveActive("");
           renderTabsBar();
           saveTabsState();
-          // B+10+++ (6.5.2026 Marti's drobnost): reset title bez tab suffixu
+          // B+10+++ (6.5.2026 Marti's drobnost): reset title + UI header
+          // bez tab suffixu když všechny taby zavřené.
           try { document.title = "STRATEGIE"; } catch (e) {}
+          try {
+            const _hdrSep = document.getElementById("erpHeaderSep");
+            const _hdrPre = document.getElementById("erpHeaderPrehled");
+            if (_hdrSep) _hdrSep.setAttribute("hidden", "");
+            if (_hdrPre) _hdrPre.textContent = "";
+          } catch (e) {}
           return;
         }
         // Auto-switch — pokud se zavřel aktivní, jdi na předchozí (nebo první)

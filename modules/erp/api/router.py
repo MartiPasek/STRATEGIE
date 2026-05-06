@@ -1025,7 +1025,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
        Future: map to Unicode icons (📁/📋/🛒/...) per ikona category. */
     .erp-tree-ico {{ display: none; }}
     .erp-tree-label {{ flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }}
-    .erp-tree-leaf .erp-tree-label {{ color: var(--text); font-weight: 400; }}
+    /* B+7+++ (6.5.2026): sjednoceno na utlumenější (Marti's UX feedback —
+       leaf items byly jasnější než folders, působilo nesourodě).
+       Hover/active stále zvedne jas (var(--text) / accent). */
+    .erp-tree-leaf .erp-tree-label {{ color: var(--text-muted); font-weight: 400; }}
     .erp-tree-folder .erp-tree-label {{ color: var(--text-muted); font-weight: 500; }}
 
     /* B+7 (6.5.2026): main-pane flush edge-to-edge, žádný border-radius */
@@ -1038,6 +1041,12 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       padding: 0;
       overflow: hidden;
       display: flex; flex-direction: column;
+      /* B+7+++ (6.5.2026): KLÍČOVÝ override — inner <main> dědí default
+         "main { max-width: 1280px; margin: 0 auto }" co centruje grid
+         na fullscreenu. Marti's UI feedback "danou maximalni sirku
+         toho gridu". Force max-width none + margin 0. */
+      max-width: none !important;
+      margin: 0 !important;
     }}
     .erp-main-content {{
       display: flex; flex-direction: column;

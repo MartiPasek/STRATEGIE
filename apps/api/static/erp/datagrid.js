@@ -278,6 +278,67 @@
     return false;
   }
 
+  /**
+   * Detect numeric column subtype: integer vs decimal.
+   * Marti's UX: "Cisellne numericke hodnoty jsou v gridu defaultne
+   * zobrazovane na 6 desetinych mist.. Stahni je na dve mista".
+   * Pokud sample obsahuje hodnoty s desetinnou částí (v string formátu
+   * "5448.000000" nebo native float s non-zero fraction), je to decimal.
+   */
+  function _detectNumericPrecision(name, rows) {
+    if (!rows || rows.length === 0) return 0;
+    const sample = rows.slice(0, Math.min(rows.length, 100));
+    for (const r of sample) {
+      const v = r[name];
+      if (v == null || v === "") continue;
+      // String s desetinnou tečkou (i kdyby digits po byly všechny 0)
+      if (typeof v === "string" && v.includes(".")) return 2;
+      // Native float s non-zero zlomkem
+      if (typeof v === "number" && !Number.isInteger(v)) return 2;
+    }
+    return 0;
+  }
+
+  /**
+   * CS locale numeric formatter — "1234.56" → "1 234,56", "0" → "0".
+   * decimals=0 → bez ".00", decimals=2 → "1 234,56".
+   */
+  function _formatNumberCS(v, decimals) {
+    if (v == null || v === "") return "";
+    const n = (typeof v === "number") ? v : parseFloat(v);
+    if (!Number.isFinite(n)) return String(v);
+    return n.toLocaleString("cs-CZ", {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    });
+  }
+
+  /**
+   * ISO date(time) → CZ format "D.M.YYYY" (or "D.M.YYYY HH:MM" pokud time != 00:00).
+   * Marti's UX: "Datum se zobrazuje ISO, zobrazuj prosim 25.5.1972...
+   * Kdyz datetime ale time je nulovy, tak time nezobrazuj".
+   */
+  function _formatDateCS(v) {
+    if (v == null || v === "") return "";
+    const m = String(v).match(
+      /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?/
+    );
+    if (!m) return String(v);
+    const y = m[1];
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    const dateStr = d + "." + mo + "." + y;
+    const h = m[4], mi = m[5], s = m[6];
+    if (h == null) return dateStr;
+    // Time present — pokud all zeros, zobrazit jen datum
+    const hN = parseInt(h, 10), miN = parseInt(mi, 10);
+    const sN = s != null ? parseInt(s, 10) : 0;
+    if (hN === 0 && miN === 0 && sN === 0) return dateStr;
+    let timeStr = h + ":" + mi;
+    if (s != null && sN !== 0) timeStr += ":" + s;
+    return dateStr + " " + timeStr;
+  }
+
   // ── Build columnDefs from raw column names + sample rows ─────────────
   function buildAutoColumnDefs(cols, rows, opts) {
     const idNames = opts.idColumnNames || ["ID", "Id", "id"];
@@ -318,6 +379,11 @@
                         "erp-ag-numeric";
         def.headerClass = "ag-right-aligned-header erp-ag-numeric-header";
         def.type = "numericColumn";
+        // B+7+++ (6.5.2026): numeric value formatter — 6 decimals → 2.
+        // Pokud sample je všechny integers (Cislo, Poradi, ID-like),
+        // decimals=0. Jinak 2.
+        const decimals = _detectNumericPrecision(c, rows);
+        def.valueFormatter = (params) => _formatNumberCS(params.value, decimals);
       }
       // Center-align booleans (checkbox-like flag columns).
       // B+6.6c-fix3 (6.5.2026): Marti's "checkboxy by chteli vystredovat
@@ -329,10 +395,19 @@
         // Width hint — booleans nepotřebují širokou cellu
         if (!def.minWidth || def.minWidth > 80) def.minWidth = 60;
       }
-      // Tooltip pro long content (truncated)
+      // B+7+++ (6.5.2026): date formatter — ISO → "D.M.YYYY" (CS).
+      // Pokud datetime má time = 00:00:00, zobrazit jen datum.
+      if (colType === "date") {
+        def.valueFormatter = (params) => _formatDateCS(params.value);
+      }
+      // Tooltip pro long content (truncated) — používá formatted value
       def.tooltipValueGetter = (params) => {
         const v = params.value;
         if (v == null) return "";
+        // Pokud má valueFormatter, použij formatted (consistent s display)
+        if (typeof def.valueFormatter === "function") {
+          try { return def.valueFormatter(params); } catch (e) {}
+        }
         return typeof v === "object" ? JSON.stringify(v) : String(v);
       };
       result.push(def);

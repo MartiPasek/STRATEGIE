@@ -160,7 +160,12 @@
       this.input.className = "erp-formlist2-input";
       this.input.placeholder = this.options.placeholder || "";
       this.input.value = this._currentDisplay || "";
-      if (this.options.readonly) this.input.readOnly = true;
+      // B+10++++++ (Marti's bug 6.5.2026 večer): readonly flag NESMÍ blokovat
+      // typovat do inputu (vyhledávání). User chce filtrovat lookup i v Phase
+      // A read-only mode — pouze commit selection (změna hodnoty) je gated.
+      // Marti: "kdyz se snazim psat do textu, do inputu, ma zacit vyhledavat,
+      // ale ten text nejde prepsat. Neco jako read only..."
+      // Tj. NESETOVAT input.readOnly = true zde; readonly gate jen v _selectItem.
       if (this.options.disabled) this.input.disabled = true;
       row.appendChild(this.input);
 
@@ -429,6 +434,15 @@
     _selectFiltered(idx) {
       const it = this._filtered[idx];
       if (!it || it.disabled) return;
+      // B+10++++++ (Marti's bug fix 6.5.2026): readonly gate **při commitu**
+      // (ne při typu). User mohl filtrovat, ale Enter / klik na item v
+      // read-only mode jen zavře panel + restore display, neměnit value.
+      if (this.options.readonly) {
+        this.closePanel();
+        this.input.value = this._currentDisplay;
+        this.input.focus();
+        return;
+      }
       this._setSelectedItem(it);
       this.closePanel();
       this.input.focus();
@@ -480,7 +494,9 @@
     }
 
     _handleInput(ev) {
-      if (this.options.readonly || this.options.disabled) return;
+      // B+10++++++ (Marti's bug fix 6.5.2026): readonly NEsmí blokovat input —
+      // user smí filtrovat lookup i v read-only mode. Commit gate v _selectItem.
+      if (this.options.disabled) return;
       const text = this.input.value || "";
       this._applyFilter(text);
       if (!this._isOpen) {

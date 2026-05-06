@@ -206,6 +206,24 @@
       const groups = visuals.filter(c => c.typ === TYP_GROUPBOX);
       const pageControls = visuals.filter(c => c.typ === TYP_PAGECONTROL);
       const tabSheets = visuals.filter(c => c.typ === TYP_TABSHEET);
+
+      // B+6.10b diagnostika — counts po typu (Marti's debug v Console)
+      try {
+        const typeCounts = {};
+        components.forEach(c => {
+          const k = "Typ_" + c.typ;
+          typeCounts[k] = (typeCounts[k] || 0) + 1;
+        });
+        console.log(
+          "[ErpForm] formId=" + this.options.formId +
+          " components=" + components.length +
+          " visuals=" + visuals.length +
+          " groups=" + groups.length +
+          " pageControls=" + pageControls.length +
+          " tabSheets=" + tabSheets.length,
+          typeCounts
+        );
+      } catch (e) {}
       const fields = visuals.filter(c =>
         c.typ !== TYP_GROUPBOX &&
         c.typ !== TYP_PAGECONTROL &&

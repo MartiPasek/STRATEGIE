@@ -601,7 +601,14 @@
         const item = this._items.find(it => String(it.value) === String(result));
         if (item) this._setSelectedItem(item);
       }
-      this.input.focus();
+      // B+10++++++++ (drobnost 6.5.2026 večer): stejný guard jako u inline
+      // selectFiltered — input.focus() po modal close → focus event →
+      // openPanel race. Marti: "po uzavreni takto visi... az kliknu vedle
+      // tak to zmizi". Guard 300ms suppresses re-open.
+      this._justSelectedAt = Date.now();
+      // input.focus() vynechán — input už typicky drží focus po modal close
+      // (modal close handler nepředává focus zpět). Pokud user chce focus,
+      // klikne sám.
     }
 
     _openModalDialog() {

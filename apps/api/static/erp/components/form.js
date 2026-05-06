@@ -65,6 +65,32 @@
   }
 
   /**
+   * Resolve real caption — replikuje server-side _resolve_caption().
+   * Phase A.3 (render_generator.py): real Caption je v properties,
+   * ne v EC_FormDefEdit.cCaption (= "NOVÁ" default při vytvoření).
+   *
+   * Priorita:
+   *   1. properties.Caption / cCaption / PropertyCaption / Text / cText
+   *   2. comp.c_caption (pokud != "NOVÁ")
+   *   3. comp.c_field_name
+   *   4. ""
+   */
+  function _resolveCaption(comp) {
+    const props = comp.properties || {};
+    const KEYS = ["Caption", "cCaption", "PropertyCaption", "Text", "cText"];
+    for (const k of KEYS) {
+      const v = props[k];
+      if (v != null && String(v).trim() !== "") return String(v).trim();
+    }
+    const cc = String(comp.c_caption || "").trim();
+    if (cc && cc.toUpperCase() !== "NOVÁ") return cc;
+    if (comp.c_field_name && String(comp.c_field_name).trim()) {
+      return String(comp.c_field_name).trim();
+    }
+    return "";
+  }
+
+  /**
    * Detect ErpInput type podle komponenta + properties + cMask heuristic.
    * Default = "text".
    */
@@ -165,12 +191,21 @@
       const sectionByName = new Map();  // group identifier → ErpFormSection
       const groupIdentifiers = new Set();
       groups.forEach(g => {
-        const ident = g.c_caption || ("group_" + g.id);
+        const realCaption = _resolveCaption(g);
+        // Match cParent na BOTH c_caption a real resolved caption — Centrála
+        // pattern občas má cParent = c_caption raw (= "NOVÁ"), ale nikdy
+        // resolved name. Mapuj přes obě varianty.
+        const ident = realCaption || ("group_" + g.id);
         groupIdentifiers.add(_normalize(ident));
         const sec = new global.ErpFormSection(this.wrapper, {
-          title: g.c_caption || "",
+          title: realCaption,
         });
         sectionByName.set(_normalize(ident), sec);
+        // Plus alias na raw c_caption (pokud rozdílné) pro cParent matching
+        const raw = String(g.c_caption || "").trim();
+        if (raw && _normalize(raw) !== _normalize(ident)) {
+          sectionByName.set(_normalize(raw), sec);
+        }
         this._sections.push(sec);
       });
 
@@ -266,7 +301,7 @@
         const footer = document.createElement("footer");
         footer.className = "erp-form-footer";
         buttonComps.forEach((b) => {
-          const caption = (b.c_caption || "Akce").trim();
+          const caption = (_resolveCaption(b) || "Akce").trim();
           if (typeof global.ErpButton === "function") {
             const isPrimary = /^(ok|uložit|save)$/i.test(caption);
             const isCancel = /^(storno|cancel|zrušit|zavřít)$/i.test(caption);
@@ -327,7 +362,10 @@
      */
     _buildField(comp, value, lookupDisplay) {
       const fieldName = comp.c_field_name || "";
-      const caption = comp.c_caption || fieldName || "";
+      // B+6.6c-fix2 (6.5.2026): _resolveCaption replikuje server-side
+      // logiku — properties.Caption má prioritu, "NOVÁ" default je
+      // skrytý, fallback field_name (Phase A.3).
+      const caption = _resolveCaption(comp) || fieldName || "";
       const isReadOnly = this.options.readOnly;
       const props = comp.properties || {};
       const isFieldReadOnly = isReadOnly ||

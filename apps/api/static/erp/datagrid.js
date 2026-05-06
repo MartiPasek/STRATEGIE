@@ -204,10 +204,39 @@
       }
     }
     const total = sample.length - nullCount;
-    if (total === 0) return "string";
+    if (total === 0) {
+      // Fallback: heuristic na column name pokud sample je celý empty
+      return _looksLikeNumericName(name) ? "number" : "string";
+    }
     if (numCount / total > 0.8) return "number";
     if (dateCount / total > 0.8) return "date";
+    // Mixed sample (např. Ikona má "0", "O", null) — heuristic na name
+    if (numCount > 0 && _looksLikeNumericName(name)) return "number";
     return "string";
+  }
+
+  /**
+   * Heuristic: vypadá column name jako numerický?
+   * Pomáhá když sample data jsou mix nebo prázdné (typicky Centrála pattern
+   * s rozsáhlými ID/Poradi sloupci kde záhlaví je jistější než data).
+   */
+  function _looksLikeNumericName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase();
+    const NUMERIC_PATTERNS = [
+      "cislo", "číslo",
+      "poradi", "pořadí",
+      "pocet", "počet",
+      "mnozstvi", "množství",
+      "castka", "částka", "cena",
+      "vaha", "váha",
+      "rok", "kod", "kód",
+      "id_", "_id",
+    ];
+    for (const p of NUMERIC_PATTERNS) {
+      if (lower.includes(p)) return true;
+    }
+    return false;
   }
 
   // ── Build columnDefs from raw column names + sample rows ─────────────
@@ -243,10 +272,13 @@
         def.flex = isWide ? 3 : 1;
         def.minWidth = isWide ? 180 : 80;
       }
-      // Right-align numbers
+      // Right-align numbers — cellClass approach (cellStyle nefunguje
+      // pro flex container z B+4.6). Plus header label vpravo.
       if (colType === "number" && !isId) {
-        def.cellStyle = { textAlign: "right" };
-        def.headerClass = "ag-right-aligned-header";
+        def.cellClass = (def.cellClass ? def.cellClass + " " : "") +
+                        "erp-ag-numeric";
+        def.headerClass = "ag-right-aligned-header erp-ag-numeric-header";
+        def.type = "numericColumn";
       }
       // Tooltip pro long content (truncated)
       def.tooltipValueGetter = (params) => {

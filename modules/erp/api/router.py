@@ -803,8 +803,17 @@ def user_tree_order_reset(req: Request) -> JSONResponse:
 # ── HTML page builders ──────────────────────────────────────────────
 
 
-def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str | None]]) -> str:
-    """Wrap content do full HTML page — STRATEGIE BLACK theme."""
+def _render_full_page(
+    title: str,
+    content: str,
+    breadcrumb: list[tuple[str, str | None]],
+    user_id: int | None = None,
+) -> str:
+    """Wrap content do full HTML page — STRATEGIE BLACK theme.
+
+    user_id (Marti's drobnost 6.5.2026): pokud given, footer zobrazí
+    "STRATEGIE ERP · <short_name> · <tenant_name>" místo statického hash.
+    """
     bc_html = []
     for label, url in breadcrumb:
         if url:
@@ -812,6 +821,40 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
         else:
             bc_html.append(f'<span class="erp-bc-current">{html.escape(label)}</span>')
     bc_str = ' <span class="erp-bc-sep">/</span> '.join(bc_html)
+
+    # Marti's drobnost 6.5.2026: footer s user.short_name + tenant.tenant_name
+    user_name_html = ""
+    tenant_name_html = ""
+    if user_id is not None:
+        try:
+            from core.database_core import get_core_session
+            from modules.core.infrastructure.models_core import User, Tenant
+            cs = get_core_session()
+            try:
+                u = cs.query(User).filter(User.id == user_id).one_or_none()
+                if u:
+                    name = (
+                        u.short_name
+                        or (getattr(u, "first_name", None))
+                        or (u.email if hasattr(u, "email") else None)
+                        or f"User #{user_id}"
+                    )
+                    user_name_html = (
+                        f' · <span class="erp-footer-user">'
+                        f'{html.escape(str(name))}</span>'
+                    )
+                    tid = getattr(u, "last_active_tenant_id", None)
+                    if tid:
+                        t = cs.query(Tenant).filter(Tenant.id == tid).one_or_none()
+                        if t and t.tenant_name:
+                            tenant_name_html = (
+                                f' · <span class="erp-footer-tenant">'
+                                f'{html.escape(t.tenant_name)}</span>'
+                            )
+            finally:
+                cs.close()
+        except Exception:
+            pass  # silent fallback — footer just shows base text
 
     return f'''<!DOCTYPE html>
 <html lang="cs">
@@ -2079,9 +2122,10 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     <div class="erp-header-inner">
       <div style="display: flex; align-items: center; gap: 12px;">
         <a href="/erp/" class="erp-logo">STRATEGIE ERP</a>
-        <span class="erp-phase-badge">Phase A · read-only</span>
+        <!-- Phase A badge smazán (Marti's drobnost 6.5.2026 odpoledne) -->
       </div>
-      <nav class="erp-bc">{bc_str}</nav>
+      <!-- breadcrumb smazán (Marti's drobnost 6.5.2026 odpoledne) -->
+      <nav class="erp-bc"></nav>
       <!-- B+9 (6.5.2026): UI zoom toggle (Marti's spec — 80% default,
            někteří potřebují −25% / +25%). -->
       <div class="erp-zoom-toggle" role="group" aria-label="Velikost UI">
@@ -2095,7 +2139,7 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
     {content}
   </main>
   <footer class="erp-footer">
-    STRATEGIE ERP renderer · Phase A MVP · 5.5.2026
+    <span class="erp-footer-brand">STRATEGIE ERP</span>{user_name_html}{tenant_name_html}
   </footer>
 </body>
 </html>'''
@@ -2143,7 +2187,8 @@ def _render_landing_page(user_id: int) -> str:
     return _render_full_page(
         title="STRATEGIE ERP",
         content=content,
-        breadcrumb=[("ERP", None)],
+        breadcrumb=[],
+        user_id=user_id,
     )
 
 
@@ -4332,7 +4377,8 @@ def _render_workspace_page(user_id: int) -> str:
     return _render_full_page(
         title="STRATEGIE ERP",
         content=content,
-        breadcrumb=[("ERP", None)],
+        breadcrumb=[],
+        user_id=user_id,
     )
 
 

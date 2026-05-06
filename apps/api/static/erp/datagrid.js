@@ -649,6 +649,71 @@
     return result;
   }
 
+  // ── B+10++ (6.5.2026 Marti's drobnost): CS thousands separator status panel
+  //
+  // AG Grid Enterprise default agTotalRowCountComponent / agFilteredRowCountComponent
+  // hardcoduje en-US formatNumberCommas → "1,000". Marti chce "1 000".
+  // Custom panel implementuje IStatusPanel interface s Intl.NumberFormat("cs-CZ").
+  // ─────────────────────────────────────────────────────────────────────
+
+  const _CZ_NUM_FMT = new Intl.NumberFormat("cs-CZ");
+
+  class CzRowCountStatusPanel {
+    init(params) {
+      this.params = params;
+      this.api = params.api;
+      this.label = params.label || "Celkem";
+      this.mode = params.mode || "total";  // "total" | "filtered"
+      this.eGui = document.createElement("div");
+      this.eGui.className = "ag-status-name-value";
+      this.refresh();
+      // AG Grid v32 events for row count changes
+      this._listener = () => this.refresh();
+      try {
+        this.api.addEventListener("modelUpdated", this._listener);
+        this.api.addEventListener("filterChanged", this._listener);
+      } catch (e) {}
+    }
+    refresh() {
+      let n = 0;
+      try {
+        if (this.mode === "filtered") {
+          // Displayed (after filter) — fall back na getDisplayedRowCount
+          n = this.api.getDisplayedRowCount ? this.api.getDisplayedRowCount() : 0;
+        } else {
+          // Total — všechny rows including filtered out
+          if (typeof this.api.getModel === "function") {
+            const model = this.api.getModel();
+            if (model && typeof model.getRowCount === "function") {
+              // Server-side / infinite: model.getRowCount()
+              n = model.getRowCount();
+            } else if (model && model.rootNode && model.rootNode.allLeafChildren) {
+              n = model.rootNode.allLeafChildren.length;
+            } else {
+              n = this.api.getDisplayedRowCount ? this.api.getDisplayedRowCount() : 0;
+            }
+          } else {
+            n = this.api.getDisplayedRowCount ? this.api.getDisplayedRowCount() : 0;
+          }
+        }
+      } catch (e) { n = 0; }
+      const formatted = _CZ_NUM_FMT.format(n);
+      this.eGui.innerHTML =
+        '<span class="ag-status-name-value-label">' +
+        this.label + ':</span> ' +
+        '<span class="ag-status-name-value-value">' + formatted + '</span>';
+    }
+    getGui() { return this.eGui; }
+    destroy() {
+      if (this._listener && this.api) {
+        try {
+          this.api.removeEventListener("modelUpdated", this._listener);
+          this.api.removeEventListener("filterChanged", this._listener);
+        } catch (e) {}
+      }
+    }
+  }
+
   // ── Component class ──────────────────────────────────────────────────
   class ErpDataGrid {
     constructor(container, options) {
@@ -799,10 +864,16 @@
           ],
         } : false,
         // Status bar (counts)
+        // B+10++ (6.5.2026 drobnost): Marti chce CS thousands separator
+        // (1 000 ne 1,000). AG Grid native agTotalRowCountComponent
+        // hardcoduje en-US comma format → custom status panel s Intl.
         statusBar: {
           statusPanels: [
-            { statusPanel: "agTotalRowCountComponent", align: "left" },
-            { statusPanel: "agFilteredRowCountComponent" },
+            { statusPanel: CzRowCountStatusPanel,
+              statusPanelParams: { label: "Celkem", mode: "total" },
+              align: "left" },
+            { statusPanel: CzRowCountStatusPanel,
+              statusPanelParams: { label: "Filtrováno", mode: "filtered" } },
             { statusPanel: "agSelectedRowCountComponent" },
             { statusPanel: "agAggregationComponent" },
           ],

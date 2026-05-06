@@ -610,6 +610,44 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       max-width: none; margin: 0;
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }}
+    /* B+9 (6.5.2026): UI zoom toggle (3-segment A−/A/A+) */
+    .erp-zoom-toggle {{
+      display: inline-flex;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 5px;
+      overflow: hidden;
+      flex-shrink: 0;
+    }}
+    .erp-zoom-toggle button {{
+      padding: 3px 8px;
+      background: transparent;
+      border: none;
+      border-right: 1px solid var(--border);
+      color: var(--text-muted);
+      font-family: 'DM Sans', sans-serif;
+      font-size: 11px;
+      cursor: pointer;
+      transition: all 0.12s;
+      min-width: 26px;
+    }}
+    .erp-zoom-toggle button:last-child {{ border-right: none; }}
+    .erp-zoom-toggle button:hover:not(.active) {{
+      background: var(--surface2);
+      color: var(--text);
+    }}
+    .erp-zoom-toggle button.active {{
+      background: var(--accent);
+      color: white;
+    }}
+    /* Body zoom — Chrome/Edge/Safari respect zoom property.
+       Firefox fallback: transform-based (rare browser pro Marti).
+       Marti's spec ±25%. */
+    body.erp-zoom-small {{ zoom: 0.75; }}
+    body.erp-zoom-large {{ zoom: 1.25; }}
+    /* Header sám zachovat 1.0 (zoom toggle musí být dosažitelný plus
+       brand size konzistentní napříč zoom). Workspace + jádro modal
+       dědí zoom z body. */
     .erp-logo {{
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
       font-size: 18px; font-weight: 700; letter-spacing: 0.10em; text-transform: uppercase;
@@ -1744,6 +1782,13 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
         <span class="erp-phase-badge">Phase A · read-only</span>
       </div>
       <nav class="erp-bc">{bc_str}</nav>
+      <!-- B+9 (6.5.2026): UI zoom toggle (Marti's spec — 80% default,
+           někteří potřebují −25% / +25%). -->
+      <div class="erp-zoom-toggle" role="group" aria-label="Velikost UI">
+        <button type="button" data-zoom="small" title="Zmenšit (−25%)">A−</button>
+        <button type="button" data-zoom="normal" class="active" title="Standard">A</button>
+        <button type="button" data-zoom="large" title="Zvětšit (+25%)">A+</button>
+      </div>
     </div>
   </header>
   <main>
@@ -2777,6 +2822,42 @@ def _render_workspace_page(user_id: int) -> str:
           if (treeSearchInput) treeSearchInput.focus();
         });
       }
+
+      // ── B+9 (6.5.2026): UI zoom toggle (A−/A/A+ persistence) ────
+      const ZOOM_KEY = "erp.zoom";
+      const ZOOM_VALUES = ["small", "normal", "large"];
+      function loadZoom() {
+        try {
+          const v = localStorage.getItem(ZOOM_KEY);
+          return ZOOM_VALUES.indexOf(v) >= 0 ? v : "normal";
+        } catch (e) { return "normal"; }
+      }
+      function applyZoom(mode) {
+        if (ZOOM_VALUES.indexOf(mode) < 0) mode = "normal";
+        document.body.classList.remove("erp-zoom-small", "erp-zoom-large");
+        if (mode === "small") document.body.classList.add("erp-zoom-small");
+        else if (mode === "large") document.body.classList.add("erp-zoom-large");
+        // Update toggle UI
+        document.querySelectorAll(".erp-zoom-toggle button").forEach(b => {
+          b.classList.toggle("active", b.getAttribute("data-zoom") === mode);
+        });
+        try { localStorage.setItem(ZOOM_KEY, mode); } catch (e) {}
+        // Po zoom change re-fit grid columns (container width changed)
+        if (activeErpDataGrid && typeof activeErpDataGrid.sizeColumnsToFit === "function") {
+          setTimeout(() => {
+            try { activeErpDataGrid.sizeColumnsToFit(); } catch (e) {}
+          }, 80);
+        }
+      }
+      // Init z localStorage
+      applyZoom(loadZoom());
+      // Wire buttons
+      document.querySelectorAll(".erp-zoom-toggle button").forEach(b => {
+        b.addEventListener("click", () => {
+          const m = b.getAttribute("data-zoom");
+          if (m) applyZoom(m);
+        });
+      });
 
       // ── B+7++++ (6.5.2026): tree collapse / expand toggle ──────────
       const TREE_COLLAPSED_KEY = "erp.tree.collapsed";

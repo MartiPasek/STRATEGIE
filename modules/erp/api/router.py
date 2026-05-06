@@ -897,11 +897,61 @@ def _render_full_page(title: str, content: str, breadcrumb: list[tuple[str, str 
       flex-direction: column;
     }}
     .erp-tree-header {{
-      padding: 12px 14px; border-bottom: 1px solid var(--border);
+      padding: 7px 8px 7px 12px;
+      border-bottom: 1px solid var(--border);
       font-size: 13px; font-weight: 600; color: var(--text);
       background: var(--surface2);
       flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 32px;
+      box-sizing: border-box;
     }}
+    .erp-tree-header-slot {{
+      flex: 1 1 auto;
+      min-width: 0;
+      /* placeholder pro budoucí widget — text "Centrála — moduly" smazán */
+    }}
+    .erp-tree-toggle-btn {{
+      flex-shrink: 0;
+      width: 22px; height: 22px;
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.12s;
+    }}
+    .erp-tree-toggle-btn:hover {{
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--surface);
+    }}
+    .erp-tree-toggle-btn .erp-tree-toggle-expand {{ display: none; }}
+    /* Collapsed state — workspace má .tree-collapsed class */
+    .erp-workspace.tree-collapsed .erp-tree-pane {{
+      flex: 0 0 32px !important;
+    }}
+    .erp-workspace.tree-collapsed .erp-tree-search,
+    .erp-workspace.tree-collapsed .erp-tree-root,
+    .erp-workspace.tree-collapsed .erp-tree-footer,
+    .erp-workspace.tree-collapsed .erp-tree-header-slot,
+    .erp-workspace.tree-collapsed .erp-resize-handle {{
+      display: none !important;
+    }}
+    .erp-workspace.tree-collapsed .erp-tree-header {{
+      padding: 7px 4px;
+      justify-content: center;
+    }}
+    .erp-workspace.tree-collapsed .erp-tree-toggle-btn .erp-tree-toggle-collapse {{ display: none; }}
+    .erp-workspace.tree-collapsed .erp-tree-toggle-btn .erp-tree-toggle-expand {{ display: inline; }}
     /* B+7++ (6.5.2026): tree filter search nad stromem */
     .erp-tree-search {{
       padding: 6px 8px;
@@ -1544,7 +1594,16 @@ def _render_workspace_page(user_id: int) -> str:
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
-        <div class="erp-tree-header">Centrála — moduly</div>
+        <!-- B+7++++ (6.5.2026): tree header — text smazán (placeholder
+             pro budoucí features), collapse/expand button vpravo -->
+        <div class="erp-tree-header">
+          <div class="erp-tree-header-slot"></div>
+          <button type="button" id="erpTreeToggle" class="erp-tree-toggle-btn"
+                  aria-label="Skrýt strom" title="Skrýt strom (Ctrl+B)">
+            <span class="erp-tree-toggle-collapse">‹</span>
+            <span class="erp-tree-toggle-expand">›</span>
+          </button>
+        </div>
         <!-- B+7++ (6.5.2026): live filter input nad stromem (Marti's spec) -->
         <div class="erp-tree-search">
           <input type="text" id="erpTreeSearch" class="erp-tree-search-input"
@@ -2382,6 +2441,62 @@ def _render_workspace_page(user_id: int) -> str:
           if (treeSearchInput) treeSearchInput.focus();
         });
       }
+
+      // ── B+7++++ (6.5.2026): tree collapse / expand toggle ──────────
+      const TREE_COLLAPSED_KEY = "erp.tree.collapsed";
+      const treeToggleBtn = document.getElementById("erpTreeToggle");
+
+      function loadTreeCollapsed() {
+        try { return localStorage.getItem(TREE_COLLAPSED_KEY) === "1"; }
+        catch (e) { return false; }
+      }
+      function saveTreeCollapsed(b) {
+        try { localStorage.setItem(TREE_COLLAPSED_KEY, b ? "1" : "0"); } catch (e) {}
+      }
+      function applyTreeCollapsed(collapsed) {
+        if (!workspaceEl) return;
+        if (collapsed) {
+          workspaceEl.classList.add("tree-collapsed");
+          if (treeToggleBtn) {
+            treeToggleBtn.title = "Zobrazit strom (Ctrl+B)";
+            treeToggleBtn.setAttribute("aria-label", "Zobrazit strom");
+          }
+        } else {
+          workspaceEl.classList.remove("tree-collapsed");
+          if (treeToggleBtn) {
+            treeToggleBtn.title = "Skrýt strom (Ctrl+B)";
+            treeToggleBtn.setAttribute("aria-label", "Skrýt strom");
+          }
+        }
+        // Po collapse/expand re-fit grid (column flex re-distribute)
+        if (activeErpDataGrid && typeof activeErpDataGrid.sizeColumnsToFit === "function") {
+          setTimeout(() => {
+            try { activeErpDataGrid.sizeColumnsToFit(); } catch (e) {}
+          }, 60);
+        }
+      }
+      // Init z localStorage
+      applyTreeCollapsed(loadTreeCollapsed());
+      // Klik handler
+      if (treeToggleBtn) {
+        treeToggleBtn.addEventListener("click", () => {
+          const next = !workspaceEl.classList.contains("tree-collapsed");
+          applyTreeCollapsed(next);
+          saveTreeCollapsed(next);
+        });
+      }
+      // Ctrl+B / Cmd+B keyboard shortcut
+      document.addEventListener("keydown", (ev) => {
+        if ((ev.ctrlKey || ev.metaKey) && (ev.key === "b" || ev.key === "B")) {
+          // Skip pokud user píše do inputu
+          const tag = ev.target && ev.target.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA") return;
+          ev.preventDefault();
+          const next = !workspaceEl.classList.contains("tree-collapsed");
+          applyTreeCollapsed(next);
+          saveTreeCollapsed(next);
+        }
+      });
 
       // Tree footer button placeholder handlers
       const treeFooterEl = document.getElementById("erpTreeFooter");

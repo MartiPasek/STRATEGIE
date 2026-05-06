@@ -986,9 +986,9 @@ def _render_full_page(
        (position: fixed) také dědí. */
     .erp-logo {{
       font-family: 'Galano Grotesque','Montserrat',sans-serif;
-      /* B+10+++ (Marti's drobnost 6.5.2026 odpoledne po návratu):
-         logo +50% z 26 → 39px. */
-      font-size: 39px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+      /* B+10++++ (Marti's drobnost 6.5.2026 odpoledne po návratu):
+         -5% jemné zmenšení z 39 → 37px (lepší vyvážení s avatarem). */
+      font-size: 37px; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
       background: linear-gradient(135deg, var(--accent), var(--accent2));
       -webkit-background-clip: text; -webkit-text-fill-color: transparent;
       text-decoration: none;
@@ -1000,24 +1000,23 @@ def _render_full_page(
       display: inline-flex;
       align-items: center;
       gap: 10px;
-      padding: 6px 14px 6px 6px;
-      background: linear-gradient(135deg, rgba(79,142,247,0.12), rgba(124,92,252,0.12));
-      border: 1px solid var(--border-strong);
-      /* B+10+++ (drobnost po návratu 6.5.2026): square s mírně oblými
-         rohy (z 22px circle na 8px square — sjednocené s designem). */
-      border-radius: 8px;
+      /* B+10++++ (drobnost 6.5.2026 po návratu): "hulvát" — žádný button
+         chrome okolo avataru. Border + bg + padding smazány, button je
+         jen avatar + label v transparent containeru. */
+      padding: 0 8px 0 0;
+      background: transparent;
+      border: none;
+      border-radius: 0;
       cursor: pointer;
       font-family: 'DM Sans', sans-serif;
-      transition: background 0.15s, border-color 0.15s, transform 0.12s;
+      transition: opacity 0.12s;
       flex-shrink: 0;
     }}
     .erp-marti-btn:hover {{
-      background: linear-gradient(135deg, rgba(79,142,247,0.22), rgba(124,92,252,0.22));
-      border-color: var(--accent);
-      transform: translateY(-1px);
+      opacity: 0.85;
     }}
     .erp-marti-btn:active {{
-      transform: translateY(0);
+      opacity: 0.7;
     }}
     .erp-marti-btn-avatar {{
       width: 36px;
@@ -2294,7 +2293,7 @@ def _render_full_page(
   </main>
   <footer class="erp-footer">
     <div class="erp-footer-left">
-      <span class="erp-footer-brand">STRATEGIE ERP</span>{user_name_html}{tenant_name_html}
+      <span class="erp-footer-brand">STRATEGIE</span>{user_name_html}{tenant_name_html}
     </div>
     <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přemístěn z header.
          A− default zmenšuje (−25%), A+ zvětšuje (+25%), A reset. -->

@@ -417,7 +417,8 @@
   /* AG Grid status bar má padding ~6px — toolbar musí inside zarovnat */
   align-self: center;
 }
-.ag-status-bar .erp-grid-toolbar.erp-grid-toolbar-in-statusbar {
+.ag-status-bar .erp-grid-toolbar.erp-grid-toolbar-in-statusbar,
+.ag-status-bar-left .erp-grid-toolbar.erp-grid-toolbar-in-statusbar {
   margin-right: 8px;
   border-right: 1px solid var(--border, #3a3d44) !important;
   padding-right: 8px !important;

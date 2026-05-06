@@ -1039,7 +1039,8 @@
           }, 0);
           // B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbaru
           // do AG Grid status baru — sloučení dvou řádek do jedné.
-          setTimeout(() => this._relocateToolbarToStatusBar(), 50);
+          // 150ms aby AG Grid status bar měl čas se mountnout.
+          setTimeout(() => this._relocateToolbarToStatusBar(), 150);
         },
         onFirstDataRendered: (params) => {
           // Po načtení prvního batch dat — re-fit columns
@@ -1590,16 +1591,27 @@
      * Fallback: pokud status bar element neexistuje (AG Grid neinitnul),
      * toolbar zůstane na své původní pozici (skrytý).
      */
-    _relocateToolbarToStatusBar() {
+    _relocateToolbarToStatusBar(retryCount) {
       if (!this.toolbarEl || !this.gridContainer) return;
+      retryCount = retryCount || 0;
+      // AG Grid v32 status bar DOM:
+      //   .ag-status-bar
+      //     .ag-status-bar-left
+      //       .ag-name-value (panels with align="left")
+      //     .ag-status-bar-center
+      //     .ag-status-bar-right
       const statusBar = this.gridContainer.querySelector(".ag-status-bar");
-      if (!statusBar) return;
-      // AG Grid v32 má .ag-status-bar-left-panel / .ag-status-bar-center-panel /
-      // .ag-status-bar-right-panel. Vlož toolbar do left panelu na první pozici.
-      const leftPanel = statusBar.querySelector(".ag-status-bar-left-panel")
-        || statusBar.querySelector(".ag-status-panel")
+      if (!statusBar) {
+        // Status bar mount může být later — retry max 5× (250ms total)
+        if (retryCount < 5) {
+          setTimeout(() => this._relocateToolbarToStatusBar(retryCount + 1), 50);
+        }
+        return;
+      }
+      const leftPanel = statusBar.querySelector(".ag-status-bar-left")
+        || statusBar.querySelector(".ag-status-bar-left-panel")
         || statusBar;
-      // Move toolbar do leftPanelu (DOM move, listenery zachované)
+      // Move toolbar do leftPanelu (DOM move = listenery zachované)
       this.toolbarEl.style.display = "";  // zviditelni
       leftPanel.insertBefore(this.toolbarEl, leftPanel.firstChild);
     }

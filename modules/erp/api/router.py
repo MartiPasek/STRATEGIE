@@ -3223,10 +3223,12 @@ def _render_workspace_page(user_id: int) -> str:
       }
       function _attachTreeDragHandlers() {
         if (!treeRoot) return;
-        // Mark leaf rows draggable. Folders nedáme draggable (collapse/expand
-        // pattern by konfliktoval s D&D).
+        // B+8.2a++++ (6.5.2026): drag na VŠECH tree rows (leaves + folders).
+        // Marti's UX: "v oblibenych mam dve skupiny a nemohu aktivovat drag
+        // ani u jedny, abych je mezi sebou prohodil". HTML5 drag a click jsou
+        // separate eventy — folder click (mousedown+up bez move) = expand,
+        // folder drag (mousedown+move+drop) = reorder. Žádný konflikt.
         treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
-          if (!item.getAttribute("data-cislo-def")) return;  // jen leaves
           const row = item.querySelector(":scope > .erp-tree-row");
           if (!row) return;
           row.setAttribute("draggable", "true");
@@ -3245,10 +3247,7 @@ def _render_workspace_page(user_id: int) -> str:
           const row = ev.target.closest(".erp-tree-row");
           if (!row) { ev.preventDefault(); return; }
           const item = row.closest(".erp-tree-item");
-          if (!item || !item.getAttribute("data-cislo-def")) {
-            ev.preventDefault();
-            return;
-          }
+          if (!item) { ev.preventDefault(); return; }
           _dragSourceItem = item;
           item.classList.add("erp-tree-dragging");
           try {

@@ -188,16 +188,29 @@
     let numCount = 0;
     let dateCount = 0;
     let strCount = 0;
+    let boolCount = 0;  // počet hodnot, co jsou jen 0/1/true/false
     const sample = rows.slice(0, Math.min(rows.length, 50));
     for (const r of sample) {
       const v = r[name];
       if (v == null || v === "") { nullCount++; continue; }
-      if (typeof v === "number") { numCount++; continue; }
+      if (typeof v === "boolean") { boolCount++; continue; }
+      if (typeof v === "number") {
+        numCount++;
+        if (v === 0 || v === 1) boolCount++;
+        continue;
+      }
       if (typeof v === "string") {
         // Date pattern (ISO yyyy-mm-dd or yyyy-mm-ddThh:mm:ss)
         if (/^\d{4}-\d{2}-\d{2}/.test(v)) { dateCount++; continue; }
+        // Boolean string
+        const low = v.toLowerCase();
+        if (low === "true" || low === "false") { boolCount++; continue; }
         // Numeric string
-        if (/^-?\d+(\.\d+)?$/.test(v)) { numCount++; continue; }
+        if (/^-?\d+(\.\d+)?$/.test(v)) {
+          numCount++;
+          if (v === "0" || v === "1") boolCount++;
+          continue;
+        }
         strCount++;
       } else {
         strCount++;
@@ -205,9 +218,15 @@
     }
     const total = sample.length - nullCount;
     if (total === 0) {
-      // Fallback: heuristic na column name pokud sample je celý empty
-      return _looksLikeNumericName(name) ? "number" : "string";
+      // Fallback heuristic: empty sample → check column name
+      if (_looksLikeBooleanName(name)) return "boolean";
+      if (_looksLikeNumericName(name)) return "number";
+      return "string";
     }
+    // Boolean: VŠECHNY non-null hodnoty jsou 0/1/true/false (bool count == total)
+    // a column name vypadá jako boolean (Oblibene, Verejne, Aktivni, ...)
+    // — vyhne se "Cislo" detekci jako boolean když má jen hodnoty 0,1.
+    if (boolCount === total && _looksLikeBooleanName(name)) return "boolean";
     if (numCount / total > 0.8) return "number";
     if (dateCount / total > 0.8) return "date";
     // Mixed sample (např. Ikona má "0", "O", null) — heuristic na name
@@ -234,6 +253,26 @@
       "id_", "_id",
     ];
     for (const p of NUMERIC_PATTERNS) {
+      if (lower.includes(p)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Heuristic: vypadá column name jako boolean (flag) sloupec?
+   * Centrála pattern: Oblibene, Verejne, Aktivni, Smazana, Pozadovat...,
+   * Viditelne, Online, Offline, Nova, Povolen, Schvalen, Uzavren, ...
+   */
+  function _looksLikeBooleanName(name) {
+    if (!name) return false;
+    const lower = String(name).toLowerCase();
+    const BOOL_PATTERNS = [
+      "oblib", "verej", "aktiv", "smaz", "pozad",
+      "viditel", "offline", "online",
+      "povol", "schva", "uzavre", "vypnut", "zapnut",
+      "is_", "has_",
+    ];
+    for (const p of BOOL_PATTERNS) {
       if (lower.includes(p)) return true;
     }
     return false;
@@ -279,6 +318,16 @@
                         "erp-ag-numeric";
         def.headerClass = "ag-right-aligned-header erp-ag-numeric-header";
         def.type = "numericColumn";
+      }
+      // Center-align booleans (checkbox-like flag columns).
+      // B+6.6c-fix3 (6.5.2026): Marti's "checkboxy by chteli vystredovat
+      // na stred bunky".
+      if (colType === "boolean") {
+        def.cellClass = (def.cellClass ? def.cellClass + " " : "") +
+                        "erp-ag-boolean";
+        def.headerClass = "erp-ag-boolean-header";
+        // Width hint — booleans nepotřebují širokou cellu
+        if (!def.minWidth || def.minWidth > 80) def.minWidth = 60;
       }
       // Tooltip pro long content (truncated)
       def.tooltipValueGetter = (params) => {

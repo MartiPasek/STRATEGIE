@@ -99,25 +99,48 @@
   padding-bottom: 0;
 }
 /* Header cells stejně */
-.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-label {
+/* B+6.6c-fix3 (6.5.2026): agresivnější header layout — Marti's UI feedback
+   "soucasny efekt, kdyz jsou u sousednich fieldu ty tri tecky u sebe
+   zpusobuje bug pri pokusu o zmenu sire column pres mys". Pravá příčina:
+   v AG Grid Quartz v32 je menu-button SIBLING label-containeru, ne
+   uvnitř. Takže label.flex sám nestačí — musíme aplikovat layout
+   na .ag-cell-label-container parent + push menu doprava + resize handle space. */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell-label-container {
+  display: flex;
+  flex-direction: row;
   align-items: center;
-  /* B+6.6c-fix (6.5.2026): label flex-grow → menu/sort/filter ikony
-     vždy zarovnané vpravo (předtím cik-cak podle text width). */
+  width: 100%;
+  /* Padding-right aby resize handle (4px wide na pravém okraji) byl
+     fyzicky přístupný myší = pojistka před overlap menu buttonu */
+  padding-right: 6px;
+  box-sizing: border-box;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-label {
   flex: 1 1 auto;
+  min-width: 0;
+  align-items: center;
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-text {
   flex: 1 1 auto;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Menu button (column menu ⋮) — vždy vpravo, auto margin push */
+/* Menu button (⋮) — vždy úplně vpravo přes order:999 + margin-left:auto
+   safety. flex-shrink:0 brání zmenšení při úzkých columnech. */
 .ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-menu-button,
 .ag-theme-quartz-dark.erp-ag-grid .ag-header-icon.ag-header-cell-menu-button {
   margin-left: auto;
   flex-shrink: 0;
+  order: 999;
 }
-/* Sort + filter ikony stejné — drž pevně vpravo vedle menu */
+/* Resize handle — explicitní z-index aby překryl menu button pokud
+   se náhodou potkají na hraně (tj. user vždy najde resize cursor). */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-cell-resize {
+  z-index: 2;
+}
+/* Sort + filter ikony — drž pevně, žádný shrink */
 .ag-theme-quartz-dark.erp-ag-grid .ag-sort-indicator-container,
 .ag-theme-quartz-dark.erp-ag-grid .ag-filter-icon {
   flex-shrink: 0;
@@ -191,6 +214,20 @@
   justify-content: flex-end;
 }
 .ag-theme-quartz-dark.erp-ag-grid .erp-ag-numeric-header .ag-header-cell-text {
+  flex: 0 1 auto;
+}
+
+/* B+6.6c-fix3 (6.5.2026): boolean (checkbox flag) columns center-aligned.
+   Marti's UI feedback: "check boxy, by chteli z hlediska citelnosti, asi
+   vystredovat na stred bunky". */
+.ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-boolean {
+  justify-content: center;
+  text-align: center;
+}
+.ag-theme-quartz-dark.erp-ag-grid .erp-ag-boolean-header .ag-header-cell-label {
+  justify-content: center;
+}
+.ag-theme-quartz-dark.erp-ag-grid .erp-ag-boolean-header .ag-header-cell-text {
   flex: 0 1 auto;
 }
 

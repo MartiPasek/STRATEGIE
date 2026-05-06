@@ -247,6 +247,10 @@
     async openPanel(resetFilter) {
       if (this._destroyed || this._isOpen) return;
       if (this.options.disabled) return;
+      // B+10++++++++ (drobnost 6.5.2026 večer): guard proti orphan re-open
+      // po dvojkliku na item. Po selectu user nechce panel znovu otevřený.
+      const sinceSelect = Date.now() - (this._justSelectedAt || 0);
+      if (sinceSelect < 300) return;
       // Close any other open panel
       if (_OPEN_PANEL_INSTANCE && _OPEN_PANEL_INSTANCE !== this) {
         try { _OPEN_PANEL_INSTANCE.closePanel(); } catch (e) {}
@@ -435,15 +439,21 @@
       const it = this._filtered[idx];
       if (!it || it.disabled) return;
       // B+10+++++++ (Marti's bug fix 6.5.2026 večer): read-only gate
-      // přesunut k save flow, ne k UI selection. User v Phase A read-only
-      // klikne na item → display + value se updatuje v UI (in-memory).
-      // Save flow (Phase C edit pipeline) bude gate isFieldReadOnly per
-      // field, žádný read-only field se nepošle do UPDATE statementu.
-      // Marti: "kdyz pres drop list vyberu nejakou polozku a kliknu mysi,
-      // tak se dropbox zavre ale vybrana polozka se neaktivuje".
+      // přesunut k save flow, ne k UI selection (commit display + value
+      // vždy v UI; Phase C save bude gate isFieldReadOnly per field).
       this._setSelectedItem(it);
+      // B+10++++++++ (Marti's bug fix 6.5.2026 večer — dvojklik): guard
+      // proti re-open panelu skrz focus race. Po selectu input.focus()
+      // může vyvolat focus event → _handleFocus → openPanel → panel
+      // re-mountuje. Plus dvojklik triggeruje 2× mousedown → 2× selectFiltered.
+      // Marti: "kdyz potvrdim dvojklikem vyber, tak se formlist zavre,
+      // ale zustane to ve stavu jako v printscreenu" (orphan dropdown).
+      // Fix: timestamp guard 300ms suppresses re-open.
+      this._justSelectedAt = Date.now();
       this.closePanel();
-      this.input.focus();
+      // input.focus() vynechán — input už má focus (mousedown handler měl
+      // preventDefault, takže input focus nezmizel). Refocus by zbytečně
+      // mohl trigger focus event a race condition s async openPanel.
     }
 
     _setSelectedItem(item) {
@@ -466,12 +476,13 @@
 
     _handleFocus(ev) {
       if (this.options.disabled) return;
-      // B+10++++++ (Marti's drobnost 6.5.2026 večer): select-all při prvním
-      // focusu (i v readonly — user smí filtrovat, jen ne commit). Marti:
-      // "pri prvnim kliku do toho input textu oznacit (vybrat) cely text.
-      // Aby az pak user zmackne klavesu, tak aby se puvodni obsah smazal".
-      // setTimeout 0 odloží select past click mouseup (browser jinak
-      // mouseup-deselect ruší focus selection).
+      // B+10++++++++ (drobnost 6.5.2026 večer): suppress focus-triggered
+      // openPanel pokud user právě vybral item (300ms guard). Bez toho
+      // dvojklik na item → close panel → focus event → re-open panel
+      // s vybraným itemem highlighted (orphan dropdown bug).
+      const sinceSelect = Date.now() - (this._justSelectedAt || 0);
+      if (sinceSelect < 300) return;
+      // Select-all při focus (i v readonly — search OK, commit gated v save)
       try {
         setTimeout(() => {
           try { this.input.select(); } catch (e) {}

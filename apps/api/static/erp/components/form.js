@@ -388,6 +388,14 @@
       // declarations níže, kde je `groups` array dostupný)
       this._rootReservations = { left: 0, top: 0, right: 0, bottom: 0 };
 
+      // Phase A+1 polish (7.5.2026): cleanup předchozí ResizeObserver
+      // (kdyby se _build volal vícekrát na same instance, ne úplně typický
+      // ale safe nuance pro Phase C edit pipeline).
+      if (this._resizeObserver) {
+        try { this._resizeObserver.disconnect(); } catch (e) {}
+        this._resizeObserver = null;
+      }
+
       if (this._pixelMode) {
         // Outlier diagnostic — pomáhá zjistit corrupted properties
         const OUTLIER_THRESHOLD_X = 3000;
@@ -902,6 +910,64 @@
       }
 
       if (this.container) this.container.appendChild(this.wrapper);
+
+      // Phase A+1 polish (7.5.2026): scale factor pro pixel mode.
+      // Form root je designed pro fixed dimenze (např. 1547×739). Modal
+      // viewport může být menší (mobile, smaller screen) nebo větší. CSS
+      // transform: scale s top-left origin = proportional resize.
+      // Plus ResizeObserver na containeru → recompute scale on modal resize.
+      if (this._pixelMode && this.container) {
+        this._setupResizeObserver();
+      }
+    }
+
+    /**
+     * Phase A+1 polish: dynamic scale factor pro pixel-mode form.
+     * Pozoruje container size, mění CSS transform: scale na form root.
+     */
+    _setupResizeObserver() {
+      if (typeof ResizeObserver !== "function") {
+        // Browser support fallback — žádný resize, default scale 1
+        console.warn("[ErpForm] ResizeObserver nepodporován, scale fixed 1");
+        return;
+      }
+      const formDesignWidth = parseFloat(this.wrapper.style.width) || 1400;
+      const formDesignHeight = parseFloat(this.wrapper.style.minHeight) || 900;
+      const MIN_SCALE = 0.5;
+      const MAX_SCALE = 1.5;
+      const recomputeScale = () => {
+        if (this._destroyed || !this.container) return;
+        const cw = this.container.clientWidth || formDesignWidth;
+        const ch = this.container.clientHeight || formDesignHeight;
+        // Account for container padding / scrollbar (~20px buffer)
+        const availW = cw - 20;
+        const availH = ch - 20;
+        const scaleW = availW / formDesignWidth;
+        const scaleH = availH / formDesignHeight;
+        // Use smaller scale (fit both dimensions), clamped to range
+        let scale = Math.min(scaleW, scaleH);
+        scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
+        // Only apply if changed (avoid unnecessary repaints)
+        if (Math.abs(scale - this._currentScale) < 0.01) return;
+        this._currentScale = scale;
+        this.wrapper.style.transform = "scale(" + scale.toFixed(3) + ")";
+        this.wrapper.style.transformOrigin = "top left";
+        // Container's effective scrollHeight = formDesignHeight × scale,
+        // ale CSS transform NE-mění layout box size — container neví o
+        // scaled dimensích. Fix: explicit dimension hint on parent.
+        if (this.container.style) {
+          this.container.style.minHeight = (formDesignHeight * scale + 20) + "px";
+        }
+      };
+      this._currentScale = 1;
+      this._resizeObserver = new ResizeObserver(() => {
+        // Debounce — skip rapid fire events
+        if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
+        this._resizeRaf = requestAnimationFrame(recomputeScale);
+      });
+      this._resizeObserver.observe(this.container);
+      // Initial computation (po appendu, před prvním paint)
+      requestAnimationFrame(recomputeScale);
     }
 
     /**
@@ -1365,6 +1431,15 @@
     destroy() {
       if (this._destroyed) return;
       this._destroyed = true;
+      // Phase A+1 polish: cleanup ResizeObserver + RAF
+      if (this._resizeObserver) {
+        try { this._resizeObserver.disconnect(); } catch (e) {}
+        this._resizeObserver = null;
+      }
+      if (this._resizeRaf) {
+        try { cancelAnimationFrame(this._resizeRaf); } catch (e) {}
+        this._resizeRaf = null;
+      }
       // Destroy all sections (které destroy fields)
       for (const sec of this._sections) {
         if (sec && typeof sec.destroy === "function") {

@@ -1778,3 +1778,49 @@
   padding: 0;
   overflow: visible;
 }
+
+/* Phase A+1 polish (7.5.2026): pixel-mode field compression.
+ * Centrála 1 inputs jsou kompaktnější než UI Kit default (height 21px ne 32px).
+ * Override v pixel mode: ztenčit padding, line-height, font-size match. */
+.erp-form-pixel .erp-input-wrapper,
+.erp-form-pixel .erp-checkbox-wrapper,
+.erp-form-pixel .erp-formlist-wrapper,
+.erp-form-pixel .erp-richedit-wrapper {
+  font-size: 12px;
+}
+.erp-form-pixel .erp-input,
+.erp-form-pixel .erp-formlist input {
+  padding: 2px 6px;
+  font-size: 12px;
+  line-height: 1.2;
+  height: auto;        /* respect explicit height z layout */
+  min-height: 0;
+}
+.erp-form-pixel .erp-input-label,
+.erp-form-pixel .erp-checkbox-label,
+.erp-form-pixel .erp-formlist-label {
+  font-size: 11px;
+  margin-bottom: 1px;
+  line-height: 1.1;
+}
+.erp-form-pixel .erp-input-error,
+.erp-form-pixel .erp-input-hint {
+  font-size: 10px;
+  line-height: 1;
+}
+/* PageControl tab labels — kompaktnější v pixel mode */
+.erp-form-pixel .erp-pagecontrol-tab {
+  font-size: 11px;
+  padding: 4px 10px;
+}
+/* GroupBox section header — compact pro pixel layout */
+.erp-form-pixel .erp-form-section.pixel-container .erp-group-header {
+  font-size: 11px;
+  padding: 2px 6px;
+  line-height: 1.2;
+}
+/* RichEdit Ace editor — fill section interior */
+.erp-form-pixel .erp-richedit-editor {
+  height: 100% !important;
+  min-height: 60px;
+}

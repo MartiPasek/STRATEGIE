@@ -504,10 +504,40 @@
       // B+6.6c-fix4 (6.5.2026): c_parent konvence je "c{id}" (např. "c12")
       // — string referent na ID parent, NE jeho caption. Match přes
       // ID, ne by name.
+      //
+      // Phase A+1 (7.5.2026): nested GroupBox hierarchy. Centrála 1 jádra
+      // mají nested GroupBoxy (c15605 outer obsahuje c460+c462+c464 inner).
+      // Topologically sort outer-first, append do parent's fieldsEl.
       const sectionById = new Map();  // groupbox.id → ErpFormSection
-      groups.forEach(g => {
+
+      // Compute depth per group (outer = 0, nested = 1+)
+      const _groupDepth = (g) => {
+        let depth = 0;
+        let cur = g;
+        const seen = new Set();
+        while (cur) {
+          if (seen.has(cur.id)) break;  // cycle protection
+          seen.add(cur.id);
+          const pid = _parseParentId(cur.c_parent);
+          if (pid == null) break;
+          const parent = groups.find(x => x.id === pid);
+          if (!parent) break;
+          depth++;
+          cur = parent;
+        }
+        return depth;
+      };
+      const sortedGroups = [...groups].sort((a, b) =>
+        _groupDepth(a) - _groupDepth(b)
+      );
+
+      sortedGroups.forEach(g => {
         const realCaption = _resolveCaption(g);
-        const sec = new global.ErpFormSection(this.wrapper, {
+        // Determine container: parent groupbox's fieldsEl, or form.wrapper
+        const parentId = _parseParentId(g.c_parent);
+        const parentSec = (parentId != null) ? sectionById.get(parentId) : null;
+        const container = parentSec ? parentSec.getFieldsContainer() : this.wrapper;
+        const sec = new global.ErpFormSection(container, {
           title: realCaption,
         });
         // Phase A+1: pixel mode pro section — positioning v form root +
@@ -529,7 +559,9 @@
           });
           try {
             console.log("[ErpForm] GroupBox setPixelMode —",
-              "id=" + g.id, "caption=" + realCaption, "layout:", layout);
+              "id=" + g.id, "caption=" + realCaption,
+              "parent=" + (parentSec ? "c"+parentId : "form"),
+              "layout:", layout);
           } catch (e) {}
         }
         sectionById.set(g.id, sec);

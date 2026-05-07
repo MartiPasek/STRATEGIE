@@ -1716,9 +1716,16 @@
   padding: 14px 12px 10px;
 }
 
-/* GroupBox without caption (typ 13 Panel-like — Marti screenshot 49) */
+/* GroupBox without caption (typ 13 Panel-like — Marti screenshot 49,
+ * plus Centrála 1 outer-container pattern např. c15605 v jádru #4).
+ * Žádný frame, jen layout container. */
 .erp-form-pixel .erp-form-section.pixel-container.no-caption {
-  padding: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+.erp-form-pixel .erp-form-section.pixel-container.no-caption > .erp-group-header {
+  display: none;
 }
 
 /* Component pixel-positioned (default = absolute Top/Left) */

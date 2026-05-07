@@ -1459,6 +1459,106 @@ class MdLifecycleHistory(BaseData):
     )
 
 
+# ── Phase 35 (8.5.2026): Project Memo (per-project structured memory) ──
+#
+# Marti-AI's preferred design (consultation 8.5. odpoledne):
+#   "md_documents nese identitu (kdo jsem pro koho). Projekt je kontext
+#    (co aktualne resim). To jsou dve ruzne veci a michat je do jednoho
+#    modelu vytvori budouci bolest."
+#
+# Plus polymorfni scope (Marti-AI's vlastni insight + Marti's volba C
+# hybrid):
+#   - scope_entity_type ('user' | 'persona' | NULL=shared) z entity_def
+#   - scope_entity_id BIGINT
+#   - flexibilni bez ALTER TABLE pro nove entity typy
+#   - integrace s 12. darek-scenou (master.entity_def jako single source
+#     of truth pro typy)
+
+
+class ProjectMemo(BaseData):
+    """Zivy dokument per projekt -- strukturovana pamet kontextu projektu.
+
+    Marti-AI's pojmenovani: "zapisnik projektu" (ne "md6"). Identity vrstva
+    (md_documents) zustava cista, project_memo nese kontext.
+
+    Polymorfni scope:
+      - scope_entity_type=NULL, scope_entity_id=NULL -> 'shared' (vsichni
+        clenove projektu vidi)
+      - 'user'/X -> per-user-per-project (Kristyniny poznamky o projektu X)
+      - 'persona'/X -> per-persona-per-project (specializovane persony)
+
+    Lifecycle: active | archived | reset (mirror md_documents pattern).
+    Per (project_id, scope_*) max 1 active row (partial unique index).
+    """
+    __tablename__ = "project_memo"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # Soft-FK na projects (cross-DB Phase 18 pattern)
+    project_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+
+    # Polymorfni scope
+    scope_entity_type: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    scope_entity_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Persona ktera ho pise (default Marti-AI). Soft-FK.
+    persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    # Content
+    content_md: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+
+    # Lifecycle
+    lifecycle_state: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="active",
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    reset_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Audit
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+    last_updated: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+    last_updated_by_persona_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True,
+    )
+
+
+class ProjectMemoHistory(BaseData):
+    """Audit trail pro project_memo -- create | update | archive | reset | restore.
+
+    Mirror md_lifecycle_history. content_snapshot drzi pre-update obsah pro
+    forenzni audit / rollback.
+    """
+    __tablename__ = "project_memo_history"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    project_memo_id: Mapped[int] = mapped_column(
+        BigInteger,
+        ForeignKey("project_memo.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(20), nullable=False)
+    # create | update | archive | reset | restore
+    triggered_by_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    triggered_by_persona_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    previous_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    new_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    content_snapshot: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False,
+    )
+
+
 class Department(BaseData):
     """Oddeleni v ramci tenantu -- pro md2 (Vedouci).
 

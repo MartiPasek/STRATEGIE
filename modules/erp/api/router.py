@@ -1621,16 +1621,19 @@ def _render_full_page(
       margin-left: 6px;
     }}
     .erp-tenant-popover-dot {{
-      width: 6px;
-      height: 6px;
+      width: 9px;
+      height: 9px;
       border-radius: 50%;
       flex-shrink: 0;
+      border: 1px solid rgba(255, 255, 255, 0.2);
     }}
     .erp-tenant-popover-dot.eurosoft {{
-      background: #4ade80; /* zelená — má živé ERP data */
+      background: #22c55e; /* zelená — má živé ERP data */
+      border-color: #4ade80;
+      box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
     }}
     .erp-tenant-popover-dot.other {{
-      background: var(--border);
+      background: rgba(255, 255, 255, 0.15);
     }}
     /* Zoom toggle ve footeru — kompaktnější než header verze */
     .erp-zoom-toggle-footer {{

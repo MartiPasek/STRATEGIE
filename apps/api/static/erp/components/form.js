@@ -927,46 +927,54 @@
      */
     _setupResizeObserver() {
       if (typeof ResizeObserver !== "function") {
-        // Browser support fallback — žádný resize, default scale 1
         console.warn("[ErpForm] ResizeObserver nepodporován, scale fixed 1");
         return;
       }
       const formDesignWidth = parseFloat(this.wrapper.style.width) || 1400;
-      const formDesignHeight = parseFloat(this.wrapper.style.minHeight) || 900;
       const MIN_SCALE = 0.5;
-      const MAX_SCALE = 1.5;
+      // Phase A+1 polish v2 (7.5.2026): scale jen DOWN když modal nefits.
+      // Nikdy UP — pokud user resize modal větší než formDesignWidth, form
+      // zůstane v originální velikosti (žádné nadměrné stretching → text
+      // by se rozmazal, plus problém s overflow při transform: scale > 1).
       const recomputeScale = () => {
         if (this._destroyed || !this.container) return;
         const cw = this.container.clientWidth || formDesignWidth;
-        const ch = this.container.clientHeight || formDesignHeight;
-        // Account for container padding / scrollbar (~20px buffer)
-        const availW = cw - 20;
-        const availH = ch - 20;
-        const scaleW = availW / formDesignWidth;
-        const scaleH = availH / formDesignHeight;
-        // Use smaller scale (fit both dimensions), clamped to range
-        let scale = Math.min(scaleW, scaleH);
-        scale = Math.max(MIN_SCALE, Math.min(MAX_SCALE, scale));
-        // Only apply if changed (avoid unnecessary repaints)
+        const availW = cw - 8;  // small buffer for scrollbar
+        let scale = 1;
+        if (availW < formDesignWidth) {
+          scale = Math.max(MIN_SCALE, availW / formDesignWidth);
+        }
         if (Math.abs(scale - this._currentScale) < 0.01) return;
         this._currentScale = scale;
-        this.wrapper.style.transform = "scale(" + scale.toFixed(3) + ")";
-        this.wrapper.style.transformOrigin = "top left";
-        // Container's effective scrollHeight = formDesignHeight × scale,
-        // ale CSS transform NE-mění layout box size — container neví o
-        // scaled dimensích. Fix: explicit dimension hint on parent.
-        if (this.container.style) {
-          this.container.style.minHeight = (formDesignHeight * scale + 20) + "px";
+        if (scale === 1) {
+          this.wrapper.style.transform = "";  // remove transform when 1:1
+        } else {
+          this.wrapper.style.transform = "scale(" + scale.toFixed(3) + ")";
+          this.wrapper.style.transformOrigin = "top left";
+        }
+        // Adjust wrapper effective space — transform: scale neovlivní
+        // layout box, ale parent scroll musí počítat se scaled visual size.
+        // Pokud scale < 1, scaled visual width = formDesignWidth × scale,
+        // ale wrapper.style.width zůstává formDesignWidth → modal scroll
+        // by zobrazoval false overflow. Fix: marginRight = -((1-scale) * width)
+        if (scale < 1) {
+          const reducedWidth = formDesignWidth * (1 - scale);
+          this.wrapper.style.marginRight = "-" + reducedWidth + "px";
+          // Plus minHeight scaled aby modal scroll nedrží empty space
+          const formDesignHeight = parseFloat(this.wrapper.style.minHeight) || 900;
+          const reducedHeight = formDesignHeight * (1 - scale);
+          this.wrapper.style.marginBottom = "-" + reducedHeight + "px";
+        } else {
+          this.wrapper.style.marginRight = "";
+          this.wrapper.style.marginBottom = "";
         }
       };
       this._currentScale = 1;
       this._resizeObserver = new ResizeObserver(() => {
-        // Debounce — skip rapid fire events
         if (this._resizeRaf) cancelAnimationFrame(this._resizeRaf);
         this._resizeRaf = requestAnimationFrame(recomputeScale);
       });
       this._resizeObserver.observe(this.container);
-      // Initial computation (po appendu, před prvním paint)
       requestAnimationFrame(recomputeScale);
     }
 

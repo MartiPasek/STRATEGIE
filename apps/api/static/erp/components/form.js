@@ -137,13 +137,17 @@
    * @param layout {top, left, width, height, align, anchors[], margins[]}
    * @param scale number - scale factor (1 = native, <1 = shrink)
    */
-  function _applyLayout(el, layout, scale, reservations) {
+  function _applyLayout(el, layout, scale, reservations, parentLayout) {
     if (!el || !layout) return;
     scale = scale || 1;
     // Reservations = parent's reserved sides per Delphi VCL Align priority.
     // alLeft/alTop/alBottom/alRight siblings reserve their portion FIRST,
     // alClient fills remaining. CSS native to neumí — manuálně počítáme.
     reservations = reservations || { left: 0, top: 0, right: 0, bottom: 0 };
+    // ParentLayout = {width, height} pro Anchors elasticity calculation.
+    // Pokud component má akRight, právý okraj je fixed (right: Xpx z parentu).
+    // Pokud akBottom, dolní okraj fixed (bottom: Ypx z parentu).
+    parentLayout = parentLayout || { width: 0, height: 0 };
     // Phase A+1 (7.5.2026): hidden-by-positioning Delphi VCL pattern
     // Pokud Left nebo Top > 5000, element je hidden (Centrála 1 legacy
     // — "kluku z IT bordel" Marti's slovo). Skip render.
@@ -205,11 +209,54 @@
       el.style.height = "auto";
       if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
     } else {
-      // alNone — pixel positioning Top/Left
-      el.style.top = (layout.top * scale) + "px";
-      el.style.left = (layout.left * scale) + "px";
-      if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
-      if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+      // alNone — pixel positioning Top/Left + Anchors elasticity
+      const anchors = layout.anchors || ["akLeft", "akTop"];
+      const hasLeft = anchors.indexOf("akLeft") >= 0;
+      const hasTop = anchors.indexOf("akTop") >= 0;
+      const hasRight = anchors.indexOf("akRight") >= 0;
+      const hasBottom = anchors.indexOf("akBottom") >= 0;
+      // Horizontal positioning
+      if (hasLeft && hasRight && parentLayout.width > 0) {
+        // Elastic horizontally: pin both edges, width auto-grows with parent
+        const rightDist = parentLayout.width - layout.left - layout.width;
+        el.style.left = (layout.left * scale) + "px";
+        el.style.right = (rightDist * scale) + "px";
+        el.style.width = "auto";
+      } else if (hasRight && !hasLeft) {
+        // Pin right edge only — fixed width, follows parent right
+        const rightDist = parentLayout.width > 0
+          ? parentLayout.width - layout.left - layout.width
+          : 0;
+        el.style.right = (rightDist * scale) + "px";
+        el.style.left = "auto";
+        if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
+      } else {
+        // Default: akLeft fixed, no elastic horizontal
+        el.style.left = (layout.left * scale) + "px";
+        el.style.right = "auto";
+        if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
+      }
+      // Vertical positioning
+      if (hasTop && hasBottom && parentLayout.height > 0) {
+        // Elastic vertically: pin both edges, height auto-grows with parent
+        const bottomDist = parentLayout.height - layout.top - layout.height;
+        el.style.top = (layout.top * scale) + "px";
+        el.style.bottom = (bottomDist * scale) + "px";
+        el.style.height = "auto";
+      } else if (hasBottom && !hasTop) {
+        // Pin bottom edge only — fixed height, follows parent bottom
+        const bottomDist = parentLayout.height > 0
+          ? parentLayout.height - layout.top - layout.height
+          : 0;
+        el.style.bottom = (bottomDist * scale) + "px";
+        el.style.top = "auto";
+        if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+      } else {
+        // Default: akTop fixed, no elastic vertical
+        el.style.top = (layout.top * scale) + "px";
+        el.style.bottom = "auto";
+        if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+      }
     }
     // Anchors: pro Phase A+1 fixed (no resize behavior). Future iterace:
     // [akLeft, akTop, akRight] → CSS calc(100% - left - rightSpace) pro
@@ -706,10 +753,13 @@
         if (this._pixelMode) {
           entry.element.classList.add("pixel-container");
         }
+        // Phase A+1 polish: store parent PageControl reference pro Anchors
+        // elasticity calculation (children TabSheet potřebují parent dimenze).
         tabSheetById.set(ts.id, {
           comp: ts,
           contentEl: entry.element,
           label: entry._tabLabel,
+          _pcRef: pc ? pc.comp : null,
         });
       });
 
@@ -785,25 +835,38 @@
           }
           if (el) {
             ts.contentEl.appendChild(el);
-            // Phase A+1: pixel positioning v TabSheet contentEl
-            // (předpokládá ts.contentEl má pixel-container class — viz init)
+            // Phase A+1: pixel positioning v TabSheet contentEl + Anchors
+            // elasticity. TabSheet effective dimenze = parent PageControl
+            // content area (po reservations) — viz pc.layout.width.
             if (this._pixelMode && comp.layout) {
-              _applyLayout(el, comp.layout, this._pixelScale);
+              const pcEntry = ts._pcRef;
+              const tsParentLayout = pcEntry ? {
+                width: pcEntry.layout.width,
+                height: pcEntry.layout.height,
+              } : { width: 0, height: 0 };
+              _applyLayout(el, comp.layout, this._pixelScale, null, tsParentLayout);
             }
           }
         } else {
           // GroupBox child NEBO orphan → ErpFormSection.addField()
           let targetSec = null;
+          let targetGroupComp = null;
           if (parentId != null && sectionById.has(parentId)) {
             targetSec = sectionById.get(parentId);
+            targetGroupComp = groups.find(g => g.id === parentId);
           } else {
             // No parent OR parent ID nenalezen mezi GroupBoxes → orphan
             targetSec = ensureOrphan();
           }
-          // Phase A+1: pixel mode → addPixelField (positioned), jinak addField (vertical)
+          // Phase A+1: pixel mode → addPixelField (positioned + Anchors elastic),
+          // jinak addField (vertical fallback)
           if (this._pixelMode && comp.layout && targetSec._pixelMode) {
             const compEl = entry.component || entry.element;
-            targetSec.addPixelField(compEl, comp.layout);
+            const parentLayout = targetGroupComp ? {
+              width: targetGroupComp.layout.width,
+              height: targetGroupComp.layout.height,
+            } : { width: 0, height: 0 };
+            targetSec.addPixelField(compEl, comp.layout, parentLayout);
           } else if (entry.component) {
             targetSec.addField(entry.component);
           } else if (entry.element) {

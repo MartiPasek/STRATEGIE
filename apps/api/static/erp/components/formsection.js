@@ -179,11 +179,13 @@
      * Phase A+1: Append field s pixel layout positioning. Vyžaduje
      * setPixelMode() předem. Field's wrapper element dostane absolute
      * positioning podle layout dict.
+     *
+     * @param parentLayout - {width, height} parent dimenzí pro Anchors
+     *                        elasticity (akRight/akBottom calculation).
      */
-    addPixelField(field, layout) {
+    addPixelField(field, layout, parentLayout) {
       if (this._destroyed) return;
       if (!this._pixelMode) {
-        // Fallback na vertical addField
         return this.addField(field);
       }
       let el = null;
@@ -200,15 +202,8 @@
       }
       this._fields.push(field);
       this.fieldsEl.appendChild(el);
-      // Apply layout na child element (relative k fieldsEl)
-      // POZOR: child layout.top/left jsou absolute koordináty v form root
-      // (z Centrály 1 properties), ale v pixel mode jsou children section
-      // relativní k section.left/top. Frontend musí to ofsetovat —
-      // child.relativeTop = layout.top - section.top, atd.
-      // Tohle je řízeno z form.js _build (znalost section layout context).
-      // Zde jen aplikuje co dostane.
       if (layout && typeof global._erpApplyLayout === "function") {
-        global._erpApplyLayout(el, layout, this._pixelScale);
+        global._erpApplyLayout(el, layout, this._pixelScale, null, parentLayout);
       }
       this._updateEmptyVisual();
     }

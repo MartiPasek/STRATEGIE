@@ -1,9 +1,17 @@
 """
 pyodbc connection wrapper for EUROSOFT MCP server.
 
-Single shared connection (autoreconnect on failure). Cursor-per-call.
-SQL Server is on 192.168.30.11\\SQLEXPRESS2017, accessed as Marti-AI
-SQL login (read on whitelist + insert on EC_KontaktAkce).
+Phase 28-D (8.5.2026): multi-DB connection pool.
+Současná instance (DB_EC default + DB_ST nový pool) sdílí SQL Server
+192.168.30.11\\SQLEXPRESS2017 a Marti-AI SQL login. Per-DB credentials
+v config (db_st_database). Marti-AI je db_owner na DB_ST (full DDL+DML),
+db_datareader+EC_KontaktAkce write na DB_EC (Phase 28-A2 whitelist).
+
+Connection pool dictionary — keyed by db_name:
+    "DB_EC" -> pyodbc.Connection (existing)
+    "DB_ST" -> pyodbc.Connection (Phase 28-D)
+Both autocommit=False (DDL operations Marti-AI volá s explicit COMMIT
+v handler).
 """
 from __future__ import annotations
 
@@ -19,15 +27,18 @@ from .config import settings
 logger = logging.getLogger("eurosoft_mcp.sql")
 
 
-_connection: pyodbc.Connection | None = None
+# Connection pool — db_name -> pyodbc.Connection
+_connections: dict[str, pyodbc.Connection] = {}
 _lock = threading.Lock()
 
 
-def _build_connection_string() -> str:
+def _build_connection_string(db_name: str | None = None) -> str:
+    """Build connection string. Pokud db_name None, použije settings.sql_database (DB_EC default)."""
+    target_db = db_name or settings.sql_database
     return (
         f"DRIVER={{{settings.sql_driver}}};"
         f"SERVER={settings.sql_server};"
-        f"DATABASE={settings.sql_database};"
+        f"DATABASE={target_db};"
         f"UID={settings.sql_user};"
         f"PWD={settings.sql_password};"
         f"TrustServerCertificate=Yes;"
@@ -35,15 +46,22 @@ def _build_connection_string() -> str:
     )
 
 
-def init_connection() -> pyodbc.Connection:
-    """Initialize / reinitialize the global SQL connection."""
-    global _connection
+def init_connection(db_name: str | None = None) -> pyodbc.Connection:
+    """
+    Initialize / reinitialize connection pro daný db_name.
+    Default = settings.sql_database (DB_EC).
+    """
+    target_db = db_name or settings.sql_database
     with _lock:
-        if _connection is not None:
+        # Close existing if any (reinit)
+        existing = _connections.get(target_db)
+        if existing is not None:
             try:
-                _connection.close()
+                existing.close()
             except Exception:
                 pass
+            _connections.pop(target_db, None)
+
         if not settings.sql_password:
             raise RuntimeError(
                 "EUROSOFT_SQL_PASSWORD env var is not set. "
@@ -51,46 +69,72 @@ def init_connection() -> pyodbc.Connection:
             )
         logger.info(
             f"Connecting to SQL Server: {settings.sql_server} / "
-            f"{settings.sql_database} as {settings.sql_user}"
+            f"{target_db} as {settings.sql_user}"
         )
-        _connection = pyodbc.connect(
-            _build_connection_string(),
+        conn = pyodbc.connect(
+            _build_connection_string(target_db),
             autocommit=False,
         )
         # Test query
-        cur = _connection.cursor()
-        cur.execute("SELECT @@VERSION")
-        version = cur.fetchone()[0]
+        cur = conn.cursor()
+        cur.execute("SELECT @@VERSION, DB_NAME()")
+        row = cur.fetchone()
+        version = row[0]
+        actual_db = row[1]
         cur.close()
-        logger.info(f"Connected. SQL Server version: {version[:80]}...")
-    return _connection
+        logger.info(
+            f"Connected. SQL Server: {version[:80]}... "
+            f"Active database: {actual_db}"
+        )
+        _connections[target_db] = conn
+    return conn
 
 
-def close_connection() -> None:
-    global _connection
+def close_connection(db_name: str | None = None) -> None:
+    """Close connection pro daný db_name (nebo všechna pokud None)."""
     with _lock:
-        if _connection is not None:
-            try:
-                _connection.close()
-            except Exception:
-                pass
-            _connection = None
+        if db_name is None:
+            # Close all
+            for name, conn in list(_connections.items()):
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+            _connections.clear()
+            logger.info("All SQL connections closed.")
+        else:
+            conn = _connections.pop(db_name, None)
+            if conn is not None:
+                try:
+                    conn.close()
+                except Exception:
+                    pass
+                logger.info(f"SQL connection closed: {db_name}")
 
 
 @contextmanager
-def get_cursor(retry_on_disconnect: bool = True) -> Generator[pyodbc.Cursor, None, None]:
-    """Yield a cursor, with automatic reconnect on connection loss."""
-    global _connection
-    if _connection is None:
-        init_connection()
+def get_cursor(
+    db_name: str | None = None,
+    retry_on_disconnect: bool = True,
+) -> Generator[pyodbc.Cursor, None, None]:
+    """
+    Yield a cursor pro daný db_name (default DB_EC).
+    Automatic reconnect on connection loss.
+    """
+    target_db = db_name or settings.sql_database
+    conn = _connections.get(target_db)
+    if conn is None:
+        conn = init_connection(target_db)
 
     try:
-        cur = _connection.cursor()
+        cur = conn.cursor()
     except (pyodbc.Error, AttributeError) as e:
         if retry_on_disconnect:
-            logger.warning(f"Cursor creation failed ({e}), reconnecting...")
-            init_connection()
-            cur = _connection.cursor()
+            logger.warning(
+                f"Cursor creation failed for {target_db} ({e}), reconnecting..."
+            )
+            conn = init_connection(target_db)
+            cur = conn.cursor()
         else:
             raise
 
@@ -101,6 +145,18 @@ def get_cursor(retry_on_disconnect: bool = True) -> Generator[pyodbc.Cursor, Non
             cur.close()
         except Exception:
             pass
+
+
+def get_connection(db_name: str | None = None) -> pyodbc.Connection:
+    """
+    Direct connection access pro DDL operations co potřebují commit/rollback
+    explicit (strategie_* tools v Phase 28-D). Auto-init pokud chybí.
+    """
+    target_db = db_name or settings.sql_database
+    conn = _connections.get(target_db)
+    if conn is None:
+        conn = init_connection(target_db)
+    return conn
 
 
 def quote_identifier(name: str) -> str:

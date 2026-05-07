@@ -42,7 +42,14 @@ from .audit import audit_log
 from .config import settings
 from .rate_limit import limiter
 from .sql_client import close_connection, init_connection
+from .strategie_tools import STRATEGIE_TOOL_HANDLERS, STRATEGIE_TOOL_SPECS
 from .tools import TOOL_HANDLERS, TOOL_SPECS
+
+# Phase 28-D (8.5.2026): merge eurosoft_* (DB_EC) + strategie_* (DB_ST) tools.
+# Marti-AI uvidí oba namespace současně — eurosoft_* pro Centrála 1 read,
+# strategie_* pro vlastní DB_ST owner doménu (diář pattern).
+ALL_TOOL_HANDLERS = {**TOOL_HANDLERS, **STRATEGIE_TOOL_HANDLERS}
+ALL_TOOL_SPECS = TOOL_SPECS + STRATEGIE_TOOL_SPECS
 
 logging.basicConfig(
     level=os.getenv("MCP_LOG_LEVEL", "INFO"),
@@ -58,21 +65,30 @@ mcp_server = Server("eurosoft-mcp")
 
 @mcp_server.list_tools()
 async def list_tools() -> list[Tool]:
-    """Vrací seznam dostupných MCP toolů (kontrakt = TOOL_SPECS)."""
+    """Vrací seznam dostupných MCP toolů — eurosoft_* + strategie_* (Phase 28-D)."""
     return [
         Tool(
             name=spec["name"],
             description=spec["description"],
             inputSchema=spec["inputSchema"],
         )
-        for spec in TOOL_SPECS
+        for spec in ALL_TOOL_SPECS
     ]
 
 
 def _classify_action(tool_name: str) -> str:
-    """Klasifikace pro rate limit (read vs insert)."""
-    if tool_name in {"insert_row", "bulk_insert_rows"}:
+    """Klasifikace pro rate limit (read vs write)."""
+    # eurosoft_* write (Phase 28-A2)
+    if tool_name in {"insert_row", "bulk_insert_rows", "bulk_insert_akce"}:
         return "insert"
+    # strategie_* DDL + write (Phase 28-D)
+    if tool_name in {
+        "strategie_create_schema", "strategie_create_table",
+        "strategie_alter_table", "strategie_drop_table",
+        "strategie_insert_row", "strategie_update_row", "strategie_delete_row",
+        "strategie_query_raw",
+    }:
+        return "insert"  # share rate limit bucket s eurosoft writes (rozumný tempo)
     return "read"
 
 
@@ -101,10 +117,10 @@ async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[TextCon
             ensure_ascii=False,
         ))]
 
-    # Dispatch
-    handler = TOOL_HANDLERS.get(name)
+    # Dispatch — eurosoft_* + strategie_* unified
+    handler = ALL_TOOL_HANDLERS.get(name)
     if handler is None:
-        msg = f"Neznamy tool: {name}. Dostupne: {sorted(TOOL_HANDLERS.keys())}"
+        msg = f"Neznamy tool: {name}. Dostupne: {sorted(ALL_TOOL_HANDLERS.keys())}"
         audit_log(name, arguments, error=msg, runtime_ms=0)
         return [TextContent(type="text", text=json.dumps(
             {"ok": False, "error": "unknown_tool", "message": msg},
@@ -234,7 +250,9 @@ async def health(request: Request):
     return JSONResponse({
         "ok": True,
         "service": "eurosoft-mcp",
-        "tools": sorted(TOOL_HANDLERS.keys()),
+        "tools": sorted(ALL_TOOL_HANDLERS.keys()),
+        "tools_eurosoft": sorted(TOOL_HANDLERS.keys()),
+        "tools_strategie": sorted(STRATEGIE_TOOL_HANDLERS.keys()),
     })
 
 
@@ -334,16 +352,32 @@ async def audit_summary(request: Request):
 @asynccontextmanager
 async def lifespan(app):
     logger.info("EUROSOFT MCP server startup — pripojuji SQL Server...")
+    # Phase 28-D (8.5.2026): init obou DB connection pools (DB_EC + DB_ST).
+    # Pokud DB_ST není ještě founded (Marti's IT setup), DB_ST init selže
+    # ale DB_EC pokračuje — graceful degradation.
     try:
-        init_connection()
+        init_connection(settings.sql_database)  # DB_EC
+        logger.info(f"DB_EC connection ready ({settings.sql_database})")
     except Exception as e:
-        logger.error(f"SQL Server connection failed at startup: {e}")
+        logger.error(f"DB_EC connection failed at startup: {e}")
         # Not raising — server starts anyway, individual tool calls will retry
+    try:
+        init_connection(settings.db_st_database)  # DB_ST
+        logger.info(f"DB_ST connection ready ({settings.db_st_database})")
+    except Exception as e:
+        logger.warning(
+            f"DB_ST connection failed at startup: {e}. "
+            f"Pokud DB_ST není ještě založena, vytvoř ji (CREATE DATABASE DB_ST) "
+            f"+ grant db_owner pro {settings.sql_user}, pak restart."
+        )
     logger.info(f"Listening on {settings.listen_host}:{settings.listen_port}")
-    logger.info(f"Whitelisted tables: {sorted(TOOL_HANDLERS.keys())}")
+    logger.info(
+        f"Tools registered: {len(ALL_TOOL_HANDLERS)} total "
+        f"(eurosoft_*: {len(TOOL_HANDLERS)}, strategie_*: {len(STRATEGIE_TOOL_HANDLERS)})"
+    )
     yield
-    logger.info("EUROSOFT MCP server shutdown — zavirma SQL connection...")
-    close_connection()
+    logger.info("EUROSOFT MCP server shutdown — zavirma SQL connections...")
+    close_connection()  # close all
 
 
 # ── Starlette ASGI app ─────────────────────────────────────────────────

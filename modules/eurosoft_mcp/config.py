@@ -7,7 +7,7 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class Settings:
-    # SQL Server connection
+    # SQL Server connection — DB_EC (existing, Centrála 1)
     sql_server: str = os.getenv(
         "EUROSOFT_SQL_SERVER",
         "192.168.30.11\\SQLEXPRESS2017",
@@ -17,6 +17,17 @@ class Settings:
     sql_password: str = os.getenv("EUROSOFT_SQL_PASSWORD", "")
     sql_driver: str = os.getenv("EUROSOFT_SQL_DRIVER", "ODBC Driver 17 for SQL Server")
     sql_timeout_s: int = int(os.getenv("EUROSOFT_SQL_TIMEOUT_S", "5"))
+
+    # Phase 28-D (8.5.2026): DB_ST — Marti-AI's owned doména.
+    # Shared SQL Server instance s DB_EC, ale separate database, db_owner
+    # role (full DDL+DML, žádný whitelist). Diář pattern: "AI provede,
+    # lidé reflektují". Login + heslo SDÍLENO s DB_EC (Marti-AI je
+    # SQL login na master, db_owner mapping per database).
+    db_st_database: str = os.getenv("EUROSOFT_DB_ST_DATABASE", "DB_ST")
+    # Bezpečnostní flag — DDL operace na DB_ST (CREATE/ALTER/DROP TABLE)
+    # vyžadují tento flag = "true" (default). Když dělá Marti's IT
+    # security audit, může temporary disable přes env.
+    allow_db_st_ddl: bool = os.getenv("MCP_ALLOW_DB_ST_DDL", "true").lower() in ("true", "1", "yes")
 
     # MCP server
     mcp_api_key: str = os.getenv("MCP_API_KEY", "")

@@ -156,6 +156,11 @@ MANAGEMENT_TOOL_NAMES = {
     "create_personal_appendix",
     # Phase 22 (29.4.2026): User management tooly. Marti-AI sama:
     # password reset, disable/enable user, remove from tenant.
+    # Phase 35-E.3.1 (8.5.2026 vecer): tenant management — Marti-AI vyrabi
+    # nove tenanty a prirazuje usery. Doplneni Phase 22 (remove_user_from_tenant).
+    "list_tenants",
+    "create_tenant",
+    "add_user_to_tenant",
     "request_password_reset",
     "disable_user",
     "enable_user",
@@ -3890,6 +3895,109 @@ TOOLS = [
                 "user_id": {"type": "integer", "description": "users.id"},
                 "tenant_id": {"type": "integer", "description": "tenants.id"},
                 "reason": {"type": "string", "description": "Duvod pro audit"},
+            },
+            "required": ["user_id", "tenant_id", "reason"],
+        },
+    },
+    # ── Phase 35-E.3.1 (8.5.2026 vecer): tenant management ──────────
+    {
+        "name": "list_tenants",
+        "description": (
+            "Phase 35-E.3.1: Vrati seznam tenantu v systemu. Rodic vidi vse, "
+            "non-rodic jen aktivni clenstvi. Sloupce: id, tenant_name, "
+            "tenant_code, tenant_type, status, owner_user_id, created_at, "
+            "member_count. Pouzij pro orientaci pred create_tenant nebo "
+            "add_user_to_tenant. Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "include_inactive": {
+                    "type": "boolean",
+                    "description": "True = vrati i archived/disabled tenanty. Default false.",
+                },
+            },
+        },
+    },
+    {
+        "name": "create_tenant",
+        "description": (
+            "Phase 35-E.3.1: Vytvori novy tenant. Auto-prida volajiciho usera "
+            "(nebo specified owner_user_id) jako 'owner' clena. "
+            "tenant_code idealne uppercase ASCII (EUROSOFT, STRATEGIE, NERUDOVKA). "
+            "tenant_type: 'system' (interni framework, e.g. STRATEGIE), "
+            "'company' (firma, e.g. EUROSOFT), 'school' (NERUDOVKA), "
+            "'family', 'project', 'personal'. "
+            "Marti-AI ONLY. Audit log v activity_log."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "tenant_name": {
+                    "type": "string",
+                    "description": "Display jmeno tenantu (max 255 char). Napr. 'STRATEGIE'.",
+                },
+                "tenant_code": {
+                    "type": "string",
+                    "description": (
+                        "Kratky uppercase identifier (max 100 char, ASCII). "
+                        "Pouziva se v UI jako pilulka. Napr. 'STRATEGIE'."
+                    ),
+                },
+                "tenant_type": {
+                    "type": "string",
+                    "description": "system | company | school | family | project | personal",
+                    "enum": [
+                        "system", "company", "school", "family",
+                        "project", "personal",
+                    ],
+                },
+                "owner_user_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelne: users.id vlastnika tenantu. "
+                        "Default = volajici user (Marti)."
+                    ),
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Duvod pro audit (proc novy tenant).",
+                },
+            },
+            "required": ["tenant_name", "tenant_code", "tenant_type", "reason"],
+        },
+    },
+    {
+        "name": "add_user_to_tenant",
+        "description": (
+            "Phase 35-E.3.1: Prida existujiciho usera do tenantu (multi-tenant "
+            "membership). Idempotent — pokud user uz je clenem se status "
+            "'archived', reaktivuje. Pokud uz je 'active', no-op. "
+            "Pouzij pro: pridani Marti do STRATEGIE tenantu, pridani Klarky "
+            "do NERUDOVKA, atd. "
+            "Pro vytvoreni noveho usera (zatim neexistuje) pouzij invite_user. "
+            "Marti-AI ONLY. Audit log."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "integer",
+                    "description": "users.id — existujici user.",
+                },
+                "tenant_id": {
+                    "type": "integer",
+                    "description": "tenants.id — existujici tenant.",
+                },
+                "role": {
+                    "type": "string",
+                    "description": "RBAC role: owner | admin | member. Default 'member'.",
+                    "enum": ["owner", "admin", "member"],
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Duvod pro audit.",
+                },
             },
             "required": ["user_id", "tenant_id", "reason"],
         },

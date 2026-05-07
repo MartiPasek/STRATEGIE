@@ -528,6 +528,23 @@ def jadro_data_json(form_id: int, row_id: int, req: Request) -> JSONResponse:
     # Serializovat komponenty
     comps_json = []
     for c in components:
+        # Phase A+1 (7.5.2026): typed LayoutInfo dict do response.
+        # Frontend respektuje top/left/width/height/align/anchors při render.
+        layout_dict = {
+            "top": c.layout.top,
+            "left": c.layout.left,
+            "width": c.layout.width,
+            "height": c.layout.height,
+            "align": c.layout.align,
+            "anchors": list(c.layout.anchors),
+            "margins": [
+                c.layout.margins_left,
+                c.layout.margins_top,
+                c.layout.margins_right,
+                c.layout.margins_bottom,
+            ],
+            "align_with_margins": c.layout.align_with_margins,
+        }
         comps_json.append({
             "id": c.id,
             "typ": c.typ,
@@ -542,6 +559,7 @@ def jadro_data_json(form_id: int, row_id: int, req: Request) -> JSONResponse:
             "c_width": c.c_width or 100,
             "smazana": c.smazana,
             "properties": c.properties or {},
+            "layout": layout_dict,            # Phase A+1: typed layout
         })
 
     # Serializovat data (Date/Decimal coerce na string pro JSON safety)

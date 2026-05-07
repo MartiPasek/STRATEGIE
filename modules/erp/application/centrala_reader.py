@@ -41,6 +41,28 @@ class FormDef:
 
 
 @dataclass
+class LayoutInfo:
+    """
+    Phase A+1 (7.5.2026): Delphi VCL layout info z properties.
+    Marti's poznatek: každá komponenta má vlastní pixel pozici (Top/Left)
+    + dimenze (Width/Height) + Anchors (elasticita při resize) + Align
+    (fill behavior). Server extrahuje typed values z properties dictionary,
+    frontend renderuje s respektem k těmto hodnotám.
+    """
+    top: int = 0
+    left: int = 0
+    width: int = 0
+    height: int = 0
+    align: str = "alNone"          # alClient/alTop/alBottom/alLeft/alRight/alNone
+    anchors: list[str] = field(default_factory=lambda: ["akLeft", "akTop"])
+    margins_left: int = 0
+    margins_top: int = 0
+    margins_right: int = 0
+    margins_bottom: int = 0
+    align_with_margins: bool = False
+
+
+@dataclass
 class FormComponent:
     """Komponenta z EC_FormDefEdit + její properties."""
     id: int
@@ -56,6 +78,7 @@ class FormComponent:
     c_mask: str = ""              # format mask
     smazana: bool = False
     properties: dict[str, str] = field(default_factory=dict)  # key/value z EditProperty
+    layout: LayoutInfo = field(default_factory=LayoutInfo)    # Phase A+1: typed layout
     raw: dict[str, Any] = field(default_factory=dict)
 
 
@@ -101,6 +124,98 @@ TYP_NAMES: dict[int, str] = {
     36: "ModulJadra",       # embed sub-form (recursive)
     37: "Klavesnice",
 }
+
+
+# ── Layout extractor (Phase A+1, 7.5.2026) ────────────────────────────
+
+
+def _to_int(v: Any, default: int = 0) -> int:
+    """Bezpečný cast — Delphi properties jsou stringy ('160', '1519')."""
+    if v is None or v == "":
+        return default
+    try:
+        return int(str(v).strip())
+    except (ValueError, TypeError):
+        return default
+
+
+def _parse_anchors(value: str) -> list[str]:
+    """
+    Parse Delphi Anchors property value.
+    Format: '[akLeft, akTop, akRight]' nebo '[akLeft,akTop]' nebo prázdný.
+    Default Delphi VCL: [akLeft, akTop] (top-left fixed, no resize).
+    """
+    if not value:
+        return ["akLeft", "akTop"]
+    s = value.strip().strip("[]").replace(" ", "")
+    if not s:
+        return ["akLeft", "akTop"]
+    parts = [p.strip() for p in s.split(",") if p.strip()]
+    valid = [p for p in parts if p in {"akLeft", "akTop", "akRight", "akBottom"}]
+    return valid or ["akLeft", "akTop"]
+
+
+def _parse_margins(value: str) -> tuple[int, int, int, int]:
+    """
+    Parse Delphi Margins property — formát je různý:
+    - 'TMargins' (placeholder, defaults all zero)
+    - '(TMargins)' (similar)
+    - '4,4,4,4' (Left,Top,Right,Bottom)
+    - '456330672' (packed int — Delphi internal, ignore)
+    Pro Phase A+1 returnujem (0,0,0,0) pro všechny non-trivial cases —
+    Marti's UI nezávisí na Margins pixel-perfectly, scale factor approach
+    pokrývá většinu cases.
+    """
+    if not value:
+        return (0, 0, 0, 0)
+    s = value.strip()
+    if "," in s:
+        parts = s.split(",")
+        if len(parts) == 4:
+            try:
+                return tuple(int(p.strip()) for p in parts)  # type: ignore
+            except ValueError:
+                pass
+    return (0, 0, 0, 0)
+
+
+def _parse_bool(value: str) -> bool:
+    """Delphi 'True'/'False' string → Python bool."""
+    if not value:
+        return False
+    return str(value).strip().lower() == "true"
+
+
+def _extract_layout(props: dict[str, str]) -> LayoutInfo:
+    """
+    Phase A+1: extrahuj typed LayoutInfo z properties dict.
+
+    Delphi VCL property keys (pokud nejsou v properties, default 0/None):
+      Top, Left, Width, Height           — pixel pozice + dimenze
+      Align                              — 'alClient'/'alTop'/'alBottom'/'alLeft'/'alRight'/'alNone'
+      Anchors                            — '[akLeft, akTop, akRight]'
+      Margins                            — TMargins or '4,4,4,4'
+      AlignWithMargins                   — 'True'/'False'
+    """
+    align = (props.get("Align") or "alNone").strip()
+    if align not in {"alClient", "alTop", "alBottom", "alLeft", "alRight", "alNone"}:
+        align = "alNone"
+    margins_l, margins_t, margins_r, margins_b = _parse_margins(
+        props.get("Margins") or ""
+    )
+    return LayoutInfo(
+        top=_to_int(props.get("Top"), 0),
+        left=_to_int(props.get("Left"), 0),
+        width=_to_int(props.get("Width"), 0),
+        height=_to_int(props.get("Height"), 0),
+        align=align,
+        anchors=_parse_anchors(props.get("Anchors") or ""),
+        margins_left=margins_l,
+        margins_top=margins_t,
+        margins_right=margins_r,
+        margins_bottom=margins_b,
+        align_with_margins=_parse_bool(props.get("AlignWithMargins") or "False"),
+    )
 
 
 # ── Reader API ───────────────────────────────────────────────────────
@@ -283,6 +398,12 @@ class CentralaReader:
                 )
                 if fname:
                     c.c_field_name = fname
+
+            # Phase A+1 (7.5.2026): extrahuj typed LayoutInfo z properties.
+            # Marti's pohled: každá komponenta má Top/Left/Width/Height
+            # + Anchors + Align v properties dict. Server normalizuje na
+            # typed dataclass, frontend renderuje s respektem.
+            c.layout = _extract_layout(c.properties)
 
         # Phase B+6.10c (6.5.2026 večer): lookup-by-Name pro Delphi VCL hierarchy.
         # Délfi VCL ukládá Parent reference jako unique component Name

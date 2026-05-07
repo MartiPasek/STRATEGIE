@@ -314,6 +314,38 @@ def health(req: Request) -> JSONResponse:
     })
 
 
+@api_router.get("/tenants")
+def tenants_for_user(req: Request) -> JSONResponse:
+    """Phase 35-E.3.2 (8.5.2026): list aktivních tenantů usera pro footer
+    switcher v ERP UI. Reuse helper z auth.user_context.
+
+    Returns: {ok, current_tenant_id, tenants: [{tenant_id, tenant_name,
+    tenant_code, tenant_type, is_eurosoft}, ...]}
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_core import get_core_session
+    from modules.auth.application.user_context import _list_user_tenants
+
+    cs = get_core_session()
+    try:
+        tenants = _list_user_tenants(cs, uid)
+    finally:
+        cs.close()
+
+    # Marti's direktiv: ID stačí, NAME pro display. is_eurosoft flag aby
+    # frontend mohl označit, který tenant má živé ERP data (zelená tečka).
+    for t in tenants:
+        t["is_eurosoft"] = (t["tenant_id"] == EUROSOFT_TENANT_ID)
+
+    return JSONResponse({
+        "ok": True,
+        "current_tenant_id": _get_tenant_id(uid),
+        "tenants": tenants,
+    })
+
+
 # ── Phase B (5.5.2026): Tree + Přehled JSON endpoints ────────────────
 
 
@@ -941,9 +973,19 @@ def _render_full_page(
                     if tid:
                         t = cs.query(Tenant).filter(Tenant.id == tid).one_or_none()
                         if t and t.tenant_name:
+                            # Phase 35-E.3.2 (8.5.2026): clickable button +
+                            # popover dropdown. JS si fetchne /api/v1/erp/tenants
+                            # a vyrenderuje dropdown nad footer.
                             tenant_name_html = (
-                                f' · <span class="erp-footer-tenant">'
+                                f' · <button type="button" class="erp-footer-tenant-btn" '
+                                f'id="erpFooterTenantBtn" data-tenant-id="{tid}" '
+                                f'title="Přepnout tenant">'
+                                f'<span class="erp-footer-tenant">'
                                 f'{html.escape(t.tenant_name)}</span>'
+                                f'<span class="erp-footer-tenant-caret">▴</span>'
+                                f'</button>'
+                                f'<div class="erp-footer-tenant-popover" '
+                                f'id="erpFooterTenantPopover" hidden></div>'
                             )
             finally:
                 cs.close()
@@ -1502,6 +1544,93 @@ def _render_full_page(
     body:has(.erp-workspace) > footer .erp-footer-tenant {{
       color: var(--accent2);
       font-weight: 500;
+    }}
+    /* Phase 35-E.3.2 (8.5.2026): tenant switcher button + popover */
+    .erp-footer-tenant-btn {{
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      transition: background 120ms, border-color 120ms;
+    }}
+    .erp-footer-tenant-btn:hover {{
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border);
+    }}
+    .erp-footer-tenant-btn.active {{
+      background: rgba(255, 255, 255, 0.07);
+      border-color: var(--accent2);
+    }}
+    .erp-footer-tenant-caret {{
+      font-size: 9px;
+      opacity: 0.7;
+      line-height: 1;
+    }}
+    .erp-footer-tenant-popover {{
+      position: fixed;
+      bottom: 32px; /* nad footer */
+      left: 14px;
+      min-width: 220px;
+      max-width: 320px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.5);
+      padding: 4px 0;
+      z-index: 1000;
+      max-height: 320px;
+      overflow-y: auto;
+    }}
+    .erp-footer-tenant-popover[hidden] {{
+      display: none;
+    }}
+    .erp-tenant-popover-item {{
+      padding: 7px 12px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 12px;
+      transition: background 100ms;
+    }}
+    .erp-tenant-popover-item:hover {{
+      background: rgba(255, 255, 255, 0.06);
+    }}
+    .erp-tenant-popover-item.active {{
+      background: rgba(124, 156, 217, 0.15); /* accent2 tinted */
+      cursor: default;
+    }}
+    .erp-tenant-popover-item.active:hover {{
+      background: rgba(124, 156, 217, 0.15);
+    }}
+    .erp-tenant-popover-name {{
+      flex: 1;
+      color: var(--text);
+      font-weight: 500;
+    }}
+    .erp-tenant-popover-meta {{
+      font-size: 10px;
+      color: var(--muted);
+      margin-left: 6px;
+    }}
+    .erp-tenant-popover-dot {{
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }}
+    .erp-tenant-popover-dot.eurosoft {{
+      background: #4ade80; /* zelená — má živé ERP data */
+    }}
+    .erp-tenant-popover-dot.other {{
+      background: var(--border);
     }}
     /* Zoom toggle ve footeru — kompaktnější než header verze */
     .erp-zoom-toggle-footer {{
@@ -3582,6 +3711,133 @@ def _render_workspace_page(user_id: int) -> str:
       } else {
         // Document již plně parsed — DOM má footer; ale pojistka přes RAF
         requestAnimationFrame(_zoomInit);
+      }
+
+      // ── Phase 35-E.3.2 (8.5.2026): Footer tenant switcher ───────────
+      // Marti's spec: clickable tenant_name v paticce → popover dropdown
+      // s available tenants. Click na řádek = POST switch_tenant + reload.
+      // Reload je nejjednodušší způsob (tree, state, header — všechno
+      // závisí na tenantu, full reload zaručí konzistenci).
+      let _erpTenantsLoaded = false;
+      let _erpTenantsCache = null;
+
+      async function _erpFetchTenants() {
+        if (_erpTenantsLoaded && _erpTenantsCache) return _erpTenantsCache;
+        try {
+          const res = await fetch('/api/v1/erp/tenants', { credentials: 'include' });
+          if (!res.ok) return null;
+          const data = await res.json();
+          _erpTenantsCache = data;
+          _erpTenantsLoaded = true;
+          return data;
+        } catch (e) {
+          console.error('Tenant fetch failed', e);
+          return null;
+        }
+      }
+
+      function _erpRenderTenantPopover(data) {
+        const pop = document.getElementById('erpFooterTenantPopover');
+        if (!pop) return;
+        pop.innerHTML = '';
+        const tenants = (data && data.tenants) || [];
+        const currentId = data && data.current_tenant_id;
+        if (tenants.length === 0) {
+          pop.innerHTML = '<div class="erp-tenant-popover-item" style="cursor:default;color:var(--muted);">Žádné dostupné tenanty</div>';
+          return;
+        }
+        tenants.forEach(t => {
+          const item = document.createElement('div');
+          item.className = 'erp-tenant-popover-item' + (t.tenant_id === currentId ? ' active' : '');
+
+          const dot = document.createElement('span');
+          dot.className = 'erp-tenant-popover-dot ' + (t.is_eurosoft ? 'eurosoft' : 'other');
+          dot.title = t.is_eurosoft ? 'Aktivní ERP data' : 'Bez ERP dat (zatím)';
+          item.appendChild(dot);
+
+          const nameEl = document.createElement('span');
+          nameEl.className = 'erp-tenant-popover-name';
+          nameEl.textContent = t.tenant_name;
+          item.appendChild(nameEl);
+
+          if (t.tenant_type) {
+            const metaEl = document.createElement('span');
+            metaEl.className = 'erp-tenant-popover-meta';
+            metaEl.textContent = t.tenant_type;
+            item.appendChild(metaEl);
+          }
+
+          item.addEventListener('click', async (ev) => {
+            ev.stopPropagation();
+            if (t.tenant_id === currentId) return;
+            await _erpSwitchTenant(t.tenant_id);
+          });
+          pop.appendChild(item);
+        });
+      }
+
+      async function _erpSwitchTenant(tenantId) {
+        try {
+          const res = await fetch('/api/v1/auth/switch_tenant', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ tenant_id: tenantId }),
+            credentials: 'include',
+          });
+          if (!res.ok) {
+            const err = await res.json().catch(() => ({}));
+            alert(err.detail || ('Přepnutí tenantu selhalo (' + res.status + ').'));
+            return;
+          }
+          // Reload — tree, header, state vše závisí na tenantu, full reload
+          // zaručí čistou konzistenci.
+          window.location.reload();
+        } catch (e) {
+          alert('Přepnutí tenantu selhalo: ' + e);
+        }
+      }
+
+      function _erpInitTenantSwitcher() {
+        const btn = document.getElementById('erpFooterTenantBtn');
+        const pop = document.getElementById('erpFooterTenantPopover');
+        if (!btn || !pop) return;
+
+        btn.addEventListener('click', async (ev) => {
+          ev.stopPropagation();
+          if (!pop.hidden) {
+            pop.hidden = true;
+            btn.classList.remove('active');
+            return;
+          }
+          const data = await _erpFetchTenants();
+          if (!data) return;
+          _erpRenderTenantPopover(data);
+          pop.hidden = false;
+          btn.classList.add('active');
+        });
+
+        // Click outside → close
+        document.addEventListener('click', (ev) => {
+          if (pop.hidden) return;
+          if (!pop.contains(ev.target) && !btn.contains(ev.target)) {
+            pop.hidden = true;
+            btn.classList.remove('active');
+          }
+        });
+
+        // ESC → close
+        document.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Escape' && !pop.hidden) {
+            pop.hidden = true;
+            btn.classList.remove('active');
+          }
+        });
+      }
+
+      if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", _erpInitTenantSwitcher, { once: true });
+      } else {
+        requestAnimationFrame(_erpInitTenantSwitcher);
       }
 
       // ── B+7++++ (6.5.2026): tree collapse / expand toggle ──────────

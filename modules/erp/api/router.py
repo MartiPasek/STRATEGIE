@@ -334,11 +334,6 @@ def tenants_for_user(req: Request) -> JSONResponse:
     finally:
         cs.close()
 
-    # Marti's direktiv: ID stačí, NAME pro display. is_eurosoft flag aby
-    # frontend mohl označit, který tenant má živé ERP data (zelená tečka).
-    for t in tenants:
-        t["is_eurosoft"] = (t["tenant_id"] == EUROSOFT_TENANT_ID)
-
     return JSONResponse({
         "ok": True,
         "current_tenant_id": _get_tenant_id(uid),
@@ -1620,20 +1615,15 @@ def _render_full_page(
       color: var(--muted);
       margin-left: 6px;
     }}
+    /* Phase 35-E.3.2 (8.5.2026): tečka u aktivního tenantu — vizuální
+       marker "zde právě jsi" (vedle modrého highlight řádku). */
     .erp-tenant-popover-dot {{
-      width: 9px;
-      height: 9px;
+      width: 8px;
+      height: 8px;
       border-radius: 50%;
       flex-shrink: 0;
-      border: 1px solid rgba(255, 255, 255, 0.2);
-    }}
-    .erp-tenant-popover-dot.eurosoft {{
-      background: #22c55e; /* zelená — má živé ERP data */
-      border-color: #4ade80;
+      background: #22c55e;
       box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
-    }}
-    .erp-tenant-popover-dot.other {{
-      background: rgba(255, 255, 255, 0.15);
     }}
     /* Zoom toggle ve footeru — kompaktnější než header verze */
     .erp-zoom-toggle-footer {{
@@ -3751,12 +3741,15 @@ def _render_workspace_page(user_id: int) -> str:
         }
         tenants.forEach(t => {
           const item = document.createElement('div');
-          item.className = 'erp-tenant-popover-item' + (t.tenant_id === currentId ? ' active' : '');
+          const isActive = (t.tenant_id === currentId);
+          item.className = 'erp-tenant-popover-item' + (isActive ? ' active' : '');
 
-          const dot = document.createElement('span');
-          dot.className = 'erp-tenant-popover-dot ' + (t.is_eurosoft ? 'eurosoft' : 'other');
-          dot.title = t.is_eurosoft ? 'Aktivní ERP data' : 'Bez ERP dat (zatím)';
-          item.appendChild(dot);
+          if (isActive) {
+            const dot = document.createElement('span');
+            dot.className = 'erp-tenant-popover-dot';
+            dot.title = 'Aktivní tenant';
+            item.appendChild(dot);
+          }
 
           const nameEl = document.createElement('span');
           nameEl.className = 'erp-tenant-popover-name';

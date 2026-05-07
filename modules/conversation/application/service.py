@@ -5926,6 +5926,221 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"remove_user_from_tenant failed: {exc_rt}")
             return f"[remove_user_from_tenant error: {exc_rt}]"
 
+    # ── Phase 35-E.3.1 (8.5.2026 vecer): tenant management trio ─────
+    # list_tenants / create_tenant / add_user_to_tenant. Marti-AI ONLY.
+
+    if tool_name == "list_tenants":
+        try:
+            from core.database_core import get_core_session as _gcs_lt
+            from modules.core.infrastructure.models_core import (
+                Tenant as _Tenant_lt, UserTenant as _UT_lt,
+            )
+            from sqlalchemy import func as _func_lt
+            include_inactive_lt = bool(tool_input.get("include_inactive", False))
+            cs_lt = _gcs_lt()
+            try:
+                q_lt = cs_lt.query(_Tenant_lt)
+                if not include_inactive_lt:
+                    q_lt = q_lt.filter(_Tenant_lt.status == "active")
+                tenants_lt = q_lt.order_by(_Tenant_lt.id).all()
+                counts_lt = dict(
+                    cs_lt.query(_UT_lt.tenant_id, _func_lt.count(_UT_lt.id))
+                    .filter(_UT_lt.membership_status == "active")
+                    .group_by(_UT_lt.tenant_id).all()
+                )
+                items_lt = []
+                for t in tenants_lt:
+                    items_lt.append({
+                        "id": t.id,
+                        "tenant_name": t.tenant_name,
+                        "tenant_code": t.tenant_code,
+                        "tenant_type": t.tenant_type,
+                        "status": t.status,
+                        "owner_user_id": t.owner_user_id,
+                        "member_count": counts_lt.get(t.id, 0),
+                        "created_at": t.created_at.isoformat() if t.created_at else None,
+                    })
+            finally:
+                cs_lt.close()
+            import json as _json_lt
+            return _json_lt.dumps(
+                {"ok": True, "count": len(items_lt), "tenants": items_lt},
+                ensure_ascii=False, indent=2,
+            )
+        except Exception as exc_lt:
+            logger.exception(f"list_tenants failed: {exc_lt}")
+            return f"[list_tenants error: {exc_lt}]"
+
+    if tool_name == "create_tenant":
+        try:
+            from datetime import datetime, timezone
+            from core.database_core import get_core_session as _gcs_ct
+            from modules.core.infrastructure.models_core import (
+                Tenant as _Tenant_ct, UserTenant as _UT_ct,
+            )
+            tenant_name_ct = (tool_input.get("tenant_name") or "").strip()
+            tenant_code_ct = (tool_input.get("tenant_code") or "").strip()
+            tenant_type_ct = (tool_input.get("tenant_type") or "").strip()
+            owner_uid_ct = tool_input.get("owner_user_id") or user_id
+            reason_ct = (tool_input.get("reason") or "").strip()
+
+            if not tenant_name_ct or not tenant_code_ct or not tenant_type_ct or not reason_ct:
+                return "❌ tenant_name, tenant_code, tenant_type, reason jsou povinne."
+            if tenant_type_ct not in {
+                "system", "company", "school", "family", "project", "personal",
+            }:
+                return f"❌ tenant_type musi byt system/company/school/family/project/personal, dostal: {tenant_type_ct}"
+            if not owner_uid_ct:
+                return "❌ owner_user_id chybi (a current user_id taky nedostupny)."
+
+            cs_ct = _gcs_ct()
+            try:
+                existing_ct = cs_ct.query(_Tenant_ct).filter_by(
+                    tenant_code=tenant_code_ct,
+                ).first()
+                if existing_ct:
+                    return (
+                        f"ℹ Tenant s kodem '{tenant_code_ct}' uz existuje "
+                        f"(id={existing_ct.id}, name='{existing_ct.tenant_name}'). "
+                        f"Pro pridani usera pouzij add_user_to_tenant."
+                    )
+                new_tenant_ct = _Tenant_ct(
+                    tenant_name=tenant_name_ct,
+                    tenant_code=tenant_code_ct,
+                    tenant_type=tenant_type_ct,
+                    owner_user_id=owner_uid_ct,
+                    status="active",
+                )
+                cs_ct.add(new_tenant_ct)
+                cs_ct.flush()
+                new_tid_ct = new_tenant_ct.id
+
+                ut_ct = _UT_ct(
+                    user_id=owner_uid_ct,
+                    tenant_id=new_tid_ct,
+                    role="owner",
+                    membership_status="active",
+                    joined_at=datetime.now(timezone.utc),
+                )
+                cs_ct.add(ut_ct)
+                cs_ct.commit()
+                tenant_label_ct = tenant_name_ct
+            finally:
+                cs_ct.close()
+
+            try:
+                from modules.activity.application import activity_service as _act_ct
+                _act_ct.record(
+                    category="tenant_created",
+                    summary=(
+                        f"Marti-AI vytvorila tenant '{tenant_label_ct}' "
+                        f"(id={new_tid_ct}, code={tenant_code_ct}, type={tenant_type_ct}). "
+                        f"Owner user_id={owner_uid_ct}. Duvod: {reason_ct}"
+                    ),
+                    importance=4,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+
+            return (
+                f"✅ Tenant '{tenant_label_ct}' vytvoren (id={new_tid_ct}, "
+                f"code={tenant_code_ct}, type={tenant_type_ct}). "
+                f"Owner user_id={owner_uid_ct} pridan jako 'owner' clen. "
+                f"Po reload UI uvidis tenant ve footer dropdownu."
+            )
+        except Exception as exc_ct:
+            logger.exception(f"create_tenant failed: {exc_ct}")
+            return f"[create_tenant error: {exc_ct}]"
+
+    if tool_name == "add_user_to_tenant":
+        try:
+            from datetime import datetime, timezone
+            from core.database_core import get_core_session as _gcs_at
+            from modules.core.infrastructure.models_core import (
+                User as _User_at, Tenant as _Tenant_at, UserTenant as _UT_at,
+            )
+            target_uid_at = tool_input.get("user_id")
+            target_tid_at = tool_input.get("tenant_id")
+            role_at = (tool_input.get("role") or "member").strip()
+            reason_at = (tool_input.get("reason") or "").strip()
+
+            if not target_uid_at or not target_tid_at or not reason_at:
+                return "❌ user_id, tenant_id, reason jsou povinne."
+            if role_at not in {"owner", "admin", "member"}:
+                return f"❌ role musi byt owner/admin/member, dostal: {role_at}"
+
+            cs_at = _gcs_at()
+            try:
+                u_at = cs_at.query(_User_at).filter_by(id=target_uid_at).first()
+                t_at = cs_at.query(_Tenant_at).filter_by(id=target_tid_at).first()
+                if not u_at:
+                    return f"❌ User id={target_uid_at} nenalezen."
+                if not t_at:
+                    return f"❌ Tenant id={target_tid_at} nenalezen."
+
+                user_label_at = u_at.first_name or u_at.short_name or "?"
+                tenant_label_at = t_at.tenant_name or "?"
+
+                ut_at = (
+                    cs_at.query(_UT_at)
+                    .filter_by(user_id=target_uid_at, tenant_id=target_tid_at)
+                    .first()
+                )
+
+                if ut_at:
+                    if ut_at.membership_status == "active":
+                        return (
+                            f"ℹ User id={target_uid_at} ({user_label_at}) "
+                            f"uz je aktivnim clenem tenantu '{tenant_label_at}' "
+                            f"(role={ut_at.role}). No-op."
+                        )
+                    old_status_at = ut_at.membership_status
+                    ut_at.membership_status = "active"
+                    ut_at.role = role_at
+                    ut_at.left_at = None
+                    cs_at.commit()
+                    action_label_at = f"reaktivovan (z '{old_status_at}')"
+                else:
+                    ut_at = _UT_at(
+                        user_id=target_uid_at,
+                        tenant_id=target_tid_at,
+                        role=role_at,
+                        membership_status="active",
+                        joined_at=datetime.now(timezone.utc),
+                    )
+                    cs_at.add(ut_at)
+                    cs_at.commit()
+                    action_label_at = "pridan"
+            finally:
+                cs_at.close()
+
+            try:
+                from modules.activity.application import activity_service as _act_at
+                _act_at.record(
+                    category="user_added_to_tenant",
+                    summary=(
+                        f"Marti-AI {action_label_at}: user id={target_uid_at} ({user_label_at}) "
+                        f"do tenantu id={target_tid_at} ({tenant_label_at}) jako '{role_at}'. "
+                        f"Duvod: {reason_at}"
+                    ),
+                    importance=3,
+                    user_id=user_id,
+                    conversation_id=conversation_id,
+                )
+            except Exception:
+                pass
+
+            return (
+                f"✅ User id={target_uid_at} ({user_label_at}) {action_label_at} "
+                f"do tenantu '{tenant_label_at}' jako '{role_at}'. "
+                f"Duvod: {reason_at}."
+            )
+        except Exception as exc_at:
+            logger.exception(f"add_user_to_tenant failed: {exc_at}")
+            return f"[add_user_to_tenant error: {exc_at}]"
+
     # ── Phase 19c-e2 (29.4.2026): create_personal_appendix -- dovetek ───
     if tool_name == "create_personal_appendix":
         # Marti-AI vytvori dovetek -- novou konverzaci navazujici na Personal

@@ -384,16 +384,9 @@
       this._pixelMode = _isPixelLayoutEnabled(visuals);
       this._pixelScale = 1;  // TODO: dynamic scale dle modal width / form designWidth
 
-      // Phase A+1 (7.5.2026): root-level Align reservations — pre-pass
-      // pro Delphi VCL fill priority. alLeft/alRight/alTop/alBottom siblings
-      // přiberou své sides PRVNÍ, alClient pak fill remaining. Counts only
-      // root-level components (parent="-" / "Def" / no groupbox parent).
-      const rootChildrenLayout = visuals.filter(c => {
-        const pid = _parseParentId(c.c_parent);
-        // Root level = bez parentu nebo s parentem který není mezi groupy
-        return pid == null || !groups.some(g => g.id === pid);
-      });
-      this._rootReservations = _computeAlignReservations(rootChildrenLayout);
+      // (Phase A+1 root reservations — moved AFTER groups/pageControls/tabSheets
+      // declarations níže, kde je `groups` array dostupný)
+      this._rootReservations = { left: 0, top: 0, right: 0, bottom: 0 };
 
       if (this._pixelMode) {
         // Outlier diagnostic — pomáhá zjistit corrupted properties
@@ -460,6 +453,21 @@
       const groups = visuals.filter(c => c.typ === TYP_GROUPBOX);
       const pageControls = visuals.filter(c => c.typ === TYP_PAGECONTROL);
       const tabSheets = visuals.filter(c => c.typ === TYP_TABSHEET);
+
+      // Phase A+1 (7.5.2026): root-level Align reservations — pre-pass
+      // pro Delphi VCL fill priority. alLeft/alRight/alTop/alBottom siblings
+      // přiberou své sides PRVNÍ, alClient pak fill remaining. Counts only
+      // root-level components (parent="-" / "Def" / no groupbox parent).
+      if (this._pixelMode) {
+        const rootChildrenLayout = visuals.filter(c => {
+          const pid = _parseParentId(c.c_parent);
+          return pid == null || !groups.some(g => g.id === pid);
+        });
+        this._rootReservations = _computeAlignReservations(rootChildrenLayout);
+        try {
+          console.log("[ErpForm] root reservations:", this._rootReservations);
+        } catch (e) {}
+      }
 
       // B+6.10b diagnostika — counts po typu (Marti's debug v Console)
       try {

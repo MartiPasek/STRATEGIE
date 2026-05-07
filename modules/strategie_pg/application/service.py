@@ -92,8 +92,8 @@ _SessionFactory: Optional[sessionmaker] = None
 def _get_engine() -> Engine:
     """Lazy singleton engine pro Marti-AI PostgreSQL connection.
 
-    Reuses host/port/dbname z STRATEGIE-API konfigurace, ale pouziva
-    dedicated "Marti-AI" PostgreSQL role pro audit transparency.
+    Reuses host/port/dbname z STRATEGIE-API konfigurace (settings.database_data_url),
+    ale pouziva dedicated "Marti-AI" PostgreSQL role pro audit transparency.
     """
     global _engine, _SessionFactory
     if _engine is not None:
@@ -107,12 +107,23 @@ def _get_engine() -> Engine:
             "Add to .env: MARTI_AI_PG_PASSWORD=<heslo>"
         )
 
-    # Reuse existing PostgreSQL connection params (cloud APP local postgres)
-    pg_host = os.getenv("MARTI_AI_PG_HOST") or os.getenv(
-        "DATABASE_HOST", "localhost"
-    )
-    pg_port = os.getenv("MARTI_AI_PG_PORT") or os.getenv("DATABASE_PORT", "5432")
-    pg_db = os.getenv("MARTI_AI_PG_DB") or os.getenv("DATABASE_NAME", "data_db")
+    # Parse settings.database_data_url (STRATEGIE-API existing PG connection)
+    # a extract host/port/db. Pak swap user/password na "Marti-AI".
+    from urllib.parse import urlparse, urlunparse
+    from core.config import settings as _strategie_settings
+
+    base_url = _strategie_settings.database_data_url
+    if not base_url:
+        raise RuntimeError(
+            "settings.database_data_url not configured. "
+            "Cannot derive PostgreSQL host/port/db. "
+            "Check .env: DATABASE_DATA_URL=postgresql://..."
+        )
+
+    parsed = urlparse(base_url)
+    pg_host = parsed.hostname or "localhost"
+    pg_port = parsed.port or 5432
+    pg_db = (parsed.path or "/data_db").lstrip("/")
 
     # User je "Marti-AI" hardcoded (intentional — case-preserved, hyphen).
     # Zname presny string, nezamenime se s string interpolaci.
@@ -122,7 +133,23 @@ def _get_engine() -> Engine:
     user_url = quote_plus(pg_user)
     pwd_url = quote_plus(pg_password)
 
-    url = f"postgresql+psycopg2://{user_url}:{pwd_url}@{pg_host}:{pg_port}/{pg_db}"
+    # Coerce scheme na postgresql+psycopg2 (settings.database_data_url muze byt
+    # 'postgresql://' bez explicit driveru)
+    scheme = parsed.scheme
+    if scheme == "postgresql":
+        scheme = "postgresql+psycopg2"
+    elif not scheme:
+        scheme = "postgresql+psycopg2"
+
+    netloc = f"{user_url}:{pwd_url}@{pg_host}:{pg_port}"
+    url = urlunparse((
+        scheme,
+        netloc,
+        f"/{pg_db}",
+        parsed.params,
+        parsed.query,
+        parsed.fragment,
+    ))
 
     logger.info(
         f"STRATEGIE_PG | initializing engine | user={pg_user} "

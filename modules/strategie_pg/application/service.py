@@ -35,6 +35,17 @@ from contextlib import contextmanager
 from typing import Any, Optional, Generator
 from urllib.parse import quote_plus
 
+# Load .env into os.environ pri module import.
+# STRATEGIE-API pouziva pydantic-settings (core/config.py) s extra="ignore",
+# ktery cte .env primo do Settings instance ale NEPOPULUJE os.environ.
+# Takze os.getenv("MARTI_AI_PG_PASSWORD") by vracelo None.
+# load_dotenv() je idempotentni a default neuverezi existujici env vars.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass  # python-dotenv missing -- env vars must come from system
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import Engine
 from sqlalchemy.orm import Session, sessionmaker

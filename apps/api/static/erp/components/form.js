@@ -140,6 +140,14 @@
   function _applyLayout(el, layout, scale) {
     if (!el || !layout) return;
     scale = scale || 1;
+    // Phase A+1 (7.5.2026): hidden-by-positioning Delphi VCL pattern
+    // Pokud Left nebo Top > 5000, element je hidden (Centrála 1 legacy
+    // — "kluku z IT bordel" Marti's slovo). Skip render.
+    if (_isHiddenByPositioning(layout)) {
+      el.style.display = "none";
+      el.setAttribute("data-erp-hidden-by-positioning", "true");
+      return;
+    }
     el.classList.add("erp-pixel-positioned");
     const align = layout.align || "alNone";
     // Align modifier classes (overrides absolute positioning per CSS)
@@ -175,18 +183,42 @@
   global._erpApplyLayout = _applyLayout;
 
   /**
+   * Detect "hidden by positioning" — Delphi VCL legacy pattern. Developer
+   * místo Visible=False nastavil Left/Top mimo screen (např. Left=29788).
+   * Marti's "kluku z IT bordel" — legacy hidden fields v Centrále 1.
+   */
+  function _isHiddenByPositioning(layout) {
+    if (!layout) return false;
+    const HIDE_THRESHOLD = 5000;
+    return (layout.left || 0) > HIDE_THRESHOLD ||
+           (layout.top || 0) > HIDE_THRESHOLD;
+  }
+
+  /**
    * Vypočti dimenze form root z components (max bottom-right corner).
    * Použito pokud FormDef nemá fWidth/fHeight nebo jsou 0.
+   * Filter out hidden-by-positioning components (Centrála 1 legacy pattern).
    */
   function _computeFormDimensions(visuals) {
     let maxRight = 0, maxBottom = 0;
+    let hiddenCount = 0;
     for (const c of visuals) {
+      if (_isHiddenByPositioning(c.layout)) {
+        hiddenCount++;
+        continue;
+      }
       const l = (c.layout && c.layout.left) || 0;
       const t = (c.layout && c.layout.top) || 0;
       const w = (c.layout && c.layout.width) || 0;
       const h = (c.layout && c.layout.height) || 0;
       if (l + w > maxRight) maxRight = l + w;
       if (t + h > maxBottom) maxBottom = t + h;
+    }
+    if (hiddenCount > 0) {
+      try {
+        console.log("[ErpForm] hidden-by-positioning components skipped:",
+          hiddenCount, "(legacy Delphi pattern)");
+      } catch (e) {}
     }
     return { width: maxRight + 20, height: maxBottom + 20 };
   }

@@ -135,6 +135,84 @@
       return this.fieldsEl;
     }
 
+    /**
+     * Phase A+1 (7.5.2026): Convert section na pixel container.
+     * Sekce sama je positioned absolute (within form root), fieldsEl
+     * je relative container pro absolutely positioned children.
+     *
+     * @param {object} sectionLayout - {top, left, width, height, align, anchors}
+     *                                 pro positioning sekce v parent containeru
+     * @param {object} opts - {scale: number, noCaption: bool}
+     */
+    setPixelMode(sectionLayout, opts) {
+      if (this._destroyed) return;
+      opts = opts || {};
+      const scale = opts.scale || 1;
+      // Mark wrapper jako pixel container
+      this.wrapper.classList.add("pixel-container");
+      if (opts.noCaption || !this.options.title) {
+        this.wrapper.classList.add("no-caption");
+      }
+      // Apply layout na samotný section wrapper (positioning v form root)
+      if (sectionLayout) {
+        if (typeof global._erpApplyLayout === "function") {
+          global._erpApplyLayout(this.wrapper, sectionLayout, scale);
+        } else {
+          // Fallback inline (pokud helper není dostupný)
+          this.wrapper.style.position = "absolute";
+          if (sectionLayout.top != null) this.wrapper.style.top = (sectionLayout.top * scale) + "px";
+          if (sectionLayout.left != null) this.wrapper.style.left = (sectionLayout.left * scale) + "px";
+          if (sectionLayout.width > 0) this.wrapper.style.width = (sectionLayout.width * scale) + "px";
+          if (sectionLayout.height > 0) this.wrapper.style.height = (sectionLayout.height * scale) + "px";
+        }
+      }
+      // fieldsEl: relative container, žádný grid (children pixel positioned)
+      this.fieldsEl.style.display = "block";
+      this.fieldsEl.style.position = "relative";
+      this.fieldsEl.style.gridTemplateColumns = "";
+      this.fieldsEl.style.height = "100%";  // fill section minus header
+      this._pixelMode = true;
+      this._pixelScale = scale;
+    }
+
+    /**
+     * Phase A+1: Append field s pixel layout positioning. Vyžaduje
+     * setPixelMode() předem. Field's wrapper element dostane absolute
+     * positioning podle layout dict.
+     */
+    addPixelField(field, layout) {
+      if (this._destroyed) return;
+      if (!this._pixelMode) {
+        // Fallback na vertical addField
+        return this.addField(field);
+      }
+      let el = null;
+      if (field && typeof field.wrapperElement === "function") {
+        el = field.wrapperElement();
+      } else if (field instanceof HTMLElement) {
+        el = field;
+      } else if (field && field.nodeType === 1) {
+        el = field;
+      }
+      if (!el) {
+        console.warn("ErpFormSection.addPixelField: invalid field", field);
+        return;
+      }
+      this._fields.push(field);
+      this.fieldsEl.appendChild(el);
+      // Apply layout na child element (relative k fieldsEl)
+      // POZOR: child layout.top/left jsou absolute koordináty v form root
+      // (z Centrály 1 properties), ale v pixel mode jsou children section
+      // relativní k section.left/top. Frontend musí to ofsetovat —
+      // child.relativeTop = layout.top - section.top, atd.
+      // Tohle je řízeno z form.js _build (znalost section layout context).
+      // Zde jen aplikuje co dostane.
+      if (layout && typeof global._erpApplyLayout === "function") {
+        global._erpApplyLayout(el, layout, this._pixelScale);
+      }
+      this._updateEmptyVisual();
+    }
+
     setTitle(title) {
       if (this._destroyed) return;
       this.options.title = title;

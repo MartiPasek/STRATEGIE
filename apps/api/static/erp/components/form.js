@@ -108,6 +108,90 @@
   }
 
   /**
+   * Phase A+1 (7.5.2026): pixel layout engine.
+   *
+   * Marti's vize — každá komponenta v Centrále 1 jádře má vlastní pozici
+   * (Top/Left) + dimenze (Width/Height) + Anchors (elasticita) + Align
+   * (fill behavior). Žádné konvence "co vlevo, co vpravo". Server posílá
+   * structured layout dict, frontend renderuje absolute positioning.
+   */
+
+  /**
+   * Aktivovat pixel mode pokud aspoň 30 % visual components má layout
+   * data (width nebo height > 0). Nižší threshold by triggeroval pro
+   * jádra s default layout=0 (prázdné properties), což by neudělalo
+   * správnou věc. Vyšší threshold by minul jádra s mixem (některé
+   * components mají layout, jiné ne).
+   */
+  function _isPixelLayoutEnabled(visuals) {
+    if (!visuals || visuals.length === 0) return false;
+    const hasLayoutCount = visuals.filter(c =>
+      c.layout && (c.layout.width > 0 || c.layout.height > 0)
+    ).length;
+    return hasLayoutCount / visuals.length >= 0.3;
+  }
+
+  /**
+   * Aplikuj layout na DOM element. Mutates element.style + classList.
+   * @param el HTMLElement - target
+   * @param layout {top, left, width, height, align, anchors[], margins[]}
+   * @param scale number - scale factor (1 = native, <1 = shrink)
+   */
+  function _applyLayout(el, layout, scale) {
+    if (!el || !layout) return;
+    scale = scale || 1;
+    el.classList.add("erp-pixel-positioned");
+    const align = layout.align || "alNone";
+    // Align modifier classes (overrides absolute positioning per CSS)
+    if (align === "alClient") {
+      el.classList.add("erp-align-client");
+    } else if (align === "alTop") {
+      el.classList.add("erp-align-top");
+      if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+    } else if (align === "alBottom") {
+      el.classList.add("erp-align-bottom");
+      if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+    } else if (align === "alLeft") {
+      el.classList.add("erp-align-left");
+      if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
+    } else if (align === "alRight") {
+      el.classList.add("erp-align-right");
+      if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
+    } else {
+      // alNone — pixel positioning Top/Left
+      el.style.top = (layout.top * scale) + "px";
+      el.style.left = (layout.left * scale) + "px";
+      if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
+      if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
+    }
+    // Anchors: pro Phase A+1 fixed (no resize behavior). Future iterace:
+    // [akLeft, akTop, akRight] → CSS calc(100% - left - rightSpace) pro
+    // elastic horizontally. Pro dnes ignorujeme — explicit width staví UI
+    // approximately Centrála 1 layout.
+  }
+
+  // Expose helper jako global pro cross-component reuse (ErpFormSection,
+  // později ErpPageControl content area).
+  global._erpApplyLayout = _applyLayout;
+
+  /**
+   * Vypočti dimenze form root z components (max bottom-right corner).
+   * Použito pokud FormDef nemá fWidth/fHeight nebo jsou 0.
+   */
+  function _computeFormDimensions(visuals) {
+    let maxRight = 0, maxBottom = 0;
+    for (const c of visuals) {
+      const l = (c.layout && c.layout.left) || 0;
+      const t = (c.layout && c.layout.top) || 0;
+      const w = (c.layout && c.layout.width) || 0;
+      const h = (c.layout && c.layout.height) || 0;
+      if (l + w > maxRight) maxRight = l + w;
+      if (t + h > maxBottom) maxBottom = t + h;
+    }
+    return { width: maxRight + 20, height: maxBottom + 20 };
+  }
+
+  /**
    * Detect ErpInput type podle komponenta + properties + cMask heuristic.
    * Default = "text".
    */
@@ -199,6 +283,29 @@
       // Filter visual components
       const visuals = components.filter(c => !NON_VISUAL_TYPS.has(c.typ));
 
+      // Phase A+1 (7.5.2026): Detekce pixel mode. Pokud aspoň 30 %
+      // components má layout dimenze (width/height > 0), aktivuj pixel
+      // positioning. Jinak fallback na vertical stack (existing flow).
+      this._pixelMode = _isPixelLayoutEnabled(visuals);
+      this._pixelScale = 1;  // TODO: dynamic scale dle modal width / form designWidth
+
+      if (this._pixelMode) {
+        this.wrapper.classList.add("erp-form-pixel");
+        // Dimenze form root — z FormDef.fWidth/fHeight nebo computed z components
+        const dims = _computeFormDimensions(visuals);
+        const formW = this.options.fWidth || dims.width;
+        const formH = this.options.fHeight || dims.height;
+        this.wrapper.style.width = (formW * this._pixelScale) + "px";
+        this.wrapper.style.minHeight = (formH * this._pixelScale) + "px";
+        this.wrapper.style.position = "relative";
+        try {
+          console.log("[ErpForm] PIXEL MODE active —",
+            "formId=" + this.options.formId,
+            "computed dims:", dims,
+            "scale:", this._pixelScale);
+        } catch (e) {}
+      }
+
       // B+6.10b (6.5.2026 večer): rozšíření o PageControl + TabSheet jako
       // parent containers. Marti's screenshot 2: PageControl má TabSheet
       // children, TabSheet má RichEdit children. Convention c_parent="c{id}"
@@ -274,6 +381,14 @@
         const sec = new global.ErpFormSection(this.wrapper, {
           title: realCaption,
         });
+        // Phase A+1: pixel mode pro section — positioning v form root +
+        // fieldsEl jako relative container pro absolutely positioned children
+        if (this._pixelMode && g.layout) {
+          sec.setPixelMode(g.layout, {
+            scale: this._pixelScale,
+            noCaption: !realCaption,
+          });
+        }
         sectionById.set(g.id, sec);
         this._sections.push(sec);
       });
@@ -286,6 +401,10 @@
         if (entry && entry.instance && entry.instance.wrapper) {
           // Append PageControl wrapper directly (vedle GroupBox sekcí)
           this.wrapper.appendChild(entry.instance.wrapper);
+          // Phase A+1: PageControl positioning v pixel mode
+          if (this._pixelMode && pc.layout) {
+            _applyLayout(entry.instance.wrapper, pc.layout, this._pixelScale);
+          }
           pageControlById.set(pc.id, { comp: pc, instance: entry.instance });
         }
       });
@@ -309,6 +428,11 @@
           // TabSheet bez parent PageControl — orphan, append do form wrapper
           // (defensive — Centrála 1 vždy má parent, ale pojistka).
           this.wrapper.appendChild(entry.element);
+        }
+        // Phase A+1: TabSheet contentEl jako pixel container — children
+        // RichEdity/Inputs s position: absolute mají správný anchor point.
+        if (this._pixelMode) {
+          entry.element.classList.add("pixel-container");
         }
         tabSheetById.set(ts.id, {
           comp: ts,
@@ -387,7 +511,14 @@
           } else if (entry.element) {
             el = entry.element;
           }
-          if (el) ts.contentEl.appendChild(el);
+          if (el) {
+            ts.contentEl.appendChild(el);
+            // Phase A+1: pixel positioning v TabSheet contentEl
+            // (předpokládá ts.contentEl má pixel-container class — viz init)
+            if (this._pixelMode && comp.layout) {
+              _applyLayout(el, comp.layout, this._pixelScale);
+            }
+          }
         } else {
           // GroupBox child NEBO orphan → ErpFormSection.addField()
           let targetSec = null;
@@ -397,7 +528,11 @@
             // No parent OR parent ID nenalezen mezi GroupBoxes → orphan
             targetSec = ensureOrphan();
           }
-          if (entry.component) {
+          // Phase A+1: pixel mode → addPixelField (positioned), jinak addField (vertical)
+          if (this._pixelMode && comp.layout && targetSec._pixelMode) {
+            const compEl = entry.component || entry.element;
+            targetSec.addPixelField(compEl, comp.layout);
+          } else if (entry.component) {
             targetSec.addField(entry.component);
           } else if (entry.element) {
             targetSec.addField(entry.element);

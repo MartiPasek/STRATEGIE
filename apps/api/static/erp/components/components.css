@@ -1686,3 +1686,88 @@
 .erp-pagecontrol-tab-content[hidden] {
   display: none;
 }
+
+/* ── Phase A+1 (7.5.2026): Pixel-aware layout (Delphi VCL replika) ──── */
+/*
+ * Marti's vize: každé jádro má components na specifických pozicích
+ * (Top/Left/Width/Height + Anchors + Align). Žádný flow layout — pixel
+ * positioning. Aktivace přes class `.erp-form-pixel` na root wrapperu
+ * + `.erp-pixel-positioned` na components.
+ */
+
+/* Root form pixel mode — relative container s explicit dimenzemi */
+.erp-form-pixel {
+  position: relative;
+  overflow: visible;
+  /* width/height set inline z layout extraction */
+}
+
+/* Container pixel mode (GroupBox, PageControl, TabSheet content) */
+.erp-form-pixel .erp-form-section.pixel-container,
+.erp-pixel-container {
+  position: absolute;
+  box-sizing: border-box;
+  /* top/left/width/height set inline */
+}
+
+/* GroupBox pixel-mode — keep border + caption frame */
+.erp-form-pixel .erp-form-section.pixel-container {
+  display: block;
+  padding: 14px 12px 10px;
+}
+
+/* GroupBox without caption (typ 13 Panel-like — Marti screenshot 49) */
+.erp-form-pixel .erp-form-section.pixel-container.no-caption {
+  padding: 8px;
+}
+
+/* Component pixel-positioned (default = absolute Top/Left) */
+.erp-pixel-positioned {
+  position: absolute;
+  box-sizing: border-box;
+}
+
+/* Align modifiers — overrideují absolute positioning */
+.erp-pixel-positioned.erp-align-client {
+  top: 0; left: 0; right: 0; bottom: 0;
+  width: auto; height: auto;
+}
+.erp-pixel-positioned.erp-align-top {
+  top: 0; left: 0; right: 0;
+  width: auto;
+}
+.erp-pixel-positioned.erp-align-bottom {
+  bottom: 0; left: 0; right: 0;
+  top: auto; width: auto;
+}
+.erp-pixel-positioned.erp-align-left {
+  top: 0; left: 0; bottom: 0;
+  height: auto;
+}
+.erp-pixel-positioned.erp-align-right {
+  top: 0; right: 0; bottom: 0;
+  left: auto; height: auto;
+}
+
+/* Anchor-based elastic resize (Phase A+1.1 future):
+ * [akLeft, akTop] = default fixed (no resize behavior)
+ * [akLeft, akTop, akRight] = elastic horizontally (right = parent.W - left - width)
+ * [akLeft, akTop, akRight, akBottom] = fill remaining
+ *
+ * For now, layout engine sets explicit width/height. Anchors elasticity
+ * via JS resize observer or CSS calc() — TBD next iteration.
+ */
+
+/* Form root scaling — viewport-fit (proportional resize pro mobile/small modal) */
+.erp-form-pixel.erp-scaled {
+  transform-origin: top left;
+  /* transform: scale(N) set inline by JS when modal smaller than designWidth */
+}
+
+/* Tab content pixel — TabSheet content vyplní celé contentArea */
+.erp-pagecontrol-tab-content.pixel-container {
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  padding: 0;
+  overflow: visible;
+}

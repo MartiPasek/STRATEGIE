@@ -108,6 +108,23 @@ MANAGEMENT_TOOL_NAMES = {
     # vlastni paletu emoji ikonek pro user, ktery ji pouziva v UI input
     # boxu (Marti's request "ja zavidim ikonky co pouzivate").
     "update_emoji_palette",
+    # Phase 35 (8.5.2026): per-project structured memory (project_memo).
+    # Marti-AI's design po consultation 8.5. odpoledne -- separatni model
+    # od md_documents, polymorfni scope (entity_def driven).
+    "update_project_memo",
+    "read_project_memo",
+    # Phase 35-E (8.5.2026 odpoledne): PostgreSQL DDL/DML pro Marti-AI.
+    # Single-framework architecture (Marti's simplification 8.5. ~16:00):
+    # vsechny framework definice v PostgreSQL data_db, MSSQL DB_EC jako
+    # zdroj puvodni pravdy. Marti-AI je owner master/tenant/tenant_group/user
+    # schemas. dry_run pattern (pravo na rozmysl pred cinem).
+    "strategie_pg_list_schemas",
+    "strategie_pg_list_tables",
+    "strategie_pg_describe_table",
+    "strategie_pg_create_table",
+    "strategie_pg_query_table",
+    "strategie_pg_query_raw",
+    "strategie_pg_insert_row",
     # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
@@ -4513,6 +4530,344 @@ TOOLS = [
                     "default": False,
                 },
             },
+        },
+    },
+    # ── Phase 35 (8.5.2026): per-project structured memory ──────────
+    {
+        "name": "update_project_memo",
+        "description": (
+            "Phase 35: Aktualizuj sekci v project_memo (živý dokument per "
+            "projekt). Mode 'append' = pridá content na konec sekce; "
+            "'replace' = nahradí celý body sekce; 'patch' = alias pro append. "
+            "Pokud sekce neexistuje, přidá ji na konec. Lazy-create memo "
+            "pri prvnim volani pro daný (project_id, scope).\n\n"
+            "Polymorfní scope (Marti-AI's design):\n"
+            "  - scope_entity_type=NULL, scope_entity_id=NULL → 'shared' "
+            "(default, viditelné všem členům projektu)\n"
+            "  - scope_entity_type='user', scope_entity_id=X → per-user-"
+            "per-project (poznámky usera X o tomto projektu)\n"
+            "  - scope_entity_type='persona', scope_entity_id=X → per-persona\n\n"
+            "Audit trail v project_memo_history (pre-update content_snapshot "
+            "pro forenzní rollback).\n\n"
+            "Použij když: vidíš klíčové rozhodnutí v projektu, status změnu, "
+            "novou osobu zapojenou, milestone, deadline, atd. Toto je tvá "
+            "trvalá projektová paměť napříč konverzacemi.\n\n"
+            "Marti-AI ONLY (default persona, MANAGEMENT_TOOL_NAMES)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "ID projektu (z projects tabulky).",
+                },
+                "section": {
+                    "type": "string",
+                    "description": (
+                        "Název sekce (markdown heading bez '##'). Např. "
+                        "'Status', 'Členové', 'Milníky', 'Klíčová rozhodnutí'."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Markdown content k zápisu. Pro append: typicky "
+                        "bullet ('- 2026-05-08: Petra potvrdila audit'). "
+                        "Pro replace: celý nový body sekce."
+                    ),
+                },
+                "mode": {
+                    "type": "string",
+                    "description": (
+                        "Mode update: 'append' (default) | 'replace' | "
+                        "'patch'."
+                    ),
+                    "enum": ["append", "replace", "patch"],
+                },
+                "scope_entity_type": {
+                    "type": "string",
+                    "description": (
+                        "Volitelně: scope. 'user' nebo 'persona' nebo NULL "
+                        "(default = shared per-projekt)."
+                    ),
+                    "enum": ["user", "persona"],
+                },
+                "scope_entity_id": {
+                    "type": "integer",
+                    "description": (
+                        "Volitelně: ID entity (user_id nebo persona_id) "
+                        "podle scope_entity_type. Required pokud "
+                        "scope_entity_type je nastaveno."
+                    ),
+                },
+            },
+            "required": ["project_id", "section", "content"],
+        },
+    },
+    {
+        "name": "read_project_memo",
+        "description": (
+            "Phase 35: Read-only přístup k project_memo. Vrátí celý content "
+            "nebo konkrétní sekci. Pokud user (caller) není členem projektu "
+            "a memo má scope='shared', vrátí scope_blocked = True s "
+            "explicit hláškou (Marti-AI ji předá uživateli formou "
+            "'mám přístup já, ale ty zatím ne').\n\n"
+            "Marti-AI ONLY (parent / Marti-AI default vidí napříč projekty; "
+            "non-member members dostanou scope_blocked)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "project_id": {
+                    "type": "integer",
+                    "description": "ID projektu.",
+                },
+                "section": {
+                    "type": "string",
+                    "description": (
+                        "Volitelně: jen konkrétní sekce. Default = celý "
+                        "content."
+                    ),
+                },
+                "scope_entity_type": {
+                    "type": "string",
+                    "description": (
+                        "Volitelně: scope filter. NULL=shared (default)."
+                    ),
+                    "enum": ["user", "persona"],
+                },
+                "scope_entity_id": {
+                    "type": "integer",
+                    "description": "Volitelně: ID entity.",
+                },
+            },
+            "required": ["project_id"],
+        },
+    },
+    # ── Phase 35-E (8.5.2026): PostgreSQL DDL/DML pro Marti-AI ──────
+    {
+        "name": "strategie_pg_list_schemas",
+        "description": (
+            "Phase 35-E: Vrátí PostgreSQL schémata, kde máš (Marti-AI) "
+            "přístup. Tvá vlastní schémata: master / tenant / tenant_group "
+            "/ \"user\" — všechna AUTHORIZATION 'Marti-AI' (jsi owner). "
+            "Plus public (read-only operational tables — md_documents, "
+            "project_memo, conversations, atd.). \n\n"
+            "Použij na začátku každé framework session — uvidíš co tam "
+            "už je vs missing_expected list."
+        ),
+        "input_schema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "strategie_pg_list_tables",
+        "description": (
+            "Phase 35-E: Vrátí tabulky v PostgreSQL schémamu. "
+            "schema=None → všechna tvá schémata (master/tenant/tenant_group/"
+            "user). schema='public' → existující operational tables "
+            "(read-only). Vrací size_bytes + column_count + description "
+            "(z COMMENT ON TABLE)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {
+                    "type": "string",
+                    "description": (
+                        "Schema name. None = všechna tvá schémata."
+                    ),
+                },
+            },
+        },
+    },
+    {
+        "name": "strategie_pg_describe_table",
+        "description": (
+            "Phase 35-E: Kompletní struktura PostgreSQL tabulky — sloupce "
+            "(typ, nullable, default), indexy, constraints (PK/FK/UNIQUE/"
+            "CHECK), row count estimate. Použij před modifikací nebo "
+            "pro orientaci v existing schema (md_documents, project_memo, "
+            "conversations atd.)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {
+                    "type": "string",
+                    "description": "Schema name.",
+                },
+                "table": {
+                    "type": "string",
+                    "description": "Table name.",
+                },
+            },
+            "required": ["schema", "table"],
+        },
+    },
+    {
+        "name": "strategie_pg_create_table",
+        "description": (
+            "Phase 35-E: CREATE TABLE v PostgreSQL. Jsi owner master/tenant/"
+            "tenant_group/\"user\" schemas — žádný parent gate na DDL.\n\n"
+            "**dry_run=True** (default Recommended pro první creation): "
+            "vrátí preview SQL + warnings (duplicate columns, schema "
+            "missing, FK target invalid, table exists). Použij pro tvé "
+            "*„právo na rozmysl před činem“* — review s tatínkem v chatu, "
+            "případně doladit, pak dry_run=False execute.\n\n"
+            "columns: list of {name, type, nullable?, identity?, default?}\n"
+            "  - type je raw PG type (BIGINT, VARCHAR(50), TEXT, "
+            "TIMESTAMPTZ, JSONB, ...)\n"
+            "  - identity=True → BIGSERIAL auto-increment\n"
+            "  - default je raw SQL fragment (např. 'NOW()' nebo \"'shared'\")\n"
+            "primary_key: list column names (default ['id'] pokud existuje)\n"
+            "indexes: list of {name?, columns: [...], unique?, partial?}\n"
+            "  - partial je SQL where fragment (např. \"is_active = true\")\n"
+            "foreign_keys: list of {column, ref_schema, ref_table, "
+            "ref_column, on_delete?, on_update?}\n\n"
+            "Identifier quoting (PostgreSQL):\n"
+            "  - 'master' → master (no quote)\n"
+            "  - 'user' → \"user\" (reserved word, automatic)\n"
+            "  - 'Marti-AI' → \"Marti-AI\" (hyphen, automatic)\n"
+            "Tool si quoting řeší sám — ty piš plain string."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "name": {"type": "string"},
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "List of {name, type, nullable?, identity?, default?}"
+                    ),
+                },
+                "primary_key": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of column names",
+                },
+                "indexes": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "List of {name?, columns: [...], unique?, partial?}"
+                    ),
+                },
+                "foreign_keys": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "List of {column, ref_schema, ref_table, "
+                        "ref_column, on_delete?, on_update?}"
+                    ),
+                },
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "COMMENT ON TABLE (volitelně, pro audit clarity)"
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": (
+                        "True = preview, False = execute. "
+                        "Default False (production)."
+                    ),
+                },
+            },
+            "required": ["schema", "name", "columns"],
+        },
+    },
+    {
+        "name": "strategie_pg_query_table",
+        "description": (
+            "Phase 35-E: SELECT z PostgreSQL tabulky. where = {col: value} "
+            "(equality, AND join). columns=None → SELECT *. limit max 1000. "
+            "Použij pro verify po insert nebo pro orientaci v datech."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "table": {"type": "string"},
+                "where": {
+                    "type": "object",
+                    "description": (
+                        "Equality filter {col: value}, joined with AND"
+                    ),
+                },
+                "columns": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "List of column names. None = SELECT *",
+                },
+                "limit": {
+                    "type": "integer",
+                    "description": "Max rows (default 100, hard cap 1000)",
+                },
+                "offset": {
+                    "type": "integer",
+                    "description": "Skip N rows (default 0)",
+                },
+                "order_by": {
+                    "type": "string",
+                    "description": (
+                        "Raw ORDER BY fragment (např. 'created_at DESC')"
+                    ),
+                },
+            },
+            "required": ["schema", "table"],
+        },
+    },
+    {
+        "name": "strategie_pg_query_raw",
+        "description": (
+            "Phase 35-E: Read-only raw PostgreSQL SQL. WHITELIST: jen "
+            "SELECT/WITH/EXPLAIN/SHOW. Pro DDL/DML použij dedicated tools "
+            "(create_table, insert_row, ...).\n\n"
+            "Použij pro composite queries (JOIN, GROUP BY, agregace) které "
+            "query_table neumí. Příklad: SELECT count(*) FROM "
+            "master.entity_def WHERE tier = 'master' GROUP BY is_active."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "sql": {
+                    "type": "string",
+                    "description": "SELECT / WITH / EXPLAIN / SHOW SQL.",
+                },
+                "params": {
+                    "type": "object",
+                    "description": (
+                        "Volitelné parametrizace {param_name: value}, "
+                        "v SQL referenced jako :param_name."
+                    ),
+                },
+            },
+            "required": ["sql"],
+        },
+    },
+    {
+        "name": "strategie_pg_insert_row",
+        "description": (
+            "Phase 35-E: INSERT one row do PostgreSQL tabulky. Vrátí "
+            "vloženy row (RETURNING *) — uvidíš generated ID + defaults.\n\n"
+            "values = {column: value} dict. Tool aplikuje quoting "
+            "automaticky. Pro multi-row insert použij vícekrát "
+            "(pro performance bulk insert TODO future).\n\n"
+            "Audit: každý insert se loguje (STRATEGIE_PG prefix v logu)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "table": {"type": "string"},
+                "values": {
+                    "type": "object",
+                    "description": "{column_name: value} dict.",
+                },
+            },
+            "required": ["schema", "table", "values"],
         },
     },
 ]

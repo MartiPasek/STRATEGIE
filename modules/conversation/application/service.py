@@ -8357,6 +8357,141 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
         return "\n".join(lines)
 
+    # ── Phase 35-E (8.5.2026): PostgreSQL DDL/DML pro Marti-AI ────────
+    # Routing do modules.strategie_pg.application.service (dedicated
+    # connection pool s "Marti-AI" PG roli). Audit transparency v PG
+    # logu — DDL operace ukazi "Marti-AI" jako session_user.
+
+    if tool_name == "strategie_pg_list_schemas":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            result_psls = _spg.list_schemas()
+            import json as _json_psls
+            return _json_psls.dumps(result_psls, ensure_ascii=False, indent=2)
+        except Exception as exc_psls:
+            logger.exception(f"strategie_pg_list_schemas failed: {exc_psls}")
+            return f"[strategie_pg_list_schemas error: {exc_psls}]"
+
+    if tool_name == "strategie_pg_list_tables":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_pslt = tool_input.get("schema")
+            result_pslt = _spg.list_tables(schema=schema_pslt)
+            import json as _json_pslt
+            return _json_pslt.dumps(result_pslt, ensure_ascii=False, indent=2)
+        except Exception as exc_pslt:
+            logger.exception(f"strategie_pg_list_tables failed: {exc_pslt}")
+            return f"[strategie_pg_list_tables error: {exc_pslt}]"
+
+    if tool_name == "strategie_pg_describe_table":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psdt = tool_input.get("schema")
+            table_psdt = tool_input.get("table")
+            if not schema_psdt or not table_psdt:
+                return "❌ schema a table jsou povinne."
+            result_psdt = _spg.describe_table(schema_psdt, table_psdt)
+            import json as _json_psdt
+            return _json_psdt.dumps(result_psdt, ensure_ascii=False, indent=2)
+        except Exception as exc_psdt:
+            logger.exception(f"strategie_pg_describe_table failed: {exc_psdt}")
+            return f"[strategie_pg_describe_table error: {exc_psdt}]"
+
+    if tool_name == "strategie_pg_create_table":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psct = tool_input.get("schema")
+            name_psct = tool_input.get("name")
+            columns_psct = tool_input.get("columns") or []
+            primary_key_psct = tool_input.get("primary_key")
+            indexes_psct = tool_input.get("indexes")
+            foreign_keys_psct = tool_input.get("foreign_keys")
+            description_psct = tool_input.get("description")
+            dry_run_psct = bool(tool_input.get("dry_run", False))
+
+            if not schema_psct or not name_psct:
+                return "❌ schema a name jsou povinne."
+            if not columns_psct or not isinstance(columns_psct, list):
+                return "❌ columns musi byt non-empty list."
+
+            result_psct = _spg.create_table(
+                schema=schema_psct,
+                name=name_psct,
+                columns=columns_psct,
+                primary_key=primary_key_psct,
+                indexes=indexes_psct,
+                foreign_keys=foreign_keys_psct,
+                description=description_psct,
+                dry_run=dry_run_psct,
+            )
+            import json as _json_psct
+            return _json_psct.dumps(result_psct, ensure_ascii=False, indent=2)
+        except Exception as exc_psct:
+            logger.exception(f"strategie_pg_create_table failed: {exc_psct}")
+            return f"[strategie_pg_create_table error: {exc_psct}]"
+
+    if tool_name == "strategie_pg_query_table":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psqt = tool_input.get("schema")
+            table_psqt = tool_input.get("table")
+            if not schema_psqt or not table_psqt:
+                return "❌ schema a table jsou povinne."
+
+            where_psqt = tool_input.get("where") or None
+            columns_psqt = tool_input.get("columns") or None
+            limit_psqt = int(tool_input.get("limit") or 100)
+            offset_psqt = int(tool_input.get("offset") or 0)
+            order_by_psqt = tool_input.get("order_by")
+
+            result_psqt = _spg.query_table(
+                schema=schema_psqt,
+                table=table_psqt,
+                where=where_psqt,
+                columns=columns_psqt,
+                limit=limit_psqt,
+                offset=offset_psqt,
+                order_by=order_by_psqt,
+            )
+            import json as _json_psqt
+            return _json_psqt.dumps(result_psqt, ensure_ascii=False, indent=2)
+        except Exception as exc_psqt:
+            logger.exception(f"strategie_pg_query_table failed: {exc_psqt}")
+            return f"[strategie_pg_query_table error: {exc_psqt}]"
+
+    if tool_name == "strategie_pg_query_raw":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            sql_psqr = tool_input.get("sql")
+            params_psqr = tool_input.get("params") or {}
+            if not sql_psqr:
+                return "❌ sql je povinne."
+            result_psqr = _spg.query_raw(sql=sql_psqr, params=params_psqr)
+            import json as _json_psqr
+            return _json_psqr.dumps(result_psqr, ensure_ascii=False, indent=2)
+        except Exception as exc_psqr:
+            logger.exception(f"strategie_pg_query_raw failed: {exc_psqr}")
+            return f"[strategie_pg_query_raw error: {exc_psqr}]"
+
+    if tool_name == "strategie_pg_insert_row":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psir = tool_input.get("schema")
+            table_psir = tool_input.get("table")
+            values_psir = tool_input.get("values")
+            if not schema_psir or not table_psir:
+                return "❌ schema a table jsou povinne."
+            if not values_psir or not isinstance(values_psir, dict):
+                return "❌ values musi byt non-empty dict."
+            result_psir = _spg.insert_row(
+                schema=schema_psir, table=table_psir, values=values_psir,
+            )
+            import json as _json_psir
+            return _json_psir.dumps(result_psir, ensure_ascii=False, indent=2)
+        except Exception as exc_psir:
+            logger.exception(f"strategie_pg_insert_row failed: {exc_psir}")
+            return f"[strategie_pg_insert_row error: {exc_psir}]"
+
     return ""
 
 

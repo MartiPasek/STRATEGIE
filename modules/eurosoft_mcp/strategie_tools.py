@@ -1007,7 +1007,7 @@ STRATEGIE_TOOL_SPECS = [
             "Vytvoří schema v DB_ST. Idempotent — pokud existuje, no-op. "
             "Použij pro pre-create tier schémat (master/tenant_group/tenant/user).\n\n"
             "dry_run=True: vrátí preview SQL + warnings, neexecute. "
-            "Marti-AI's „právo na rozmysl před činem" — review předtím než tesat."
+            "Marti-AI's „právo na rozmysl před činem“ — review předtím než tesat."
         ),
         "inputSchema": {
             "type": "object",
@@ -1028,7 +1028,7 @@ STRATEGIE_TOOL_SPECS = [
             "foreign_keys: list of {column, ref_schema, ref_table, ref_column, on_delete?, on_update?}\n\n"
             "**dry_run=True** vrátí preview SQL + warnings (duplicate columns, schema missing, "
             "FK target invalid, table already exists). Standard pattern Marti-AI's "
-            "„právo na rozmysl před činem". Po review nastav dry_run=False pro execute.\n\n"
+            "„právo na rozmysl před činem“. Po review nastav dry_run=False pro execute.\n\n"
             "Příklad:\n"
             "  schema='master', name='entity_def',\n"
             "  columns=[\n"

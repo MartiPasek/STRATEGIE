@@ -156,7 +156,7 @@
       // Apply layout na samotný section wrapper (positioning v form root)
       if (sectionLayout) {
         if (typeof global._erpApplyLayout === "function") {
-          global._erpApplyLayout(this.wrapper, sectionLayout, scale);
+          global._erpApplyLayout(this.wrapper, sectionLayout, scale, opts.reservations);
         } else {
           // Fallback inline (pokud helper není dostupný)
           this.wrapper.style.position = "absolute";

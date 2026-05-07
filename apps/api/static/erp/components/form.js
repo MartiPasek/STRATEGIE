@@ -137,9 +137,13 @@
    * @param layout {top, left, width, height, align, anchors[], margins[]}
    * @param scale number - scale factor (1 = native, <1 = shrink)
    */
-  function _applyLayout(el, layout, scale) {
+  function _applyLayout(el, layout, scale, reservations) {
     if (!el || !layout) return;
     scale = scale || 1;
+    // Reservations = parent's reserved sides per Delphi VCL Align priority.
+    // alLeft/alTop/alBottom/alRight siblings reserve their portion FIRST,
+    // alClient fills remaining. CSS native to neumí — manuálně počítáme.
+    reservations = reservations || { left: 0, top: 0, right: 0, bottom: 0 };
     // Phase A+1 (7.5.2026): hidden-by-positioning Delphi VCL pattern
     // Pokud Left nebo Top > 5000, element je hidden (Centrála 1 legacy
     // — "kluku z IT bordel" Marti's slovo). Skip render.
@@ -150,20 +154,55 @@
     }
     el.classList.add("erp-pixel-positioned");
     const align = layout.align || "alNone";
-    // Align modifier classes (overrides absolute positioning per CSS)
+    const sR = reservations.right * scale;
+    const sL = reservations.left * scale;
+    const sT = reservations.top * scale;
+    const sB = reservations.bottom * scale;
+    // Align modifiers — explicit inline styly s reservations adjustment.
+    // Override CSS class behavior (CSS class je default, inline má prioritu).
     if (align === "alClient") {
       el.classList.add("erp-align-client");
+      el.style.top = sT + "px";
+      el.style.left = sL + "px";
+      el.style.right = sR + "px";
+      el.style.bottom = sB + "px";
+      el.style.width = "auto";
+      el.style.height = "auto";
     } else if (align === "alTop") {
+      // alTop fills horizontally (after alLeft/alRight reservations), top edge
       el.classList.add("erp-align-top");
+      el.style.top = "0";       // own — ignore alTop reservation (or future: prior alTop sum)
+      el.style.left = sL + "px";
+      el.style.right = sR + "px";
+      el.style.bottom = "auto";
+      el.style.width = "auto";
       if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
     } else if (align === "alBottom") {
+      // alBottom fills horizontally (after alLeft/alRight), bottom edge
       el.classList.add("erp-align-bottom");
+      el.style.bottom = "0";    // own — ignore alBottom reservation
+      el.style.left = sL + "px";
+      el.style.right = sR + "px";
+      el.style.top = "auto";
+      el.style.width = "auto";
       if (layout.height > 0) el.style.height = (layout.height * scale) + "px";
     } else if (align === "alLeft") {
+      // alLeft fills vertically (after alTop/alBottom), left edge
       el.classList.add("erp-align-left");
+      el.style.top = sT + "px";
+      el.style.left = "0";      // own — ignore alLeft reservation
+      el.style.bottom = sB + "px";
+      el.style.right = "auto";
+      el.style.height = "auto";
       if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
     } else if (align === "alRight") {
+      // alRight fills vertically (after alTop/alBottom), right edge
       el.classList.add("erp-align-right");
+      el.style.top = sT + "px";
+      el.style.right = "0";     // own — ignore alRight reservation
+      el.style.bottom = sB + "px";
+      el.style.left = "auto";
+      el.style.height = "auto";
       if (layout.width > 0) el.style.width = (layout.width * scale) + "px";
     } else {
       // alNone — pixel positioning Top/Left
@@ -176,6 +215,30 @@
     // [akLeft, akTop, akRight] → CSS calc(100% - left - rightSpace) pro
     // elastic horizontally. Pro dnes ignorujeme — explicit width staví UI
     // approximately Centrála 1 layout.
+  }
+
+  /**
+   * Phase A+1 (7.5.2026): Compute Delphi VCL Align reservations pro parent.
+   * V Delphi VCL fill order: alTop, alLeft, alRight, alBottom přiberou své
+   * sides; alClient pak fill remaining. CSS to neumí, ručně počítáme.
+   *
+   * @param children - array of {layout: {align, width, height}}
+   * @returns {left, right, top, bottom} - reserved pixels per side
+   */
+  function _computeAlignReservations(children) {
+    const r = { left: 0, top: 0, right: 0, bottom: 0 };
+    if (!children || children.length === 0) return r;
+    for (const c of children) {
+      if (!c.layout) continue;
+      const a = c.layout.align;
+      const w = c.layout.width || 0;
+      const h = c.layout.height || 0;
+      if (a === "alLeft") r.left += w;
+      else if (a === "alRight") r.right += w;
+      else if (a === "alTop") r.top += h;
+      else if (a === "alBottom") r.bottom += h;
+    }
+    return r;
   }
 
   // Expose helper jako global pro cross-component reuse (ErpFormSection,
@@ -320,6 +383,17 @@
       // positioning. Jinak fallback na vertical stack (existing flow).
       this._pixelMode = _isPixelLayoutEnabled(visuals);
       this._pixelScale = 1;  // TODO: dynamic scale dle modal width / form designWidth
+
+      // Phase A+1 (7.5.2026): root-level Align reservations — pre-pass
+      // pro Delphi VCL fill priority. alLeft/alRight/alTop/alBottom siblings
+      // přiberou své sides PRVNÍ, alClient pak fill remaining. Counts only
+      // root-level components (parent="-" / "Def" / no groupbox parent).
+      const rootChildrenLayout = visuals.filter(c => {
+        const pid = _parseParentId(c.c_parent);
+        // Root level = bez parentu nebo s parentem který není mezi groupy
+        return pid == null || !groups.some(g => g.id === pid);
+      });
+      this._rootReservations = _computeAlignReservations(rootChildrenLayout);
 
       if (this._pixelMode) {
         // Outlier diagnostic — pomáhá zjistit corrupted properties
@@ -553,15 +627,20 @@
             // Fallback default — aspoň visible (top-left, decent size)
             layout = { top: 0, left: 0, width: 400, height: 200, align: "alNone" };
           }
+          // Phase A+1: pass rootReservations pro top-level groups (ne nested)
+          // — alClient/alLeft/alBottom respektují siblings.
+          const reservations = parentSec ? null : this._rootReservations;
           sec.setPixelMode(layout, {
             scale: this._pixelScale,
             noCaption: !realCaption,
+            reservations: reservations,
           });
           try {
             console.log("[ErpForm] GroupBox setPixelMode —",
               "id=" + g.id, "caption=" + realCaption,
               "parent=" + (parentSec ? "c"+parentId : "form"),
-              "layout:", layout);
+              "layout:", layout,
+              "reservations:", reservations);
           } catch (e) {}
         }
         sectionById.set(g.id, sec);
@@ -576,9 +655,11 @@
         if (entry && entry.instance && entry.instance.wrapper) {
           // Append PageControl wrapper directly (vedle GroupBox sekcí)
           this.wrapper.appendChild(entry.instance.wrapper);
-          // Phase A+1: PageControl positioning v pixel mode
+          // Phase A+1: PageControl positioning v pixel mode + root reservations
+          // (alClient PageControl respektuje alLeft/alBottom siblings)
           if (this._pixelMode && pc.layout) {
-            _applyLayout(entry.instance.wrapper, pc.layout, this._pixelScale);
+            _applyLayout(entry.instance.wrapper, pc.layout, this._pixelScale,
+              this._rootReservations);
           }
           pageControlById.set(pc.id, { comp: pc, instance: entry.instance });
         }

@@ -91,6 +91,40 @@ def _get_tenant_id(user_id: int) -> int:
         cs.close()
 
 
+# Phase 35-E.3.4 (8.5.2026): EUROSOFT tenant je hardcoded id=2 v tenants tabulce.
+# ID místo tenant_code — code je optional/user-editable (může být NULL, může se
+# změnit), ID je stabilní primary key. Marti's direktiv 8.5.2026:
+# „Ja bych to CODE vubec nepouzival. Jen ID a NAME."
+EUROSOFT_TENANT_ID = 2
+
+
+def _get_tenant_name(tenant_id: int) -> str:
+    """Display-only helper: vrátí tenant_name (např. pro UI empty state)."""
+    from core.database_core import get_core_session
+    from modules.core.infrastructure.models_core import Tenant
+    cs = get_core_session()
+    try:
+        t = cs.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+        return (t.tenant_name if t and t.tenant_name else "")
+    finally:
+        cs.close()
+
+
+def _is_eurosoft_active(user_id: int) -> bool:
+    """
+    Phase 35-E.3.4 (8.5.2026): aktivní tenant je EUROSOFT (id=2, kde ERP funguje).
+
+    Dnes je ERP hardcoded na DB_EC (EC_FormDef*) přes Phase 28 EUROSOFT MCP.
+    Ostatní tenanty (STRATEGIE, osobní) zatím nemají vlastní ERP framework —
+    PostgreSQL master.framework_jadro je prázdná, Phase 30+ migrace jádro-po-jádře
+    zatím neproběhla.
+
+    Marti's vize 8.5.2026: single PostgreSQL framework + per-jádro migrace
+    (NE parallel adapter pattern). Do té doby tento gate.
+    """
+    return _get_tenant_id(user_id) == EUROSOFT_TENANT_ID
+
+
 # ── Public endpoints ────────────────────────────────────────────────
 
 
@@ -166,6 +200,22 @@ def jadro_render(
         f"ERP | jadro render | user={uid} form_id={form_id} row_id={row_id} "
         f"fragment={fragment}"
     )
+
+    # Phase 35-E.3.4: Tenant gate — non-EUROSOFT tenant = friendly empty.
+    if not _is_eurosoft_active(uid):
+        msg_html = (
+            '<div class="erp-jadro-error">'
+            '<strong>Jádro nedostupné v tomto tenantu</strong><br>'
+            '<small>ERP zatím funguje jen pro tenant EUROSOFT. '
+            'Pro přepnutí použij patičku.</small>'
+            '</div>'
+        )
+        if fragment:
+            return HTMLResponse(content=msg_html)
+        return HTMLResponse(content=_render_error_page(
+            title="Jádro nedostupné",
+            msg="ERP zatím funguje jen pro tenant EUROSOFT. Phase 30+ migrace je v plánu."
+        ), status_code=404)
 
     reader = CentralaReader()
 
@@ -251,12 +301,16 @@ def health(req: Request) -> JSONResponse:
     reader = CentralaReader()
     mcp_ok = reader._client is not None  # type: ignore[attr-defined]
 
+    tid = _get_tenant_id(uid)
     return JSONResponse({
         "ok": True,
         "phase": "A",
         "mcp_klient_available": mcp_ok,
         "supported_typs": len(TYP_NAMES),
         "user_id": uid,
+        "tenant_id": tid,
+        "tenant_name": _get_tenant_name(tid),
+        "erp_data_available": _is_eurosoft_active(uid),
     })
 
 
@@ -265,9 +319,16 @@ def health(req: Request) -> JSONResponse:
 
 @api_router.get("/strom")
 def strom_json(req: Request) -> JSONResponse:
-    """JSON tree z EC_CentralaMenu (Phase B nástřel)."""
+    """JSON tree z EC_CentralaMenu (Phase B nástřel).
+
+    Phase 35-E.3.4: Tenant gate — non-EUROSOFT tenant = prázdný strom
+    (workspace zůstane render-able, sidebar bude prázdný).
+    """
     uid = _get_uid(req)
     _require_parent(uid)
+
+    if not _is_eurosoft_active(uid):
+        return JSONResponse({"ok": True, "tree": [], "root_count": 0})
 
     reader = CentralaReader()
     tree = reader.load_menu_tree()
@@ -291,9 +352,15 @@ def prehled_data_json(
       1. Query param ?limit=N (user override, capped na _PREHLED_HARD_CAP)
       2. EC_DELPHI_TabObecnyPrehled.MaxRecords (per-přehled native limit)
       3. _PREHLED_DEFAULT_LIMIT (1000)
+
+    Phase 35-E.3.4: Tenant gate — non-EUROSOFT tenant = 404 (přehled není
+    dostupný, ERP zatím funguje jen pro EUROSOFT).
     """
     uid = _get_uid(req)
     _require_parent(uid)
+
+    if not _is_eurosoft_active(uid):
+        raise HTTPException(404, "Přehled není dostupný v tomto tenantu (pouze EUROSOFT).")
 
     reader = CentralaReader()
     meta = reader.load_prehled_meta(cislo)
@@ -455,6 +522,9 @@ def jadro_components_json(form_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
 
+    if not _is_eurosoft_active(uid):
+        raise HTTPException(404, "Jádro není dostupné v tomto tenantu (pouze EUROSOFT).")
+
     reader = CentralaReader()
     form = reader.load_form_def(form_id)
     if not form:
@@ -515,6 +585,9 @@ def jadro_data_json(form_id: int, row_id: int, req: Request) -> JSONResponse:
     logger.info(
         f"ERP | jadro data JSON | user={uid} form_id={form_id} row_id={row_id}"
     )
+
+    if not _is_eurosoft_active(uid):
+        raise HTTPException(404, "Jádro není dostupné v tomto tenantu (pouze EUROSOFT).")
 
     reader = CentralaReader()
     form = reader.load_form_def(form_id)
@@ -610,6 +683,9 @@ def jadro_lookup_options(form_id: int, field_name: str, req: Request) -> JSONRes
     """
     uid = _get_uid(req)
     _require_parent(uid)
+
+    if not _is_eurosoft_active(uid):
+        raise HTTPException(404, "Lookup není dostupný v tomto tenantu (pouze EUROSOFT).")
 
     reader = CentralaReader()
     form = reader.load_form_def(form_id)

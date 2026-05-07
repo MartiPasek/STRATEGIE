@@ -394,6 +394,61 @@
           const k = "Typ_" + c.typ;
           typeCounts[k] = (typeCounts[k] || 0) + 1;
         });
+        // Phase A+1 (7.5.2026): export plain debug data do window var pro
+        // copy-paste workflow. Marti v Console: dumpErpDebug() → clipboard.
+        const _layoutPeek = (c) => ({
+          id: c.id,
+          typ: c.typ,
+          field: c.c_field_name,
+          caption: _resolveCaption(c),
+          parent: c.c_parent || "-",
+          layout: c.layout,
+          props_layout: {
+            Top: c.properties?.Top,
+            Left: c.properties?.Left,
+            Width: c.properties?.Width,
+            Height: c.properties?.Height,
+            Align: c.properties?.Align,
+            Anchors: c.properties?.Anchors,
+            ParentName: c.properties?.ParentName,
+            ParentPageControl: c.properties?.ParentPageControl,
+            Margins: c.properties?.Margins,
+          }
+        });
+        global._erpFormDebug = {
+          formId: this.options.formId,
+          formNazev: this.options.formNazev,
+          counts: {
+            components: components.length,
+            visuals: visuals.length,
+            groups: groups.length,
+            pageControls: pageControls.length,
+            tabSheets: tabSheets.length,
+            typeCounts,
+          },
+          pixelMode: this._pixelMode,
+          pixelScale: this._pixelScale,
+          allLayouts: visuals.map(_layoutPeek),
+          groups: groups.map(_layoutPeek),
+          pageControls: pageControls.map(_layoutPeek),
+          tabSheets: tabSheets.map(_layoutPeek),
+          richEdits: visuals.filter(c => c.typ === TYP_RICHEDIT).map(_layoutPeek),
+          fields: visuals.filter(c =>
+            c.typ !== TYP_GROUPBOX && c.typ !== TYP_PAGECONTROL && c.typ !== TYP_TABSHEET
+          ).map(_layoutPeek),
+        };
+        // Helper pro Marti: v Console napíše dumpErpDebug() → clipboard
+        global.dumpErpDebug = function() {
+          const json = JSON.stringify(global._erpFormDebug, null, 2);
+          if (typeof copy === "function") {
+            copy(json);
+            console.log("[ErpForm] _erpFormDebug zkopírováno do clipboardu (" + json.length + " znaků). Paste do chatu.");
+          } else {
+            console.log("[ErpForm] copy() není dostupné — zkopíruj manuálně:");
+            console.log(json);
+          }
+          return json;
+        };
         console.log(
           "[ErpForm] formId=" + this.options.formId +
           " components=" + components.length +
@@ -401,7 +456,8 @@
           " groups=" + groups.length +
           " pageControls=" + pageControls.length +
           " tabSheets=" + tabSheets.length,
-          typeCounts
+          typeCounts,
+          "→ window._erpFormDebug, dumpErpDebug() pro clipboard"
         );
         // Parent chain — PageControl + TabSheet + RichEdit (klíčové pro
         // diagnostiku "kdo je child koho" v hierarchii TYP 15/16/4)
@@ -455,12 +511,26 @@
           title: realCaption,
         });
         // Phase A+1: pixel mode pro section — positioning v form root +
-        // fieldsEl jako relative container pro absolutely positioned children
-        if (this._pixelMode && g.layout) {
-          sec.setPixelMode(g.layout, {
+        // fieldsEl jako relative container pro absolutely positioned children.
+        // Pokud layout chybí nebo je 0×0, force fallback positioning aby
+        // sekce byly aspoň viditelné (ne v flow ignored absolute children).
+        if (this._pixelMode) {
+          let layout = g.layout;
+          if (!layout || (!layout.width && !layout.height)) {
+            console.warn("[ErpForm] GroupBox bez layout dimenzí —",
+              "id=" + g.id, "caption=" + realCaption,
+              "layout:", layout, "→ fallback positioning");
+            // Fallback default — aspoň visible (top-left, decent size)
+            layout = { top: 0, left: 0, width: 400, height: 200, align: "alNone" };
+          }
+          sec.setPixelMode(layout, {
             scale: this._pixelScale,
             noCaption: !realCaption,
           });
+          try {
+            console.log("[ErpForm] GroupBox setPixelMode —",
+              "id=" + g.id, "caption=" + realCaption, "layout:", layout);
+          } catch (e) {}
         }
         sectionById.set(g.id, sec);
         this._sections.push(sec);
@@ -684,6 +754,24 @@
             footer.appendChild(btn);
           }
         });
+        // Phase A+1 (7.5.2026): pixel mode footer = absolute bottom strip
+        // (form root je relative container, absolute děti by jinak overlapovaly
+        // footer ve flow layoutu — Marti's screenshot 7.5.2026 jádro #4).
+        if (this._pixelMode) {
+          footer.style.position = "absolute";
+          footer.style.bottom = "0";
+          footer.style.left = "0";
+          footer.style.right = "0";
+          footer.style.padding = "8px 12px";
+          footer.style.borderTop = "1px solid var(--border, #4a4e57)";
+          footer.style.background = "var(--bg, #0e0f11)";
+          footer.style.display = "flex";
+          footer.style.gap = "8px";
+          footer.style.justifyContent = "flex-end";
+          footer.style.zIndex = "10";
+          // Plus form root needs bottom padding pro footer (~52px)
+          this.wrapper.style.paddingBottom = "52px";
+        }
         this.wrapper.appendChild(footer);
       }
 

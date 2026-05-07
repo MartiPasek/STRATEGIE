@@ -2075,15 +2075,23 @@ def _render_full_page(
       to {{ opacity: 1; }}
     }}
     @keyframes erp-modal-pop {{
-      from {{ opacity: 0; transform: translate(-50%, -50%) scale(0.96); }}
-      to   {{ opacity: 1; transform: translate(-50%, -50%) scale(1); }}
+      from {{ opacity: 0; transform: translateX(-50%) scale(0.96); }}
+      to   {{ opacity: 1; transform: translateX(-50%) scale(1); }}
     }}
+    /* Phase A+1 (7.5.2026): Modal resize — Marti's primary UX request.
+     * Centrála 1 desktop má resizable okno, naše implementace
+     * teď taky. resize: both → native browser handle bottom-right corner.
+     * Default size větší (Centrála 1 jádra typically 1500×900 design width). */
     .erp-jadro-pane {{
       position: fixed;
-      top: 50%; left: 50%;
-      transform: translate(-50%, -50%);
-      width: min(80vw, 825px);
-      max-height: 78vh;
+      top: 5vh; left: 50%;
+      transform: translateX(-50%);
+      width: min(95vw, 1400px);
+      height: min(90vh, 900px);
+      min-width: 600px;
+      min-height: 400px;
+      max-width: 98vw;
+      max-height: 95vh;
       background: var(--surface);
       border: 1px solid var(--border-strong);
       border-radius: 8px;
@@ -2091,9 +2099,27 @@ def _render_full_page(
       z-index: 100;
       display: flex; flex-direction: column;
       overflow: hidden;
+      resize: both;            /* native browser resize handle (bottom-right) */
       animation: erp-modal-pop 160ms ease-out;
     }}
     .erp-jadro-pane[hidden] {{ display: none; }}
+    /* Resize handle visual hint — small indicator bottom-right */
+    .erp-jadro-pane::after {{
+      content: "";
+      position: absolute;
+      bottom: 2px; right: 2px;
+      width: 12px; height: 12px;
+      background: linear-gradient(
+        135deg,
+        transparent 0%, transparent 50%,
+        var(--text-muted) 50%, var(--text-muted) 60%,
+        transparent 60%, transparent 70%,
+        var(--text-muted) 70%, var(--text-muted) 80%,
+        transparent 80%
+      );
+      pointer-events: none;
+      opacity: 0.5;
+    }}
     .erp-jadro-header {{
       padding: 5px 9px;
       border-bottom: 1px solid var(--border);

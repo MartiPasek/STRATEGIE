@@ -290,20 +290,61 @@
       this._pixelScale = 1;  // TODO: dynamic scale dle modal width / form designWidth
 
       if (this._pixelMode) {
-        this.wrapper.classList.add("erp-form-pixel");
-        // Dimenze form root — z FormDef.fWidth/fHeight nebo computed z components
+        // Outlier diagnostic — pomáhá zjistit corrupted properties
+        const OUTLIER_THRESHOLD_X = 3000;
+        const OUTLIER_THRESHOLD_Y = 2000;
+        const outliers = visuals.filter(c =>
+          c.layout && (
+            c.layout.left > OUTLIER_THRESHOLD_X ||
+            c.layout.width > OUTLIER_THRESHOLD_X ||
+            c.layout.top > OUTLIER_THRESHOLD_Y ||
+            c.layout.height > OUTLIER_THRESHOLD_Y
+          )
+        );
+        if (outliers.length > 0) {
+          try {
+            console.warn("[ErpForm] OUTLIER LAYOUTS detected (possible packed-int property) —",
+              outliers.map(c => ({
+                id: c.id, typ: c.typ, field: c.c_field_name,
+                layout: c.layout,
+                props_layout: {
+                  Top: c.properties?.Top, Left: c.properties?.Left,
+                  Width: c.properties?.Width, Height: c.properties?.Height,
+                  Margins: c.properties?.Margins, Anchors: c.properties?.Anchors,
+                }
+              }))
+            );
+          } catch (e) {}
+        }
+
+        // Compute dimensions
         const dims = _computeFormDimensions(visuals);
-        const formW = this.options.fWidth || dims.width;
-        const formH = this.options.fHeight || dims.height;
-        this.wrapper.style.width = (formW * this._pixelScale) + "px";
-        this.wrapper.style.minHeight = (formH * this._pixelScale) + "px";
-        this.wrapper.style.position = "relative";
-        try {
-          console.log("[ErpForm] PIXEL MODE active —",
-            "formId=" + this.options.formId,
-            "computed dims:", dims,
-            "scale:", this._pixelScale);
-        } catch (e) {}
+
+        // Heuristic: pokud width/height crazy (corrupted layout properties),
+        // fallback na vertical stack — pixel mode by produkoval chaos.
+        const MAX_FORM_W = 4000;
+        const MAX_FORM_H = 3000;
+        if (dims.width > MAX_FORM_W || dims.height > MAX_FORM_H) {
+          console.warn("[ErpForm] PIXEL MODE DISABLED — computed dims out of range",
+            dims, "max:", MAX_FORM_W, "x", MAX_FORM_H,
+            "→ fallback na vertical stack");
+          this._pixelMode = false;
+        } else {
+          this.wrapper.classList.add("erp-form-pixel");
+          // Dimenze form root — z FormDef.fWidth/fHeight nebo computed z components
+          const formW = Math.min(this.options.fWidth || dims.width, MAX_FORM_W);
+          const formH = Math.min(this.options.fHeight || dims.height, MAX_FORM_H);
+          this.wrapper.style.width = (formW * this._pixelScale) + "px";
+          this.wrapper.style.minHeight = (formH * this._pixelScale) + "px";
+          this.wrapper.style.position = "relative";
+          try {
+            console.log("[ErpForm] PIXEL MODE active —",
+              "formId=" + this.options.formId,
+              "computed dims:", dims,
+              "applied:", { width: formW, height: formH },
+              "scale:", this._pixelScale);
+          } catch (e) {}
+        }
       }
 
       // B+6.10b (6.5.2026 večer): rozšíření o PageControl + TabSheet jako

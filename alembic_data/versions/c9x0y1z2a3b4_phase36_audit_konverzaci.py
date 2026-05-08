@@ -148,13 +148,14 @@ def upgrade() -> None:
         sa.Column("audit_icon", sa.String(8), nullable=True),
     )
 
-    # ── Bootstrap: auto-exclude konverzací bez signal value ────────
-    # Krátké konverzace (≤ 1 message) → excluded
+    # ── Bootstrap: auto-exclude konverzaci bez signal value ────────
+    # Pozn: bez Unicode (cp1250 PowerShell crash na alembic --sql dry-run).
+    # Kratke konverzace (max 1 message) -> excluded
     op.execute(
         """
         UPDATE conversations c
         SET audit_status = 'excluded',
-            audit_notes = '{"reason": "auto-exclude: no signal value (≤ 1 message)"}'::jsonb
+            audit_notes = '{"reason": "auto-exclude: no signal value (max 1 message)"}'::jsonb
         WHERE audit_status = 'pending'
           AND id IN (
             SELECT conversation_id
@@ -164,7 +165,7 @@ def upgrade() -> None:
           )
         """
     )
-    # Konverzace bez jediné zprávy (orphan) → excluded
+    # Konverzace bez jedine zpravy (orphan) -> excluded
     op.execute(
         """
         UPDATE conversations c

@@ -955,15 +955,19 @@
 
       const opts = this.options;
 
-      // Phase 35-E.4 Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373):
-      // initialState pro AG Grid v32+ — predcasne aplikuje columnState
-      // PRED prvnim renderem. Bez flicker (issue: applyColumnState po
-      // gridReady = grid render with default first, pak update with stored,
-      // = "problikne a zcucne" Marti's report).
+      // Phase 35-E.4 Krok C+ fix #8+9 (9.5.2026 vecer, AG Grid issue #7373 + #8503):
+      // initialState pro AG Grid v32+ — predcasne aplikuje columnState PRED
+      // prvnim renderem (no flicker per issue #7373).
+      //
+      // KLICOVY DOPLNEK (issue #8503 + AG Grid official docs):
+      // "The flex config does not work with a width config in the same column."
+      // Pokud columnDef.flex je nastaveny, AG Grid IGNORUJE width — i z
+      // initialState.columnState. Musime PRED AG Grid create stripnout flex
+      // z columnDefs a SET width z initialLayout.
       //
       // Caller (renderSystemGrid / renderPrehled) muze pre-fetchnout layout
       // z DB a passnout cely layoutObj jako `initialLayout`. ErpDataGrid
-      // si rozbali columnState + formatting_rules + nastavi _currentLayoutId.
+      // si rozbali columnState + mutate columnDefs + nastavi _currentLayoutId.
       let initialColumnState = null;
       if (opts.initialLayout && opts.initialLayout.layout_json) {
         const lj = opts.initialLayout.layout_json;
@@ -975,6 +979,33 @@
           this._formattingRules = Array.isArray(lj.formatting_rules)
             ? lj.formatting_rules.slice() : [];
           this._heuristicsEnabled = lj.heuristics_enabled === true;
+
+          // KLICOVE: mutate columnDefs PRED AG Grid create — strip flex,
+          // set width z initialLayout. AG Grid pak respektuje width.
+          if (Array.isArray(columnDefs) && columnDefs.length > 0) {
+            const widthByColId = {};
+            for (const c of initialColumnState) {
+              const k = c.colId || c.field;
+              if (k && c.width != null && c.width > 0) {
+                widthByColId[k] = c.width;
+              }
+            }
+            columnDefs = columnDefs.map(d => {
+              const k = d.colId || d.field;
+              const savedW = widthByColId[k];
+              const newDef = Object.assign({}, d);
+              // Remove flex zcela (issue #8503 — AG Grid mix flex+width fail)
+              delete newDef.flex;
+              if (savedW != null) {
+                newDef.width = savedW;
+              }
+              return newDef;
+            });
+            console.info(
+              "[ErpDataGrid] columnDefs mutated for initialLayout — flex stripped, widths from DB:",
+              columnDefs.slice(0, 3).map(d => ({ colId: d.colId, field: d.field, width: d.width }))
+            );
+          }
         }
       }
 

@@ -981,12 +981,17 @@
           this._heuristicsEnabled = lj.heuristics_enabled === true;
 
           // KLICOVE: mutate columnDefs PRED AG Grid create — strip flex,
-          // set width z initialLayout. AG Grid pak respektuje width.
+          // set width + reorder z initialLayout. AG Grid pak respektuje
+          // jak width, tak poradi sloupcu.
           if (Array.isArray(columnDefs) && columnDefs.length > 0) {
             const widthByColId = {};
-            for (const c of initialColumnState) {
+            const orderByColId = {};
+            for (let i = 0; i < initialColumnState.length; i++) {
+              const c = initialColumnState[i];
               const k = c.colId || c.field;
-              if (k && c.width != null && c.width > 0) {
+              if (!k) continue;
+              orderByColId[k] = i;
+              if (c.width != null && c.width > 0) {
                 widthByColId[k] = c.width;
               }
             }
@@ -1001,9 +1006,27 @@
               }
               return newDef;
             });
+            // Phase 35-E.4 Krok C+ fix #10 (9.5.2026 vecer Marti's report
+            // "ted nefunguje jen poradi sloupcu"): reorder columnDefs podle
+            // initialColumnState. AG Grid initialState.columnState pri v32
+            // neoverridne columnDefs poradi — musime resort manualne.
+            // Sloupce ne v initialColumnState (novejsi columnDefs nez DB
+            // snapshot) zustaji na konci ve sve original poradi.
+            columnDefs.sort((a, b) => {
+              const aKey = a.colId || a.field;
+              const bKey = b.colId || b.field;
+              const aIdx = orderByColId[aKey];
+              const bIdx = orderByColId[bKey];
+              const aHas = aIdx != null;
+              const bHas = bIdx != null;
+              if (!aHas && !bHas) return 0;
+              if (!aHas) return 1;   // not in saved state -> end
+              if (!bHas) return -1;
+              return aIdx - bIdx;
+            });
             console.info(
-              "[ErpDataGrid] columnDefs mutated for initialLayout — flex stripped, widths from DB:",
-              columnDefs.slice(0, 3).map(d => ({ colId: d.colId, field: d.field, width: d.width }))
+              "[ErpDataGrid] columnDefs mutated for initialLayout — flex stripped, widths + order from DB:",
+              columnDefs.slice(0, 5).map(d => ({ colId: d.colId, field: d.field, width: d.width }))
             );
           }
         }

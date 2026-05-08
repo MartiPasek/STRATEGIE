@@ -137,7 +137,7 @@ def erp_home(req: Request) -> HTMLResponse:
 
 
 @router.get("/system/audit-dashboard", response_class=HTMLResponse)
-def system_audit_dashboard(req: Request) -> HTMLResponse:
+def system_audit_dashboard(req: Request, embed: int = 0) -> HTMLResponse:
     """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
 
     Marti's vize 33. dopis 8.5. večer + dnešní request 'koukat shora'.
@@ -147,6 +147,9 @@ def system_audit_dashboard(req: Request) -> HTMLResponse:
 
     Cross-tenant view (Marti's korekce 9.5. 'audit musí jet nade vsim
     chronologicky').
+
+    Phase 35-E.4 Variant B (9.5.2026): query param ?embed=1 skipne header
+    + back link (pro inline iframe render v ERP main pane).
     """
     uid = _get_uid(req)
     _require_parent(uid)
@@ -162,7 +165,7 @@ def system_audit_dashboard(req: Request) -> HTMLResponse:
     finally:
         cs.close()
 
-    return HTMLResponse(content=_render_audit_dashboard_page(uid))
+    return HTMLResponse(content=_render_audit_dashboard_page(uid, embed=bool(embed)))
 
 
 @router.get("/sw.js")
@@ -3071,12 +3074,15 @@ def _render_full_page(
 </html>'''
 
 
-def _render_audit_dashboard_page(user_id: int) -> str:
+def _render_audit_dashboard_page(user_id: int, embed: bool = False) -> str:
     """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
 
     Standalone page s 3 sub-views (📚 Audited / 📋 Vše / 📊 Stats).
     AG Grid pro tabulky, custom widgets pro statistiku.
     Cross-tenant view pro rodiče.
+
+    embed=True → skipne header + back link (pro Variant B inline iframe
+    v ERP main pane). Marti's vize "koukat shora" v ERP context.
 
     Drží Marti's "koukat shora" + 33. dopis 8.5. večer System tier vize.
     """
@@ -3093,6 +3099,18 @@ def _render_audit_dashboard_page(user_id: int) -> str:
             cs.close()
     except Exception:
         pass
+
+    # Phase 35-E.4 Variant B: embed=True skipne header (pro inline iframe).
+    if embed:
+        header_html = ""
+    else:
+        header_html = (
+            '<header>'
+            '<h1>\U0001F4DA Audit konverzací</h1>'
+            f'<div class="header-meta">{user_name} · cross-tenant view</div>'
+            '<a href="/" class="header-back">← Zpět do chatu</a>'
+            '</header>'
+        )
 
     return f'''<!DOCTYPE html>
 <html lang="cs">
@@ -3319,11 +3337,7 @@ def _render_audit_dashboard_page(user_id: int) -> str:
   </style>
 </head>
 <body>
-  <header>
-    <h1>📚 Audit konverzací</h1>
-    <div class="header-meta">{user_name} · cross-tenant view</div>
-    <a href="/" class="header-back">← Zpět do chatu</a>
-  </header>
+  {header_html}
 
   <div class="tabs">
     <button class="tab-btn active" data-mode="audited">📚 Auditované</button>
@@ -4071,11 +4085,12 @@ def _render_workspace_page(user_id: int) -> str:
               if (isOpen) expanded.delete(nid); else expanded.add(nid);
               saveExpanded(expanded);
             }
-            // Phase 35-E.4: System leaf node → redirect na audit-dashboard
+            // Phase 35-E.4 Variant B (9.5.2026): System leaf node →
+            // inline iframe v main pane (no redirect, čistá izolace JS).
             if (!toggleClicked) {
               const sysViewMode = item.getAttribute("data-system-view-mode");
               if (sysViewMode) {
-                window.location.href = "/erp/system/audit-dashboard?mode=" + sysViewMode;
+                _renderSystemViewInline(sysViewMode, item);
                 return;
               }
             }
@@ -4123,8 +4138,59 @@ def _render_workspace_page(user_id: int) -> str:
         const row = item.querySelector(":scope > .erp-tree-row");
         if (row) row.classList.add("active");
         saveActive(String(cislo));
+        // Phase 35-E.4 Variant B: pokud byla active System view, restore
+        // standard workspace (hide iframe wrapper, show tabs bar).
+        _restoreFromSystemView();
         // B+8 (6.5.2026): místo loadPrehled → openTab (multi-tab pattern)
         openTab(cislo, item);
+      }
+
+      // Phase 35-E.4 Variant B (9.5.2026): inline iframe render System view
+      // v ERP main pane. Marti's vize "koukat na to shora v ERP context" —
+      // dashboard se otevre přímo místo přehled tabů, sidebar zustane.
+      function _renderSystemViewInline(mode, item) {
+        const tabsBar = document.getElementById("erpTabsBar");
+        const main = document.getElementById("erpMainContent");
+        if (!main) return;
+
+        // Hide tabs bar (uložit původní state pro restore)
+        if (tabsBar) {
+          tabsBar.dataset.systemHidden = tabsBar.hidden ? "1" : "0";
+          tabsBar.hidden = true;
+        }
+
+        // Mark sidebar tree active (System leaf)
+        treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+        if (item) {
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (row) row.classList.add("active");
+        }
+
+        // Replace main content s iframe (embed mode skipne header)
+        main.dataset.systemView = mode;
+        main.innerHTML =
+          '<iframe src="/erp/system/audit-dashboard?embed=1&mode=' + mode +
+          '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
+          'title="Audit dashboard"></iframe>';
+
+        // Update browser title pro context
+        try {
+          const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
+          const lbl = labelEl ? labelEl.textContent : "Audit";
+          document.title = "STRATEGIE · " + lbl;
+        } catch (e) {}
+      }
+
+      function _restoreFromSystemView() {
+        const main = document.getElementById("erpMainContent");
+        const tabsBar = document.getElementById("erpTabsBar");
+        if (!main || !main.dataset.systemView) return;
+        // Byla active System view — restore tabs bar (pokud byl visible)
+        delete main.dataset.systemView;
+        if (tabsBar && tabsBar.dataset.systemHidden === "0") {
+          tabsBar.hidden = false;
+        }
+        // Iframe odstraní switchTab → render přehled, který nahradí innerHTML
       }
 
       function tryRestoreActive() {

@@ -4552,6 +4552,71 @@ def _render_workspace_page(user_id: int) -> str:
       <div id="erpJadroContent" class="erp-jadro-content"></div>
     </aside>
 
+    <!-- Phase 35-E.4 diag #2 (9.5.2026 odpoledne) — Global error handler.
+         Separate <script> blok PRED main IIFE: kdyz parse error vznikne v
+         dalsim <script>, handler zustane registrovany a chybu zachyti.
+         Marti: window.dumpErpErrors() v console = vypise zachycene errors.
+         Plus localStorage 'erp_errors' / 'erp_promise_errors' = persistent. -->
+    <script>
+    (function() {
+      function _persist(key, payload) {
+        try {
+          var arr = JSON.parse(localStorage.getItem(key) || "[]");
+          arr.push(payload);
+          if (arr.length > 30) arr.shift();
+          localStorage.setItem(key, JSON.stringify(arr));
+        } catch (e) {}
+      }
+      window.addEventListener("error", function(ev) {
+        var msg = ev.message || (ev.error && ev.error.message) || "(no message)";
+        var src = ev.filename || "(inline)";
+        var line = ev.lineno != null ? ev.lineno : "?";
+        var col = ev.colno != null ? ev.colno : "?";
+        var stack = (ev.error && ev.error.stack) || "";
+        var label = "[ERP-DIAG] " + src + ":" + line + ":" + col + " — " + msg;
+        _persist("erp_errors", {
+          ts: Date.now(), msg: msg, src: src, line: line, col: col,
+          stack: stack.substring(0, 400)
+        });
+        try { console.error(label, ev.error || ev); } catch (e) {}
+      });
+      window.addEventListener("unhandledrejection", function(ev) {
+        var msg = (ev.reason && ev.reason.message) || String(ev.reason);
+        var stack = (ev.reason && ev.reason.stack) || "";
+        var label = "[ERP-DIAG-PROMISE] " + msg;
+        _persist("erp_promise_errors", {
+          ts: Date.now(), msg: msg, stack: stack.substring(0, 400)
+        });
+        try { console.error(label, ev.reason); } catch (e) {}
+      });
+      // Helper pro Marti — v console: dumpErpErrors()
+      window.dumpErpErrors = function() {
+        try {
+          var errs = JSON.parse(localStorage.getItem("erp_errors") || "[]");
+          var prs = JSON.parse(localStorage.getItem("erp_promise_errors") || "[]");
+          console.log("===== ERP ERRORS (" + errs.length + ") =====");
+          errs.forEach(function(e, i) {
+            console.log("#" + i + " " + new Date(e.ts).toISOString() + " " + e.src + ":" + e.line + ":" + e.col + " — " + e.msg);
+            if (e.stack) console.log("    " + e.stack);
+          });
+          console.log("===== ERP PROMISE ERRORS (" + prs.length + ") =====");
+          prs.forEach(function(e, i) {
+            console.log("#" + i + " " + new Date(e.ts).toISOString() + " " + e.msg);
+            if (e.stack) console.log("    " + e.stack);
+          });
+          return { errors: errs, promise: prs };
+        } catch (e) {
+          console.error("dumpErpErrors failed:", e);
+        }
+      };
+      window.clearErpErrors = function() {
+        localStorage.removeItem("erp_errors");
+        localStorage.removeItem("erp_promise_errors");
+        console.log("[ERP-DIAG] cleared");
+      };
+    })();
+    </script>
+
     <script>
     (function() {
       "use strict";

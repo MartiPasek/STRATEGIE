@@ -1466,10 +1466,46 @@
       return true;
     }
 
-    /** Vrací aktuální AG Grid column state — pro saveAsLayout / updateLayout. */
+    /** Vrací aktuální AG Grid column state — pro saveAsLayout / updateLayout.
+     *
+     * Phase 35-E.4 Krok C+ fix3+4 (9.5.2026 vecer):
+     *
+     * Bug #1: getColumnState() pro flex sloupce vraci `width: 80` (default),
+     * NE current rendered pixel width. AG Grid tracks flex distribution,
+     * nikoliv pixel snapshot. Marti's DB ukazala width: 80 vsude → dukaz.
+     *
+     * Bug #2: Default columnDefs (buildAutoColumnDefs line 539) maji
+     * `flex: 1` pro vsechny non-ID sloupce. Pri manual resize AG Grid
+     * NEZRUSI flex → applyColumnState pak `flex` ma prednost pred `width`
+     * → custom sirky se ztrati pri load.
+     *
+     * Fix: getActualWidth() per column pro real pixel snapshot + strip flex.
+     * Save snapshot = explicit widths lock. Po load `flex: null` + `width`
+     * → AG Grid respektuje pixel width. Trade-off: po load grid neni
+     * responsive (flex distribution off), ale persistent widths drzi.
+     */
     getCurrentColumnState() {
       if (this._destroyed || !this.gridApi) return [];
-      try { return this.gridApi.getColumnState(); }
+      try {
+        const raw = this.gridApi.getColumnState();
+        // Per-column actual rendered width via api.getColumn().getActualWidth()
+        return raw.map(c => {
+          let actualWidth = c.width;
+          try {
+            const col = this.gridApi.getColumn(c.colId);
+            if (col && typeof col.getActualWidth === "function") {
+              const w = col.getActualWidth();
+              if (w != null && w > 0) actualWidth = w;
+            }
+          } catch (e) {}
+          // Strip flex (lock fixed width) — applyColumnState pak respektuje
+          // width namisto flex distribution.
+          return Object.assign({}, c, {
+            width: actualWidth,
+            flex: null,
+          });
+        });
+      }
       catch (e) { return []; }
     }
 

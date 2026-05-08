@@ -4672,6 +4672,76 @@ def _render_workspace_page(user_id: int) -> str:
     })();
     </script>
 
+    <!-- Phase 35-E.4 Variant B Krok B (9.5.2026 odpoledne) — _systemGridColumns
+         v izolovanem <script> bloku. Vraci AG Grid column defs per mode
+         (audited / all / stats). Volani helpers pres window._sysHelpers.*
+         Funkce expose na window._sysHelpers.gridColumns. -->
+    <script>
+    (function() {
+      function gridColumns(mode) {
+        var H = window._sysHelpers || {};
+        if (mode === "stats") {
+          return [
+            { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
+            { headerName: "Obdobi", field: "period", width: 110, sortable: true, sort: "desc" },
+            { headerName: "Pending", field: "pending", width: 100, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#888" } : null; } },
+            { headerName: "In progress", field: "in_progress", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#d4a017" } : null; } },
+            { headerName: "Auditovane", field: "audited", width: 120, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : null; } },
+            { headerName: "Excluded", field: "excluded", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#666" } : null; } },
+            { headerName: "Celkem", field: "total", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: { fontWeight: "600" } }
+          ];
+        }
+        // audited / all
+        var showStatus = (mode === "all");
+        var cols = [
+          { headerName: "ID", field: "id", width: 80, sortable: true, pinned: "left" }
+        ];
+        if (showStatus) {
+          cols.push({
+            headerName: "Status", field: "audit_status", width: 120, sortable: true,
+            cellRenderer: function(p) {
+              return H.statusBadge ? H.statusBadge(p.value || "-") : (p.value || "-");
+            }
+          });
+        }
+        cols.push(
+          { headerName: "Title", field: "title", flex: 2, minWidth: 200, sortable: true },
+          { headerName: "Tenant", field: "tenant_name", width: 130, sortable: true },
+          { headerName: "Auditovano", field: "audited_at", width: 160, sortable: true,
+            valueFormatter: function(p) {
+              return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-");
+            } },
+          { headerName: "Persona", field: "audited_by_persona_name", width: 130 },
+          { headerName: "Scope", field: "scope", width: 110,
+            cellRenderer: function(p) {
+              return H.scopeIconHtml ? H.scopeIconHtml(p.value) : (p.value || "-");
+            } },
+          { headerName: "Last msg", field: "last_message_at", width: 160, sortable: true,
+            valueFormatter: function(p) {
+              return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-");
+            } },
+          { headerName: "Thoughts", field: "thought_count", width: 100, sortable: true,
+            cellRenderer: function(p) {
+              return (p.value > 0) ? ("notes " + p.value) : "-";
+            } },
+          { headerName: "Lifecycle", field: "lifecycle_state", width: 110 }
+        );
+        return cols;
+      }
+      if (window._sysHelpers) {
+        window._sysHelpers.gridColumns = gridColumns;
+        console.log("[ERP-DIAG] _sysHelpers.gridColumns loaded");
+      } else {
+        console.error("[ERP-DIAG] _sysHelpers missing — gridColumns nelze pripojit");
+      }
+    })();
+    </script>
+
     <script>
     (function() {
       "use strict";

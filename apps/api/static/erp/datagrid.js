@@ -1066,23 +1066,30 @@
           this.gridApi = params.api;
           // B+5.2: setup dirty tracking + auto-load default
           this._setupDirtyTracking();
-          if (this.options.autoLoadDefault && this.options.layoutKey) {
-            this._autoLoadDefault();
-          }
-          // B+7+ (6.5.2026): force fit columns to container width po init.
-          // Marti's UI feedback "grid neni roztazen na celou sirku panelu".
-          // sizeColumnsToFit re-distribuje column flex proporcionálně do
-          // dostupného container width.
-          setTimeout(() => {
-            try { params.api.sizeColumnsToFit(); } catch (e) {}
-          }, 0);
-          // B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbaru
-          // do AG Grid status baru — sloučení dvou řádek do jedné.
-          // 150ms aby AG Grid status bar měl čas se mountnout.
-          setTimeout(() => this._relocateToolbarToStatusBar(), 150);
+          // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): pockame na
+          // _autoLoadDefault promise PRED sizeColumnsToFit. Pokud
+          // ulozeny layout existuje, applyColumnState aplikoval custom
+          // sirky — sizeColumnsToFit by je proporcionalne prepisalo.
+          // Pokud layout neexistuje, fit columns jako driv.
+          const initLayout = (this.options.autoLoadDefault && this.options.layoutKey)
+            ? this._autoLoadDefault()
+            : Promise.resolve(null);
+          initLayout.finally(() => {
+            if (this._destroyed) return;
+            if (!this._currentLayoutId) {
+              // Zadny default layout — fit columns (Marti's "grid roztazen")
+              try { params.api.sizeColumnsToFit(); } catch (e) {}
+            }
+            // B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbaru
+            // do AG Grid status baru — sloučení dvou řádek do jedné.
+            // 150ms aby AG Grid status bar měl čas se mountnout.
+            setTimeout(() => this._relocateToolbarToStatusBar(), 150);
+          });
         },
         onFirstDataRendered: (params) => {
           // Po načtení prvního batch dat — re-fit columns
+          // Krok C+ fix2: guard — ulozeny layout ma prednost pred fit.
+          if (this._currentLayoutId) return;
           try { params.api.sizeColumnsToFit(); } catch (e) {}
         },
         onGridSizeChanged: (params) => {
@@ -1261,10 +1268,25 @@
       const cols = lj.columns;
       if (!Array.isArray(cols) || cols.length === 0) return false;
       try {
+        // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): diag log pred/po
+        // applyColumnState — uvidime co AG Grid skutecne aplikuje.
+        console.info(
+          "[ErpDataGrid] applyColumnState input cols=" + cols.length +
+          " — first cols sample:",
+          cols.slice(0, 3).map(c => ({ colId: c.colId, width: c.width, flex: c.flex, hide: c.hide }))
+        );
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
         });
+        // Po-apply state pro porovnani
+        try {
+          const after = this.gridApi.getColumnState();
+          console.info(
+            "[ErpDataGrid] applyColumnState DONE — getColumnState() po:",
+            after.slice(0, 3).map(c => ({ colId: c.colId, width: c.width, flex: c.flex, hide: c.hide }))
+          );
+        } catch (e) {}
         // B+10+ (6.5.2026): extract conditional formatting state z layout
         this._formattingRules = Array.isArray(lj.formatting_rules)
           ? lj.formatting_rules.slice()

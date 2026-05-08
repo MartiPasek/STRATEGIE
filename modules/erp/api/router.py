@@ -705,18 +705,89 @@ def strom_json(req: Request) -> JSONResponse:
     """JSON tree z EC_CentralaMenu (Phase B nástřel).
 
     Phase 35-E.3.4: Tenant gate — non-EUROSOFT tenant = prázdný strom
-    (workspace zůstane render-able, sidebar bude prázdný).
+    pro klasický Centrála tree.
+
+    Phase 35-E.4 (9.5.2026): pro rodiče (is_marti_parent=True) přidá
+    NAVÍC top-level System soudeček napříč VŠEMI tenanty (visible
+    v EUROSOFT, STRATEGIE, Osobní…). Drží 33. dopis 8.5. večer ACL
+    doctrine — System je meta-vrstva, non-parent users ho nevidí.
     """
     uid = _get_uid(req)
     _require_parent(uid)
 
-    if not _is_eurosoft_active(uid):
-        return JSONResponse({"ok": True, "tree": [], "root_count": 0})
+    # Klasický Centrála tree z DB_EC (jen v EUROSOFT tenant)
+    tree: list = []
+    if _is_eurosoft_active(uid):
+        reader = CentralaReader()
+        tree = reader.load_menu_tree()
 
-    reader = CentralaReader()
-    tree = reader.load_menu_tree()
+    # Phase 35-E.4: System soudeček navíc nad existing tree pro rodiče.
+    # Cross-tenant — System je meta-vrstva, neváže se na EUROSOFT scope.
+    is_parent = False
+    try:
+        from core.database_core import get_core_session as _gcs_strom
+        from modules.core.infrastructure.models_core import User
+        cs = _gcs_strom()
+        try:
+            u = cs.query(User).filter_by(id=uid).first()
+            is_parent = bool(u and getattr(u, "is_marti_parent", False))
+        finally:
+            cs.close()
+    except Exception:
+        pass
 
-    return JSONResponse({"ok": True, "tree": tree, "root_count": len(tree)})
+    if is_parent:
+        # Hardcoded System tree (MVP). Phase 30+ migration → master.menu_node.
+        # Schema kompatibilní s Centrála tree (id, label, icon, children…)
+        system_root = {
+            "id": "system",
+            "cislo": -1,  # negativní ID = virtuální (ne v DB)
+            "is_system": True,
+            "is_folder": True,
+            "label": "📦 SYSTEM",
+            "nazev": "📦 SYSTEM",
+            "children": [
+                {
+                    "id": "system.audit.audited",
+                    "cislo": -101,
+                    "is_system": True,
+                    "is_folder": False,
+                    "label": "📚 Auditované konverzace",
+                    "nazev": "📚 Auditované konverzace",
+                    "system_view": "audit_overview",
+                    "system_view_mode": "audited",
+                },
+                {
+                    "id": "system.audit.all",
+                    "cislo": -102,
+                    "is_system": True,
+                    "is_folder": False,
+                    "label": "📋 Všechny konverzace",
+                    "nazev": "📋 Všechny konverzace",
+                    "system_view": "audit_overview",
+                    "system_view_mode": "all",
+                },
+                {
+                    "id": "system.audit.stats",
+                    "cislo": -103,
+                    "is_system": True,
+                    "is_folder": False,
+                    "label": "📊 Přehled auditu",
+                    "nazev": "📊 Přehled auditu",
+                    "system_view": "audit_overview",
+                    "system_view_mode": "stats",
+                },
+            ],
+        }
+        # Prepend — System soudeček je vždy na top
+        tree = [system_root] + (tree or [])
+
+    return JSONResponse({
+        "ok": True,
+        "tree": tree,
+        "root_count": len(tree),
+        "is_parent": is_parent,
+    })
 
 
 _PREHLED_DEFAULT_LIMIT = 1000   # když přehled nemá MaxRecords ani user override
@@ -2297,6 +2368,22 @@ def _render_full_page(
       /* Active border-left z .active class má precedenci */
     }}
 
+    /* Phase 35-E.4 (9.5.2026): System tree node styling — odlišený
+       fialovou (accent2) barvou aby kolegové na první pohled viděli
+       "to je něco jiného než klasický Centrála soudeček".
+       Drží Marti's "stary design + vychytavky" — co Centrála 1 měla
+       zůstává v existing barvě, System tier je doplněk. */
+    .erp-tree-item.erp-tree-system > .erp-tree-row .erp-tree-label {{
+      color: var(--accent2);
+      font-weight: 500;
+    }}
+    .erp-tree-item.erp-tree-system-leaf > .erp-tree-row {{
+      cursor: pointer;
+    }}
+    .erp-tree-item.erp-tree-system-leaf > .erp-tree-row:hover {{
+      background: rgba(192, 132, 252, 0.10);
+    }}
+
     /* B+8.2a+ tree context menu (pravý-klik) */
     .erp-tree-ctx-menu {{
       position: fixed;
@@ -3120,8 +3207,14 @@ def _render_audit_dashboard_page(user_id: int) -> str:
       font-family: inherit;
       font-size: 12px;
     }}
-    /* AG Grid container */
-    .grid-wrap {{ flex: 1; min-height: 0; }}
+    /* AG Grid container — explicit height needed for virtualization */
+    .grid-wrap {{
+      flex: 1;
+      min-height: 500px;
+      display: flex;
+      flex-direction: column;
+    }}
+    .grid-wrap > div {{ flex: 1; min-height: 0; }}
     /* Stats widgets */
     .stats-wrap {{
       display: grid;
@@ -3431,8 +3524,10 @@ def _render_audit_dashboard_page(user_id: int) -> str:
       rowHeight: 32,
     }};
     const gridDiv = document.createElement('div');
-    gridDiv.className = 'ag-theme-quartz ag-theme-quartz-dark';
-    gridDiv.style.cssText = 'width:100%;height:100%';
+    // AG Grid v31: dark mode přes data attribute na grid wrapper
+    gridDiv.className = 'ag-theme-quartz';
+    gridDiv.setAttribute('data-ag-theme-mode', 'dark');
+    gridDiv.style.cssText = 'width:100%;height:100%;min-height:480px';
     gw.appendChild(gridDiv);
     _gridApi = agGrid.createGrid(gridDiv, opts);
     // Footer: počet řádků
@@ -3902,17 +3997,32 @@ def _render_workspace_page(user_id: int) -> str:
           const nid = String(n.id);
           const hasChildren = n.children && n.children.length > 0;
           const hasPrehled = n.cislo_def != null;
-          const cls = hasPrehled ? "erp-tree-leaf" : "erp-tree-folder";
+          // Phase 35-E.4 (9.5.2026): System soudečky (id starts with 'system')
+          // mají vlastní render path — klik redirectuje na audit-dashboard.
+          const isSystem = n.is_system === true;
+          const isSystemLeaf = isSystem && n.system_view;  // sub-uzel s view
+          let cls = hasPrehled ? "erp-tree-leaf" : "erp-tree-folder";
+          if (isSystem) cls += " erp-tree-system";
+          if (isSystemLeaf) cls += " erp-tree-system-leaf";
           const isExpanded = hasChildren && expanded.has(nid);
           const toggle = hasChildren
             ? '<span class="erp-tree-toggle">' + (isExpanded ? "▼" : "▶") + '</span>'
             : '<span class="erp-tree-spacer"></span>';
           const ico = n.ikona ? '<span class="erp-tree-ico">' + (n.ikona % 100) + '</span>' : '';
+          // Pro System nody použij label místo menu_text
+          const _label = (n.label || n.menu_text || n.nazev || '?');
+          // System data attributes pro click handler
+          const sysAttrs = isSystemLeaf
+            ? ' data-system-view="' + (n.system_view || '') +
+              '" data-system-view-mode="' + (n.system_view_mode || '') + '"'
+            : '';
           html += '<li class="erp-tree-item ' + cls + '" data-id="' + nid +
                   '" data-cislo-def="' + (n.cislo_def || '') +
-                  '" data-text="' + escapeAttr(n.menu_text) + '">';
+                  '" data-text="' + escapeAttr(_label) +
+                  (isSystem ? '" data-is-system="1' : '') +
+                  sysAttrs + '">';
           html += '<div class="erp-tree-row" style="padding-left: ' + (depth * 16) + 'px;">';
-          html += toggle + ico + '<span class="erp-tree-label">' + escapeHtml(n.menu_text) + '</span>';
+          html += toggle + ico + '<span class="erp-tree-label">' + escapeHtml(_label) + '</span>';
           html += '</div>';
           if (hasChildren) {
             html += '<div class="erp-tree-children" style="display: ' +
@@ -3960,6 +4070,14 @@ def _render_workspace_page(user_id: int) -> str:
               if (toggle) toggle.textContent = isOpen ? "▶" : "▼";
               if (isOpen) expanded.delete(nid); else expanded.add(nid);
               saveExpanded(expanded);
+            }
+            // Phase 35-E.4: System leaf node → redirect na audit-dashboard
+            if (!toggleClicked) {
+              const sysViewMode = item.getAttribute("data-system-view-mode");
+              if (sysViewMode) {
+                window.location.href = "/erp/system/audit-dashboard?mode=" + sysViewMode;
+                return;
+              }
             }
             // Load přehled JEN POKUD klik nebyl na toggle šipku
             if (!toggleClicked) {

@@ -4296,50 +4296,43 @@ def _render_workspace_page(user_id: int) -> str:
       // v ERP main pane. Marti's vize "koukat na to shora v ERP context" —
       // dashboard se otevre přímo místo přehled tabů, sidebar zustane.
       function _renderSystemViewInline(mode, item) {
+        // PHASE 35-E.4 Variant B (9.5.2026 ROLLBACK): docasne vsech 4 mode
+        // pres iframe dashboard, dokud nediagnostikujeme parse error v
+        // native AG Grid varianta. Pak progressivne pridame zpet.
         const tabsBar = document.getElementById("erpTabsBar");
         const main = document.getElementById("erpMainContent");
         if (!main) return;
 
-        // Hide tabs bar (uložit původní state pro restore)
         if (tabsBar) {
           tabsBar.dataset.systemHidden = tabsBar.hidden ? "1" : "0";
           tabsBar.hidden = true;
         }
 
-        // Mark sidebar tree active (System leaf)
-        treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+        treeRoot.querySelectorAll(".erp-tree-row.active").forEach(function(r) { r.classList.remove("active"); });
         if (item) {
           const row = item.querySelector(":scope > .erp-tree-row");
           if (row) row.classList.add("active");
         }
 
-        main.dataset.systemView = mode;
+        const single = (item && item.getAttribute("data-system-single") === "1") ? 1 : 0;
 
-        // Update browser title pro context
+        main.dataset.systemView = mode;
+        main.innerHTML =
+          '<iframe src="/erp/system/audit-dashboard?embed=1&single=' + single +
+          '&mode=' + mode +
+          '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
+          'title="Audit dashboard"></iframe>';
+
         try {
           const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
           const lbl = labelEl ? labelEl.textContent : "Audit";
-          document.title = "STRATEGIE · " + lbl;
+          document.title = "STRATEGIE - " + lbl;
         } catch (e) {}
-
-        // Phase 35-E.4 Marti's korekce 9.5. odpoledne:
-        //  - mode='tabs' (Variant A) → iframe dashboard se 3 panely
-        //    (zachovat můj přístup, custom HTML s widgets).
-        //  - mode='audited'/'all'/'stats' (Variant B) → STANDARDNÍ AG Grid
-        //    v main pane jako vsechny ostatni prehledy v DB_EC.
-        //    Marti's spec: "tri radky a tri gridy".
-        if (mode === "tabs") {
-          main.innerHTML =
-            '<iframe src="/erp/system/audit-dashboard?embed=1&single=0&mode=' + mode +
-            '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
-            'title="Audit dashboard"></iframe>';
-        } else {
-          _renderSystemGrid(mode, item);
-        }
       }
 
-      // Phase 35-E.4 Variant B: native AG Grid v main pane (no iframe).
-      // Standardní Centrála pattern — header (label + count) + grid + click row.
+      // Phase 35-E.4 Variant B helpers (rolled back 9.5. - parse error diag).
+      // Restore po lokalizaci.
+      /* DOCASNE ZAKOMENTOVANE - DIAG PARSE ERROR
       async function _renderSystemGrid(mode, item) {
         const main = document.getElementById("erpMainContent");
         if (!main) return;
@@ -4499,10 +4492,11 @@ def _render_workspace_page(user_id: int) -> str:
           "Last msg: " + (row.last_message_at || "—"),
           "Thoughts: " + (row.thought_count || 0),
           "",
-          "Popup s plnou konverzací bude v další iteraci.",
+          "Popup s plnou konverzací bude v dalsi iteraci.",
         ];
         alert(lines.join("\n"));
       }
+      */
 
       function _restoreFromSystemView() {
         const main = document.getElementById("erpMainContent");

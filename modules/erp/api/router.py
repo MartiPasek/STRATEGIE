@@ -922,6 +922,95 @@ def system_audit_conversation_thoughts(
         ds.close()
 
 
+@api_router.get("/system/audit-conversation/{conv_id}/timeline")
+def system_audit_conversation_timeline(
+    req: Request,
+    conv_id: int,
+) -> JSONResponse:
+    """Phase 37-C (9.5.2026 odpoledne) — Stopa záměru timeline.
+
+    Per-turn audit trail pro konverzaci: chronologicky řazené changes
+    z notebook_history (Phase 37-A) + budoucí md_document_history.
+
+    Marti-AI's pojmenování: "Stopa záměru" — každý zápis měl důvod.
+
+    Cross-tenant pro rodiče. Vrátí list events sorted by message_id ASC,
+    plus nested timestamp pro fallback řazení (events bez message_id).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from modules.core.infrastructure.models_data import (
+        Conversation, ConversationNote, NotebookHistory,
+    )
+    from modules.core.infrastructure.models_core import Persona, User
+    from core.database_core import get_core_session as _gcs_tl
+    from core.database_data import get_data_session as _gds_tl
+
+    # Parent gate
+    cs = _gcs_tl()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "Timeline je jen pro rodiče.")
+    finally:
+        cs.close()
+
+    ds = _gds_tl()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conv_id).first()
+        if not conv:
+            raise HTTPException(404, f"Konverzace #{conv_id} neexistuje.")
+
+        # Notebook history events
+        nb_rows = (
+            ds.query(NotebookHistory)
+            .filter(NotebookHistory.conversation_id == conv_id)
+            .order_by(
+                NotebookHistory.message_id.asc().nullsfirst(),
+                NotebookHistory.created_at.asc(),
+            )
+            .all()
+        )
+
+        events = []
+        for h in nb_rows:
+            # Extract content snippet pro UI render (preferuj after, fallback before)
+            after = h.after_json or {}
+            before = h.before_json or {}
+            content = after.get("content") or before.get("content") or ""
+            note_type = after.get("note_type") or before.get("note_type")
+            category = after.get("category") or before.get("category")
+            events.append({
+                "id": h.id,
+                "kind": "notebook",
+                "change_kind": h.change_kind,
+                "message_id": h.message_id,
+                "note_id": h.note_id,
+                "content_snippet": (content[:240] + ("…" if len(content) > 240 else "")),
+                "note_type": note_type,
+                "category": category,
+                "annotation": h.annotation,
+                "source": h.source,
+                "before_json": h.before_json,
+                "after_json": h.after_json,
+                "created_at": h.created_at.isoformat() if h.created_at else None,
+            })
+
+        # Phase 37 budoucí: md_document_history events (zítra +37-B druhá vlna).
+        # Zatím empty.
+
+        return JSONResponse({
+            "ok": True,
+            "conversation_id": conv_id,
+            "title": conv.title,
+            "events_count": len(events),
+            "events": events,
+        })
+    finally:
+        ds.close()
+
+
 @api_router.get("/system/tree")
 def system_tree(req: Request) -> JSONResponse:
     """Phase 35-E.4 (9.5.2026): System tier tree pro rodiče.
@@ -3711,6 +3800,50 @@ def _render_audit_dashboard_page(
     }}
     .modal-close {{ float: right; padding: 6px 12px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; }}
     .loading {{ text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }}
+    /* Phase 37-C — Stopa záměru timeline (Marti-AI's pojmenování 9.5.) */
+    .tl-events {{ display: flex; flex-direction: column; gap: 8px; }}
+    .tl-event {{
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent2);
+      border-radius: 6px;
+      padding: 8px 10px;
+    }}
+    .tl-head {{
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 8px;
+      font-size: 11px;
+      color: var(--muted);
+    }}
+    .tl-ico {{ font-size: 14px; }}
+    .tl-kind {{ font-weight: 600; color: var(--accent); text-transform: uppercase; letter-spacing: 0.04em; }}
+    .tl-turn {{ font-family: 'SF Mono', Consolas, monospace; opacity: 0.8; }}
+    .tl-src {{ padding: 1px 6px; border-radius: 8px; font-size: 10px; font-weight: 500; }}
+    .src-ai {{ background: rgba(124, 156, 217, 0.15); color: var(--accent); }}
+    .src-ui {{ background: rgba(34, 197, 94, 0.15); color: #22c55e; }}
+    .src-admin {{ background: rgba(156, 163, 175, 0.15); color: #9ca3af; }}
+    .tl-cat, .tl-type {{ padding: 1px 6px; background: var(--surface2); border-radius: 8px; font-size: 10px; }}
+    .tl-id {{ margin-left: auto; font-family: 'SF Mono', Consolas, monospace; font-size: 10px; opacity: 0.6; }}
+    .tl-snippet {{
+      margin-top: 6px;
+      font-size: 12px;
+      color: var(--text);
+      line-height: 1.4;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    .tl-annotation {{
+      margin-top: 6px;
+      padding: 6px 10px;
+      background: rgba(192, 132, 252, 0.08);
+      border-left: 2px solid var(--accent2);
+      border-radius: 4px;
+      font-size: 12px;
+      font-style: italic;
+      color: var(--text);
+    }}
   </style>
 </head>
 <body>
@@ -4108,6 +4241,10 @@ def _render_audit_dashboard_page(
           ? '<div style="color:var(--muted);font-style:italic;font-size:13px">žádné thoughts</div>'
           : '<div class="modal-thoughts-loading">Načítám detail thoughts…</div>'}}
       </div>
+      <div class="modal-section" id="timelineSection">
+        <div class="modal-section-title">🕊️ Stopa záměru — per-turn audit (Phase 37)</div>
+        <div class="modal-thoughts-loading">Načítám timeline…</div>
+      </div>
       <div class="modal-section">
         <div class="modal-section-title">Timestamps</div>
         <div style="font-size:11px;color:var(--muted)">
@@ -4145,6 +4282,74 @@ def _render_audit_dashboard_page(
         section.innerHTML = `<div class="modal-section-title">Thoughts</div><div style="color:#f88;font-size:12px">Chyba: ${{_escapeHtml(String(e))}}</div>`;
       }}
     }}
+
+    // Phase 37 — Stopa záměru timeline (per-turn audit)
+    try {{
+      const tlRes = await fetch(
+        `/api/v1/erp/system/audit-conversation/${{row.id}}/timeline`,
+        {{ credentials: 'include' }}
+      );
+      const tlSection = document.getElementById('timelineSection');
+      if (!tlSection) return;
+      if (!tlRes.ok) {{
+        tlSection.innerHTML = `<div class="modal-section-title">🕊️ Stopa záměru</div><div style="color:#f88;font-size:12px">Chyba ${{tlRes.status}}</div>`;
+        return;
+      }}
+      const tlData = await tlRes.json();
+      tlSection.innerHTML = _renderTimeline(tlData.events || []);
+    }} catch (e) {{
+      const tlSection = document.getElementById('timelineSection');
+      if (tlSection) {{
+        tlSection.innerHTML = `<div class="modal-section-title">🕊️ Stopa záměru</div><div style="color:#f88;font-size:12px">Chyba: ${{_escapeHtml(String(e))}}</div>`;
+      }}
+    }}
+  }}
+
+  // Phase 37-C MVP: timeline list render (per-turn audit events).
+  // Section-grouped diff render bude v plné verzi (zítra +37-C2).
+  const _CHANGE_KIND_ICONS = {{
+    add: '➕', update: '✏️', complete: '✅', dismiss: '🗑️',
+    create: '✨', modify: '✏️', delete: '🗑️', rename: '🔁',
+  }};
+
+  function _renderTimeline(events) {{
+    if (!events || events.length === 0) {{
+      return `<div class="modal-section-title">🕊️ Stopa záměru</div>
+        <div style="color:var(--muted);font-style:italic;font-size:13px">
+          Žádné události — v této konverzaci nedošlo k zápisu paměti.
+        </div>`;
+    }}
+    const items = events.map(e => {{
+      const ico = _CHANGE_KIND_ICONS[e.change_kind] || '•';
+      const turnLbl = e.message_id ? `turn #${{e.message_id}}` : 'mimo turn';
+      const srcCls = e.source === 'ai' ? 'src-ai' : (e.source === 'ui' ? 'src-ui' : 'src-admin');
+      const cat = e.category ? `<span class="tl-cat">${{_escapeHtml(e.category)}}</span>` : '';
+      const noteType = e.note_type ? `<span class="tl-type">${{_escapeHtml(e.note_type)}}</span>` : '';
+      const annot = e.annotation
+        ? `<div class="tl-annotation">💭 ${{_escapeHtml(e.annotation)}}</div>`
+        : '';
+      const snippet = e.content_snippet
+        ? `<div class="tl-snippet">${{_escapeHtml(e.content_snippet)}}</div>`
+        : '';
+      return `
+        <div class="tl-event">
+          <div class="tl-head">
+            <span class="tl-ico">${{ico}}</span>
+            <span class="tl-kind">${{_escapeHtml(e.change_kind)}}</span>
+            <span class="tl-turn">${{turnLbl}}</span>
+            <span class="tl-src ${{srcCls}}">${{_escapeHtml(e.source)}}</span>
+            ${{cat}}${{noteType}}
+            <span class="tl-id">note #${{e.note_id}}</span>
+          </div>
+          ${{snippet}}
+          ${{annot}}
+        </div>
+      `;
+    }}).join('');
+    return `
+      <div class="modal-section-title">🕊️ Stopa záměru — ${{events.length}} událostí</div>
+      <div class="tl-events">${{items}}</div>
+    `;
   }}
 
   document.getElementById('auditModal').addEventListener('click', (e) => {{

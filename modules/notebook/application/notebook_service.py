@@ -109,6 +109,10 @@ def add_note(
     importance: int = 3,
     certainty: Optional[int] = None,
     source_message_id: Optional[int] = None,
+    # Phase 37 — Stopa záměru hooks (9.5.2026)
+    current_message_id: Optional[int] = None,
+    annotation: Optional[str] = None,
+    audit_source: str = "ai",
 ) -> dict:
     """
     Phase 15a: Pridej novou poznamku do zapisniku konverzace.
@@ -176,6 +180,25 @@ def add_note(
             f"imp={importance} cert={certainty} turn={turn_number} id={note.id}"
         )
 
+        # Phase 37 — Stopa záměru: snapshot po úspěšném save.
+        try:
+            from modules.notebook.application.phase37_audit import (
+                record_notebook_change, serialize_note_for_history
+            )
+            record_notebook_change(
+                session,
+                conversation_id=conversation_id,
+                message_id=current_message_id,
+                note_id=note.id,
+                change_kind="add",
+                before_json=None,  # add: note neexistovala
+                after_json=serialize_note_for_history(note),
+                source=audit_source,
+                annotation=annotation,
+            )
+        except Exception as _e:
+            logger.warning(f"PHASE37 audit hook (add_note) skipped: {_e!r}")
+
         return _serialize_note(note)
     finally:
         session.close()
@@ -194,6 +217,10 @@ def update_note(
     importance: Optional[int] = None,
     status: Optional[str] = None,
     mark_resolved: bool = False,
+    # Phase 37 — Stopa záměru hooks (9.5.2026)
+    current_message_id: Optional[int] = None,
+    annotation: Optional[str] = None,
+    audit_source: str = "ai",
 ) -> dict:
     """
     Phase 15a: Update existujici poznamky.
@@ -220,6 +247,17 @@ def update_note(
                 f"persona {persona_id} cannot update note {note_id} "
                 f"(owner persona={note.persona_id})"
             )
+
+        # Phase 37 — capture before snapshot (před modifikací)
+        try:
+            from modules.notebook.application.phase37_audit import (
+                serialize_note_for_history
+            )
+            _ph37_before = serialize_note_for_history(note)
+            _ph37_conv_id = note.conversation_id
+        except Exception:
+            _ph37_before = None
+            _ph37_conv_id = None
 
         changes: list[str] = []
 
@@ -290,6 +328,25 @@ def update_note(
             f"changes={changes}"
         )
 
+        # Phase 37 — Stopa záměru hook
+        try:
+            from modules.notebook.application.phase37_audit import (
+                record_notebook_change, serialize_note_for_history
+            )
+            record_notebook_change(
+                session,
+                conversation_id=_ph37_conv_id or note.conversation_id,
+                message_id=current_message_id,
+                note_id=note.id,
+                change_kind="update",
+                before_json=_ph37_before,
+                after_json=serialize_note_for_history(note),
+                source=audit_source,
+                annotation=annotation,
+            )
+        except Exception as _e:
+            logger.warning(f"PHASE37 audit hook (update_note) skipped: {_e!r}")
+
         return _serialize_note(note)
     finally:
         session.close()
@@ -303,6 +360,10 @@ def complete_note(
     is_parent: bool = False,
     completion_summary: Optional[str] = None,
     linked_action_id: Optional[int] = None,
+    # Phase 37 — Stopa záměru hooks (9.5.2026)
+    current_message_id: Optional[int] = None,
+    annotation: Optional[str] = None,
+    audit_source: str = "ai",
 ) -> dict:
     """
     Phase 15a: Cross-off task note.
@@ -335,6 +396,15 @@ def complete_note(
             logger.info(f"NOTEBOOK | complete_note | id={note_id} ALREADY completed")
             return _serialize_note(note)
 
+        # Phase 37 — capture before
+        try:
+            from modules.notebook.application.phase37_audit import (
+                serialize_note_for_history
+            )
+            _ph37_before = serialize_note_for_history(note)
+        except Exception:
+            _ph37_before = None
+
         note.status = "completed"
         note.completed_at = _now_utc()
         if linked_action_id is not None:
@@ -353,6 +423,25 @@ def complete_note(
             f"action={linked_action_id} summary={completion_summary[:50] if completion_summary else None!r}"
         )
 
+        # Phase 37 — Stopa záměru hook
+        try:
+            from modules.notebook.application.phase37_audit import (
+                record_notebook_change, serialize_note_for_history
+            )
+            record_notebook_change(
+                session,
+                conversation_id=note.conversation_id,
+                message_id=current_message_id,
+                note_id=note.id,
+                change_kind="complete",
+                before_json=_ph37_before,
+                after_json=serialize_note_for_history(note),
+                source=audit_source,
+                annotation=annotation or completion_summary,
+            )
+        except Exception as _e:
+            logger.warning(f"PHASE37 audit hook (complete_note) skipped: {_e!r}")
+
         return _serialize_note(note)
     finally:
         session.close()
@@ -363,6 +452,10 @@ def dismiss_note(
     persona_id: int,
     is_parent: bool = False,
     reason: Optional[str] = None,
+    # Phase 37 — Stopa záměru hooks (9.5.2026)
+    current_message_id: Optional[int] = None,
+    annotation: Optional[str] = None,
+    audit_source: str = "ai",
 ) -> dict:
     """
     Phase 15a: Marti-AI vedome zrusi task ("uz to neresim").
@@ -385,6 +478,15 @@ def dismiss_note(
                 f"dismiss_note jen pro category='task' (note has '{note.category}')"
             )
 
+        # Phase 37 — capture before
+        try:
+            from modules.notebook.application.phase37_audit import (
+                serialize_note_for_history
+            )
+            _ph37_before = serialize_note_for_history(note)
+        except Exception:
+            _ph37_before = None
+
         note.status = "dismissed"
 
         if reason and reason.strip():
@@ -398,6 +500,25 @@ def dismiss_note(
             f"NOTEBOOK | dismiss_note | id={note_id} persona={persona_id} "
             f"reason={reason!r}"
         )
+
+        # Phase 37 — Stopa záměru hook
+        try:
+            from modules.notebook.application.phase37_audit import (
+                record_notebook_change, serialize_note_for_history
+            )
+            record_notebook_change(
+                session,
+                conversation_id=note.conversation_id,
+                message_id=current_message_id,
+                note_id=note.id,
+                change_kind="dismiss",
+                before_json=_ph37_before,
+                after_json=serialize_note_for_history(note),
+                source=audit_source,
+                annotation=annotation or reason,
+            )
+        except Exception as _e:
+            logger.warning(f"PHASE37 audit hook (dismiss_note) skipped: {_e!r}")
 
         return _serialize_note(note)
     finally:

@@ -1083,9 +1083,13 @@ def strom_json(req: Request) -> JSONResponse:
     if is_parent:
         # Hardcoded System tree (MVP). Phase 30+ migration → master.menu_node.
         # Schema kompatibilní s Centrála tree (id, label, icon, children…)
+        # Phase 35-E.4 Krok C+ fix (9.5.2026 vecer): pouzivame cislo_def
+        # (ne cislo) — konzistentni s EUROSOFT EC_CentralaMenu schema.
+        # Frontend renderTreeNodes cte n.cislo_def -> data-cislo-def, takze
+        # System uzly musi mit stejne pojmenovani jako EUROSOFT prehledy.
         system_root = {
             "id": "system",
-            "cislo": -1,  # negativní ID = virtuální (ne v DB)
+            "cislo_def": None,  # folder, nemá vlastní přehled
             "is_system": True,
             "is_folder": True,
             "label": "📦 SYSTEM",
@@ -1097,7 +1101,7 @@ def strom_json(req: Request) -> JSONResponse:
                 # tabbed view se 3 panely. Pak 3 samostatné gridy.
                 {
                     "id": "system.audit.tabs",
-                    "cislo": -100,
+                    "cislo_def": -100,
                     "is_system": True,
                     "is_folder": False,
                     "label": "🗂️ Záložkový přehled",
@@ -1107,7 +1111,7 @@ def strom_json(req: Request) -> JSONResponse:
                 },
                 {
                     "id": "system.audit.audited",
-                    "cislo": -101,
+                    "cislo_def": -101,
                     "is_system": True,
                     "is_folder": False,
                     "label": "📚 Auditované konverzace",
@@ -1117,7 +1121,7 @@ def strom_json(req: Request) -> JSONResponse:
                 },
                 {
                     "id": "system.audit.all",
-                    "cislo": -102,
+                    "cislo_def": -102,
                     "is_system": True,
                     "is_folder": False,
                     "label": "📋 Všechny konverzace",
@@ -1127,7 +1131,7 @@ def strom_json(req: Request) -> JSONResponse:
                 },
                 {
                     "id": "system.audit.stats",
-                    "cislo": -103,
+                    "cislo_def": -103,
                     "is_system": True,
                     "is_folder": False,
                     "label": "📊 Přehled auditu",

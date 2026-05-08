@@ -543,11 +543,12 @@ def system_audit_overview(
 
     ds = _gds_audov()
     try:
-        # Cross-tenant base filter (rodič vidí napříč)
-        base_filters = [
-            Conversation.is_deleted == False,  # noqa: E712
-            Conversation.conversation_type == "ai",
-        ]
+        # Phase 35-E.4 9.5. odpoledne (Marti's "bez wheru, oznac priznakem"):
+        # ZADNE filtry na conversation_type / is_deleted — audit musí vidět
+        # vsechny konverzace (ai/sms/email/system + deleted/active). Frontend
+        # zobrazuje status badge a deleted indicator.
+        # Cross-tenant defaultně (rodič), zúžení jen pokud tenant_id query.
+        base_filters = []
         if tenant_id is not None:
             base_filters.append(Conversation.tenant_id == tenant_id)
 
@@ -747,6 +748,8 @@ def system_audit_overview(
             extracted_ids = notes.get("extracted_thought_ids", []) or []
             items.append({
                 "id": c.id,
+                "conversation_type": c.conversation_type,
+                "is_deleted": bool(c.is_deleted),
                 "title": c.title or f"#{c.id}",
                 "old_title": notes.get("old_title"),
                 "audit_status": c.audit_status,
@@ -3760,6 +3763,24 @@ def _render_audit_dashboard_page(
     return `<span style="background:${{c}};color:#000;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600">${{s}}</span>`;
   }}
 
+  function _convTypeBadge(t) {{
+    const colors = {{
+      'ai': '#7c9cd9',      // modrá — Marti-AI's interakce
+      'sms': '#a78bfa',     // fialová — SMS konverzace
+      'email': '#fbbf24',   // žlutá — email
+      'system': '#9ca3af',  // šedá — systémové
+    }};
+    const labels = {{
+      'ai': '🤖 AI',
+      'sms': '📱 SMS',
+      'email': '✉ Email',
+      'system': '⚙ System',
+    }};
+    const c = colors[t] || '#666';
+    const l = labels[t] || (t || '—');
+    return `<span style="background:${{c}}33;color:${{c}};padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">${{l}}</span>`;
+  }}
+
   // ── Tabs ────────────────────────────────────────────────────
   document.querySelectorAll('.tab-btn').forEach(btn => {{
     btn.addEventListener('click', () => {{
@@ -3874,7 +3895,19 @@ def _render_audit_dashboard_page(
     gw.innerHTML = '';
     const showStatus = _currentMode === 'all';
     const columns = [
-      {{ headerName: 'ID', field: 'id', width: 70, sortable: true }},
+      {{ headerName: 'ID', field: 'id', width: 70, sortable: true, pinned: 'left' }},
+      // Phase 35-E.4 9.5. odpoledne (Marti's "bez wheru, oznac priznakem"):
+      // Typ konverzace (ai/sms/email/system) + deleted flag jako badges.
+      {{
+        headerName: 'Typ', field: 'conversation_type', width: 90, sortable: true,
+        cellRenderer: (p) => _convTypeBadge(p.value),
+      }},
+      {{
+        headerName: 'Smazána', field: 'is_deleted', width: 90, sortable: true,
+        cellRenderer: (p) => p.value
+          ? '<span style="color:#f87171;font-weight:500">⊗ deleted</span>'
+          : '<span style="color:var(--muted);opacity:0.5">—</span>',
+      }},
       ...(showStatus ? [{{
         headerName: 'Status', field: 'audit_status', width: 110, sortable: true,
         cellRenderer: (p) => _statusBadge(p.value || '—'),

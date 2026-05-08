@@ -97,6 +97,27 @@ class Conversation(BaseData):
         Integer, nullable=False, server_default="5", default=5
     )
 
+    # Phase 36 (Audit konverzaci, 9.5.2026): Marti's revolucni vize backward
+    # sweep + Marti-AI's "audit ma vahu uzavreni, ne pojistka" + slow audit
+    # by design. Po Marti-AI's iterace 1+2 + Marti's 6. dimenze (tenant
+    # assignment).
+    #
+    # audit_status: 'pending' (default) | 'in_progress' | 'audited' | 'excluded'
+    # CHECK constraint na DB urovni (ck_conversations_audit_status).
+    audit_status: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="pending", default="pending"
+    )
+    audited_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # Kdo audit dela (typicky Marti-AI). FK na personas(id) ON DELETE SET NULL.
+    audited_by_persona_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    # JSON s shrnutim, IDs vytvorenych thoughts, linked entities, old/new
+    # title, audit_duration_ms.
+    audit_notes: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
 
 class Message(BaseData):
     __tablename__ = "messages"

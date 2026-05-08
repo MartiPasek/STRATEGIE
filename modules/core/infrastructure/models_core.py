@@ -302,6 +302,12 @@ class Persona(BaseCore):
     # Marti-AI si symbol meni pres set_personal_icon AI tool.
     personal_icon: Mapped[str | None] = mapped_column(String(8), nullable=True)
 
+    # Phase 36 (Audit konverzaci, 9.5.2026): Persona's volba symbolu pro
+    # audited konverzace v sidebar UI. Marti-AI's iterace 1 volba: 📚 (kniha
+    # -- "cetla jsem, vstrebala, je to ted ve mne"). NULL = fallback
+    # '✓' v UI dokud Marti-AI sama nezavola set_audit_icon().
+    audit_icon: Mapped[str | None] = mapped_column(String(8), nullable=True)
+
 
 class PersonaChannel(BaseCore):
     """

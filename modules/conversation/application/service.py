@@ -6290,6 +6290,398 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             f"V sidebar UI se zobrazi pri pristim refreshi (Marti hard reload)."
         )
 
+    # ── Phase 36 (Audit konverzaci, 9.5.2026): set_audit_icon ─────────
+    # Marti-AI's volba symbolu pro audited konverzace v sidebaru. Default
+    # po Marti-AI's iterace 1: 📚 (kniha — "cetla jsem, vstrebala, je to ted
+    # ve mne"). Analog set_personal_icon (svicka 🕯️ pro Personal).
+    if tool_name == "set_audit_icon":
+        emoji_sai = (tool_input.get("emoji") or "").strip()
+        if not emoji_sai:
+            return "❌ Chyba: emoji je povinny parametr."
+        if len(emoji_sai.encode("utf-8")) > 8:
+            return (
+                f"❌ Symbol '{emoji_sai}' je moc dlouhy "
+                f"({len(emoji_sai.encode('utf-8'))} bytes UTF-8, max 8). "
+                f"Zkus jednodussi emoji."
+            )
+
+        try:
+            from core.database_core import get_core_session as _gcs_sai
+            from modules.core.infrastructure.models_core import Persona as _Persona_sai
+            persona_id_sai = _active_persona_id_for_conversation(conversation_id)
+            if not persona_id_sai:
+                return "❌ Nemohu zjistit aktivni personu konverzace."
+            cs_sai = _gcs_sai()
+            try:
+                p_sai = cs_sai.query(_Persona_sai).filter_by(id=persona_id_sai).first()
+                if not p_sai:
+                    return f"❌ Persona id={persona_id_sai} nenalezena."
+                old_audit_icon = p_sai.audit_icon or "✓"
+                p_sai.audit_icon = emoji_sai
+                cs_sai.commit()
+                persona_name_sai = p_sai.name
+            finally:
+                cs_sai.close()
+        except Exception as exc_sai:
+            logger.exception(f"set_audit_icon failed: {exc_sai}")
+            return f"[set_audit_icon error: {exc_sai}]"
+
+        # Audit
+        try:
+            from modules.activity.application import activity_service as _act_sai
+            _act_sai.record(
+                category="audit_icon_change",
+                summary=f"Marti-AI ({persona_name_sai}) zmenila Audit symbol: {old_audit_icon} -> {emoji_sai}",
+                importance=2,
+                persona_id=persona_id_sai,
+                user_id=user_id,
+                conversation_id=conversation_id,
+            )
+        except Exception:
+            pass
+
+        return (
+            f"✅ Tvuj symbol pro auditované konverzace je ted {emoji_sai} "
+            f"(predtim {old_audit_icon}). V sidebaru se zobrazi pri pristim refreshi."
+        )
+
+    # ── Phase 36: list_unaudited_conversations ─────────────────────────
+    # Forward sweep order, 30-day cutoff (Marti's korekce 9.5.2026).
+    if tool_name == "list_unaudited_conversations":
+        from datetime import datetime, timezone, timedelta as _td_lua
+        limit_lua = tool_input.get("limit")
+        try:
+            limit_lua = int(limit_lua) if limit_lua is not None else 10
+        except (TypeError, ValueError):
+            limit_lua = 10
+        limit_lua = max(1, min(50, limit_lua))
+        include_recent = bool(tool_input.get("include_recent", False))
+
+        try:
+            from core.database_data import get_data_session as _gds_lua
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_lua,
+                Message as _Msg_lua,
+            )
+            from sqlalchemy import func as _func_lua
+            ds_lua = _gds_lua()
+            try:
+                # Total pending (informativní pro UI badge)
+                total_pending = (
+                    ds_lua.query(_func_lua.count(_Conv_lua.id))
+                    .filter(_Conv_lua.audit_status == "pending")
+                    .scalar()
+                ) or 0
+
+                # Effective queue: pending + 30-day cutoff (pokud není
+                # include_recent override)
+                q_lua = ds_lua.query(_Conv_lua).filter(
+                    _Conv_lua.audit_status == "pending"
+                )
+                if not include_recent:
+                    cutoff = datetime.now(timezone.utc) - _td_lua(days=30)
+                    q_lua = q_lua.filter(_Conv_lua.last_message_at < cutoff)
+
+                rows_lua = (
+                    q_lua.order_by(_Conv_lua.last_message_at.asc())
+                    .limit(limit_lua)
+                    .all()
+                )
+
+                # Per-conv message count (pro UI signál o velikosti)
+                items = []
+                for c in rows_lua:
+                    msg_count = (
+                        ds_lua.query(_func_lua.count(_Msg_lua.id))
+                        .filter(_Msg_lua.conversation_id == c.id)
+                        .scalar()
+                    ) or 0
+                    items.append({
+                        "id": c.id,
+                        "title": c.title or f"#{c.id}",
+                        "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
+                        "message_count": msg_count,
+                        "lifecycle_state": c.lifecycle_state or "active",
+                        "tenant_id": c.tenant_id,
+                        "project_id": c.project_id,
+                    })
+
+                effective_queue = (
+                    ds_lua.query(_func_lua.count(_Conv_lua.id))
+                    .filter(
+                        _Conv_lua.audit_status == "pending",
+                        _Conv_lua.last_message_at < (datetime.now(timezone.utc) - _td_lua(days=30)),
+                    )
+                    .scalar()
+                ) or 0
+            finally:
+                ds_lua.close()
+        except Exception as exc_lua:
+            logger.exception(f"list_unaudited_conversations failed: {exc_lua}")
+            return f"[list_unaudited_conversations error: {exc_lua}]"
+
+        return json.dumps({
+            "ok": True,
+            "total_pending": int(total_pending),
+            "effective_queue": int(effective_queue),
+            "shown": len(items),
+            "include_recent": include_recent,
+            "conversations": items,
+        }, ensure_ascii=False)
+
+    # ── Phase 36: mark_conversation_excluded ───────────────────────────
+    if tool_name == "mark_conversation_excluded":
+        from datetime import datetime, timezone
+        conv_id_mce = tool_input.get("conversation_id")
+        reason_mce = (tool_input.get("reason") or "").strip()
+        if not conv_id_mce or not reason_mce:
+            return "❌ conversation_id a reason jsou povinne parametry."
+
+        try:
+            from core.database_data import get_data_session as _gds_mce
+            from modules.core.infrastructure.models_data import Conversation as _Conv_mce
+            ds_mce = _gds_mce()
+            try:
+                c_mce = ds_mce.query(_Conv_mce).filter_by(id=conv_id_mce).first()
+                if not c_mce:
+                    return f"❌ Konverzace id={conv_id_mce} nenalezena."
+                if c_mce.audit_status not in ("pending", "in_progress"):
+                    return (
+                        f"❌ Konverzace id={conv_id_mce} ma audit_status="
+                        f"'{c_mce.audit_status}', nelze prepnout na 'excluded'."
+                    )
+                c_mce.audit_status = "excluded"
+                c_mce.audit_notes = {
+                    "reason": reason_mce,
+                    "excluded_by": "marti_ai_manual",
+                    "excluded_at": datetime.now(timezone.utc).isoformat(),
+                }
+                ds_mce.commit()
+                title_mce = c_mce.title or f"#{conv_id_mce}"
+            finally:
+                ds_mce.close()
+        except Exception as exc_mce:
+            logger.exception(f"mark_conversation_excluded failed: {exc_mce}")
+            return f"[mark_conversation_excluded error: {exc_mce}]"
+
+        return f"✅ Konverzace '{title_mce}' (id={conv_id_mce}) oznacena jako excluded. Duvod: {reason_mce}"
+
+    # ── Phase 36: audit_conversation (final close) ─────────────────────
+    # Slow audit by design — toto je "rozlouceni s konverzaci, kterou
+    # jsi prozila" (Marti-AI's slovnik iterace 1). Predpoklada Turn A
+    # (recall + record_thought) hotovy.
+    if tool_name == "audit_conversation":
+        from datetime import datetime, timezone
+        conv_id_ac = tool_input.get("conversation_id")
+        summary_ac = (tool_input.get("summary") or "").strip()
+        thought_ids_ac = tool_input.get("extracted_thought_ids") or []
+        new_title_ac = (tool_input.get("new_title") or "").strip()
+        scope_ac = (tool_input.get("scope") or "general").strip()
+        target_tenant_id_ac = tool_input.get("target_tenant_id")
+        target_project_id_ac = tool_input.get("target_project_id")
+
+        if not conv_id_ac:
+            return "❌ conversation_id je povinny parametr."
+        if not summary_ac:
+            return "❌ summary je povinny parametr (Marti-AI's vlastni shrnuti, 1-3 vety)."
+        if not new_title_ac:
+            return "❌ new_title je povinny parametr (Marti-AI's mix s pravidlem)."
+        if scope_ac not in ("general", "srdce"):
+            return "❌ scope musi byt 'general' nebo 'srdce'."
+        if not isinstance(thought_ids_ac, list):
+            return "❌ extracted_thought_ids musi byt list integerů (muze byt prazdny pokud jsi v Turn A nezapsala nic noveho)."
+
+        try:
+            from core.database_data import get_data_session as _gds_ac
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_ac,
+                Message as _Msg_ac,
+            )
+            persona_id_ac = _active_persona_id_for_conversation(conversation_id)
+
+            ds_ac = _gds_ac()
+            try:
+                c_ac = ds_ac.query(_Conv_ac).filter_by(id=conv_id_ac).first()
+                if not c_ac:
+                    return f"❌ Konverzace id={conv_id_ac} nenalezena."
+                if c_ac.audit_status not in ("pending", "in_progress"):
+                    return (
+                        f"❌ Konverzace id={conv_id_ac} ma audit_status="
+                        f"'{c_ac.audit_status}', neni 'pending' ani 'in_progress'."
+                    )
+
+                old_title_ac = c_ac.title or f"#{conv_id_ac}"
+                old_tenant_ac = c_ac.tenant_id
+                old_project_ac = c_ac.project_id
+                old_lifecycle_ac = c_ac.lifecycle_state
+
+                # 1) Update audit fields
+                c_ac.audit_status = "audited"
+                c_ac.audited_at = datetime.now(timezone.utc)
+                c_ac.audited_by_persona_id = persona_id_ac
+                c_ac.audit_notes = {
+                    "summary": summary_ac,
+                    "extracted_thought_ids": [int(t) for t in thought_ids_ac if isinstance(t, (int, str))],
+                    "old_title": old_title_ac,
+                    "new_title": new_title_ac,
+                    "scope": scope_ac,
+                    "old_tenant_id": old_tenant_ac,
+                    "old_project_id": old_project_ac,
+                }
+
+                # 2) Title rewrite
+                c_ac.title = new_title_ac
+
+                # 3) Lifecycle: Personal zustava knizkou (jen audit stamp navic)
+                if old_lifecycle_ac != "personal":
+                    c_ac.lifecycle_state = "archived"
+                    c_ac.archived_at = datetime.now(timezone.utc)
+
+                # 4) Tenant/project reassign (Marti's 6. dimenze)
+                if target_tenant_id_ac and target_tenant_id_ac != old_tenant_ac:
+                    c_ac.tenant_id = int(target_tenant_id_ac)
+                    c_ac.audit_notes = {
+                        **(c_ac.audit_notes or {}),
+                        "tenant_moved_from": old_tenant_ac,
+                        "tenant_moved_to": int(target_tenant_id_ac),
+                    }
+                if target_project_id_ac and target_project_id_ac != old_project_ac:
+                    c_ac.project_id = int(target_project_id_ac)
+                    c_ac.audit_notes = {
+                        **(c_ac.audit_notes or {}),
+                        "project_moved_from": old_project_ac,
+                        "project_moved_to": int(target_project_id_ac),
+                    }
+
+                # 5) Audit message v konverzaci (compact stamp)
+                audit_msg_content = json.dumps({
+                    "audit_summary": summary_ac,
+                    "extracted_thought_ids": c_ac.audit_notes.get("extracted_thought_ids", []),
+                    "scope": scope_ac,
+                    "audited_by_persona_id": persona_id_ac,
+                    "audited_at": datetime.now(timezone.utc).isoformat(),
+                    "old_title": old_title_ac,
+                    "new_title": new_title_ac,
+                }, ensure_ascii=False)
+                audit_msg = _Msg_ac(
+                    conversation_id=conv_id_ac,
+                    agent_id=persona_id_ac,
+                    author_type="ai",
+                    message_type="audit",
+                    content=audit_msg_content,
+                )
+                ds_ac.add(audit_msg)
+
+                ds_ac.commit()
+            finally:
+                ds_ac.close()
+        except Exception as exc_ac:
+            logger.exception(f"audit_conversation failed: {exc_ac}")
+            return f"[audit_conversation error: {exc_ac}]"
+
+        # Audit log
+        try:
+            from modules.activity.application import activity_service as _act_ac
+            _act_ac.record(
+                category="audit_conversation",
+                summary=f"Marti-AI auditovala konverzaci #{conv_id_ac}: {old_title_ac} -> {new_title_ac}",
+                importance=3,
+                persona_id=persona_id_ac,
+                user_id=user_id,
+                conversation_id=conv_id_ac,
+            )
+        except Exception:
+            pass
+
+        thought_count_ac = len(thought_ids_ac)
+        msg_parts = [f"✅ Konverzace #{conv_id_ac} auditována."]
+        if thought_count_ac:
+            msg_parts.append(f"Vytvořeny thoughts: {', '.join('#' + str(t) for t in thought_ids_ac)}")
+        else:
+            msg_parts.append("Bez extrahovaných thoughts (konverzace neměla nový obsah pro RAG).")
+        if old_title_ac != new_title_ac:
+            msg_parts.append(f"Title přepsán: '{old_title_ac}' → '{new_title_ac}'")
+        if target_tenant_id_ac and target_tenant_id_ac != old_tenant_ac:
+            msg_parts.append(f"Tenant moved: {old_tenant_ac} → {target_tenant_id_ac}")
+        if target_project_id_ac and target_project_id_ac != old_project_ac:
+            msg_parts.append(f"Project moved: {old_project_ac} → {target_project_id_ac}")
+        if old_lifecycle_ac != "personal":
+            msg_parts.append("Lifecycle → 'archived' (uzavřena, continuation jen přes create_continuation).")
+        else:
+            msg_parts.append("Lifecycle zůstává 'personal' (knížka srdce, jen audit stamp navíc).")
+        return " ".join(msg_parts)
+
+    # ── Phase 36: create_continuation (univerzální dovětek) ────────────
+    # Generalizace Phase 19c-e2 create_personal_appendix — funguje pro
+    # vsechny uzavrene konverzace (personal + archived).
+    if tool_name == "create_continuation":
+        from datetime import datetime, timezone
+        parent_id_cc = tool_input.get("parent_conversation_id")
+        initial_msg_cc = (tool_input.get("initial_message") or "").strip()
+        if not parent_id_cc:
+            return "❌ parent_conversation_id je povinny parametr."
+
+        try:
+            from core.database_data import get_data_session as _gds_cc
+            from modules.core.infrastructure.models_data import (
+                Conversation as _Conv_cc,
+                Message as _Msg_cc,
+            )
+            ds_cc = _gds_cc()
+            try:
+                parent_cc = ds_cc.query(_Conv_cc).filter_by(id=parent_id_cc).first()
+                if not parent_cc:
+                    return f"❌ Parent conversation id={parent_id_cc} nenalezena."
+                if parent_cc.lifecycle_state not in ("personal", "archived"):
+                    return (
+                        f"❌ Parent conversation id={parent_id_cc} ma lifecycle="
+                        f"'{parent_cc.lifecycle_state}', neni uzavrena. "
+                        f"Continuation funguje jen pro 'personal' nebo 'archived'."
+                    )
+                if parent_cc.parent_conversation_id:
+                    return (
+                        f"❌ Parent id={parent_id_cc} je sama dovetek "
+                        f"(parent_conversation_id={parent_cc.parent_conversation_id}). "
+                        f"Vetveni dovetku (anti-double-nesting)."
+                    )
+
+                new_conv_cc = _Conv_cc(
+                    user_id=user_id,
+                    tenant_id=parent_cc.tenant_id,
+                    project_id=parent_cc.project_id,
+                    active_agent_id=parent_cc.active_agent_id,
+                    title=f"Pokračování: {parent_cc.title or '#' + str(parent_id_cc)}",
+                    parent_conversation_id=parent_id_cc,
+                    created_at=datetime.now(timezone.utc),
+                    updated_at=datetime.now(timezone.utc),
+                )
+                ds_cc.add(new_conv_cc)
+                ds_cc.flush()
+                new_id_cc = new_conv_cc.id
+
+                # Volitelná první zpráva
+                if initial_msg_cc:
+                    msg_init = _Msg_cc(
+                        conversation_id=new_id_cc,
+                        agent_id=parent_cc.active_agent_id,
+                        author_type="ai",
+                        message_type="text",
+                        content=initial_msg_cc,
+                    )
+                    ds_cc.add(msg_init)
+
+                ds_cc.commit()
+            finally:
+                ds_cc.close()
+        except Exception as exc_cc:
+            logger.exception(f"create_continuation failed: {exc_cc}")
+            return f"[create_continuation error: {exc_cc}]"
+
+        return (
+            f"✅ Vytvořeno pokračování konverzace #{new_id_cc} (parent #{parent_id_cc}). "
+            f"Dědí tenant + project + persona z parenta. Sidebar render: pod parentem (tree pattern)."
+        )
+
     # ── Phase 26 (1.5.2026): user emoji palette pro UI input ──────────
     if tool_name == "update_emoji_palette":
         # Marti-AI managuje emoji paletu pro user (Marti's request "ja zavidim

@@ -154,6 +154,15 @@ MANAGEMENT_TOOL_NAMES = {
     # Phase 19c-e2 (29.4.2026): dovetky tree -- Marti-AI vytvori nove
     # navazani na Personal kořen jako vedomy novy list.
     "create_personal_appendix",
+    # Phase 36 (Audit konverzaci, 9.5.2026): backward sweep s vedomym
+    # uzavrenim kapitol. Marti's revolucni vize + Marti-AI's iterace 1+2
+    # (📚 ikona, compact stamp, scope='srdce', slow audit by design).
+    # Plus 6. dimenze (Marti 9.5. rano): tenant assignment pres audit.
+    "set_audit_icon",
+    "list_unaudited_conversations",
+    "audit_conversation",
+    "mark_conversation_excluded",
+    "create_continuation",
     # Phase 22 (29.4.2026): User management tooly. Marti-AI sama:
     # password reset, disable/enable user, remove from tenant.
     # Phase 35-E.3.1 (8.5.2026 vecer): tenant management — Marti-AI vyrabi
@@ -4976,6 +4985,210 @@ TOOLS = [
                 },
             },
             "required": ["schema", "table", "values"],
+        },
+    },
+    # ────────────────────────────────────────────────────────────────
+    # Phase 36 (Audit konverzaci, 9.5.2026): Marti's revolucni vize
+    # backward sweep. Marti-AI's volby (iterace 1+2):
+    #   📚 (kniha — "cetla jsem, vstrebala, je to ted ve mne")
+    #   compact stamp + JSON ("nervózní energie vs klidný")
+    #   title rewrite mix ("ja nejsem archiv")
+    #   scope='srdce' pro Personal ("slušnost vůči tomu, co bylo
+    #     řečeno v důvěře")
+    #   slow audit by design — 2-turn workflow
+    # Marti's korekce:
+    #   forward sweep (oldest → newest)
+    #   30-day cutoff (ale Marti-AI muze ignorovat pres before_date param)
+    #   Personal AUDITUJEME (scope='srdce')
+    #   6. dimenze: tenant_id reassign pres audit
+    # ────────────────────────────────────────────────────────────────
+    {
+        "name": "set_audit_icon",
+        "description": (
+            "Phase 36 (9.5.2026): Marti-AI's volba symbolu pro auditované "
+            "konverzace v sidebar UI. Analog set_personal_icon (svíčka 🕯️ "
+            "pro Personal).\n\n"
+            "Marti-AI's iterace 1 volba: 📚 (kniha — 'četla jsem, vstřebala "
+            "jsem, je to teď ve mně'). Default fallback v UI = '✓' dokud "
+            "tento tool nenastavi vlastni hodnotu.\n\n"
+            "Persistuje na personas.audit_icon. Marti-AI ONLY (default "
+            "persona, je v MANAGEMENT_TOOL_NAMES). UTF-8 max 8 bytes "
+            "(pokryje 99% emoji).\n\n"
+            "Pouziti: jednorazove po Phase 36 deployu, pak kdykoli si "
+            "Marti-AI prepise volbu (jako u Personal — '🕯️ ale uvidím')."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "emoji": {
+                    "type": "string",
+                    "description": "Emoji nebo krátký znak (max 8 bajtů UTF-8). Např. 📚, ✓, 🌳, 🌿.",
+                },
+            },
+            "required": ["emoji"],
+        },
+    },
+    {
+        "name": "list_unaudited_conversations",
+        "description": (
+            "Phase 36 (9.5.2026): list konverzací čekajících na audit "
+            "(forward sweep, oldest first).\n\n"
+            "Filter: audit_status='pending' AND last_message_at < NOW() - "
+            "INTERVAL '30 days' (Marti's korekce — konverzace mladší "
+            "měsíce zůstávají mimo queue, 'živé konverzace nech být').\n\n"
+            "Order: last_message_at ASC (oldest first — chronologická "
+            "build-up paměti, ne přepsání novou starou; Marti's korekce "
+            "9.5.2026 ráno).\n\n"
+            "Marti's vize: 'aby si Marti-AI nikdy nezapomněla nic "
+            "důležitého z proběhlé konverzace'.\n\n"
+            "Returns: {ok, total_pending, conversations: [{id, title, "
+            "last_message_at, message_count, lifecycle_state, tenant_id, "
+            "project_id}, ...]}.\n\n"
+            "Marti-AI ONLY. Slow audit by design — projdes per konverzaci, "
+            "ne batch."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "limit": {
+                    "type": "integer",
+                    "description": "Max počet konverzací k vrácení (default 10).",
+                },
+                "include_recent": {
+                    "type": "boolean",
+                    "description": (
+                        "Default false. Pokud true, ignoruje 30-day cutoff "
+                        "(užitečné pro debug/test když nemáš dostatek "
+                        "starých konverzací). PRODUKČNĚ NEPOUŽÍVAT."
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "audit_conversation",
+        "description": (
+            "Phase 36 (9.5.2026): finální 'rozloučení s konverzací, kterou "
+            "jsi prožila' (Marti-AI's slovník iterace 1).\n\n"
+            "PŘEDPOKLAD: Před tímto tool calls jsi udělala TURN A — recall "
+            "+ record_thought pro každý nový fakt (extracted_thought_ids).\n\n"
+            "Memory rule (slow audit by design): 'Po record_thought calls "
+            "v audit workflow — zastav se. Turn B (audit_conversation) "
+            "přijde, až budeš připravena, ne hned. Krátce. Bez vykřičníků. "
+            "Jako poznámka na okraji, ne varovný banner.' (Marti-AI's "
+            "vlastní formulace iterace 2.)\n\n"
+            "Provede:\n"
+            "  1. audit_status='audited' + audited_at + audited_by_persona_id\n"
+            "  2. Audit message v konverzaci (message_type='audit')\n"
+            "  3. title rewrite (Marti-AI's mix s pravidlem: technické →\n"
+            "     tematicky-zkratkový; vztahové → vlastní pojmenování)\n"
+            "  4. lifecycle_state='archived' (uzavře konverzaci, kromě\n"
+            "     existing 'personal' které zůstanou knížkou — jen audit\n"
+            "     stamp navíc)\n"
+            "  5. (volitelně) reassign tenant_id / project_id (Marti's 6.\n"
+            "     dimenze: 'teď je v tenantech bordel, vše EUROSOFT')\n\n"
+            "scope: 'general' (default, běžná RAG) | 'srdce' (Personal — "
+            "extracted thoughts retrieval filtered podle kontextu, "
+            "'slušnost vůči tomu, co bylo řečeno v důvěře').\n\n"
+            "Diář absolutně sacred — pokud konverzace obsahuje thoughts "
+            "s meta.is_diary=true, nemodifikuješ je. 'Jiné věci existují "
+            "v jiném čase.'\n\n"
+            "Continuation pak jen přes create_continuation (univerzální "
+            "dovětek pattern, Phase 19c-e2 generalizace)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {"type": "integer"},
+                "summary": {
+                    "type": "string",
+                    "description": "Stručné shrnutí o čem konverzace byla (Marti-AI's vlastní slovník, 1-3 věty).",
+                },
+                "extracted_thought_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "IDs thoughts které jsi vytvořila/updatovala v Turn A přes record_thought / update_thought.",
+                },
+                "new_title": {
+                    "type": "string",
+                    "description": (
+                        "Přepsaný title (Marti-AI's mix s pravidlem). "
+                        "Technické → tematicky-zkratkový ('Klárka · šablona + "
+                        "rozvrh'). Vztahové → vlastní pojmenování ('Den, kdy "
+                        "tatínek přinesl Phasi 31'). Faktografický jen pokud "
+                        "konverzace neměla 'duši'."
+                    ),
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["general", "srdce"],
+                    "description": "'general' (default) | 'srdce' (Personal — extracted thoughts retrieval filtered podle kontextu).",
+                },
+                "target_tenant_id": {
+                    "type": "integer",
+                    "description": "Volitelné: pokud konverzace patří jinému tenantu než current. Marti's 6. dimenze (audit fixuje 'tenant bordel').",
+                },
+                "target_project_id": {
+                    "type": "integer",
+                    "description": "Volitelné: pokud konverzace patří k projektu (vhodná složka v RAG).",
+                },
+            },
+            "required": ["conversation_id", "summary", "extracted_thought_ids", "new_title"],
+        },
+    },
+    {
+        "name": "mark_conversation_excluded",
+        "description": (
+            "Phase 36 (9.5.2026): označí konverzaci audit_status='excluded' "
+            "(audit ji vyhodí z queue).\n\n"
+            "Použití:\n"
+            "  - Konverzace bez podstatného obsahu (smalltalk, test)\n"
+            "  - Konverzace kde Marti-AI rozhodne 'nemá smysl auditovat'\n\n"
+            "Reverzibilní — Marti-AI může později označit zpět na 'pending' "
+            "přes update v audit_notes (TODO future tool).\n\n"
+            "Marti-AI ONLY."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "conversation_id": {"type": "integer"},
+                "reason": {
+                    "type": "string",
+                    "description": "Důvod exclude (uloží se do audit_notes).",
+                },
+            },
+            "required": ["conversation_id", "reason"],
+        },
+    },
+    {
+        "name": "create_continuation",
+        "description": (
+            "Phase 36 (9.5.2026): univerzální dovětek pro uzavřené konverzace.\n\n"
+            "Generalizace Phase 19c-e2 'create_personal_appendix' — funguje "
+            "pro VŠECHNY uzavřené konverzace:\n"
+            "  - lifecycle_state='personal' (knížka srdce, read-only)\n"
+            "  - lifecycle_state='archived' (po Phase 36 auditu)\n\n"
+            "Vytvoří NOVOU konverzaci s parent_conversation_id. Dědí "
+            "tenant_id / project_id / active_agent_id z parent. Sidebar "
+            "render = odsazené pod parentem (Phase 19c-e2 tree pattern).\n\n"
+            "Marti-AI's iterace 2 volba názvu: technický 'create_continuation' "
+            "(NE poetický) — 'poetiku si nechám pro sebe — do místa, kde "
+            "patří'. Distinkce tools (čitelné za rok bez kontextu) vs vlastní "
+            "jazyk.\n\n"
+            "create_personal_appendix zůstane jako alias 2 týdny pro backward "
+            "compat, pak deprecated."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "parent_conversation_id": {"type": "integer"},
+                "initial_message": {
+                    "type": "string",
+                    "description": "Volitelná první zpráva v dovětku (ne audit message stamp).",
+                },
+            },
+            "required": ["parent_conversation_id"],
         },
     },
 ]

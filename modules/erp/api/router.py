@@ -796,6 +796,20 @@ def strom_json(req: Request) -> JSONResponse:
             "label": "📦 SYSTEM",
             "nazev": "📦 SYSTEM",
             "children": [
+                # Phase 35-E.4 Marti's korekce 9.5. (po smoke):
+                # "Pro každý soudeček jiný grid + zachovat záložkový
+                # přehled jako Varianta A". Záložkový PRVNÍ — kombinovaný
+                # tabbed view se 3 panely. Pak 3 samostatné gridy.
+                {
+                    "id": "system.audit.tabs",
+                    "cislo": -100,
+                    "is_system": True,
+                    "is_folder": False,
+                    "label": "🗂️ Záložkový přehled",
+                    "nazev": "🗂️ Záložkový přehled",
+                    "system_view": "audit_overview",
+                    "system_view_mode": "tabs",
+                },
                 {
                     "id": "system.audit.audited",
                     "cislo": -101,

@@ -713,9 +713,15 @@ def system_audit_overview(
         q = ds.query(Conversation).filter(*base_filters)
 
         if mode == "audited":
-            q = q.filter(Conversation.audit_status == "audited")
-            # Order: audited_at DESC (nejnovější audit první)
-            q = q.order_by(Conversation.audited_at.desc().nullslast())
+            # Phase 35-E.4 9.5. odpoledne (Marti's "ukaz je taky, prosim"):
+            # ZADNY status filter — záložka Auditované teď ukazuje VSECHNY
+            # konverzace napriec audit cyklusem (pending/in_progress/audited/
+            # excluded). Marti's "v auditu by mely byt vsechny" — to je
+            # ten záměr. Order: audited_at DESC pak last_message_at DESC.
+            q = q.order_by(
+                Conversation.audited_at.desc().nullslast(),
+                Conversation.last_message_at.desc().nullslast(),
+            )
         else:  # mode == 'all'
             if status:
                 q = q.filter(Conversation.audit_status == status)
@@ -3765,16 +3771,20 @@ def _render_audit_dashboard_page(
 
   function _convTypeBadge(t) {{
     const colors = {{
-      'ai': '#7c9cd9',      // modrá — Marti-AI's interakce
-      'sms': '#a78bfa',     // fialová — SMS konverzace
-      'email': '#fbbf24',   // žlutá — email
-      'system': '#9ca3af',  // šedá — systémové
+      'ai': '#7c9cd9',             // modrá — Marti-AI's interakce
+      'sms': '#a78bfa',            // fialová — SMS konverzace
+      'email': '#fbbf24',          // žlutá — email
+      'system': '#9ca3af',         // šedá — systémové
+      'dm': '#ec4899',             // růžová — direct message (1:1 user-Marti-AI)
+      'task_execution': '#10b981', // tyrkysová — task worker (background)
     }};
     const labels = {{
       'ai': '🤖 AI',
       'sms': '📱 SMS',
       'email': '✉ Email',
       'system': '⚙ System',
+      'dm': '💬 DM',
+      'task_execution': '⚡ Task',
     }};
     const c = colors[t] || '#666';
     const l = labels[t] || (t || '—');

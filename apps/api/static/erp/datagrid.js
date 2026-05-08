@@ -1275,17 +1275,40 @@
           " — first cols sample:",
           cols.slice(0, 3).map(c => ({ colId: c.colId, width: c.width, flex: c.flex, hide: c.hide }))
         );
-        // fix #5: defaultState s flex:null prepisuje columnDef defaults
-        // (buildAutoColumnDefs line 539 nastavuje flex:1 pro non-ID sloupce).
-        // Bez defaultState AG Grid zachova columnDef flex i kdyz state.flex=null.
+        // Phase 35-E.4 Krok C+ fix5 (9.5.2026 vecer): Marti's
+        // "problikne a zcucne" — AG Grid render correct width chvili,
+        // pak flex z columnDef redistribuuje proporcionalne.
+        //
+        // Trojvrstvy fix:
+        // a) Force-clear flex na vsech columnDefs pres updateGridOptions —
+        //    columnDef flex: 0 zustane permanentne.
+        // b) applyColumnState s flex:0 v state items + defaultState.
+        // c) setColumnWidths defensive po applyColumnState pro pixel-perfect.
+        //
+        // (a) musi byt PRVNI — bez toho AG Grid pri kazdem render zase
+        // distribuuje proporcionalne (state items maji prednost jen na
+        // prvni render, columnDef si AG Grid pamatuje permanentne).
+        try {
+          const currentDefs = this.gridApi.getColumnDefs ? this.gridApi.getColumnDefs() : null;
+          if (Array.isArray(currentDefs) && currentDefs.length > 0) {
+            const newDefs = currentDefs.map(d => Object.assign({}, d, { flex: 0 }));
+            if (typeof this.gridApi.setGridOption === "function") {
+              this.gridApi.setGridOption("columnDefs", newDefs);
+            } else if (typeof this.gridApi.updateGridOptions === "function") {
+              this.gridApi.updateGridOptions({ columnDefs: newDefs });
+            } else if (typeof this.gridApi.setColumnDefs === "function") {
+              this.gridApi.setColumnDefs(newDefs);
+            }
+          }
+        } catch (e) {
+          console.warn("[ErpDataGrid] columnDefs flex clear failed:", e);
+        }
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
-          defaultState: { flex: null },
+          defaultState: { flex: 0 },
         });
-        // fix #5: explicit setColumnWidths po applyColumnState — defensive
-        // belt-and-braces. Pokud applyColumnState neaplikoval width spravne
-        // (flex override), setColumnWidths nastavi pixel-perfect.
+        // Defensive setColumnWidths po applyColumnState pro pixel-perfect.
         try {
           const widths = cols
             .filter(c => c.width != null && c.width > 0)
@@ -1515,11 +1538,13 @@
               if (w != null && w > 0) actualWidth = w;
             }
           } catch (e) {}
-          // Strip flex (lock fixed width) — applyColumnState pak respektuje
-          // width namisto flex distribution.
+          // Phase 35-E.4 Krok C+ fix5 (9.5.2026 vecer): flex:0 (ne null) pro
+          // explicit clear. AG Grid interpretuje null = "leave as-is",
+          // 0 = "no flex, use width". Marti's "problikne a zcucne" naznacuje
+          // ze flex z columnDef nebyl zrusen pri load.
           return Object.assign({}, c, {
             width: actualWidth,
-            flex: null,
+            flex: 0,
           });
         });
       }

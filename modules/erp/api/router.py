@@ -4852,12 +4852,9 @@ def _render_workspace_page(user_id: int) -> str:
       // v ERP main pane. Marti's vize "koukat na to shora v ERP context" —
       // dashboard se otevre přímo místo přehled tabů, sidebar zustane.
       function _renderSystemViewInline(mode, item) {
-        // Phase 35-E.4 Marti's korekce 9.5. odpoledne (re-enabled po smoke):
-        //  - mode='tabs' (Variant A) → iframe dashboard se 3 panely
-        //    (combined view, sdileny pod jednim soudeckem v sidebar).
-        //  - mode='audited'/'all'/'stats' (Variant B 3 single uzly) →
-        //    STANDARDNI native AG Grid v main pane (jako vsechny ostatni
-        //    prehledy v DB_EC). Marti's spec "tri radky a tri gridy".
+        // Phase 35-E.4 ROLLBACK 9.5. odpoledne (parse error diag #2):
+        // vsech 4 mode pres iframe, nez identifikujeme co v native AG Grid
+        // bloku rozbije parse.
         const tabsBar = document.getElementById("erpTabsBar");
         const main = document.getElementById("erpMainContent");
         if (!main) return;
@@ -4873,29 +4870,25 @@ def _render_workspace_page(user_id: int) -> str:
           if (row) row.classList.add("active");
         }
 
+        const single = (item && item.getAttribute("data-system-single") === "1") ? 1 : 0;
+
         main.dataset.systemView = mode;
+        main.innerHTML =
+          '<iframe src="/erp/system/audit-dashboard?embed=1&single=' + single +
+          '&mode=' + mode +
+          '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
+          'title="Audit dashboard"></iframe>';
 
         try {
           const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
           const lbl = labelEl ? labelEl.textContent : "Audit";
           document.title = "STRATEGIE - " + lbl;
         } catch (e) {}
-
-        if (mode === "tabs") {
-          // Variant A — iframe dashboard se zalozkami
-          main.innerHTML =
-            '<iframe src="/erp/system/audit-dashboard?embed=1&single=0&mode=tabs"' +
-            ' style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
-            ' title="Audit dashboard"></iframe>';
-        } else {
-          // Variant B — native AG Grid v main pane (audited / all / stats)
-          _renderSystemGrid(mode, item);
-        }
       }
 
-      // Phase 35-E.4 Variant B helpers (re-enabled 9.5.2026 odpoledne, po
-       // smoke testu standardniho dashboard a Caddy timeout fix). Native
-       // AG Grid v main pane misto iframe pro 3 single uzly.
+      // Phase 35-E.4 Variant B helpers — DOCASNE ZAKOMENTOVANE (parse error diag #2).
+      // Pri progressivnim restoringu pridame zpet po jednom + smoke per krok.
+      /* DIAG_BLOCK_START
       async function _renderSystemGrid(mode, item) {
         const main = document.getElementById("erpMainContent");
         if (!main) return;
@@ -5059,6 +5052,7 @@ def _render_workspace_page(user_id: int) -> str:
         ];
         alert(lines.join("\n"));
       }
+      DIAG_BLOCK_END */
 
       function _restoreFromSystemView() {
         const main = document.getElementById("erpMainContent");

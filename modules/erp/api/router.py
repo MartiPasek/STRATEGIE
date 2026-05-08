@@ -4784,15 +4784,12 @@ def _render_workspace_page(user_id: int) -> str:
           window._sysCurrentGrid = null;
         }
 
-        // Build container shell (header + body — body je host pro ErpDataGrid)
+        // Phase 35-E.4 Krok C+ polish (9.5.2026 vecer): Marti's "staci nam ty
+        // zalozky nahore nad gridem... Jako v EUROSOFTU". Odstranen interni
+        // header (duplikat s tab zalozkou). Body je primy host pro
+        // ErpDataGrid, full-height main pane.
         main.innerHTML =
-          '<div class="erp-system-grid-wrap" style="display:flex;flex-direction:column;height:100%;background:var(--bg);">' +
-            '<div class="erp-system-grid-header" style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;font-size:13px;color:var(--fg);background:var(--surface,#14161a);">' +
-              '<span style="font-weight:600;font-size:14px">' + _escAttr(labelText || mode) + '</span>' +
-              '<span id="erpSysGridCount" style="opacity:0.6;font-size:11px"></span>' +
-            '</div>' +
-            '<div id="erpSysGridBody" style="flex:1;min-height:0;background:var(--bg);">Nacitam...</div>' +
-          '</div>';
+          '<div id="erpSysGridBody" style="height:100%;background:var(--bg);">Nacitam...</div>';
 
         // Fetch data
         var data;
@@ -4854,9 +4851,8 @@ def _render_workspace_page(user_id: int) -> str:
           console.error("[ERP-SYS] ErpDataGrid create failed", e);
           return;
         }
-
-        var cntEl = document.getElementById("erpSysGridCount");
-        if (cntEl) cntEl.textContent = rowData.length + " radku";
+        // Krok C+ polish: row count je v ErpDataGrid status baru
+        // (footer "Celkem: NNN"), zadny custom span uz nepotrebujeme.
       }
       if (window._sysHelpers) {
         window._sysHelpers.renderSystemGrid = renderSystemGrid;

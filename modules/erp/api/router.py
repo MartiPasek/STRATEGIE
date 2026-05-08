@@ -3267,12 +3267,11 @@ def _render_audit_dashboard_page(
   <title>STRATEGIE | Audit konverzací</title>
   <link rel="manifest" href="/static/erp/manifest.json">
   <meta name="theme-color" content="#0e0f11">
-  <!-- Phase 35-E.4 fix 9.5. odpoledne: upgrade z v31.3.2 na v32 (consistent
-       s parent ERP workspace). v31 nemela data-ag-theme-mode='dark' (pridano
-       v v32) -- proto grid renderoval prazdne. v32 community je free. -->
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32/styles/ag-grid.css">
-  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32/styles/ag-theme-quartz.css">
-  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32/dist/ag-grid-community.min.js"></script>
+  <!-- Phase 35-E.4 fix 9.5. odpoledne: explicit verze 32.3.5 (major @32
+       nemusi resolvovat na CDN, vede k neuplnemu loadu). -->
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.5/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.5/styles/ag-theme-quartz.css">
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@32.3.5/dist/ag-grid-community.min.js"></script>
   <style>
     :root {{
       --bg: #0e0f11;

@@ -167,6 +167,12 @@ def system_audit_dashboard(
 
     if mode not in ("audited", "all", "stats", "tabs"):
         mode = "audited"
+    # Phase 35-E.4 fix 9.5. odpoledne: 'tabs' je Variant A UI signál (tabs
+    # bar viditelný se 3 tlačítky), ale není validní backend mode pro
+    # /audit-overview (ten zná jen audited/all/stats). Override na default
+    # 'audited' pro initial fetch — frontend pak po klik na tab přepne.
+    if mode == "tabs":
+        mode = "audited"
 
     from core.database_core import get_core_session as _gcs_dash
     from modules.core.infrastructure.models_core import User

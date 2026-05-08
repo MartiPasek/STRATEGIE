@@ -4742,6 +4742,107 @@ def _render_workspace_page(user_id: int) -> str:
     })();
     </script>
 
+    <!-- Phase 35-E.4 Variant B Krok C (9.5.2026 odpoledne) — renderSystemGrid
+         async fetch + AG Grid create v izolovanem <script>. Volani z main IIFE
+         pres window._sysHelpers.renderSystemGrid(mode, item).
+         Krok D pak prepne _renderSystemViewInline na volani teto funkce
+         pro non-tabs mode. -->
+    <script>
+    (function() {
+      function _escAttr(s) {
+        return String(s == null ? "" : s).replace(/"/g, "&quot;");
+      }
+      async function renderSystemGrid(mode, labelText) {
+        var H = window._sysHelpers || {};
+        var main = document.getElementById("erpMainContent");
+        if (!main) {
+          console.error("[ERP-DIAG] erpMainContent missing");
+          return;
+        }
+        // Build container shell (header + body)
+        main.innerHTML =
+          '<div class="erp-system-grid-wrap" style="display:flex;flex-direction:column;height:100%;background:var(--bg);">' +
+            '<div class="erp-system-grid-header" style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;font-size:13px;color:var(--fg);background:var(--surface,#14161a);">' +
+              '<span style="font-weight:600;font-size:14px">' +
+                (H.statusBadge ? "" : "") + // placeholder, header text below
+                _escAttr(labelText || mode) +
+              '</span>' +
+              '<span id="erpSysGridCount" style="opacity:0.6;font-size:11px"></span>' +
+            '</div>' +
+            '<div id="erpSysGridBody" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;color:var(--muted);">Nacitam...</div>' +
+          '</div>';
+
+        // Fetch data
+        var data;
+        try {
+          var url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
+          var res = await fetch(url, { credentials: "include" });
+          if (!res.ok) {
+            var txt = await res.text();
+            var bodyErr = document.getElementById("erpSysGridBody");
+            if (bodyErr) {
+              bodyErr.innerHTML = '<div style="color:#f88">Chyba ' + res.status + ': ' + _escAttr(txt.substring(0, 200)) + '</div>';
+            }
+            return;
+          }
+          data = await res.json();
+        } catch (e) {
+          var bodyEx = document.getElementById("erpSysGridBody");
+          if (bodyEx) {
+            bodyEx.innerHTML = '<div style="color:#f88">Chyba: ' + _escAttr(String(e)) + '</div>';
+          }
+          return;
+        }
+
+        // Render grid into body
+        var body = document.getElementById("erpSysGridBody");
+        if (!body) return;
+        body.innerHTML = "";
+        body.style.alignItems = "stretch";
+        body.style.justifyContent = "stretch";
+
+        var gridDiv = document.createElement("div");
+        gridDiv.className = "ag-theme-quartz";
+        gridDiv.setAttribute("data-ag-theme-mode", "dark");
+        gridDiv.style.cssText = "width:100%;height:100%;min-height:480px";
+        body.appendChild(gridDiv);
+
+        var columns = H.gridColumns ? H.gridColumns(mode) : [];
+        var rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
+
+        var opts = {
+          columnDefs: columns,
+          rowData: rowData,
+          defaultColDef: { resizable: true, sortable: true, filter: true },
+          onRowClicked: function(e) {
+            // Placeholder — Krok D+ pripoji drill-down modal
+            console.log("[ERP-SYS] row clicked", mode, e.data);
+          },
+          domLayout: "normal",
+          animateRows: true,
+          rowHeight: 32
+        };
+
+        try {
+          // eslint-disable-next-line no-undef
+          agGrid.createGrid(gridDiv, opts);
+        } catch (e) {
+          body.innerHTML = '<div style="color:#f88">AG Grid create failed: ' + _escAttr(String(e)) + '</div>';
+          return;
+        }
+
+        var cntEl = document.getElementById("erpSysGridCount");
+        if (cntEl) cntEl.textContent = rowData.length + " radku";
+      }
+      if (window._sysHelpers) {
+        window._sysHelpers.renderSystemGrid = renderSystemGrid;
+        console.log("[ERP-DIAG] _sysHelpers.renderSystemGrid loaded");
+      } else {
+        console.error("[ERP-DIAG] _sysHelpers missing — renderSystemGrid nelze pripojit");
+      }
+    })();
+    </script>
+
     <script>
     (function() {
       "use strict";

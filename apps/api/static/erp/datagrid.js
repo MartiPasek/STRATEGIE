@@ -1169,9 +1169,34 @@
           });
         },
         onFirstDataRendered: (params) => {
-          // Po načtení prvního batch dat — re-fit columns
+          // Po načtení prvního batch dat
           // Krok C+ fix2: guard — ulozeny layout ma prednost pred fit.
-          if (this._currentLayoutId) return;
+          if (this._currentLayoutId) {
+            // Phase 35-E.4 Krok C+ fix #11 (9.5.2026 vecer Marti's
+            // "pozice sloupcu nikoli"): AG Grid initialState.columnState
+            // aplikuje width per columnDefs mutate ale REORDER columnDefs
+            // ignoruje. Po prvnim data render volat applyColumnState s
+            // applyOrder:true — widths uz jsou correct (z columnDefs
+            // mutate), order se aplikuje navic. Mensi flicker (chvili
+            // wrong order, pak reorder), ale order persistuje.
+            if (this.options.initialLayout && this.options.initialLayout.layout_json) {
+              const cols = this.options.initialLayout.layout_json.columns;
+              if (Array.isArray(cols) && cols.length > 0) {
+                try {
+                  params.api.applyColumnState({
+                    state: cols,
+                    applyOrder: true,
+                  });
+                  console.info(
+                    "[ErpDataGrid] onFirstDataRendered → applyColumnState(applyOrder:true) — column reorder z initialLayout"
+                  );
+                } catch (e) {
+                  console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
+                }
+              }
+            }
+            return;
+          }
           try { params.api.sizeColumnsToFit(); } catch (e) {}
         },
         onGridSizeChanged: (params) => {

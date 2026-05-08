@@ -6577,6 +6577,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 }, ensure_ascii=False)
                 audit_msg = _Msg_ac(
                     conversation_id=conv_id_ac,
+                    role="assistant",
                     agent_id=persona_id_ac,
                     author_type="ai",
                     message_type="audit",
@@ -6675,6 +6676,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 if initial_msg_cc:
                     msg_init = _Msg_cc(
                         conversation_id=new_id_cc,
+                        role="assistant",
                         agent_id=parent_cc.active_agent_id,
                         author_type="ai",
                         message_type="text",

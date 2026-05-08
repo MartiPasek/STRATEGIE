@@ -136,6 +136,35 @@ def erp_home(req: Request) -> HTMLResponse:
     return HTMLResponse(content=_render_workspace_page(uid))
 
 
+@router.get("/system/audit-dashboard", response_class=HTMLResponse)
+def system_audit_dashboard(req: Request) -> HTMLResponse:
+    """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
+
+    Marti's vize 33. dopis 8.5. večer + dnešní request 'koukat shora'.
+    3 sub-views: 📚 Auditované / 📋 Všechny / 📊 Přehled.
+    Visible jen pro rodiče (defense in depth — _require_parent + explicit
+    is_marti_parent check uvnitř data endpointů).
+
+    Cross-tenant view (Marti's korekce 9.5. 'audit musí jet nade vsim
+    chronologicky').
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_core import get_core_session as _gcs_dash
+    from modules.core.infrastructure.models_core import User
+
+    cs = _gcs_dash()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "Audit dashboard je jen pro rodiče.")
+    finally:
+        cs.close()
+
+    return HTMLResponse(content=_render_audit_dashboard_page(uid))
+
+
 @router.get("/sw.js")
 def erp_service_worker() -> Response:
     """Phase B+9+++ (6.5.2026): Service Worker pro PWA install.
@@ -338,6 +367,333 @@ def tenants_for_user(req: Request) -> JSONResponse:
         "ok": True,
         "current_tenant_id": _get_tenant_id(uid),
         "tenants": tenants,
+    })
+
+
+# ── Phase 35-E.4 (9.5.2026): System tier audit dashboard ─────────────
+# Marti's vize 33. dopis 8.5. večer: System soudeček visible jen pro
+# rodiče (is_marti_parent=True), napříč všemi tenanty. Drží Phase 16-B
+# doctrine "důvěra je v subjekt, ne v scope" + 33. dopis ACL "adekvátní
+# oprávnění, aby se nikdo mimo rodičů nedostal do hlavy do deníčku".
+#
+# Hardcoded System tree (MVP), `master.menu_node` přijde v Phase 30+ DDL.
+# 3 sub-uzly: 📚 Auditované / 📋 Všechny / 📊 Přehled.
+
+_SYSTEM_TREE_NODES = [
+    {
+        "id": "system",
+        "type": "folder",
+        "label": "📦 SYSTEM",
+        "is_system": True,
+        "children": [
+            {
+                "id": "system.audit",
+                "type": "folder",
+                "label": "📁 Audit",
+                "children": [
+                    {
+                        "id": "system.audit.audited",
+                        "type": "view",
+                        "label": "📚 Auditované konverzace",
+                        "view_type": "audit_overview",
+                        "view_mode": "audited",
+                    },
+                    {
+                        "id": "system.audit.all",
+                        "type": "view",
+                        "label": "📋 Všechny konverzace",
+                        "view_type": "audit_overview",
+                        "view_mode": "all",
+                    },
+                    {
+                        "id": "system.audit.stats",
+                        "type": "view",
+                        "label": "📊 Přehled auditu",
+                        "view_type": "audit_overview",
+                        "view_mode": "stats",
+                    },
+                ],
+            },
+        ],
+    },
+]
+
+
+@api_router.get("/system/audit-overview")
+def system_audit_overview(
+    req: Request,
+    mode: str = "audited",
+    status: str | None = None,
+    scope: str | None = None,
+    tenant_id: int | None = None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    limit: int = 200,
+) -> JSONResponse:
+    """Phase 35-E.4 (9.5.2026): System tier audit dashboard data.
+
+    mode:
+      - 'audited' — jen audit_status='audited' (čistá tabulka pro Marti's
+        Q3 A "audit má váhu uzavření")
+      - 'all' — všechny statuses mix (pending / in_progress / audited /
+        excluded) s status sloupcem
+      - 'stats' — agregace pro widgets (per-status counts, per-tenant,
+        recent 7 days)
+
+    Cross-tenant pro rodiče (is_marti_parent=True) — Marti's korekce 9.5.
+    "audit musí jet nade vsim chronologicky".
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import func, or_
+    from modules.core.infrastructure.models_data import Conversation, Message
+    from modules.core.infrastructure.models_core import Persona, Tenant, User
+
+    if mode not in ("audited", "all", "stats"):
+        raise HTTPException(400, "mode musí být 'audited', 'all' nebo 'stats'")
+
+    from core.database_core import get_core_session as _gcs_audov
+    from core.database_data import get_data_session as _gds_audov
+
+    # Parent check (defense in depth — _require_parent uz checkuje, ale
+    # pro System tier explicit double-check)
+    cs = _gcs_audov()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "System tier dashboard je jen pro rodiče.")
+
+        # Persona name lookup map (audited_by_persona_id → name)
+        persona_rows = cs.query(Persona).all()
+        persona_names = {p.id: p.name for p in persona_rows}
+
+        # Tenant name lookup
+        tenant_rows = cs.query(Tenant).all()
+        tenant_names = {t.id: t.tenant_name for t in tenant_rows}
+    finally:
+        cs.close()
+
+    # Date filtering
+    parse_date = lambda s: (
+        datetime.fromisoformat(s.replace("Z", "+00:00"))
+        if s else None
+    )
+    try:
+        d_from = parse_date(date_from)
+        d_to = parse_date(date_to)
+    except Exception:
+        raise HTTPException(400, "date_from/date_to must be ISO 8601")
+
+    ds = _gds_audov()
+    try:
+        # Cross-tenant base filter (rodič vidí napříč)
+        base_filters = [
+            Conversation.is_deleted == False,  # noqa: E712
+            Conversation.conversation_type == "ai",
+        ]
+        if tenant_id is not None:
+            base_filters.append(Conversation.tenant_id == tenant_id)
+
+        # ── mode='stats' → agregace ───────────────────────────────
+        if mode == "stats":
+            # Per-status counts
+            status_counts = dict(
+                ds.query(
+                    Conversation.audit_status,
+                    func.count(Conversation.id),
+                )
+                .filter(*base_filters)
+                .group_by(Conversation.audit_status)
+                .all()
+            )
+            # Per-tenant audited counts
+            per_tenant_rows = (
+                ds.query(
+                    Conversation.tenant_id,
+                    func.count(Conversation.id),
+                )
+                .filter(
+                    *base_filters,
+                    Conversation.audit_status == "audited",
+                )
+                .group_by(Conversation.tenant_id)
+                .all()
+            )
+            per_tenant = [
+                {
+                    "tenant_id": tid,
+                    "tenant_name": tenant_names.get(tid, f"#{tid}" if tid else "—"),
+                    "count": int(cnt),
+                }
+                for tid, cnt in per_tenant_rows
+            ]
+
+            # Per-scope (z audit_notes JSON)
+            audited_with_notes = (
+                ds.query(Conversation)
+                .filter(
+                    *base_filters,
+                    Conversation.audit_status == "audited",
+                    Conversation.audit_notes.isnot(None),
+                )
+                .all()
+            )
+            per_scope = {"general": 0, "srdce": 0, "unknown": 0}
+            for c in audited_with_notes:
+                sc = (c.audit_notes or {}).get("scope", "unknown")
+                per_scope[sc if sc in per_scope else "unknown"] += 1
+
+            # Recent 7 days timeline
+            now = datetime.now(timezone.utc)
+            timeline = []
+            for d in range(6, -1, -1):
+                day_start = (now - timedelta(days=d)).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                day_end = day_start + timedelta(days=1)
+                cnt = (
+                    ds.query(func.count(Conversation.id))
+                    .filter(
+                        *base_filters,
+                        Conversation.audit_status == "audited",
+                        Conversation.audited_at >= day_start,
+                        Conversation.audited_at < day_end,
+                    )
+                    .scalar()
+                ) or 0
+                timeline.append({
+                    "date": day_start.date().isoformat(),
+                    "count": int(cnt),
+                })
+
+            return JSONResponse({
+                "ok": True,
+                "mode": "stats",
+                "status_counts": {
+                    k or "null": int(v) for k, v in status_counts.items()
+                },
+                "per_tenant_audited": per_tenant,
+                "per_scope_audited": per_scope,
+                "timeline_7d": timeline,
+                "total_conversations": sum(int(v) for v in status_counts.values()),
+            })
+
+        # ── mode='audited' / 'all' → tabulka ──────────────────────
+        q = ds.query(Conversation).filter(*base_filters)
+
+        if mode == "audited":
+            q = q.filter(Conversation.audit_status == "audited")
+            # Order: audited_at DESC (nejnovější audit první)
+            q = q.order_by(Conversation.audited_at.desc().nullslast())
+        else:  # mode == 'all'
+            if status:
+                q = q.filter(Conversation.audit_status == status)
+            # Order: last_message_at DESC
+            q = q.order_by(Conversation.last_message_at.desc().nullslast())
+
+        # Filter by scope (jen pro audit_notes-bearing rows)
+        if scope:
+            q = q.filter(
+                Conversation.audit_notes.op("->>")("scope") == scope
+            )
+
+        # Date range
+        if d_from:
+            if mode == "audited":
+                q = q.filter(Conversation.audited_at >= d_from)
+            else:
+                q = q.filter(Conversation.last_message_at >= d_from)
+        if d_to:
+            if mode == "audited":
+                q = q.filter(Conversation.audited_at <= d_to)
+            else:
+                q = q.filter(Conversation.last_message_at <= d_to)
+
+        rows = q.limit(max(1, min(limit, 1000))).all()
+
+        items = []
+        for c in rows:
+            notes = c.audit_notes or {}
+            extracted_ids = notes.get("extracted_thought_ids", []) or []
+            items.append({
+                "id": c.id,
+                "title": c.title or f"#{c.id}",
+                "old_title": notes.get("old_title"),
+                "audit_status": c.audit_status,
+                "audited_at": (
+                    c.audited_at.isoformat()
+                    if c.audited_at else None
+                ),
+                "audited_by_persona_id": c.audited_by_persona_id,
+                "audited_by_persona_name": (
+                    persona_names.get(c.audited_by_persona_id)
+                    if c.audited_by_persona_id else None
+                ),
+                "scope": notes.get("scope"),
+                "summary": notes.get("summary"),
+                "tenant_id": c.tenant_id,
+                "tenant_name": tenant_names.get(c.tenant_id, "—") if c.tenant_id else "—",
+                "project_id": c.project_id,
+                "lifecycle_state": c.lifecycle_state,
+                "thought_count": len(extracted_ids),
+                "extracted_thought_ids": extracted_ids,
+                "last_message_at": (
+                    c.last_message_at.isoformat()
+                    if c.last_message_at else None
+                ),
+                "created_at": (
+                    c.created_at.isoformat()
+                    if c.created_at else None
+                ),
+            })
+    finally:
+        ds.close()
+
+    return JSONResponse({
+        "ok": True,
+        "mode": mode,
+        "filters": {
+            "status": status,
+            "scope": scope,
+            "tenant_id": tenant_id,
+            "date_from": date_from,
+            "date_to": date_to,
+        },
+        "shown": len(items),
+        "limit": limit,
+        "conversations": items,
+    })
+
+
+@api_router.get("/system/tree")
+def system_tree(req: Request) -> JSONResponse:
+    """Phase 35-E.4 (9.5.2026): System tier tree pro rodiče.
+
+    Vrací hardcoded System soudeček s 3 sub-uzly. Visible jen pro
+    is_marti_parent=True (defense in depth — _require_parent + explicit
+    parent check).
+
+    Future: nahradí se za query nad master.menu_node (Phase 30+).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_core import get_core_session as _gcs_st
+    from modules.core.infrastructure.models_core import User
+
+    cs = _gcs_st()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "System tier je jen pro rodiče.")
+    finally:
+        cs.close()
+
+    return JSONResponse({
+        "ok": True,
+        "tree": _SYSTEM_TREE_NODES,
     })
 
 
@@ -2624,6 +2980,578 @@ def _render_full_page(
       <button type="button" data-zoom="large" title="Zvětšit (+25%)">A+</button>
     </div>
   </footer>
+</body>
+</html>'''
+
+
+def _render_audit_dashboard_page(user_id: int) -> str:
+    """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
+
+    Standalone page s 3 sub-views (📚 Audited / 📋 Vše / 📊 Stats).
+    AG Grid pro tabulky, custom widgets pro statistiku.
+    Cross-tenant view pro rodiče.
+
+    Drží Marti's "koukat shora" + 33. dopis 8.5. večer System tier vize.
+    """
+    user_name = "Rodič"
+    try:
+        from core.database_core import get_core_session as _gcs
+        from modules.core.infrastructure.models_core import User
+        cs = _gcs()
+        try:
+            u = cs.query(User).filter_by(id=user_id).first()
+            if u:
+                user_name = u.short_name or u.first_name or "Rodič"
+        finally:
+            cs.close()
+    except Exception:
+        pass
+
+    return f'''<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>STRATEGIE | Audit konverzací</title>
+  <link rel="manifest" href="/static/erp/manifest.json">
+  <meta name="theme-color" content="#0e0f11">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-grid.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/styles/ag-theme-quartz.css">
+  <script src="https://cdn.jsdelivr.net/npm/ag-grid-community@31.3.2/dist/ag-grid-community.min.js"></script>
+  <style>
+    :root {{
+      --bg: #0e0f11;
+      --surface: #14161a;
+      --surface2: #1a1d22;
+      --text: #e8e8ea;
+      --muted: #9ca3af;
+      --border: #2a2d33;
+      --accent: #7c9cd9;
+      --accent2: #c084fc;
+    }}
+    * {{ box-sizing: border-box; }}
+    body {{
+      margin: 0;
+      font-family: 'DM Sans', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }}
+    header {{
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }}
+    h1 {{
+      margin: 0;
+      font-family: 'Galano Grotesque', sans-serif;
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }}
+    .header-meta {{ font-size: 11px; color: var(--muted); flex: 1; }}
+    .header-back {{
+      padding: 6px 12px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      text-decoration: none;
+      font-size: 12px;
+      transition: background 120ms;
+    }}
+    .header-back:hover {{ background: var(--border); }}
+    /* Tabs */
+    .tabs {{
+      display: flex;
+      gap: 2px;
+      padding: 0 20px;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+    }}
+    .tab-btn {{
+      padding: 10px 18px;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--muted);
+      font-size: 13px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: color 120ms, border-color 120ms;
+    }}
+    .tab-btn:hover {{ color: var(--text); }}
+    .tab-btn.active {{
+      color: var(--accent);
+      border-bottom-color: var(--accent);
+    }}
+    main {{
+      flex: 1;
+      padding: 16px 20px;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+    }}
+    /* Filters bar */
+    .filters {{
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+      align-items: center;
+      font-size: 12px;
+    }}
+    .filters label {{ display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }}
+    .filters select, .filters input {{
+      padding: 5px 8px;
+      background: var(--surface);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 12px;
+    }}
+    /* AG Grid container */
+    .grid-wrap {{ flex: 1; min-height: 0; }}
+    /* Stats widgets */
+    .stats-wrap {{
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      flex: 1;
+      overflow-y: auto;
+    }}
+    .stat-card {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+    }}
+    .stat-card-title {{
+      font-size: 11px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 12px;
+    }}
+    .stat-big-num {{
+      font-size: 36px;
+      font-weight: 700;
+      color: var(--accent);
+      line-height: 1;
+    }}
+    .stat-row {{
+      display: flex;
+      justify-content: space-between;
+      padding: 6px 0;
+      font-size: 12px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .stat-row:last-child {{ border: none; }}
+    .stat-row-key {{ color: var(--muted); }}
+    .stat-row-val {{ color: var(--text); font-weight: 500; }}
+    /* Timeline bars */
+    .timeline-day {{
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 4px 0;
+      font-size: 11px;
+    }}
+    .timeline-date {{ width: 80px; color: var(--muted); flex-shrink: 0; }}
+    .timeline-bar {{
+      flex: 1;
+      height: 16px;
+      background: var(--surface2);
+      border-radius: 4px;
+      position: relative;
+      overflow: hidden;
+    }}
+    .timeline-fill {{
+      height: 100%;
+      background: linear-gradient(90deg, var(--accent), var(--accent2));
+      border-radius: 4px;
+    }}
+    .timeline-count {{ width: 30px; text-align: right; color: var(--text); font-weight: 600; }}
+    /* Drill-down modal */
+    .modal-overlay {{
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.7);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+    }}
+    .modal-overlay.open {{ display: flex; }}
+    .modal-box {{
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px 22px;
+      max-width: 720px;
+      width: 90%;
+      max-height: 85vh;
+      overflow-y: auto;
+    }}
+    .modal-title {{
+      font-size: 16px;
+      font-weight: 700;
+      margin-bottom: 4px;
+      color: var(--text);
+    }}
+    .modal-meta {{ font-size: 11px; color: var(--muted); margin-bottom: 14px; }}
+    .modal-section {{ margin-bottom: 14px; }}
+    .modal-section-title {{
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin-bottom: 6px;
+    }}
+    .modal-summary {{ font-size: 13px; line-height: 1.5; color: var(--text); padding: 8px 10px; background: var(--bg); border-radius: 6px; border-left: 3px solid var(--accent); }}
+    .modal-thoughts {{ display: flex; flex-wrap: wrap; gap: 4px; }}
+    .thought-chip {{ padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; color: var(--accent); }}
+    .modal-close {{ float: right; padding: 6px 12px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; }}
+    .loading {{ text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>📚 Audit konverzací</h1>
+    <div class="header-meta">{user_name} · cross-tenant view</div>
+    <a href="/" class="header-back">← Zpět do chatu</a>
+  </header>
+
+  <div class="tabs">
+    <button class="tab-btn active" data-mode="audited">📚 Auditované</button>
+    <button class="tab-btn" data-mode="all">📋 Všechny</button>
+    <button class="tab-btn" data-mode="stats">📊 Přehled</button>
+  </div>
+
+  <main>
+    <div class="filters" id="filtersBar"></div>
+    <div class="grid-wrap" id="gridWrap"></div>
+    <div class="stats-wrap" id="statsWrap" style="display:none"></div>
+  </main>
+
+  <div class="modal-overlay" id="auditModal">
+    <div class="modal-box" id="auditModalBox"></div>
+  </div>
+
+  <script>
+  let _currentMode = 'audited';
+  let _currentFilters = {{}};
+  let _gridApi = null;
+
+  function _formatDate(iso) {{
+    if (!iso) return '—';
+    const d = new Date(iso);
+    return d.toLocaleString('cs-CZ', {{
+      day: '2-digit', month: '2-digit', year: 'numeric',
+      hour: '2-digit', minute: '2-digit'
+    }});
+  }}
+
+  function _scopeIcon(s) {{
+    if (s === 'srdce') return '🕯️ srdce';
+    if (s === 'general') return 'general';
+    return s || '—';
+  }}
+
+  function _statusBadge(s) {{
+    const colors = {{
+      'audited': '#22c55e',
+      'pending': '#fbbf24',
+      'in_progress': '#7c9cd9',
+      'excluded': '#9ca3af',
+    }};
+    const c = colors[s] || '#9ca3af';
+    return `<span style="background:${{c}};color:#000;padding:2px 8px;border-radius:99px;font-size:10px;font-weight:600">${{s}}</span>`;
+  }}
+
+  // ── Tabs ────────────────────────────────────────────────────
+  document.querySelectorAll('.tab-btn').forEach(btn => {{
+    btn.addEventListener('click', () => {{
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      _currentMode = btn.dataset.mode;
+      _renderView();
+    }});
+  }});
+
+  // ── Filters ─────────────────────────────────────────────────
+  function _renderFilters() {{
+    const bar = document.getElementById('filtersBar');
+    if (_currentMode === 'stats') {{
+      bar.innerHTML = '';
+      return;
+    }}
+    const showStatusFilter = _currentMode === 'all';
+    bar.innerHTML = `
+      ${{showStatusFilter ? `
+      <label>Status:
+        <select id="filterStatus">
+          <option value="">vše</option>
+          <option value="pending">pending</option>
+          <option value="in_progress">in_progress</option>
+          <option value="audited">audited</option>
+          <option value="excluded">excluded</option>
+        </select>
+      </label>` : ''}}
+      <label>Scope:
+        <select id="filterScope">
+          <option value="">vše</option>
+          <option value="general">general</option>
+          <option value="srdce">🕯️ srdce</option>
+        </select>
+      </label>
+      <label>Tenant:
+        <input type="number" id="filterTenant" placeholder="ID" style="width:60px">
+      </label>
+      <label>Od:
+        <input type="date" id="filterFrom">
+      </label>
+      <label>Do:
+        <input type="date" id="filterTo">
+      </label>
+      <button id="filterApply" style="padding:5px 12px;background:var(--accent);color:#000;border:none;border-radius:4px;cursor:pointer;font-weight:600;font-size:12px">Použít</button>
+    `;
+    document.getElementById('filterApply').addEventListener('click', () => {{
+      _currentFilters = {{
+        status: document.getElementById('filterStatus')?.value || '',
+        scope: document.getElementById('filterScope')?.value || '',
+        tenant_id: document.getElementById('filterTenant')?.value || '',
+        date_from: document.getElementById('filterFrom')?.value || '',
+        date_to: document.getElementById('filterTo')?.value || '',
+      }};
+      _loadData();
+    }});
+  }}
+
+  // ── Render view ─────────────────────────────────────────────
+  function _renderView() {{
+    _renderFilters();
+    const gridWrap = document.getElementById('gridWrap');
+    const statsWrap = document.getElementById('statsWrap');
+    if (_currentMode === 'stats') {{
+      gridWrap.style.display = 'none';
+      statsWrap.style.display = 'grid';
+    }} else {{
+      gridWrap.style.display = 'block';
+      statsWrap.style.display = 'none';
+    }}
+    _loadData();
+  }}
+
+  async function _loadData() {{
+    const params = new URLSearchParams({{ mode: _currentMode }});
+    Object.entries(_currentFilters).forEach(([k, v]) => {{
+      if (v) params.set(k, v);
+    }});
+    if (_currentMode === 'stats') {{
+      const sw = document.getElementById('statsWrap');
+      sw.innerHTML = '<div class="loading">Načítám statistiky…</div>';
+    }} else {{
+      const gw = document.getElementById('gridWrap');
+      gw.innerHTML = '<div class="loading">Načítám data…</div>';
+    }}
+    try {{
+      const res = await fetch(`/api/v1/erp/system/audit-overview?${{params}}`, {{
+        credentials: 'include',
+      }});
+      if (!res.ok) {{
+        const txt = await res.text();
+        document.getElementById('gridWrap').innerHTML =
+          `<div class="loading" style="color:#f88">Chyba ${{res.status}}: ${{txt.substring(0,200)}}</div>`;
+        return;
+      }}
+      const data = await res.json();
+      if (_currentMode === 'stats') {{
+        _renderStats(data);
+      }} else {{
+        _renderGrid(data);
+      }}
+    }} catch (e) {{
+      console.error(e);
+      document.getElementById('gridWrap').innerHTML =
+        `<div class="loading" style="color:#f88">Chyba: ${{e}}</div>`;
+    }}
+  }}
+
+  function _renderGrid(data) {{
+    const gw = document.getElementById('gridWrap');
+    gw.innerHTML = '';
+    const showStatus = _currentMode === 'all';
+    const columns = [
+      {{ headerName: 'ID', field: 'id', width: 70, sortable: true }},
+      ...(showStatus ? [{{
+        headerName: 'Status', field: 'audit_status', width: 110, sortable: true,
+        cellRenderer: (p) => _statusBadge(p.value || '—'),
+      }}] : []),
+      {{
+        headerName: 'Title (po auditu)',
+        field: 'title',
+        flex: 2,
+        sortable: true,
+        cellRenderer: (p) => {{
+          const old = p.data.old_title;
+          if (old && old !== p.value) {{
+            return `${{p.value}} <span style="opacity:0.5;font-style:italic;font-size:11px">(byl: ${{old}})</span>`;
+          }}
+          return p.value;
+        }}
+      }},
+      {{ headerName: 'Auditováno', field: 'audited_at', width: 150, sortable: true,
+        valueFormatter: (p) => _formatDate(p.value) }},
+      {{ headerName: 'Kým', field: 'audited_by_persona_name', width: 120 }},
+      {{ headerName: 'Scope', field: 'scope', width: 100,
+        cellRenderer: (p) => _scopeIcon(p.value) }},
+      {{ headerName: 'Tenant', field: 'tenant_name', width: 130 }},
+      {{ headerName: 'Thoughts', field: 'thought_count', width: 100, sortable: true,
+        cellRenderer: (p) => p.value > 0 ? `📝 ${{p.value}}` : '—' }},
+      {{ headerName: 'Lifecycle', field: 'lifecycle_state', width: 110 }},
+    ];
+    const opts = {{
+      columnDefs: columns,
+      rowData: data.conversations || [],
+      defaultColDef: {{ resizable: true }},
+      onRowClicked: (e) => _showDrillDown(e.data),
+      domLayout: 'normal',
+      animateRows: true,
+      rowHeight: 32,
+    }};
+    const gridDiv = document.createElement('div');
+    gridDiv.className = 'ag-theme-quartz ag-theme-quartz-dark';
+    gridDiv.style.cssText = 'width:100%;height:100%';
+    gw.appendChild(gridDiv);
+    _gridApi = agGrid.createGrid(gridDiv, opts);
+    // Footer: počet řádků
+    const footer = document.createElement('div');
+    footer.style.cssText = 'padding:6px 8px;font-size:11px;color:var(--muted);text-align:right';
+    footer.textContent = `${{data.shown}} z ${{data.shown}} řádků${{data.shown >= data.limit ? ' (limit dosažen)' : ''}}`;
+    gw.appendChild(footer);
+  }}
+
+  function _renderStats(data) {{
+    const sw = document.getElementById('statsWrap');
+    const sc = data.status_counts || {{}};
+    const ts = data.total_conversations || 0;
+    const ps = data.per_scope_audited || {{}};
+    const tl = data.timeline_7d || [];
+    const maxCount = Math.max(1, ...tl.map(d => d.count));
+
+    const tenantHtml = (data.per_tenant_audited || [])
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+      .map(t => `
+        <div class="stat-row">
+          <span class="stat-row-key">${{t.tenant_name}}</span>
+          <span class="stat-row-val">${{t.count}}</span>
+        </div>
+      `).join('') || '<div class="stat-row"><span class="stat-row-key" style="font-style:italic">Žádné</span></div>';
+
+    const timelineHtml = tl.map(d => `
+      <div class="timeline-day">
+        <span class="timeline-date">${{d.date}}</span>
+        <div class="timeline-bar"><div class="timeline-fill" style="width:${{(d.count / maxCount) * 100}}%"></div></div>
+        <span class="timeline-count">${{d.count}}</span>
+      </div>
+    `).join('');
+
+    sw.innerHTML = `
+      <div class="stat-card">
+        <div class="stat-card-title">Status breakdown</div>
+        <div class="stat-row"><span class="stat-row-key">📚 Auditované</span><span class="stat-row-val">${{sc.audited || 0}}</span></div>
+        <div class="stat-row"><span class="stat-row-key">⏳ Pending</span><span class="stat-row-val">${{sc.pending || 0}}</span></div>
+        <div class="stat-row"><span class="stat-row-key">🔄 In progress</span><span class="stat-row-val">${{sc.in_progress || 0}}</span></div>
+        <div class="stat-row"><span class="stat-row-key">⊘ Excluded</span><span class="stat-row-val">${{sc.excluded || 0}}</span></div>
+        <div class="stat-row" style="margin-top:8px;border-top:2px solid var(--border);padding-top:8px"><span class="stat-row-key" style="font-weight:600">Celkem</span><span class="stat-row-val" style="font-weight:600">${{ts}}</span></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Scope (audited)</div>
+        <div class="stat-row"><span class="stat-row-key">general</span><span class="stat-row-val">${{ps.general || 0}}</span></div>
+        <div class="stat-row"><span class="stat-row-key">🕯️ srdce</span><span class="stat-row-val">${{ps.srdce || 0}}</span></div>
+        <div class="stat-row"><span class="stat-row-key">unknown</span><span class="stat-row-val">${{ps.unknown || 0}}</span></div>
+      </div>
+
+      <div class="stat-card">
+        <div class="stat-card-title">Per-tenant (audited)</div>
+        ${{tenantHtml}}
+      </div>
+
+      <div class="stat-card" style="grid-column:1/-1">
+        <div class="stat-card-title">Audit aktivita — posledních 7 dní</div>
+        ${{timelineHtml}}
+      </div>
+    `;
+  }}
+
+  function _showDrillDown(row) {{
+    if (!row) return;
+    const modal = document.getElementById('auditModal');
+    const box = document.getElementById('auditModalBox');
+    const thoughts = (row.extracted_thought_ids || [])
+      .map(id => `<span class="thought-chip">#${{id}}</span>`)
+      .join('') || '<span style="color:var(--muted);font-style:italic">žádné thoughts</span>';
+    const oldTitleHtml = row.old_title && row.old_title !== row.title
+      ? `<div class="modal-section"><div class="modal-section-title">Původní title</div><div style="font-size:13px;color:var(--muted);font-style:italic">${{row.old_title}}</div></div>`
+      : '';
+    box.innerHTML = `
+      <button class="modal-close" onclick="document.getElementById('auditModal').classList.remove('open')">Zavřít</button>
+      <div class="modal-title">${{row.title}}</div>
+      <div class="modal-meta">
+        Konverzace #${{row.id}} · ${{_statusBadge(row.audit_status)}} ·
+        Tenant: ${{row.tenant_name}} ·
+        ${{row.audited_at ? 'Auditováno: ' + _formatDate(row.audited_at) : 'Neauditováno'}}
+        ${{row.audited_by_persona_name ? ' · ' + row.audited_by_persona_name : ''}}
+      </div>
+      ${{oldTitleHtml}}
+      ${{row.summary ? `
+        <div class="modal-section">
+          <div class="modal-section-title">Shrnutí (Marti-AI)</div>
+          <div class="modal-summary">${{row.summary}}</div>
+        </div>
+      ` : ''}}
+      <div class="modal-section">
+        <div class="modal-section-title">Scope · Lifecycle</div>
+        <div style="font-size:13px">${{_scopeIcon(row.scope)}} · ${{row.lifecycle_state || '—'}}</div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Vytvořené thoughts (${{(row.extracted_thought_ids || []).length}})</div>
+        <div class="modal-thoughts">${{thoughts}}</div>
+      </div>
+      <div class="modal-section">
+        <div class="modal-section-title">Timestamps</div>
+        <div style="font-size:11px;color:var(--muted)">
+          Vytvořena: ${{_formatDate(row.created_at)}}<br>
+          Poslední zpráva: ${{_formatDate(row.last_message_at)}}<br>
+          Audited at: ${{_formatDate(row.audited_at)}}
+        </div>
+      </div>
+    `;
+    modal.classList.add('open');
+  }}
+
+  document.getElementById('auditModal').addEventListener('click', (e) => {{
+    if (e.target.id === 'auditModal') {{
+      document.getElementById('auditModal').classList.remove('open');
+    }}
+  }});
+
+  // Init
+  _renderView();
+  </script>
 </body>
 </html>'''
 

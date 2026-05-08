@@ -12919,7 +12919,14 @@
           ${itemsHtml}
         </div>
         ${tooOldNote}
-        <div style="display:flex; justify-content:flex-end; gap:8px;">
+        ${data.is_parent ? `
+        <div style="margin-top:10px; padding:8px 10px; background:linear-gradient(135deg, rgba(124,156,217,0.12), rgba(192,132,252,0.12)); border-radius:6px; border:1px solid var(--border); font-size:11px;">
+          <strong style="color:var(--accent);">📚 Plný dashboard:</strong>
+          <a href="/erp/system/audit-dashboard" target="_blank" style="color:var(--accent2); text-decoration:none; font-weight:500;">Otevřít audit overview</a>
+          <span style="opacity:0.7; margin-left:6px;">— stats + tabulka + drill-down (cross-tenant pro rodiče)</span>
+        </div>
+        ` : ''}
+        <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
           <button type="button" class="btn-secondary" onclick="document.getElementById('auditModal').remove()">Zavřít</button>
         </div>
       </div>

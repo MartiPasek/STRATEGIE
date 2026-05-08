@@ -4824,6 +4824,29 @@ def _render_workspace_page(user_id: int) -> str:
         var sysCislo = SYSTEM_LAYOUT_CISLA[mode];
         var sysLayoutKey = (sysCislo != null) ? ("prehled_" + sysCislo) : null;
 
+        // Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373): pre-fetch
+        // layout PRED ErpDataGrid create. Pass jako `initialLayout` -> AG Grid
+        // pouzije pres gridOptions.initialState pri prvnim render. Bez flicker
+        // (driv: applyColumnState po gridReady = grid render with default
+        // first, pak update with stored = "problikne a zcucne").
+        var sysInitialLayout = null;
+        if (sysCislo != null) {
+          try {
+            var listRes = await fetch(
+              "/api/v1/erp/grid-layout/" + sysCislo + "/list",
+              { credentials: "include" }
+            );
+            if (listRes.ok) {
+              var listData = await listRes.json();
+              if (listData && listData.ok && listData.effective_default) {
+                sysInitialLayout = listData.effective_default;
+              }
+            }
+          } catch (eFetch) {
+            console.warn("[ERP-SYS] pre-fetch layout failed:", eFetch);
+          }
+        }
+
         try {
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
@@ -4838,6 +4861,8 @@ def _render_workspace_page(user_id: int) -> str:
             // Krok B+: Layout persistence (toolbar s dropdown + barvicky)
             layoutKey: sysLayoutKey,
             autoLoadDefault: !!sysLayoutKey,
+            // Krok C+ fix #8: pre-fetched layout pro initialState (no flicker)
+            initialLayout: sysInitialLayout,
             onRowClick: function(row, ev) {
               console.log("[ERP-SYS] row clicked", mode, row);
             },
@@ -5318,7 +5343,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (btn) btn.addEventListener("click", () => loadPrehled(cislo, item));
       }
 
-      function renderPrehled(cislo, item, data, breadcrumb) {
+      async function renderPrehled(cislo, item, data, breadcrumb) {
         // B+4.3: vše přes ErpDataGrid komponentu (AG Grid Enterprise wrapper)
         if (activeErpDataGrid) {
           try { activeErpDataGrid.destroy(); } catch (e) {}
@@ -5358,11 +5383,32 @@ def _render_workspace_page(user_id: int) -> str:
           return;
         }
         const container = document.getElementById("erpDataGridContainer");
+
+        // Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373): pre-fetch
+        // layout PRED ErpDataGrid create. Pass jako `initialLayout` -> AG
+        // Grid pouzije pres gridOptions.initialState pri prvnim render.
+        let initialLayout = null;
+        try {
+          const listRes = await fetch(
+            "/api/v1/erp/grid-layout/" + cislo + "/list",
+            { credentials: "include" }
+          );
+          if (listRes.ok) {
+            const listData = await listRes.json();
+            if (listData && listData.ok && listData.effective_default) {
+              initialLayout = listData.effective_default;
+            }
+          }
+        } catch (eFetch) {
+          console.warn("[ERP] pre-fetch layout failed:", eFetch);
+        }
+
         activeErpDataGrid = new window.ErpDataGrid(container, {
           rowData: rows,
           columns: cols,
           autoColumns: true,
           layoutKey: "prehled_" + cislo,  // B+5 grid layout persistence (TODO)
+          initialLayout: initialLayout,    // Krok C+ fix #8: no flicker
           // B+10++ (Marti's drobnost 6.5.2026): limit context pro status bar.
           // Status panel renderuje "Celkem" oranzove kdyz hasMore=true a klik
           // otevre dropdown s options (1k/10k/50k/Vse). Stejny user flow jako

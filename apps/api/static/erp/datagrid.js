@@ -954,6 +954,30 @@
       }
 
       const opts = this.options;
+
+      // Phase 35-E.4 Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373):
+      // initialState pro AG Grid v32+ — predcasne aplikuje columnState
+      // PRED prvnim renderem. Bez flicker (issue: applyColumnState po
+      // gridReady = grid render with default first, pak update with stored,
+      // = "problikne a zcucne" Marti's report).
+      //
+      // Caller (renderSystemGrid / renderPrehled) muze pre-fetchnout layout
+      // z DB a passnout cely layoutObj jako `initialLayout`. ErpDataGrid
+      // si rozbali columnState + formatting_rules + nastavi _currentLayoutId.
+      let initialColumnState = null;
+      if (opts.initialLayout && opts.initialLayout.layout_json) {
+        const lj = opts.initialLayout.layout_json;
+        if (Array.isArray(lj.columns) && lj.columns.length > 0) {
+          initialColumnState = lj.columns;
+          // Pre-set state aby guards (onGridSizeChanged, onFirstDataRendered)
+          // fungovaly hned — _currentLayoutId truthy = persistovany layout.
+          this._currentLayoutId = opts.initialLayout.id;
+          this._formattingRules = Array.isArray(lj.formatting_rules)
+            ? lj.formatting_rules.slice() : [];
+          this._heuristicsEnabled = lj.heuristics_enabled === true;
+        }
+      }
+
       // B+10+ (6.5.2026): merge user-defined formatting rules + heuristics.
       // Initial state: žádné user rules, heuristics off → empty rowClassRules.
       // Re-applied v _applyLayout() po načtení layout.
@@ -961,6 +985,10 @@
       const gridOptions = {
         columnDefs: columnDefs || [],
         rowData: rowData,
+        // Krok C+ fix #8: initialState bez flicker (pokud caller pre-fetchnul)
+        ...(initialColumnState ? {
+          initialState: { columnState: initialColumnState },
+        } : {}),
         // B+10 (6.5.2026): row-level conditional formatting.
         // B+10+ (6.5.2026): merge heuristics (opt-in) + user rules (compiled).
         rowClassRules: initialRowRules,
@@ -1355,11 +1383,22 @@
 
     /**
      * Auto-load při init — pokud existuje effective_default, aplikuje + refresh toolbar.
+     *
+     * Phase 35-E.4 Krok C+ fix #8: pokud caller pre-fetchnul layout a passnul
+     * jako `initialLayout`, AG Grid uz aplikoval columnState pres `initialState`
+     * gridOption (issue #7373 workaround) — preskocime applyColumnState.
+     * Stejne ale fetchneme list pro toolbar dropdown.
      */
     async _autoLoadDefault() {
       const key = this.options.layoutKey;
+      const skipApply = !!this.options.initialLayout;
       const result = await this.listLayouts();
-      if (result && result.effective_default) {
+      if (skipApply) {
+        console.info(
+          "[ErpDataGrid] autoLoadDefault " + key +
+          " → SKIP applyColumnState (initialLayout pre-applied via gridOptions.initialState)"
+        );
+      } else if (result && result.effective_default) {
         const lid = result.effective_default.id;
         const lname = result.effective_default.name;
         const applied = this._applyLayout(result.effective_default);

@@ -617,6 +617,75 @@ def system_audit_overview(
                     "count": int(cnt),
                 })
 
+            # ── Phase 35-E.4 Variant B (9.5.2026 odpoledne): per-persona ×
+            # per-month grid rows pro AG Grid v main pane. Marti's spec
+            # "detailni audit toho co se delo" — granular breakdown.
+            #
+            # Persona attribution:
+            #  - audited rows → audited_by_persona_id (kdo auditoval)
+            #  - non-audited rows → active_agent_id (kdo by auditoval / kdo
+            #    persona vlastní konverzaci) — fallback pokud NULL = "—"
+            # Period:
+            #  - audited rows → audited_at month
+            #  - non-audited rows → last_message_at month
+            from sqlalchemy import case, cast, String
+            from collections import defaultdict
+
+            # Načíst ALL conversations (cross-tenant) do paměti — paginate
+            # nedáváme, protože GROUP BY s month + persona je už malé.
+            agg_rows = (
+                ds.query(
+                    Conversation.audit_status,
+                    Conversation.audited_by_persona_id,
+                    Conversation.active_agent_id,
+                    Conversation.audited_at,
+                    Conversation.last_message_at,
+                )
+                .filter(*base_filters)
+                .all()
+            )
+
+            # In-Python aggregation (jednodušší než SQL CASE pro period
+            # podle audit_status — DB-agnostic, malý dataset).
+            buckets = defaultdict(lambda: {
+                "pending": 0, "in_progress": 0,
+                "audited": 0, "excluded": 0, "total": 0,
+            })
+            for st, audited_pid, active_pid, audited_at, last_msg_at in agg_rows:
+                # Persona attribution
+                if st == "audited" and audited_pid:
+                    pid = audited_pid
+                else:
+                    pid = active_pid
+                # Period (yyyy-mm) attribution
+                if st == "audited" and audited_at:
+                    period = audited_at.strftime("%Y-%m")
+                elif last_msg_at:
+                    period = last_msg_at.strftime("%Y-%m")
+                else:
+                    period = "—"
+
+                key = (pid, period)
+                bucket = buckets[key]
+                bucket["total"] += 1
+                if st in ("pending", "in_progress", "audited", "excluded"):
+                    bucket[st] += 1
+
+            stats_rows = []
+            for (pid, period), counts in buckets.items():
+                stats_rows.append({
+                    "persona_id": pid,
+                    "persona_name": persona_names.get(pid, "—") if pid else "—",
+                    "period": period,
+                    "pending": counts["pending"],
+                    "in_progress": counts["in_progress"],
+                    "audited": counts["audited"],
+                    "excluded": counts["excluded"],
+                    "total": counts["total"],
+                })
+            # Order: persona_name asc, period desc (nejnovější nahoře per persona)
+            stats_rows.sort(key=lambda r: (r["persona_name"], -int(r["period"].replace("-", "")) if r["period"] != "—" else 0))
+
             return JSONResponse({
                 "ok": True,
                 "mode": "stats",
@@ -627,6 +696,10 @@ def system_audit_overview(
                 "per_scope_audited": per_scope,
                 "timeline_7d": timeline,
                 "total_conversations": sum(int(v) for v in status_counts.values()),
+                # Variant B grid rows (per-persona × per-month):
+                "rows": stats_rows,
+                "shown": len(stats_rows),
+                "limit": len(stats_rows),
             })
 
         # ── mode='audited' / 'all' → tabulka ──────────────────────
@@ -4240,18 +4313,7 @@ def _render_workspace_page(user_id: int) -> str:
           if (row) row.classList.add("active");
         }
 
-        // Phase 35-E.4 Variant B: single=1 (z data atributu) skipne tabs
-        // bar v iframe — render jen daný mode (klasický Centrála pattern).
-        // single=0 → tabs visible (Variant A "záložkový přehled").
-        const single = (item && item.getAttribute("data-system-single") === "1") ? 1 : 0;
-
-        // Replace main content s iframe (embed mode skipne header)
         main.dataset.systemView = mode;
-        main.innerHTML =
-          '<iframe src="/erp/system/audit-dashboard?embed=1&single=' + single +
-          '&mode=' + mode +
-          '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
-          'title="Audit dashboard"></iframe>';
 
         // Update browser title pro context
         try {
@@ -4259,6 +4321,187 @@ def _render_workspace_page(user_id: int) -> str:
           const lbl = labelEl ? labelEl.textContent : "Audit";
           document.title = "STRATEGIE · " + lbl;
         } catch (e) {}
+
+        // Phase 35-E.4 Marti's korekce 9.5. odpoledne:
+        //  - mode='tabs' (Variant A) → iframe dashboard se 3 panely
+        //    (zachovat můj přístup, custom HTML s widgets).
+        //  - mode='audited'/'all'/'stats' (Variant B) → STANDARDNÍ AG Grid
+        //    v main pane jako vsechny ostatni prehledy v DB_EC.
+        //    Marti's spec: "tri radky a tri gridy".
+        if (mode === "tabs") {
+          main.innerHTML =
+            '<iframe src="/erp/system/audit-dashboard?embed=1&single=0&mode=' + mode +
+            '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
+            'title="Audit dashboard"></iframe>';
+        } else {
+          _renderSystemGrid(mode, item);
+        }
+      }
+
+      // Phase 35-E.4 Variant B: native AG Grid v main pane (no iframe).
+      // Standardní Centrála pattern — header (label + count) + grid + click row.
+      async function _renderSystemGrid(mode, item) {
+        const main = document.getElementById("erpMainContent");
+        if (!main) return;
+        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
+        const lbl = labelEl ? labelEl.textContent : mode;
+
+        main.innerHTML =
+          '<div class="erp-system-grid-wrap" style="display:flex;flex-direction:column;height:100%;background:var(--bg);">' +
+            '<div class="erp-system-grid-header" style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;font-size:13px;color:var(--fg);background:var(--bg-soft,#1a1f24);">' +
+              '<span style="font-weight:600;font-size:14px">' + escapeHtml(lbl) + '</span>' +
+              '<span id="erpSysGridCount" style="opacity:0.6;font-size:11px"></span>' +
+            '</div>' +
+            '<div id="erpSysGridBody" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;color:var(--muted);">Načítám…</div>' +
+          '</div>';
+
+        let data;
+        try {
+          const url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
+          const res = await fetch(url, { credentials: "include" });
+          if (!res.ok) {
+            const txt = await res.text();
+            const body = document.getElementById("erpSysGridBody");
+            if (body) body.innerHTML = '<div style="color:#f88">Chyba ' + res.status + ': ' + escapeHtml(txt.substring(0, 200)) + '</div>';
+            return;
+          }
+          data = await res.json();
+        } catch (e) {
+          const body = document.getElementById("erpSysGridBody");
+          if (body) body.innerHTML = '<div style="color:#f88">Chyba: ' + escapeHtml(String(e)) + '</div>';
+          return;
+        }
+
+        const body = document.getElementById("erpSysGridBody");
+        if (!body) return;
+        body.innerHTML = "";
+        body.style.alignItems = "stretch";
+        body.style.justifyContent = "stretch";
+
+        const gridDiv = document.createElement("div");
+        gridDiv.className = "ag-theme-quartz";
+        gridDiv.setAttribute("data-ag-theme-mode", "dark");
+        gridDiv.style.cssText = "width:100%;height:100%;min-height:480px";
+        body.appendChild(gridDiv);
+
+        const columns = _systemGridColumns(mode);
+        const rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
+
+        const opts = {
+          columnDefs: columns,
+          rowData: rowData,
+          defaultColDef: { resizable: true, sortable: true, filter: true },
+          onRowClicked: (e) => _showSystemRowDetail(mode, e.data),
+          domLayout: "normal",
+          animateRows: true,
+          rowHeight: 32,
+        };
+
+        // eslint-disable-next-line no-undef
+        agGrid.createGrid(gridDiv, opts);
+
+        const cntEl = document.getElementById("erpSysGridCount");
+        if (cntEl) cntEl.textContent = rowData.length + " řádků";
+      }
+
+      function _systemGridColumns(mode) {
+        if (mode === "stats") {
+          return [
+            { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
+            { headerName: "Období", field: "period", width: 110, sortable: true, sort: "desc" },
+            { headerName: "Pending", field: "pending", width: 100, sortable: true, type: "numericColumn",
+              cellStyle: (p) => p.value > 0 ? { color: "#888" } : null },
+            { headerName: "In progress", field: "in_progress", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: (p) => p.value > 0 ? { color: "#d4a017" } : null },
+            { headerName: "Auditované", field: "audited", width: 120, sortable: true, type: "numericColumn",
+              cellStyle: (p) => p.value > 0 ? { color: "#6aa84f", fontWeight: "500" } : null },
+            { headerName: "Excluded", field: "excluded", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: (p) => p.value > 0 ? { color: "#666" } : null },
+            { headerName: "Celkem", field: "total", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: { fontWeight: "600" } },
+          ];
+        }
+        // audited / all
+        const showStatus = (mode === "all");
+        const cols = [
+          { headerName: "ID", field: "id", width: 80, sortable: true, pinned: "left" },
+        ];
+        if (showStatus) {
+          cols.push({
+            headerName: "Status", field: "audit_status", width: 120, sortable: true,
+            cellRenderer: (p) => _systemStatusBadge(p.value || "—"),
+          });
+        }
+        cols.push(
+          { headerName: "Title", field: "title", flex: 2, minWidth: 200, sortable: true },
+          { headerName: "Tenant", field: "tenant_name", width: 130, sortable: true },
+          { headerName: "Auditováno", field: "audited_at", width: 160, sortable: true,
+            valueFormatter: (p) => _formatDateRel(p.value) },
+          { headerName: "Persona", field: "audited_by_persona_name", width: 130 },
+          { headerName: "Scope", field: "scope", width: 110,
+            cellRenderer: (p) => _scopeIconHtml(p.value) },
+          { headerName: "Last msg", field: "last_message_at", width: 160, sortable: true,
+            valueFormatter: (p) => _formatDateRel(p.value) },
+          { headerName: "Thoughts", field: "thought_count", width: 100, sortable: true,
+            cellRenderer: (p) => p.value > 0 ? "📝 " + p.value : "—" },
+          { headerName: "Lifecycle", field: "lifecycle_state", width: 110 },
+        );
+        return cols;
+      }
+
+      function _systemStatusBadge(v) {
+        const colors = {
+          pending: "#888", in_progress: "#d4a017",
+          audited: "#6aa84f", excluded: "#666",
+        };
+        const labels = {
+          pending: "pending", in_progress: "in progress",
+          audited: "✓ audited", excluded: "excluded",
+        };
+        const c = colors[v] || "#888";
+        const lbl = labels[v] || v;
+        return '<span style="background:' + c + '22;color:' + c +
+               ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">' +
+               escapeHtml(lbl) + '</span>';
+      }
+
+      function _scopeIconHtml(v) {
+        if (v === "srdce") return '<span style="color:#e08aa8">💗 srdce</span>';
+        if (v === "general") return '<span style="opacity:0.7">general</span>';
+        return v ? escapeHtml(v) : '<span style="opacity:0.4">—</span>';
+      }
+
+      function _formatDateRel(iso) {
+        if (!iso) return "—";
+        try {
+          const d = new Date(iso);
+          return d.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "short" });
+        } catch (e) { return iso; }
+      }
+
+      function _showSystemRowDetail(mode, row) {
+        // Phase 35-E.4 next iteration TODO (Marti's "Pozdeji Popup"):
+        //  - audited / all → modal s plnou konverzací (read-only render messages,
+        //    audit_notes summary, persona kdo auditoval, extracted_thought_ids).
+        //  - stats → ne-otvírat (per-persona × per-měsíc row je summary).
+        if (mode === "stats") return;
+        if (!row || !row.id) return;
+        // Placeholder: budoucí popup. Zatím alert s metadaty pro feedback.
+        const lines = [
+          "Konverzace #" + row.id,
+          "",
+          "Title: " + (row.title || "—"),
+          "Status: " + (row.audit_status || "—"),
+          "Tenant: " + (row.tenant_name || "—"),
+          "Persona: " + (row.audited_by_persona_name || "—"),
+          "Scope: " + (row.scope || "—"),
+          "Auditováno: " + (row.audited_at || "—"),
+          "Last msg: " + (row.last_message_at || "—"),
+          "Thoughts: " + (row.thought_count || 0),
+          "",
+          "Popup s plnou konverzací bude v další iteraci.",
+        ];
+        alert(lines.join("\n"));
       }
 
       function _restoreFromSystemView() {

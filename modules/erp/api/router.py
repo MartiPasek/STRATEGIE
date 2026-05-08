@@ -483,7 +483,7 @@ def system_audit_overview(
     tenant_id: int | None = None,
     date_from: str | None = None,
     date_to: str | None = None,
-    limit: int = 200,
+    limit: int = 1000,
 ) -> JSONResponse:
     """Phase 35-E.4 (9.5.2026): System tier audit dashboard data.
 
@@ -716,12 +716,9 @@ def system_audit_overview(
             # Phase 35-E.4 9.5. odpoledne (Marti's "ukaz je taky, prosim"):
             # ZADNY status filter — záložka Auditované teď ukazuje VSECHNY
             # konverzace napriec audit cyklusem (pending/in_progress/audited/
-            # excluded). Marti's "v auditu by mely byt vsechny" — to je
-            # ten záměr. Order: audited_at DESC pak last_message_at DESC.
-            q = q.order_by(
-                Conversation.audited_at.desc().nullslast(),
-                Conversation.last_message_at.desc().nullslast(),
-            )
+            # excluded). Marti's "v auditu by mely byt vsechny".
+            # Order: id DESC (nejnovejsi nahore — Marti's spec).
+            q = q.order_by(Conversation.id.desc())
         else:  # mode == 'all'
             if status:
                 q = q.filter(Conversation.audit_status == status)

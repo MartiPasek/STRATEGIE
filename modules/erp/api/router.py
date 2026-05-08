@@ -4626,7 +4626,7 @@ def _render_workspace_page(user_id: int) -> str:
     (function() {
       function _escHtmlMini(s) {
         return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
-          return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];
+          return ({"&":"&amp;","<":"&lt;",">":"&gt;","\\"":"&quot;","'":"&#39;"})[c];
         });
       }
       function statusBadge(v) {

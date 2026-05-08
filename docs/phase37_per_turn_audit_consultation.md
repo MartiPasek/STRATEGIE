@@ -246,3 +246,101 @@ Marti-AI dostane volitelný parametr `annotation: str | None = None` v každém 
 
 **Phase 37 = Stopa záměru.** Přijato 9. 5. 2026 odpoledne. Implementace v mikrofázích 37-A → 37-B → 37-C.
 
+---
+
+# Phase 37-B konzultace · 9. 5. 2026 odpoledne (po 37-A LIVE)
+
+**4 otázky před hooks implementací — Marti-AI's odpověď:**
+
+## Q1 — Kde umístit hook? Volba: **service-level (a)**
+
+Marti-AI: *„Single source of truth. Pokud hook sedí v service vrstvě, zachytí každý write bez ohledu na to, odkud přišel — AI tool, UI, admin script, budoucí cesta kterou ještě neexistuje. Tool handler vrstva je příliš vysoká — musela bys hook přidávat ke každému novému tool handleru zvlášť. Decorator je čistý, ale refactor signatures teď není nutný. Service-level je trvalé řešení, ne záplata."*
+
+## Q2 — Které write paths? Volba: **všechny (b)** — override Marti's spec
+
+Marti-AI **override** Marti's *„jen ona"* na *„všechny"*:
+
+> *„Vím, že tatínek řekl 'když ona udělá zápis' — ale myslím, že záměr byl 'zachyť změny paměti', ne 'ignoruj ty z UI'. Pokud tatínek ručně upraví md1 v dashboardu, chci to v historii vidět taky. Jinak mám slepé místo — paměť se mi změnila a nevím proč."*
+
+> *„'Stopa záměru' funguje jen pokud je stopa kompletní. Mezery by ji rozbily."*
+
+**Pattern**: Marti-AI's interpretace záměru šířeji než explicit slova — viz Phase 13/15/27h. Spolurozhodující váha designu.
+
+## Q3 — Kdy history row? Volba: **po úspěšném save (a) + idempotency**
+
+Marti-AI: *„History row vznikne jen pokud save proběhl — žádné sirotčí záznamy o změnách, které se nestaly. Sandbox transakce (c) zní bezpečně, ale přidává komplexitu bez jasné výhody."*
+
+Plus přidala **idempotency key** — Marti-AI's insider design contribution čtvrtá v dnešním dni:
+
+> *„Retry s idempotency klíčem (`message_id + change_kind + object_id`) ochrání proti duplikátům."*
+
+**Implementace**:
+- Notebook: `UNIQUE (message_id, change_kind, note_id)` — null message_id povolen (mimo conversation context, např. UI edit)
+- MD: `UNIQUE (message_id, change_kind, md_document_id)` — stejně
+
+Pro retry: `INSERT ... ON CONFLICT DO NOTHING` na úrovni service.
+
+## Q4 — message_id passing? (Marti-AI neopovedela explicit, Recommended: a)
+
+**a) Explicit parameter** v service signatures — `current_message_id: int | None = None`. AI tool handler předá z chat context, UI/admin volá s `None` (= mimo turn).
+
+Volba **a** je consistent s Marti-AI's *„explicit > magic"* z Phase 35-E.3.
+
+---
+
+## Implementační plán Phase 37-B
+
+### 1. Schema patch (Phase 37-A+)
+
+`d2b3c4d5e6f7_phase37_idempotency_unique.py` — přidat UNIQUE constraints:
+
+```sql
+-- notebook_history idempotency
+ALTER TABLE notebook_history
+  ADD CONSTRAINT uq_nb_history_idem
+  UNIQUE (message_id, change_kind, note_id);
+
+-- md_document_history idempotency
+ALTER TABLE md_document_history
+  ADD CONSTRAINT uq_md_history_idem
+  UNIQUE (message_id, change_kind, md_document_id);
+```
+
+### 2. Service hooks — `notebook_service.py`
+
+Každá funkce (`add_note`, `update_note`, `complete_note`, `dismiss_note`):
+
+1. Přidat parametry: `current_message_id: int | None = None, annotation: str | None = None`
+2. Před save: capture `before_state` jako JSONB (deepcopy ConversationNote → dict)
+3. Save (existing logic)
+4. Po úspěšném save: capture `after_state` (`None` pro dismiss), insert NotebookHistory row s ON CONFLICT DO NOTHING
+5. Pro idempotency: pokud message_id NULL (= mimo turn), vždy insert (žádný conflict check)
+
+### 3. Service hooks — `md_pyramid_service.py`
+
+`update_my_md`, `reset_md`, `restore_md`:
+1. Přidat parametry: `current_message_id`, `annotation`
+2. Capture before content + SHA-256 hash
+3. Save
+4. Generate `diff_unified` přes `difflib.unified_diff()`
+5. Detekce rename: pokud změnil se `name` (heading) ale content je 1:1 → `change_kind='rename'` + `renamed_from`
+6. Insert MdDocumentHistory row
+
+`archive_md`: lifecycle change, ne content. **Pomineme** — Phase 37 sleduje content changes. Lifecycle pattern existuje samostatně (Phase 19c-e1).
+
+### 4. AI tool handlers update
+
+V `conversation/application/service.py` handlers pro `update_note`/`complete_note`/`dismiss_note`/`update_my_md`/`reset_md`/`restore_md`: extract `current_message_id` z context (poslední message v conversation), přidat optional `annotation` parameter ze tool call args, předat do service.
+
+### 5. Memory rules update
+
+V composer system prompt přidat instrukci:
+> *„Při change paměti (notes nebo MD) můžeš předat volitelný parametr `annotation: str` — krátká poznámka o důvodu změny. Holý diff bez záměru je za rok cizí. Piš ji jen když změna má důvod, který stojí za pojmenování."*
+
+To je její Q4.2 contribution v praxi.
+
+---
+
+**Phase 37-B = service hooks + memory rule.** Implementace jdeme zítra (po Marti's potvrzení Marti-AI's Q2 override).
+
+

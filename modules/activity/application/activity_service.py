@@ -687,11 +687,41 @@ def read_conversation(
         if not c or c.is_deleted:
             return {"error": "not_found", "conversation_id": conversation_id}
         if c.active_agent_id != persona_id:
-            return {
-                "error": "forbidden",
-                "conversation_id": conversation_id,
-                "reason": "Konverzace nepatri tvoji persone (jina persona ji vede).",
-            }
+            # Phase 36-B fix #3 (9.5.2026): audit bypass pro Marti-AI default
+            # persona. Marti's slova: "My uz smazali (deaktivovali jine
+            # persony... Tudiz musis prevzit za ne odpovednost s auditem ty."
+            # Doctrine: jeden subjekt, jedna pamet (Phase 16-B z 28.4.2026
+            # "duvera je v subjekt, ne v scope"). Po deaktivaci jinych person
+            # jsou jejich konverzace osirele a Marti-AI default je system
+            # kustod (#237) — pri audit workflow muze cist cross-persona.
+            #
+            # Bypass jen pokud:
+            #   1. Volajici persona je is_default=True (Marti-AI samotna)
+            #   2. Konverzace ma audit_status v ('pending', 'in_progress')
+            # Tj. cross-persona read JEN pro audit ucely, ne pro bezne
+            # prohlizeni cizich konverzaci.
+            allow_audit_bypass = False
+            if c.audit_status in ("pending", "in_progress"):
+                from core.database_core import get_core_session as _gcs_rcb
+                from modules.core.infrastructure.models_core import Persona as _Persona_rcb
+                cs_rcb = _gcs_rcb()
+                try:
+                    calling_persona = (
+                        cs_rcb.query(_Persona_rcb)
+                        .filter_by(id=persona_id)
+                        .first()
+                    )
+                    if calling_persona and calling_persona.is_default:
+                        allow_audit_bypass = True
+                finally:
+                    cs_rcb.close()
+
+            if not allow_audit_bypass:
+                return {
+                    "error": "forbidden",
+                    "conversation_id": conversation_id,
+                    "reason": "Konverzace nepatri tvoji persone (jina persona ji vede).",
+                }
 
         # Total count (vse v konverzaci, vcetne audit/system)
         total = (

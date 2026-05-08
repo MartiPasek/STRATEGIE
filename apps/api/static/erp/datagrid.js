@@ -1268,17 +1268,34 @@
       const cols = lj.columns;
       if (!Array.isArray(cols) || cols.length === 0) return false;
       try {
-        // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): diag log pred/po
+        // Phase 35-E.4 Krok C+ fix2+5 (9.5.2026 vecer): diag log pred/po
         // applyColumnState — uvidime co AG Grid skutecne aplikuje.
         console.info(
           "[ErpDataGrid] applyColumnState input cols=" + cols.length +
           " — first cols sample:",
           cols.slice(0, 3).map(c => ({ colId: c.colId, width: c.width, flex: c.flex, hide: c.hide }))
         );
+        // fix #5: defaultState s flex:null prepisuje columnDef defaults
+        // (buildAutoColumnDefs line 539 nastavuje flex:1 pro non-ID sloupce).
+        // Bez defaultState AG Grid zachova columnDef flex i kdyz state.flex=null.
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
+          defaultState: { flex: null },
         });
+        // fix #5: explicit setColumnWidths po applyColumnState — defensive
+        // belt-and-braces. Pokud applyColumnState neaplikoval width spravne
+        // (flex override), setColumnWidths nastavi pixel-perfect.
+        try {
+          const widths = cols
+            .filter(c => c.width != null && c.width > 0)
+            .map(c => ({ key: c.colId, newWidth: c.width }));
+          if (widths.length > 0 && typeof this.gridApi.setColumnWidths === "function") {
+            this.gridApi.setColumnWidths(widths);
+          }
+        } catch (e) {
+          console.warn("[ErpDataGrid] setColumnWidths failed:", e);
+        }
         // Po-apply state pro porovnani
         try {
           const after = this.gridApi.getColumnState();

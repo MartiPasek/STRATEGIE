@@ -5099,16 +5099,11 @@ def _render_workspace_page(user_id: int) -> str:
               if (isOpen) expanded.delete(nid); else expanded.add(nid);
               saveExpanded(expanded);
             }
-            // Phase 35-E.4 Variant B (9.5.2026): System leaf node →
-            // inline iframe v main pane (no redirect, čistá izolace JS).
-            if (!toggleClicked) {
-              const sysViewMode = item.getAttribute("data-system-view-mode");
-              if (sysViewMode) {
-                _renderSystemViewInline(sysViewMode, item);
-                return;
-              }
-            }
-            // Load přehled JEN POKUD klik nebyl na toggle šipku
+            // Phase 35-E.4 Krok C+ (9.5.2026): System uzly jdou pres
+            // STEJNOU openTab pipeline jako EUROSOFT prehledy. Negativni
+            // cislo (-100/-101/-102/-103) jako tab ID. Tabs bar zustava
+            // visible, tab je persistovany. Marti's spec "tree + grid +
+            // tabs napric tenanty identicky".
             if (!toggleClicked) {
               const cisloDef = item.getAttribute("data-cislo-def");
               if (cisloDef && cisloDef !== "") {
@@ -5152,41 +5147,46 @@ def _render_workspace_page(user_id: int) -> str:
         const row = item.querySelector(":scope > .erp-tree-row");
         if (row) row.classList.add("active");
         saveActive(String(cislo));
-        // Phase 35-E.4 Variant B: pokud byla active System view, restore
-        // standard workspace (hide iframe wrapper, show tabs bar).
-        _restoreFromSystemView();
+        // Phase 35-E.4 Krok C+: System uzly jsou ted normalni taby
+        // (negative cislo). _restoreFromSystemView se uz nevola — tabsBar
+        // nehidujeme nikdy.
         // B+8 (6.5.2026): místo loadPrehled → openTab (multi-tab pattern)
         openTab(cislo, item);
       }
 
-      // Phase 35-E.4 Variant B (9.5.2026): inline iframe render System view
-      // v ERP main pane. Marti's vize "koukat na to shora v ERP context" —
-      // dashboard se otevre přímo místo přehled tabů, sidebar zustane.
-      function _renderSystemViewInline(mode, item) {
-        // Phase 35-E.4 Variant B Krok D (9.5.2026 odpoledne) — native AG Grid
-        // pro non-tabs mode, iframe jen pro tabs (Variant A combined view).
-        // Marti's spec "tri radky a tri gridy". Helpers v izolovanych <script>
-        // blocich, volani pres window._sysHelpers.renderSystemGrid.
-        const tabsBar = document.getElementById("erpTabsBar");
+      // Phase 35-E.4 Krok C+ (9.5.2026): System uzly jsou ted normalni taby
+      // (negative cislo). Render funkce se vola z _renderTabIntoMain pri
+      // switchTab. Tabs bar zustava VISIBLE — System tab vypada/chova se
+      // identicky jako EUROSOFT prehled tab.
+      // Helpers v izolovanych <script> blocich nahore (window._sysHelpers.*).
+
+      // Mapping itemId → mode pro System leaf taby. Pouziva se pri
+      // _loadTabData/_renderTabIntoMain pokud tab.cislo < 0.
+      function _systemModeFromItemId(itemId) {
+        if (!itemId) return null;
+        if (itemId === "system.audit.tabs") return "tabs";
+        if (itemId === "system.audit.audited") return "audited";
+        if (itemId === "system.audit.all") return "all";
+        if (itemId === "system.audit.stats") return "stats";
+        return null;
+      }
+
+      // Mapping cislo → mode (fallback kdyz itemId chybi po reload z user_tabs)
+      function _systemModeFromCislo(cislo) {
+        if (cislo === -100) return "tabs";
+        if (cislo === -101) return "audited";
+        if (cislo === -102) return "all";
+        if (cislo === -103) return "stats";
+        return null;
+      }
+
+      // Render System view do main pane. NEMODIFIKUJE tabsBar ani tree
+      // active state (to dela switchTab caller pred volanim).
+      function _renderSystemViewIntoMain(mode, label) {
         const main = document.getElementById("erpMainContent");
         if (!main) return;
-
-        if (tabsBar) {
-          tabsBar.dataset.systemHidden = tabsBar.hidden ? "1" : "0";
-          tabsBar.hidden = true;
-        }
-
-        treeRoot.querySelectorAll(".erp-tree-row.active").forEach(function(r) { r.classList.remove("active"); });
-        if (item) {
-          const row = item.querySelector(":scope > .erp-tree-row");
-          if (row) row.classList.add("active");
-        }
-
-        main.dataset.systemView = mode;
-
-        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
-        const lbl = labelEl ? labelEl.textContent : "Audit";
-        try { document.title = "STRATEGIE - " + lbl; } catch (e) {}
+        main.dataset.systemView = mode || "";
+        const lbl = label || "Audit";
 
         if (mode === "tabs") {
           // Variant A — iframe dashboard se zalozkami (combined view)
@@ -5204,22 +5204,6 @@ def _render_workspace_page(user_id: int) -> str:
             '" style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
             ' title="Audit dashboard fallback"></iframe>';
         }
-      }
-
-      // Phase 35-E.4 Variant B native AG Grid helpers jsou v izolovanych
-      // <script> blocich nahore (window._sysHelpers.*). Inline draft odstranen
-      // 9.5.2026 odpoledne po Krok D smoke (legacy ~165 radku).
-
-      function _restoreFromSystemView() {
-        const main = document.getElementById("erpMainContent");
-        const tabsBar = document.getElementById("erpTabsBar");
-        if (!main || !main.dataset.systemView) return;
-        // Byla active System view — restore tabs bar (pokud byl visible)
-        delete main.dataset.systemView;
-        if (tabsBar && tabsBar.dataset.systemHidden === "0") {
-          tabsBar.hidden = false;
-        }
-        // Iframe odstraní switchTab → render přehled, který nahradí innerHTML
       }
 
       function tryRestoreActive() {
@@ -7019,6 +7003,14 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       async function _loadTabData(tab) {
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view bez fetch z /prehled. Data jsou self-contained
+        // (System grid si fetchuje vlastni data uvnitr).
+        if (tab.cislo < 0) {
+          tab.data = { _system: true };  // sentinel — renderTabIntoMain rozumí
+          _renderTabIntoMain(tab);
+          return;
+        }
         const userLimit = loadPrehledLimit(tab.cislo);
         const url = userLimit
           ? ("/api/v1/erp/prehled/" + tab.cislo + "?limit=" + userLimit)
@@ -7056,6 +7048,20 @@ def _render_workspace_page(user_id: int) -> str:
       function _renderTabIntoMain(tab) {
         // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
         if (currentJadro) closeJadroPane();
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view (audit dashboard / native AG Grid).
+        if (tab.cislo < 0) {
+          const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);
+          if (mode) {
+            _renderSystemViewIntoMain(mode, tab.label);
+            return;
+          }
+          // Fallback: System tab bez rozeznatelneho mode → hlaska
+          mainContent.innerHTML =
+            '<div class="erp-main-error">System tab #' + tab.cislo +
+            ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
+          return;
+        }
         const data = tab.data;
         if (!data) return;
         const itemId = tab.itemId;

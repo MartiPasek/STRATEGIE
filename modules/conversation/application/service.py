@@ -10188,8 +10188,15 @@ def chat(
         # Multi-round tool loop -- Claude dostane tool_result a muze:
         #   (a) zavolat dalsi tool (chain), napr. find_user -> record_thought
         #   (b) vratit finalni text (loop skonci)
-        # Limit 5 round aby se v patologickem pripade nesmycklo.
-        MAX_TOOL_ROUNDS = 5
+        # Phase 36-B fix (9.5.2026): bump 5 -> 25 protoze audit workflow je
+        # inherentne tool-heavy (recall + record_thought x N + audit_conversation
+        # = 4-15 calls per audit). Marti's frustrace 9.5.2026 dopoledne:
+        # "nemuzeme auditovat po 5ti zpravach. Mame jich 250."
+        # 25 rounds = batch 4-6 audits per turn (slow audit by design zachovan,
+        # ale rozumne tempo pro 250-konverzaci backfill).
+        # Pathological loop safeguard: po 20 round stejneho tool name s
+        # podobnymi args = log warning (TODO future).
+        MAX_TOOL_ROUNDS = 25
 
         # Serialize prvni assistant response (preamble + tool calls)
         initial_assistant_content = []

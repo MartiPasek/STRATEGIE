@@ -3383,29 +3383,29 @@ def _render_audit_dashboard_page(
       flex-direction: column;
     }}
     .grid-wrap > div {{ flex: 1; min-height: 0; }}
-    /* Phase 35-E.4 fix 9.5. odpoledne: explicit dark mode CSS variables
-       override — v32 community ag-theme-quartz s data-ag-theme-mode='dark'
-       nepripravil dark CSS variables (rows bily text na bilem pozadi).
-       Nastavime je manualne pres :root selektor. */
-    .ag-theme-quartz[data-ag-theme-mode="dark"],
+    /* Phase 35-E.4 DIAG 9.5. odpoledne: force kontrastni barvy (light theme
+       s !important) — diagnostika jestli rows jsou rendered ale invisible
+       (CSS theming) NEBO uplne chybi (layout/height issue). */
     .ag-theme-quartz {{
-      --ag-background-color: #14161a;
-      --ag-foreground-color: #e8e8ea;
-      --ag-header-background-color: #1a1d22;
-      --ag-header-foreground-color: #e8e8ea;
-      --ag-border-color: #2a2d33;
-      --ag-row-hover-color: #1f2228;
-      --ag-selected-row-background-color: #2a3340;
-      --ag-odd-row-background-color: #161a1e;
-      --ag-control-panel-background-color: #14161a;
-      --ag-subheader-background-color: #1a1d22;
-      --ag-input-background-color: #14161a;
-      --ag-input-border-color: #2a2d33;
-      --ag-data-color: #e8e8ea;
-      --ag-secondary-foreground-color: #9ca3af;
-      --ag-disabled-foreground-color: #6b7280;
-      --ag-row-border-color: #2a2d33;
-      color-scheme: dark;
+      background: #ffffff !important;
+      color: #000000 !important;
+    }}
+    .ag-theme-quartz .ag-row {{
+      background: #fffacd !important;  /* žlutý highlight */
+      color: #000000 !important;
+      border-bottom: 2px solid red !important;
+    }}
+    .ag-theme-quartz .ag-cell {{
+      color: #000000 !important;
+      background: #fffacd !important;
+    }}
+    .ag-theme-quartz .ag-header {{
+      background: #4169e1 !important;  /* modrý header */
+      color: #ffffff !important;
+    }}
+    .ag-theme-quartz .ag-header-cell {{
+      background: #4169e1 !important;
+      color: #ffffff !important;
     }}
     /* Stats widgets */
     .stats-wrap {{

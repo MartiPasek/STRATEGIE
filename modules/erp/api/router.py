@@ -3382,29 +3382,37 @@ def _render_audit_dashboard_page(
       flex-direction: column;
     }}
     .grid-wrap > div {{ flex: 1; min-height: 0; }}
-    /* Phase 35-E.4 DIAG 9.5. odpoledne: force kontrastni barvy (light theme
-       s !important) — diagnostika jestli rows jsou rendered ale invisible
-       (CSS theming) NEBO uplne chybi (layout/height issue). */
+    /* Phase 35-E.4 fix 9.5. odpoledne: AG Grid layout chain — root-wrapper
+       kolapsoval na 2px protoze .ag-theme-quartz nemel flex display.
+       Force flex column + child fill height. */
     .ag-theme-quartz {{
-      background: #ffffff !important;
-      color: #000000 !important;
+      display: flex !important;
+      flex-direction: column !important;
+      height: 100% !important;
     }}
-    .ag-theme-quartz .ag-row {{
-      background: #fffacd !important;  /* žlutý highlight */
-      color: #000000 !important;
-      border-bottom: 2px solid red !important;
+    .ag-theme-quartz .ag-root-wrapper {{
+      flex: 1 !important;
+      height: auto !important;
+      min-height: 0 !important;
     }}
-    .ag-theme-quartz .ag-cell {{
-      color: #000000 !important;
-      background: #fffacd !important;
-    }}
-    .ag-theme-quartz .ag-header {{
-      background: #4169e1 !important;  /* modrý header */
-      color: #ffffff !important;
-    }}
-    .ag-theme-quartz .ag-header-cell {{
-      background: #4169e1 !important;
-      color: #ffffff !important;
+    /* Dark theme via explicit CSS variables (v32 community).
+       data-ag-theme-mode="dark" attribute v32 podporuje, ale safer override. */
+    .ag-theme-quartz {{
+      --ag-background-color: #14161a;
+      --ag-foreground-color: #e8e8ea;
+      --ag-header-background-color: #1a1d22;
+      --ag-header-foreground-color: #e8e8ea;
+      --ag-border-color: #2a2d33;
+      --ag-row-hover-color: #1f2228;
+      --ag-selected-row-background-color: #2a3340;
+      --ag-odd-row-background-color: #161a1e;
+      --ag-control-panel-background-color: #14161a;
+      --ag-input-background-color: #14161a;
+      --ag-input-border-color: #2a2d33;
+      --ag-data-color: #e8e8ea;
+      --ag-secondary-foreground-color: #9ca3af;
+      --ag-row-border-color: #2a2d33;
+      color-scheme: dark;
     }}
     /* Stats widgets */
     .stats-wrap {{

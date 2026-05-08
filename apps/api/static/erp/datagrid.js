@@ -1217,7 +1217,7 @@
     _layoutApiBase() {
       const key = this.options.layoutKey;
       if (!key || typeof key !== "string") return null;
-      const m = key.match(/^prehled_(\d+)$/);
+      const m = key.match(/^prehled_(-?\d+)$/);
       if (!m) {
         console.warn("ErpDataGrid: layoutKey expected 'prehled_<cislo>', got:", key);
         return null;

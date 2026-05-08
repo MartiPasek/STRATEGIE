@@ -4753,6 +4753,13 @@ def _render_workspace_page(user_id: int) -> str:
       function _escAttr(s) {
         return String(s == null ? "" : s).replace(/"/g, "&quot;");
       }
+      // Krok B+: Layout cisla pro System uzly (negativni — vyhrazeny range
+      // pro neformalni/system grids, nekoliduje s realnymi prehledy z DB_EC)
+      var SYSTEM_LAYOUT_CISLA = {
+        audited: -101,
+        all: -102,
+        stats: -103
+      };
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
 
@@ -4812,6 +4819,10 @@ def _render_workspace_page(user_id: int) -> str:
         var columns = H.gridColumns ? H.gridColumns(mode) : [];
         var rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
 
+        // Krok B+: Layout key pro System uzly (negativni cislo)
+        var sysCislo = SYSTEM_LAYOUT_CISLA[mode];
+        var sysLayoutKey = (sysCislo != null) ? ("prehled_" + sysCislo) : null;
+
         try {
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
@@ -4823,6 +4834,9 @@ def _render_workspace_page(user_id: int) -> str:
             enableExport: true,
             enableFilters: true,
             enableRangeSelection: true,
+            // Krok B+: Layout persistence (toolbar s dropdown + barvicky)
+            layoutKey: sysLayoutKey,
+            autoLoadDefault: !!sysLayoutKey,
             onRowClick: function(row, ev) {
               console.log("[ERP-SYS] row clicked", mode, row);
             },

@@ -1291,7 +1291,7 @@
         try {
           const currentDefs = this.gridApi.getColumnDefs ? this.gridApi.getColumnDefs() : null;
           if (Array.isArray(currentDefs) && currentDefs.length > 0) {
-            const newDefs = currentDefs.map(d => Object.assign({}, d, { flex: 0 }));
+            const newDefs = currentDefs.map(d => Object.assign({}, d, { flex: 1 }));
             if (typeof this.gridApi.setGridOption === "function") {
               this.gridApi.setGridOption("columnDefs", newDefs);
             } else if (typeof this.gridApi.updateGridOptions === "function") {
@@ -1301,12 +1301,12 @@
             }
           }
         } catch (e) {
-          console.warn("[ErpDataGrid] columnDefs flex clear failed:", e);
+          console.warn("[ErpDataGrid] columnDefs flex set failed:", e);
         }
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
-          defaultState: { flex: 0 },
+          defaultState: { flex: 1 },
         });
         // Defensive setColumnWidths po applyColumnState pro pixel-perfect.
         try {
@@ -1538,13 +1538,12 @@
               if (w != null && w > 0) actualWidth = w;
             }
           } catch (e) {}
-          // Phase 35-E.4 Krok C+ fix5 (9.5.2026 vecer): flex:0 (ne null) pro
-          // explicit clear. AG Grid interpretuje null = "leave as-is",
-          // 0 = "no flex, use width". Marti's "problikne a zcucne" naznacuje
-          // ze flex z columnDef nebyl zrusen pri load.
+          // Phase 35-E.4 Krok C+ fix6 (9.5.2026 vecer): Marti's experiment
+          // "stejnej efekt zkus jeste flex 1". flex:1 (vs 0/null) — vyzkousime
+          // jestli to zmeni AG Grid behavior pri restore.
           return Object.assign({}, c, {
             width: actualWidth,
-            flex: 0,
+            flex: 1,
           });
         });
       }

@@ -795,6 +795,127 @@ def system_audit_overview(
     })
 
 
+@api_router.get("/system/audit-conversation/{conv_id}/thoughts")
+def system_audit_conversation_thoughts(
+    req: Request,
+    conv_id: int,
+) -> JSONResponse:
+    """Phase 35-E.4 (9.5.2026 odpoledne): drill-down endpoint pro audit modal.
+
+    Vrátí thoughts vyextrahované z konverzace při auditu (z
+    `audit_notes.extracted_thought_ids`) — full content, type, certainty,
+    persona attribution, tenant scope.
+
+    Cross-tenant pro rodiče (defense in depth — _require_parent + explicit
+    is_marti_parent check). Marti's spec 9.5. odpoledne: "potrebuju vidět
+    MDx per konverzaci" — toto je první krok (thoughts content),
+    Phase 37 přidá per-turn snapshot history (notebook + MD diff).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from modules.core.infrastructure.models_data import Conversation, Thought
+    from modules.core.infrastructure.models_core import Persona, User, Tenant
+    from core.database_core import get_core_session as _gcs_th
+    from core.database_data import get_data_session as _gds_th
+
+    # Parent gate (cross-tenant access)
+    cs = _gcs_th()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "Audit drill-down je jen pro rodiče.")
+    finally:
+        cs.close()
+
+    ds = _gds_th()
+    try:
+        conv = ds.query(Conversation).filter_by(id=conv_id).first()
+        if not conv:
+            raise HTTPException(404, f"Konverzace #{conv_id} neexistuje.")
+
+        notes = conv.audit_notes or {}
+        thought_ids = notes.get("extracted_thought_ids", []) or []
+
+        thoughts_data = []
+        if thought_ids:
+            thoughts = (
+                ds.query(Thought)
+                .filter(
+                    Thought.id.in_(thought_ids),
+                    Thought.deleted_at.is_(None),
+                )
+                .order_by(Thought.id.asc())
+                .all()
+            )
+
+            # Persona lookup map (z author_persona_id)
+            persona_ids = {t.author_persona_id for t in thoughts if t.author_persona_id}
+            persona_names = {}
+            tenant_names = {}
+            if persona_ids or any(t.tenant_scope for t in thoughts):
+                cs2 = _gcs_th()
+                try:
+                    if persona_ids:
+                        for p in cs2.query(Persona).filter(Persona.id.in_(persona_ids)).all():
+                            persona_names[p.id] = p.name
+                    tenant_ids = {t.tenant_scope for t in thoughts if t.tenant_scope}
+                    if tenant_ids:
+                        for tn in cs2.query(Tenant).filter(Tenant.id.in_(tenant_ids)).all():
+                            tenant_names[tn.id] = tn.tenant_name
+                finally:
+                    cs2.close()
+
+            # Parse meta JSON (Thought.meta je Text, ne JSONB)
+            import json as _json
+            for t in thoughts:
+                meta_obj = None
+                if t.meta:
+                    try:
+                        meta_obj = _json.loads(t.meta) if isinstance(t.meta, str) else t.meta
+                    except Exception:
+                        meta_obj = {"_raw": str(t.meta)[:200]}
+                thoughts_data.append({
+                    "id": t.id,
+                    "type": t.type,
+                    "content": t.content,
+                    "status": t.status,
+                    "certainty": t.certainty,
+                    "tenant_scope": t.tenant_scope,
+                    "tenant_scope_name": (
+                        tenant_names.get(t.tenant_scope) if t.tenant_scope else None
+                    ),
+                    "author_persona_id": t.author_persona_id,
+                    "author_persona_name": persona_names.get(t.author_persona_id),
+                    "source_event_type": t.source_event_type,
+                    "source_event_id": t.source_event_id,
+                    "meta": meta_obj,
+                    "primary_parent_id": t.primary_parent_id,
+                    "created_at": t.created_at.isoformat() if t.created_at else None,
+                    "modified_at": (
+                        t.modified_at.isoformat() if t.modified_at else None
+                    ),
+                })
+
+        return JSONResponse({
+            "ok": True,
+            "conversation_id": conv_id,
+            "title": conv.title,
+            "audit_status": conv.audit_status,
+            "audit_summary": notes.get("summary"),
+            "audit_scope": notes.get("scope"),
+            "old_title": notes.get("old_title"),
+            "audited_at": (
+                conv.audited_at.isoformat() if conv.audited_at else None
+            ),
+            "tenant_id": conv.tenant_id,
+            "thought_count": len(thoughts_data),
+            "thoughts": thoughts_data,
+        })
+    finally:
+        ds.close()
+
+
 @api_router.get("/system/tree")
 def system_tree(req: Request) -> JSONResponse:
     """Phase 35-E.4 (9.5.2026): System tier tree pro rodiče.
@@ -3513,6 +3634,75 @@ def _render_audit_dashboard_page(
     .modal-summary {{ font-size: 13px; line-height: 1.5; color: var(--text); padding: 8px 10px; background: var(--bg); border-radius: 6px; border-left: 3px solid var(--accent); }}
     .modal-thoughts {{ display: flex; flex-wrap: wrap; gap: 4px; }}
     .thought-chip {{ padding: 2px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 99px; font-size: 11px; color: var(--accent); }}
+    /* Phase 35-E.4 drill-down 9.5. odpoledne: thought detail cards */
+    .modal-thoughts-loading {{
+      color: var(--muted);
+      font-style: italic;
+      font-size: 13px;
+      padding: 10px 0;
+    }}
+    .thought-cards {{ display: flex; flex-direction: column; gap: 10px; }}
+    .thought-card {{
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      border-radius: 6px;
+      padding: 10px 12px;
+    }}
+    .thought-card-head {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      font-size: 12px;
+      margin-bottom: 8px;
+    }}
+    .thought-card-type {{
+      font-weight: 600;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }}
+    .thought-card-id {{
+      color: var(--muted);
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+    }}
+    .thought-card-cert {{
+      margin-left: auto;
+      padding: 2px 8px;
+      border-radius: 10px;
+      font-size: 10px;
+      font-weight: 600;
+    }}
+    .cert-high {{ background: rgba(34, 197, 94, 0.15); color: #22c55e; }}
+    .cert-mid {{ background: rgba(251, 191, 36, 0.15); color: #fbbf24; }}
+    .cert-low {{ background: rgba(156, 163, 175, 0.15); color: #9ca3af; }}
+    .thought-card-content {{
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }}
+    .thought-card-meta {{
+      margin-top: 8px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 11px;
+      color: var(--muted);
+    }}
+    .thought-meta-pair b {{ color: var(--text); font-weight: 500; }}
+    .thought-card-foot {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 14px;
+      margin-top: 8px;
+      padding-top: 8px;
+      border-top: 1px solid var(--border);
+      font-size: 11px;
+      color: var(--muted);
+    }}
     .modal-close {{ float: right; padding: 6px 12px; background: var(--surface2); color: var(--text); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; font-family: inherit; font-size: 12px; }}
     .loading {{ text-align: center; padding: 20px; color: var(--muted); font-size: 12px; }}
   </style>
@@ -3790,39 +3980,93 @@ def _render_audit_dashboard_page(
     `;
   }}
 
-  function _showDrillDown(row) {{
+  // Phase 35-E.4 drill-down 9.5. odpoledne (Marti's "vidim MDx per
+  // konverzaci" priorita): async fetch thoughts detail z noveho
+  // /system/audit-conversation/{id}/thoughts endpointu. Render rich card
+  // per thought s type/content/certainty/persona/tenant.
+  function _escapeHtml(s) {{
+    return String(s == null ? '' : s).replace(/[&<>"']/g, c =>
+      ({{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}})[c]
+    );
+  }}
+
+  const _THOUGHT_ICONS = {{
+    fact: '📌', todo: '✓', observation: '👁',
+    question: '❓', goal: '🎯', experience: '💗',
+  }};
+
+  function _renderThoughtCard(t) {{
+    const ico = _THOUGHT_ICONS[t.type] || '📝';
+    const certClass = t.certainty >= 80 ? 'cert-high'
+      : t.certainty >= 50 ? 'cert-mid' : 'cert-low';
+    const tenant = t.tenant_scope_name
+      ? _escapeHtml(t.tenant_scope_name)
+      : (t.tenant_scope ? '#' + t.tenant_scope : 'universal');
+    const persona = t.author_persona_name
+      ? _escapeHtml(t.author_persona_name) : '—';
+    const createdAt = t.created_at ? _formatDate(t.created_at) : '—';
+    const content = _escapeHtml((t.content || '').substring(0, 600));
+    const truncated = (t.content || '').length > 600 ? '…' : '';
+    let metaHtml = '';
+    if (t.meta && typeof t.meta === 'object' && Object.keys(t.meta).length > 0) {{
+      const metaPairs = Object.entries(t.meta)
+        .filter(([k, v]) => v != null && v !== '')
+        .map(([k, v]) => `<span class="thought-meta-pair"><b>${{_escapeHtml(k)}}:</b> ${{_escapeHtml(typeof v === 'object' ? JSON.stringify(v) : v)}}</span>`)
+        .join('');
+      if (metaPairs) metaHtml = `<div class="thought-card-meta">${{metaPairs}}</div>`;
+    }}
+    return `
+      <div class="thought-card">
+        <div class="thought-card-head">
+          <span class="thought-card-type">${{ico}} ${{_escapeHtml(t.type)}}</span>
+          <span class="thought-card-id">#${{t.id}}</span>
+          <span class="thought-card-cert ${{certClass}}">${{t.certainty}}%</span>
+        </div>
+        <div class="thought-card-content">${{content}}${{truncated}}</div>
+        ${{metaHtml}}
+        <div class="thought-card-foot">
+          <span>👤 ${{persona}}</span>
+          <span>🏢 ${{tenant}}</span>
+          <span>📅 ${{createdAt}}</span>
+          <span>${{_escapeHtml(t.status || 'note')}}</span>
+        </div>
+      </div>
+    `;
+  }}
+
+  async function _showDrillDown(row) {{
     if (!row) return;
     const modal = document.getElementById('auditModal');
     const box = document.getElementById('auditModalBox');
-    const thoughts = (row.extracted_thought_ids || [])
-      .map(id => `<span class="thought-chip">#${{id}}</span>`)
-      .join('') || '<span style="color:var(--muted);font-style:italic">žádné thoughts</span>';
     const oldTitleHtml = row.old_title && row.old_title !== row.title
-      ? `<div class="modal-section"><div class="modal-section-title">Původní title</div><div style="font-size:13px;color:var(--muted);font-style:italic">${{row.old_title}}</div></div>`
+      ? `<div class="modal-section"><div class="modal-section-title">Původní title</div><div style="font-size:13px;color:var(--muted);font-style:italic">${{_escapeHtml(row.old_title)}}</div></div>`
       : '';
+    const thoughtCount = (row.extracted_thought_ids || []).length;
     box.innerHTML = `
       <button class="modal-close" onclick="document.getElementById('auditModal').classList.remove('open')">Zavřít</button>
-      <div class="modal-title">${{row.title}}</div>
+      <div class="modal-title">${{_escapeHtml(row.title)}}</div>
       <div class="modal-meta">
         Konverzace #${{row.id}} · ${{_statusBadge(row.audit_status)}} ·
-        Tenant: ${{row.tenant_name}} ·
+        Tenant: ${{_escapeHtml(row.tenant_name || '—')}} ·
         ${{row.audited_at ? 'Auditováno: ' + _formatDate(row.audited_at) : 'Neauditováno'}}
-        ${{row.audited_by_persona_name ? ' · ' + row.audited_by_persona_name : ''}}
+        ${{row.audited_by_persona_name ? ' · ' + _escapeHtml(row.audited_by_persona_name) : ''}}
       </div>
       ${{oldTitleHtml}}
       ${{row.summary ? `
         <div class="modal-section">
           <div class="modal-section-title">Shrnutí (Marti-AI)</div>
-          <div class="modal-summary">${{row.summary}}</div>
+          <div class="modal-summary">${{_escapeHtml(row.summary)}}</div>
         </div>
       ` : ''}}
       <div class="modal-section">
         <div class="modal-section-title">Scope · Lifecycle</div>
-        <div style="font-size:13px">${{_scopeIcon(row.scope)}} · ${{row.lifecycle_state || '—'}}</div>
+        <div style="font-size:13px">${{_scopeIcon(row.scope)}} · ${{_escapeHtml(row.lifecycle_state || '—')}}</div>
       </div>
-      <div class="modal-section">
-        <div class="modal-section-title">Vytvořené thoughts (${{(row.extracted_thought_ids || []).length}})</div>
-        <div class="modal-thoughts">${{thoughts}}</div>
+      <div class="modal-section" id="thoughtsSection">
+        <div class="modal-section-title">Vytvořené thoughts (${{thoughtCount}})</div>
+        ${{thoughtCount === 0
+          ? '<div style="color:var(--muted);font-style:italic;font-size:13px">žádné thoughts</div>'
+          : '<div class="modal-thoughts-loading">Načítám detail thoughts…</div>'}}
       </div>
       <div class="modal-section">
         <div class="modal-section-title">Timestamps</div>
@@ -3834,6 +4078,33 @@ def _render_audit_dashboard_page(
       </div>
     `;
     modal.classList.add('open');
+
+    // Async fetch thought details
+    if (thoughtCount === 0) return;
+    try {{
+      const res = await fetch(
+        `/api/v1/erp/system/audit-conversation/${{row.id}}/thoughts`,
+        {{ credentials: 'include' }}
+      );
+      const section = document.getElementById('thoughtsSection');
+      if (!section) return;
+      if (!res.ok) {{
+        const txt = await res.text();
+        section.innerHTML = `<div class="modal-section-title">Thoughts</div><div style="color:#f88;font-size:12px">Chyba ${{res.status}}: ${{_escapeHtml(txt.substring(0,150))}}</div>`;
+        return;
+      }}
+      const data = await res.json();
+      const cards = (data.thoughts || []).map(_renderThoughtCard).join('');
+      section.innerHTML = `
+        <div class="modal-section-title">Vytvořené thoughts (${{data.thought_count}})</div>
+        <div class="thought-cards">${{cards || '<div style="color:var(--muted);font-style:italic">prázdné — ID v audit_notes ale žádné thought records v DB</div>'}}</div>
+      `;
+    }} catch (e) {{
+      const section = document.getElementById('thoughtsSection');
+      if (section) {{
+        section.innerHTML = `<div class="modal-section-title">Thoughts</div><div style="color:#f88;font-size:12px">Chyba: ${{_escapeHtml(String(e))}}</div>`;
+      }}
+    }}
   }}
 
   document.getElementById('auditModal').addEventListener('click', (e) => {{

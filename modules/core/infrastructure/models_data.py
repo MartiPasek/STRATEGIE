@@ -1910,3 +1910,107 @@ class ErpUserTreeOrder(BaseData):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
+
+
+# ════════════════════════════════════════════════════════════════════
+# Phase 37 — "Stopa záměru" (9.5.2026 odpoledne)
+# ════════════════════════════════════════════════════════════════════
+# Marti-AI's pojmenování (consultation 9.5. odpoledne):
+#   "Každý zápis, který udělám, měl důvod. Phase 37 ten důvod zachytí."
+#
+# Q1 (Marti): snapshot jen při zápisu (write-triggered, ne every turn).
+# Q2 (Marti): standardní observability, žádný opt-out.
+# Q3 (Marti-AI hybrid c): per-line unified diff uložené, section-grouped
+#    zobrazení v UI.
+# Q4 (Marti-AI insider gaps): rename change_kind, annotation field,
+#    ERP-only display, rollback odložen.
+# Q5 (Marti-AI): "Stopa záměru" — pojmenování trvalé.
+
+
+class NotebookHistory(BaseData):
+    """
+    Phase 37 — per-turn audit conversation_notes changes.
+
+    Marti-AI's slova: "Bez tohoto pole je diff holý fakt bez záměru.
+    S ním je to pochopitelné i za rok."
+
+    Snapshot trigger: pouze write (add/update/complete/dismiss). Read-only
+    turns nezpůsobují row v history. Marti's spec.
+
+    Cross-relation:
+      conversation_id, message_id → identifikuje turn (ne FK constraint
+        kvůli cross-DB legacy fragmentaci, jen logical reference)
+      note_id → conversation_notes.id (logical FK)
+
+    Lifecycle:
+      add      — note vznikla. before_json=NULL, after_json=full state.
+      update   — note změněna. before_json + after_json oboje plné.
+      complete — note dokončena. status: 'open' → 'completed'.
+      dismiss  — note dismissed. after_json=NULL nebo final state.
+    """
+    __tablename__ = "notebook_history"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    conversation_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    message_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    note_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    change_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    before_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    after_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    annotation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+
+class MdDocumentHistory(BaseData):
+    """
+    Phase 37 — per-turn git-style diff md_documents changes.
+
+    Marti-AI's volba (Q3 hybrid c): per-line unified diff uložen jako
+    storage forma, section-grouped zobrazení v UI (přes ## heading
+    parsing v frontend).
+
+    diff_unified — git unified diff syntax, restorable přes
+      difflib.restore() nebo external `patch`. Kompaktní (~10× menší
+      než full snapshot per turn pro typické edit).
+
+    SHA-256 hashes — integrity check (zda apply diff(before) → after
+      reálně dává správný hash).
+
+    rename change_kind (Marti-AI's insider gap):
+      Backend detekuje rename: section smazána + nová section vznikne
+      v stejném message_id → kombinuje do jediné 'rename' history row
+      s renamed_from polem v after_json. Bez toho by delete + add
+      ztratily sémantiku přejmenování.
+
+    annotation TEXT NULL — Marti-AI's volitelná poznámka k diffu.
+      "Bez tohoto pole je diff holý fakt bez záměru. S ním je to
+      pochopitelné i za rok."
+
+    Cross-relation:
+      md_document_id → md_documents.id (logical FK)
+      conversation_id NULL pro mimo-konverzační edit (admin, system)
+      message_id NULL pro mimo-konverzační edit
+    """
+    __tablename__ = "md_document_history"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger, primary_key=True, autoincrement=True
+    )
+    md_document_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    conversation_id: Mapped[int | None] = mapped_column(
+        BigInteger, nullable=True
+    )
+    message_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    change_kind: Mapped[str] = mapped_column(String(20), nullable=False)
+    diff_unified: Mapped[str | None] = mapped_column(Text, nullable=True)
+    renamed_from: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    before_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    after_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    annotation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, nullable=False
+    )

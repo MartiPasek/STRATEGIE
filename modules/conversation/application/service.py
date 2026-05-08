@@ -6346,7 +6346,10 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         )
 
     # ── Phase 36: list_unaudited_conversations ─────────────────────────
-    # Forward sweep order, 30-day cutoff (Marti's korekce 9.5.2026).
+    # Audit window: konverzace MLADŠÍ 30 dní (Marti's korekce 9.5.2026
+    # dopoledne — "starší 30 dní jsou staré a nedávají smysl, audit má
+    # smysl jen pro nedávné konverzace s aktuálními fakty").
+    # Forward sweep order (oldest first v rámci 30-day okna).
     if tool_name == "list_unaudited_conversations":
         from datetime import datetime, timezone, timedelta as _td_lua
         limit_lua = tool_input.get("limit")
@@ -6355,7 +6358,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except (TypeError, ValueError):
             limit_lua = 10
         limit_lua = max(1, min(50, limit_lua))
-        include_recent = bool(tool_input.get("include_recent", False))
+        include_old = bool(tool_input.get("include_old", False))
 
         try:
             from core.database_data import get_data_session as _gds_lua
@@ -6366,21 +6369,21 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             from sqlalchemy import func as _func_lua
             ds_lua = _gds_lua()
             try:
-                # Total pending (informativní pro UI badge)
+                # Total pending (informativní)
                 total_pending = (
                     ds_lua.query(_func_lua.count(_Conv_lua.id))
                     .filter(_Conv_lua.audit_status == "pending")
                     .scalar()
                 ) or 0
 
-                # Effective queue: pending + 30-day cutoff (pokud není
-                # include_recent override)
+                # Audit window: konverzace mladší 30 dní (default).
+                # include_old=True override (debug — auditovat i staré).
                 q_lua = ds_lua.query(_Conv_lua).filter(
                     _Conv_lua.audit_status == "pending"
                 )
-                if not include_recent:
-                    cutoff = datetime.now(timezone.utc) - _td_lua(days=30)
-                    q_lua = q_lua.filter(_Conv_lua.last_message_at < cutoff)
+                cutoff = datetime.now(timezone.utc) - _td_lua(days=30)
+                if not include_old:
+                    q_lua = q_lua.filter(_Conv_lua.last_message_at >= cutoff)
 
                 rows_lua = (
                     q_lua.order_by(_Conv_lua.last_message_at.asc())
@@ -6410,7 +6413,15 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     ds_lua.query(_func_lua.count(_Conv_lua.id))
                     .filter(
                         _Conv_lua.audit_status == "pending",
-                        _Conv_lua.last_message_at < (datetime.now(timezone.utc) - _td_lua(days=30)),
+                        _Conv_lua.last_message_at >= cutoff,
+                    )
+                    .scalar()
+                ) or 0
+                too_old = (
+                    ds_lua.query(_func_lua.count(_Conv_lua.id))
+                    .filter(
+                        _Conv_lua.audit_status == "pending",
+                        _Conv_lua.last_message_at < cutoff,
                     )
                     .scalar()
                 ) or 0
@@ -6424,8 +6435,9 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             "ok": True,
             "total_pending": int(total_pending),
             "effective_queue": int(effective_queue),
+            "too_old_pending": int(too_old),
             "shown": len(items),
-            "include_recent": include_recent,
+            "include_old": include_old,
             "conversations": items,
         }, ensure_ascii=False)
 

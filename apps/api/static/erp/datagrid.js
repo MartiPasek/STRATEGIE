@@ -1088,6 +1088,11 @@
         onGridSizeChanged: (params) => {
           // ResizeObserver-style: container width changed (window resize,
           // tree pane resize, atd.) → fit columns
+          // Phase 35-E.4 Krok C+ fix (9.5.2026 vecer Marti's report): pokud
+          // mame aplikovany ulozeny layout, sizeColumnsToFit NEPREPISE
+          // custom sirky sloupcu. Tabs switch trigger onGridSizeChanged ->
+          // bez guardu by reset persistovany state.
+          if (this._currentLayoutId) return;
           try { params.api.sizeColumnsToFit(); } catch (e) {}
         },
         onRowClicked: (event) => {
@@ -1281,9 +1286,25 @@
      * Auto-load při init — pokud existuje effective_default, aplikuje + refresh toolbar.
      */
     async _autoLoadDefault() {
+      const key = this.options.layoutKey;
       const result = await this.listLayouts();
       if (result && result.effective_default) {
-        this._applyLayout(result.effective_default);
+        const lid = result.effective_default.id;
+        const lname = result.effective_default.name;
+        const applied = this._applyLayout(result.effective_default);
+        console.info(
+          "[ErpDataGrid] autoLoadDefault " + key + " → applied layout #" +
+          lid + " '" + lname + "' (success=" + applied + ")"
+        );
+      } else {
+        console.info(
+          "[ErpDataGrid] autoLoadDefault " + key +
+          " → no effective_default (shared=" +
+          ((result && result.shared) ? result.shared.length : 0) +
+          ", personal=" +
+          ((result && result.personal) ? result.personal.length : 0) +
+          "). Tip: Save As → ⭐ Označit jako výchozí."
+        );
       }
       // B+5.3: po fetch list vždy refresh toolbar dropdown (i pokud žádný default)
       await this._refreshToolbar();
@@ -1951,7 +1972,7 @@
           '</div>' +
           '<div class="erp-modal-field">' +
             '<div class="erp-checkbox-group">' +
-              '<label><input type="checkbox" id="erp-save-default"> ' +
+              '<label><input type="checkbox" id="erp-save-default" checked> ' +
                 '⭐ Označit jako výchozí <span class="erp-field-hint" style="display:inline; margin:0 0 0 4px;">— auto-load při otevření přehledu</span></label>' +
             '</div>' +
           '</div>',

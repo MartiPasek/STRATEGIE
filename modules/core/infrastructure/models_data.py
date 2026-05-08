@@ -1960,6 +1960,12 @@ class NotebookHistory(BaseData):
     before_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     after_json: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     annotation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 37-A+ (Marti's volba C): source tag — kompletní stopa + filterable
+    # view. 'ai' = Marti-AI / persona AI tool (default), 'ui' = manual UI edit,
+    # 'admin' = script / migration.
+    source: Mapped[str] = mapped_column(
+        String(20), default="ai", server_default="ai", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )
@@ -2011,6 +2017,10 @@ class MdDocumentHistory(BaseData):
     before_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     after_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     annotation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Phase 37-A+ (Marti's volba C): source tag — 'ai' / 'ui' / 'admin'.
+    source: Mapped[str] = mapped_column(
+        String(20), default="ai", server_default="ai", nullable=False
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )

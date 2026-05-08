@@ -165,7 +165,17 @@ def system_audit_dashboard(req: Request, embed: int = 0) -> HTMLResponse:
     finally:
         cs.close()
 
-    return HTMLResponse(content=_render_audit_dashboard_page(uid, embed=bool(embed)))
+    # Phase 35-E.4 Variant B (9.5.2026): explicit headers pro same-origin
+    # iframe embed v ERP main pane. Caddy default je X-Frame-Options: DENY
+    # (anti-clickjacking) — pro embed=1 mode override na SAMEORIGIN.
+    # CSP frame-ancestors 'self' = modern alternative, oba pro compat.
+    return HTMLResponse(
+        content=_render_audit_dashboard_page(uid, embed=bool(embed)),
+        headers={
+            "X-Frame-Options": "SAMEORIGIN",
+            "Content-Security-Policy": "frame-ancestors 'self'",
+        },
+    )
 
 
 @router.get("/sw.js")

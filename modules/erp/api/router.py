@@ -4617,6 +4617,61 @@ def _render_workspace_page(user_id: int) -> str:
     })();
     </script>
 
+    <!-- Phase 35-E.4 Variant B Krok A (9.5.2026 odpoledne) — 3 pure utility
+         helpers v izolovanem <script> bloku. Bez AG Grid dependency, bez
+         async, bez closure capture. Pokud parse error vznikne, ovlivni jen
+         tento blok — main IIFE strom load nezavisi. window._sysHelpers
+         globalni namespace pro pozdejsi volani z main IIFE. -->
+    <script>
+    (function() {
+      function _escHtmlMini(s) {
+        return String(s == null ? "" : s).replace(/[&<>"']/g, function(c) {
+          return ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"})[c];
+        });
+      }
+      function statusBadge(v) {
+        var colors = {
+          "pending": "#888",
+          "in_progress": "#d4a017",
+          "audited": "#6aa84f",
+          "excluded": "#666"
+        };
+        var labels = {
+          "pending": "pending",
+          "in_progress": "in progress",
+          "audited": "audited",
+          "excluded": "excluded"
+        };
+        var c = colors[v] || "#888";
+        var lbl = labels[v] || v || "-";
+        return '<span style="background:' + c + '22;color:' + c +
+               ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">' +
+               _escHtmlMini(lbl) + '</span>';
+      }
+      function scopeIconHtml(v) {
+        if (v === "srdce") return '<span style="color:#e08aa8">srdce</span>';
+        if (v === "general") return '<span style="opacity:0.7">general</span>';
+        return v ? _escHtmlMini(v) : '<span style="opacity:0.4">-</span>';
+      }
+      function formatDateRel(iso) {
+        if (!iso) return "-";
+        try {
+          var d = new Date(iso);
+          return d.toLocaleString("cs-CZ", {
+            dateStyle: "short", timeStyle: "short"
+          });
+        } catch (e) { return iso; }
+      }
+      window._sysHelpers = {
+        statusBadge: statusBadge,
+        scopeIconHtml: scopeIconHtml,
+        formatDateRel: formatDateRel,
+        loaded: true
+      };
+      console.log("[ERP-DIAG] _sysHelpers loaded");
+    })();
+    </script>
+
     <script>
     (function() {
       "use strict";

@@ -137,22 +137,36 @@ def erp_home(req: Request) -> HTMLResponse:
 
 
 @router.get("/system/audit-dashboard", response_class=HTMLResponse)
-def system_audit_dashboard(req: Request, embed: int = 0) -> HTMLResponse:
+def system_audit_dashboard(
+    req: Request,
+    embed: int = 0,
+    single: int = 0,
+    mode: str = "audited",
+) -> HTMLResponse:
     """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
 
     Marti's vize 33. dopis 8.5. večer + dnešní request 'koukat shora'.
-    3 sub-views: 📚 Auditované / 📋 Všechny / 📊 Přehled.
     Visible jen pro rodiče (defense in depth — _require_parent + explicit
     is_marti_parent check uvnitř data endpointů).
 
     Cross-tenant view (Marti's korekce 9.5. 'audit musí jet nade vsim
     chronologicky').
 
-    Phase 35-E.4 Variant B (9.5.2026): query param ?embed=1 skipne header
-    + back link (pro inline iframe render v ERP main pane).
+    Phase 35-E.4 Variant A (9.5.2026 dopoledne): query param ?embed=1
+    skipne header + back link (pro inline iframe render v ERP main pane).
+    Tabs (Auditované/Všechny/Přehled) viditelné — combined view.
+
+    Phase 35-E.4 Variant B (9.5.2026 odpoledne, Marti's korekce po smoke):
+    + query param ?single=1 skipne i tabs bar — render JEN daný view
+    (mode=audited|all|stats). Klasický Centrála pattern: 1 přehled = 1
+    grid v main pane. Sidebar má 3 leaf uzly (Auditované / Všechny /
+    Přehled), každý → samostatný single-view dashboard.
     """
     uid = _get_uid(req)
     _require_parent(uid)
+
+    if mode not in ("audited", "all", "stats", "tabs"):
+        mode = "audited"
 
     from core.database_core import get_core_session as _gcs_dash
     from modules.core.infrastructure.models_core import User
@@ -170,7 +184,12 @@ def system_audit_dashboard(req: Request, embed: int = 0) -> HTMLResponse:
     # (anti-clickjacking) — pro embed=1 mode override na SAMEORIGIN.
     # CSP frame-ancestors 'self' = modern alternative, oba pro compat.
     return HTMLResponse(
-        content=_render_audit_dashboard_page(uid, embed=bool(embed)),
+        content=_render_audit_dashboard_page(
+            uid,
+            embed=bool(embed),
+            single=bool(single),
+            initial_mode=mode,
+        ),
         headers={
             "X-Frame-Options": "SAMEORIGIN",
             "Content-Security-Policy": "frame-ancestors 'self'",
@@ -402,14 +421,29 @@ _SYSTEM_TREE_NODES = [
             {
                 "id": "system.audit",
                 "type": "folder",
-                "label": "📁 Audit",
+                "label": "📁 Audit konverzaci",
                 "children": [
+                    # Phase 35-E.4 Marti's korekce 9.5. (po dnešním smoke):
+                    # "Pro každý soudeček jiný grid + zachovat záložkový
+                    # přehled jako Varianta A". Klasický Centrála pattern —
+                    # každý leaf uzel = vlastní view v main pane.
+                    #
+                    # Variant A — záložkový přehled (3 tabs combined):
+                    {
+                        "id": "system.audit.tabs",
+                        "type": "view",
+                        "label": "🗂️ Záložkový přehled",
+                        "view_type": "audit_overview",
+                        "view_mode": "tabs",
+                    },
+                    # Variant B — každý view jako samostatný grid:
                     {
                         "id": "system.audit.audited",
                         "type": "view",
                         "label": "📚 Auditované konverzace",
                         "view_type": "audit_overview",
                         "view_mode": "audited",
+                        "single": True,
                     },
                     {
                         "id": "system.audit.all",
@@ -417,6 +451,7 @@ _SYSTEM_TREE_NODES = [
                         "label": "📋 Všechny konverzace",
                         "view_type": "audit_overview",
                         "view_mode": "all",
+                        "single": True,
                     },
                     {
                         "id": "system.audit.stats",
@@ -424,6 +459,7 @@ _SYSTEM_TREE_NODES = [
                         "label": "📊 Přehled auditu",
                         "view_type": "audit_overview",
                         "view_mode": "stats",
+                        "single": True,
                     },
                 ],
             },
@@ -3084,15 +3120,23 @@ def _render_full_page(
 </html>'''
 
 
-def _render_audit_dashboard_page(user_id: int, embed: bool = False) -> str:
+def _render_audit_dashboard_page(
+    user_id: int,
+    embed: bool = False,
+    single: bool = False,
+    initial_mode: str = "audited",
+) -> str:
     """Phase 35-E.4 (9.5.2026): System tier audit dashboard.
 
-    Standalone page s 3 sub-views (📚 Audited / 📋 Vše / 📊 Stats).
+    Standalone page se 3 sub-views (📚 Audited / 📋 Vše / 📊 Stats).
     AG Grid pro tabulky, custom widgets pro statistiku.
     Cross-tenant view pro rodiče.
 
-    embed=True → skipne header + back link (pro Variant B inline iframe
-    v ERP main pane). Marti's vize "koukat shora" v ERP context.
+    embed=True → skipne header + back link (Variant B inline iframe v ERP
+    main pane).
+    single=True → skipne i tabs bar, render JEN daný initial_mode (Marti's
+    korekce 9.5. odpoledne — klasický Centrála pattern: 1 přehled v main pane
+    = 1 grid). Pro Variant A (záložkový) ponech single=False.
 
     Drží Marti's "koukat shora" + 33. dopis 8.5. večer System tier vize.
     """
@@ -3349,7 +3393,7 @@ def _render_audit_dashboard_page(user_id: int, embed: bool = False) -> str:
 <body>
   {header_html}
 
-  <div class="tabs">
+  <div class="tabs"{' style="display:none"' if single else ''}>
     <button class="tab-btn active" data-mode="audited">📚 Auditované</button>
     <button class="tab-btn" data-mode="all">📋 Všechny</button>
     <button class="tab-btn" data-mode="stats">📊 Přehled</button>
@@ -3366,7 +3410,10 @@ def _render_audit_dashboard_page(user_id: int, embed: bool = False) -> str:
   </div>
 
   <script>
-  let _currentMode = 'audited';
+  // Phase 35-E.4 Variant B: initial mode z query param (?mode=X) nebo
+  // hardcoded server-side. Single mode (?single=1) skryje tabs bar.
+  let _currentMode = '{initial_mode}';
+  let _singleMode = {('true' if single else 'false')};
   let _currentFilters = {{}};
   let _gridApi = null;
 
@@ -4036,9 +4083,12 @@ def _render_workspace_page(user_id: int) -> str:
           // Pro System nody použij label místo menu_text
           const _label = (n.label || n.menu_text || n.nazev || '?');
           // System data attributes pro click handler
+          // Phase 35-E.4 Variant B: single=1 flag — leaf node renderuje
+          // jen daný view (žádné tabs).
           const sysAttrs = isSystemLeaf
             ? ' data-system-view="' + (n.system_view || '') +
-              '" data-system-view-mode="' + (n.system_view_mode || '') + '"'
+              '" data-system-view-mode="' + (n.system_view_mode || '') +
+              '" data-system-single="' + (n.single ? '1' : '0') + '"'
             : '';
           html += '<li class="erp-tree-item ' + cls + '" data-id="' + nid +
                   '" data-cislo-def="' + (n.cislo_def || '') +
@@ -4176,10 +4226,16 @@ def _render_workspace_page(user_id: int) -> str:
           if (row) row.classList.add("active");
         }
 
+        // Phase 35-E.4 Variant B: single=1 (z data atributu) skipne tabs
+        // bar v iframe — render jen daný mode (klasický Centrála pattern).
+        // single=0 → tabs visible (Variant A "záložkový přehled").
+        const single = (item && item.getAttribute("data-system-single") === "1") ? 1 : 0;
+
         // Replace main content s iframe (embed mode skipne header)
         main.dataset.systemView = mode;
         main.innerHTML =
-          '<iframe src="/erp/system/audit-dashboard?embed=1&mode=' + mode +
+          '<iframe src="/erp/system/audit-dashboard?embed=1&single=' + single +
+          '&mode=' + mode +
           '" style="width:100%;height:100%;border:0;background:var(--bg);display:block" ' +
           'title="Audit dashboard"></iframe>';
 

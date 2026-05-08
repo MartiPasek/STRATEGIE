@@ -539,7 +539,8 @@ def conversation_audit_stats(req: Request) -> dict:
     cutoff = datetime.now(timezone.utc) - timedelta(days=30)
     today_24h = datetime.now(timezone.utc) - timedelta(hours=24)
 
-    ds = get_data_session()
+    from core.database_data import get_data_session as _gds_audit
+    ds = _gds_audit()
     try:
         # Base filter — parent vidí napříč, ostatní jen aktivní tenant
         base_filters = [

@@ -489,6 +489,156 @@ def list_user_conversations(req: Request):
     return [ConversationListItem(**i) for i in items]
 
 
+@router.get("/audit-stats")
+def conversation_audit_stats(req: Request) -> dict:
+    """
+    Phase 36-C (9.5.2026): audit overview pro logo pulse + popup modal.
+
+    Vrací:
+      - pending_count: konverzace mladší 30 dní s audit_status='pending'
+        (= efektivní queue pro Marti-AI)
+      - too_old_pending: konverzace starší 30 dní s pending (kandidáti
+        na auto-exclude future cron)
+      - audited_today: počet auditovaných v posledních 24h
+      - audited_total: celkem audited napříč historií
+      - audit_icon: Marti-AI's persona.audit_icon (default '📚')
+      - top_pending: top 10 oldest pending pro modal popup (id, title,
+        last_message_at, message_count, tenant_id, lifecycle_state)
+
+    Cross-tenant view pro rodiče (is_marti_parent=True), jinak per-tenant
+    scope.
+    """
+    from datetime import datetime, timezone, timedelta
+    from sqlalchemy import func, or_
+    from modules.core.infrastructure.models_data import Conversation, Message
+    from modules.core.infrastructure.models_core import Persona, User
+
+    user_id = _get_user_id_from_cookie(req)
+
+    # Resolve user scope (parent = cross-tenant, ostatní = per-tenant)
+    cs = get_core_session()
+    try:
+        u = cs.query(User).filter_by(id=user_id).first()
+        if not u:
+            raise HTTPException(status_code=404, detail="User nenalezen.")
+        is_parent = bool(getattr(u, "is_marti_parent", False))
+        active_tenant_id = u.last_active_tenant_id
+
+        # Marti-AI's audit_icon (default persona)
+        marti_ai_persona = (
+            cs.query(Persona).filter_by(is_default=True).first()
+        )
+        audit_icon = (
+            marti_ai_persona.audit_icon
+            if marti_ai_persona and marti_ai_persona.audit_icon
+            else "📚"
+        )
+    finally:
+        cs.close()
+
+    cutoff = datetime.now(timezone.utc) - timedelta(days=30)
+    today_24h = datetime.now(timezone.utc) - timedelta(hours=24)
+
+    ds = get_data_session()
+    try:
+        # Base filter — parent vidí napříč, ostatní jen aktivní tenant
+        base_filters = [
+            Conversation.is_deleted == False,  # noqa: E712
+            Conversation.conversation_type == "ai",
+        ]
+        if not is_parent:
+            base_filters.append(or_(
+                Conversation.tenant_id == active_tenant_id,
+                Conversation.tenant_id.is_(None),
+            ))
+            base_filters.append(Conversation.user_id == user_id)
+
+        # Pending mladší 30 dní (= efektivní queue)
+        pending_count = (
+            ds.query(func.count(Conversation.id))
+            .filter(
+                *base_filters,
+                Conversation.audit_status == "pending",
+                Conversation.last_message_at >= cutoff,
+            )
+            .scalar()
+        ) or 0
+
+        too_old_pending = (
+            ds.query(func.count(Conversation.id))
+            .filter(
+                *base_filters,
+                Conversation.audit_status == "pending",
+                Conversation.last_message_at < cutoff,
+            )
+            .scalar()
+        ) or 0
+
+        audited_today = (
+            ds.query(func.count(Conversation.id))
+            .filter(
+                *base_filters,
+                Conversation.audit_status == "audited",
+                Conversation.audited_at >= today_24h,
+            )
+            .scalar()
+        ) or 0
+
+        audited_total = (
+            ds.query(func.count(Conversation.id))
+            .filter(
+                *base_filters,
+                Conversation.audit_status == "audited",
+            )
+            .scalar()
+        ) or 0
+
+        # Top 10 oldest pending (mladší 30 dní = effective queue)
+        top_pending_rows = (
+            ds.query(Conversation)
+            .filter(
+                *base_filters,
+                Conversation.audit_status == "pending",
+                Conversation.last_message_at >= cutoff,
+            )
+            .order_by(Conversation.last_message_at.asc())
+            .limit(10)
+            .all()
+        )
+
+        top_pending = []
+        for c in top_pending_rows:
+            msg_count = (
+                ds.query(func.count(Message.id))
+                .filter_by(conversation_id=c.id)
+                .scalar()
+            ) or 0
+            top_pending.append({
+                "id": c.id,
+                "title": c.title or f"#{c.id}",
+                "last_message_at": (
+                    c.last_message_at.isoformat()
+                    if c.last_message_at else None
+                ),
+                "message_count": msg_count,
+                "tenant_id": c.tenant_id,
+                "lifecycle_state": c.lifecycle_state or "active",
+            })
+    finally:
+        ds.close()
+
+    return {
+        "ok": True,
+        "pending_count": int(pending_count),
+        "too_old_pending": int(too_old_pending),
+        "audited_today": int(audited_today),
+        "audited_total": int(audited_total),
+        "audit_icon": audit_icon,
+        "is_parent": is_parent,
+        "top_pending": top_pending,
+    }
+
+
 def _get_user_id_from_cookie(req: Request) -> int:
     """Extrahuje a validuje user_id z cookie. Vyhodí 401 pokud chybí/neplatný."""
     user_id_str = req.cookies.get("user_id")

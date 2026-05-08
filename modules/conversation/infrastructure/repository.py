@@ -656,6 +656,8 @@ def list_conversations(user_id: int, tenant_id: int | None = None, limit: int = 
                 "last_message_at": c.last_message_at.isoformat() if c.last_message_at else None,
                 "message_count": msg_count,
                 "shares_count": shares_count,
+                # Phase 36-C (9.5.2026): audit_status pro sidebar 📚 ikonu
+                "audit_status": c.audit_status,
             })
         return out
     finally:

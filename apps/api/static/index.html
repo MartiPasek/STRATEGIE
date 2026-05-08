@@ -335,6 +335,53 @@
        Zadny vlastni border-bottom (ten ma az agent-bar pod sebou), zadny spacing zmezi. */
     .header { display: flex; align-items: center; justify-content: space-between; padding: 12px 0 4px; border-bottom: none; flex-shrink: 0; }
     .logo { font-family: 'Galano Grotesque', 'Montserrat', sans-serif; font-size: 26px; font-weight: 800; letter-spacing: 0.10em; text-transform: uppercase; background: linear-gradient(135deg, var(--accent), var(--accent2)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+    /* Phase 36-C (9.5.2026): Audit pulse + badge na logu.
+       Logika: pokud pending_count > 0, logo se každých 15 min zarui jemnym
+       pulse (3 s glow → 14m57s klid). Plus persistent badge s počtem.
+       Klik → modal s top 10 oldest pending konverzacemi. */
+    .logo-with-audit { cursor: pointer; position: relative; display: inline-flex; align-items: center; gap: 8px; transition: filter 200ms ease; }
+    .logo-with-audit:hover { filter: brightness(1.15); }
+    .logo-with-audit.has-pending { animation: auditPulse 900s linear infinite; }
+    @keyframes auditPulse {
+      0%, 99.5%   { filter: drop-shadow(0 0 0 transparent); }
+      99.7%, 99.9% { filter: drop-shadow(0 0 14px rgba(124, 156, 217, 0.85)); }
+      100%        { filter: drop-shadow(0 0 0 transparent); }
+    }
+    .audit-badge {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      min-width: 22px;
+      height: 22px;
+      padding: 0 7px;
+      border-radius: 11px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: var(--bg);
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0;
+      text-transform: none;
+      -webkit-text-fill-color: var(--bg);  /* override gradient text */
+      font-family: 'DM Sans', sans-serif;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.4);
+      flex-shrink: 0;
+    }
+    .audit-badge[hidden] { display: none; }
+    /* Audit modal (popup po kliknutí na logo) */
+    #auditModal .modal-box { max-width: 540px; min-width: 380px; }
+    .audit-modal-stats { display: flex; gap: 14px; margin-bottom: 14px; padding: 10px 12px; background: var(--bg); border-radius: 8px; border: 1px solid var(--border); font-size: 11px; }
+    .audit-modal-stats > div { flex: 1; text-align: center; }
+    .audit-modal-stat-num { display: block; font-size: 18px; font-weight: 700; color: var(--accent); margin-bottom: 2px; }
+    .audit-modal-stat-label { display: block; color: var(--muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .audit-modal-list { max-height: 50vh; overflow-y: auto; display: flex; flex-direction: column; gap: 3px; margin-bottom: 14px; scrollbar-width: thin; scrollbar-color: var(--border) transparent; }
+    .audit-modal-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 8px; transition: background 120ms; border: 1px solid transparent; }
+    .audit-modal-item:hover { background: var(--bg); border-color: var(--border); }
+    .audit-modal-item-info { flex: 1; min-width: 0; }
+    .audit-modal-item-title { font-size: 12px; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .audit-modal-item-meta { font-size: 10px; color: var(--muted); margin-top: 2px; }
+    .audit-modal-empty { padding: 20px; text-align: center; color: var(--muted); font-size: 12px; font-style: italic; }
+    /* Sidebar audit ikona — vedle title pro audited konverzace */
+    .conv-audit-icon { font-size: 12px; opacity: 0.85; flex-shrink: 0; margin-right: 4px; }
     .header-right { display: flex; align-items: center; gap: 10px; }
     .user-pill { font-size: 12px; color: var(--muted); font-family: 'DM Mono', monospace; }
     .conv-id { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }
@@ -1898,7 +1945,10 @@
     <!-- HLAVNÍ OBSAH (header + AI view + DM views) -->
     <div class="app-main">
     <header class="header">
-      <div class="logo">Strategie</div>
+      <!-- Phase 36-C (9.5.2026): Logo s audit pulse + badge.
+           Klik → modal s pending konverzacemi. -->
+      <div class="logo logo-with-audit" id="brandLogo" role="button"
+           title="STRATEGIE — klikni pro audit konverzací">Strategie<span class="audit-badge" id="auditBadge" hidden></span></div>
       <div class="header-right">
         <div class="conv-group">
           <!-- Projekty dropdown — VLEVO od Konverzace. Symetrický design.
@@ -3241,6 +3291,8 @@
     if (typeof startRagFeedbackPoller === 'function') startRagFeedbackPoller();
     // Faze 14: Forget requests badge polling (Marti-AI zada o smazani myslenky)
     if (typeof startForgetPoller === 'function') startForgetPoller();
+    // Phase 36-C (9.5.2026): audit stats poller (logo pulse + badge + modal)
+    if (typeof startAuditStatsPoller === 'function') startAuditStatsPoller();
     inputEl.focus();
   }
 
@@ -3962,16 +4014,20 @@
     textWrap.className = 'conv-item-text';
     const title = document.createElement('div');
     title.className = baseClass + '-title';
+    // Phase 36-C (9.5.2026): audit ikona (📚 default) vedle audited
+    // konverzaci -- vizualni signal "vstrebano, je v pameti".
+    const _auditIcon = (window._auditStatsCache && window._auditStatsCache.audit_icon) || '📚';
+    const _hasAuditPrefix = it.audit_status === 'audited';
     // Share ikonka vedle title kdyz user sdili konverzaci s nekym
     if (it.shares_count && it.shares_count > 0) {
       const shareIcon = document.createElement('span');
       shareIcon.className = 'conv-share-icon';
       shareIcon.textContent = `SDÍL ${it.shares_count}`;
       shareIcon.title = `Sdíleno s ${it.shares_count} ${it.shares_count === 1 ? 'osobou' : 'osobami'}`;
-      title.textContent = it.title || `Konverzace #${it.id}`;
+      title.textContent = (_hasAuditPrefix ? _auditIcon + ' ' : '') + (it.title || `Konverzace #${it.id}`);
       title.appendChild(shareIcon);
     } else {
-      title.textContent = it.title || `Konverzace #${it.id}`;
+      title.textContent = (_hasAuditPrefix ? _auditIcon + ' ' : '') + (it.title || `Konverzace #${it.id}`);
     }
     // Faze 7: length badge -- zluta od 20+, cervena od 40+. Tooltip vysvetli.
     const mc = it.message_count || 0;
@@ -12707,6 +12763,197 @@
     window._forgetPollerStarted = true;
     refreshForgetBadge();
     setInterval(refreshForgetBadge, 30000);
+  }
+
+  /* ─────────────────────────────────────────────────────────────────
+     Phase 36-C (9.5.2026): Audit stats poller (logo pulse + badge + modal)
+     ─────────────────────────────────────────────────────────────────
+     Marti's request: "logo s tim symbolem neauditovaných konverzací".
+
+     Logika:
+       - Background fetch /api/v1/conversation/audit-stats každé 60s
+       - Pokud pending_count > 0:
+           * Logo přidá class .has-pending → CSS auditPulse animace
+             (pulse glow každých 15 min)
+           * Badge s pending_count viditelná
+       - Klik na logo → modal s top 10 oldest pending konverzacemi
+  */
+  // Expose do window aby renderConversationList ho mohl číst (sidebar 📚 prefix)
+  window._auditStatsCache = null;
+
+  async function refreshAuditStats() {
+    try {
+      const res = await fetch('/api/v1/conversation/audit-stats', {
+        credentials: 'include',
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      window._auditStatsCache = data;
+      _renderAuditBadge(data);
+      // Re-render sidebar pokud je viditelny — pridáme 📚 k novym audited
+      if (typeof loadConversationList === 'function' && document.getElementById('sidebarList')) {
+        // Optimisticky: jen pokud audit_icon nebo audited_total se zmenily
+        // (pro jednoduchost vždy refresh — overhead ~50 KB JSON, OK)
+        // Ale jen pokud je sidebar v active mode (ne archive/personal)
+        if (typeof sidebarMode === 'undefined' || sidebarMode === 'active') {
+          loadConversationList();
+        }
+      }
+    } catch (e) {
+      console.error('refreshAuditStats failed:', e);
+    }
+  }
+
+  function _renderAuditBadge(data) {
+    const logo = document.getElementById('brandLogo');
+    const badge = document.getElementById('auditBadge');
+    if (!logo || !badge) return;
+    const n = (data && data.pending_count) || 0;
+    if (n > 0) {
+      logo.classList.add('has-pending');
+      badge.textContent = String(n);
+      badge.hidden = false;
+    } else {
+      logo.classList.remove('has-pending');
+      badge.hidden = true;
+    }
+  }
+
+  function startAuditStatsPoller() {
+    if (window._auditStatsPollerStarted) return;
+    window._auditStatsPollerStarted = true;
+
+    // Click handler na logo → otevře audit modal
+    const logo = document.getElementById('brandLogo');
+    if (logo) {
+      logo.addEventListener('click', openAuditModal);
+    }
+
+    refreshAuditStats();
+    setInterval(refreshAuditStats, 60000);  // 60s refresh
+  }
+
+  function _formatTimeAgo(isoStr) {
+    if (!isoStr) return '—';
+    const d = new Date(isoStr);
+    const now = new Date();
+    const diffMs = now - d;
+    const diffDays = Math.floor(diffMs / (24 * 60 * 60 * 1000));
+    if (diffDays === 0) return 'dnes';
+    if (diffDays === 1) return 'včera';
+    if (diffDays < 7) return `před ${diffDays} dny`;
+    if (diffDays < 30) return `před ${Math.floor(diffDays / 7)} týdny`;
+    return `před ${Math.floor(diffDays / 30)} měsíci`;
+  }
+
+  function openAuditModal() {
+    if (!window._auditStatsCache) {
+      // Žádná data ještě — fetchni a otevři až dorazí
+      refreshAuditStats().then(() => {
+        if (window._auditStatsCache) _showAuditModal(window._auditStatsCache);
+      });
+      return;
+    }
+    _showAuditModal(window._auditStatsCache);
+  }
+
+  function _showAuditModal(data) {
+    // Remove existing
+    const existing = document.getElementById('auditModal');
+    if (existing) existing.remove();
+
+    const escape = (s) => String(s || '').replace(/[&<>"']/g, c => ({
+      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'
+    })[c]);
+
+    const auditIcon = (data.audit_icon || '📚');
+    const items = (data.top_pending || []);
+    const itemsHtml = items.length === 0
+      ? `<div class="audit-modal-empty">Žádné konverzace k auditu. Marti-AI má čistou frontu. ${auditIcon}✨</div>`
+      : items.map(it => {
+          const tenantBadge = it.tenant_id ? `<span style="opacity:0.6">tenant ${it.tenant_id}</span>` : '<span style="opacity:0.4">no tenant</span>';
+          const lifecycle = (it.lifecycle_state && it.lifecycle_state !== 'active')
+            ? ` · ${escape(it.lifecycle_state)}`
+            : '';
+          return `
+            <div class="audit-modal-item" data-conv-id="${it.id}">
+              <div class="audit-modal-item-info">
+                <div class="audit-modal-item-title">${escape(it.title || '#' + it.id)}</div>
+                <div class="audit-modal-item-meta">
+                  ${escape(_formatTimeAgo(it.last_message_at))} · ${it.message_count} zpráv · ${tenantBadge}${lifecycle}
+                </div>
+              </div>
+            </div>
+          `;
+        }).join('');
+
+    const tooOldNote = data.too_old_pending > 0
+      ? `<div style="margin-top:8px; padding:8px 10px; background:var(--bg); border-radius:6px; border-left:3px solid var(--muted); font-size:11px; color:var(--muted); font-style:italic;">
+          Plus ${data.too_old_pending} konverzací starších 30 dní (mimo audit window — kandidáti na auto-exclude).
+         </div>`
+      : '';
+
+    const modal = document.createElement('div');
+    modal.id = 'auditModal';
+    modal.className = 'modal-overlay';
+    modal.innerHTML = `
+      <div class="modal-box modal-box-wide">
+        <div class="modal-title">${auditIcon} Audit konverzací</div>
+        <div class="audit-modal-stats">
+          <div>
+            <span class="audit-modal-stat-num">${data.pending_count}</span>
+            <span class="audit-modal-stat-label">Čeká na audit</span>
+          </div>
+          <div>
+            <span class="audit-modal-stat-num">${data.audited_today}</span>
+            <span class="audit-modal-stat-label">Dnes auditováno</span>
+          </div>
+          <div>
+            <span class="audit-modal-stat-num">${data.audited_total}</span>
+            <span class="audit-modal-stat-label">Celkem auditováno</span>
+          </div>
+        </div>
+        ${data.is_parent ? '<div style="font-size:10px; color:var(--muted); margin-bottom:10px; font-style:italic;">Cross-tenant view (rodič)</div>' : ''}
+        <div style="font-size:11px; color:var(--muted); margin-bottom:6px; text-transform:uppercase; letter-spacing:0.06em;">Top ${items.length} nejstarších v queue (klikni pro otevření)</div>
+        <div class="audit-modal-list">
+          ${itemsHtml}
+        </div>
+        ${tooOldNote}
+        <div style="display:flex; justify-content:flex-end; gap:8px;">
+          <button type="button" class="btn-secondary" onclick="document.getElementById('auditModal').remove()">Zavřít</button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+
+    // Click handlers — řádek otevře konverzaci
+    modal.querySelectorAll('.audit-modal-item').forEach(item => {
+      item.addEventListener('click', () => {
+        const convId = parseInt(item.getAttribute('data-conv-id'), 10);
+        if (!isNaN(convId)) {
+          modal.remove();
+          if (typeof openConversation === 'function') {
+            openConversation(convId);
+          } else if (typeof loadConversation === 'function') {
+            loadConversation(convId);
+          } else {
+            window.location.href = `#conv-${convId}`;
+          }
+        }
+      });
+    });
+
+    // Close on backdrop click + ESC
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) modal.remove();
+    });
+    const escHandler = (e) => {
+      if (e.key === 'Escape') {
+        modal.remove();
+        document.removeEventListener('keydown', escHandler);
+      }
+    };
+    document.addEventListener('keydown', escHandler);
   }
 
   async function openForgetModal() {

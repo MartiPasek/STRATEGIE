@@ -184,6 +184,9 @@ class ConversationListItem(BaseModel):
     # Phase 19c-e2 (29.4.2026): dovetky tree -- parent_conversation_id
     # pro UI render. NULL = kořen, NON-NULL = dovetek pod parentem.
     parent_conversation_id: int | None = None
+    # Phase 36-C (9.5.2026): audit_status pro sidebar 📚 ikonu vedle
+    # auditovanych konverzaci. 'pending' / 'in_progress' / 'audited' / 'excluded'.
+    audit_status: str | None = None
 
 
 class ShareInfo(BaseModel):

@@ -1291,7 +1291,16 @@
         try {
           const currentDefs = this.gridApi.getColumnDefs ? this.gridApi.getColumnDefs() : null;
           if (Array.isArray(currentDefs) && currentDefs.length > 0) {
-            const newDefs = currentDefs.map(d => Object.assign({}, d, { flex: 1 }));
+            // Phase 35-E.4 Krok C+ fix7 (9.5.2026 vecer): Marti's tip
+            // "Flex je autosize". Pixel-perfect persistence vyzaduje
+            // ZLOMIT AG Grid auto-distribute na columnDef level:
+            //   - flex: 0 (no proportional)
+            //   - suppressSizeToFit: true (sizeColumnsToFit ho preskoci)
+            // Per-column saved width z DB pak drzi permanentne.
+            const newDefs = currentDefs.map(d => Object.assign({}, d, {
+              flex: 0,
+              suppressSizeToFit: true,
+            }));
             if (typeof this.gridApi.setGridOption === "function") {
               this.gridApi.setGridOption("columnDefs", newDefs);
             } else if (typeof this.gridApi.updateGridOptions === "function") {
@@ -1301,12 +1310,12 @@
             }
           }
         } catch (e) {
-          console.warn("[ErpDataGrid] columnDefs flex set failed:", e);
+          console.warn("[ErpDataGrid] columnDefs flex/suppressSizeToFit failed:", e);
         }
         this.gridApi.applyColumnState({
           state: cols,
           applyOrder: true,
-          defaultState: { flex: 1 },
+          defaultState: { flex: 0 },
         });
         // Defensive setColumnWidths po applyColumnState pro pixel-perfect.
         try {
@@ -1538,12 +1547,14 @@
               if (w != null && w > 0) actualWidth = w;
             }
           } catch (e) {}
-          // Phase 35-E.4 Krok C+ fix6 (9.5.2026 vecer): Marti's experiment
-          // "stejnej efekt zkus jeste flex 1". flex:1 (vs 0/null) — vyzkousime
-          // jestli to zmeni AG Grid behavior pri restore.
+          // Phase 35-E.4 Krok C+ fix7 (9.5.2026 vecer): Marti's tip
+          // "Flex je autosize". Pixel-perfect persistence vyzaduje
+          // ZLOMIT AG Grid auto-distribute. flex:0 + columnDef
+          // suppressSizeToFit:true (v _applyLayout) zabranuje
+          // sizeColumnsToFit i flex behavior.
           return Object.assign({}, c, {
             width: actualWidth,
-            flex: 1,
+            flex: 0,
           });
         });
       }

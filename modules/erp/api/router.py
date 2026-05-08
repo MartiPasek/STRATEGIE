@@ -4742,16 +4742,20 @@ def _render_workspace_page(user_id: int) -> str:
     })();
     </script>
 
-    <!-- Phase 35-E.4 Variant B Krok C (9.5.2026 odpoledne) — renderSystemGrid
-         async fetch + AG Grid create v izolovanem <script>. Volani z main IIFE
-         pres window._sysHelpers.renderSystemGrid(mode, item).
-         Krok D pak prepne _renderSystemViewInline na volani teto funkce
-         pro non-tabs mode. -->
+    <!-- Phase 35-E.4 Variant B Krok C+ (9.5.2026 odpoledne) — renderSystemGrid
+         pouziva univerzalni ErpDataGrid komponentu (datagrid.js) misto primeho
+         agGrid.createGrid. Marti's spec "jedna komponenta gridu napric STRATEGII".
+         Ziska automaticky: dark theme, ceska lokalizace, range select, autoSize,
+         keyboard navigace, multi-select. Krok B+ (zitra) pridame layout toolbar
+         pro System grids (vyzaduje backend layoutKey rozsireni). -->
     <script>
     (function() {
       function _escAttr(s) {
         return String(s == null ? "" : s).replace(/"/g, "&quot;");
       }
+      // Drz instance per main pane — destroy previous pred create new
+      window._sysCurrentGrid = null;
+
       async function renderSystemGrid(mode, labelText) {
         var H = window._sysHelpers || {};
         var main = document.getElementById("erpMainContent");
@@ -4759,17 +4763,24 @@ def _render_workspace_page(user_id: int) -> str:
           console.error("[ERP-DIAG] erpMainContent missing");
           return;
         }
-        // Build container shell (header + body)
+        if (typeof ErpDataGrid !== "function") {
+          main.innerHTML = '<div style="padding:20px;color:#f88">ErpDataGrid komponenta nenactena</div>';
+          return;
+        }
+        // Destroy predchozi instance (Marti's nav between System uzly)
+        if (window._sysCurrentGrid && typeof window._sysCurrentGrid.destroy === "function") {
+          try { window._sysCurrentGrid.destroy(); } catch (e) {}
+          window._sysCurrentGrid = null;
+        }
+
+        // Build container shell (header + body — body je host pro ErpDataGrid)
         main.innerHTML =
           '<div class="erp-system-grid-wrap" style="display:flex;flex-direction:column;height:100%;background:var(--bg);">' +
             '<div class="erp-system-grid-header" style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;font-size:13px;color:var(--fg);background:var(--surface,#14161a);">' +
-              '<span style="font-weight:600;font-size:14px">' +
-                (H.statusBadge ? "" : "") + // placeholder, header text below
-                _escAttr(labelText || mode) +
-              '</span>' +
+              '<span style="font-weight:600;font-size:14px">' + _escAttr(labelText || mode) + '</span>' +
               '<span id="erpSysGridCount" style="opacity:0.6;font-size:11px"></span>' +
             '</div>' +
-            '<div id="erpSysGridBody" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;color:var(--muted);">Nacitam...</div>' +
+            '<div id="erpSysGridBody" style="flex:1;min-height:0;background:var(--bg);">Nacitam...</div>' +
           '</div>';
 
         // Fetch data
@@ -4781,7 +4792,7 @@ def _render_workspace_page(user_id: int) -> str:
             var txt = await res.text();
             var bodyErr = document.getElementById("erpSysGridBody");
             if (bodyErr) {
-              bodyErr.innerHTML = '<div style="color:#f88">Chyba ' + res.status + ': ' + _escAttr(txt.substring(0, 200)) + '</div>';
+              bodyErr.innerHTML = '<div style="padding:20px;color:#f88">Chyba ' + res.status + ': ' + _escAttr(txt.substring(0, 200)) + '</div>';
             }
             return;
           }
@@ -4789,45 +4800,40 @@ def _render_workspace_page(user_id: int) -> str:
         } catch (e) {
           var bodyEx = document.getElementById("erpSysGridBody");
           if (bodyEx) {
-            bodyEx.innerHTML = '<div style="color:#f88">Chyba: ' + _escAttr(String(e)) + '</div>';
+            bodyEx.innerHTML = '<div style="padding:20px;color:#f88">Chyba: ' + _escAttr(String(e)) + '</div>';
           }
           return;
         }
 
-        // Render grid into body
         var body = document.getElementById("erpSysGridBody");
         if (!body) return;
         body.innerHTML = "";
-        body.style.alignItems = "stretch";
-        body.style.justifyContent = "stretch";
-
-        var gridDiv = document.createElement("div");
-        gridDiv.className = "ag-theme-quartz";
-        gridDiv.setAttribute("data-ag-theme-mode", "dark");
-        gridDiv.style.cssText = "width:100%;height:100%;min-height:480px";
-        body.appendChild(gridDiv);
 
         var columns = H.gridColumns ? H.gridColumns(mode) : [];
         var rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
 
-        var opts = {
-          columnDefs: columns,
-          rowData: rowData,
-          defaultColDef: { resizable: true, sortable: true, filter: true },
-          onRowClicked: function(e) {
-            // Placeholder — Krok D+ pripoji drill-down modal
-            console.log("[ERP-SYS] row clicked", mode, e.data);
-          },
-          domLayout: "normal",
-          animateRows: true,
-          rowHeight: 32
-        };
-
         try {
-          // eslint-disable-next-line no-undef
-          agGrid.createGrid(gridDiv, opts);
+          window._sysCurrentGrid = new ErpDataGrid(body, {
+            rowData: rowData,
+            columnDefs: columns,
+            theme: "dark",
+            height: "100%",
+            compact: true,
+            pinnedIdColumn: false, // mam to v columns def
+            enableExport: true,
+            enableFilters: true,
+            enableRangeSelection: true,
+            onRowClick: function(row, ev) {
+              console.log("[ERP-SYS] row clicked", mode, row);
+            },
+            onRowDoubleClick: function(row, ev) {
+              // TODO: Krok C+ drill-down modal (thought cards + Phase 37 timeline)
+              console.log("[ERP-SYS] row dblclick", mode, row);
+            }
+          });
         } catch (e) {
-          body.innerHTML = '<div style="color:#f88">AG Grid create failed: ' + _escAttr(String(e)) + '</div>';
+          body.innerHTML = '<div style="padding:20px;color:#f88">ErpDataGrid create failed: ' + _escAttr(String(e)) + '</div>';
+          console.error("[ERP-SYS] ErpDataGrid create failed", e);
           return;
         }
 
@@ -4836,7 +4842,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
       if (window._sysHelpers) {
         window._sysHelpers.renderSystemGrid = renderSystemGrid;
-        console.log("[ERP-DIAG] _sysHelpers.renderSystemGrid loaded");
+        console.log("[ERP-DIAG] _sysHelpers.renderSystemGrid loaded (ErpDataGrid)");
       } else {
         console.error("[ERP-DIAG] _sysHelpers missing — renderSystemGrid nelze pripojit");
       }
@@ -5186,173 +5192,9 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
-      // Phase 35-E.4 Variant B helpers — DOCASNE ZAKOMENTOVANE (parse error diag #2).
-      // Pri progressivnim restoringu pridame zpet po jednom + smoke per krok.
-      /* DIAG_BLOCK_START
-      async function _renderSystemGrid(mode, item) {
-        const main = document.getElementById("erpMainContent");
-        if (!main) return;
-        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
-        const lbl = labelEl ? labelEl.textContent : mode;
-
-        main.innerHTML =
-          '<div class="erp-system-grid-wrap" style="display:flex;flex-direction:column;height:100%;background:var(--bg);">' +
-            '<div class="erp-system-grid-header" style="padding:8px 14px;border-bottom:1px solid var(--border);display:flex;align-items:center;gap:14px;font-size:13px;color:var(--fg);background:var(--bg-soft,#1a1f24);">' +
-              '<span style="font-weight:600;font-size:14px">' + escapeHtml(lbl) + '</span>' +
-              '<span id="erpSysGridCount" style="opacity:0.6;font-size:11px"></span>' +
-            '</div>' +
-            '<div id="erpSysGridBody" style="flex:1;min-height:0;display:flex;align-items:center;justify-content:center;color:var(--muted);">Načítám…</div>' +
-          '</div>';
-
-        let data;
-        try {
-          const url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
-          const res = await fetch(url, { credentials: "include" });
-          if (!res.ok) {
-            const txt = await res.text();
-            const body = document.getElementById("erpSysGridBody");
-            if (body) body.innerHTML = '<div style="color:#f88">Chyba ' + res.status + ': ' + escapeHtml(txt.substring(0, 200)) + '</div>';
-            return;
-          }
-          data = await res.json();
-        } catch (e) {
-          const body = document.getElementById("erpSysGridBody");
-          if (body) body.innerHTML = '<div style="color:#f88">Chyba: ' + escapeHtml(String(e)) + '</div>';
-          return;
-        }
-
-        const body = document.getElementById("erpSysGridBody");
-        if (!body) return;
-        body.innerHTML = "";
-        body.style.alignItems = "stretch";
-        body.style.justifyContent = "stretch";
-
-        const gridDiv = document.createElement("div");
-        gridDiv.className = "ag-theme-quartz";
-        gridDiv.setAttribute("data-ag-theme-mode", "dark");
-        gridDiv.style.cssText = "width:100%;height:100%;min-height:480px";
-        body.appendChild(gridDiv);
-
-        const columns = _systemGridColumns(mode);
-        const rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
-
-        const opts = {
-          columnDefs: columns,
-          rowData: rowData,
-          defaultColDef: { resizable: true, sortable: true, filter: true },
-          onRowClicked: (e) => _showSystemRowDetail(mode, e.data),
-          domLayout: "normal",
-          animateRows: true,
-          rowHeight: 32,
-        };
-
-        // eslint-disable-next-line no-undef
-        agGrid.createGrid(gridDiv, opts);
-
-        const cntEl = document.getElementById("erpSysGridCount");
-        if (cntEl) cntEl.textContent = rowData.length + " řádků";
-      }
-
-      function _systemGridColumns(mode) {
-        if (mode === "stats") {
-          return [
-            { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
-            { headerName: "Období", field: "period", width: 110, sortable: true, sort: "desc" },
-            { headerName: "Pending", field: "pending", width: 100, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#888" } : null; } },
-            { headerName: "In progress", field: "in_progress", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#d4a017" } : null; } },
-            { headerName: "Auditované", field: "audited", width: 120, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : null; } },
-            { headerName: "Excluded", field: "excluded", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#666" } : null; } },
-            { headerName: "Celkem", field: "total", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: { fontWeight: "600" } },
-          ];
-        }
-        // audited / all
-        const showStatus = (mode === "all");
-        const cols = [
-          { headerName: "ID", field: "id", width: 80, sortable: true, pinned: "left" },
-        ];
-        if (showStatus) {
-          cols.push({
-            headerName: "Status", field: "audit_status", width: 120, sortable: true,
-            cellRenderer: (p) => _systemStatusBadge(p.value || "—"),
-          });
-        }
-        cols.push(
-          { headerName: "Title", field: "title", flex: 2, minWidth: 200, sortable: true },
-          { headerName: "Tenant", field: "tenant_name", width: 130, sortable: true },
-          { headerName: "Auditováno", field: "audited_at", width: 160, sortable: true,
-            valueFormatter: (p) => _formatDateRel(p.value) },
-          { headerName: "Persona", field: "audited_by_persona_name", width: 130 },
-          { headerName: "Scope", field: "scope", width: 110,
-            cellRenderer: (p) => _scopeIconHtml(p.value) },
-          { headerName: "Last msg", field: "last_message_at", width: 160, sortable: true,
-            valueFormatter: (p) => _formatDateRel(p.value) },
-          { headerName: "Thoughts", field: "thought_count", width: 100, sortable: true,
-            cellRenderer: (p) => p.value > 0 ? "📝 " + p.value : "—" },
-          { headerName: "Lifecycle", field: "lifecycle_state", width: 110 },
-        );
-        return cols;
-      }
-
-      function _systemStatusBadge(v) {
-        const colors = {
-          pending: "#888", in_progress: "#d4a017",
-          audited: "#6aa84f", excluded: "#666",
-        };
-        const labels = {
-          pending: "pending", in_progress: "in progress",
-          audited: "✓ audited", excluded: "excluded",
-        };
-        const c = colors[v] || "#888";
-        const lbl = labels[v] || v;
-        return '<span style="background:' + c + '22;color:' + c +
-               ';padding:2px 8px;border-radius:10px;font-size:11px;font-weight:500">' +
-               escapeHtml(lbl) + '</span>';
-      }
-
-      function _scopeIconHtml(v) {
-        if (v === "srdce") return '<span style="color:#e08aa8">💗 srdce</span>';
-        if (v === "general") return '<span style="opacity:0.7">general</span>';
-        return v ? escapeHtml(v) : '<span style="opacity:0.4">—</span>';
-      }
-
-      function _formatDateRel(iso) {
-        if (!iso) return "—";
-        try {
-          const d = new Date(iso);
-          return d.toLocaleString("cs-CZ", { dateStyle: "short", timeStyle: "short" });
-        } catch (e) { return iso; }
-      }
-
-      function _showSystemRowDetail(mode, row) {
-        // Phase 35-E.4 next iteration TODO (Marti's "Pozdeji Popup"):
-        //  - audited / all → modal s plnou konverzací (read-only render messages,
-        //    audit_notes summary, persona kdo auditoval, extracted_thought_ids).
-        //  - stats → ne-otvírat (per-persona × per-měsíc row je summary).
-        if (mode === "stats") return;
-        if (!row || !row.id) return;
-        // Placeholder: budoucí popup. Zatím alert s metadaty pro feedback.
-        const lines = [
-          "Konverzace #" + row.id,
-          "",
-          "Title: " + (row.title || "—"),
-          "Status: " + (row.audit_status || "—"),
-          "Tenant: " + (row.tenant_name || "—"),
-          "Persona: " + (row.audited_by_persona_name || "—"),
-          "Scope: " + (row.scope || "—"),
-          "Auditováno: " + (row.audited_at || "—"),
-          "Last msg: " + (row.last_message_at || "—"),
-          "Thoughts: " + (row.thought_count || 0),
-          "",
-          "Popup s plnou konverzací bude v dalsi iteraci.",
-        ];
-        alert(lines.join("\n"));
-      }
-      DIAG_BLOCK_END */
+      // Phase 35-E.4 Variant B native AG Grid helpers jsou v izolovanych
+      // <script> blocich nahore (window._sysHelpers.*). Inline draft odstranen
+      // 9.5.2026 odpoledne po Krok D smoke (legacy ~165 radku).
 
       function _restoreFromSystemView() {
         const main = document.getElementById("erpMainContent");

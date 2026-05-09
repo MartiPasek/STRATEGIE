@@ -9102,8 +9102,16 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             values_psir = tool_input.get("values")
             if not schema_psir or not table_psir:
                 return "❌ schema a table jsou povinne."
-            if not values_psir or not isinstance(values_psir, dict):
-                return "❌ values musi byt non-empty dict."
+            # Phase 38.4 polish (10.5.2026): accept dict (single row) NEBO
+            # list[dict] (batch). Internal handler v _spg.insert_row dělá
+            # finální validaci (uniform schema, non-empty dict items, ...).
+            if not values_psir:
+                return "❌ values musi byt non-empty dict nebo list[dict]."
+            if not isinstance(values_psir, (dict, list)):
+                return (
+                    f"❌ values musi byt dict (single row) nebo list[dict] "
+                    f"(batch); got {type(values_psir).__name__}."
+                )
             result_psir = _spg.insert_row(
                 schema=schema_psir, table=table_psir, values=values_psir,
             )

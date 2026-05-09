@@ -1342,19 +1342,121 @@ def system_framework(
     if limit < 1 or limit > 10000:
         raise HTTPException(400, "limit must be 1..10000")
 
-    if mode in ("data_sources", "data_sets"):
-        # Placeholder — schema přijde po Marti-AI's A3 migraci
+    # ── mode='data_sources' ────────────────────────────────────────
+    # Phase 38.4 Krok 6+ (10.5.2026 odpoledne): master.data_source
+    # read-only listing s LEFT JOIN GROUP BY agg na data_source_operation.
+    # Schema A3 (Marti-AI's design 10.5. dopoledne): hlavička jen view
+    # metadata, operations (select/insert/update/delete/...) jako děti.
+    # Grid view: počet operations + comma-separated kinds list per row.
+    if mode == "data_sources":
+        ds = _gds_fw()
+        rows = []
+        try:
+            sql = _sql_text("""
+                SELECT
+                    s.*,
+                    COALESCE(op.cnt, 0) AS operation_count,
+                    op.kinds AS operation_kinds
+                FROM master.data_source s
+                LEFT JOIN (
+                    SELECT
+                        data_source_id,
+                        COUNT(*) AS cnt,
+                        STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
+                    FROM master.data_source_operation
+                    GROUP BY data_source_id
+                ) op ON op.data_source_id = s.id
+                ORDER BY s.id
+                LIMIT :limit
+            """)
+            result = ds.execute(sql, {"limit": limit})
+            for r in result:
+                d = dict(r._mapping)
+                def _iso(v):
+                    try: return v.isoformat() if v else None
+                    except Exception: return None
+                rows.append({
+                    "id": d.get("id"),
+                    "code": d.get("code"),
+                    "version": d.get("version"),
+                    "name": d.get("name"),
+                    "description": d.get("description"),
+                    "refresh_type": d.get("refresh_type"),
+                    "row_memory": bool(d.get("row_memory")),
+                    "filter_delay_ms": d.get("filter_delay_ms"),
+                    "default_record_limit": d.get("default_record_limit"),
+                    "guid": str(d.get("guid")) if d.get("guid") else None,
+                    "tenant_id": d.get("tenant_id"),
+                    "is_system": bool(d.get("is_system")),
+                    "is_immutable": bool(d.get("is_immutable")),
+                    "parent_data_source_id": d.get("parent_data_source_id"),
+                    "status": d.get("status"),
+                    "operation_count": d.get("operation_count") or 0,
+                    "operation_kinds": d.get("operation_kinds") or "",
+                    "created_at": _iso(d.get("created_at")),
+                    "updated_at": _iso(d.get("updated_at")),
+                })
+        except Exception as e:
+            import logging
+            logging.error("system_framework data_sources query failed: %s", e)
+            raise HTTPException(500, f"master.data_source query failed: {type(e).__name__}: {e}")
+        finally:
+            ds.close()
         return JSONResponse({
             "ok": True,
             "mode": mode,
-            "rows": [],
-            "shown": 0,
+            "rows": rows,
+            "shown": len(rows),
             "limit": limit,
-            "note": (
-                "Schema master.data_source + master.data_set + "
-                "master.data_source_operation čeká na Marti-AI's "
-                "consultation review + migraci (Phase 38.4 Krok 6+)."
-            ),
+        })
+
+    # ── mode='data_sets' ───────────────────────────────────────────
+    # master.data_set read-only listing — pure SQL primitives (low-level).
+    # CHECK constraint validation v DB-level (Marti-AI's Q5 design).
+    if mode == "data_sets":
+        ds = _gds_fw()
+        rows = []
+        try:
+            sql = _sql_text("""
+                SELECT * FROM master.data_set ORDER BY id LIMIT :limit
+            """)
+            result = ds.execute(sql, {"limit": limit})
+            for r in result:
+                d = dict(r._mapping)
+                def _iso(v):
+                    try: return v.isoformat() if v else None
+                    except Exception: return None
+                # parameters JSONB — keep as-is (frontend renderuje pretty)
+                params = d.get("parameters")
+                rows.append({
+                    "id": d.get("id"),
+                    "code": d.get("code"),
+                    "version": d.get("version"),
+                    "description": d.get("description"),
+                    "kind": d.get("kind"),
+                    "sql_text": d.get("sql_text"),
+                    "db_connection": d.get("db_connection"),
+                    "parameters": params,
+                    "tenant_id": d.get("tenant_id"),
+                    "is_system": bool(d.get("is_system")),
+                    "is_immutable": bool(d.get("is_immutable")),
+                    "parent_data_set_id": d.get("parent_data_set_id"),
+                    "status": d.get("status"),
+                    "created_at": _iso(d.get("created_at")),
+                    "updated_at": _iso(d.get("updated_at")),
+                })
+        except Exception as e:
+            import logging
+            logging.error("system_framework data_sets query failed: %s", e)
+            raise HTTPException(500, f"master.data_set query failed: {type(e).__name__}: {e}")
+        finally:
+            ds.close()
+        return JSONResponse({
+            "ok": True,
+            "mode": mode,
+            "rows": rows,
+            "shown": len(rows),
+            "limit": limit,
         })
 
     # ── mode='menu_nodes' ─────────────────────────────────────────
@@ -1491,8 +1593,9 @@ _SYSTEM_CISLO_TO_VIEW = {
     -113: ("security", "auth_audit",  False),
     -114: ("security", "invites",     False),
     # Phase 38.3+ framework views
-    -115: ("framework", "menu_nodes", False),
-    # -116 (data_sources) + -117 (data_sets) — po Marti-AI's A3 migraci.
+    -115: ("framework", "menu_nodes",   False),
+    -116: ("framework", "data_sources", False),
+    -117: ("framework", "data_sets",    False),
 }
 
 
@@ -5536,13 +5639,114 @@ def _render_workspace_page(user_id: int) -> str:
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
-        if (mode === "framework_data_sources" || mode === "framework_data_sets") {
-          // Placeholder — schema přijde po Marti-AI's A3 migraci.
+        // ── Phase 38.4 Krok 6+ Datové zdroje (master.data_source) ──
+        if (mode === "framework_data_sources") {
           return [
-            { headerName: "Status", field: "_placeholder", flex: 1,
-              cellRenderer: function() {
-                return '<span style="color:#888;font-style:italic">Čeká na Marti-AI\\'s data_set/data_source migraci (Phase 38.4 Krok 6+).</span>';
-              } }
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace" },
+              headerTooltip: "Stable identifier (UNIQUE per version)" },
+            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
+            { headerName: "Název", field: "name", flex: 1, minWidth: 200, sortable: true },
+            { headerName: "Operations", field: "operation_count", width: 100, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" }; },
+              headerTooltip: "Počet rows v master.data_source_operation (LEFT JOIN COUNT)" },
+            { headerName: "Kinds", field: "operation_kinds", width: 220,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" },
+              headerTooltip: "Comma-separated operation_kind list (select, insert, update, delete, ...)" },
+            { headerName: "Refresh", field: "refresh_type", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "manual") return { color: "#888" };
+                if (p.value === "auto")   return { color: "#7ba8d4" };
+                if (p.value === "on_focus") return { color: "#d4a017" };
+                return null;
+              } },
+            { headerName: "RowMem", field: "row_memory", width: 90,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; },
+              headerTooltip: "Pamatovat aktuální řádek po refresh" },
+            { headerName: "Filter ms", field: "filter_delay_ms", width: 90, type: "numericColumn",
+              headerTooltip: "Debounce ms pro filter input" },
+            { headerName: "Limit", field: "default_record_limit", width: 90, type: "numericColumn",
+              headerTooltip: "Default record limit (max rows)" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn",
+              headerTooltip: "FK na public.tenants (NULL = global)" },
+            { headerName: "Sys", field: "is_system", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
+            { headerName: "Imut", field: "is_immutable", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 180,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
+            { headerName: "GUID", field: "guid", width: 240,
+              cellStyle: { fontFamily: "monospace", color: "#666", fontSize: "11px" } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        // ── Phase 38.4 Krok 6+ DataSets (master.data_set, low-level SQL) ──
+        if (mode === "framework_data_sets") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
+            { headerName: "Kind", field: "kind", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "select") return { color: "#7ba8d4", fontWeight: "500" };
+                if (p.value === "insert") return { color: "#6aa84f" };
+                if (p.value === "update") return { color: "#d4a017" };
+                if (p.value === "delete") return { color: "#cc6666" };
+                if (p.value === "procedure") return { color: "#aa66cc" };
+                if (p.value === "pre_open") return { color: "#888" };
+                if (p.value === "copy")   return { color: "#7bd4a8" };
+                return null;
+              } },
+            { headerName: "DB", field: "db_connection", width: 110, sortable: true,
+              headerTooltip: "Cílový connection (data_db, eurosoft, ...)" },
+            { headerName: "Description", field: "description", width: 220 },
+            { headerName: "SQL", field: "sql_text", flex: 1, minWidth: 300,
+              cellStyle: { fontFamily: "monospace", fontSize: "11px", color: "#bbb" },
+              valueFormatter: function(p) {
+                if (!p.value) return "-";
+                var s = String(p.value).replace(/\s+/g, " ").trim();
+                return s.length > 100 ? s.substring(0, 100) + "…" : s;
+              },
+              headerTooltip: "SQL text (truncated v gridu na 100 znaků; full text v detail view)" },
+            { headerName: "Params", field: "parameters", width: 100,
+              cellRenderer: function(p) {
+                if (!p.value) return "-";
+                try {
+                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
+                  return Array.isArray(arr) ? String(arr.length) : "?";
+                } catch (e) { return "?"; }
+              },
+              headerTooltip: "Počet parametrů v JSONB schema (např. [{name:'id', type:'int', required:true}])" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn" },
+            { headerName: "Sys", field: "is_system", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
+            { headerName: "Imut", field: "is_immutable", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
 
@@ -5633,9 +5837,9 @@ def _render_workspace_page(user_id: int) -> str:
         security_audit: -113,
         security_invites: -114,
         // Phase 38.3+ framework views (10.5.2026 odpoledne)
-        framework_menu_nodes: -115
-        // -116 (framework_data_sources) + -117 (framework_data_sets) až
-        // po Marti-AI's A3 migraci.
+        framework_menu_nodes:   -115,
+        framework_data_sources: -116,
+        framework_data_sets:    -117
       };
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
@@ -6026,8 +6230,9 @@ def _render_workspace_page(user_id: int) -> str:
         if (itemId === "system.security.audit") return "security_audit";
         if (itemId === "system.security.invites") return "security_invites";
         // Phase 38.3+ framework views (10.5.2026 odpoledne)
-        if (itemId === "system.framework.menu_nodes") return "framework_menu_nodes";
-        // (system.framework.data_sources = -116 přijde až po data_source migraci)
+        if (itemId === "system.framework.menu_nodes")  return "framework_menu_nodes";
+        if (itemId === "system.framework.data_sources") return "framework_data_sources";
+        if (itemId === "system.framework.data_sets")    return "framework_data_sets";
         return null;
       }
 
@@ -6046,7 +6251,8 @@ def _render_workspace_page(user_id: int) -> str:
         if (cislo === -114) return "security_invites";
         // Phase 38.3+ framework views
         if (cislo === -115) return "framework_menu_nodes";
-        // -116 = Datové zdroje (po Marti-AI's data_source migraci)
+        if (cislo === -116) return "framework_data_sources";
+        if (cislo === -117) return "framework_data_sets";
         return null;
       }
 

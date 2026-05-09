@@ -7,7 +7,8 @@ from sqlalchemy import (
     BigInteger, Boolean, DateTime, ForeignKey,
     Integer, Numeric, String, Text, false as sa_false
 )
-from sqlalchemy.dialects.postgresql import ARRAY, JSONB
+from sqlalchemy.dialects.postgresql import ARRAY, JSONB, UUID
+import uuid
 from sqlalchemy.orm import Mapped, mapped_column
 from core.database_data import BaseData
 
@@ -2023,4 +2024,303 @@ class MdDocumentHistory(BaseData):
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────────
+# Phase 38 — Security Layer (10. 5. 2026)
+# 4 vrstvy obrany: globální IP whitelist + per-user IP whitelist + trusted
+# device cookie + email magic link. Marti-AI's konzultace 8 insightů
+# integrovaná (multi-approver, one-time token, post-confirm notification,
+# 72h pre-approve, immediate notify, "každý vidí svůj vlastní stav",
+# manual status, self-service, offboarding hook).
+# ─────────────────────────────────────────────────────────────────────────
+
+
+class GlobalIpWhitelist(BaseData):
+    """
+    Globální IP whitelist — vrstva 1 obrany.
+
+    Marti's spec 10.5.2026 ráno: globální IPs v DB (ne env var). Marti-AI
+    může dynamicky přidávat partnery (INTERSOFT, klienty atd.) bez deploye.
+
+    Categories:
+      - 'internal'        — EUROSOFT WAN (LAN/WiFi)
+      - 'partner'         — INTERSOFT WAN, klient WAN (Phase 38.1 PARTNER status)
+      - 'cloud_loopback'  — cloud APP loopback, dev localhost
+
+    Seed: EUROSOFT WAN A 93.99.211.138, B 93.99.211.140, cloud 185.219.169.86,
+          localhost 127.0.0.1, ::1.
+    """
+    __tablename__ = "global_ip_whitelist"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    ip_or_cidr: Mapped[str] = mapped_column(String(45), nullable=False, unique=True)
+    category: Mapped[str] = mapped_column(String(20), nullable=False)
+    label: Mapped[str] = mapped_column(String(255), nullable=False)
+    partner_tenant_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    added_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class UserIpWhitelist(BaseData):
+    """
+    Per-user IP whitelist — vrstva 2 obrany.
+
+    Marti's spec 10.5.2026 ráno: "u některých uživatelů budou IP adresy
+    a jejich zařízení, u některých jen zařízení a mobily bez IP". Plus
+    auto-discovery flow (10.5. dopoledne) — IP se auto-INSERT po magic
+    link confirm jako 'pending', parent ručně promote na 'confirmed'.
+
+    Status flow:
+      magic link confirm → status='pending', auto_discovered_at=now()
+      parent / Marti-AI volá confirm_user_ip_whitelist(entry_id)
+        → status='confirmed', confirmed_by=parent_user_id
+      další login z té IP → vrstva 2 grant transparent
+
+    Marti-AI insight #1: confirmation je multi-approver (Marti, Kristýna,
+    Marti-AI), ne single point of failure.
+
+    Pending NEgrant access — sám pending stav nestačí, user stále potřebuje
+    cookie nebo magic link. Až confirm = vrstva 2 aktivní.
+
+    Categories:
+      - 'home'           — Marti's home, Kristýny home, atd.
+      - 'mobile_hotspot' — telefonní hotspot
+      - 'other'          — neklasifikované
+      Partner IPs jdou do GlobalIpWhitelist s category='partner'.
+    """
+    __tablename__ = "user_ip_whitelist"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    ip_or_cidr: Mapped[str] = mapped_column(String(45), nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    status: Mapped[str] = mapped_column(
+        String(20), default="pending", server_default="pending", nullable=False
+    )
+    auto_discovered_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirmed_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    confirmed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    confirm_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    category: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
+    added_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # NULL = auto-discovered, ID = manual add (parent / Marti-AI)
+    added_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
+    )
+
+    # Usage tracking pro UI insight + future auto-confirm
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    use_count: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+    first_user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TrustedDevice(BaseData):
+    """
+    Trusted device cookie — vrstva 3 obrany.
+
+    HttpOnly Secure SameSite=Lax UUID, 90d expiry. Per-user device.
+
+    approved_by:
+      - NULL  → self-approve via magic link (user-initiated)
+      - ID    → pre-approve (parent / Marti-AI registroval předem)
+
+    Marti-AI insight #7: self-service revoke pro user (vlastní devices,
+    "ztratil jsem mobil" → user sám revokuje bez nutnosti volat IT).
+    """
+    __tablename__ = "trusted_devices"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    device_token: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+        unique=True,
+        default=uuid.uuid4,
+        server_default="gen_random_uuid()",
+    )
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    first_seen_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    last_seen_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    last_seen_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    approved_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    approved_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    revoked_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    revoked_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    revoke_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class TrustedDeviceInvite(BaseData):
+    """
+    Magic link invite tokens — vrstva 4 obrany.
+
+    Marti's pivot 10.5. dopoledne ("Heiky důvěru ode mne nemá"):
+      Token format STG-{PURPOSE}-{8 hex chars} jako string.
+      Deterministic regex routing v sms_preprocessor — žádný AI judgment.
+
+    Marti-AI insight #2: one-time use (consumed_at) → anti-replay defense.
+    Pokud někdo forwarded token replyne, token se spálí, oznámení původnímu
+    userovi přes post-confirm notification.
+
+    Marti-AI insight #3: dva typy TTL podle created_by:
+      - NULL (self-request) → 24h TTL
+      - ID (pre-approve)    → 72h TTL (parent registruje předem, user
+                              klikne třeba až za 2 dny)
+
+    Marti's anti-spoofing safeguard: consumed_phone match s user.phone
+    při SMS-based consume. Útočník s ukradeným tokenem nemůže replay
+    z jiného čísla.
+
+    Po consume: created_device_id → FK na trusted_devices.id pro audit.
+    """
+    __tablename__ = "trusted_device_invites"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    invite_token: Mapped[str] = mapped_column(
+        String(32),  # "STG-{PURPOSE}-{8 hex}" string format
+        nullable=False,
+        unique=True,
+    )
+    purpose: Mapped[str] = mapped_column(
+        String(16), default="AUTH", server_default="AUTH", nullable=False
+    )
+    # 'AUTH' (Phase 38 device cookie) / 'ATT' (Phase 39 attendance) /
+    # 'OCR' (Phase 41+ eOČR) / 'PWD' (future password reset)
+    user_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    label: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # NULL = self-request (24h TTL), ID = pre-approve (72h TTL)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    consumed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    consumed_ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    consumed_user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    consumed_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    # Phone caller_id při SMS-based consume (anti-spoofing audit)
+    created_device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+
+
+class SmsRoutingLog(BaseData):
+    """
+    SMS routing audit log — Marti's pivot 10.5. dopoledne.
+
+    Single trusted SIM (+420778117879) přijímá VŠE — od auth tokenů po
+    lidské SMS. Pre-processor (sms_preprocessor.py) deterministic routing:
+      - Body match `^STG-{PURPOSE}-{ID}$` → silent system handler
+      - Body NO match → wake Marti-AI's persona
+
+    Marti-AI's safeguard: false-positive tolerance — 4 ze 5 cases probudí.
+    Jen explicit valid auth flow s matching caller_id je silent.
+
+    Routing actions:
+      'silent_consume_auth'             — token valid, caller_id match
+      'silent_attendance'               — Phase 39+ token-based attendance
+      'silent_eocr'                     — Phase 41+ eOČR auto-pipeline
+      'wake_persona_no_token'           — body no token regex (default human)
+      'wake_persona_invalid_token'      — token expired/consumed (suspicious)
+      'wake_persona_unknown_purpose'    — token format OK, neznámý PURPOSE
+      'wake_persona_caller_id_mismatch' — token valid ALE caller_id NE match
+                                          user phone (anti-spoofing alert!)
+    """
+    __tablename__ = "sms_routing_log"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    sms_inbox_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    sender_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    matched_token: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    matched_purpose: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    routing_action: Mapped[str] = mapped_column(String(48), nullable=False)
+    handler_result: Mapped[str | None] = mapped_column(Text, nullable=True)
+    classified_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
+    )
+
+
+class AuthAudit(BaseData):
+    """
+    Audit log per login attempt — 90d retention.
+
+    Result codes:
+      - 'success'              — login granted (some layer matched)
+      - 'failed_password'      — wrong password
+      - 'failed_no_layer'      — pass valid ale žádná vrstva neprošla
+                                 (bez cookie a IP), redirect na verify-email
+      - 'verify_required'      — same jako failed_no_layer pro stats
+      - 'verify_sent'          — magic link email odeslán
+      - 'verify_consumed'      — magic link úspěšně potvrzen, device created
+      - 'forwarding_revoke'    — user klikl revoke link z post-confirm
+                                 notification (Marti-AI insight #2 anti-replay)
+
+    layer_matched:
+      'global_ip' / 'user_ip' / 'device_cookie' / 'magic_link' / NULL pro fail
+    """
+    __tablename__ = "auth_audit"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    user_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    email_attempted: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    ip: Mapped[str | None] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(Text, nullable=True)
+    device_token: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
+    layer_matched: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    layer_detail: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    internal: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=sa_false(), nullable=False
+    )
+    result: Mapped[str] = mapped_column(String(32), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=now_utc, server_default="now()",
+        nullable=False,
     )

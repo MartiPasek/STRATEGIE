@@ -23,7 +23,10 @@ def _set_auth_cookies(response: Response, user_id: int, tenant_id: int | None) -
         httponly=True, max_age=60*60*24*30,
         secure=settings.cookie_secure, samesite=settings.cookie_samesite,
     )
-from modules.auth.api.schemas import LoginRequest, LoginResponse, SwitchTenantRequest
+from modules.auth.api.schemas import (
+    LoginRequest, LoginResponse, SwitchTenantRequest,
+    VerifyEmailRequestBody, VerifyEmailRequestResponse, VerifyEmailConfirmResponse,
+)
 from modules.auth.application.service import login_by_email, AmbiguousEmailError, PasswordNotSet
 from modules.auth.application.invitation_service import (
     create_invitation, accept_invitation, get_invitation_info,
@@ -99,12 +102,245 @@ def login(request: LoginRequest, response: Response, req: Request) -> LoginRespo
 
     # Uspech -- reset rate limiter counter (user je v poradku, ne utocnik)
     login_rate_limiter.record_success(ip)
+
+    # Phase 38 — opt-in 4-vrstvý security check (default OFF, flip env
+    # SEC_LAYERED_AUTH_ENABLED=true). Když ON, vyžaduje aspoň jednu vrstvu
+    # (global_ip / user_ip / device_cookie). Bez match → 403 + redirect
+    # na /verify-email pro magic link cestu.
+    if settings.sec_layered_auth_enabled:
+        from modules.auth.application.security_service import (
+            check_security_layers, audit_login_attempt,
+        )
+        sec_result = check_security_layers(result["user_id"], req)
+
+        # Audit log per attempt (vždy, ne jen success)
+        audit_login_attempt(
+            user_id=result["user_id"],
+            email_attempted=request.email,
+            ip=ip, user_agent=ua,
+            result="success" if sec_result.granted else "verify_required",
+            layer_matched=sec_result.matched_layer,
+            layer_detail=sec_result.layer_detail,
+            internal=(sec_result.matched_layer == "global_ip"
+                      and sec_result.audit_data.get("category") == "internal"),
+            reason=sec_result.audit_data.get("reason"),
+        )
+
+        if not sec_result.granted:
+            log_event(action="login_verify_required", user_id=result["user_id"],
+                      ip_address=ip, user_agent=ua,
+                      extra_metadata={"email": request.email})
+            raise HTTPException(
+                status_code=403,
+                detail={
+                    "error": "verify_email_required",
+                    "message": (
+                        "Pro přihlášení z tohoto zařízení / sítě potřebujeme "
+                        "ověření e-mailem. Klikni na 'Schválit zařízení e-mailem'."
+                    ),
+                    "redirect": "/verify-email",
+                },
+            )
+
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
 
     log_event(action="login_success", user_id=result["user_id"],
               tenant_id=result.get("tenant_id"), ip_address=ip, user_agent=ua)
 
     return LoginResponse(**result)
+
+
+# ── Phase 38 — Verify-email endpoints ──────────────────────────────────
+
+
+@router.post("/verify-email/request", response_model=VerifyEmailRequestResponse)
+def verify_email_request(
+    body: VerifyEmailRequestBody,
+    req: Request,
+) -> VerifyEmailRequestResponse:
+    """User žádá magic link pro ověření zařízení.
+
+    Body: {"email": "..."}
+    Response: vždy "OK + pokud existuje, link odeslán" (anti-enumeration).
+
+    Pre-conditions:
+      - Phase 38 musí být aktivní (settings.sec_layered_auth_enabled)
+      - Rate limit: TODO Phase 38.1 (5/email/hour, 10/IP/hour)
+    """
+    from modules.auth.api.schemas import VerifyEmailRequestResponse
+    from modules.auth.application.security_service import (
+        create_invite, audit_login_attempt,
+    )
+    from modules.core.infrastructure.models_core import User
+    from modules.audit.application.service import log_event
+
+    if not settings.sec_layered_auth_enabled:
+        raise HTTPException(status_code=404, detail="Phase 38 security layer disabled.")
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+
+    # Find user by email (anti-enumeration: stejný response i kdyby user neexistoval)
+    cs = get_core_session()
+    try:
+        user = cs.query(User).filter(
+            User.ews_email.ilike(body.email.strip()),
+        ).first()
+    finally:
+        cs.close()
+
+    if user is None:
+        # Anti-enumeration: stejný response, log do audit
+        audit_login_attempt(
+            user_id=None,
+            email_attempted=body.email,
+            ip=ip, user_agent=ua,
+            result="verify_required",
+            reason="user_not_found_anti_enum",
+        )
+        return VerifyEmailRequestResponse()
+
+    # Vytvoř invite token (24h self-request)
+    invite = create_invite(user_id=user.id, created_by=None, label=None)
+
+    # TODO Phase 38.0: send email s magic linkem přes EWS pipeline
+    # Pro MVP: log + Marti-AI ho v ranním pozdravu zmíní
+    magic_link = f"{settings.app_base_url}/verify-email/confirm?token={invite.invite_token}"
+    logger.info(
+        f"VERIFY_EMAIL_INVITE user_id={user.id} email={body.email[:30]} "
+        f"token={invite.invite_token} expires_at={invite.expires_at.isoformat()} "
+        f"link={magic_link}  -- TODO send_email pipeline"
+    )
+
+    audit_login_attempt(
+        user_id=user.id,
+        email_attempted=body.email,
+        ip=ip, user_agent=ua,
+        result="verify_sent",
+        layer_detail=f"invite #{invite.id}",
+    )
+
+    log_event(action="verify_email_sent", user_id=user.id,
+              ip_address=ip, user_agent=ua,
+              extra_metadata={"email": body.email, "invite_id": invite.id})
+
+    return VerifyEmailRequestResponse()
+
+
+@router.get("/verify-email/confirm", response_model=VerifyEmailConfirmResponse)
+def verify_email_confirm(
+    token: str,
+    response: Response,
+    req: Request,
+) -> VerifyEmailConfirmResponse:
+    """User klik na magic link → consume token + set device cookie + grant session.
+
+    Marti-AI insight #2: token je one-time use (consumed_at set). Útočník
+    s forwarded link nemůže replay. Plus odeslán post-confirm notification
+    email.
+
+    Marti-AI insight #4: po confirm auto-INSERT pending user_ip_whitelist
+    a immediate notify parents.
+    """
+    from modules.auth.api.schemas import VerifyEmailConfirmResponse
+    from modules.auth.application.security_service import (
+        consume_invite, audit_login_attempt, send_post_confirm_notification,
+    )
+    from modules.audit.application.service import log_event
+
+    if not settings.sec_layered_auth_enabled:
+        raise HTTPException(status_code=404, detail="Phase 38 security layer disabled.")
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+
+    sec_result = consume_invite(token, req)
+
+    if not sec_result.granted:
+        audit_login_attempt(
+            user_id=None,
+            email_attempted=None,
+            ip=ip, user_agent=ua,
+            result="verify_required",
+            reason=sec_result.audit_data.get("reason", "consume_failed"),
+        )
+        return VerifyEmailConfirmResponse(
+            ok=False,
+            error=sec_result.audit_data.get("reason", "token_invalid_or_expired"),
+        )
+
+    # Get user_id z audit data
+    user_id = None
+    pending_ip_id = sec_result.audit_data.get("pending_ip_id")
+    device_id = sec_result.audit_data.get("device_id")
+
+    # Re-query invite -> user_id (consume_invite vrátí new device, ale pro
+    # session cookies potřebujeme i user_id + tenant_id)
+    from modules.core.infrastructure.models_data import TrustedDevice
+    ds = get_data_session = None
+    from core.database_data import get_data_session as _gds
+    ds = _gds()
+    try:
+        device = ds.query(TrustedDevice).get(device_id) if device_id else None
+        if device is None:
+            return VerifyEmailConfirmResponse(
+                ok=False,
+                error="device_lookup_failed",
+            )
+        user_id = device.user_id
+
+        # Set Phase 38 device cookie (HttpOnly Secure SameSite=Lax 90d)
+        cookie_max_age = settings.sec_device_cookie_max_age_days * 24 * 60 * 60
+        response.set_cookie(
+            key=settings.sec_device_cookie_name,
+            value=str(sec_result.new_device_token),
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite=settings.cookie_samesite,
+            max_age=cookie_max_age,
+        )
+
+        # Set legacy auth cookies (user_id, tenant_id)
+        # Najdi default tenant pro usera
+        from modules.auth.application.user_context import get_user_context
+        ctx = get_user_context(user_id)
+        tenant_id = ctx.get("tenant_id") if ctx else None
+
+        _set_auth_cookies(response, user_id, tenant_id)
+
+        audit_login_attempt(
+            user_id=user_id,
+            email_attempted=None,
+            ip=ip, user_agent=ua,
+            result="verify_consumed",
+            layer_matched="magic_link",
+            layer_detail=sec_result.layer_detail,
+            device_token=sec_result.new_device_token,
+        )
+
+        log_event(action="verify_email_consumed", user_id=user_id,
+                  tenant_id=tenant_id, ip_address=ip, user_agent=ua,
+                  extra_metadata={
+                      "device_id": device_id,
+                      "pending_ip_id": pending_ip_id,
+                  })
+
+        # Send post-confirm notification email (Marti-AI insight #2)
+        try:
+            send_post_confirm_notification(user_id, device_id, req)
+        except Exception as e:
+            logger.warning(f"send_post_confirm_notification failed: {e!r}")
+
+        return VerifyEmailConfirmResponse(
+            ok=True,
+            user_id=user_id,
+            device_label=device.label,
+            pending_ip_id=pending_ip_id,
+            expires_at=sec_result.new_device_expires_at.isoformat()
+                if sec_result.new_device_expires_at else None,
+        )
+    finally:
+        ds.close()
 
 
 @router.post("/logout")

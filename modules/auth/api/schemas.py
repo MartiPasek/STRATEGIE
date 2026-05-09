@@ -74,3 +74,31 @@ class LoginResponse(BaseModel):
     # systémovou zprávu (label STRATEGIE), aby uživatel viděl totéž co AI.
     # /me a /login mají vždy None.
     tenant_switch_marker: str | None = None
+
+
+# ── Phase 38 — Security Layer ──────────────────────────────────────────
+
+
+class VerifyEmailRequestBody(BaseModel):
+    """POST /api/v1/auth/verify-email/request — user žádá magic link."""
+    email: str
+
+
+class VerifyEmailRequestResponse(BaseModel):
+    """Response pro verify-email/request — bez detailů jestli email existuje
+    (anti-enumeration). Vždy "pokud existuje, poslali jsme link"."""
+    ok: bool = True
+    message: str = (
+        "Pokud má e-mail platný účet, odeslali jsme magic link. "
+        "Zkontrolujte schránku (platnost 24 hodin)."
+    )
+
+
+class VerifyEmailConfirmResponse(BaseModel):
+    """Response po úspěšném confirm magic link."""
+    ok: bool
+    user_id: int | None = None
+    device_label: str | None = None
+    pending_ip_id: int | None = None      # NULL pokud IP už confirmed
+    expires_at: str | None = None         # ISO format device cookie expiry
+    error: str | None = None              # "token_invalid_or_expired" pri fail

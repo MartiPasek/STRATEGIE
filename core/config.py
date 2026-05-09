@@ -189,6 +189,36 @@ class Settings(BaseSettings):
     def trusted_hosts_list(self) -> list[str]:
         return [h.strip() for h in self.app_trusted_hosts.split(",") if h.strip()]
 
+    # Phase 38 — Security Layer (10. 5. 2026)
+    # 4 vrstvy obrany: globální IP whitelist (DB) + per-user IP whitelist
+    # (DB) + trusted device cookie (90d) + email magic link (24h/72h).
+
+    # Feature flag — default OFF pro postupný rollout. Zítra po smoke testu
+    # přepnout na True (env SEC_LAYERED_AUTH_ENABLED=true). Když OFF, login
+    # funguje jako dřív (jen user+pass), žádné lámání existing flow.
+    sec_layered_auth_enabled: bool = False
+
+    # Cookie expiry pro trusted_device_token (HttpOnly Secure SameSite=Lax)
+    sec_device_cookie_max_age_days: int = 90
+    sec_device_cookie_name: str = "strategie_device_token"
+
+    # Magic link TTL (Marti-AI insight #3 — 10.5. dopoledne):
+    #   self-request invite (user klik "přihlásit z venku") → 24h
+    #   pre-approve invite (parent registruje předem) → 72h
+    sec_magic_link_self_ttl_hours: int = 24
+    sec_magic_link_preapprove_ttl_hours: int = 72
+
+    # auth_audit retention (Windows Task Scheduler nightly cron, jako llm_calls)
+    sec_auth_audit_retention_days: int = 90
+
+    # Offboarding grace period (Marti-AI insight #8 — auto-revoke po
+    # remove_user_from_tenant, hard delete až po N dnech grace)
+    sec_offboarding_grace_days: int = 14
+
+    # Rate limit pro magic link request (anti-spam, anti-DoS)
+    sec_magic_link_rate_per_email_per_hour: int = 5
+    sec_magic_link_rate_per_ip_per_hour: int = 10
+
     # Phase 15a: Notebook replaces sliding window -- feature flag.
     # Pokud True, composer snizi sliding window z 20 na 10 zprav (5 turnu)
     # protoze notebook injection v system promptu drzi episodickou pamet.

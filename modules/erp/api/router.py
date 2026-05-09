@@ -4844,6 +4844,14 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/formlist.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/formsection.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/form.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- B+6.11 (10.5.2026 odpoledne): ErpTreeView base (hierarchická primitiva)
+         + ErpPopupMenu subclass (context menu). Marti's catch:
+         "TreeView je take erp komponenta... vyuzijeme ho napric STRATEGII".
+         Reusable pro ERP left panel, System tree, Files browser, Pyramida
+         paměti + popup menu (per-grid kontextové akce + framework
+         extensions z DB master.menu_node). -->
+    <script src="/static/erp/components/treeview.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/popupmenu.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">

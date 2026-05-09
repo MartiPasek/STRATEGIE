@@ -11,6 +11,10 @@
   "lang": "cs",
   "dir": "ltr",
   "categories": ["productivity", "business"],
+  "_phase_38_5_note": "launch_handler.client_mode='focus-existing' (Chrome 102+) — symetricka kompatibilita s chat manifest. Kdyby z chat PWA Marti navigoval na ERP URL, Chrome focusne existing ERP window misto open new tab.",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "icons": [
     {
       "src": "/static/erp/icon-192.png",

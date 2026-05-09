@@ -11,6 +11,10 @@
   "lang": "cs",
   "dir": "ltr",
   "categories": ["productivity", "business"],
+  "_phase_38_5_note": "launch_handler.client_mode='focus-existing' (Chrome 102+) — kdyz Marti klikne 'Tvoje Marti' v ERP PWA, window.open('/') Chrome detekuje URL '/' v scope chat PWA -> FOCUS existing chat window misto open new tab s chrome bar. Marti's konverzace zustane na current view (focus, not navigate).",
+  "launch_handler": {
+    "client_mode": "focus-existing"
+  },
   "icons": [
     {
       "src": "/static/erp/icon-192.png",

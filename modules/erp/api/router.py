@@ -1011,6 +1011,302 @@ def system_audit_conversation_timeline(
         ds.close()
 
 
+@api_router.get("/system/security")
+def system_security(
+    req: Request,
+    mode: str = "users",
+    tenant_id: int | None = None,
+    limit: int = 1000,
+) -> JSONResponse:
+    """Phase 38.3 (10.5.2026 odpoledne) — Security overview pro rodiče.
+
+    Marti's "bordel kolem userů, jejich přihlašování, emailů a telefonů"
+    → strukturovaný read-only audit panel pro Phase 38 stack.
+
+    mode:
+      - 'users'      — User + contacts agg (emails + phones per user)
+      - 'devices'    — Trusted devices (90d cookies) — active only
+      - 'whitelists' — Global + user IP whitelists union (active only)
+      - 'auth_audit' — Auth audit log (last N entries, all results)
+      - 'invites'    — Magic link invites (rozeslané + consumed history)
+
+    Cross-tenant pro rodiče (default). Tenant filter přes ?tenant_id=N.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    if mode not in ("users", "devices", "whitelists", "auth_audit", "invites"):
+        raise HTTPException(
+            400, f"Unknown mode: {mode!r}. Expected: users/devices/whitelists/auth_audit/invites"
+        )
+    if limit < 1 or limit > 10000:
+        raise HTTPException(400, "limit must be 1..10000")
+
+    from modules.core.infrastructure.models_data import (
+        TrustedDevice, TrustedDeviceInvite, AuthAudit,
+        GlobalIpWhitelist, UserIpWhitelist,
+    )
+    from modules.core.infrastructure.models_core import User, UserContact, Tenant
+    from core.database_core import get_core_session as _gcs_sec
+    from core.database_data import get_data_session as _gds_sec
+
+    # Defense in depth — explicit parent check (analog audit-overview)
+    cs = _gcs_sec()
+    try:
+        u = cs.query(User).filter_by(id=uid).first()
+        if not u or not getattr(u, "is_marti_parent", False):
+            raise HTTPException(403, "Security overview je jen pro rodiče.")
+
+        # Display lookup maps (tenant + user)
+        tenant_rows = cs.query(Tenant).all()
+        tenant_names = {t.id: t.tenant_name for t in tenant_rows}
+        user_rows = cs.query(User).all()
+        user_names = {
+            u_.id: " ".join(filter(None, [u_.first_name, u_.last_name])).strip()
+                   or u_.short_name or f"#{u_.id}"
+            for u_ in user_rows
+        }
+        user_tenant_map = {u_.id: u_.last_active_tenant_id for u_ in user_rows}
+    finally:
+        cs.close()
+
+    # ── mode='users' ──────────────────────────────────────────
+    if mode == "users":
+        cs2 = _gcs_sec()
+        try:
+            users_q = cs2.query(User)
+            if tenant_id is not None:
+                users_q = users_q.filter(User.last_active_tenant_id == tenant_id)
+            users = users_q.order_by(User.id).limit(limit).all()
+            user_ids = [u_.id for u_ in users]
+
+            # Bulk fetch active contacts (n+1 prevention)
+            contacts = []
+            if user_ids:
+                contacts = (
+                    cs2.query(UserContact)
+                    .filter(
+                        UserContact.user_id.in_(user_ids),
+                        UserContact.status == "active",
+                    )
+                    .order_by(
+                        UserContact.is_primary.desc(),
+                        UserContact.id.asc(),
+                    )
+                    .all()
+                )
+
+            emails_by_uid: dict[int, list[str]] = {}
+            phones_by_uid: dict[int, list[str]] = {}
+            for c in contacts:
+                if c.contact_type == "email":
+                    emails_by_uid.setdefault(c.user_id, []).append(c.contact_value)
+                elif c.contact_type == "phone":
+                    phones_by_uid.setdefault(c.user_id, []).append(c.contact_value)
+
+            rows = [
+                {
+                    "id": u_.id,
+                    "first_name": u_.first_name,
+                    "last_name": u_.last_name,
+                    "short_name": u_.short_name,
+                    "status": u_.status,
+                    "ews_email": u_.ews_email,
+                    "ews_display_email": u_.ews_display_email,
+                    "emails": emails_by_uid.get(u_.id, []),
+                    "phones": phones_by_uid.get(u_.id, []),
+                    "emails_str": ", ".join(emails_by_uid.get(u_.id, [])),
+                    "phones_str": ", ".join(phones_by_uid.get(u_.id, [])),
+                    "is_marti_parent": u_.is_marti_parent,
+                    "is_admin": u_.is_admin,
+                    "trust_rating": u_.trust_rating,
+                    "tenant_id": u_.last_active_tenant_id,
+                    "tenant_name": tenant_names.get(u_.last_active_tenant_id),
+                    "created_at": u_.created_at.isoformat() if u_.created_at else None,
+                    "updated_at": u_.updated_at.isoformat() if u_.updated_at else None,
+                }
+                for u_ in users
+            ]
+        finally:
+            cs2.close()
+        return JSONResponse({"ok": True, "mode": mode, "rows": rows, "shown": len(rows), "limit": limit})
+
+    # ── mode='devices' ────────────────────────────────────────
+    if mode == "devices":
+        ds = _gds_sec()
+        try:
+            q = ds.query(TrustedDevice).filter(TrustedDevice.revoked_at.is_(None))
+            if tenant_id is not None:
+                tenant_user_ids = [
+                    uid_ for uid_, t in user_tenant_map.items() if t == tenant_id
+                ]
+                if tenant_user_ids:
+                    q = q.filter(TrustedDevice.user_id.in_(tenant_user_ids))
+                else:
+                    q = q.filter(TrustedDevice.id == -1)  # empty result
+            devices = q.order_by(TrustedDevice.id.desc()).limit(limit).all()
+            rows = [
+                {
+                    "id": d.id,
+                    "user_id": d.user_id,
+                    "user_name": user_names.get(d.user_id, f"#{d.user_id}"),
+                    "tenant_name": tenant_names.get(user_tenant_map.get(d.user_id), "—"),
+                    "device_token_short": (str(d.device_token)[:8] + "…")
+                                           if d.device_token else None,
+                    "label": d.label,
+                    "user_agent": (d.user_agent or "")[:120],
+                    "first_seen_ip": d.first_seen_ip,
+                    "last_seen_ip": d.last_seen_ip,
+                    "last_seen_at": d.last_seen_at.isoformat() if d.last_seen_at else None,
+                    "approved_at": d.approved_at.isoformat() if d.approved_at else None,
+                    "expires_at": d.expires_at.isoformat() if d.expires_at else None,
+                }
+                for d in devices
+            ]
+        finally:
+            ds.close()
+        return JSONResponse({"ok": True, "mode": mode, "rows": rows, "shown": len(rows), "limit": limit})
+
+    # ── mode='whitelists' ─────────────────────────────────────
+    if mode == "whitelists":
+        ds = _gds_sec()
+        try:
+            global_rows = (
+                ds.query(GlobalIpWhitelist)
+                .filter(GlobalIpWhitelist.revoked_at.is_(None))
+                .order_by(GlobalIpWhitelist.id)
+                .all()
+            )
+            user_rows_q = ds.query(UserIpWhitelist).filter(
+                UserIpWhitelist.revoked_at.is_(None),
+            )
+            if tenant_id is not None:
+                tenant_user_ids = [
+                    uid_ for uid_, t in user_tenant_map.items() if t == tenant_id
+                ]
+                if tenant_user_ids:
+                    user_rows_q = user_rows_q.filter(
+                        UserIpWhitelist.user_id.in_(tenant_user_ids)
+                    )
+                else:
+                    user_rows_q = user_rows_q.filter(UserIpWhitelist.id == -1)
+            user_ip_rows = user_rows_q.order_by(UserIpWhitelist.id).limit(limit).all()
+
+            rows = []
+            for r in global_rows:
+                rows.append({
+                    "id": r.id,
+                    "scope": "global",
+                    "user_id": None,
+                    "user_name": "—",
+                    "tenant_name": "—",
+                    "ip_or_cidr": r.ip_or_cidr,
+                    "category": r.category,
+                    "label": r.label,
+                    "status": "—",
+                    "added_at": r.added_at.isoformat() if r.added_at else None,
+                    "last_seen_at": None,
+                    "use_count": None,
+                    "expires_at": None,
+                    "notes": r.notes,
+                })
+            for r in user_ip_rows:
+                rows.append({
+                    "id": r.id,
+                    "scope": "user",
+                    "user_id": r.user_id,
+                    "user_name": user_names.get(r.user_id, f"#{r.user_id}"),
+                    "tenant_name": tenant_names.get(user_tenant_map.get(r.user_id), "—"),
+                    "ip_or_cidr": r.ip_or_cidr,
+                    "category": r.category,
+                    "label": r.label,
+                    "status": r.status,
+                    "added_at": r.added_at.isoformat() if r.added_at else None,
+                    "last_seen_at": r.last_seen_at.isoformat() if r.last_seen_at else None,
+                    "use_count": r.use_count,
+                    "expires_at": r.expires_at.isoformat() if r.expires_at else None,
+                    "notes": r.notes,
+                })
+        finally:
+            ds.close()
+        return JSONResponse({"ok": True, "mode": mode, "rows": rows, "shown": len(rows), "limit": limit})
+
+    # ── mode='auth_audit' ─────────────────────────────────────
+    if mode == "auth_audit":
+        ds = _gds_sec()
+        try:
+            q = ds.query(AuthAudit).order_by(AuthAudit.id.desc()).limit(limit)
+            audits = q.all()
+            rows = [
+                {
+                    "id": a.id,
+                    "user_id": a.user_id,
+                    "user_name": user_names.get(a.user_id) if a.user_id else None,
+                    "email_attempted": a.email_attempted,
+                    "ip": a.ip,
+                    "user_agent": (a.user_agent or "")[:120],
+                    "device_token_short": (str(a.device_token)[:8] + "…")
+                                           if a.device_token else None,
+                    "layer_matched": a.layer_matched,
+                    "layer_detail": a.layer_detail,
+                    "internal": a.internal,
+                    "result": a.result,
+                    "reason": a.reason,
+                    "created_at": a.created_at.isoformat() if a.created_at else None,
+                }
+                for a in audits
+            ]
+        finally:
+            ds.close()
+        return JSONResponse({"ok": True, "mode": mode, "rows": rows, "shown": len(rows), "limit": limit})
+
+    # ── mode='invites' ────────────────────────────────────────
+    if mode == "invites":
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+        ds = _gds_sec()
+        try:
+            q = ds.query(TrustedDeviceInvite)
+            if tenant_id is not None:
+                tenant_user_ids = [
+                    uid_ for uid_, t in user_tenant_map.items() if t == tenant_id
+                ]
+                if tenant_user_ids:
+                    q = q.filter(TrustedDeviceInvite.user_id.in_(tenant_user_ids))
+                else:
+                    q = q.filter(TrustedDeviceInvite.id == -1)
+            invites = q.order_by(TrustedDeviceInvite.id.desc()).limit(limit).all()
+            rows = [
+                {
+                    "id": i.id,
+                    "invite_token": i.invite_token,
+                    "user_id": i.user_id,
+                    "user_name": user_names.get(i.user_id, f"#{i.user_id}"),
+                    "tenant_name": tenant_names.get(user_tenant_map.get(i.user_id), "—"),
+                    "purpose": i.purpose,
+                    "label": i.label,
+                    "created_at": i.created_at.isoformat() if i.created_at else None,
+                    "expires_at": i.expires_at.isoformat() if i.expires_at else None,
+                    "consumed_at": i.consumed_at.isoformat() if i.consumed_at else None,
+                    "consumed_ip": i.consumed_ip,
+                    "consumed_phone": i.consumed_phone,
+                    "consumed_user_agent": (i.consumed_user_agent or "")[:120],
+                    "is_consumed": i.consumed_at is not None,
+                    "is_expired": (i.expires_at < now) if (i.expires_at and i.consumed_at is None) else False,
+                    "state": (
+                        "consumed" if i.consumed_at is not None
+                        else ("expired" if i.expires_at and i.expires_at < now else "pending")
+                    ),
+                }
+                for i in invites
+            ]
+        finally:
+            ds.close()
+        return JSONResponse({"ok": True, "mode": mode, "rows": rows, "shown": len(rows), "limit": limit})
+
+    raise HTTPException(500, f"Mode {mode!r} fell through dispatch (bug)")
+
+
 @api_router.get("/system/tree")
 def system_tree(req: Request) -> JSONResponse:
     """Phase 35-E.4 (9.5.2026): System tier tree pro rodiče.
@@ -1138,6 +1434,78 @@ def strom_json(req: Request) -> JSONResponse:
                     "nazev": "📊 Přehled auditu",
                     "system_view": "audit_overview",
                     "system_view_mode": "stats",
+                },
+                # Phase 38.3 (10.5.2026 odpoledne): Security overview folder.
+                # Marti's "bordel kolem userů, jejich přihlasovani, emailů
+                # a telefonů" → strukturovaný read-only audit panel pro
+                # Phase 38 stack (auth_audit, sms_routing_log, devices, IPs,
+                # invites). Marti's 4× Recommended z AskUserQuestion:
+                #   A) ERP System soudeček (extend existing)
+                #   B) Read-only MVP (edit later)
+                #   C) Hybrid tenant scope (current default + parent toggle)
+                #   D) Sub-uzly v System tree (folder + 5 children)
+                #
+                # Negative cisla -110..-114 (skip -104..-109 reserved
+                # pro budoucí audit expansion v Phase 36+).
+                {
+                    "id": "system.security",
+                    "cislo_def": None,
+                    "is_system": True,
+                    "is_folder": True,
+                    "label": "📁 Security",
+                    "nazev": "📁 Security",
+                    "children": [
+                        {
+                            "id": "system.security.users",
+                            "cislo_def": -110,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "👥 Uživatelé",
+                            "nazev": "👥 Uživatelé",
+                            "system_view": "security",
+                            "system_view_mode": "users",
+                        },
+                        {
+                            "id": "system.security.devices",
+                            "cislo_def": -111,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "🔐 Trusted devices",
+                            "nazev": "🔐 Trusted devices",
+                            "system_view": "security",
+                            "system_view_mode": "devices",
+                        },
+                        {
+                            "id": "system.security.whitelists",
+                            "cislo_def": -112,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "🌐 IP whitelists",
+                            "nazev": "🌐 IP whitelists",
+                            "system_view": "security",
+                            "system_view_mode": "whitelists",
+                        },
+                        {
+                            "id": "system.security.audit",
+                            "cislo_def": -113,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "📋 Auth audit",
+                            "nazev": "📋 Auth audit",
+                            "system_view": "security",
+                            "system_view_mode": "auth_audit",
+                        },
+                        {
+                            "id": "system.security.invites",
+                            "cislo_def": -114,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "✉️ Magic invites",
+                            "nazev": "✉️ Magic invites",
+                            "system_view": "security",
+                            "system_view_mode": "invites",
+                        },
+                    ],
                 },
             ],
         }
@@ -4684,6 +5052,137 @@ def _render_workspace_page(user_id: int) -> str:
     (function() {
       function gridColumns(mode) {
         var H = window._sysHelpers || {};
+
+        // ── Phase 38.3 Security overview columns (10.5.2026) ──────
+        if (mode === "security_users") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Status", field: "status", width: 90, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f" };
+                if (p.value === "disabled") return { color: "#cc6666" };
+                return { color: "#888" };
+              } },
+            { headerName: "Jméno", field: "first_name", width: 110, sortable: true },
+            { headerName: "Příjmení", field: "last_name", width: 130, sortable: true },
+            { headerName: "Display email", field: "ews_display_email", width: 230, sortable: true },
+            { headerName: "EWS UPN", field: "ews_email", width: 250, sortable: true,
+              headerTooltip: "UPN pro Exchange autentizaci — secret credential, jen pro rodiče" },
+            { headerName: "Další emaily", field: "emails_str", flex: 1, minWidth: 180,
+              headerTooltip: "Sekundární emaily z user_contacts" },
+            { headerName: "Telefony", field: "phones_str", width: 200,
+              headerTooltip: "Aktivní phone contacts (primary first)" },
+            { headerName: "Tenant", field: "tenant_name", width: 120, sortable: true },
+            { headerName: "Rodič", field: "is_marti_parent", width: 80,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
+            { headerName: "Admin", field: "is_admin", width: 80,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
+            { headerName: "Trust", field: "trust_rating", width: 80, type: "numericColumn" },
+            { headerName: "Vytvořeno", field: "created_at", width: 150,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        if (mode === "security_devices") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "User", field: "user_name", width: 160, sortable: true },
+            { headerName: "Tenant", field: "tenant_name", width: 120 },
+            { headerName: "Token", field: "device_token_short", width: 110,
+              headerTooltip: "First 8 chars of device cookie UUID" },
+            { headerName: "Label", field: "label", width: 180 },
+            { headerName: "User-Agent", field: "user_agent", flex: 1, minWidth: 200 },
+            { headerName: "First IP", field: "first_seen_ip", width: 130 },
+            { headerName: "Last IP", field: "last_seen_ip", width: 130 },
+            { headerName: "Last seen", field: "last_seen_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Approved", field: "approved_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Expires", field: "expires_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        if (mode === "security_whitelists") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Scope", field: "scope", width: 90, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "global") return { color: "#d4a017", fontWeight: "500" };
+                if (p.value === "user") return { color: "#6aa84f" };
+                return null;
+              } },
+            { headerName: "User", field: "user_name", width: 150 },
+            { headerName: "Tenant", field: "tenant_name", width: 120 },
+            { headerName: "IP / CIDR", field: "ip_or_cidr", width: 160, sortable: true,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Kategorie", field: "category", width: 130, sortable: true },
+            { headerName: "Status", field: "status", width: 110, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "confirmed") return { color: "#6aa84f" };
+                if (p.value === "pending") return { color: "#d4a017" };
+                if (p.value === "revoked") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 180 },
+            { headerName: "Use count", field: "use_count", width: 100, type: "numericColumn" },
+            { headerName: "Added", field: "added_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Last seen", field: "last_seen_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        if (mode === "security_audit") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", sort: "desc" },
+            { headerName: "Result", field: "result", width: 130, sortable: true,
+              cellStyle: function(p) {
+                var v = p.value || "";
+                if (v.indexOf("success") >= 0 || v === "verify_consumed") return { color: "#6aa84f" };
+                if (v.indexOf("failed") >= 0) return { color: "#cc6666" };
+                if (v === "rate_limited") return { color: "#d4a017", fontWeight: "500" };
+                if (v === "verify_required") return { color: "#888" };
+                if (v === "verify_sent") return { color: "#7ba8d4" };
+                return null;
+              } },
+            { headerName: "User", field: "user_name", width: 150 },
+            { headerName: "Email attempted", field: "email_attempted", width: 230 },
+            { headerName: "IP", field: "ip", width: 130, cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Layer", field: "layer_matched", width: 110 },
+            { headerName: "Detail", field: "layer_detail", width: 180 },
+            { headerName: "Reason", field: "reason", flex: 1, minWidth: 200 },
+            { headerName: "Internal", field: "internal", width: 90,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
+            { headerName: "Cookie", field: "device_token_short", width: 100 },
+            { headerName: "Když", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        if (mode === "security_invites") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", sort: "desc" },
+            { headerName: "State", field: "state", width: 120, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "consumed") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "expired") return { color: "#888" };
+                if (p.value === "pending") return { color: "#d4a017" };
+                return null;
+              } },
+            { headerName: "Token", field: "invite_token", width: 180,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Purpose", field: "purpose", width: 100 },
+            { headerName: "User", field: "user_name", width: 150, sortable: true },
+            { headerName: "Tenant", field: "tenant_name", width: 120 },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Expirace", field: "expires_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Spotřebováno", field: "consumed_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Z IP", field: "consumed_ip", width: 130, cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Z telefonu", field: "consumed_phone", width: 140, cellStyle: { fontFamily: "monospace" } },
+            { headerName: "User-Agent", field: "consumed_user_agent", flex: 1, minWidth: 200 }
+          ];
+        }
+
         if (mode === "stats") {
           return [
             { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
@@ -4760,9 +5259,16 @@ def _render_workspace_page(user_id: int) -> str:
       // Krok B+: Layout cisla pro System uzly (negativni — vyhrazeny range
       // pro neformalni/system grids, nekoliduje s realnymi prehledy z DB_EC)
       var SYSTEM_LAYOUT_CISLA = {
+        // Phase 35-E.4 audit views
         audited: -101,
         all: -102,
-        stats: -103
+        stats: -103,
+        // Phase 38.3 security views (10.5.2026)
+        security_users: -110,
+        security_devices: -111,
+        security_whitelists: -112,
+        security_audit: -113,
+        security_invites: -114
       };
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
@@ -4791,10 +5297,19 @@ def _render_workspace_page(user_id: int) -> str:
         main.innerHTML =
           '<div id="erpSysGridBody" style="height:100%;background:var(--bg);">Nacitam...</div>';
 
-        // Fetch data
+        // Fetch data — Phase 38.3 (10.5.2026): mode prefix určí endpoint.
+        // 'security_*' → /system/security?mode={trimmed}
+        // 'audited' / 'all' / 'stats' → /system/audit-overview?mode={mode}
         var data;
+        var url;
+        var isSecurityMode = (mode && mode.indexOf("security_") === 0);
+        if (isSecurityMode) {
+          var secSubMode = mode.substring("security_".length);  // "users" / "devices" / ...
+          url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(secSubMode);
+        } else {
+          url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
+        }
         try {
-          var url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
           var res = await fetch(url, { credentials: "include" });
           if (!res.ok) {
             var txt = await res.text();
@@ -4818,7 +5333,12 @@ def _render_workspace_page(user_id: int) -> str:
         body.innerHTML = "";
 
         var columns = H.gridColumns ? H.gridColumns(mode) : [];
-        var rowData = (mode === "stats") ? (data.rows || []) : (data.conversations || []);
+        var rowData;
+        if (isSecurityMode || mode === "stats") {
+          rowData = data.rows || [];
+        } else {
+          rowData = data.conversations || [];
+        }
 
         // Krok B+: Layout key pro System uzly (negativni cislo)
         var sysCislo = SYSTEM_LAYOUT_CISLA[mode];
@@ -5189,19 +5709,33 @@ def _render_workspace_page(user_id: int) -> str:
       // _loadTabData/_renderTabIntoMain pokud tab.cislo < 0.
       function _systemModeFromItemId(itemId) {
         if (!itemId) return null;
+        // Phase 35-E.4 audit views
         if (itemId === "system.audit.tabs") return "tabs";
         if (itemId === "system.audit.audited") return "audited";
         if (itemId === "system.audit.all") return "all";
         if (itemId === "system.audit.stats") return "stats";
+        // Phase 38.3 security views (10.5.2026 odpoledne)
+        if (itemId === "system.security.users") return "security_users";
+        if (itemId === "system.security.devices") return "security_devices";
+        if (itemId === "system.security.whitelists") return "security_whitelists";
+        if (itemId === "system.security.audit") return "security_audit";
+        if (itemId === "system.security.invites") return "security_invites";
         return null;
       }
 
       // Mapping cislo → mode (fallback kdyz itemId chybi po reload z user_tabs)
       function _systemModeFromCislo(cislo) {
+        // Phase 35-E.4 audit views
         if (cislo === -100) return "tabs";
         if (cislo === -101) return "audited";
         if (cislo === -102) return "all";
         if (cislo === -103) return "stats";
+        // Phase 38.3 security views
+        if (cislo === -110) return "security_users";
+        if (cislo === -111) return "security_devices";
+        if (cislo === -112) return "security_whitelists";
+        if (cislo === -113) return "security_audit";
+        if (cislo === -114) return "security_invites";
         return null;
       }
 
@@ -5220,7 +5754,10 @@ def _render_workspace_page(user_id: int) -> str:
             ' style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
             ' title="Audit dashboard"></iframe>';
         } else if (window._sysHelpers && window._sysHelpers.renderSystemGrid) {
-          // Variant B — native AG Grid v main pane (audited / all / stats)
+          // Variant B — native AG Grid v main pane.
+          // Phase 35-E.4: audited / all / stats (audit-overview endpoint)
+          // Phase 38.3 (10.5.2026): security_* modes (security endpoint),
+          //   handled v renderSystemGrid via mode prefix dispatch.
           window._sysHelpers.renderSystemGrid(mode, lbl);
         } else {
           // Fallback — pokud helpers neproskocila parse, jdi pres iframe

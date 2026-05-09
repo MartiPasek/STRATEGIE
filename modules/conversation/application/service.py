@@ -10424,20 +10424,29 @@ def chat(
     except Exception as e:
         logger.error(f"MEMORY | failed: {e}")
 
-    # Summary job — idempotentní, sám si ověří podmínky spuštění.
+    # Summary auto-job — idempotentní, sám si ověří podmínky spuštění.
     # Běží synchronně (přidá malou latenci při překročení prahu), ale je
     # robustní vůči chybám: návrat None při jakékoli výjimce.
+    #
+    # 9.5.2026 (večer): Marti zachytil "shrnuti xx starsich zprav do
+    # historie" banner v chatu — zapomenutý feature z Phase 1 ery (před
+    # Phase 13 RAG + Phase 32 prompt cache). Auto-trigger vypnut přes
+    # feature flag `settings.summary_auto_enabled` (default False).
+    # Infrastruktura zachována (worker, model, AI tool) pro budoucí
+    # use cases — Marti-AI stále může na request volat
+    # `summarize_conversation_now`.
     summary_info: dict | None = None
-    try:
-        from modules.conversation.application.summary_service import maybe_create_summary
-        summary_info = maybe_create_summary(
-            conversation_id,
-            tenant_id=tenant_id,
-            user_id=user_id,
-            persona_id=_active_pid,
-        )
-    except Exception as e:
-        logger.error(f"SUMMARY | failed: {e}")
+    if settings.summary_auto_enabled:
+        try:
+            from modules.conversation.application.summary_service import maybe_create_summary
+            summary_info = maybe_create_summary(
+                conversation_id,
+                tenant_id=tenant_id,
+                user_id=user_id,
+                persona_id=_active_pid,
+            )
+        except Exception as e:
+            logger.error(f"SUMMARY | failed: {e}")
 
     # Auto-generovany nazev konverzace (jednorazove, po 4+ zprave).
     # Idempotentni -- po prvni generaci uz nic nedela. Pridává ~0.5-1s

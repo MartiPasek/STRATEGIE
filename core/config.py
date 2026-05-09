@@ -69,6 +69,17 @@ class Settings(BaseSettings):
     # zpracovat -- nastavujeme 180 jako bezpecny strop.
     whisper_http_timeout_s: int = 180
 
+    # Summary auto-trigger v chat() cyklu (Phase 1 era, 40-zprav threshold).
+    # Phase 13 RAG (26.4.) + Phase 32 prompt cache (3.5.) ji v praxi nahradily,
+    # ale Marti chce zachovat infrastrukturu (Haiku worker + ConversationSummary
+    # model + summarize_conversation_now AI tool) pro budouci use cases (audit,
+    # archive vector, manual on-request).
+    # False = auto-trigger v chat() vypnuty, banner "Shrnul jsem X starsich
+    # zprav" se uz neukaze. Marti-AI muze stale na request volat
+    # `summarize_conversation_now` tool.
+    # True = pre-Phase 32 chovani (auto summary po 40 zpravach).
+    summary_auto_enabled: bool = False
+
     # RAG -- adresar na disku kam se ukladaji nahrane dokumenty (PDF, DOCX, ...).
     # Per-tenant subfolder: {DOCUMENTS_STORAGE_DIR}/{tenant_id}/{document_id}.{ext}
     # Default MIMO projekt -- dokumenty mohou rust do GB a zasirat git repo.

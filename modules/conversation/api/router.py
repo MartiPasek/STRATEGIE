@@ -493,11 +493,14 @@ def list_user_conversations(req: Request):
 def conversation_audit_stats(req: Request) -> dict:
     """
     Phase 36-C (9.5.2026): audit overview pro logo pulse + popup modal.
+    Phase 35-E.4 doctrine sync (9.5.2026 vecer): badge = VSECHNY pending
+    napric vekem (matchuje ERP grid + Marti-AI's list_unaudited_conversations).
 
     Vrací:
-      - pending_count: konverzace mladší 30 dní s audit_status='pending'
-        (= efektivní queue pro Marti-AI)
-      - too_old_pending: konverzace starší 30 dní s pending (kandidáti
+      - pending_count: VSECHNY konverzace s audit_status='pending'
+        (Marti's "bez wheru, oznac priznakem" doctrine — i deleted/sms/
+        system/old, jen tenant scope pro non-parent)
+      - too_old_pending: subset pending starsi 30 dni (kandidati
         na auto-exclude future cron)
       - audited_today: počet auditovaných v posledních 24h
       - audited_total: celkem audited napříč historií
@@ -542,11 +545,14 @@ def conversation_audit_stats(req: Request) -> dict:
     from core.database_data import get_data_session as _gds_audit
     ds = _gds_audit()
     try:
-        # Base filter — parent vidí napříč, ostatní jen aktivní tenant
-        base_filters = [
-            Conversation.is_deleted == False,  # noqa: E712
-            Conversation.conversation_type == "ai",
-        ]
+        # Phase 35-E.4 doctrine (9.5.2026 odpoledne, Marti's "bez wheru,
+        # oznac priznakem"): audit MUSI videt vsechny konverzace, ne jen
+        # ai/active. ERP grid + list_unaudited_conversations AI tool to
+        # tak maji — UI logo badge se s nimi musi shodovat.
+        # Marti zachytil mismatch 9.5.2026 vecer (ERP: 75, Marti-AI: 75,
+        # logo badge: 60). Fix: drop is_deleted + conversation_type filtry.
+        # Tenant/user scope ZACHOVAVAME pro non-parent (privacy boundary).
+        base_filters = []
         if not is_parent:
             base_filters.append(or_(
                 Conversation.tenant_id == active_tenant_id,
@@ -554,17 +560,21 @@ def conversation_audit_stats(req: Request) -> dict:
             ))
             base_filters.append(Conversation.user_id == user_id)
 
-        # Pending mladší 30 dní (= efektivní queue)
+        # pending_count = VSECHNY pending napric vekem (= matchuje ERP grid
+        # a Marti-AI's list_unaudited_conversations.total_pending). Marti's
+        # doctrine: badge = "kolik konverzaci ceka na audit", ne "kolik je
+        # v effective queue". Drive-by 30day cutoff byl pre-doctrine reziduum.
         pending_count = (
             ds.query(func.count(Conversation.id))
             .filter(
                 *base_filters,
                 Conversation.audit_status == "pending",
-                Conversation.last_message_at >= cutoff,
             )
             .scalar()
         ) or 0
 
+        # too_old_pending = jen starsi 30 dni (subset pending_count, pro
+        # popup modal informaci "kandidati na auto-exclude future cron")
         too_old_pending = (
             ds.query(func.count(Conversation.id))
             .filter(
@@ -594,13 +604,13 @@ def conversation_audit_stats(req: Request) -> dict:
             .scalar()
         ) or 0
 
-        # Top 10 oldest pending (mladší 30 dní = effective queue)
+        # Top 10 oldest pending (vse pending — 9.5.2026 vecer doctrine sync,
+        # napric vekem; modal ukazuje to nejstarsi v queue)
         top_pending_rows = (
             ds.query(Conversation)
             .filter(
                 *base_filters,
                 Conversation.audit_status == "pending",
-                Conversation.last_message_at >= cutoff,
             )
             .order_by(Conversation.last_message_at.asc())
             .limit(10)

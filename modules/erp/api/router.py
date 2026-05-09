@@ -1428,7 +1428,6 @@ def system_framework(
         "rows": rows,
         "shown": len(rows),
         "limit": limit,
-        "_diag_columns": first_keys,  # první row column names pro debug
     })
 
 

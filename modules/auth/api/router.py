@@ -197,12 +197,45 @@ def verify_email_request(
     if channel not in ("email", "sms"):
         raise HTTPException(status_code=400, detail=f"Neznámý channel: {channel!r}")
 
-    # Find user by email (anti-enumeration: stejný response i kdyby user neexistoval)
+    # Find user by email — priority chain (Marti's gotcha #61, doctrine
+    # "UPN je secret, display je co user typuje"):
+    #   1. ews_display_email — public alias (m.pasek@eurosoft.com)
+    #   2. user_contacts contact_type='email' status='active' — secondary emaily
+    #   3. ews_email — LEGACY fallback (UPN m.pasek@eurosoft-control.cz),
+    #      backward compat pro starší účty bez display_email
+    # Anti-enumeration: stejný response i kdyby user neexistoval (vždy 200
+    # s polling_token, viz dále).
+    email_input = body.email.strip()
     cs = get_core_session()
     try:
+        # 1) Display email (preferred — Marti's pivot 10.5.: UPN nesmí
+        #    nikde mimo credentials příchodit)
         user = cs.query(User).filter(
-            User.ews_email.ilike(body.email.strip()),
+            User.ews_display_email.ilike(email_input),
         ).first()
+
+        # 2) Secondary emaily v user_contacts (multi-mailbox per user)
+        if user is None:
+            contact_match = (
+                cs.query(UserContact)
+                .filter(
+                    UserContact.contact_type == "email",
+                    UserContact.status == "active",
+                    UserContact.contact_value.ilike(email_input),
+                )
+                .first()
+            )
+            if contact_match:
+                user = cs.query(User).filter_by(id=contact_match.user_id).first()
+
+        # 3) Legacy fallback na UPN (ews_email) — pro účty před Phase 38
+        #    bez naplněného ews_display_email. Po dokončení migrace všech
+        #    userů na display_email lze tento fallback odstranit.
+        if user is None:
+            user = cs.query(User).filter(
+                User.ews_email.ilike(email_input),
+            ).first()
+
         user_id = user.id if user else None
 
         # Pro SMS variant najdi user's primary phone PŘED close session

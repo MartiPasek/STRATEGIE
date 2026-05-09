@@ -307,7 +307,7 @@ TOKEN_REGEX = re.compile(r"^STG-([A-Z]+)-([A-Z0-9]+)$")
 
 def consume_invite(
     token: str,
-    request: Request,
+    request: Request | None,
     *,
     sender_phone: str | None = None,
     session: Session | None = None,
@@ -367,25 +367,44 @@ def consume_invite(
             )
 
         # Anti-spoofing: pokud SMS-based consume, sender_phone MUST match
-        # user's registered phone (Marti's safeguard 10.5.)
+        # user's registered phone (Marti's safeguard 10.5.).
+        #
+        # Pozn.: User model nema phone column — telefonni cisla jsou
+        # v user_contacts (contact_type='phone', status='active'). User
+        # muze mit vice phone contacts (primary + backup). Match proti
+        # VSEM aktivnim phone contacts (Marti's flexibility pro CZ
+        # formats z 10.5.: +420 prefix / 9 digit bez prefix / 00420...).
         if sender_phone is not None:
-            from modules.core.infrastructure.models_core import User
+            from modules.core.infrastructure.models_core import UserContact
             from core.database_core import get_core_session
             cs = get_core_session()
             try:
-                user_obj = cs.query(User).filter_by(id=invite.user_id).first()
-                user_phone = user_obj.phone if user_obj else None
+                contacts = (
+                    cs.query(UserContact)
+                    .filter_by(
+                        user_id=invite.user_id,
+                        contact_type="phone",
+                        status="active",
+                    )
+                    .order_by(
+                        UserContact.is_primary.desc(),
+                        UserContact.id.asc(),
+                    )
+                    .all()
+                )
+                user_phones = [c.contact_value for c in contacts]
             finally:
                 cs.close()
 
-            if not phones_match(sender_phone, user_phone):
+            matched = any(phones_match(sender_phone, p) for p in user_phones)
+            if not matched:
                 return SecurityResult(
                     granted=False,
                     audit_data={
                         "ip": client_ip,
                         "user_agent": user_agent,
                         "sender_phone": sender_phone,
-                        "user_phone_registered": user_phone,
+                        "user_phones_registered": user_phones,
                         "reason": "caller_id_mismatch",
                     },
                 )

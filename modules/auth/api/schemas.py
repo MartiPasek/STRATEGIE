@@ -80,18 +80,42 @@ class LoginResponse(BaseModel):
 
 
 class VerifyEmailRequestBody(BaseModel):
-    """POST /api/v1/auth/verify-email/request — user žádá magic link."""
+    """POST /api/v1/auth/verify-email/request — user žádá magic link.
+
+    channel:
+      - 'email' (default) — TODO Phase 38.0: pošle email s linkem
+      - 'sms' (Marti's pivot 10.5.) — pošle SMS s tokenem přes Marti-AI's
+        SIM. User reply zpět na +420778117879 → caller_id check → consume.
+    """
     email: str
+    channel: str = "email"
 
 
 class VerifyEmailRequestResponse(BaseModel):
-    """Response pro verify-email/request — bez detailů jestli email existuje
-    (anti-enumeration). Vždy "pokud existuje, poslali jsme link"."""
+    """Response pro verify-email/request — anti-enumeration:
+    polling_token vždy nastavený (real pro existující user + fake STG-AUTH-XXX
+    pro neexistující). Status endpoint reaguje 'pending' v obou případech."""
     ok: bool = True
+    polling_token: str | None = None     # Token pro UI polling /status?token=X
     message: str = (
         "Pokud má e-mail platný účet, odeslali jsme magic link. "
         "Zkontrolujte schránku (platnost 24 hodin)."
     )
+
+
+class VerifyEmailStatusResponse(BaseModel):
+    """Response pro polling /verify-email/status?token=X.
+
+    status:
+      - 'pending'  — invite zatím není consumed (čekáme na user SMS reply)
+      - 'consumed' — user replyne SMS s tokenem, caller_id OK → cookie set,
+                     UI provede redirect
+      - 'expired'  — invite expirovala (>24h), user musí začít znovu
+    """
+    status: str
+    user_id: int | None = None
+    redirect: str | None = None          # Kam přesměrovat po consumed
+    expires_at: str | None = None        # ISO format invite expires_at
 
 
 class VerifyEmailConfirmResponse(BaseModel):

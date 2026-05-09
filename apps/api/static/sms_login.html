@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1a1a1f">
+  <title>STRATEGIE — Přihlášení přes SMS</title>
+  <style>
+    :root {
+      --bg: #1a1a1f;
+      --bg-card: #24242c;
+      --bg-input: #2c2c36;
+      --border: #3a3a44;
+      --border-active: #8b7355;
+      --text: #e8e0d0;
+      --text-dim: #8a847a;
+      --accent: #d4b88a;
+      --accent-fade: rgba(212, 184, 138, 0.18);
+      --error: #d97863;
+      --success: #7fb077;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0; padding: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      min-height: 100dvh;
+      -webkit-font-smoothing: antialiased;
+    }
+    .login {
+      max-width: 440px;
+      margin: 0 auto;
+      padding: 32px 24px;
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      text-align: center;
+      margin-bottom: 32px;
+      padding-top: 16px;
+    }
+    header h1 {
+      margin: 0 0 8px;
+      font-size: 24px;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      color: var(--accent);
+    }
+    header p {
+      margin: 0;
+      color: var(--text-dim);
+      font-size: 14px;
+    }
+    .stage {
+      display: none;
+      flex: 1;
+    }
+    .stage.active {
+      display: flex;
+      flex-direction: column;
+    }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 24px;
+      margin-top: auto;
+      margin-bottom: auto;
+    }
+    label {
+      display: block;
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    input[type="email"] {
+      width: 100%;
+      padding: 14px 16px;
+      background: var(--bg-input);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 16px;
+      font-family: inherit;
+      outline: none;
+      transition: border-color 0.15s;
+      -webkit-appearance: none;
+    }
+    input[type="email"]:focus {
+      border-color: var(--border-active);
+    }
+    button {
+      width: 100%;
+      padding: 14px 20px;
+      background: var(--accent-fade);
+      border: 1px solid var(--border-active);
+      border-radius: 8px;
+      color: var(--accent);
+      font-size: 16px;
+      font-weight: 500;
+      font-family: inherit;
+      cursor: pointer;
+      transition: background 0.15s;
+      margin-top: 16px;
+    }
+    button:hover { background: rgba(212, 184, 138, 0.28); }
+    button:active { transform: translateY(1px); }
+    button.secondary {
+      background: transparent;
+      color: var(--text-dim);
+      border-color: var(--border);
+      margin-top: 12px;
+    }
+    .spinner {
+      text-align: center;
+      font-size: 48px;
+      animation: pulse 1.6s ease-in-out infinite;
+      margin: 8px 0 24px;
+    }
+    @keyframes pulse {
+      0%, 100% { opacity: 0.4; transform: scale(0.95); }
+      50% { opacity: 1; transform: scale(1.0); }
+    }
+    .stage h2 {
+      margin: 0 0 16px;
+      font-size: 20px;
+      font-weight: 500;
+      color: var(--text);
+      text-align: center;
+    }
+    .stage p {
+      margin: 0 0 12px;
+      color: var(--text-dim);
+      text-align: center;
+    }
+    .stage .phone {
+      font-size: 18px;
+      color: var(--accent);
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      padding: 8px 12px;
+      background: var(--accent-fade);
+      border-radius: 6px;
+      display: inline-block;
+      margin: 4px 0;
+    }
+    .stage .hint {
+      font-size: 13px;
+      color: var(--text-dim);
+      margin-top: 24px;
+    }
+    .stage .elapsed {
+      font-size: 12px;
+      color: var(--text-dim);
+      margin-top: 8px;
+      font-variant-numeric: tabular-nums;
+    }
+    .stage[data-stage="success"] h2 { color: var(--success); }
+    .stage[data-stage="error"] h2 { color: var(--error); }
+    footer {
+      margin-top: auto;
+      padding-top: 24px;
+      text-align: center;
+      font-size: 12px;
+      color: var(--text-dim);
+    }
+  </style>
+</head>
+<body>
+  <main class="login">
+    <header>
+      <h1>STRATEGIE</h1>
+      <p>Přihlášení přes SMS</p>
+    </header>
+
+    <!-- Stage 1: email input -->
+    <section data-stage="email" class="stage active">
+      <div class="card">
+        <form id="loginForm" novalidate>
+          <label for="email">E-mailová adresa</label>
+          <input id="email" type="email" required autocomplete="email" inputmode="email"
+                 placeholder="jmeno@eurosoft.com">
+          <button type="submit" id="submitBtn">Pošli mi kód SMS</button>
+        </form>
+      </div>
+    </section>
+
+    <!-- Stage 2: SMS sent, polling -->
+    <section data-stage="polling" class="stage">
+      <div class="card">
+        <div class="spinner">⏳</div>
+        <h2>Zkontroluj telefon</h2>
+        <p>Poslali jsme ti SMS s kódem.</p>
+        <p>Pošli ji zpět na</p>
+        <p style="text-align: center;">
+          <span class="phone">+420 778 117 879</span>
+        </p>
+        <p class="hint">Čekám na potvrzení...</p>
+        <p class="elapsed">Uplynulo: <span id="elapsed">0:00</span></p>
+        <button type="button" id="cancelBtn" class="secondary">Zkusit znovu</button>
+      </div>
+    </section>
+
+    <!-- Stage 3: success -->
+    <section data-stage="success" class="stage">
+      <div class="card">
+        <h2>Přihlášeno ✓</h2>
+        <p>Přesměrovávám...</p>
+      </div>
+    </section>
+
+    <!-- Stage 4: error / expired -->
+    <section data-stage="error" class="stage">
+      <div class="card">
+        <h2>Něco se nepovedlo</h2>
+        <p id="errorMsg">Token vypršel nebo se nepodařilo ověřit.</p>
+        <button type="button" id="retryBtn">Zkusit znovu</button>
+      </div>
+    </section>
+
+    <footer>STRATEGIE · Phase 38 Security · v1</footer>
+  </main>
+
+  <script>
+    'use strict';
+
+    const POLL_INTERVAL_MS = 2000;
+    const MAX_ELAPSED_SEC = 300;  // 5 min timeout
+
+    const stages = document.querySelectorAll('.stage');
+    const elapsedEl = document.getElementById('elapsed');
+    const errorMsgEl = document.getElementById('errorMsg');
+
+    let pollingToken = null;
+    let pollingInterval = null;
+    let pollingStartTime = null;
+
+    function showStage(name) {
+      stages.forEach(s => s.classList.toggle('active', s.dataset.stage === name));
+    }
+
+    function setError(msg) {
+      errorMsgEl.textContent = msg;
+      showStage('error');
+    }
+
+    function stopPolling() {
+      if (pollingInterval) {
+        clearInterval(pollingInterval);
+        pollingInterval = null;
+      }
+      pollingStartTime = null;
+    }
+
+    function updateElapsed() {
+      if (!pollingStartTime) return;
+      const elapsed = Math.floor((Date.now() - pollingStartTime) / 1000);
+      const mins = Math.floor(elapsed / 60);
+      const secs = elapsed % 60;
+      elapsedEl.textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+      if (elapsed > MAX_ELAPSED_SEC) {
+        stopPolling();
+        setError('Vypršel časový limit (5 min). Zkus znovu.');
+      }
+    }
+
+    async function pollStatus() {
+      if (!pollingToken) return;
+      try {
+        const resp = await fetch(
+          `/api/v1/auth/verify-email/status?token=${encodeURIComponent(pollingToken)}`,
+          { credentials: 'same-origin' }
+        );
+        if (!resp.ok) {
+          // 4xx/5xx — retry, ne immediate error (síťové výpadky, server restart)
+          console.warn(`Polling HTTP ${resp.status}`);
+          return;
+        }
+        const data = await resp.json();
+        if (data.status === 'consumed') {
+          stopPolling();
+          showStage('success');
+          setTimeout(() => {
+            window.location.href = data.redirect || '/';
+          }, 800);
+        } else if (data.status === 'expired') {
+          stopPolling();
+          setError('Kód vypršel (24h limit). Začni znovu.');
+        }
+        // 'pending' — pokračuj polling
+        updateElapsed();
+      } catch (e) {
+        console.warn('Polling error (ignored):', e);
+      }
+    }
+
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value.trim();
+      if (!email || !email.includes('@')) {
+        setError('Zadej platný e-mail.');
+        return;
+      }
+
+      const submitBtn = document.getElementById('submitBtn');
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Posílám...';
+
+      try {
+        const resp = await fetch('/api/v1/auth/verify-email/request', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'same-origin',
+          body: JSON.stringify({ email, channel: 'sms' }),
+        });
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const data = await resp.json();
+        pollingToken = data.polling_token;
+        if (!pollingToken) {
+          setError('Server nevrátil polling token. Zkus znovu.');
+          return;
+        }
+        pollingStartTime = Date.now();
+        showStage('polling');
+        updateElapsed();
+        pollingInterval = setInterval(pollStatus, POLL_INTERVAL_MS);
+      } catch (e) {
+        setError(`Chyba: ${e.message}`);
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Pošli mi kód SMS';
+      }
+    });
+
+    document.getElementById('cancelBtn').addEventListener('click', () => {
+      stopPolling();
+      pollingToken = null;
+      showStage('email');
+    });
+
+    document.getElementById('retryBtn').addEventListener('click', () => {
+      stopPolling();
+      pollingToken = null;
+      showStage('email');
+    });
+  </script>
+</body>
+</html>

@@ -1,4 +1,7 @@
+from pathlib import Path
+
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from core.config import settings
@@ -160,18 +163,28 @@ def verify_email_request(
 ) -> VerifyEmailRequestResponse:
     """User žádá magic link pro ověření zařízení.
 
-    Body: {"email": "..."}
-    Response: vždy "OK + pokud existuje, link odeslán" (anti-enumeration).
+    Body: {"email": "...", "channel": "email" | "sms"}
+
+    channel='email' (default): TODO Phase 38.0 — pošle email s linkem
+    channel='sms' (Marti's pivot 10.5.): pošle SMS userovi přes Marti-AI's
+        SIM s tokenem. User reply zpět na +420778117879. Pre-processor
+        consume přes caller_id check. UI polluje /verify-email/status.
+
+    Anti-enumeration:
+      - Vždy vrací 200 s polling_token (real pro existující user, fake
+        STG-AUTH-XXX pro neexistujícího). Status endpoint stejně reaguje
+        'pending' v obou případech.
 
     Pre-conditions:
-      - Phase 38 musí být aktivní (settings.sec_layered_auth_enabled)
+      - Phase 38 aktivní (settings.sec_layered_auth_enabled)
       - Rate limit: TODO Phase 38.1 (5/email/hour, 10/IP/hour)
     """
+    import secrets
     from modules.auth.api.schemas import VerifyEmailRequestResponse
     from modules.auth.application.security_service import (
         create_invite, audit_login_attempt,
     )
-    from modules.core.infrastructure.models_core import User
+    from modules.core.infrastructure.models_core import User, UserContact
     from modules.audit.application.service import log_event
 
     if not settings.sec_layered_auth_enabled:
@@ -179,6 +192,10 @@ def verify_email_request(
 
     ip = req.client.host if req.client else None
     ua = req.headers.get("user-agent")
+    channel = (body.channel or "email").strip().lower()
+
+    if channel not in ("email", "sms"):
+        raise HTTPException(status_code=400, detail=f"Neznámý channel: {channel!r}")
 
     # Find user by email (anti-enumeration: stejný response i kdyby user neexistoval)
     cs = get_core_session()
@@ -186,45 +203,282 @@ def verify_email_request(
         user = cs.query(User).filter(
             User.ews_email.ilike(body.email.strip()),
         ).first()
+        user_id = user.id if user else None
+
+        # Pro SMS variant najdi user's primary phone PŘED close session
+        # (avoid DetachedInstanceError)
+        primary_phone = None
+        if user and channel == "sms":
+            phone_contact = (
+                cs.query(UserContact)
+                .filter_by(
+                    user_id=user.id,
+                    contact_type="phone",
+                    status="active",
+                )
+                .order_by(
+                    UserContact.is_primary.desc(),
+                    UserContact.id.asc(),
+                )
+                .first()
+            )
+            if phone_contact:
+                primary_phone = phone_contact.contact_value
     finally:
         cs.close()
 
+    # Anti-enum fallback: pokud user neexistuje, generuj fake polling token.
+    # UI polluje, status endpoint vrátí 'pending' do expirace (24h). Útočník
+    # nepozná rozdíl mezi real a fake.
     if user is None:
-        # Anti-enumeration: stejný response, log do audit
+        fake_token = f"STG-AUTH-{secrets.token_hex(4).upper()}"
         audit_login_attempt(
             user_id=None,
             email_attempted=body.email,
             ip=ip, user_agent=ua,
             result="verify_required",
-            reason="user_not_found_anti_enum",
+            reason=f"user_not_found_anti_enum_channel={channel}",
         )
-        return VerifyEmailRequestResponse()
+        return VerifyEmailRequestResponse(polling_token=fake_token)
 
-    # Vytvoř invite token (24h self-request)
+    # User exists — vytvoř real invite token (24h self-request)
     invite = create_invite(user_id=user.id, created_by=None, label=None)
 
-    # TODO Phase 38.0: send email s magic linkem přes EWS pipeline
-    # Pro MVP: log + Marti-AI ho v ranním pozdravu zmíní
-    magic_link = f"{settings.app_base_url}/verify-email/confirm?token={invite.invite_token}"
-    logger.info(
-        f"VERIFY_EMAIL_INVITE user_id={user.id} email={body.email[:30]} "
-        f"token={invite.invite_token} expires_at={invite.expires_at.isoformat()} "
-        f"link={magic_link}  -- TODO send_email pipeline"
+    if channel == "sms":
+        # Marti's pivot 10.5.: pošli SMS userovi přes Marti-AI's SIM s tokenem.
+        # User reply na Marti-AI's SIM (+420778117879) → pre-processor consume
+        # přes caller_id check (phones_match against user_contacts).
+        if primary_phone is None:
+            # User nemá registered phone — pošli email fallback (TODO Phase
+            # 38.0) a jen logni. Vrátí stejný polling_token (anti-enum).
+            logger.warning(
+                f"VERIFY_SMS_NO_PHONE user_id={user.id} email={body.email[:30]} "
+                f"— SMS variant requested but user has no active phone contact. "
+                f"Falling back to email (TODO Phase 38.0)"
+            )
+            audit_login_attempt(
+                user_id=user.id,
+                email_attempted=body.email,
+                ip=ip, user_agent=ua,
+                result="verify_required",
+                reason="sms_requested_no_phone_contact",
+            )
+        else:
+            # Pošli SMS přes capcom6 (Marti-AI's SIM)
+            try:
+                from modules.notifications.application.sms_service import queue_sms
+                sms_body = (
+                    f"STRATEGIE login: posli zpet kod {invite.invite_token} "
+                    f"do 24h. Pokud jsi se neprihlasoval, ignoruj."
+                )
+                sms_result = queue_sms(
+                    to=primary_phone,
+                    body=sms_body,
+                    purpose="system",      # ne user_request → bez rate limit
+                    user_id=user.id,
+                    tenant_id=user.last_active_tenant_id,
+                    persona_id=None,        # capcom6 default SIM (Marti-AI's)
+                )
+                logger.info(
+                    f"VERIFY_SMS_QUEUED user_id={user.id} email={body.email[:30]} "
+                    f"to={primary_phone} token={invite.invite_token} "
+                    f"sms_status={sms_result.get('status')} "
+                    f"sms_outbox_id={sms_result.get('id')}"
+                )
+                audit_login_attempt(
+                    user_id=user.id,
+                    email_attempted=body.email,
+                    ip=ip, user_agent=ua,
+                    result="verify_sent",
+                    layer_detail=(
+                        f"invite #{invite.id} sms outbox #{sms_result.get('id')}"
+                    ),
+                )
+                log_event(
+                    action="verify_email_sent_sms", user_id=user.id,
+                    ip_address=ip, user_agent=ua,
+                    extra_metadata={
+                        "email": body.email,
+                        "invite_id": invite.id,
+                        "phone_target": primary_phone,
+                        "sms_outbox_id": sms_result.get("id"),
+                    },
+                )
+            except Exception as e:
+                # SMS send failure — log + fall through (anti-enum: stejný
+                # polling_token, UI nepozná že SMS nedošla).
+                logger.error(
+                    f"VERIFY_SMS_FAILED user_id={user.id} email={body.email[:30]} "
+                    f"to={primary_phone} error={e!r}"
+                )
+                audit_login_attempt(
+                    user_id=user.id,
+                    email_attempted=body.email,
+                    ip=ip, user_agent=ua,
+                    result="verify_required",
+                    reason=f"sms_send_failed: {e!r}",
+                )
+    else:
+        # channel='email' — TODO Phase 38.0 send_email pipeline
+        magic_link = f"{settings.app_base_url}/verify-email/confirm?token={invite.invite_token}"
+        logger.info(
+            f"VERIFY_EMAIL_INVITE user_id={user.id} email={body.email[:30]} "
+            f"token={invite.invite_token} expires_at={invite.expires_at.isoformat()} "
+            f"link={magic_link}  -- TODO send_email pipeline"
+        )
+        audit_login_attempt(
+            user_id=user.id,
+            email_attempted=body.email,
+            ip=ip, user_agent=ua,
+            result="verify_sent",
+            layer_detail=f"invite #{invite.id}",
+        )
+        log_event(action="verify_email_sent", user_id=user.id,
+                  ip_address=ip, user_agent=ua,
+                  extra_metadata={"email": body.email, "invite_id": invite.id})
+
+    return VerifyEmailRequestResponse(polling_token=invite.invite_token)
+
+
+@router.get("/verify-email/status", response_model=None)
+def verify_email_status(
+    token: str,
+    response: Response,
+    req: Request,
+) -> dict:
+    """UI polling endpoint pro SMS-based magic link.
+
+    Flow (Marti's pivot 10.5.):
+      1. UI POST /verify-email/request → backend pošle SMS userovi
+      2. UI polluje GET /verify-email/status?token=X každé 2s
+      3. User SMS reply na Marti-AI's SIM → pre-processor consume → trusted_device
+      4. Status vrátí 'consumed' + nastaví device cookie + auth cookies
+      5. UI redirect na app
+
+    Anti-enumeration: pokud token v DB neexistuje (fake polling_token pro
+    neznámý email), vrátí 'pending' do 24h. Útočník nepozná rozdíl.
+
+    Status:
+      - 'pending'  — invite consumed_at IS NULL nebo token neexistuje
+      - 'consumed' — invite.consumed_at != None, set cookies + redirect
+      - 'expired'  — invite.expires_at < now nebo cooldown after 24h fake
+    """
+    from datetime import datetime, timedelta, timezone
+    from modules.auth.application.security_service import (
+        TOKEN_REGEX, audit_login_attempt, send_post_confirm_notification,
     )
-
-    audit_login_attempt(
-        user_id=user.id,
-        email_attempted=body.email,
-        ip=ip, user_agent=ua,
-        result="verify_sent",
-        layer_detail=f"invite #{invite.id}",
+    from modules.core.infrastructure.models_data import (
+        TrustedDeviceInvite, TrustedDevice,
     )
+    from modules.audit.application.service import log_event
 
-    log_event(action="verify_email_sent", user_id=user.id,
-              ip_address=ip, user_agent=ua,
-              extra_metadata={"email": body.email, "invite_id": invite.id})
+    if not settings.sec_layered_auth_enabled:
+        raise HTTPException(status_code=404, detail="Phase 38 security layer disabled.")
 
-    return VerifyEmailRequestResponse()
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+    token_clean = (token or "").strip()
+
+    # Validate token format (zabránit SQL injection / log abuse)
+    if not TOKEN_REGEX.match(token_clean):
+        raise HTTPException(status_code=400, detail="Invalid token format.")
+
+    from core.database_data import get_data_session as _gds
+    ds = _gds()
+    try:
+        invite = ds.query(TrustedDeviceInvite).filter(
+            TrustedDeviceInvite.invite_token == token_clean,
+        ).first()
+
+        # Token neexistuje (fake / expired pre-cleanup) — anti-enum 'pending'
+        # do nominal 24h. Útočník nepozná, jestli email v DB byl.
+        if invite is None:
+            now = datetime.now(timezone.utc)
+            return {
+                "status": "pending",
+                "expires_at": (now + timedelta(hours=24)).isoformat(),
+            }
+
+        now = datetime.now(timezone.utc)
+
+        # Expired
+        if invite.expires_at < now:
+            return {
+                "status": "expired",
+                "expires_at": invite.expires_at.isoformat(),
+            }
+
+        # Pending
+        if invite.consumed_at is None:
+            return {
+                "status": "pending",
+                "expires_at": invite.expires_at.isoformat(),
+            }
+
+        # Consumed — user reply SMS proběhl, trusted_device created.
+        # Set cookies + redirect.
+        device = ds.query(TrustedDevice).get(invite.created_device_id)
+        if device is None:
+            logger.error(
+                f"VERIFY_STATUS_DEVICE_LOOKUP_FAILED token={token_clean[:20]} "
+                f"invite_id={invite.id} created_device_id={invite.created_device_id}"
+            )
+            return {
+                "status": "expired",
+                "expires_at": invite.expires_at.isoformat(),
+            }
+
+        user_id = device.user_id
+
+        # Set device cookie (90d)
+        cookie_max_age = settings.sec_device_cookie_max_age_days * 24 * 60 * 60
+        response.set_cookie(
+            key=settings.sec_device_cookie_name,
+            value=str(device.device_token),
+            httponly=True,
+            secure=settings.cookie_secure,
+            samesite=settings.cookie_samesite,
+            max_age=cookie_max_age,
+        )
+
+        # Najdi default tenant + set legacy auth cookies
+        ctx = get_user_context(user_id)
+        tenant_id = ctx.get("tenant_id") if ctx else None
+        _set_auth_cookies(response, user_id, tenant_id)
+
+        audit_login_attempt(
+            user_id=user_id,
+            email_attempted=None,
+            ip=ip, user_agent=ua,
+            result="verify_consumed",
+            layer_matched="magic_link",
+            layer_detail=f"sms invite #{invite.id}",
+            device_token=device.device_token,
+        )
+
+        log_event(action="verify_email_consumed_sms", user_id=user_id,
+                  tenant_id=tenant_id, ip_address=ip, user_agent=ua,
+                  extra_metadata={
+                      "device_id": device.id,
+                      "invite_id": invite.id,
+                      "consumed_phone": invite.consumed_phone,
+                  })
+
+        # Post-confirm notification (Marti-AI insight #2)
+        try:
+            send_post_confirm_notification(user_id, device.id, req)
+        except Exception as e:
+            logger.warning(f"send_post_confirm_notification failed: {e!r}")
+
+        return {
+            "status": "consumed",
+            "user_id": user_id,
+            "redirect": "/",
+            "expires_at": device.expires_at.isoformat()
+                if device.expires_at else None,
+        }
+    finally:
+        ds.close()
 
 
 @router.get("/verify-email/confirm", response_model=VerifyEmailConfirmResponse)
@@ -341,6 +595,29 @@ def verify_email_confirm(
         )
     finally:
         ds.close()
+
+
+# ── Mobile SMS login page (Phase 38 Session 2) ─────────────────────────
+
+
+@router.get("/sms-login", response_class=HTMLResponse, include_in_schema=False)
+def sms_login_page() -> HTMLResponse:
+    """Mobile-first SMS login page (Marti's pivot 10.5.).
+
+    Veřejně dostupný HTML — neobsahuje žádný server-side state, jen statický
+    soubor. Form posílá AJAX na /verify-email/request, polluje
+    /verify-email/status až do consumed → redirect.
+
+    URL: https://strategie-ai.com/api/v1/auth/sms-login
+    """
+    # apps/api/static/sms_login.html
+    static_path = (
+        Path(__file__).resolve().parents[3] / "apps" / "api" / "static"
+        / "sms_login.html"
+    )
+    if not static_path.is_file():
+        raise HTTPException(status_code=500, detail=f"sms_login.html not found at {static_path}")
+    return HTMLResponse(static_path.read_text(encoding="utf-8"))
 
 
 @router.post("/logout")

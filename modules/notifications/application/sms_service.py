@@ -496,6 +496,54 @@ def store_inbound_sms(
         # mezinarodniho cisla, alfanumericky sender nebo shortcode).
         from_phone_norm = (from_phone or "")[:20] or "unknown"
 
+    # ── Phase 38 SMS pre-processor (Marti's deterministic regex routing) ──
+    #
+    # classify_sms() volá se PRED dedup check + insert do sms_inbox.
+    # Pokud SMS obsahuje token format STG-{PURPOSE}-{8 hex}, preprocessor
+    # handle (auth consume / *_dispatch / log_only) a my skip standardní flow.
+    # Marti's pivot 10.5.: žádný AI classifier, jen deterministic regex.
+    #
+    # Defense in depth: preprocessor failure NESMI zablokovat normal SMS flow
+    # (try/except + fallback na forward).
+    preprocess_result = None
+    try:
+        from modules.auth.application.sms_preprocessor import classify_sms
+        preprocess_result = classify_sms(body, from_phone_norm)
+    except Exception as _pre_e:
+        logger.warning(f"SMS | preprocess classify failed (non-fatal): {_pre_e!r}")
+
+    if preprocess_result is not None and preprocess_result.action != "forward":
+        # Auth consumed/rejected, log_only short code, unknown_purpose —
+        # NEUKLÁDAT do sms_inbox (není to user message). Audit + skip.
+        try:
+            from modules.auth.application.sms_preprocessor import write_audit_log
+            write_audit_log(
+                sms_inbox_id=None,
+                sender_phone=from_phone_norm,
+                result=preprocess_result,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"SMS | preprocess audit (skip path) failed: {_audit_e!r}")
+
+        logger.info(
+            f"SMS | preprocess | action={preprocess_result.action} | "
+            f"from={from_phone_norm} | token={preprocess_result.matched_token} | "
+            f"purpose={preprocess_result.matched_purpose} | "
+            f"reason={preprocess_result.handler_result}"
+        )
+        return {
+            "id": None,
+            "persona_id": None,
+            "from_phone": from_phone_norm,
+            "body": body,
+            "received_at": (received_at or datetime.now(timezone.utc)).isoformat(),
+            "task_id": None,
+            "deduped": False,
+            "preprocessed": preprocess_result.action,
+            "preprocess_reason": preprocess_result.handler_result,
+        }
+
+    # Forward path — pokračuje standard sms_inbox flow
     persona_id = None
     tenant_id = None
     if to_phone:
@@ -598,6 +646,20 @@ def store_inbound_sms(
         )
     except Exception as _act_e:
         logger.warning(f"SMS | activity hook failed: {_act_e}")
+
+    # Phase 38 audit (forward path) — zaznamej do sms_routing_log s
+    # sms_inbox_id, ať máme audit trail i pro běžné SMS (volume tracking,
+    # forensic při disputu).
+    if preprocess_result is not None:
+        try:
+            from modules.auth.application.sms_preprocessor import write_audit_log
+            write_audit_log(
+                sms_inbox_id=result_sms["id"],
+                sender_phone=from_phone_norm,
+                result=preprocess_result,
+            )
+        except Exception as _audit_e:
+            logger.warning(f"SMS | preprocess audit (forward path) failed: {_audit_e!r}")
 
     return result_sms
 

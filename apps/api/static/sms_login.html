@@ -323,7 +323,13 @@
           credentials: 'same-origin',
           body: JSON.stringify({ email, channel: 'sms' }),
         });
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        if (!resp.ok) {
+          // Phase 38.1: 429 Too Many Requests dostane user-friendly hlášku
+          // ze server's `detail` field (vč. limit info "5/h"). 4xx/5xx
+          // jiné chyby fallback na HTTP code.
+          const errData = await resp.json().catch(() => ({}));
+          throw new Error(errData.detail || `HTTP ${resp.status}`);
+        }
         const data = await resp.json();
         pollingToken = data.polling_token;
         if (!pollingToken) {

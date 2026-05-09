@@ -215,9 +215,14 @@ class Settings(BaseSettings):
     # remove_user_from_tenant, hard delete až po N dnech grace)
     sec_offboarding_grace_days: int = 14
 
-    # Rate limit pro magic link request (anti-spam, anti-DoS)
+    # Rate limit pro magic link request (anti-spam, anti-DoS).
+    # Phase 38.1 (10.5.2026) implementace přes verify_rate_buckets tabulku.
     sec_magic_link_rate_per_email_per_hour: int = 5
     sec_magic_link_rate_per_ip_per_hour: int = 10
+    # Phase 38.1: Anti brute-force pro consume_invite (SMS reply s tokenem).
+    # Limit per sender_phone — útočník nemůže replay odcizený token
+    # z různých phones víc než 20× za hodinu.
+    sec_consume_rate_per_phone_per_hour: int = 20
 
     # Phase 15a: Notebook replaces sliding window -- feature flag.
     # Pokud True, composer snizi sliding window z 20 na 10 zprav (5 turnu)

@@ -345,6 +345,32 @@ def consume_invite(
             },
         )
 
+    # Phase 38.1 — Rate limit per sender_phone (anti brute-force).
+    # Útočník s odcizeným tokenem nemůže replay víckrát než 20×/h.
+    # Aplikuje se JEN na SMS-based consume (sender_phone != None).
+    # Email magic link nemá phone scope, není rate-limited (browser GET).
+    if sender_phone is not None:
+        from core.config import settings as _settings
+        from modules.auth.application import rate_limit as _rl
+        rl_result = _rl.check_and_increment(
+            _rl.phone_bucket_key(sender_phone),
+            _rl.EVENT_CONSUME_ATTEMPT,
+            _settings.sec_consume_rate_per_phone_per_hour,
+        )
+        if not rl_result.allowed:
+            return SecurityResult(
+                granted=False,
+                audit_data={
+                    "ip": client_ip,
+                    "user_agent": user_agent,
+                    "sender_phone": sender_phone,
+                    "reason": (
+                        f"rate_limit_exceeded:phone:"
+                        f"{rl_result.count}/{rl_result.limit}"
+                    ),
+                },
+            )
+
     own_session = session is None
     ds = session if session is not None else get_data_session()
     try:

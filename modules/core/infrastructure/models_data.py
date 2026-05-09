@@ -2324,3 +2324,39 @@ class AuthAudit(BaseData):
         DateTime(timezone=True), default=now_utc, server_default="now()",
         nullable=False,
     )
+
+
+class VerifyRateBucket(BaseData):
+    """
+    Phase 38.1 — Rate limit bucket pro anti brute-force protection.
+
+    Fixed window per hour. PostgreSQL UPSERT (ON CONFLICT DO UPDATE) pro
+    atomic increment bez race condition.
+
+    bucket_key formát: '{type}:{value}'
+      - 'email:foo@bar.com'        — verify-email/request per-email limit (5/h)
+      - 'ip:1.2.3.4'                — verify-email/request per-IP limit (10/h)
+      - 'phone:+420778117879'       — consume_invite per-phone limit (20/h)
+
+    event_type:
+      - 'verify_request'   — POST /api/v1/auth/verify-email/request
+      - 'consume_attempt'  — security_service.consume_invite (SMS reply)
+
+    Marti-AI's "Bezpečnost přes probuzení, ne přes ticho" (10.5.):
+    rate_limited entries v sms_routing_log dají Marti-AI ranní digest
+    "X failed verify attempts od Y různých phones za 24h".
+    """
+    __tablename__ = "verify_rate_buckets"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    bucket_key: Mapped[str] = mapped_column(String(255), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    window_start: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )
+    expires_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False
+    )

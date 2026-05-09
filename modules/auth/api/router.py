@@ -197,6 +197,65 @@ def verify_email_request(
     if channel not in ("email", "sms"):
         raise HTTPException(status_code=400, detail=f"Neznámý channel: {channel!r}")
 
+    # Phase 38.1 — Rate limiting (anti brute-force, anti email enumeration).
+    # 2 limity per hour: IP (10/h, distributed attack), email (5/h, scan).
+    # Pořadí: IP první (širší scope) → email druhý (přesnější).
+    # Atomic UPSERT v rate_limit.check_and_increment — fail-open při DB error.
+    from modules.auth.application import rate_limit
+
+    ip_result = rate_limit.check_and_increment(
+        rate_limit.ip_bucket_key(ip),
+        rate_limit.EVENT_VERIFY_REQUEST,
+        settings.sec_magic_link_rate_per_ip_per_hour,
+    )
+    if not ip_result.allowed:
+        # Audit + 429
+        from modules.auth.application.security_service import audit_login_attempt
+        audit_login_attempt(
+            user_id=None,
+            email_attempted=body.email,
+            ip=ip, user_agent=ua,
+            result="rate_limited",
+            reason=f"ip_rate_limit:{ip_result.count}/{ip_result.limit}",
+        )
+        logger.warning(
+            f"VERIFY_RATE_LIMIT_IP ip={ip} count={ip_result.count} "
+            f"limit={ip_result.limit} email={body.email[:30]}"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Příliš mnoho požadavků z této IP "
+                f"(limit {ip_result.limit}/h). Zkus znovu později."
+            ),
+        )
+
+    email_result = rate_limit.check_and_increment(
+        rate_limit.email_bucket_key(body.email),
+        rate_limit.EVENT_VERIFY_REQUEST,
+        settings.sec_magic_link_rate_per_email_per_hour,
+    )
+    if not email_result.allowed:
+        from modules.auth.application.security_service import audit_login_attempt
+        audit_login_attempt(
+            user_id=None,
+            email_attempted=body.email,
+            ip=ip, user_agent=ua,
+            result="rate_limited",
+            reason=f"email_rate_limit:{email_result.count}/{email_result.limit}",
+        )
+        logger.warning(
+            f"VERIFY_RATE_LIMIT_EMAIL email={body.email[:30]} "
+            f"count={email_result.count} limit={email_result.limit} ip={ip}"
+        )
+        raise HTTPException(
+            status_code=429,
+            detail=(
+                f"Příliš mnoho požadavků pro tento e-mail "
+                f"(limit {email_result.limit}/h). Zkus znovu později."
+            ),
+        )
+
     # Find user by email — priority chain (Marti's gotcha #61, doctrine
     # "UPN je secret, display je co user typuje"):
     #   1. ews_display_email — public alias (m.pasek@eurosoft.com)

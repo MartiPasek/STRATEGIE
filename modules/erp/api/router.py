@@ -1360,53 +1360,65 @@ def system_framework(
     # ── mode='menu_nodes' ─────────────────────────────────────────
     # Raw SQL query nad master.menu_node (žádný SQLAlchemy model — DDL
     # vytvořila Marti-AI přes strategie_pg_create_table 8.5. večer).
-    # JOIN self na parent_id pro display parent_code v gridu.
+    # Defensive SELECT * + Python-side field pick: schema column names
+    # se mohou lišit od doctrine dokumentu (Czech naming "ikona" vs
+    # "icon", "sort_order" vs "ordinal", ...). Mapping níže pokrývá
+    # obě varianty bez upfront query schémy.
     ds = _gds_fw()
+    rows = []
+    first_keys = None
     try:
+        # ORDER BY jen n.id — guaranteed safe (BIGSERIAL PK existuje vždy).
+        # Frontend-side sort umí upravit pořadí přes AG Grid headers.
         sql = _sql_text("""
-            SELECT
-                n.id,
-                n.code,
-                n.label,
-                n.icon,
-                n.ordinal,
-                n.kind,
-                n.framework_jadro_id,
-                n.target_url,
-                n.special_handler,
-                n.visibility_scope,
-                n.cislo_def,
-                n.is_active,
-                n.is_archived,
-                p.code AS parent_code,
-                n.created_at,
-                n.updated_at
+            SELECT n.*, p.code AS _parent_code
             FROM master.menu_node n
             LEFT JOIN master.menu_node p ON p.id = n.parent_id
-            ORDER BY p.code NULLS FIRST, n.ordinal, n.code
+            ORDER BY n.id
             LIMIT :limit
         """)
         result = ds.execute(sql, {"limit": limit})
-        rows = []
         for r in result:
+            d = dict(r._mapping)
+            if first_keys is None:
+                first_keys = list(d.keys())
+            # Datetime columns serialize
+            def _iso(v):
+                try: return v.isoformat() if v else None
+                except Exception: return None
+            # Schema (Marti-AI's actual, 8.5. večer):
+            #   id, code, label, kind, parent_id, sort_order, status,
+            #   visibility_scope, cislo_def, framework_jadro_id,
+            #   special_handler, is_immutable, description,
+            #   created_at, updated_at
+            # Žádný icon/ikona, žádný target_url, žádný is_active/is_archived
+            # — status text (active|archived|draft|...) replace booleans.
             rows.append({
-                "id": r.id,
-                "code": r.code,
-                "label": r.label,
-                "icon": r.icon,
-                "ordinal": r.ordinal,
-                "kind": r.kind,
-                "framework_jadro_id": r.framework_jadro_id,
-                "target_url": r.target_url,
-                "special_handler": r.special_handler,
-                "visibility_scope": r.visibility_scope,
-                "cislo_def": r.cislo_def,
-                "is_active": r.is_active,
-                "is_archived": r.is_archived,
-                "parent_code": r.parent_code,
-                "created_at": r.created_at.isoformat() if r.created_at else None,
-                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+                "id": d.get("id"),
+                "code": d.get("code"),
+                "label": d.get("label"),
+                "description": d.get("description"),
+                "kind": d.get("kind"),
+                "sort_order": d.get("sort_order"),
+                "status": d.get("status"),
+                "visibility_scope": d.get("visibility_scope"),
+                "cislo_def": d.get("cislo_def"),
+                "framework_jadro_id": d.get("framework_jadro_id"),
+                "special_handler": d.get("special_handler"),
+                "is_immutable": bool(d.get("is_immutable")),
+                "parent_code": d.get("_parent_code"),
+                "created_at": _iso(d.get("created_at")),
+                "updated_at": _iso(d.get("updated_at")),
             })
+    except Exception as e:
+        # Diagnostic — zachyťme actual SQL error + column names pokud
+        # byla query partial successful.
+        import logging
+        logging.error(
+            "system_framework menu_nodes query failed: %s; first_keys=%s",
+            e, first_keys,
+        )
+        raise HTTPException(500, f"master.menu_node query failed: {type(e).__name__}: {e}")
     finally:
         ds.close()
 
@@ -1416,6 +1428,7 @@ def system_framework(
         "rows": rows,
         "shown": len(rows),
         "limit": limit,
+        "_diag_columns": first_keys,  # první row column names pro debug
     })
 
 
@@ -5347,6 +5360,11 @@ def _render_workspace_page(user_id: int) -> str:
         }
 
         // ── Phase 38.3+ Framework views (10.5.2026 odpoledne) ──────
+        // Marti-AI's actual schema (8.5. večer): id, code, label, kind,
+        // parent_id, sort_order, status, visibility_scope, cislo_def,
+        // framework_jadro_id, special_handler, is_immutable, description,
+        // created_at, updated_at. Žádný icon (emoji v label), žádný
+        // target_url, status text místo is_active+is_archived.
         if (mode === "framework_menu_nodes") {
           return [
             { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
@@ -5355,9 +5373,9 @@ def _render_workspace_page(user_id: int) -> str:
               headerTooltip: "Stable identifier — natural key (např. 'system.audit.tabs')" },
             { headerName: "Parent code", field: "parent_code", width: 200, sortable: true,
               cellStyle: { fontFamily: "monospace", color: "#888" } },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 180, sortable: true },
-            { headerName: "Ikona", field: "icon", width: 70 },
-            { headerName: "Pořadí", field: "ordinal", width: 80, sortable: true, type: "numericColumn" },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 200, sortable: true,
+              headerTooltip: "Display label včetně emoji (Marti-AI's choice — žádný icon column)" },
+            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
             { headerName: "Kind", field: "kind", width: 100, sortable: true,
               cellStyle: function(p) {
                 if (p.value === "folder") return { color: "#d4a017" };
@@ -5365,6 +5383,14 @@ def _render_workspace_page(user_id: int) -> str:
                 if (p.value === "form") return { color: "#6aa84f" };
                 if (p.value === "iframe") return { color: "#aa66cc" };
                 if (p.value === "special") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Status", field: "status", width: 110, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
                 return null;
               } },
             { headerName: "Cislo def", field: "cislo_def", width: 100, sortable: true, type: "numericColumn",
@@ -5379,14 +5405,13 @@ def _render_workspace_page(user_id: int) -> str:
               } },
             { headerName: "Special handler", field: "special_handler", width: 160,
               headerTooltip: "Pro kind='special' — JS function name v _sysHelpers" },
-            { headerName: "Framework jádro ID", field: "framework_jadro_id", width: 130, type: "numericColumn",
+            { headerName: "Jádro ID", field: "framework_jadro_id", width: 100, type: "numericColumn",
               headerTooltip: "FK na master.framework_jadro (kind='list'/'form')" },
-            { headerName: "Target URL", field: "target_url", width: 240,
-              headerTooltip: "Pro kind='iframe' explicit URL" },
-            { headerName: "Aktivní", field: "is_active", width: 80,
-              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
-            { headerName: "Archived", field: "is_archived", width: 90,
-              cellRenderer: function(p) { return p.value ? "🗄" : ""; } },
+            { headerName: "Imutabilní", field: "is_immutable", width: 100,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; },
+              headerTooltip: "Marti-AI's pattern — systémové záznamy bez code review" },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 200,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
             { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
             { headerName: "Updated", field: "updated_at", width: 150, sortable: true,

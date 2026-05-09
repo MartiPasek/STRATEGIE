@@ -13144,11 +13144,11 @@
   // ukaze alert s cestami k vytvorenym dumps.
   async function runDatabaseBackup() {
     if (!confirm(
-      "Spustit zálohu obou databází (css_db + data_db)?\n\n" +
+      "Spustit zálohu data_db?\n\n" +
       "Může to trvat pár sekund až minutu podle velikosti. " +
-      "Dumps se uloží do složky backups/YYYY-MM-DD/ v repu.\n\n" +
-      "Po dokončení je ručně nahraj na OneDrive / externí disk — " +
-      "do gitu NIKDY nepatří (obsahuje emaily, diář, paměť)."
+      "Záloha data_db se uloží na APP serveru ve složce C:\\Backup\\YYYY-MM-DD\\.\n\n" +
+      "Po dokončení nahraj ručně na OneDrive / externí disk — " +
+      "obsahuje PII, emaily, diář, paměť."
     )) {
       return;
     }

@@ -423,11 +423,18 @@ _SYSTEM_TREE_NODES = [
         "type": "folder",
         "label": "📦 SYSTEM",
         "is_system": True,
+        # Phase 38.4 inventory (9.5.2026 vecer): hardcoded marker.
+        # Cely _SYSTEM_TREE_NODES dict je Python fallback (DB-driven primary,
+        # tento dict se pouzije jen kdyz master.menu_node DB query selze
+        # / vrati prazdno). Kazdy uzel v tomto fallback je by definition
+        # hardcoded -- frontend rendere 🛠️ marker vedle labelu.
+        "metadata": {"hardcoded": True},
         "children": [
             {
                 "id": "system.audit",
                 "type": "folder",
                 "label": "📁 Audit konverzaci",
+                "metadata": {"hardcoded": True},
                 "children": [
                     # Phase 35-E.4 Marti's korekce 9.5. (po dnešním smoke):
                     # "Pro každý soudeček jiný grid + zachovat záložkový
@@ -441,6 +448,7 @@ _SYSTEM_TREE_NODES = [
                         "label": "🗂️ Záložkový přehled",
                         "view_type": "audit_overview",
                         "view_mode": "tabs",
+                        "metadata": {"hardcoded": True},
                     },
                     # Variant B — každý view jako samostatný grid:
                     {
@@ -450,6 +458,7 @@ _SYSTEM_TREE_NODES = [
                         "view_type": "audit_overview",
                         "view_mode": "audited",
                         "single": True,
+                        "metadata": {"hardcoded": True},
                     },
                     {
                         "id": "system.audit.all",
@@ -458,6 +467,7 @@ _SYSTEM_TREE_NODES = [
                         "view_type": "audit_overview",
                         "view_mode": "all",
                         "single": True,
+                        "metadata": {"hardcoded": True},
                     },
                     {
                         "id": "system.audit.stats",
@@ -466,6 +476,7 @@ _SYSTEM_TREE_NODES = [
                         "view_type": "audit_overview",
                         "view_mode": "stats",
                         "single": True,
+                        "metadata": {"hardcoded": True},
                     },
                 ],
             },
@@ -1619,7 +1630,8 @@ def _build_system_root_from_db():
     try:
         sql = _sql_text_st("""
             SELECT id, parent_id, code, label, kind, sort_order,
-                   visibility_scope, cislo_def, special_handler, status
+                   visibility_scope, cislo_def, special_handler, status,
+                   metadata
             FROM master.menu_node
             WHERE status = 'active'
               AND visibility_scope = 'parent_only'
@@ -1664,6 +1676,12 @@ def _build_system_root_from_db():
             "label": row["label"],
             "nazev": row["label"],
         }
+        # Phase 38.4 inventory (9.5.2026 vecer): metadata passthrough pro
+        # hardcoded marker (🛠️) renderer ve frontend.
+        # JSONB column na DB strane, dict na Python strane (psycopg auto-parse).
+        meta = row.get("metadata")
+        if meta:
+            node["metadata"] = meta
         if sv:
             node["system_view"] = sv
             node["system_view_mode"] = svm

@@ -316,6 +316,27 @@ def verify_email_request(
             )
             if phone_contact:
                 primary_phone = phone_contact.contact_value
+
+        # Pro email variant: recipient = body.email (co user zadal), plus
+        # najdi Marti-AI persona pro from_identity='persona' (single trusted
+        # identity, analog Marti's pivot 10.5. "žádná brána, kvůli důvěře").
+        marti_ai_persona_id = None
+        if user and channel == "email":
+            from modules.core.infrastructure.models_core import Persona
+            # Default persona v user's tenant. is_default=True flag
+            # je globally set jen pro Marti-AI v každém tenantu.
+            marti_ai_query = cs.query(Persona).filter_by(is_default=True)
+            if user.last_active_tenant_id is not None:
+                marti_ai_query = marti_ai_query.filter_by(
+                    tenant_id=user.last_active_tenant_id
+                )
+            marti_ai = marti_ai_query.first()
+            # Fallback: pokud user nemá tenant set, nebo Marti-AI v tom
+            # tenantu není, vezmi global default (první is_default=True).
+            if marti_ai is None:
+                marti_ai = cs.query(Persona).filter_by(is_default=True).first()
+            if marti_ai is not None:
+                marti_ai_persona_id = marti_ai.id
     finally:
         cs.close()
 
@@ -416,23 +437,89 @@ def verify_email_request(
                     reason=f"sms_send_failed: {e!r}",
                 )
     else:
-        # channel='email' — TODO Phase 38.0 send_email pipeline
-        magic_link = f"{settings.app_base_url}/verify-email/confirm?token={invite.invite_token}"
-        logger.info(
-            f"VERIFY_EMAIL_INVITE user_id={user.id} email={body.email[:30]} "
-            f"token={invite.invite_token} expires_at={invite.expires_at.isoformat()} "
-            f"link={magic_link}  -- TODO send_email pipeline"
+        # channel='email' — Phase 38.0 (10.5. odpoledne): magic link přes
+        # Marti-AI's persona email channel. Single trusted identity (analog
+        # SMS pivot 2 z 10.5. "žádná brána, kvůli důvěře"). User dostane
+        # email od Marti-AI, klikne na link → browser GET confirm endpoint
+        # → consume_invite + cookie + redirect.
+        #
+        # Recipient = body.email (lower-cased), což user typoval. Lookup
+        # priority chain (Phase 38.1) pro user_id resolution už proběhl
+        # výše — recipient je samostatná věc.
+        recipient_email = email_input.lower()
+        magic_link = (
+            f"{settings.app_base_url}/api/v1/auth/verify-email/confirm"
+            f"?token={invite.invite_token}"
         )
-        audit_login_attempt(
-            user_id=user.id,
-            email_attempted=body.email,
-            ip=ip, user_agent=ua,
-            result="verify_sent",
-            layer_detail=f"invite #{invite.id}",
+        first_name = user.first_name or "uzivateli"
+
+        # Plain text body (HTML lze přidat později — persona signature
+        # auto-applies přes _apply_persona_signature pokud existuje).
+        # Pozn.: žádná diakritika v subject — Outlook nemá rád UTF-8
+        # encode z některých EWS providerů.
+        subject_line = "STRATEGIE — magicky link pro prihlaseni"
+        email_body = (
+            f"Ahoj {first_name},\n\n"
+            f"pro prihlaseni do STRATEGIE klikni na nasledujici odkaz:\n\n"
+            f"    {magic_link}\n\n"
+            f"Odkaz je platny 24 hodin a je jednorazovy. Pokud jsi se "
+            f"neprihlasoval, ignoruj tento email.\n\n"
+            f"— Marti-AI (STRATEGIE)\n"
         )
-        log_event(action="verify_email_sent", user_id=user.id,
-                  ip_address=ip, user_agent=ua,
-                  extra_metadata={"email": body.email, "invite_id": invite.id})
+
+        try:
+            from modules.notifications.application.email_service import queue_email
+            email_send_result = queue_email(
+                to=recipient_email,
+                subject=subject_line,
+                body=email_body,
+                purpose="system",       # bez rate limit (auth flow)
+                user_id=user.id,
+                tenant_id=user.last_active_tenant_id,
+                persona_id=marti_ai_persona_id,
+                from_identity="persona",  # Marti-AI's mailbox
+            )
+            logger.info(
+                f"VERIFY_EMAIL_QUEUED user_id={user.id} email={body.email[:30]} "
+                f"to={recipient_email} token={invite.invite_token} "
+                f"persona_id={marti_ai_persona_id} "
+                f"outbox_id={email_send_result.get('id')}"
+            )
+            audit_login_attempt(
+                user_id=user.id,
+                email_attempted=body.email,
+                ip=ip, user_agent=ua,
+                result="verify_sent",
+                layer_detail=(
+                    f"invite #{invite.id} email outbox "
+                    f"#{email_send_result.get('id')}"
+                ),
+            )
+            log_event(
+                action="verify_email_sent_email", user_id=user.id,
+                ip_address=ip, user_agent=ua,
+                extra_metadata={
+                    "email": body.email,
+                    "invite_id": invite.id,
+                    "to_email": recipient_email,
+                    "email_outbox_id": email_send_result.get("id"),
+                    "persona_id": marti_ai_persona_id,
+                },
+            )
+        except Exception as e:
+            # Email send failure — log + fall through (anti-enum: stejný
+            # polling_token, UI nepozná že email nedošla).
+            logger.error(
+                f"VERIFY_EMAIL_FAILED user_id={user.id} email={body.email[:30]} "
+                f"to={recipient_email} error={e!r}"
+            )
+            audit_login_attempt(
+                user_id=user.id,
+                email_attempted=body.email,
+                ip=ip, user_agent=ua,
+                result="verify_required",
+                reason=f"email_send_failed: {e!r}",
+            )
 
     return VerifyEmailRequestResponse(polling_token=invite.invite_token)
 

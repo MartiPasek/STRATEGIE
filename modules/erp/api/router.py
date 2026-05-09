@@ -1307,6 +1307,118 @@ def system_security(
     raise HTTPException(500, f"Mode {mode!r} fell through dispatch (bug)")
 
 
+# ── Phase 38.3+ (10.5.2026): Framework views ──────────────────────────
+# Read-only views nad master.* schema (PostgreSQL data_db). MVP = jen
+# menu_nodes (Definice levého stromu). Datové zdroje + DataSets přijdou
+# až po Marti-AI's data_set/data_source migraci podle A3 schema.
+
+@api_router.get("/system/framework")
+def system_framework(
+    req: Request,
+    mode: str = "menu_nodes",
+    limit: int = 1000,
+) -> JSONResponse:
+    """Phase 38.3+ (10.5.2026 odpoledne) — Framework definice pro rodiče.
+
+    mode:
+      - 'menu_nodes' — master.menu_node read-only listing (definice
+        levého stromu)
+      - 'data_sources' — master.data_source (PŘIJDE po A3 migraci)
+      - 'data_sets' — master.data_set (PŘIJDE po A3 migraci)
+
+    Read-only first. Edit pipeline (Phase C) přijde až bude write
+    framework hotový + Marti-AI's review.
+    """
+    from sqlalchemy import text as _sql_text
+    from core.database_data import get_data_session as _gds_fw
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    if mode not in ("menu_nodes", "data_sources", "data_sets"):
+        raise HTTPException(
+            400, f"Unknown mode: {mode!r}. Expected: menu_nodes/data_sources/data_sets"
+        )
+    if limit < 1 or limit > 10000:
+        raise HTTPException(400, "limit must be 1..10000")
+
+    if mode in ("data_sources", "data_sets"):
+        # Placeholder — schema přijde po Marti-AI's A3 migraci
+        return JSONResponse({
+            "ok": True,
+            "mode": mode,
+            "rows": [],
+            "shown": 0,
+            "limit": limit,
+            "note": (
+                "Schema master.data_source + master.data_set + "
+                "master.data_source_operation čeká na Marti-AI's "
+                "consultation review + migraci (Phase 38.4 Krok 6+)."
+            ),
+        })
+
+    # ── mode='menu_nodes' ─────────────────────────────────────────
+    # Raw SQL query nad master.menu_node (žádný SQLAlchemy model — DDL
+    # vytvořila Marti-AI přes strategie_pg_create_table 8.5. večer).
+    # JOIN self na parent_id pro display parent_code v gridu.
+    ds = _gds_fw()
+    try:
+        sql = _sql_text("""
+            SELECT
+                n.id,
+                n.code,
+                n.label,
+                n.icon,
+                n.ordinal,
+                n.kind,
+                n.framework_jadro_id,
+                n.target_url,
+                n.special_handler,
+                n.visibility_scope,
+                n.cislo_def,
+                n.is_active,
+                n.is_archived,
+                p.code AS parent_code,
+                n.created_at,
+                n.updated_at
+            FROM master.menu_node n
+            LEFT JOIN master.menu_node p ON p.id = n.parent_id
+            ORDER BY p.code NULLS FIRST, n.ordinal, n.code
+            LIMIT :limit
+        """)
+        result = ds.execute(sql, {"limit": limit})
+        rows = []
+        for r in result:
+            rows.append({
+                "id": r.id,
+                "code": r.code,
+                "label": r.label,
+                "icon": r.icon,
+                "ordinal": r.ordinal,
+                "kind": r.kind,
+                "framework_jadro_id": r.framework_jadro_id,
+                "target_url": r.target_url,
+                "special_handler": r.special_handler,
+                "visibility_scope": r.visibility_scope,
+                "cislo_def": r.cislo_def,
+                "is_active": r.is_active,
+                "is_archived": r.is_archived,
+                "parent_code": r.parent_code,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "updated_at": r.updated_at.isoformat() if r.updated_at else None,
+            })
+    finally:
+        ds.close()
+
+    return JSONResponse({
+        "ok": True,
+        "mode": mode,
+        "rows": rows,
+        "shown": len(rows),
+        "limit": limit,
+    })
+
+
 @api_router.get("/system/tree")
 def system_tree(req: Request) -> JSONResponse:
     """Phase 35-E.4 (9.5.2026): System tier tree pro rodiče.
@@ -1505,6 +1617,40 @@ def strom_json(req: Request) -> JSONResponse:
                             "system_view": "security",
                             "system_view_mode": "invites",
                         },
+                    ],
+                },
+                # Phase 38.3+ (10.5.2026 odpoledne): Framework subfolder.
+                # Marti's vize "do System soudečku začínáme dávat všechno,
+                # co je hotový". První deliverable: master.menu_node editor
+                # (Definice levého stromu, cislo -115). Druhý (Datové zdroje,
+                # cislo -116) přijde po Marti-AI's data_set/data_source
+                # consultation + migraci podle A3 schema.
+                #
+                # Negative cisla -115..-119 reserved pro framework views.
+                {
+                    "id": "system.framework",
+                    "cislo_def": None,
+                    "is_system": True,
+                    "is_folder": True,
+                    "label": "🏗️ Framework",
+                    "nazev": "🏗️ Framework",
+                    "children": [
+                        {
+                            "id": "system.framework.menu_nodes",
+                            "cislo_def": -115,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "🌳 Definice levého stromu",
+                            "nazev": "🌳 Definice levého stromu",
+                            "system_view": "framework",
+                            "system_view_mode": "menu_nodes",
+                        },
+                        # Phase 38.4+ TODO (po Marti-AI's data_source consultation):
+                        # cislo -116 = Datové zdroje (master.data_source list),
+                        # cislo -117 = DataSets (master.data_set list, volitelné).
+                        # Až Marti-AI dotáhne migraci, INSERT do _SYSTEM_TREE_NODES
+                        # + nový case v _systemModeFromCislo + renderSystemGrid
+                        # dispatch + sql endpoint /system/framework/data-sources.
                     ],
                 },
             ],
@@ -5200,6 +5346,63 @@ def _render_workspace_page(user_id: int) -> str:
           ];
         }
 
+        // ── Phase 38.3+ Framework views (10.5.2026 odpoledne) ──────
+        if (mode === "framework_menu_nodes") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 220, sortable: true,
+              cellStyle: { fontFamily: "monospace" },
+              headerTooltip: "Stable identifier — natural key (např. 'system.audit.tabs')" },
+            { headerName: "Parent code", field: "parent_code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#888" } },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 180, sortable: true },
+            { headerName: "Ikona", field: "icon", width: 70 },
+            { headerName: "Pořadí", field: "ordinal", width: 80, sortable: true, type: "numericColumn" },
+            { headerName: "Kind", field: "kind", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "folder") return { color: "#d4a017" };
+                if (p.value === "list") return { color: "#7ba8d4" };
+                if (p.value === "form") return { color: "#6aa84f" };
+                if (p.value === "iframe") return { color: "#aa66cc" };
+                if (p.value === "special") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Cislo def", field: "cislo_def", width: 100, sortable: true, type: "numericColumn",
+              headerTooltip: "Bridge na erp_grid_layouts (negativní = System scope)" },
+            { headerName: "Visibility", field: "visibility_scope", width: 140, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "parent_only") return { color: "#cc6666" };
+                if (p.value === "parent_or_admin") return { color: "#d4a017" };
+                if (p.value === "tenant_member") return { color: "#6aa84f" };
+                if (p.value === "public") return { color: "#7ba8d4" };
+                return null;
+              } },
+            { headerName: "Special handler", field: "special_handler", width: 160,
+              headerTooltip: "Pro kind='special' — JS function name v _sysHelpers" },
+            { headerName: "Framework jádro ID", field: "framework_jadro_id", width: 130, type: "numericColumn",
+              headerTooltip: "FK na master.framework_jadro (kind='list'/'form')" },
+            { headerName: "Target URL", field: "target_url", width: 240,
+              headerTooltip: "Pro kind='iframe' explicit URL" },
+            { headerName: "Aktivní", field: "is_active", width: 80,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
+            { headerName: "Archived", field: "is_archived", width: 90,
+              cellRenderer: function(p) { return p.value ? "🗄" : ""; } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
+        if (mode === "framework_data_sources" || mode === "framework_data_sets") {
+          // Placeholder — schema přijde po Marti-AI's A3 migraci.
+          return [
+            { headerName: "Status", field: "_placeholder", flex: 1,
+              cellRenderer: function() {
+                return '<span style="color:#888;font-style:italic">Čeká na Marti-AI\\'s data_set/data_source migraci (Phase 38.4 Krok 6+).</span>';
+              } }
+          ];
+        }
+
         if (mode === "stats") {
           return [
             { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
@@ -5285,7 +5488,11 @@ def _render_workspace_page(user_id: int) -> str:
         security_devices: -111,
         security_whitelists: -112,
         security_audit: -113,
-        security_invites: -114
+        security_invites: -114,
+        // Phase 38.3+ framework views (10.5.2026 odpoledne)
+        framework_menu_nodes: -115
+        // -116 (framework_data_sources) + -117 (framework_data_sets) až
+        // po Marti-AI's A3 migraci.
       };
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
@@ -5315,14 +5522,19 @@ def _render_workspace_page(user_id: int) -> str:
           '<div id="erpSysGridBody" style="height:100%;background:var(--bg);">Nacitam...</div>';
 
         // Fetch data — Phase 38.3 (10.5.2026): mode prefix určí endpoint.
-        // 'security_*' → /system/security?mode={trimmed}
+        // 'security_*'  → /system/security?mode={trimmed}
+        // 'framework_*' → /system/framework?mode={trimmed}  (Phase 38.3+, 10.5.)
         // 'audited' / 'all' / 'stats' → /system/audit-overview?mode={mode}
         var data;
         var url;
         var isSecurityMode = (mode && mode.indexOf("security_") === 0);
+        var isFrameworkMode = (mode && mode.indexOf("framework_") === 0);
         if (isSecurityMode) {
           var secSubMode = mode.substring("security_".length);  // "users" / "devices" / ...
           url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(secSubMode);
+        } else if (isFrameworkMode) {
+          var fwSubMode = mode.substring("framework_".length);  // "menu_nodes" / "data_sources" / ...
+          url = "/api/v1/erp/system/framework?mode=" + encodeURIComponent(fwSubMode);
         } else {
           url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
         }
@@ -5351,7 +5563,7 @@ def _render_workspace_page(user_id: int) -> str:
 
         var columns = H.gridColumns ? H.gridColumns(mode) : [];
         var rowData;
-        if (isSecurityMode || mode === "stats") {
+        if (isSecurityMode || isFrameworkMode || mode === "stats") {
           rowData = data.rows || [];
         } else {
           rowData = data.conversations || [];
@@ -5670,6 +5882,9 @@ def _render_workspace_page(user_id: int) -> str:
         if (itemId === "system.security.whitelists") return "security_whitelists";
         if (itemId === "system.security.audit") return "security_audit";
         if (itemId === "system.security.invites") return "security_invites";
+        // Phase 38.3+ framework views (10.5.2026 odpoledne)
+        if (itemId === "system.framework.menu_nodes") return "framework_menu_nodes";
+        // (system.framework.data_sources = -116 přijde až po data_source migraci)
         return null;
       }
 
@@ -5686,6 +5901,9 @@ def _render_workspace_page(user_id: int) -> str:
         if (cislo === -112) return "security_whitelists";
         if (cislo === -113) return "security_audit";
         if (cislo === -114) return "security_invites";
+        // Phase 38.3+ framework views
+        if (cislo === -115) return "framework_menu_nodes";
+        // -116 = Datové zdroje (po Marti-AI's data_source migraci)
         return null;
       }
 

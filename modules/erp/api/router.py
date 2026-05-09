@@ -5717,7 +5717,7 @@ def _render_workspace_page(user_id: int) -> str:
               cellStyle: { fontFamily: "monospace", fontSize: "11px", color: "#bbb" },
               valueFormatter: function(p) {
                 if (!p.value) return "-";
-                var s = String(p.value).replace(/\s+/g, " ").trim();
+                var s = String(p.value).replace(/\\s+/g, " ").trim();
                 return s.length > 100 ? s.substring(0, 100) + "…" : s;
               },
               headerTooltip: "SQL text (truncated v gridu na 100 znaků; full text v detail view)" },

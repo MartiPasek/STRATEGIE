@@ -1464,6 +1464,115 @@ def system_tree(req: Request) -> JSONResponse:
 # ── Phase B (5.5.2026): Tree + Přehled JSON endpoints ────────────────
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 6 (10.5.2026 odpoledne): DB-driven system tree.
+#
+# Primárně z master.menu_node (PostgreSQL, owned by Marti-AI), fallback
+# na hardcoded Python dict pokud DB query selže nebo vrátí prázdno
+# (offline mode, permission denied, ještě neINSERTované rows, ...).
+#
+# Doctrine "hardcode jako seed s tooling pro migraci" v praxi —
+# hardcoded zůstává jako safety net dokud DB nebude kompletně zaplněná.
+# ─────────────────────────────────────────────────────────────────────
+
+# Cislo_def → (system_view, system_view_mode, single) mapping —
+# mirror JS _systemModeFromCislo. Backend musí tuto info attachit na
+# leaf nodes (frontend by je musel jinak derivovat z cisla zpětně).
+_SYSTEM_CISLO_TO_VIEW = {
+    # Phase 35-E.4 audit views
+    -100: ("audit_overview", "tabs",     False),
+    -101: ("audit_overview", "audited",  True),
+    -102: ("audit_overview", "all",      True),
+    -103: ("audit_overview", "stats",    True),
+    # Phase 38.3 security views
+    -110: ("security", "users",       False),
+    -111: ("security", "devices",     False),
+    -112: ("security", "whitelists",  False),
+    -113: ("security", "auth_audit",  False),
+    -114: ("security", "invites",     False),
+    # Phase 38.3+ framework views
+    -115: ("framework", "menu_nodes", False),
+    # -116 (data_sources) + -117 (data_sets) — po Marti-AI's A3 migraci.
+}
+
+
+def _build_system_root_from_db():
+    """Phase 38.4 Krok 6: DB-driven system tree.
+
+    Načte aktivní rows z master.menu_node (visibility_scope='parent_only'),
+    sestaví nested dict structure kompatibilní s frontend renderTreeNodes
+    (id, label, nazev, cislo_def, is_system, is_folder, system_view,
+    system_view_mode, single, children).
+
+    Returns:
+        dict system_root, OR None pokud DB error / empty / žádný root.
+
+    None signalizuje fallback na hardcoded dict (níže v strom_json).
+    """
+    from sqlalchemy import text as _sql_text_st
+    from core.database_data import get_data_session as _gds_st
+
+    ds = _gds_st()
+    try:
+        sql = _sql_text_st("""
+            SELECT id, parent_id, code, label, kind, sort_order,
+                   visibility_scope, cislo_def, special_handler, status
+            FROM master.menu_node
+            WHERE status = 'active'
+              AND visibility_scope = 'parent_only'
+            ORDER BY parent_id NULLS FIRST, sort_order, code
+        """)
+        result = ds.execute(sql)
+        rows = [dict(r._mapping) for r in result]
+    except Exception:
+        import logging
+        logging.exception("system tree DB query failed — fallback na hardcoded")
+        return None
+    finally:
+        ds.close()
+
+    if not rows:
+        return None
+
+    # Index by parent_id pro tree build
+    by_parent: dict = {}
+    for r in rows:
+        pid = r.get("parent_id")
+        by_parent.setdefault(pid, []).append(r)
+
+    # Find system root (parent_id IS NULL, code='system')
+    roots = by_parent.get(None, [])
+    system_db = next((r for r in roots if r.get("code") == "system"), None)
+    if not system_db:
+        return None
+
+    def _build_node(row):
+        cislo = row.get("cislo_def")
+        sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
+        children_db = by_parent.get(row["id"], [])
+        # Stable sort by sort_order, code tiebreak
+        children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+        children = [_build_node(c) for c in children_db]
+        node = {
+            "id": row["code"],
+            "cislo_def": cislo,
+            "is_system": True,
+            "is_folder": (row.get("kind") == "folder"),
+            "label": row["label"],
+            "nazev": row["label"],
+        }
+        if sv:
+            node["system_view"] = sv
+            node["system_view_mode"] = svm
+            if single:
+                node["single"] = True
+        if children:
+            node["children"] = children
+        return node
+
+    return _build_node(system_db)
+
+
 @api_router.get("/strom")
 def strom_json(req: Request) -> JSONResponse:
     """JSON tree z EC_CentralaMenu (Phase B nástřel).
@@ -1501,14 +1610,24 @@ def strom_json(req: Request) -> JSONResponse:
         pass
 
     if is_parent:
-        # Hardcoded System tree (MVP). Phase 30+ migration → master.menu_node.
-        # Schema kompatibilní s Centrála tree (id, label, icon, children…)
-        # Phase 35-E.4 Krok C+ fix (9.5.2026 vecer): pouzivame cislo_def
-        # (ne cislo) — konzistentni s EUROSOFT EC_CentralaMenu schema.
-        # Frontend renderTreeNodes cte n.cislo_def -> data-cislo-def, takze
-        # System uzly musi mit stejne pojmenovani jako EUROSOFT prehledy.
-        system_root = {
-            "id": "system",
+        # Phase 38.4 Krok 6 (10.5.2026): DB-driven system tree primary,
+        # hardcoded fallback. Hardcoded kept jako safety net pro:
+        #   - DB unreachable (offline mode)
+        #   - Permission denied (master schema owned by Marti-AI)
+        #   - Empty rows (Marti-AI ještě neINSERTla — např. system.framework
+        #     nebo nové uzly přidané pre-DB-INSERT)
+        # Až bude DB kompletně zaplněná + provoz stable, hardcoded
+        # smaže Phase 38.4 Krok 7 cleanup.
+        system_root = _build_system_root_from_db()
+        if system_root is None:
+            # ── FALLBACK: hardcoded System tree (původní MVP) ──────────
+            # Schema kompatibilní s Centrála tree (id, label, icon, children…)
+            # Phase 35-E.4 Krok C+ fix (9.5.2026 vecer): pouzivame cislo_def
+            # (ne cislo) — konzistentni s EUROSOFT EC_CentralaMenu schema.
+            # Frontend renderTreeNodes cte n.cislo_def -> data-cislo-def, takze
+            # System uzly musi mit stejne pojmenovani jako EUROSOFT prehledy.
+            system_root = {
+                "id": "system",
             "cislo_def": None,  # folder, nemá vlastní přehled
             "is_system": True,
             "is_folder": True,

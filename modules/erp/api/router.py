@@ -2990,6 +2990,10 @@ def _render_full_page(
       border-top: 1px solid var(--border);
       background: var(--surface);
       flex-shrink: 0;
+      /* B+6.11e+ (10.5.2026): margin-top auto = guaranteed push-to-bottom
+         v parent flex column, i kdyby treeRoot flex:1 z nějakého důvodu
+         nerostlo (defense in depth proti CSS collision se subclass). */
+      margin-top: auto;
     }}
     .erp-tree-view-toggle {{
       display: flex;

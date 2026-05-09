@@ -227,21 +227,35 @@
     }
 
     /**
-     * Custom 5-line skeleton během loadingu (router.py styl).
+     * Custom skeleton — router.py už poskytuje wrapper structure
+     * (.erp-tree-pane > .erp-tree-header + #erpTreeRoot + .erp-tree-footer).
+     * Subclass dostane #erpTreeRoot jako container; používá ho přímo jako
+     * rootEl (NE wraps v dalším divu, NE přidává .erp-tree-pane class —
+     * jinak CSS collision: treeRoot by měl .erp-tree-root + .erp-tree-pane,
+     * což rozbije flex layout (footer nezůstane na bottom).
      */
     _buildSkeleton() {
-      super._buildSkeleton();
-      if (this.rootEl) {
-        const cls = this.options.cssClassPrefix;
-        this.rootEl.innerHTML =
-          '<div class="' + cls + '-skeleton">' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line short"></div>' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line short"></div>' +
-          '<div class="erp-skel-line"></div>' +
-          '</div>';
+      const cls = this.options.cssClassPrefix;
+      this.container.innerHTML = "";
+
+      // Container IS rootEl (existing #erpTreeRoot div from router.py HTML).
+      // Žádný extra wrapper, žádný .erp-tree-pane add (router.py má vlastní
+      // <aside class="erp-tree-pane"> jako parent).
+      this.rootEl = this.container;
+      this.rootEl.setAttribute("role", "tree");
+      if (this.options.enableKeyboard) {
+        this.rootEl.tabIndex = 0;
       }
+
+      // 5-line skeleton (Marti's existing styl)
+      this.rootEl.innerHTML =
+        '<div class="' + cls + '-skeleton">' +
+        '<div class="erp-skel-line"></div>' +
+        '<div class="erp-skel-line short"></div>' +
+        '<div class="erp-skel-line"></div>' +
+        '<div class="erp-skel-line short"></div>' +
+        '<div class="erp-skel-line"></div>' +
+        '</div>';
     }
 
     // ════════════════════════════════════════════════════════════════

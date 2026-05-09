@@ -4852,6 +4852,11 @@ def _render_workspace_page(user_id: int) -> str:
          extensions z DB master.menu_node). -->
     <script src="/static/erp/components/treeview.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/popupmenu.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- B+6.11e (10.5.2026): ErpLeftPanelTree — první consumer base ErpTreeView.
+         Subclass owns rendering + click + filter + active state. Router.py
+         si nechává wrapper logiku (view modes, drag-drop, multi-select,
+         favorites/MRU) a komunikuje přes public API. -->
+    <script src="/static/erp/components/lefttree.js?v=''' + _STATIC_VERSION + '''"></script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">
@@ -5432,15 +5437,19 @@ def _render_workspace_page(user_id: int) -> str:
       // B+2.1: resize handle pro tree width
       const resizeHandle = document.getElementById("erpResizeHandle");
 
-      const EXPAND_KEY = "erp.tree.expanded";
       const ACTIVE_KEY = "erp.tree.active";
       const TREE_WIDTH_KEY = "erp.tree.width";
+      // EXPAND_KEY ("erp.tree.expanded") owned by ErpLeftPanelTree subclass
+      // (Phase B+6.11e migration). Subclass sám persistuje expanded set.
 
       let activeErpDataGrid = null;      // current ErpDataGrid component (B+4 → default since B+4.3)
       // B+5.2 smoke testing: expose getter na window pro DevTools console.
       // Použití: await erpGrid().listLayouts()  /  erpGrid().getCurrentColumnState()
       window.erpGrid = () => activeErpDataGrid;
-      let nodeIndex = new Map();         // id -> {node, parentId} for fast path lookup
+      // Phase B+6.11e (10.5.2026): ErpLeftPanelTree instance — set up po
+      // prvním loadTree() volání. Owns: rendering, click dispatch,
+      // expand/collapse, filter, active state visual, node index.
+      let tree = null;
       let currentJadro = null;           // {form_id, row_id} of open jádro (B+2)
       const _ESC = {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"};
 
@@ -5494,14 +5503,10 @@ def _render_workspace_page(user_id: int) -> str:
         });
       }
 
-      // ── localStorage helpers ─────────────────────────────────────
-      function loadExpanded() {
-        try { return new Set(JSON.parse(localStorage.getItem(EXPAND_KEY) || "[]")); }
-        catch (e) { return new Set(); }
-      }
-      function saveExpanded(s) {
-        try { localStorage.setItem(EXPAND_KEY, JSON.stringify([...s])); } catch (e) {}
-      }
+      // ── Active state — cislo-based, mimo subclass storage ──────────
+      // Subclass ErpLeftPanelTree owns "erp.tree.expanded" (Set IDs).
+      // Active key drží cislo_def jako string (cislo-based) — používá ho
+      // tab restore. Necháváme samostatně, nepřebírá subclass.
       function loadActive() { return localStorage.getItem(ACTIVE_KEY) || null; }
       function saveActive(cislo) {
         try {
@@ -5509,25 +5514,72 @@ def _render_workspace_page(user_id: int) -> str:
           else localStorage.removeItem(ACTIVE_KEY);
         } catch (e) {}
       }
-      const expanded = loadExpanded();
 
-      // ── Tree fetch + render ──────────────────────────────────────
+      // ── Tree fetch + render (Phase B+6.11e: ErpLeftPanelTree subclass) ──
+      // Subclass owns: rendering, click dispatch, expand/collapse, filter,
+      // active state visual, node index. Router.py keeps wrapper logic
+      // (favorites, MRU, view modes, drag-drop, context menu).
       async function loadTree() {
+        if (!tree) {
+          tree = new ErpLeftPanelTree(treeRoot, {
+            dataSource: async () => {
+              const r = await fetch("/api/v1/erp/strom", { credentials: "include" });
+              if (!r.ok) {
+                throw new Error("Strom nelze načíst (status " + r.status + ").");
+              }
+              const data = await r.json();
+              return ErpLeftPanelTree.adaptServerTree(data.tree || []);
+            },
+            // Plain klik na leaf — subclass už nastavil visual active class
+            // a uložila active id; my dotahneme cislo-based saveActive +
+            // tab open (router.py owns tab system).
+            onActivate: (node, e, cislo) => {
+              saveActive(String(cislo));
+              const li = tree.findLiByCislo(cislo);
+              if (typeof openTab === "function") openTab(cislo, li);
+            },
+            // Klik na ★ — quick toggle favorite (delegate na existing).
+            onPinToggle: (cislo, node, e) => {
+              toggleTreeFavorite(cislo);
+            },
+            // Ctrl+klik — multi-select. Mirror state v _selectedTreeCislos
+            // pro context menu code (uses Set API: has/size/Array.from).
+            onMultiSelect: (cislo, isSelected, e) => {
+              if (isSelected) _selectedTreeCislos.add(cislo);
+              else _selectedTreeCislos.delete(cislo);
+            },
+            // contextMenu — router.py má vlastní treeRoot.addEventListener
+            // ("contextmenu") (níže). Až jednou přemigrujeme i context menu,
+            // použije se ErpPopupMenu + tady hook.
+            onContextMenu: null,
+          });
+        }
         try {
-          const r = await fetch("/api/v1/erp/strom", { credentials: "include" });
-          if (!r.ok) { renderTreeError("Strom nelze načíst (status " + r.status + ")."); return; }
-          const data = await r.json();
-          if (!data.tree || data.tree.length === 0) {
-            treeRoot.innerHTML = '<div class="erp-tree-empty">Strom prázdný.</div>';
+          await tree.init();
+          if (!tree._data || tree._data.length === 0) {
+            // Empty state už base class ukáže
             return;
           }
-          nodeIndex = new Map();
-          buildNodeIndex(data.tree, null);
-          treeRoot.innerHTML = renderTreeNodes(data.tree, 0);
-          attachTreeHandlers();
+          // Post-render setup (původně v _origAttachTreeHandlers wrapper):
+          //   1. Apply persisted favorites set → ★ ikony
+          //   2. Apply per-group drag order
+          //   3. Setup drag handlers
+          //   4. Sync footer view-mode buttons
+          //   5. Apply view filter (favorites/recent)
+          //   6. Restore tab active state
+          tree.applyPinSet(loadTreeFavorites());
+          _applyTreeOrderFromStorage();
+          _attachTreeDragHandlers();
+          if (treeFooterEl) {
+            treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(b => {
+              b.classList.toggle("active",
+                b.getAttribute("data-tree-view") === treeViewMode);
+            });
+          }
+          applyTreeViewFilter();
           tryRestoreActive();
         } catch (e) {
-          renderTreeError("Chyba: " + (e.message || String(e)));
+          renderTreeError(typeof e === "string" ? e : ("Chyba: " + (e.message || String(e))));
         }
       }
 
@@ -5543,168 +5595,54 @@ def _render_workspace_page(user_id: int) -> str:
             '<div class="erp-skel-line short"></div>' +
             '<div class="erp-skel-line"></div>' +
             '</div>';
+          // Reset tree instance — vynutí znovu init() při loadTree()
+          if (tree) {
+            try { tree.destroy(); } catch (err) {}
+            tree = null;
+          }
           loadTree();
         });
       }
 
-      function buildNodeIndex(nodes, parentId) {
-        for (const n of nodes) {
-          nodeIndex.set(String(n.id), { node: n, parentId: parentId });
-          if (n.children && n.children.length > 0) buildNodeIndex(n.children, String(n.id));
-        }
-      }
-
+      // ── Path / breadcrumb (delegate na subclass) ──
+      // Subclass ErpLeftPanelTree drží node index + walk parent chain
+      // přes DOM upward traversal. Path je array [{id, label, cislo_def}]
+      // od root k node.
       function getPathForId(id) {
-        const path = [];
-        let cur = nodeIndex.get(String(id));
-        while (cur) {
-          path.unshift({
-            id: String(cur.node.id),
-            label: cur.node.menu_text,
-            cislo_def: cur.node.cislo_def || null,
-          });
-          if (!cur.parentId) break;
-          cur = nodeIndex.get(cur.parentId);
-        }
-        return path;
+        if (!tree) return [];
+        return tree.getPathForId(id);
       }
 
-      function renderTreeNodes(nodes, depth) {
-        let html = '<ul class="erp-tree-list">';
-        for (const n of nodes) {
-          const nid = String(n.id);
-          const hasChildren = n.children && n.children.length > 0;
-          const hasPrehled = n.cislo_def != null;
-          // Phase 35-E.4 (9.5.2026): System soudečky (id starts with 'system')
-          // mají vlastní render path — klik redirectuje na audit-dashboard.
-          const isSystem = n.is_system === true;
-          const isSystemLeaf = isSystem && n.system_view;  // sub-uzel s view
-          let cls = hasPrehled ? "erp-tree-leaf" : "erp-tree-folder";
-          if (isSystem) cls += " erp-tree-system";
-          if (isSystemLeaf) cls += " erp-tree-system-leaf";
-          const isExpanded = hasChildren && expanded.has(nid);
-          const toggle = hasChildren
-            ? '<span class="erp-tree-toggle">' + (isExpanded ? "▼" : "▶") + '</span>'
-            : '<span class="erp-tree-spacer"></span>';
-          const ico = n.ikona ? '<span class="erp-tree-ico">' + (n.ikona % 100) + '</span>' : '';
-          // Pro System nody použij label místo menu_text
-          const _label = (n.label || n.menu_text || n.nazev || '?');
-          // System data attributes pro click handler
-          // Phase 35-E.4 Variant B: single=1 flag — leaf node renderuje
-          // jen daný view (žádné tabs).
-          const sysAttrs = isSystemLeaf
-            ? ' data-system-view="' + (n.system_view || '') +
-              '" data-system-view-mode="' + (n.system_view_mode || '') +
-              '" data-system-single="' + (n.single ? '1' : '0') + '"'
-            : '';
-          html += '<li class="erp-tree-item ' + cls + '" data-id="' + nid +
-                  '" data-cislo-def="' + (n.cislo_def || '') +
-                  '" data-text="' + escapeAttr(_label) +
-                  (isSystem ? '" data-is-system="1' : '') +
-                  sysAttrs + '">';
-          html += '<div class="erp-tree-row" style="padding-left: ' + (depth * 16) + 'px;">';
-          html += toggle + ico + '<span class="erp-tree-label">' + escapeHtml(_label) + '</span>';
-          html += '</div>';
-          if (hasChildren) {
-            html += '<div class="erp-tree-children" style="display: ' +
-                    (isExpanded ? "block" : "none") + ';">' +
-                    renderTreeNodes(n.children, depth + 1) + '</div>';
-          }
-          html += '</li>';
-        }
-        html += '</ul>';
-        return html;
-      }
+      // (renderTreeNodes / buildNodeIndex / attachTreeHandlers / setActive
+      //  byly migrovány do ErpLeftPanelTree subclass — Phase B+6.11e,
+      //  10.5.2026. Click semantics: Ctrl+klik=multi-select,
+      //  toggle=expand-only, plain klik na leaf=onActivate hook → openTab.)
 
-      function attachTreeHandlers() {
-        treeRoot.querySelectorAll(".erp-tree-row").forEach(row => {
-          row.addEventListener("click", (ev) => {
-            const item = row.closest(".erp-tree-item");
-            if (!item) return;
-            const nid = item.getAttribute("data-id");
-
-            // B+8.2a+ (6.5.2026): Ctrl/Cmd+klik = jen vybrat (multi-select),
-            // ne otevřít. Pro context-menu bulk akce.
-            if (ev.ctrlKey || ev.metaKey) {
-              ev.preventDefault();
-              const cisloDef = item.getAttribute("data-cislo-def");
-              if (cisloDef) {
-                _toggleTreeSelection(item);
-              }
-              return;
-            }
-
-            // B+8.2a+++++++ (6.5.2026): klik na ▶/▼ toggle = JEN expand/collapse,
-            // bez otevření přehledu. Marti's UX feedback: "sipka NESMI zaroven
-            // otevirat ten prehled" (jinak user pri exploraci stromu zaplní MRU).
-            const toggleClicked = ev.target.closest(".erp-tree-toggle");
-
-            // Klasický klik bez modifikátorů — clear selection
-            _clearTreeSelection();
-
-            const childrenWrap = item.querySelector(":scope > .erp-tree-children");
-            const toggle = row.querySelector(".erp-tree-toggle");
-            // Expand/collapse if has children
-            if (childrenWrap) {
-              const isOpen = childrenWrap.style.display !== "none";
-              childrenWrap.style.display = isOpen ? "none" : "block";
-              if (toggle) toggle.textContent = isOpen ? "▶" : "▼";
-              if (isOpen) expanded.delete(nid); else expanded.add(nid);
-              saveExpanded(expanded);
-            }
-            // Phase 35-E.4 Krok C+ (9.5.2026): System uzly jdou pres
-            // STEJNOU openTab pipeline jako EUROSOFT prehledy. Negativni
-            // cislo (-100/-101/-102/-103) jako tab ID. Tabs bar zustava
-            // visible, tab je persistovany. Marti's spec "tree + grid +
-            // tabs napric tenanty identicky".
-            if (!toggleClicked) {
-              const cisloDef = item.getAttribute("data-cislo-def");
-              if (cisloDef && cisloDef !== "") {
-                setActive(item, parseInt(cisloDef, 10));
-              }
-            }
-          });
-        });
-      }
-
-      // B+8.2a+ (6.5.2026): tree row selection (Ctrl+klik bez otevření)
+      // ── Multi-select state mirror ────────────────────────────────
+      // _selectedTreeCislos je Set udržovaný v sync se subclass přes
+      // onMultiSelect callback (viz loadTree). Context menu code (níže)
+      // ho čte jako Set: has(), size, Array.from(). Subclass má vlastní
+      // _selectedSet — tyto dva jsou drženy v sync.
       const _selectedTreeCislos = new Set();
       function _clearTreeSelection() {
         _selectedTreeCislos.clear();
-        if (!treeRoot) return;
-        treeRoot.querySelectorAll(".erp-tree-row.erp-tree-selected").forEach(r => {
-          r.classList.remove("erp-tree-selected");
-        });
+        if (tree) tree.clearSelection();
       }
       function _toggleTreeSelection(item) {
+        if (!tree || !item) return;
         const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
         if (!cislo) return;
-        const row = item.querySelector(":scope > .erp-tree-row");
-        if (!row) return;
-        if (_selectedTreeCislos.has(cislo)) {
-          _selectedTreeCislos.delete(cislo);
-          row.classList.remove("erp-tree-selected");
-        } else {
-          _selectedTreeCislos.add(cislo);
-          row.classList.add("erp-tree-selected");
-        }
+        // Subclass toggle → mirror Set (onMultiSelect callback dělá totéž
+        // při uživatelském Ctrl+klik; tady programmatic call si zajistíme
+        // sync ručně).
+        tree.toggleSelection(cislo);
+        if (tree.isSelected(cislo)) _selectedTreeCislos.add(cislo);
+        else _selectedTreeCislos.delete(cislo);
       }
       function _selectTreeRow(item) {
-        // single (non-additive) — clear pak select
+        // Single (non-additive) — clear pak select
         _clearTreeSelection();
         _toggleTreeSelection(item);
-      }
-
-      function setActive(item, cislo) {
-        treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
-        const row = item.querySelector(":scope > .erp-tree-row");
-        if (row) row.classList.add("active");
-        saveActive(String(cislo));
-        // Phase 35-E.4 Krok C+: System uzly jsou ted normalni taby
-        // (negative cislo). _restoreFromSystemView se uz nevola — tabsBar
-        // nehidujeme nikdy.
-        // B+8 (6.5.2026): místo loadPrehled → openTab (multi-tab pattern)
-        openTab(cislo, item);
       }
 
       // Phase 35-E.4 Krok C+ (9.5.2026): System uzly jsou ted normalni taby
@@ -5776,16 +5714,20 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
+      // ── Active node restore (po loadTree) ──────────────────────────
+      // Phase B+6.11e: subclass owns visual active class. Router.py má
+      // vlastní cislo-based saveActive (ne subclass id-based). Tato
+      // funkce: najde LI by cislo, scrollIntoView, expand ancestors,
+      // open tab pokud nejsou persisted tabs.
       function tryRestoreActive() {
-        // B+8 (6.5.2026): tabs state má vlastní restore (restoreTabsFromStorage).
-        // Tato funkce zachována pro tree highlight + scrollIntoView ale neotevírá
-        // přehled — to dělá tab restore (s itemId resolve z stromu).
         const cislo = loadActive();
-        if (!cislo) return;
-        const item = treeRoot.querySelector('.erp-tree-item[data-cislo-def="' + cislo + '"]');
+        if (!cislo || !tree) return;
+        const item = tree.findLiByCislo(cislo);
         if (!item) return;
         const row = item.querySelector(":scope > .erp-tree-row");
         if (row) row.classList.add("active");
+        // Persist active id v subclass storage také (pokud má id)
+        if (item.dataset.id) tree.setActive(item.dataset.id);
         expandAncestors(item);
         if (row && row.scrollIntoView) {
           try { row.scrollIntoView({ block: "nearest" }); } catch (e) {}
@@ -5793,11 +5735,17 @@ def _render_workspace_page(user_id: int) -> str:
         // Pokud nejsou žádné persisted tabs, otevři podle aktivního tree node
         const persisted = loadTabsState();
         if (!persisted || !persisted.tabs || persisted.tabs.length === 0) {
-          openTab(parseInt(cislo, 10), item);
+          if (typeof openTab === "function") openTab(parseInt(cislo, 10), item);
         }
       }
 
+      // ── Expand ancestors (DOM walk + sync se subclass) ────────────
+      // DOM walk: každý level vyhledá rodiče přes parentElement chain.
+      // Pro každého rodiče: zobraz jeho .erp-tree-children, set toggle ▼,
+      // a registruj id do subclass _expandedIds (přes tree.expand) — to
+      // automaticky persistuje (subclass _saveToStorage).
       function expandAncestors(item) {
+        if (!tree || !item) return;
         let cur = item;
         while (cur) {
           const ul = cur.parentElement;
@@ -5809,10 +5757,12 @@ def _render_workspace_page(user_id: int) -> str:
           if (!parentItem || !parentItem.classList.contains("erp-tree-item")) break;
           const tg = parentItem.querySelector(":scope > .erp-tree-row > .erp-tree-toggle");
           if (tg) tg.textContent = "▼";
-          expanded.add(parentItem.getAttribute("data-id"));
+          // Sync se subclass expanded set (persistuje při _saveToStorage)
+          if (parentItem.dataset.id) {
+            tree.expand(parentItem.dataset.id);
+          }
           cur = parentItem;
         }
-        saveExpanded(expanded);
       }
 
       // ── Breadcrumb ──────────────────────────────────────────────
@@ -7325,24 +7275,10 @@ def _render_workspace_page(user_id: int) -> str:
           }
         });
       }
-      // Hook do attachTreeHandlers — po renderu mark pinned + apply view filter
-      const _origAttachTreeHandlers = attachTreeHandlers;
-      attachTreeHandlers = function() {
-        _origAttachTreeHandlers();
-        // B+8.2a+++ (6.5.2026): apply saved per-group order PŘED markem pinned
-        // (apply změní DOM order, mark + drag setup pak fungují na finální layout)
-        _applyTreeOrderFromStorage();
-        _markPinnedTreeRows();
-        _attachTreeDragHandlers();
-        // Init footer toggle UI
-        if (treeFooterEl) {
-          treeFooterEl.querySelectorAll(".erp-tree-view-btn").forEach(b => {
-            b.classList.toggle("active",
-              b.getAttribute("data-tree-view") === treeViewMode);
-          });
-        }
-        applyTreeViewFilter();
-      };
+      // (Phase B+6.11e: _origAttachTreeHandlers wrapper byl odstraněn —
+      //  post-render setup (favorites + drag-drop + view filter + footer
+      //  buttons) byl přesunut do loadTree() success path. Subclass
+      //  ErpLeftPanelTree je sole owner click handlerů.)
 
       // ── B+8 (6.5.2026): Multi-tab přehled state + UI ───────────────
       // MVP localStorage. Phase B+8.1 přepne na backend persistence

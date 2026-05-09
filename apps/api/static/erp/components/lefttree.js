@@ -1,0 +1,644 @@
+/**
+ * ErpLeftPanelTree — ERP left panel tree (subclass ErpTreeView).
+ *
+ * První consumer base ErpTreeView. Specializace pro:
+ *   • Centrála 1 menu strom (EC_CentralaMenu) + System soudečky
+ *   • Numerické ikony (n.ikona % 100, char code)
+ *   • Leaf vs folder podle cislo_def != null (ne podle hasChildren)
+ *   • Star ★ pro pinned (favorites)
+ *   • Multi-select (Ctrl+klik) pro context-menu bulk akce
+ *   • System data attrs (is_system, system_view, ...)
+ *   • Toggle ▶/▼ klik = JEN expand (Marti's UX: nikdy neaktivuje přehled)
+ *   • Plain klik na leaf = activate (open tab)
+ *
+ * Phase B+6.11e (10.5.2026 odpoledne) — první consumer base ErpTreeView.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * USAGE (z router.py)
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *   const tree = new ErpLeftPanelTree(treeRootEl, {
+ *     dataSource: async () => {
+ *       const r = await fetch("/api/v1/erp/strom");
+ *       const j = await r.json();
+ *       return ErpLeftPanelTree.adaptServerTree(j.tree || []);
+ *     },
+ *     onActivate: (node, e, cislo) => openTab(cislo, ..., node),
+ *     onPinToggle: (cislo, node, e) => toggleTreeFavorite(cislo),
+ *     onMultiSelect: (cislo, isSelected, e) => updateBulkUI(),
+ *     onContextMenu: (node, e) => showContextMenu(node, e),
+ *   });
+ *   await tree.init();
+ *   // Po init:
+ *   tree.applyPinSet(loadTreeFavorites());
+ *
+ *   // External events:
+ *   document.getElementById("erpTreeSearch").addEventListener("input", (e) => {
+ *     tree.setFilter(e.target.value);
+ *   });
+ *
+ *   // View modes (router.py wrapper logic):
+ *   tree.applyViewFilter(new Set(loadTreeFavorites()), "favorites");
+ *   tree.setEmptyViewMessage("Žádné oblíbené.<br>...");
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ * STORAGE COMPATIBILITY
+ * ─────────────────────────────────────────────────────────────────────
+ *
+ *   • erp.tree.expanded — Set IDs (sdíleno s base, kompatibilní)
+ *   • erp.tree.active — UCHOVÁVÁ ROUTER.PY (cislo, ne node ID).
+ *     Subclass override _saveToStorage / _restoreFromStorage SKIP active.
+ *   • erp.tree.{view, favorites, recent, order.v1, collapsed, width} —
+ *     plně v režii router.py wrapper logic.
+ *
+ * ─────────────────────────────────────────────────────────────────────
+ */
+(function (global) {
+  "use strict";
+
+  if (typeof global.ErpTreeView !== "function") {
+    console.error("[ErpLeftPanelTree] requires ErpTreeView to be loaded first");
+    return;
+  }
+
+  class ErpLeftPanelTree extends global.ErpTreeView {
+    /**
+     * Adapt server tree response to ErpTreeView TreeNode shape.
+     * Server vrací nodes s `menu_text`, `cislo_def`, `ikona`, `is_system`, ...
+     * Base čte `n.label` — zde mappujeme + zachováváme original props
+     * pro klikové handlery (cislo_def, ikona, is_system).
+     */
+    static adaptServerTree(serverNodes) {
+      if (!Array.isArray(serverNodes)) return [];
+      return serverNodes.map(n => {
+        const label = n.label || n.menu_text || n.nazev || ('#' + (n.id || '?'));
+        return {
+          id: n.id,
+          label: label,
+          // Pass-through pro click handler + decorator
+          cislo_def: n.cislo_def,
+          ikona: n.ikona,
+          is_system: n.is_system === true,
+          system_view: n.system_view || null,
+          system_view_mode: n.system_view_mode || null,
+          single: n.single === true,
+          // Recursive children
+          children: Array.isArray(n.children) && n.children.length > 0
+            ? ErpLeftPanelTree.adaptServerTree(n.children)
+            : [],
+        };
+      });
+    }
+
+    constructor(container, options) {
+      super(container, Object.assign({
+        cssClassPrefix: "erp-tree",
+        storageKeyPrefix: "erp.tree",
+        // Search input je externí (#erpTreeSearch v workspace HTML),
+        // wire ho přes setFilter() z router.py
+        enableSearch: false,
+        enableKeyboard: true,
+        enablePersistence: true,
+        // Default empty/loading messages — router.py je může override
+        emptyMessage: "Strom prázdný.",
+        loadingMessage: "Načítám strom…",
+        indentPx: 16,
+        // Default ikony pull z node.ikona — žádný fallback
+        defaultIcons: { folderClosed: null, folderOpen: null, leaf: null },
+      }, options || {}));
+
+      // ERP-specific state
+      this._pinnedSet = new Set();
+      this._selectedSet = new Set();
+      this._viewFilterSet = null;     // null = no filter (zobrazí vše)
+      this._viewMode = "all";         // "all" | "favorites" | "recent"
+      this._emptyViewMessage = "(Žádné položky)";
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // OVERRIDES — rendering
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Numerické ikony z n.ikona (Marti's pattern: ikona % 100 = char code).
+     * Vrátí null pro folder/leaf bez explicit ikony (žádný fallback).
+     */
+    _resolveIcon(node, isExpanded, isFolder) {
+      if (node.ikona == null) return null;
+      try {
+        const n = parseInt(node.ikona, 10);
+        if (isNaN(n)) return null;
+        return String(n % 100);
+      } catch (e) {
+        return null;
+      }
+    }
+
+    /**
+     * Render hooks — base dělá heavy lifting (DOM construction + rekurze),
+     * subclass post-decoruje direct children o ERP-specific markery:
+     *
+     *   1. Leaf/folder semantic fix (cislo_def != null = leaf, vždy)
+     *   2. data-cislo-def attribute (legacy DOM API)
+     *   3. System markers (.erp-tree-system, data-system-*)
+     *   4. Pinned ★ ikona (ze stavu _pinnedSet)
+     *   5. Selection state (ze stavu _selectedSet)
+     */
+    _renderNodes(nodes, depth, parentUlEl) {
+      // Base impl renders this level (recurzivně volá this._renderNodes
+      // pro children, takže subclass post-decoruje per-level direct kids).
+      super._renderNodes(nodes, depth, parentUlEl);
+
+      const cls = this.options.cssClassPrefix;
+      const directLis = parentUlEl.querySelectorAll(":scope > li[data-id]");
+      directLis.forEach(li => {
+        const id = li.dataset.id;
+        const node = this._nodeIndex.get(String(id));
+        if (!node) return;
+        this._decorateLeftPanelLi(li, node, cls);
+      });
+    }
+
+    _decorateLeftPanelLi(li, node, cls) {
+      const cisloDefStr = (node.cislo_def != null && node.cislo_def !== '')
+        ? String(node.cislo_def)
+        : '';
+
+      // 1. Leaf/folder semantic — cislo_def != null = leaf (klikatelný přehled),
+      //    bez ohledu na hasChildren (Marti's Centrála 1 pattern: jádro může
+      //    být i container pro sub-přehledy).
+      if (cisloDefStr) {
+        li.classList.remove(cls + "-folder");
+        li.classList.add(cls + "-leaf");
+      }
+
+      // 2. data-cislo-def attribute (legacy API pro tabs/MRU/favorites)
+      if (cisloDefStr) li.dataset.cisloDef = cisloDefStr;
+
+      // 3. System markers (Phase 35-E.4)
+      if (node.is_system === true) {
+        li.classList.add(cls + "-system");
+        li.dataset.isSystem = "1";
+        if (node.system_view) {
+          li.classList.add(cls + "-system-leaf");
+          li.dataset.systemView = node.system_view;
+          li.dataset.systemViewMode = node.system_view_mode || "";
+          li.dataset.systemSingle = node.single ? "1" : "0";
+        }
+      }
+
+      // 4. Pinned ★ ikona (z _pinnedSet, idempotent)
+      if (cisloDefStr) {
+        const cisloN = parseInt(cisloDefStr, 10);
+        if (cisloN && this._pinnedSet.has(cisloN)) {
+          this._injectStarOn(li, cls);
+        }
+      }
+
+      // 5. Selection state (po refresh přežije)
+      if (cisloDefStr) {
+        const cisloN = parseInt(cisloDefStr, 10);
+        if (cisloN && this._selectedSet.has(cisloN)) {
+          const row = li.querySelector(":scope > ." + cls + "-row");
+          if (row) row.classList.add(cls + "-selected");
+        }
+      }
+    }
+
+    _injectStarOn(li, cls) {
+      const row = li.querySelector(":scope > ." + cls + "-row");
+      if (!row) return;
+      row.classList.add(cls + "-pinned");
+      if (!row.querySelector("." + cls + "-star")) {
+        const star = document.createElement("span");
+        star.className = cls + "-star";
+        star.textContent = "★";
+        star.title = "Odepnout (klik) nebo pravý-klik";
+        row.appendChild(star);
+      }
+    }
+
+    _removeStarFrom(li, cls) {
+      const row = li.querySelector(":scope > ." + cls + "-row");
+      if (!row) return;
+      row.classList.remove(cls + "-pinned");
+      const star = row.querySelector("." + cls + "-star");
+      if (star) star.remove();
+    }
+
+    /**
+     * Custom 5-line skeleton během loadingu (router.py styl).
+     */
+    _buildSkeleton() {
+      super._buildSkeleton();
+      if (this.rootEl) {
+        const cls = this.options.cssClassPrefix;
+        this.rootEl.innerHTML =
+          '<div class="' + cls + '-skeleton">' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line short"></div>' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line short"></div>' +
+          '<div class="erp-skel-line"></div>' +
+          '</div>';
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // OVERRIDES — click handling
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Click semantics:
+     *   • Klik na ★ ikonu          → onPinToggle hook (quick unpin)
+     *   • Klik na ▶/▼ toggle       → expand/collapse only (žádný activate)
+     *   • Ctrl/Cmd+klik             → multi-select toggle
+     *   • Plain klik (folder)       → expand + activate (pokud má cislo_def)
+     *   • Plain klik (leaf)         → activate via onActivate hook
+     */
+    _onRowClick(e) {
+      const cls = this.options.cssClassPrefix;
+      const row = e.target.closest("." + cls + "-row");
+      if (!row) return;
+      const li = row.parentElement;
+      if (!li || !li.classList.contains(cls + "-item")) return;
+      const id = li.dataset.id;
+      if (id == null) return;
+      const node = this._nodeIndex.get(String(id));
+      if (!node) return;
+
+      // Disabled = ignore
+      if (li.classList.contains(cls + "-disabled")) return;
+
+      // Star click — quick unpin (delegate hook)
+      if (e.target.classList && e.target.classList.contains(cls + "-star")) {
+        e.stopPropagation();
+        const cisloN = parseInt(li.dataset.cisloDef || "0", 10);
+        if (cisloN && typeof this.options.onPinToggle === "function") {
+          try { this.options.onPinToggle(cisloN, node, e); }
+          catch (err) { console.error("[ErpLeftPanelTree] onPinToggle failed:", err); }
+        }
+        return;
+      }
+
+      const targetRole = e.target.dataset && e.target.dataset.role;
+
+      // Toggle (▶/▼) click — JEN expand/collapse (Marti's UX z B+8.2a+++++++)
+      if (targetRole === "toggle") {
+        this._toggleExpanded(id);
+        e.stopPropagation();
+        return;
+      }
+
+      // Ctrl/Cmd+klik — multi-select toggle (žádný activate, žádné expand)
+      if (e.ctrlKey || e.metaKey) {
+        e.preventDefault();
+        const cisloN = parseInt(li.dataset.cisloDef || "0", 10);
+        if (cisloN) {
+          this._toggleSelectionInternal(cisloN);
+          if (typeof this.options.onMultiSelect === "function") {
+            try {
+              this.options.onMultiSelect(cisloN, this._selectedSet.has(cisloN), e);
+            } catch (err) {
+              console.error("[ErpLeftPanelTree] onMultiSelect failed:", err);
+            }
+          }
+        }
+        return;
+      }
+
+      // Plain klik — clear selection, expand pokud folder, activate pokud leaf
+      this.clearSelection();
+
+      // Expand/collapse pokud má children (toggle existence)
+      const childrenWrap = li.querySelector(":scope > ." + cls + "-children");
+      if (childrenWrap) {
+        this._toggleExpanded(id);
+      }
+
+      // Activate pokud má cislo_def (klikatelný přehled)
+      const cisloDefStr = li.dataset.cisloDef;
+      if (cisloDefStr) {
+        const cisloN = parseInt(cisloDefStr, 10);
+        if (cisloN) {
+          // Visual active class (base setActive čistí jiné active rows)
+          this.setActive(id);
+          // Activate hook → router.py openTab
+          if (typeof this.options.onActivate === "function") {
+            try { this.options.onActivate(node, e, cisloN); }
+            catch (err) { console.error("[ErpLeftPanelTree] onActivate failed:", err); }
+          }
+        }
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // OVERRIDES — persistence (active je v režii router.py, ne base)
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Subclass save: jen expanded set. Active key je conflict s router.py,
+     * který ukládá cislo (ne node ID). Router.py si vede saveActive/loadActive
+     * separately. Subclass nepište do `${prefix}.active`.
+     */
+    _saveToStorage() {
+      if (!this.options.enablePersistence) return;
+      const prefix = this.options.storageKeyPrefix;
+      try {
+        localStorage.setItem(
+          prefix + ".expanded",
+          JSON.stringify(Array.from(this._expandedIds))
+        );
+      } catch (e) {
+        console.warn("[ErpLeftPanelTree] storage save failed:", e);
+      }
+    }
+
+    /**
+     * Subclass restore: jen expanded set. Router.py restoruje active přes
+     * vlastní tryRestoreActive() po init().
+     */
+    _restoreFromStorage() {
+      if (!this.options.enablePersistence) return;
+      const prefix = this.options.storageKeyPrefix;
+      try {
+        const expRaw = localStorage.getItem(prefix + ".expanded");
+        if (expRaw) {
+          const arr = JSON.parse(expRaw);
+          if (Array.isArray(arr)) arr.forEach(id => this._expandedIds.add(String(id)));
+        }
+      } catch (e) {
+        console.warn("[ErpLeftPanelTree] storage restore failed:", e);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PUBLIC API — pinned (favorites)
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Set entire pinned set. Re-applies ★ visual on all matching rows.
+     * Volat po init() pro restore z localStorage favorites.
+     */
+    applyPinSet(cislos) {
+      this._pinnedSet = new Set(
+        (cislos || [])
+          .map(c => parseInt(c, 10))
+          .filter(c => !isNaN(c) && c !== 0)
+      );
+      if (!this.rootEl) return;
+      const cls = this.options.cssClassPrefix;
+      this.rootEl.querySelectorAll("li." + cls + "-item").forEach(li => {
+        const cisloN = parseInt(li.dataset.cisloDef || "0", 10);
+        if (!cisloN) return;
+        if (this._pinnedSet.has(cisloN)) this._injectStarOn(li, cls);
+        else this._removeStarFrom(li, cls);
+      });
+    }
+
+    /**
+     * Toggle single pinned state. Volat z router.py toggleTreeFavorite po
+     * localStorage update + API sync.
+     */
+    setPinned(cislo, on) {
+      const c = parseInt(cislo, 10);
+      if (!c) return;
+      if (on) this._pinnedSet.add(c);
+      else this._pinnedSet.delete(c);
+      if (!this.rootEl) return;
+      const cls = this.options.cssClassPrefix;
+      this.rootEl.querySelectorAll("li." + cls + "-item").forEach(li => {
+        if (parseInt(li.dataset.cisloDef || "0", 10) !== c) return;
+        if (on) this._injectStarOn(li, cls);
+        else this._removeStarFrom(li, cls);
+      });
+    }
+
+    isPinned(cislo) {
+      return this._pinnedSet.has(parseInt(cislo, 10));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PUBLIC API — multi-select
+    // ════════════════════════════════════════════════════════════════
+
+    _toggleSelectionInternal(cislo) {
+      const c = parseInt(cislo, 10);
+      if (!c) return;
+      const cls = this.options.cssClassPrefix;
+      if (this._selectedSet.has(c)) {
+        this._selectedSet.delete(c);
+        this._setSelectionDOM(c, false, cls);
+      } else {
+        this._selectedSet.add(c);
+        this._setSelectionDOM(c, true, cls);
+      }
+    }
+
+    _setSelectionDOM(cislo, on, cls) {
+      if (!this.rootEl) return;
+      this.rootEl.querySelectorAll("li." + cls + "-item").forEach(li => {
+        if (parseInt(li.dataset.cisloDef || "0", 10) !== cislo) return;
+        const row = li.querySelector(":scope > ." + cls + "-row");
+        if (!row) return;
+        if (on) row.classList.add(cls + "-selected");
+        else row.classList.remove(cls + "-selected");
+      });
+    }
+
+    /**
+     * Toggle selection externally (router.py může volat).
+     */
+    toggleSelection(cislo) {
+      this._toggleSelectionInternal(cislo);
+    }
+
+    /**
+     * Clear all selections. Volat z router.py při Esc nebo na plain klik.
+     */
+    clearSelection() {
+      this._selectedSet.clear();
+      if (!this.rootEl) return;
+      const cls = this.options.cssClassPrefix;
+      this.rootEl
+        .querySelectorAll("." + cls + "-row." + cls + "-selected")
+        .forEach(r => r.classList.remove(cls + "-selected"));
+    }
+
+    /**
+     * Returns array of selected cislos. Pro context-menu bulk akce.
+     */
+    getSelected() {
+      return Array.from(this._selectedSet);
+    }
+
+    isSelected(cislo) {
+      return this._selectedSet.has(parseInt(cislo, 10));
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PUBLIC API — view mode filter (favorites / recent)
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Apply view mode filter. matchSet = Set<cislo> nebo array.
+     * Při mode='all' nebo prázdném matchSet → clear filter (vše viditelné).
+     *
+     * @param {Set|Array|null} matchCislos
+     * @param {string} mode  "all" | "favorites" | "recent"
+     */
+    applyViewFilter(matchCislos, mode) {
+      this._viewMode = mode || "all";
+      if (this._viewMode === "all" || matchCislos == null) {
+        this._viewFilterSet = null;
+      } else {
+        const arr = matchCislos instanceof Set
+          ? Array.from(matchCislos)
+          : Array.isArray(matchCislos) ? matchCislos : [];
+        this._viewFilterSet = new Set(
+          arr.map(c => parseInt(c, 10)).filter(c => !isNaN(c))
+        );
+      }
+      this._renderViewFilter();
+    }
+
+    clearViewFilter() {
+      this.applyViewFilter(null, "all");
+    }
+
+    setEmptyViewMessage(html) {
+      this._emptyViewMessage = String(html || "");
+    }
+
+    getViewMode() {
+      return this._viewMode;
+    }
+
+    _renderViewFilter() {
+      if (!this.rootEl) return;
+      const cls = this.options.cssClassPrefix;
+
+      // Reset visual state
+      this.rootEl.classList.remove(cls + "-view-favorites", cls + "-view-recent");
+      this.rootEl.querySelectorAll("." + cls + "-row").forEach(r => {
+        r.classList.remove(cls + "-view-match", cls + "-view-match-parent");
+      });
+      const oldEmpty = this.rootEl.querySelector("." + cls + "-empty-view");
+      if (oldEmpty) oldEmpty.remove();
+
+      if (!this._viewFilterSet) return;  // mode = all
+
+      if (this._viewMode === "favorites") {
+        this.rootEl.classList.add(cls + "-view-favorites");
+      } else if (this._viewMode === "recent") {
+        this.rootEl.classList.add(cls + "-view-recent");
+      }
+
+      if (this._viewFilterSet.size === 0) {
+        // Empty state placeholder (caller poskytl message přes setEmptyViewMessage)
+        const empty = document.createElement("div");
+        empty.className = cls + "-empty-view";
+        empty.innerHTML = this._emptyViewMessage;
+        this.rootEl.appendChild(empty);
+        return;
+      }
+
+      // Mark match rows + ancestor parents (s expand)
+      this.rootEl.querySelectorAll("li." + cls + "-item").forEach(li => {
+        const cisloN = parseInt(li.dataset.cisloDef || "0", 10);
+        if (!cisloN || !this._viewFilterSet.has(cisloN)) return;
+        const row = li.querySelector(":scope > ." + cls + "-row");
+        if (row) row.classList.add(cls + "-view-match");
+
+        // Expand all ancestors + označ jako match-parent
+        let parent = li.parentElement;
+        while (parent && parent !== this.rootEl) {
+          if (parent.classList && parent.classList.contains(cls + "-children")) {
+            parent.style.display = "block";
+            const parentLi = parent.parentElement;
+            if (parentLi && parentLi.classList && parentLi.classList.contains(cls + "-item")) {
+              const pRow = parentLi.querySelector(":scope > ." + cls + "-row");
+              if (pRow) pRow.classList.add(cls + "-view-match-parent");
+              const tg = pRow ? pRow.querySelector("." + cls + "-toggle") : null;
+              if (tg) tg.textContent = "▼";
+              if (parentLi.dataset.id) this._expandedIds.add(parentLi.dataset.id);
+            }
+          }
+          parent = parent.parentElement;
+        }
+      });
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // PUBLIC API — lookup helpers (legacy DOM compat)
+    // ════════════════════════════════════════════════════════════════
+
+    /**
+     * Find first node with given cislo_def. Returns full node or null.
+     */
+    getNodeByCislo(cislo) {
+      const c = parseInt(cislo, 10);
+      if (!c) return null;
+      for (const node of this._nodeIndex.values()) {
+        if (node.cislo_def != null && parseInt(node.cislo_def, 10) === c) {
+          return node;
+        }
+      }
+      return null;
+    }
+
+    /**
+     * Find first <li> element with data-cislo-def == cislo. Pro legacy
+     * DOM-aware kód (drag-drop, scrollIntoView, ...).
+     */
+    findLiByCislo(cislo) {
+      if (!this.rootEl) return null;
+      const cls = this.options.cssClassPrefix;
+      const c = parseInt(cislo, 10);
+      if (!c) return null;
+      const lis = this.rootEl.querySelectorAll("li." + cls + "-item");
+      for (const li of lis) {
+        if (parseInt(li.dataset.cisloDef || "0", 10) === c) return li;
+      }
+      return null;
+    }
+
+    /**
+     * Build path z node ID na root (pro breadcrumbs). Returns array
+     * [{id, label, cislo_def}] od root k node.
+     */
+    getPathForId(id) {
+      const path = [];
+      // Walk parent_id chain — base _buildIndex tracks parent přes Map.
+      // Bohužel base ukládá node bez parentId reference. Musíme si build
+      // vlastní parent map nebo iterovat tree. Simple: walk DOM upward.
+      if (!this.rootEl) return path;
+      const cls = this.options.cssClassPrefix;
+      let li = this.rootEl.querySelector("li[data-id=\"" + String(id) + "\"]");
+      while (li && li.classList.contains(cls + "-item")) {
+        const node = this._nodeIndex.get(li.dataset.id);
+        if (node) {
+          path.unshift({
+            id: String(node.id),
+            label: node.label,
+            cislo_def: node.cislo_def != null ? node.cislo_def : null,
+          });
+        }
+        // Step up: li → ul → children → li (parent)
+        const ul = li.parentElement;
+        const childWrap = ul ? ul.parentElement : null;
+        const isChildWrap = childWrap && childWrap.classList.contains(cls + "-children");
+        li = isChildWrap ? childWrap.parentElement : null;
+      }
+      return path;
+    }
+
+    /**
+     * Expose root element for external listeners (drag-drop, etc.).
+     * Inherited from base, but stays explicit here for clarity.
+     */
+    // getRootElement() — already in base
+  }
+
+  global.ErpLeftPanelTree = ErpLeftPanelTree;
+})(typeof window !== "undefined" ? window : globalThis);

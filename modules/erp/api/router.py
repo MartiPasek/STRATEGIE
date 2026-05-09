@@ -2612,32 +2612,65 @@ def _render_full_page(
     /* B+2.4 (5.5.2026): logo doleva — žádné centering, full viewport width */
     .erp-header {{
       background: var(--surface); border-bottom: 1px solid var(--border);
-      padding: 12px 16px; position: sticky; top: 0; z-index: 10;
+      /* Phase 38.5 polish (9.5.2026 vecer): top zachovan 12px, bottom snizen
+         na 6px (polovina). Plus prvky align-self: end → u spodniho okraje.
+         Vysledek: nizsi hlavicka, prvky "sedaj" na spodni hranu. */
+      padding: 12px 16px 6px 16px;
+      position: sticky; top: 0; z-index: 10;
     }}
     .erp-header-inner {{
       max-width: none; margin: 0;
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }}
-    /* Phase 38.5 (9.5.2026 vecer): Marti's "dva stejne panely" — 50/50 grid.
-       Levy = brand row, pravy = utility (refresh, ...) skladany zleva. */
+    /* Phase 38.5 (9.5.2026 vecer): Marti's "dva stejne panely" — 50/50 grid
+       s vizualnim divider uprostred (Marti's polish: "posuvny slider v
+       decentni sede"). Plus prvky align u spodniho okraje (Marti's spec
+       "snizit vysku hlavicky, prvky budou u spodniho okraje"). */
     .erp-header-2col {{
       display: grid !important;
-      grid-template-columns: 1fr 1fr;
+      grid-template-columns: 1fr auto 1fr;
       gap: 16px;
-      align-items: center;
+      align-items: end;
     }}
     .erp-header-left {{
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       min-width: 0;
     }}
     .erp-header-right {{
       display: flex;
-      align-items: center;
+      align-items: flex-end;
       gap: 12px;
       min-width: 0;
       /* Skladame zleva — prvni utility ikona je zhruba uprostred screenu */
       justify-content: flex-start;
+    }}
+    /* Vizualni divider mezi panely — gray vertical line s 3-dot handle.
+       Decentni styling, naznak posuvneho slideru bez funkcni drag-resize
+       implementace (zatim jen visual cue). */
+    .erp-header-divider {{
+      width: 1px;
+      height: 32px;
+      background: var(--border);
+      align-self: end;
+      margin-bottom: 4px;
+      position: relative;
+      flex-shrink: 0;
+    }}
+    .erp-header-divider::before {{
+      /* 3 dot vertical handle uprostred (subtle splitter indicator) */
+      content: '';
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      width: 3px;
+      height: 3px;
+      border-radius: 50%;
+      background: var(--border-strong);
+      box-shadow:
+        0 -7px 0 var(--border-strong),
+        0 7px 0 var(--border-strong);
     }}
     /* Refresh ikona — neutral / stale (orange) / very-stale (pulse) */
     .erp-refresh-btn {{
@@ -4279,6 +4312,9 @@ def _render_full_page(
           <span class="erp-header-prehled" id="erpHeaderPrehled" style="display:none"></span>
         </div>
       </div>
+      <!-- Phase 38.5 polish (9.5.2026 vecer): visualni oddelovac mezi panely.
+           Decentni gray vertical line s 3-dot handle uprostred (splitter hint). -->
+      <div class="erp-header-divider" aria-hidden="true"></div>
       <div class="erp-header-right">
         <!-- Phase 38.5 (9.5.2026 vecer): Refresh aktivniho tab gridu.
              Stav: neutral / .stale (>5 min, orange) / .very-stale (>15 min, pulse).

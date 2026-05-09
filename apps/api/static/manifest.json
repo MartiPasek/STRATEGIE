@@ -1,7 +1,7 @@
 {
-  "name": "STRATEGIE",
-  "short_name": "STRATEGIE",
-  "description": "STRATEGIE — Marti's modular enterprise AI platform (chat).",
+  "name": "STRATEGIE Chat",
+  "short_name": "STRATEGIE Chat",
+  "description": "STRATEGIE — chat s Marti-AI (composer + memory + diary).",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",

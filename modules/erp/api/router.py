@@ -8558,44 +8558,24 @@ def _render_workspace_page(user_id: int) -> str:
       })();
       const _martiBtn = document.getElementById("erpMartiAiBtn");
       if (_martiBtn) {
-        _martiBtn.addEventListener("click", (ev) => {
+        _martiBtn.addEventListener("click", () => {
           // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): named target
           // místo "_blank" — když okno chatu už existuje, druhý klik ho jen
           // **focusne**, neotevře nové. Marti: "Klikem na Moje Marti se
           // otevre nove okno s chatem... Dalsim klikem dalsi a dalsi...
           // To je zmatek. Je treba mit vzdy jen jedno okno s chatem."
           //
-          // Phase 38.5+ (9.5.2026 vecer): PWA-aware navigation. Marti's
-          // problem 9.5. vecer: "klik otevre Chat ale s hnusnou bilou
-          // Chrom hlavickou". Pricina: window.open z ERP PWA na chat URL
-          // "/" (mimo puvodni scope "/erp/") → Chrome vyhodi do normal
-          // tabu s chrome bar. Po manifest scope unifikaci na "/" je
-          // chat URL v ramci ERP PWA scope → muzeme navigovat same-window
-          // a zachovat PWA mode (zadny chrome bar).
-          //
-          // Default: same-window navigation pokud Marti je v PWA standalone
-          // mode (zachova bezbar look). Browser back vrati zpet do ERP.
-          // Modifier (Ctrl/Cmd/Shift): otevri novy tab/window (existing
-          // behavior, pro Marti kteri chteji ERP + chat side-by-side).
-          const isPWA = window.matchMedia('(display-mode: standalone)').matches;
-          const wantsNewWindow = ev.ctrlKey || ev.metaKey || ev.shiftKey;
-          if (isPWA && !wantsNewWindow) {
-            // Same-window navigation — zachova PWA standalone mode.
-            // ERP state se ztrati, ale browser back ve PWA window vrati.
-            window.location.href = '/';
-          } else {
-            // Novy tab/window (Ctrl-klik nebo non-PWA mode).
-            const w = window.open("/", "strategie-chat");
-            if (w) {
-              try { w.focus(); } catch (e) {}
-            }
+          // Phase 38.5+ (9.5.2026 vecer): Marti nainstaloval chat PWA
+          // (real install pres Chrome menu "Install"), takze window.open
+          // automaticky otevira chat URL v chat PWA window (zadny chrome
+          // bar). ERP zustava otevrena paralelne — Marti ma side-by-side
+          // ERP + chat. Named target "strategie-chat" zajistuje ze druhy
+          // klik focusne existing chat window misto otevreni dalsiho.
+          const w = window.open("/", "strategie-chat");
+          if (w) {
+            try { w.focus(); } catch (e) {}
           }
         });
-        // Update tooltip s hint o Ctrl-klik fallback
-        _martiBtn.setAttribute(
-          'data-hint',
-          'Otevři chat (Ctrl+klik = nové okno)'
-        );
       }
       // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): zakázat browser
       // native context menu na celém ERP workspace (Marti: "ty hnusne

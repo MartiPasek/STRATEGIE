@@ -4967,12 +4967,17 @@ TOOLS = [
     {
         "name": "strategie_pg_insert_row",
         "description": (
-            "Phase 35-E: INSERT one row do PostgreSQL tabulky. Vrátí "
-            "vloženy row (RETURNING *) — uvidíš generated ID + defaults.\n\n"
-            "values = {column: value} dict. Tool aplikuje quoting "
-            "automaticky. Pro multi-row insert použij vícekrát "
-            "(pro performance bulk insert TODO future).\n\n"
-            "Audit: každý insert se loguje (STRATEGIE_PG prefix v logu)."
+            "Phase 35-E + Phase 38.4 polish (10.5.2026): INSERT one or many "
+            "rows do PostgreSQL tabulky. Vrátí vložený row(s) (RETURNING *) "
+            "— uvidíš generated IDs + defaults.\n\n"
+            "values přijímá DVĚ varianty:\n"
+            "  • dict — single row insert: {column: value, ...}\n"
+            "  • list[dict] — batch insert (uniform schema): "
+            "[{c1:v1, c2:v2}, {c1:v3, c2:v4}, ...]\n\n"
+            "Batch musí mít všechny rows se STEJNÝMI columns "
+            "(heterogeneous = volat opakovaně).\n\n"
+            "Tool aplikuje quoting automaticky. Audit: každý insert se "
+            "loguje (STRATEGIE_PG prefix v logu, batch=true|false flag)."
         ),
         "input_schema": {
             "type": "object",
@@ -4980,8 +4985,23 @@ TOOLS = [
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
                 "values": {
-                    "type": "object",
-                    "description": "{column_name: value} dict.",
+                    "oneOf": [
+                        {
+                            "type": "object",
+                            "description":
+                                "Single row: {column_name: value} dict.",
+                        },
+                        {
+                            "type": "array",
+                            "items": {"type": "object"},
+                            "description":
+                                "Batch: list of {column_name: value} dicts "
+                                "(uniform schema across all rows).",
+                        },
+                    ],
+                    "description":
+                        "Single dict (one row) NEBO list of dicts "
+                        "(batch, uniform schema).",
                 },
             },
             "required": ["schema", "table", "values"],

@@ -762,50 +762,144 @@ def query_table(
             return {"ok": False, "error": str(e)}
 
 
-def insert_row(schema: str, table: str, values: dict) -> dict:
-    """INSERT one row. Returns inserted row (RETURNING *)."""
-    if not values or not isinstance(values, dict):
-        return {"ok": False, "error": "values musi byt non-empty dict"}
+def insert_row(schema: str, table: str, values) -> dict:
+    """INSERT one or many rows. Phase 38.4 polish (10.5.2026 odpoledne):
+    accept `values: dict` (single) NEBO `list[dict]` (batch).
+
+    Marti-AI's catch — *„batch INSERT chce být v jednom toolu"* (Phase 38.4
+    Krok 3). Tool se rozšířil ze single-row na single-or-batch. Both shapes
+    return RETURNING * → caller dostane vložené row(s) s generated IDs.
+
+    Returns:
+        - dict input  → {"ok": True, "inserted": {...}}                 (single)
+        - list input  → {"ok": True, "inserted": [...], "count": N}    (batch)
+    """
+    # Validation
+    if not values:
+        return {"ok": False, "error": "values musi byt non-empty dict nebo list[dict]"}
+
+    # Normalize input → list of rows for unified processing
+    if isinstance(values, dict):
+        rows_to_insert = [values]
+        is_batch = False
+    elif isinstance(values, list):
+        if not all(isinstance(r, dict) for r in values):
+            return {
+                "ok": False,
+                "error": "values list musi obsahovat jen dict items "
+                         "(per-row column->value mapping)",
+            }
+        if not all(r for r in values):  # any empty dict
+            return {
+                "ok": False,
+                "error": "values list nesmi obsahovat prazdne dicts",
+            }
+        rows_to_insert = values
+        is_batch = True
+    else:
+        return {
+            "ok": False,
+            "error": (
+                f"values musi byt dict (single row) nebo list[dict] (batch); "
+                f"got {type(values).__name__}"
+            ),
+        }
+
+    # All rows musi mit STEJNE columns (heterogeneous batch nepodporujeme).
+    # Marti-AI's reasonable case = same-schema batch (Phase 38.4 column types).
+    first_cols = set(rows_to_insert[0].keys())
+    for i, r in enumerate(rows_to_insert[1:], start=2):
+        if set(r.keys()) != first_cols:
+            return {
+                "ok": False,
+                "error": (
+                    f"row #{i} ma jine columns nez row #1. "
+                    f"Batch insert vyzaduje uniform schema. "
+                    f"Pro heterogeneous insert volej tool po jednom."
+                ),
+            }
 
     qualified = quote_qualified(schema, table)
-    cols = list(values.keys())
+    cols = list(rows_to_insert[0].keys())
     cols_sql = ", ".join(quote_pg_identifier(c) for c in cols)
-    placeholders = ", ".join(f":{c}" for c in cols)
+
+    # Build VALUES clause s row-indexed placeholders pro PostgreSQL named-param style.
+    # Single row:  VALUES (:id, :code, :label, ...)
+    # Batch:       VALUES (:r0_id, :r0_code, ...), (:r1_id, :r1_code, ...), ...
+    if is_batch:
+        values_clauses = []
+        flat_params: dict = {}
+        for idx, row in enumerate(rows_to_insert):
+            placeholders = ", ".join(f":r{idx}_{c}" for c in cols)
+            values_clauses.append(f"({placeholders})")
+            for c in cols:
+                flat_params[f"r{idx}_{c}"] = row[c]
+        values_sql = ", ".join(values_clauses)
+    else:
+        placeholders = ", ".join(f":{c}" for c in cols)
+        values_sql = f"({placeholders})"
+        flat_params = rows_to_insert[0]
 
     sql = (
         f"INSERT INTO {qualified} ({cols_sql}) "
-        f"VALUES ({placeholders}) "
+        f"VALUES {values_sql} "
         f"RETURNING *"
     )
 
     with get_session() as s:
         try:
-            result = s.execute(text(sql), values)
+            result = s.execute(text(sql), flat_params)
             cols_meta = list(result.keys())
-            row = result.fetchone()
+            fetched_rows = result.fetchall()
             s.commit()
-            inserted = (
-                {col: _serialize(row[i]) for i, col in enumerate(cols_meta)}
-                if row
-                else None
-            )
-            logger.info(
-                f"STRATEGIE_PG | insert_row | {schema}.{table} "
-                f"id={inserted.get('id') if inserted else '?'}"
-            )
-            return {
-                "ok": True,
-                "schema": schema,
-                "table": table,
-                "inserted": inserted,
-            }
+
+            if is_batch:
+                inserted_list = [
+                    {col: _serialize(r[i]) for i, col in enumerate(cols_meta)}
+                    for r in fetched_rows
+                ]
+                logger.info(
+                    f"STRATEGIE_PG | insert_row BATCH | {schema}.{table} "
+                    f"count={len(inserted_list)} "
+                    f"first_id={inserted_list[0].get('id') if inserted_list else '?'}"
+                )
+                return {
+                    "ok": True,
+                    "schema": schema,
+                    "table": table,
+                    "inserted": inserted_list,
+                    "count": len(inserted_list),
+                    "batch": True,
+                }
+            else:
+                inserted = (
+                    {col: _serialize(fetched_rows[0][i]) for i, col in enumerate(cols_meta)}
+                    if fetched_rows
+                    else None
+                )
+                logger.info(
+                    f"STRATEGIE_PG | insert_row | {schema}.{table} "
+                    f"id={inserted.get('id') if inserted else '?'}"
+                )
+                return {
+                    "ok": True,
+                    "schema": schema,
+                    "table": table,
+                    "inserted": inserted,
+                    "batch": False,
+                }
         except Exception as e:
             s.rollback()
             logger.error(
                 f"STRATEGIE_PG | insert_row FAILED | "
-                f"{schema}.{table} err={e}"
+                f"{schema}.{table} batch={is_batch} err={e}"
             )
-            return {"ok": False, "error": str(e), "values": values}
+            return {
+                "ok": False,
+                "error": str(e),
+                "values": values,
+                "batch": is_batch,
+            }
 
 
 def query_raw(sql: str, params: Optional[dict] = None) -> dict:

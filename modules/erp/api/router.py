@@ -2618,6 +2618,83 @@ def _render_full_page(
       max-width: none; margin: 0;
       display: flex; align-items: center; justify-content: space-between; gap: 16px;
     }}
+    /* Phase 38.5 (9.5.2026 vecer): Marti's "dva stejne panely" — 50/50 grid.
+       Levy = brand row, pravy = utility (refresh, ...) skladany zleva. */
+    .erp-header-2col {{
+      display: grid !important;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+      align-items: center;
+    }}
+    .erp-header-left {{
+      display: flex;
+      align-items: center;
+      min-width: 0;
+    }}
+    .erp-header-right {{
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      min-width: 0;
+      /* Skladame zleva — prvni utility ikona je zhruba uprostred screenu */
+      justify-content: flex-start;
+    }}
+    /* Refresh ikona — neutral / stale (orange) / very-stale (pulse) */
+    .erp-refresh-btn {{
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 18px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-muted);
+      padding: 0;
+      line-height: 1;
+      flex-shrink: 0;
+    }}
+    .erp-refresh-btn:hover {{
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(124, 92, 252, 0.08);
+    }}
+    .erp-refresh-btn:disabled {{
+      opacity: 0.4;
+      cursor: not-allowed;
+    }}
+    .erp-refresh-btn:disabled:hover {{
+      border-color: var(--border);
+      color: var(--text-muted);
+      background: transparent;
+    }}
+    .erp-refresh-btn.stale {{
+      color: #d4a017;
+      border-color: #d4a017;
+      background: rgba(212, 160, 23, 0.08);
+    }}
+    .erp-refresh-btn.stale:hover {{
+      background: rgba(212, 160, 23, 0.18);
+    }}
+    .erp-refresh-btn.very-stale {{
+      animation: refreshPulse 2.4s ease-in-out infinite;
+    }}
+    @keyframes refreshPulse {{
+      0%, 100% {{ opacity: 1; box-shadow: 0 0 0 0 rgba(212, 160, 23, 0.4); }}
+      50% {{ opacity: 0.7; box-shadow: 0 0 0 6px rgba(212, 160, 23, 0); }}
+    }}
+    /* Refresh spinning behem fetchu */
+    .erp-refresh-btn.spinning {{
+      animation: refreshSpin 0.6s linear infinite;
+      pointer-events: none;
+    }}
+    @keyframes refreshSpin {{
+      from {{ transform: rotate(0deg); }}
+      to {{ transform: rotate(360deg); }}
+    }}
     /* B+9 (6.5.2026): UI zoom toggle (3-segment A−/A/A+) */
     .erp-zoom-toggle {{
       display: inline-flex;
@@ -4176,25 +4253,38 @@ def _render_full_page(
 </head>
 <body>
   <header class="erp-header">
-    <div class="erp-header-inner">
-      <!-- B+10+++ (Marti's drobnost 6.5.2026): logo "STRATEGIE" + dynamický
-           "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
-      <div class="erp-header-brand-row">
-        <a href="/erp/" class="erp-logo" id="erpLogoLink"
-           data-hint="Obnovit  ·  Ctrl+Shift+klik = hard reset (vymaže cache)">STRATEGIE</a>
-        <span class="erp-header-dot" aria-hidden="true">·</span>
-        <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
-                data-hint="Otevři chat s Marti-AI v novém tabu">
-          <span class="erp-marti-btn-avatar">
-            <img id="erpMartiAiAvatar" src="" alt="Marti" />
-          </span>
-          <span class="erp-marti-btn-label">Tvoje Marti</span>
-        </button>
-        <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
-             smazány z headeru — duplikát s browser title barem. Zachováno jako
-             skryté kotvy pro JS update document.title (žádný visual). -->
-        <span class="erp-header-sep" id="erpHeaderSep" hidden style="display:none">|</span>
-        <span class="erp-header-prehled" id="erpHeaderPrehled" style="display:none"></span>
+    <div class="erp-header-inner erp-header-2col">
+      <!-- Phase 38.5 (9.5.2026 vecer): Marti's spec "rozdelit hlavicku
+           na dva stejne panely". Levy panel = brand row (logo + Tvoje Marti).
+           Pravy panel = utility (refresh, ...) skladany zleva, takze
+           prvni utility ikona je zhruba uprostred screenu. -->
+      <div class="erp-header-left">
+        <!-- B+10+++ (Marti's drobnost 6.5.2026): logo "STRATEGIE" + dynamický
+             "| <přehled>" + Marti-AI ploška vedle (avatar + "Tvoje Marti-AI"). -->
+        <div class="erp-header-brand-row">
+          <a href="/erp/" class="erp-logo" id="erpLogoLink"
+             data-hint="Obnovit  ·  Ctrl+Shift+klik = hard reset (vymaže cache)">STRATEGIE</a>
+          <span class="erp-header-dot" aria-hidden="true">·</span>
+          <button type="button" class="erp-marti-btn" id="erpMartiAiBtn"
+                  data-hint="Otevři chat s Marti-AI v novém tabu">
+            <span class="erp-marti-btn-avatar">
+              <img id="erpMartiAiAvatar" src="" alt="Marti" />
+            </span>
+            <span class="erp-marti-btn-label">Tvoje Marti</span>
+          </button>
+          <!-- B+10+++ (drobnost po návratu 6.5.2026): erpHeaderSep + erpHeaderPrehled
+               smazány z headeru — duplikát s browser title barem. Zachováno jako
+               skryté kotvy pro JS update document.title (žádný visual). -->
+          <span class="erp-header-sep" id="erpHeaderSep" hidden style="display:none">|</span>
+          <span class="erp-header-prehled" id="erpHeaderPrehled" style="display:none"></span>
+        </div>
+      </div>
+      <div class="erp-header-right">
+        <!-- Phase 38.5 (9.5.2026 vecer): Refresh aktivniho tab gridu.
+             Stav: neutral / .stale (>5 min, orange) / .very-stale (>15 min, pulse).
+             Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
+        <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
+                data-hint="Obnovit data v aktivním přehledu">🔄</button>
       </div>
     </div>
   </header>
@@ -7893,6 +7983,113 @@ def _render_workspace_page(user_id: int) -> str:
         activeIndex: -1,
       };
 
+      // ════════════════════════════════════════════════════════════════
+      // Phase 38.5 (9.5.2026 vecer): ErpRefresh — refresh ikona v hlavicce
+      // s per-tab freshness tracking. Marti's UX: aby user pochopil ze
+      // data jsou stara (orange tint po 5 min, pulse po 15 min). Klik
+      // refreshne aktivni tab grid (ne tree, ne sidebar).
+      // ════════════════════════════════════════════════════════════════
+      const ErpRefresh = {
+        // Map<cisloStr, fetchedAtMs> — per-tab freshness timestamps
+        _gridFreshness: new Map(),
+        STALE_AT_MS: 5 * 60 * 1000,        // 5 min → orange
+        VERY_STALE_AT_MS: 15 * 60 * 1000,  // 15 min → pulse
+        POLL_INTERVAL_MS: 30 * 1000,       // re-check kazdych 30s
+
+        // Volat po uspesnem fetchi (v _loadTabData po `tab.data = data`)
+        markFresh(cislo) {
+          if (cislo == null) return;
+          this._gridFreshness.set(String(cislo), Date.now());
+          this._updateButton();
+        },
+
+        // Volat po close tabu (cleanup)
+        forget(cislo) {
+          if (cislo == null) return;
+          this._gridFreshness.delete(String(cislo));
+        },
+
+        // Aktualizovat barvu/tooltip ikony podle aktivniho tabu.
+        // Volat: po switchTab, po markFresh, polling timer.
+        _updateButton() {
+          const btn = document.getElementById('erpRefreshBtn');
+          if (!btn) return;
+          const activeCislo = this._getActiveTabCislo();
+          if (activeCislo == null) {
+            btn.classList.remove('stale', 'very-stale');
+            btn.disabled = true;
+            btn.setAttribute('data-hint', 'Žádný aktivní přehled');
+            return;
+          }
+          btn.disabled = false;
+          const fetchedAt = this._gridFreshness.get(String(activeCislo));
+          if (!fetchedAt) {
+            btn.classList.remove('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Obnovit data v aktivním přehledu');
+            return;
+          }
+          const ageMs = Date.now() - fetchedAt;
+          const ageMin = Math.floor(ageMs / 60000);
+          const ageStr = ageMin < 1 ? '<1 min' : (ageMin + ' min');
+          if (ageMs >= this.VERY_STALE_AT_MS) {
+            btn.classList.add('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Data jsou stará ' + ageStr + ' — klikni pro obnovení');
+          } else if (ageMs >= this.STALE_AT_MS) {
+            btn.classList.add('stale');
+            btn.classList.remove('very-stale');
+            btn.setAttribute('data-hint', 'Data jsou stará ' + ageStr + ' — klikni pro obnovení');
+          } else {
+            btn.classList.remove('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Data fresh (' + ageStr + '). Klikni pro manuální refresh.');
+          }
+        },
+
+        _getActiveTabCislo() {
+          if (typeof tabsState === 'undefined' || tabsState.activeIndex < 0) return null;
+          const tab = tabsState.tabs[tabsState.activeIndex];
+          return tab ? tab.cislo : null;
+        },
+
+        // Klik handler — clear cached data + re-call _loadTabData.
+        async refresh() {
+          const cislo = this._getActiveTabCislo();
+          if (cislo == null) return;
+          const tab = tabsState.tabs[tabsState.activeIndex];
+          if (!tab) return;
+          const btn = document.getElementById('erpRefreshBtn');
+          if (btn) btn.classList.add('spinning');
+          try {
+            // Clear cached data → _loadTabData fetchne znovu
+            tab.data = null;
+            if (typeof _loadTabData === 'function') {
+              await _loadTabData(tab);
+            } else {
+              // Fallback: full page reload
+              window.location.reload();
+            }
+          } finally {
+            if (btn) btn.classList.remove('spinning');
+          }
+        },
+
+        init() {
+          const btn = document.getElementById('erpRefreshBtn');
+          if (!btn) return;
+          btn.addEventListener('click', () => this.refresh());
+          // Polling timer pro update barvy aktivniho tabu (kazdych 30s
+          // prepocita stari).
+          setInterval(() => this._updateButton(), this.POLL_INTERVAL_MS);
+          this._updateButton();
+        }
+      };
+      // Init po DOMContentLoaded (button musi existovat)
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => ErpRefresh.init());
+      } else {
+        ErpRefresh.init();
+      }
+      window.ErpRefresh = ErpRefresh;  // expose pro debugging
+
       function loadTabsState() {
         try {
           const s = localStorage.getItem(TABS_STATE_KEY);
@@ -8039,6 +8236,9 @@ def _render_workspace_page(user_id: int) -> str:
         } else {
           _renderTabIntoMain(tab);
         }
+        // Phase 38.5: po switch tabu (load nebo cached) prepocitat refresh
+        // ikonu — novy aktivni tab moze mit jine stari dat.
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh._updateButton();
       }
 
       function closeTab(idx) {
@@ -8047,6 +8247,8 @@ def _render_workspace_page(user_id: int) -> str:
         tabsState.tabs.splice(idx, 1);
         // B+8.1c: API persist tab close (fire-and-forget)
         _apiCall("DELETE", "/api/v1/erp/tabs/" + closedCislo);
+        // Phase 38.5: cleanup freshness tracking pro zavreny tab
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh.forget(closedCislo);
         if (tabsState.tabs.length === 0) {
           tabsState.activeIndex = -1;
           // Cleanup grid + reset main content
@@ -8167,6 +8369,8 @@ def _render_workspace_page(user_id: int) -> str:
           }
           const data = await r.json();
           tab.data = data;
+          // Phase 38.5: marknout grid jako fresh (ikona refreshe → neutral)
+          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
           _renderTabIntoMain(tab);
         } catch (e) {
           mainContent.innerHTML =

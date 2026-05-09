@@ -1907,6 +1907,20 @@ def strom_json(req: Request) -> JSONResponse:
                 },
             ],
         }
+        # Phase 38.4 inventory (9.5.2026 vecer): rekurzivne oznac vsechny
+        # uzly v hardcoded fallback jako metadata.hardcoded=true. Frontend
+        # rendere 🛠️ marker. Bez teto smyčky by se marker zobrazil jen
+        # u uzlu, ktere jsou v master.menu_node DB tabulce (Phase 38.4 SQL
+        # skript), ne u hardcoded fallback. Setdefault preserves existing
+        # metadata (napr. dalsi keys budouci).
+        def _mark_hc(n):
+            if not isinstance(n, dict):
+                return
+            n.setdefault("metadata", {})["hardcoded"] = True
+            for ch in (n.get("children") or []):
+                _mark_hc(ch)
+        _mark_hc(system_root)
+
         # Prepend — System soudeček je vždy na top
         tree = [system_root] + (tree or [])
 

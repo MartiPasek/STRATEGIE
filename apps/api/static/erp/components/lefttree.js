@@ -82,6 +82,12 @@
           system_view: n.system_view || null,
           system_view_mode: n.system_view_mode || null,
           single: n.single === true,
+          // Phase 38.4 inventory (9.5.2026 vecer): metadata pass-through
+          // pro hardcoded marker (🛠️). Backend posila JSONB column z
+          // master.menu_node.metadata (DB-driven) nebo Python dict
+          // (hardcoded fallback). _decorateLeftPanelLi cte
+          // node.metadata?.hardcoded a appenduje 🛠️ k row.
+          metadata: n.metadata || null,
           // Recursive children
           children: Array.isArray(n.children) && n.children.length > 0
             ? ErpLeftPanelTree.adaptServerTree(n.children)

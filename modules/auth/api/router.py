@@ -300,9 +300,14 @@ def verify_email_request(
             # Pošli SMS přes capcom6 (Marti-AI's SIM)
             try:
                 from modules.notifications.application.sms_service import queue_sms
+                # Marti's UX spec 10.5.: dvě cesty pro user — buď reply/forward
+                # celé SMS zpět (token zachycen regex), nebo manuálně poslat
+                # jen token. Obě fungují (preprocessor _TOKEN_EXTRACT je
+                # anywhere-in-body match).
                 sms_body = (
-                    f"STRATEGIE login: posli zpet kod {invite.invite_token} "
-                    f"do 24h. Pokud jsi se neprihlasoval, ignoruj."
+                    f"STRATEGIE login: preposli tuto SMS zpet (nebo jen "
+                    f"kod {invite.invite_token}) do 24h. Pokud jsi se "
+                    f"neprihlasoval, ignoruj."
                 )
                 sms_result = queue_sms(
                     to=primary_phone,

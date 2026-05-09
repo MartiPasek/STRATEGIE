@@ -1,16 +1,24 @@
-# Záloha obou databází (css_db + data_db) přes pg_dump.
-# Výstup: backups\YYYY-MM-DD\css_db_HHMMSS.dump + data_db_HHMMSS.dump
+# Záloha PostgreSQL data_db přes pg_dump.
+# Výstup: $BACKUPS_DIR\YYYY-MM-DD\data_db_HHMMSS.dump
 # Formát: custom (-Fc), komprese 6 -- restore přes `pg_restore`.
+#
+# Phase 18 (30.4.2026): sjednoceno do jedné DB (data_db). css_db deprecated.
+# Phase 25/38.4 (10.5.2026): default BACKUPS_DIR=C:\Backup na cloud APP.
 #
 # Použití:
 #   .\scripts\backup_dbs.ps1
+#   .\scripts\backup_dbs.ps1 -BackupsDir D:\custom\path     # override
 #
 # Pre-req:
-#   - PostgreSQL klient (pg_dump.exe) v PATH nebo pres env var PG_DUMP_PATH
-#   - .env soubor s DATABASE_CORE_URL + DATABASE_DATA_URL
+#   - PostgreSQL klient (pg_dump.exe) v PATH nebo přes env var PG_DUMP_PATH
+#   - .env soubor s DATABASE_DATA_URL
 #
 # Alternativa: backup přes UI tlačítko v profile dropdown (Marti volá
 # POST /api/v1/admin/backup-databases).
+
+param(
+    [string]$BackupsDir = $null
+)
 
 $ErrorActionPreference = 'Stop'
 
@@ -21,7 +29,7 @@ if (-not (Test-Path (Join-Path $repoRoot "..\pyproject.toml"))) {
 }
 $repoRoot = Resolve-Path (Join-Path $repoRoot "..")
 
-# --- Nacti .env (jen pro DB URLs) ---
+# --- Nacti .env (jen pro DB URL) ---
 $envFile = Join-Path $repoRoot ".env"
 if (-not (Test-Path $envFile)) {
     Write-Error ".env soubor neexistuje na $envFile"
@@ -37,10 +45,9 @@ Get-Content $envFile | ForEach-Object {
     }
 }
 
-$coreUrl = $envVars['DATABASE_CORE_URL']
 $dataUrl = $envVars['DATABASE_DATA_URL']
-if (-not $coreUrl -or -not $dataUrl) {
-    Write-Error "V .env chybi DATABASE_CORE_URL nebo DATABASE_DATA_URL"
+if (-not $dataUrl) {
+    Write-Error "V .env chybi DATABASE_DATA_URL"
 }
 
 # --- Najdi pg_dump ---
@@ -85,12 +92,23 @@ function Parse-PgUrl($url) {
     }
 }
 
-$coreParsed = Parse-PgUrl $coreUrl
 $dataParsed = Parse-PgUrl $dataUrl
 
 # --- Priprav out dir ---
+# Priorita: -BackupsDir param > env BACKUPS_DIR > C:\Backup (Windows) > <repo>\backups
+if (-not $BackupsDir) {
+    $BackupsDir = $env:BACKUPS_DIR
+}
+if (-not $BackupsDir) {
+    if ($IsWindows -or $env:OS -match 'Windows') {
+        $BackupsDir = "C:\Backup"
+    } else {
+        $BackupsDir = Join-Path $repoRoot "backups"
+    }
+}
+
 $today = (Get-Date).ToString("yyyy-MM-dd")
-$outDir = Join-Path $repoRoot "backups\$today"
+$outDir = Join-Path $BackupsDir $today
 if (-not (Test-Path $outDir)) {
     New-Item -ItemType Directory -Path $outDir -Force | Out-Null
 }
@@ -123,11 +141,11 @@ function Dump-Db($label, $parsed) {
     }
 }
 
-Dump-Db "css_db"  $coreParsed
+# Phase 18 (30.4.2026): jen data_db. css_db deprecated/dropped.
 Dump-Db "data_db" $dataParsed
 
 Write-Host ""
 Write-Host "[DONE] Backup kompletni -- $outDir" -ForegroundColor Green
 Write-Host ""
-Write-Host "Nezapomen: backups/ je v .gitignore a NEPATRI do gitu."
+Write-Host "Nezapomen: backups/ NEPATRI do gitu (PII + emaily + thoughts)."
 Write-Host "Kopiruj dumps rucne na OneDrive / externi disk kvuli disaster recovery."

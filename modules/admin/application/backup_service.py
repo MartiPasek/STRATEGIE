@@ -1,17 +1,26 @@
 """
-Database backup service (Phase 7.11).
+Database backup service (Phase 7.11; Phase 18 update 30.4.2026; Phase 25/38.4
+update 10.5.2026).
 
-Dumpne obe databaze (css_db, data_db) pres `pg_dump -Fc` (custom format,
-compressed, restorable pres pg_restore). Soubory jdou do:
-    <repo_root>/backups/YYYY-MM-DD/css_db_HHMMSS.dump
-    <repo_root>/backups/YYYY-MM-DD/data_db_HHMMSS.dump
+Dumpne data_db pres `pg_dump -Fc` (custom format, compressed, restorable
+pres pg_restore). Soubory jdou do:
+    <BACKUPS_DIR>/YYYY-MM-DD/data_db_HHMMSS.dump
+
+Default `BACKUPS_DIR`:
+- Windows: C:\\Backup
+- POSIX: <repo_root>/backups
+- Override: env var BACKUPS_DIR (absolute path)
+
+Phase 18 (30.4.2026) sjednotil css_db + data_db do jediné PostgreSQL data_db.
+css_db je deprecated — backup dumpne JEN data_db. Legacy reference na
+DATABASE_CORE_URL v .env je harmless (deprecated, neignorováno tady).
 
 Volano z:
-- API endpoint POST /api/v1/admin/backup-databases (UI tlacitko)
+- API endpoint POST /api/v1/admin/backup-databases (UI tlacitko v Marti dropdown)
 - PowerShell skript scripts/backup_dbs.ps1 (CLI)
 
 Bezpecnost:
-- backups/ je v .gitignore -- nikdy ne do gitu (obsahuje PII + emaily).
+- BACKUPS_DIR mimo repo — nikdy ne do gitu (obsahuje PII + emaily + thoughts).
 - Operace je parent-only (viz router guard).
 - Pri behu se PGPASSWORD nastavuje do env child procesu, ne do logu.
 """
@@ -173,9 +182,24 @@ def _dump_one(label: str, db_url: str, out_dir: Path, pg_dump: str) -> dict:
     }
 
 
+def _default_backups_dir() -> str:
+    """
+    Default backup target:
+      - Env var BACKUPS_DIR (if set, use as-is)
+      - Windows: C:\\Backup (cloud APP convention; Marti's spec 10.5.2026)
+      - POSIX: <repo_root>/backups (legacy fallback for dev mode)
+    """
+    env_override = os.environ.get("BACKUPS_DIR")
+    if env_override:
+        return env_override
+    if os.name == "nt":  # Windows
+        return r"C:\Backup"
+    return str(_repo_root() / "backups")
+
+
 def run_backup() -> dict:
     """
-    Dumpne obe DB. Vraci dict:
+    Dumpne data_db. Vraci dict:
     {
       "status": "ok" | "failed",
       "date": "YYYY-MM-DD",
@@ -183,6 +207,10 @@ def run_backup() -> dict:
       "files": [{"label", "file_path", "file_name", "size_bytes", "duration_s"}, ...],
       "error": None | "..."
     }
+
+    Phase 18 (30.4.2026) sjednotil css_db + data_db do jediné PostgreSQL data_db.
+    Backup dumpne JEN data_db. Legacy DATABASE_CORE_URL v .env je deprecated
+    (pointuje na drop-pending css_db nebo na data_db jako alias).
     """
     try:
         pg_dump = _resolve_pg_dump()
@@ -195,17 +223,17 @@ def run_backup() -> dict:
             "files": [],
         }
 
-    if not settings.database_core_url or not settings.database_data_url:
+    if not settings.database_data_url:
         return {
             "status": "failed",
-            "error": "database_core_url nebo database_data_url neni v .env",
+            "error": "database_data_url neni v .env",
             "date": None,
             "out_dir": None,
             "files": [],
         }
 
     today = datetime.now().strftime("%Y-%m-%d")
-    backups_base = os.environ.get("BACKUPS_DIR") or str(_repo_root() / "backups")
+    backups_base = _default_backups_dir()
     out_dir = Path(backups_base) / today
     try:
         out_dir.mkdir(parents=True, exist_ok=True)
@@ -220,19 +248,16 @@ def run_backup() -> dict:
 
     files: list[dict] = []
     errors: list[str] = []
-    for label, url in (
-        ("css_db", settings.database_core_url),
-        ("data_db", settings.database_data_url),
-    ):
-        try:
-            info = _dump_one(label, url, out_dir, pg_dump)
-            files.append(info)
-        except BackupError as e:
-            errors.append(str(e))
-            logger.error(f"BACKUP | {label} failed | {e}")
-        except Exception as e:
-            errors.append(f"{label}: {e}")
-            logger.exception(f"BACKUP | {label} unexpected | {e}")
+    # Phase 18 (30.4.2026): jen data_db. css_db deprecated.
+    try:
+        info = _dump_one("data_db", settings.database_data_url, out_dir, pg_dump)
+        files.append(info)
+    except BackupError as e:
+        errors.append(str(e))
+        logger.error(f"BACKUP | data_db failed | {e}")
+    except Exception as e:
+        errors.append(f"data_db: {e}")
+        logger.exception(f"BACKUP | data_db unexpected | {e}")
 
     status = "ok" if not errors else "failed"
     return {

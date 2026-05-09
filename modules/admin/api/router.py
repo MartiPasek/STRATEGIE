@@ -35,8 +35,13 @@ def _require_parent(user_id: int) -> None:
 @router.post("/backup-databases")
 def backup_databases(req: Request):
     """
-    Dumpne obe DB (css_db + data_db) do backups/YYYY-MM-DD/*.dump.
+    Dumpne data_db do <BACKUPS_DIR>/YYYY-MM-DD/data_db_HHMMSS.dump.
     Parent-only, synchronni operace (wait for pg_dump).
+
+    Phase 18 (30.4.2026) sjednotil css_db + data_db. Backup dumpne JEN data_db.
+    Phase 25/38.4 (10.5.2026): default BACKUPS_DIR je C:\\Backup na Windows
+    (cloud APP convention), <repo_root>/backups na POSIX (dev fallback).
+    Override přes env var BACKUPS_DIR.
 
     Vraci:
       {

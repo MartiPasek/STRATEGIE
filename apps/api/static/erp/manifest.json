@@ -4,7 +4,7 @@
   "short_name": "STRATEGIE ERP",
   "description": "STRATEGIE — enterprise ERP platforma. Přehledy (Centrála 1 framework), audit konverzací, security overview, framework editor. Cross-tenant pro rodiče, per-tenant scope pro běžné uživatele.",
   "start_url": "/erp/",
-  "scope": "/",
+  "scope": "/erp/",
   "display": "standalone",
   "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",

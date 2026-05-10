@@ -3248,10 +3248,25 @@
       });
       if (!res.ok) {
         const err = await res.json().catch(() => ({}));
-        // 403 = PasswordNotSet (kontaktuj admina). 401 = generic bad creds.
-        loginError.textContent = err.detail || 'Přihlášení selhalo.';
+        // Phase 38 layered_auth: detail muze byt strukturovany objekt
+        // {error, message, redirect} pri 403 verify_email_required.
+        // Plain string pri 401 bad_creds / 403 PasswordNotSet / 429 rate_limit.
+        let errMsg, redirectTo = null;
+        if (typeof err.detail === 'string') {
+          errMsg = err.detail;
+        } else if (err.detail && typeof err.detail === 'object') {
+          errMsg = err.detail.message || err.detail.error || 'Přihlášení selhalo.';
+          redirectTo = err.detail.redirect || null;
+        } else {
+          errMsg = 'Přihlášení selhalo.';
+        }
+        loginError.textContent = errMsg;
         // Heslo z paměti pryč po failu (input pole)
         loginPassword.value = '';
+        // Phase 38 verify_email_required → auto-redirect po 2s
+        if (redirectTo) {
+          setTimeout(() => { window.location.href = redirectTo; }, 2000);
+        }
         return;
       }
       currentUser = await res.json();

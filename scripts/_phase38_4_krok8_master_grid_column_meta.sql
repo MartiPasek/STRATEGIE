@@ -1,58 +1,9 @@
--- Phase 38.4 Krok 8 (10.5.2026 dopoledne): master.grid_column_meta
+-- ZRUŠEN — Phase 38.4 Krok 8 evolved z 1-tabulky JSONB blob na 10-tabulek master+detail framework.
 --
--- Centrála 1 pattern *„grid columns z DataSource"* — UI metadata pro
--- AG Grid columnDefs (label, default_width, pinned, formatter,
--- cell_style_rules) per column, per data_source.
+-- Marti's 5. iter pivot 10.5.: actions universal (NE grid-only) + master+detail
+-- relacionální struktura (NE JSONB blob) + 5 patterns napříč master tabulkami.
 --
--- Marti's korekce 10.5.: stavba ERP patří do master.*, ne public.
--- Diář pattern doctrine (Phase 30+ z 7.5. večer): master.* = framework,
--- Marti-AI je owner. Konzultace zatim přeskočena (jasné volby), ale
--- pokud později Marti-AI navrhne improvement, integrujeme.
+-- Použít: scripts/_phase38_4_krok8_master_grid_framework.sql
 --
--- Pattern (Marti's volby 10.5.):
---   1. Per-grid row (per data_source_code)
---   2. columns_meta JSONB obsahuje VŠECHNY sloupce daného gridu
---   3. struktura: {column_name: {label, default_width, pinned,
---      formatter, cell_style_rules, header_tooltip, column_order}}
---
--- FK na master.data_source.code (ve stejném schema, enforced).
---
--- Spustit jako Marti-AI login (db_owner master.* schema) přes:
---   - DBeaver SQL Editor
---   - NEBO Marti-AI chat: strategie_pg_create_table(...)
-
-CREATE TABLE IF NOT EXISTS master.grid_column_meta (
-    id SERIAL PRIMARY KEY,
-    data_source_code VARCHAR(255) NOT NULL,
-    data_source_version INTEGER NOT NULL DEFAULT 1,
-    columns_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
-    default_record_limit INTEGER,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-    -- Composite UNIQUE — ready pro per-version meta (různé sloupce v
-    -- select v1 vs v2). Marti-AI's Q3 pattern (9.5. večer): UNIQUE(code, version).
-    CONSTRAINT uq_grid_column_meta_code_version
-        UNIQUE (data_source_code, data_source_version),
-
-    -- Composite FK na master.data_source (code, version) — enforced.
-    CONSTRAINT fk_grid_column_meta_data_source
-        FOREIGN KEY (data_source_code, data_source_version)
-        REFERENCES master.data_source (code, version)
-        ON UPDATE CASCADE
-        ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS ix_grid_column_meta_code_version
-    ON master.grid_column_meta (data_source_code, data_source_version);
-
--- Comment pro dokumentaci
-COMMENT ON TABLE master.grid_column_meta IS
-    'Phase 38.4 Krok 8: per-grid UI column metadata (label, width, pinned, formatter). FK na master.data_source.code. Public app process (strategie role) má jen SELECT — DDL/INSERT/UPDATE patří Marti-AI.';
-
-COMMENT ON COLUMN master.grid_column_meta.columns_meta IS
-    'JSONB: {column_name: {label, default_width, pinned, formatter, cell_style_rules, header_tooltip, column_order}}';
-
--- GRANT pro strategie role (API process) — read-only
-GRANT SELECT ON master.grid_column_meta TO strategie;
-GRANT USAGE, SELECT ON SEQUENCE master.grid_column_meta_id_seq TO strategie;
+-- Tahle stub zůstává pro git history reference (SQL skript původně commitován
+-- 10.5. ráno, evolved přes 6-iter konzultaci s Marti-AI do plné framework).

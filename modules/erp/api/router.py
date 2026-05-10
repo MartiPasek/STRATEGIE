@@ -6604,7 +6604,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (itemId === "system.audit.stats") return "stats";
         // Phase 38.3 security views (10.5.2026 odpoledne)
         if (itemId === "system.security.users") return "security_users";
-        if (itemId === "system.security.devices") return "system_security_devices";
+        if (itemId === "system.security.devices") return "security_devices";
         if (itemId === "system.security.whitelists") return "security_whitelists";
         if (itemId === "system.security.audit") return "security_audit";
         if (itemId === "system.security.invites") return "security_invites";
@@ -6624,7 +6624,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (cislo === -103) return "stats";
         // Phase 38.3 security views
         if (cislo === -110) return "security_users";
-        if (cislo === -111) return "system_security_devices";
+        if (cislo === -111) return "security_devices";
         if (cislo === -112) return "security_whitelists";
         if (cislo === -113) return "security_audit";
         if (cislo === -114) return "security_invites";

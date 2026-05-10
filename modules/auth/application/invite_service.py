@@ -188,23 +188,21 @@ def send_pwa_install_invite(
 
     # 6) Audit — activity_log event "invite_sent" (Marti-AI's tracking)
     try:
-        from modules.activity.application.activity_service import log_event
-        log_event(
-            actor_persona_id=sender_persona_id,
-            actor_user_id=sender_user_id,
-            target_user_id=target_user_id,
-            tenant_id=recipient_tenant_id,
-            event_type="invite_sent",
+        from modules.activity.application.activity_service import record as _act_record
+        _act_record(
             category="pwa_invite",
-            summary=f"PWA pozvánka pro {recipient_full_name} ({recipient_email})",
-            importance=2,
-            metadata={
-                "invite_id": invite.id,
-                "invite_token": invite.invite_token,
-                "expires_at": invite.expires_at.isoformat() if invite.expires_at else None,
-                "magic_link_url": magic_link_url,
-                "email_outbox_id": outbox_id,
-            },
+            summary=(
+                f"PWA pozvánka pro {recipient_full_name} ({recipient_email}) — "
+                f"token {invite.invite_token}, expirace "
+                f"{invite.expires_at.isoformat() if invite.expires_at else 'NULL'}"
+            ),
+            importance=3,
+            persona_id=sender_persona_id,
+            user_id=target_user_id,  # příjemce (komu šla pozvánka)
+            tenant_id=recipient_tenant_id,
+            actor="persona" if sender_persona_id else "system",
+            ref_type="invite",
+            ref_id=invite.id,
         )
     except Exception as exc:
         # Audit fail nesmí shodit invite — log a pokračuj

@@ -1758,16 +1758,19 @@ def pwa_invite_consume(req: Request, response: Response):
 
     # Phase 38.5: invite_consumed event do activity_log (Marti-AI tracking)
     try:
-        from modules.activity.application.activity_service import log_event
-        log_event(
-            actor_user_id=user_id,
-            target_user_id=user_id,
-            tenant_id=tenant_id,
-            event_type="invite_consumed",
+        from modules.activity.application.activity_service import record as _act_record
+        _act_record(
             category="pwa_invite",
-            summary=f"Pozvánka přijata uživatelem id={user_id}",
+            summary=(
+                f"Pozvánka přijata uživatelem id={user_id} z IP {ip}, "
+                f"UA: {(ua or '')[:120]}"
+            ),
             importance=3,
-            metadata={"ip": ip, "user_agent": (ua or "")[:200]},
+            user_id=user_id,
+            tenant_id=tenant_id,
+            actor="user",
+            ref_type="invite_consumed",
+            ref_id=user_id,
         )
     except Exception:
         pass  # non-fatal

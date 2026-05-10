@@ -6122,9 +6122,79 @@ def _render_workspace_page(user_id: int) -> str:
         );
         return cols;
       }
+      // ── Phase 38.4 Krok 8 (10.5.2026): Async fetch z master schema ──
+      //
+      // gridColumnsResolved(mode) — async wrapper. Nejdřív zkusí
+      // GET /api/v1/erp/grid/{mode}/columns (master.grid_master + grid_column).
+      // Pokud 200, adaptuje server format → AG Grid columnDefs (resolve
+      // formatter names → registry functions). Pokud 404 nebo error,
+      // fallback na hardcoded gridColumns(mode) — graceful migration.
+      //
+      // Po commit #6 (cleanup hardcoded větví per migrated mode) fallback
+      // pro daný mode zmizí. Server data = single source of truth.
+      var FORMATTER_REGISTRY = {
+        "datetime_rel": function(p) {
+          var H = window._sysHelpers || {};
+          return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-");
+        },
+        "datetime_short": function(p) {
+          var H = window._sysHelpers || {};
+          return H.formatDateShort ? H.formatDateShort(p.value) : (p.value || "-");
+        },
+        // Další formattery (number, currency, ...) přidávat per use case
+      };
+      function adaptServerColumns(serverCols) {
+        // Server vrací: [{"field":"id", "headerName":"ID", "width":70,
+        //                "valueFormatter":{"type":"datetime_rel"}, ...}]
+        // AG Grid potřebuje: valueFormatter jako function. Rozbalíme.
+        return serverCols.map(function(c) {
+          var col = {};
+          for (var k in c) {
+            if (k === "valueFormatter" && c[k] && c[k].type) {
+              var fn = FORMATTER_REGISTRY[c[k].type];
+              if (fn) {
+                col.valueFormatter = fn;
+              }
+              // Pokud unknown formatter, skip — AG Grid použije default toString
+            } else {
+              col[k] = c[k];
+            }
+          }
+          return col;
+        });
+      }
+      async function gridColumnsResolved(mode) {
+        // 1. Pokus se fetch z server (master.grid_master + grid_column)
+        try {
+          var res = await fetch("/api/v1/erp/grid/" + encodeURIComponent(mode) + "/columns",
+                                { credentials: "include" });
+          if (res.ok) {
+            var data = await res.json();
+            if (data && data.ok && Array.isArray(data.columns)) {
+              console.log("[ERP-DIAG] gridColumns server: " + mode +
+                          " (" + data.columns.length + " cols, config_v" +
+                          (data.grid && data.grid.config_version) + ")");
+              return adaptServerColumns(data.columns);
+            }
+          }
+          // 404 = grid není v master schema → fallback na hardcoded
+        } catch (e) {
+          console.warn("[ERP-DIAG] gridColumns server fetch failed for " + mode +
+                       ", fallback hardcoded:", e);
+        }
+        // 2. Fallback na hardcoded sync vrátky
+        var cols = gridColumns(mode);
+        if (cols && cols.length) {
+          console.log("[ERP-DIAG] gridColumns hardcoded fallback: " + mode +
+                      " (" + cols.length + " cols)");
+        }
+        return cols || [];
+      }
       if (window._sysHelpers) {
         window._sysHelpers.gridColumns = gridColumns;
-        console.log("[ERP-DIAG] _sysHelpers.gridColumns loaded");
+        window._sysHelpers.gridColumnsResolved = gridColumnsResolved;
+        window._sysHelpers.formatterRegistry = FORMATTER_REGISTRY;
+        console.log("[ERP-DIAG] _sysHelpers.gridColumns + gridColumnsResolved loaded");
       } else {
         console.error("[ERP-DIAG] _sysHelpers missing — gridColumns nelze pripojit");
       }
@@ -6227,7 +6297,12 @@ def _render_workspace_page(user_id: int) -> str:
         if (!body) return;
         body.innerHTML = "";
 
-        var columns = H.gridColumns ? H.gridColumns(mode) : [];
+        // Phase 38.4 Krok 8 (10.5.2026): async fetch z master.grid_master + grid_column,
+        // fallback na hardcoded H.gridColumns(mode). Po cleanup commit (#6+) hardcoded
+        // pro daný mode zmizí — server data = single source of truth.
+        var columns = H.gridColumnsResolved
+          ? await H.gridColumnsResolved(mode)
+          : (H.gridColumns ? H.gridColumns(mode) : []);
         var rowData;
         if (isSecurityMode || isFrameworkMode || mode === "stats") {
           rowData = data.rows || [];

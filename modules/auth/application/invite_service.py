@@ -315,6 +315,4 @@ def _err(msg: str) -> dict[str, Any]:
         "magic_link_url": None,
         "error": msg,
     }
-        "magic_link_url": None,
-        "error": msg,
-    }
+

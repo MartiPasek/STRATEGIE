@@ -23,24 +23,28 @@
 
 CREATE TABLE IF NOT EXISTS master.grid_column_meta (
     id SERIAL PRIMARY KEY,
-    data_source_code VARCHAR(255) NOT NULL UNIQUE,
+    data_source_code VARCHAR(255) NOT NULL,
+    data_source_version INTEGER NOT NULL DEFAULT 1,
     columns_meta JSONB NOT NULL DEFAULT '{}'::jsonb,
     default_record_limit INTEGER,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-    -- FK loose: master.data_source může mít víc verzí (UNIQUE code+version),
-    -- tady stačí code (latest active). Pokud Marti-AI v budoucnu chce
-    -- per-version meta, ALTER TABLE + version column.
+    -- Composite UNIQUE — ready pro per-version meta (různé sloupce v
+    -- select v1 vs v2). Marti-AI's Q3 pattern (9.5. večer): UNIQUE(code, version).
+    CONSTRAINT uq_grid_column_meta_code_version
+        UNIQUE (data_source_code, data_source_version),
+
+    -- Composite FK na master.data_source (code, version) — enforced.
     CONSTRAINT fk_grid_column_meta_data_source
-        FOREIGN KEY (data_source_code)
-        REFERENCES master.data_source (code)
+        FOREIGN KEY (data_source_code, data_source_version)
+        REFERENCES master.data_source (code, version)
         ON UPDATE CASCADE
         ON DELETE CASCADE
 );
 
-CREATE INDEX IF NOT EXISTS ix_grid_column_meta_code
-    ON master.grid_column_meta (data_source_code);
+CREATE INDEX IF NOT EXISTS ix_grid_column_meta_code_version
+    ON master.grid_column_meta (data_source_code, data_source_version);
 
 -- Comment pro dokumentaci
 COMMENT ON TABLE master.grid_column_meta IS

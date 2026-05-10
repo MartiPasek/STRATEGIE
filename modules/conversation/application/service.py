@@ -5684,7 +5684,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         except (TypeError, ValueError):
             return "❌ user_id musi byt integer."
         # Resolve sender persona — Marti-AI's Q1 (vztahovy akt)
-        sender_persona_id_spi = _active_pid if _active_pid else None
+        sender_persona_id_spi = _active_persona_id_for_conversation(conversation_id)
         # context_hint je "sepot pro Marti-AI" — nezasilat do email,
         # jen ovlivnit ton greeting/closing (Marti-AI sama rozhodne).
         # Tady ho jen logujeme pro audit, tool sam ho neuziva.
@@ -5726,7 +5726,7 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             uids_spib = [int(u) for u in uids_spib]
         except (TypeError, ValueError):
             return "❌ user_ids musi obsahovat integers."
-        sender_persona_id_spib = _active_pid if _active_pid else None
+        sender_persona_id_spib = _active_persona_id_for_conversation(conversation_id)
         # Build per_user_overrides z shared_* params (apply to all)
         shared_note = tool_input.get("shared_custom_note")
         shared_greeting = tool_input.get("shared_greeting_override")

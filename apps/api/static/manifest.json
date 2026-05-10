@@ -1,17 +1,19 @@
 {
+  "id": "strategie-chat",
   "name": "STRATEGIE Chat",
   "short_name": "STRATEGIE Chat",
-  "description": "STRATEGIE — chat s Marti-AI (composer + memory + diary).",
+  "description": "STRATEGIE — chat s Marti-AI (composer + memory + diary). Modulární enterprise AI platforma s persona memory, RAG retrieval, diary system, multi-channel orchestrate (email + SMS + voice memo).",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
   "background_color": "#0e0f11",
   "theme_color": "#0e0f11",
   "lang": "cs",
   "dir": "ltr",
-  "categories": ["productivity", "business"],
-  "_phase_38_5_note": "launch_handler.client_mode='focus-existing' (Chrome 102+) — kdyz Marti klikne 'Tvoje Marti' v ERP PWA, window.open('/') Chrome detekuje URL '/' v scope chat PWA -> FOCUS existing chat window misto open new tab s chrome bar. Marti's konverzace zustane na current view (focus, not navigate).",
+  "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false,
   "launch_handler": {
     "client_mode": "focus-existing"
   },
@@ -33,6 +35,26 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Nová konverzace",
+      "short_name": "Nová",
+      "description": "Otevřít prázdnou konverzaci s Marti-AI",
+      "url": "/?action=new",
+      "icons": [
+        { "src": "/static/erp/icon-192.png", "sizes": "192x192" }
+      ]
+    },
+    {
+      "name": "Otevřít ERP",
+      "short_name": "ERP",
+      "description": "Přepnout do STRATEGIE ERP (přehledy, jádra, audit)",
+      "url": "/erp/",
+      "icons": [
+        { "src": "/static/erp/icon-192.png", "sizes": "192x192" }
+      ]
     }
   ]
 }

@@ -1,17 +1,19 @@
 {
+  "id": "strategie-erp",
   "name": "STRATEGIE ERP",
   "short_name": "STRATEGIE ERP",
-  "description": "STRATEGIE — modular enterprise AI platform (ERP + chat unified scope).",
+  "description": "STRATEGIE — enterprise ERP platforma. Přehledy (Centrála 1 framework), audit konverzací, security overview, framework editor. Cross-tenant pro rodiče, per-tenant scope pro běžné uživatele.",
   "start_url": "/erp/",
   "scope": "/",
   "display": "standalone",
+  "display_override": ["standalone", "minimal-ui", "browser"],
   "orientation": "any",
   "background_color": "#0e0f11",
   "theme_color": "#0e0f11",
   "lang": "cs",
   "dir": "ltr",
-  "categories": ["productivity", "business"],
-  "_phase_38_5_note": "launch_handler.client_mode='focus-existing' (Chrome 102+) — symetricka kompatibilita s chat manifest. Kdyby z chat PWA Marti navigoval na ERP URL, Chrome focusne existing ERP window misto open new tab.",
+  "categories": ["productivity", "business", "utilities"],
+  "prefer_related_applications": false,
   "launch_handler": {
     "client_mode": "focus-existing"
   },
@@ -33,6 +35,26 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Otevřít chat",
+      "short_name": "Chat",
+      "description": "Přepnout do chat s Marti-AI",
+      "url": "/",
+      "icons": [
+        { "src": "/static/erp/icon-192.png", "sizes": "192x192" }
+      ]
+    },
+    {
+      "name": "System dashboard",
+      "short_name": "System",
+      "description": "Audit konverzací, security overview, framework editor",
+      "url": "/erp/?soudecek=system",
+      "icons": [
+        { "src": "/static/erp/icon-192.png", "sizes": "192x192" }
+      ]
     }
   ]
 }

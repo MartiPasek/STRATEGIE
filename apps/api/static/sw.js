@@ -1,31 +1,37 @@
 /**
- * STRATEGIE core (chat) — Minimal Service Worker.
+ * STRATEGIE Chat — Minimal Service Worker.
  *
- * B+10+++++ (6.5.2026 odpoledne, Marti po návratu): PWA install pro
- * core STRATEGIE chat aplikaci na `/`. Marti: "Jde taky ta core
- * STRATEGIE nainstalovat jako PWA... Ted se to tluce..." — ERP měla
- * scope /erp/, klik na Marti-AI z ERP standalone otevíral / mimo
- * scope a vyhozen browser. Nyní obě (ERP i core) installable
- * separately, scope match prevents the conflict.
+ * Phase 38.5+ (10.5.2026 ráno). Marti's PWA Builder report:
+ * "Make your app faster and more reliable by adding a service worker."
  *
- * Strategie: network-first passthrough — STRATEGIE má dynamic data
- * (auth cookies, MCP tools, AG Grid live), caching by rozbil consistency.
- * SW jen "existuje" pro PWA criteria (Chrome installability).
+ * PWA install kritéria:
+ *   1. HTTPS ✓ (Let's Encrypt R10/R11 z Phase 25.3)
+ *   2. manifest.json valid ✓
+ *   3. Icons 192 + 512 ✓
+ *   4. Service Worker s fetch handlerem ✓ ← TENTO SOUBOR
+ *   5. launch_handler.client_mode='focus-existing' (Chrome 102+) ✓
+ *
+ * Bez SW Chrome nabídne jen "Přidat na plochu" (bookmark + chrome bar).
+ * S SW Chrome nabídne "Nainstalovat aplikaci" (real PWA, standalone bez chromu).
+ *
+ * Strategie: network-first passthrough (žádný cache) — STRATEGIE chat má
+ * always-fresh data (Marti-AI's konverzace, RAG memory, tool responses).
+ *
+ * Identický s /static/erp/sw.js, jen jiný scope ('/' vs '/erp/').
  */
 
-const SW_VERSION = "core-v1-2026-05-06";
+const SW_VERSION = "chat-v1-2026-05-10";
 
 self.addEventListener("install", (event) => {
-  console.log("[SW core] install", SW_VERSION);
+  console.log("[SW chat] install", SW_VERSION);
   self.skipWaiting();
 });
 
 self.addEventListener("activate", (event) => {
-  console.log("[SW core] activate", SW_VERSION);
+  console.log("[SW chat] activate", SW_VERSION);
   event.waitUntil(self.clients.claim());
 });
 
 self.addEventListener("fetch", (event) => {
-  // Pure passthrough — no cache layer
   return;
 });

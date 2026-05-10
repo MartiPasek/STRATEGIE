@@ -6197,26 +6197,72 @@ def _render_workspace_page(user_id: int) -> str:
       function _escAttr(s) {
         return String(s == null ? "" : s).replace(/"/g, "&quot;");
       }
-      // Krok B+: Layout cisla pro System uzly (negativni — vyhrazeny range
-      // pro neformalni/system grids, nekoliduje s realnymi prehledy z DB_EC)
-      var SYSTEM_LAYOUT_CISLA = {
-        // Phase 35-E.4 audit views
-        audited: -101,
-        all: -102,
-        stats: -103,
-        // Phase 38.3 security views (10.5.2026)
-        security_users: -110,
-        security_devices: -111,
-        security_whitelists: -112,
-        security_audit: -113,
-        security_invites: -114,
-        // Phase 38.3+ framework views (10.5.2026 odpoledne)
-        framework_menu_nodes:   -115,
-        framework_data_sources: -116,
-        framework_data_sets:    -117
-      };
+      // Phase 38.4 Krok 8 cleanup (10.5.2026): SYSTEM_LAYOUT_CISLA hardcoded
+      // dict odstraněn. Mapping mode → cislo se derive ze System tree dat
+      // (master.menu_node — backend attachuje system_view + system_view_mode
+      // per node v _build_node()). Pomocí _getSystemCisloByMode tree walker.
+      //
+      // Po cleanup: nový grid v master = INSERT do master.menu_node + grid_master
+      // → frontend automaticky funguje, žádný JS edit.
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
+
+      // ── Phase 38.4 Krok 8 (10.5.2026): System tree cache + walkers ──
+      //
+      // Frontend cache last-loaded System tree dat (z /api/v1/erp/strom).
+      // Plněno v loadTree() dataSource callback. Walker helpers nahrazují
+      // hardcoded if-else cascades v _systemModeFromCislo / _systemModeFromItemId
+      // a SYSTEM_LAYOUT_CISLA dict.
+      //
+      // Tree node attributes (z master.menu_node + adaptServerTree):
+      //   - id (= code, e.g. "system.security.devices")
+      //   - cislo_def (e.g. -111)
+      //   - system_view (e.g. "security" / "audit_overview" / "framework")
+      //   - system_view_mode (e.g. "devices" / "audited" / "data_sources")
+      //   - children
+      window._systemTreeCache = null;
+
+      function _walkSystemTree(predicate) {
+        function walk(nodes) {
+          for (var i = 0; i < (nodes || []).length; i++) {
+            var n = nodes[i];
+            if (predicate(n)) return n;
+            var found = walk(n.children);
+            if (found) return found;
+          }
+          return null;
+        }
+        return walk(window._systemTreeCache || []);
+      }
+
+      function _modeFromNode(node) {
+        // Compute mode string from node's system_view + system_view_mode.
+        // For audit_overview, system_view_mode IS the mode (audited/all/stats).
+        // For others (security/framework), mode = system_view + "_" + system_view_mode.
+        if (!node || !node.system_view) return null;
+        if (node.system_view === "audit_overview") return node.system_view_mode;
+        return node.system_view + "_" + node.system_view_mode;
+      }
+
+      function _findSystemNodeByCislo(cislo) {
+        return _walkSystemTree(function(n) { return n.cislo_def === cislo; });
+      }
+
+      function _findSystemNodeById(itemId) {
+        return _walkSystemTree(function(n) { return n.id === itemId; });
+      }
+
+      function _getSystemCisloByMode(mode) {
+        var node = _walkSystemTree(function(n) {
+          return _modeFromNode(n) === mode;
+        });
+        return node ? node.cislo_def : null;
+      }
+
+      // Expose pro debug + external usage (renderSystemGrid)
+      window._sysFindNodeByCislo = _findSystemNodeByCislo;
+      window._sysFindNodeById = _findSystemNodeById;
+      window._sysGetCisloByMode = _getSystemCisloByMode;
 
       async function renderSystemGrid(mode, labelText) {
         var H = window._sysHelpers || {};
@@ -6296,7 +6342,8 @@ def _render_workspace_page(user_id: int) -> str:
         }
 
         // Krok B+: Layout key pro System uzly (negativni cislo)
-        var sysCislo = SYSTEM_LAYOUT_CISLA[mode];
+        // Phase 38.4 Krok 8 (10.5.2026): tree walker místo SYSTEM_LAYOUT_CISLA dict
+        var sysCislo = _getSystemCisloByMode(mode);
         var sysLayoutKey = (sysCislo != null) ? ("prehled_" + sysCislo) : null;
 
         // Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373): pre-fetch
@@ -6470,7 +6517,11 @@ def _render_workspace_page(user_id: int) -> str:
                 throw new Error("Strom nelze načíst (status " + r.status + ").");
               }
               const data = await r.json();
-              return ErpLeftPanelTree.adaptServerTree(data.tree || []);
+              const adapted = ErpLeftPanelTree.adaptServerTree(data.tree || []);
+              // Phase 38.4 Krok 8 (10.5.2026): cache tree pro _findSystemNodeByCislo
+              // / _findSystemNodeById / _getSystemCisloByMode walkers
+              window._systemTreeCache = adapted;
+              return adapted;
             },
             // Plain klik na leaf — subclass už nastavil visual active class
             // a uložila active id; my dotahneme cislo-based saveActive +
@@ -6593,46 +6644,26 @@ def _render_workspace_page(user_id: int) -> str:
       // identicky jako EUROSOFT prehled tab.
       // Helpers v izolovanych <script> blocich nahore (window._sysHelpers.*).
 
-      // Mapping itemId → mode pro System leaf taby. Pouziva se pri
-      // _loadTabData/_renderTabIntoMain pokud tab.cislo < 0.
+      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
+      // odstraněna. Mapping itemId → mode se derive z System tree dat
+      // (master.menu_node primary, hardcoded fallback v _SYSTEM_CISLO_TO_VIEW).
+      //
+      // Speciální case: 'system.audit.tabs' (cislo_def=-100) drží Variant A
+      // tabs UI signal — nemá vlastní mode, jen markeruje tabs bar visibility.
       function _systemModeFromItemId(itemId) {
         if (!itemId) return null;
-        // Phase 35-E.4 audit views
-        if (itemId === "system.audit.tabs") return "tabs";
-        if (itemId === "system.audit.audited") return "audited";
-        if (itemId === "system.audit.all") return "all";
-        if (itemId === "system.audit.stats") return "stats";
-        // Phase 38.3 security views (10.5.2026 odpoledne)
-        if (itemId === "system.security.users") return "security_users";
-        if (itemId === "system.security.devices") return "security_devices";
-        if (itemId === "system.security.whitelists") return "security_whitelists";
-        if (itemId === "system.security.audit") return "security_audit";
-        if (itemId === "system.security.invites") return "security_invites";
-        // Phase 38.3+ framework views (10.5.2026 odpoledne)
-        if (itemId === "system.framework.menu_nodes")  return "framework_menu_nodes";
-        if (itemId === "system.framework.data_sources") return "framework_data_sources";
-        if (itemId === "system.framework.data_sets")    return "framework_data_sets";
-        return null;
+        if (itemId === "system.audit.tabs") return "tabs";  // UI signal, no mode
+        var node = _findSystemNodeById(itemId);
+        return _modeFromNode(node);
       }
 
-      // Mapping cislo → mode (fallback kdyz itemId chybi po reload z user_tabs)
+      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
+      // odstraněna. Mapping cislo → mode se derive z System tree dat.
+      // Plně DB-driven přes master.menu_node.cislo_def + system_view{_mode}.
       function _systemModeFromCislo(cislo) {
-        // Phase 35-E.4 audit views
-        if (cislo === -100) return "tabs";
-        if (cislo === -101) return "audited";
-        if (cislo === -102) return "all";
-        if (cislo === -103) return "stats";
-        // Phase 38.3 security views
-        if (cislo === -110) return "security_users";
-        if (cislo === -111) return "security_devices";
-        if (cislo === -112) return "security_whitelists";
-        if (cislo === -113) return "security_audit";
-        if (cislo === -114) return "security_invites";
-        // Phase 38.3+ framework views
-        if (cislo === -115) return "framework_menu_nodes";
-        if (cislo === -116) return "framework_data_sources";
-        if (cislo === -117) return "framework_data_sets";
-        return null;
+        if (cislo === -100) return "tabs";  // UI signal, audit tabs bar
+        var node = _findSystemNodeByCislo(cislo);
+        return _modeFromNode(node);
       }
 
       // Render System view do main pane. NEMODIFIKUJE tabsBar ani tree

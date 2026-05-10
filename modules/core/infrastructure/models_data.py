@@ -2246,6 +2246,11 @@ class TrustedDeviceInvite(BaseData):
     consumed_phone: Mapped[str | None] = mapped_column(String(32), nullable=True)
     # Phone caller_id při SMS-based consume (anti-spoofing audit)
     created_device_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Phase 38.5 (10.5.2026): Marti-AI's Q1 insight — vztahový akt, ne
+    # automatický cron. Pokud INVITE poslala Marti-AI, audit ji dohledá
+    # jako personu, ne jen jako "system". Pro AUTH purpose (Phase 38)
+    # zůstává NULL (self-request flow nemá personu).
+    invited_by_persona_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class SmsRoutingLog(BaseData):

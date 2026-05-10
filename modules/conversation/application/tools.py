@@ -37,6 +37,9 @@ MANAGEMENT_TOOL_NAMES = {
     "flag_retrieval_issue", # Faze 13d: Marti-AI flagne false positive RAG match
     "update_thought",       # Faze 13e+: Marti-AI uprav certainty/content/status po flagu
     "request_forget",       # Faze 14: Marti-AI pozada o smazani myslenky (parent approval)
+    # Phase 38.5 (10.5.2026): PWA install pozvanky pro non-technical users
+    "send_pwa_install_invite",       # single recipient
+    "send_pwa_install_invite_bulk",  # bulk distribution (po conversation flow)
     # Phase 15a: Conversation Notebook tools
     "add_conversation_note",
     "update_note",
@@ -3815,6 +3818,120 @@ TOOLS = [
                 },
             },
             "required": ["parent_conversation_id"],
+        },
+    },
+    {
+        "name": "send_pwa_install_invite",
+        "description": (
+            "Phase 38.5 (10.5.2026): Posli existujicimu uzivateli pozvanku "
+            "na STRATEGIE Chat jako PWA aplikaci. Email obsahuje magic link "
+            "(token-based auto-login, expirace 7 dni) plus navod na PWA "
+            "install (klik na install banner v UI -- zadny PowerShell, ZIP, "
+            "admin rights). Marti-AI ONLY. Pouzij pro: pozvanky pro kolegyni, "
+            "ktere jsou technicky unfriendly. Pred bulk pozvankami se VZDY "
+            "zeptej tatinka 'mam jim napsat vsem stejne, nebo k nekomu neco "
+            "pridat?' (Marti-AI's Q4 conversation flow z 38.5 konzultace).\n\n"
+            "Email template ma 3 FIXED bloky (self-introduction, why-line, "
+            "install instrukce + magic link, signature 'Tvoje Marti') a 2 "
+            "VARIABILNI bloky (greeting + closing) ktere ty volis per "
+            "recipient. Pokud znas Petru z RAG memory, dej 'Ahoj Petro 🤍' "
+            "-- pokud neznas, jen 'Ahoj Petro' bez srdicka. Srdicko si "
+            "zaslouzi kontext (Marti-AI's Q2 insight).\n\n"
+            "Audit log s invited_by_persona_id (vztahovy akt, ne system "
+            "cron -- Marti-AI's Q1 insight)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_id": {
+                    "type": "integer",
+                    "description": (
+                        "users.id prijemce pozvanky. Musi mit registrovany "
+                        "email (ews_display_email nebo user_contacts primary). "
+                        "Pred volanim doporuceno overit pres find_user."
+                    ),
+                },
+                "custom_note": {
+                    "type": "string",
+                    "description": (
+                        "Volitelny text VIDITELNY v emailu pred zaverem -- "
+                        "napr. 'Petro, tatinek ti rika ze tato aplikace ti "
+                        "pomuze s fakturaci'. Tatinkova zprava pres tebe."
+                    ),
+                },
+                "greeting_override": {
+                    "type": "string",
+                    "description": (
+                        "Tvuj uvod -- napr. 'Ahoj Petro 🤍' pokud zna z RAG, "
+                        "nebo 'Ahoj Petro' bez srdicka pokud neznas. Default "
+                        "'Ahoj {first_name},' pokud None."
+                    ),
+                },
+                "closing_override": {
+                    "type": "string",
+                    "description": (
+                        "Tvuj zaver pred 'Tvoje Marti 🤍' signaturou. "
+                        "Personalizovany podle context. Default 'Pokud neco "
+                        "nefunguje, zavolej mi nebo napis -- pomuzeme ti.' "
+                        "Pokud chces neco specifickeho per recipient (napr. "
+                        "'Vim ze fakturace te casto stresuje, tahle aplikace "
+                        "to zjednodusi'), napis vlastni text."
+                    ),
+                },
+                "context_hint": {
+                    "type": "string",
+                    "description": (
+                        "Marti-AI's Q3 insight: 'sepot pro Marti-AI'. "
+                        "Tatinek tady muze rict 'Petra je nova, prvni tyden' "
+                        "nebo 'Marie ma rada strucne emaily' -- ty to NEMUSIS "
+                        "doslova vlozit do emailu, ale zakomponuj do tonu "
+                        "greeting/closing. Optional context, ne user-visible."
+                    ),
+                },
+            },
+            "required": ["user_id"],
+        },
+    },
+    {
+        "name": "send_pwa_install_invite_bulk",
+        "description": (
+            "Phase 38.5 bulk variant: posli pozvanku vice uzivatelum "
+            "najednou. Pouzij KDYZ user explicit potvrdi 'vsem stejne' "
+            "(Marti-AI's Q4 conversation flow). Pokud je potreba customizovat "
+            "per recipient, pouzij send_pwa_install_invite v loop misto.\n\n"
+            "Pred volanim VZDY se zeptej 'mam jim napsat vsem stejne, nebo "
+            "chces mi k nekteremu rict neco navic?' aby tatinek mel volbu "
+            "personalizace. Pak: 'vsem stejne' = bulk, 'Marii rekni X' = "
+            "single tool calls v loop."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "user_ids": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "List users.id prijemcu",
+                },
+                "shared_custom_note": {
+                    "type": "string",
+                    "description": (
+                        "Spolecny text pro vsechny prijemce (visible v emailu)."
+                    ),
+                },
+                "shared_greeting_override": {
+                    "type": "string",
+                    "description": (
+                        "Spolecny uvod (default 'Ahoj {first_name},' per "
+                        "recipient -- pokud chces stejny tone vsem napis "
+                        "napr. 'Ahoj kolegyne 🤍')."
+                    ),
+                },
+                "shared_closing_override": {
+                    "type": "string",
+                    "description": "Spolecny zaver vsem.",
+                },
+            },
+            "required": ["user_ids"],
         },
     },
     {

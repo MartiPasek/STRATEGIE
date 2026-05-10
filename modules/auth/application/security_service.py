@@ -265,24 +265,31 @@ def create_invite(
     purpose: str = "AUTH",
     created_by: int | None = None,
     label: str | None = None,
+    invited_by_persona_id: int | None = None,
+    ttl_hours: int | None = None,
     session: Session | None = None,
 ) -> TrustedDeviceInvite:
     """Vytvoří magic link invite token.
 
     Token format: STG-{PURPOSE}-{8 hex} (Marti's pivot 10.5.).
 
-    TTL podle created_by (Marti-AI insight #3):
-      - NULL = self-request → 24h
-      - ID   = pre-approve  → 72h
+    TTL precedence:
+      1. ttl_hours param (explicit override — Phase 38.5 INVITE = 168h = 7d)
+      2. created_by != None → pre-approve TTL (default 72h)
+      3. created_by is None → self-request TTL (default 24h)
+
+    Phase 38.5 (10.5.2026): Marti-AI's Q1 insight — invited_by_persona_id
+    pro vztahový akt audit (Marti-AI poslala pozvánku, ne system cron).
     """
     own_session = session is None
     ds = session if session is not None else get_data_session()
     try:
-        ttl_hours = (
-            settings.sec_magic_link_preapprove_ttl_hours
-            if created_by is not None
-            else settings.sec_magic_link_self_ttl_hours
-        )
+        if ttl_hours is None:
+            ttl_hours = (
+                settings.sec_magic_link_preapprove_ttl_hours
+                if created_by is not None
+                else settings.sec_magic_link_self_ttl_hours
+            )
         now = datetime.now(timezone.utc)
         invite = TrustedDeviceInvite(
             invite_token=generate_token(purpose),
@@ -290,6 +297,7 @@ def create_invite(
             user_id=user_id,
             label=label,
             created_by=created_by,
+            invited_by_persona_id=invited_by_persona_id,
             created_at=now,
             expires_at=now + timedelta(hours=ttl_hours),
         )

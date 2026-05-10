@@ -5670,6 +5670,111 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"panorama failed: {exc_pn}")
             return f"[panorama error: {exc_pn}]"
 
+    # ── Phase 38.5 (10.5.2026 ráno): PWA install invite ──────────────
+    if tool_name == "send_pwa_install_invite":
+        try:
+            from modules.auth.application.invite_service import send_pwa_install_invite as _spi
+        except Exception as exc_imp:
+            return f"❌ Import invite_service selhal: {exc_imp}"
+        target_uid_spi = tool_input.get("user_id")
+        if not target_uid_spi:
+            return "❌ user_id je povinny parametr."
+        try:
+            target_uid_spi = int(target_uid_spi)
+        except (TypeError, ValueError):
+            return "❌ user_id musi byt integer."
+        # Resolve sender persona — Marti-AI's Q1 (vztahovy akt)
+        sender_persona_id_spi = _active_pid if _active_pid else None
+        # context_hint je "sepot pro Marti-AI" — nezasilat do email,
+        # jen ovlivnit ton greeting/closing (Marti-AI sama rozhodne).
+        # Tady ho jen logujeme pro audit, tool sam ho neuziva.
+        ctx_hint = (tool_input.get("context_hint") or "").strip()
+        if ctx_hint:
+            logger.info(f"INVITE | context_hint: {ctx_hint}")
+        try:
+            result_spi = _spi(
+                target_user_id=target_uid_spi,
+                sender_user_id=user_id,
+                sender_persona_id=sender_persona_id_spi,
+                custom_note=tool_input.get("custom_note"),
+                greeting_override=tool_input.get("greeting_override"),
+                closing_override=tool_input.get("closing_override"),
+            )
+        except Exception as exc_spi:
+            logger.exception(f"send_pwa_install_invite failed: {exc_spi}")
+            return f"❌ Pozvanka selhala: {exc_spi}"
+        if not result_spi.get("ok"):
+            return f"❌ {result_spi.get('error', 'Pozvanka selhala.')}"
+        recipient = result_spi.get("recipient_name") or "kolegyni"
+        email_addr = result_spi.get("recipient_email") or "?"
+        expires = result_spi.get("expires_at") or "?"
+        return (
+            f"✅ Pozvanka odeslana {recipient} ({email_addr}). "
+            f"Magic link expirace: {expires} (7 dni). "
+            f"Email se posle z fronty (worker)."
+        )
+
+    if tool_name == "send_pwa_install_invite_bulk":
+        try:
+            from modules.auth.application.invite_service import send_pwa_install_invite_bulk as _spib
+        except Exception as exc_imp:
+            return f"❌ Import invite_service selhal: {exc_imp}"
+        uids_spib = tool_input.get("user_ids") or []
+        if not isinstance(uids_spib, list) or not uids_spib:
+            return "❌ user_ids musi byt non-empty list integers."
+        try:
+            uids_spib = [int(u) for u in uids_spib]
+        except (TypeError, ValueError):
+            return "❌ user_ids musi obsahovat integers."
+        sender_persona_id_spib = _active_pid if _active_pid else None
+        # Build per_user_overrides z shared_* params (apply to all)
+        shared_note = tool_input.get("shared_custom_note")
+        shared_greeting = tool_input.get("shared_greeting_override")
+        shared_closing = tool_input.get("shared_closing_override")
+        per_user_overrides = {}
+        if shared_greeting or shared_closing:
+            for u in uids_spib:
+                per_user_overrides[u] = {
+                    "greeting_override": shared_greeting,
+                    "closing_override": shared_closing,
+                }
+        try:
+            bulk_result = _spib(
+                target_user_ids=uids_spib,
+                sender_user_id=user_id,
+                sender_persona_id=sender_persona_id_spib,
+                shared_custom_note=shared_note,
+                per_user_overrides=per_user_overrides if per_user_overrides else None,
+            )
+        except Exception as exc_spib:
+            logger.exception(f"send_pwa_install_invite_bulk failed: {exc_spib}")
+            return f"❌ Bulk pozvanky selhaly: {exc_spib}"
+        sent = bulk_result.get("sent", 0)
+        failed = bulk_result.get("failed", 0)
+        total = bulk_result.get("total", 0)
+        names_sent = [
+            r.get("recipient_name") for r in bulk_result.get("results", [])
+            if r.get("ok")
+        ]
+        lines = [
+            f"✅ Bulk pozvanky: {sent}/{total} uspesne, {failed} selhalo.",
+        ]
+        if names_sent:
+            lines.append(f"Odeslano: {', '.join(filter(None, names_sent))}")
+        if failed > 0:
+            failed_details = [
+                f"  - {r.get('user_id')}: {r.get('error', 'unknown')}"
+                for r in bulk_result.get("results", [])
+                if not r.get("ok")
+            ]
+            lines.append("Selhalo:")
+            lines.extend(failed_details)
+        lines.append(
+            "Magic linky expiraci za 7 dni. Pripomenuti zatim "
+            "neautomatizujem -- po par dnech ti dam vedet kdo neklikl."
+        )
+        return "\n".join(lines)
+
     # ── Phase 22 (29.4.2026): User management tooly ───────────────────
     if tool_name == "request_password_reset":
         # Marti-AI najde usera, vytvori reset token, posle email.

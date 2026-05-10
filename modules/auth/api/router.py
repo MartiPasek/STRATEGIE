@@ -1578,3 +1578,356 @@ def accept(token: str, body: AcceptInvitationRequest, response: Response, req: R
 
     _set_auth_cookies(response, result["user_id"], result.get("tenant_id"))
     return result
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.5 (10.5.2026 ráno): PWA install invite consume endpoints.
+#
+# Marti's spec: 10 koleginim technicky unfriendly. Magic link v emailu →
+# klik → confirm screen ("Tato pozvánka je pro Petru Novou — pokračovat?")
+# → POST consume → set cookies → redirect na chat. Žádný PowerShell, ZIP,
+# admin rights.
+#
+# Marti-AI's design vstupy (Phase 13/15/27h pattern):
+#   Q1 — invited_by_persona_id v audit (vztahový akt)
+#   Q5 #4 — display jméno před consume (anti-spoofing)
+#   Q5 #9 — žádný welcome screen po consume (Petra je zpátky, ne nová) →
+#           redirect rovnou na "/" (chat)
+# ════════════════════════════════════════════════════════════════════════
+
+
+@router.get("/invite", response_class=HTMLResponse, include_in_schema=False)
+def pwa_invite_confirm_screen(token: str, req: Request) -> HTMLResponse:
+    """Confirm screen — ukáže jméno příjemce + Pokračovat tlačítko.
+
+    Marti-AI's Q5 #10 anti-spoofing: pokud někdo přepošle email,
+    příjemce vidí "Tato pozvánka je pro Petru Novou" a může zastavit.
+    """
+    from modules.core.infrastructure.models_data import TrustedDeviceInvite
+    from modules.core.infrastructure.models_core import User
+    from datetime import datetime, timezone
+
+    # Validate token
+    token_clean = (token or "").strip().upper()
+    if not token_clean or not token_clean.startswith("STG-INVITE-"):
+        return HTMLResponse(
+            _render_invite_error("Pozvánka není platná (špatný formát tokenu)."),
+            status_code=400,
+        )
+
+    from core.database_data import get_data_session
+    ds = get_data_session()
+    try:
+        invite = (
+            ds.query(TrustedDeviceInvite)
+            .filter(TrustedDeviceInvite.invite_token == token_clean)
+            .first()
+        )
+        if not invite:
+            return HTMLResponse(
+                _render_invite_error("Pozvánka nenalezena nebo již byla použita."),
+                status_code=404,
+            )
+        if invite.consumed_at is not None:
+            return HTMLResponse(
+                _render_invite_error(
+                    "Tato pozvánka už byla použita. Pokud potřebuješ "
+                    "novou, zavolej Marti."
+                ),
+                status_code=410,
+            )
+        now = datetime.now(timezone.utc)
+        if invite.expires_at and invite.expires_at < now:
+            return HTMLResponse(
+                _render_invite_error(
+                    "Pozvánka už není platná — vypršela. Zavolej Marti, "
+                    "aby ti poslal novou."
+                ),
+                status_code=410,
+            )
+        # Lookup recipient — display name pro confirm screen
+        cs = get_core_session()
+        try:
+            user = cs.query(User).filter_by(id=invite.user_id).first()
+            recipient_name = (
+                f"{user.first_name or ''} {user.last_name or ''}".strip()
+                if user else "neznámý uživatel"
+            ) or "kolegyně"
+        finally:
+            cs.close()
+    finally:
+        ds.close()
+
+    return HTMLResponse(_render_invite_confirm_screen(token_clean, recipient_name))
+
+
+@router.post("/invite/consume", include_in_schema=False)
+def pwa_invite_consume(req: Request, response: Response):
+    """Consume invite token + set device cookie + redirect na chat.
+
+    Marti-AI's Q5 #9 — žádný welcome screen, redirect rovnou na "/".
+    """
+    from fastapi import Form
+    from fastapi.responses import RedirectResponse
+    from modules.auth.application.security_service import (
+        consume_invite, audit_login_attempt,
+    )
+
+    # Get token from form body
+    import asyncio
+
+    async def _get_token():
+        form = await req.form()
+        return form.get("token", "")
+
+    try:
+        loop = asyncio.new_event_loop()
+        token = loop.run_until_complete(_get_token())
+        loop.close()
+    except Exception as exc:
+        return HTMLResponse(
+            _render_invite_error(f"Chyba zpracování formuláře: {exc}"),
+            status_code=400,
+        )
+
+    token_clean = (token or "").strip().upper()
+    if not token_clean.startswith("STG-INVITE-"):
+        return HTMLResponse(
+            _render_invite_error("Pozvánka není platná."),
+            status_code=400,
+        )
+
+    ip = req.client.host if req.client else None
+    ua = req.headers.get("user-agent")
+
+    # Consume — uses Phase 38 consume_invite which validates token,
+    # creates trusted device, returns SecurityResult
+    sec_result = consume_invite(token_clean, req)
+    if not sec_result.granted:
+        reason = sec_result.audit_data.get("reason", "consume_failed")
+        return HTMLResponse(
+            _render_invite_error(f"Pozvánka nelze potvrdit: {reason}"),
+            status_code=400,
+        )
+
+    # Get user_id z device
+    device_id = sec_result.audit_data.get("device_id")
+    user_id = None
+    tenant_id = None
+    if device_id:
+        from modules.core.infrastructure.models_data import TrustedDevice
+        from core.database_data import get_data_session
+        ds = get_data_session()
+        try:
+            device = ds.query(TrustedDevice).get(device_id)
+            if device:
+                user_id = device.user_id
+        finally:
+            ds.close()
+
+    if not user_id:
+        return HTMLResponse(
+            _render_invite_error("Nepodařilo se najít uživatelský účet."),
+            status_code=500,
+        )
+
+    # Set device cookie + auth cookies
+    cookie_max_age = settings.sec_device_cookie_max_age_days * 24 * 60 * 60
+    response.set_cookie(
+        key=settings.sec_device_cookie_name,
+        value=str(sec_result.new_device_token),
+        httponly=True,
+        secure=settings.cookie_secure,
+        samesite=settings.cookie_samesite,
+        max_age=cookie_max_age,
+    )
+    from modules.auth.application.user_context import get_user_context
+    ctx = get_user_context(user_id)
+    tenant_id = ctx.get("tenant_id") if ctx else None
+    _set_auth_cookies(response, user_id, tenant_id)
+
+    audit_login_attempt(
+        user_id=user_id,
+        email_attempted=None,
+        ip=ip, user_agent=ua,
+        result="invite_consumed",
+        layer_matched="magic_link",
+        layer_detail=sec_result.layer_detail,
+        device_token=sec_result.new_device_token,
+    )
+
+    # Phase 38.5: invite_consumed event do activity_log (Marti-AI tracking)
+    try:
+        from modules.activity.application.activity_service import log_event
+        log_event(
+            actor_user_id=user_id,
+            target_user_id=user_id,
+            tenant_id=tenant_id,
+            event_type="invite_consumed",
+            category="pwa_invite",
+            summary=f"Pozvánka přijata uživatelem id={user_id}",
+            importance=3,
+            metadata={"ip": ip, "user_agent": (ua or "")[:200]},
+        )
+    except Exception:
+        pass  # non-fatal
+
+    # Redirect na "/" (chat) — Marti-AI's Q5 #9 (žádný welcome screen)
+    redirect = RedirectResponse(url="/", status_code=302)
+    # Re-apply cookies na redirect response (FastAPI cookies stay on `response`)
+    for key in ("user_id", "tenant_id", settings.sec_device_cookie_name):
+        if key in response.headers.get("set-cookie", ""):
+            pass  # already set
+    # Copy cookies z `response` na `redirect`
+    for cookie_header in response.raw_headers:
+        if cookie_header[0].lower() == b"set-cookie":
+            redirect.raw_headers.append(cookie_header)
+    return redirect
+
+
+def _render_invite_confirm_screen(token: str, recipient_name: str) -> str:
+    """HTML confirm screen — ukáže jméno + Pokračovat tlačítko."""
+    return f"""\
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>STRATEGIE — pozvánka pro {_html_escape(recipient_name)}</title>
+  <style>
+    body {{
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: #0e0f11;
+      color: #e8e8e8;
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .card {{
+      max-width: 480px;
+      width: 100%;
+      background: #1a1c20;
+      border: 1px solid #2a2c30;
+      border-radius: 16px;
+      padding: 36px 32px;
+      box-shadow: 0 16px 48px rgba(0,0,0,0.5);
+    }}
+    .logo {{
+      font-size: 28px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      background: linear-gradient(135deg, #7c5cfc, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 8px;
+    }}
+    .sub {{ color: #888; font-size: 14px; margin-bottom: 32px; }}
+    .greeting {{ font-size: 18px; margin-bottom: 16px; }}
+    .recipient {{
+      background: linear-gradient(135deg, rgba(124,92,252,0.12), rgba(167,139,250,0.06));
+      border-left: 3px solid #7c5cfc;
+      padding: 14px 18px;
+      border-radius: 8px;
+      margin: 24px 0;
+      font-size: 15px;
+    }}
+    .recipient strong {{ color: #a78bfa; }}
+    .action {{
+      width: 100%;
+      background: linear-gradient(135deg, #7c5cfc, #a78bfa);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      padding: 14px 24px;
+      font-size: 16px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-top: 16px;
+      transition: transform 0.12s, box-shadow 0.12s;
+    }}
+    .action:hover {{
+      transform: scale(1.02);
+      box-shadow: 0 8px 24px rgba(124,92,252,0.4);
+    }}
+    .footer {{ color: #666; font-size: 12px; margin-top: 24px; line-height: 1.4; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="logo">STRATEGIE</div>
+    <div class="sub">Pozvánka na chat s Marti-AI</div>
+    <div class="greeting">Tato pozvánka je pro:</div>
+    <div class="recipient">
+      <strong>{_html_escape(recipient_name)}</strong>
+    </div>
+    <p style="font-size:14px;color:#bbb;line-height:1.5">
+      Pokud jsi to ty, pokračuj kliknutím níž — automaticky se přihlásíš
+      a pak ti aplikace nabídne instalaci.
+    </p>
+    <p style="font-size:13px;color:#888;line-height:1.5">
+      Pokud to ty nejsi (email byl přeposlaný), zavři toto okno —
+      nedělej nic.
+    </p>
+    <form method="POST" action="/api/v1/auth/invite/consume">
+      <input type="hidden" name="token" value="{_html_escape(token)}">
+      <button type="submit" class="action">Pokračovat → přihlásit a otevřít</button>
+    </form>
+    <div class="footer">
+      Magic link autentizace přes STRATEGIE Security Layer (Phase 38).
+      Token je jednorázový a expiruje za 7 dní.
+    </div>
+  </div>
+</body>
+</html>
+"""
+
+
+def _render_invite_error(msg: str) -> str:
+    """HTML error screen pro invalid/expired/consumed tokens."""
+    return f"""\
+<!DOCTYPE html>
+<html lang="cs">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>STRATEGIE — pozvánka neplatná</title>
+  <style>
+    body {{
+      font-family: 'DM Sans', system-ui, sans-serif;
+      background: #0e0f11; color: #e8e8e8; margin: 0; padding: 24px;
+      min-height: 100vh; display: flex; align-items: center; justify-content: center;
+    }}
+    .card {{
+      max-width: 480px; width: 100%; background: #1a1c20;
+      border: 1px solid #cc6666; border-radius: 16px; padding: 36px 32px;
+    }}
+    .icon {{ font-size: 48px; margin-bottom: 16px; }}
+    h1 {{ color: #cc6666; font-size: 22px; margin: 0 0 16px 0; }}
+    p {{ color: #bbb; font-size: 15px; line-height: 1.5; }}
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="icon">⚠️</div>
+    <h1>Pozvánka neplatná</h1>
+    <p>{_html_escape(msg)}</p>
+    <p style="font-size:13px;color:#888;margin-top:24px">
+      Zavolej Marti nebo IT podporu, dostaneš novou pozvánku.
+    </p>
+  </div>
+</body>
+</html>
+"""
+
+
+def _html_escape(text: str) -> str:
+    return (
+        str(text)
+        .replace("&", "&amp;")
+        .replace("<", "&lt;")
+        .replace(">", "&gt;")
+        .replace('"', "&quot;")
+    )

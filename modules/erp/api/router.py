@@ -8185,7 +8185,7 @@ def _render_workspace_page(user_id: int) -> str:
             // Fallback: ukaz user kde ma manualne kliknout
             alert(
               "Pro instalaci klikni na 3 tečky vpravo nahoře v Chrome → " +
-              "'Nainstalovat STRATEGIE ERP'.\n\n" +
+              "'Nainstalovat STRATEGIE ERP'.\\n\\n" +
               "Pokud možnost nevidíš, zkus reload stránky."
             );
             return;

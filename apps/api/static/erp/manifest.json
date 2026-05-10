@@ -39,15 +39,6 @@
   ],
   "shortcuts": [
     {
-      "name": "Otevřít chat",
-      "short_name": "Chat",
-      "description": "Přepnout do chat s Marti-AI",
-      "url": "/",
-      "icons": [
-        { "src": "/static/erp/icon-192.png", "sizes": "192x192" }
-      ]
-    },
-    {
       "name": "System dashboard",
       "short_name": "System",
       "description": "Audit konverzací, security overview, framework editor",

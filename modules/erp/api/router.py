@@ -2728,6 +2728,34 @@ def _render_full_page(
       from {{ transform: rotate(0deg); }}
       to {{ transform: rotate(360deg); }}
     }}
+    /* Phase 38.5+ (10.5.2026 rano): Install button pro non-technical users.
+       Visible jen kdyz Chrome nabidne PWA install (beforeinstallprompt event).
+       Pulsuje subtle aby user pochopil ze ho ma kliknout. */
+    .erp-install-btn {{
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      align-self: end;
+      margin-bottom: 4px;
+      flex-shrink: 0;
+      box-shadow: 0 0 0 0 rgba(124, 92, 252, 0.4);
+      animation: installPulse 3s ease-in-out infinite;
+      transition: transform 0.12s, box-shadow 0.12s;
+    }}
+    .erp-install-btn:hover {{
+      transform: scale(1.04);
+      box-shadow: 0 4px 16px rgba(124, 92, 252, 0.4);
+    }}
+    @keyframes installPulse {{
+      0%, 100% {{ box-shadow: 0 0 0 0 rgba(124, 92, 252, 0.4); }}
+      50%      {{ box-shadow: 0 0 0 8px rgba(124, 92, 252, 0); }}
+    }}
     /* B+9 (6.5.2026): UI zoom toggle (3-segment A−/A/A+) */
     .erp-zoom-toggle {{
       display: inline-flex;
@@ -4321,6 +4349,12 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
+        <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
+             Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
+             Skryty po install (appinstalled event) nebo v PWA standalone mode. -->
+        <button type="button" class="erp-install-btn" id="erpInstallBtn"
+                data-hint="Nainstalovat jako Windows aplikaci (žádný PowerShell)"
+                style="display:none">📥 Nainstalovat</button>
       </div>
     </div>
   </header>
@@ -8125,6 +8159,61 @@ def _render_workspace_page(user_id: int) -> str:
         ErpRefresh.init();
       }
       window.ErpRefresh = ErpRefresh;  // expose pro debugging
+
+      // ════════════════════════════════════════════════════════════════
+      // Phase 38.5+ (10.5.2026 rano): Install button pro non-technical
+      // users. Marti's spec: 10 koleginim technicky unfriendly. ZIP +
+      // PowerShell + admin rights je out — potrebujeme "klik a hotovo".
+      //
+      // Chrome's "beforeinstallprompt" event fired kdyz PWA detection
+      // success (manifest valid + sw.js + HTTPS + ne uz installed).
+      // Zachyt event, ulozi pro lazy trigger pri user click.
+      // ════════════════════════════════════════════════════════════════
+      let _deferredInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', (ev) => {
+        // Prevent default mini-infobar (Chrome desktop default UI)
+        ev.preventDefault();
+        _deferredInstallPrompt = ev;
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'inline-flex';
+        console.log('[install] beforeinstallprompt captured — button shown');
+      });
+      const _installBtn = document.getElementById('erpInstallBtn');
+      if (_installBtn) {
+        _installBtn.addEventListener('click', async () => {
+          if (!_deferredInstallPrompt) {
+            // Fallback: ukaz user kde ma manualne kliknout
+            alert(
+              "Pro instalaci klikni na 3 tečky vpravo nahoře v Chrome → " +
+              "'Nainstalovat STRATEGIE ERP'.\n\n" +
+              "Pokud možnost nevidíš, zkus reload stránky."
+            );
+            return;
+          }
+          try {
+            _deferredInstallPrompt.prompt();
+            const { outcome } = await _deferredInstallPrompt.userChoice;
+            console.log('[install] user choice:', outcome);
+            if (outcome === 'accepted') {
+              _installBtn.style.display = 'none';
+            }
+          } catch (e) {
+            console.error('[install] prompt failed:', e);
+          }
+          _deferredInstallPrompt = null;
+        });
+      }
+      // Hide install button kdyz uz je nainstalovany (post-install event)
+      window.addEventListener('appinstalled', () => {
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'none';
+        console.log('[install] appinstalled event — button hidden');
+      });
+      // Hide install button v PWA standalone mode (uz nainstalovany)
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'none';
+      }
 
       function loadTabsState() {
         try {

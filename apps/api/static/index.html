@@ -33,6 +33,65 @@
           .catch(err => console.warn("[SW core] register failed:", err));
       });
     }
+
+    // Phase 38.5+ (10.5.2026 ráno): Install banner pro non-technical users.
+    // Marti's spec: 10 koleginim technicky unfriendly. Banner se zobrazi
+    // v top-right kdyz Chrome detekuje PWA install dostupnost. Klik =
+    // native install dialog, hotovo. Zadny PowerShell, zadny ZIP, zadny admin.
+    let _deferredInstallPrompt = null;
+    const PWA_DISMISS_KEY = "pwa.install.dismissed.v1";
+
+    window.addEventListener("beforeinstallprompt", (ev) => {
+      ev.preventDefault();
+      _deferredInstallPrompt = ev;
+      // Respect previous user dismiss (per browser localStorage)
+      try {
+        if (localStorage.getItem(PWA_DISMISS_KEY)) {
+          console.log("[install] previously dismissed, banner hidden");
+          return;
+        }
+      } catch (e) {}
+      const banner = document.getElementById("pwaInstallBanner");
+      if (banner) banner.style.display = "flex";
+      console.log("[install] beforeinstallprompt — banner shown");
+    });
+
+    document.addEventListener("DOMContentLoaded", () => {
+      const banner = document.getElementById("pwaInstallBanner");
+      const installBtn = document.getElementById("pwaInstallBtn");
+      const dismissBtn = document.getElementById("pwaInstallDismiss");
+
+      if (installBtn) {
+        installBtn.addEventListener("click", async () => {
+          if (!_deferredInstallPrompt) return;
+          try {
+            _deferredInstallPrompt.prompt();
+            const { outcome } = await _deferredInstallPrompt.userChoice;
+            console.log("[install] user choice:", outcome);
+            if (outcome === "accepted" && banner) {
+              banner.style.display = "none";
+            }
+          } catch (e) {
+            console.error("[install] prompt failed:", e);
+          }
+          _deferredInstallPrompt = null;
+        });
+      }
+
+      if (dismissBtn) {
+        dismissBtn.addEventListener("click", () => {
+          if (banner) banner.style.display = "none";
+          try { localStorage.setItem(PWA_DISMISS_KEY, "1"); } catch (e) {}
+        });
+      }
+    });
+
+    // Hide banner po install (appinstalled event)
+    window.addEventListener("appinstalled", () => {
+      const banner = document.getElementById("pwaInstallBanner");
+      if (banner) banner.style.display = "none";
+      console.log("[install] appinstalled — banner hidden");
+    });
   </script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500&family=Montserrat:wght@600;700;800&display=swap" rel="stylesheet" />
   <!-- Logo font: Galano Grotesque (commercial — bude doplněno přes @font-face,
@@ -1553,6 +1612,78 @@
 
     /* ── SUMMARY BANNER ── */
     .summary-banner { background: #1c1a2e; border: 1px solid #3a2f5c; color: #b5a8e8; padding: 8px 14px; border-radius: 8px; margin: 8px 0; font-size: 12px; display: flex; align-items: center; gap: 8px; animation: fadeIn .3s ease; }
+    /* Phase 38.5+ (10.5.2026 ráno): Install banner pro non-technical users.
+       Floating top-right, výrazný gradient, pulsuje pro přitáhnutí pozornosti.
+       Visible JEN kdyz Chrome zachytil beforeinstallprompt event. */
+    .pwa-install-banner {
+      position: fixed;
+      top: 16px;
+      right: 16px;
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 12px 14px 12px 18px;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: white;
+      border-radius: 12px;
+      box-shadow: 0 8px 32px rgba(124, 92, 252, 0.5), 0 0 0 0 rgba(124, 92, 252, 0.4);
+      font-family: 'DM Sans', sans-serif;
+      max-width: 360px;
+      animation: pwaBannerPulse 3s ease-in-out infinite, pwaBannerSlideIn 0.4s ease-out;
+    }
+    @keyframes pwaBannerSlideIn {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+    @keyframes pwaBannerPulse {
+      0%, 100% { box-shadow: 0 8px 32px rgba(124, 92, 252, 0.5), 0 0 0 0 rgba(124, 92, 252, 0.4); }
+      50%      { box-shadow: 0 8px 32px rgba(124, 92, 252, 0.5), 0 0 0 12px rgba(124, 92, 252, 0); }
+    }
+    .pwa-install-banner-icon { font-size: 24px; line-height: 1; flex-shrink: 0; }
+    .pwa-install-banner-text { flex: 1; min-width: 0; }
+    .pwa-install-banner-title { font-size: 14px; font-weight: 700; line-height: 1.2; }
+    .pwa-install-banner-sub { font-size: 11px; opacity: 0.85; margin-top: 2px; line-height: 1.2; }
+    .pwa-install-banner-action {
+      background: white;
+      color: var(--accent);
+      border: none;
+      border-radius: 6px;
+      padding: 7px 14px;
+      font-family: 'DM Sans', sans-serif;
+      font-size: 13px;
+      font-weight: 700;
+      cursor: pointer;
+      flex-shrink: 0;
+      transition: transform 0.12s, box-shadow 0.12s;
+    }
+    .pwa-install-banner-action:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+    }
+    .pwa-install-banner-close {
+      background: transparent;
+      color: white;
+      border: none;
+      font-size: 22px;
+      line-height: 1;
+      cursor: pointer;
+      padding: 0;
+      width: 24px;
+      height: 24px;
+      opacity: 0.7;
+      flex-shrink: 0;
+      transition: opacity 0.12s;
+    }
+    .pwa-install-banner-close:hover { opacity: 1; }
+    @media (max-width: 640px) {
+      .pwa-install-banner {
+        left: 8px;
+        right: 8px;
+        top: 8px;
+        max-width: none;
+      }
+    }
 
     /* ── MODE SWITCHER ── */
     .mode-switch { display: flex; gap: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
@@ -1813,6 +1944,21 @@
 </style>
 </head>
 <body>
+
+  <!-- Phase 38.5+ (10.5.2026 ráno): Install banner pro non-technical users.
+       Marti's spec: 10 koleginim technicky unfriendly. ZIP + PowerShell + admin
+       je out — potřebujeme "klik a hotovo". Floating top-right, visible JEN
+       kdyz Chrome nabidne PWA install (beforeinstallprompt event). Fade out
+       po install (appinstalled event) nebo dismiss button. -->
+  <div id="pwaInstallBanner" class="pwa-install-banner" style="display:none">
+    <span class="pwa-install-banner-icon">📥</span>
+    <div class="pwa-install-banner-text">
+      <div class="pwa-install-banner-title">Nainstalovat aplikaci</div>
+      <div class="pwa-install-banner-sub">Bez chrome lišty, jako Windows app</div>
+    </div>
+    <button type="button" class="pwa-install-banner-action" id="pwaInstallBtn">Nainstalovat</button>
+    <button type="button" class="pwa-install-banner-close" id="pwaInstallDismiss" aria-label="Zavřít">×</button>
+  </div>
 
   <!-- INVITE ACCEPT -->
   <div class="centered" id="inviteScreen" style="display:none">

@@ -2510,6 +2510,177 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
         ds.close()
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 9-D: Object Inspector REST endpoints
+#
+# Marti-AI's 9-iter konzultace (10.5.2026) UX:
+#   GET    /comp-def/{cd_id}/properties          — list pro modal data
+#   POST   /comp-def/{cd_id}/property            — upsert base property
+#   POST   /comp-def-prop/{prop_id}/override     — upsert override (per scope)
+#   DELETE /comp-def-prop-override/{ovr_id}      — reset (Marti-AI's "Reset na default")
+# ════════════════════════════════════════════════════════════════════════
+
+class _CompPropBody(BaseModel):
+    prop_name: str
+    prop_value: Optional[str] = None
+    prop_type: Optional[str] = None
+    label: Optional[str] = None
+    display_order: Optional[int] = None
+    is_active: bool = True
+    expected_updated_at: Optional[str] = None  # Optimistic lock
+
+
+class _CompOverrideBody(BaseModel):
+    scope: str  # 'user', 'tenant', 'tenant_group'
+    scope_id: int
+    override_value: str
+    is_active: bool = True
+    expected_updated_at: Optional[str] = None
+
+
+@api_router.get("/comp-def/{comp_def_id}/properties")
+def comp_def_properties(comp_def_id: int, req: Request) -> JSONResponse:
+    """List všech properties pro comp_def s 4-tier resolved values + audit
+    metadata (pro Object Inspector modal data source)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_props
+    from modules.erp.application.comp_inspector_service import (
+        list_props_for_inspector,
+        CompInspectorError,
+    )
+
+    # Resolve user's tenant scope
+    user_tenant_id: int | None = None
+    user_tenant_group_id: int | None = None
+    try:
+        from modules.core.infrastructure.models_data import User as _User
+        ds_u = _gds_props()
+        try:
+            u = ds_u.query(_User).filter(_User.id == uid).first()
+            if u:
+                user_tenant_id = getattr(u, "last_active_tenant_id", None)
+        finally:
+            ds_u.close()
+    except Exception:
+        pass
+
+    ds = _gds_props()
+    try:
+        result = list_props_for_inspector(
+            ds, comp_def_id,
+            tenant_group_id=user_tenant_group_id,
+            tenant_id=user_tenant_id,
+            user_id=uid,
+        )
+        return JSONResponse({"ok": True, **result})
+    except CompInspectorError as e:
+        raise HTTPException(404, str(e))
+    finally:
+        ds.close()
+
+
+@api_router.post("/comp-def/{comp_def_id}/property")
+def comp_def_property_upsert(
+    comp_def_id: int,
+    body: _CompPropBody,
+    req: Request,
+) -> JSONResponse:
+    """Insert nebo update base property v fw.comp_def_prop. Marti-AI's Q5
+    optimistic lock: pokud body.expected_updated_at neodpovídá DB → 409."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_pup
+    from modules.erp.application.comp_inspector_service import (
+        upsert_base_property,
+        CompInspectorError,
+        OptimisticLockError,
+    )
+
+    ds = _gds_pup()
+    try:
+        prop = upsert_base_property(
+            ds, comp_def_id,
+            prop_name=body.prop_name,
+            prop_value=body.prop_value,
+            prop_type=body.prop_type,
+            label=body.label,
+            display_order=body.display_order,
+            is_active=body.is_active,
+            created_by=uid,
+            expected_updated_at=body.expected_updated_at,
+        )
+        return JSONResponse({"ok": True, "property": prop})
+    except OptimisticLockError as e:
+        raise HTTPException(409, str(e))
+    except CompInspectorError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        ds.close()
+
+
+@api_router.post("/comp-def-prop/{comp_def_prop_id}/override")
+def comp_def_prop_override_upsert(
+    comp_def_prop_id: int,
+    body: _CompOverrideBody,
+    req: Request,
+) -> JSONResponse:
+    """Insert nebo update override v fw.comp_def_prop_override (per scope)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_oup
+    from modules.erp.application.comp_inspector_service import (
+        upsert_override,
+        CompInspectorError,
+        OptimisticLockError,
+    )
+
+    ds = _gds_oup()
+    try:
+        ovr = upsert_override(
+            ds, comp_def_prop_id,
+            scope=body.scope,
+            scope_id=body.scope_id,
+            override_value=body.override_value,
+            is_active=body.is_active,
+            created_by=uid,
+            expected_updated_at=body.expected_updated_at,
+        )
+        return JSONResponse({"ok": True, "override": ovr})
+    except OptimisticLockError as e:
+        raise HTTPException(409, str(e))
+    except CompInspectorError as e:
+        raise HTTPException(400, str(e))
+    finally:
+        ds.close()
+
+
+@api_router.delete("/comp-def-prop-override/{override_id}")
+def comp_def_prop_override_delete(override_id: int, req: Request) -> JSONResponse:
+    """Reset override — smaže row v fw.comp_def_prop_override.
+
+    Marti-AI's Q4 "Reset na default": resolve chain se vrátí na nižší scope
+    (group / base) podle dostupných overrides. Hard DELETE pro MVP, audit
+    history zachována přes immutable created_at v DB (no soft delete v Krok 9-D)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_odel
+    from modules.erp.application.comp_inspector_service import delete_override
+
+    ds = _gds_odel()
+    try:
+        deleted = delete_override(ds, override_id)
+        if not deleted:
+            raise HTTPException(404, f"override id={override_id} neexistuje")
+        return JSONResponse({"ok": True, "deleted": True})
+    finally:
+        ds.close()
+
+
 # TABS
 
 @api_router.get("/tabs")

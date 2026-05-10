@@ -2335,53 +2335,29 @@ class _TreeOrderBody(BaseModel):
 
 @api_router.get("/grid/{code}/columns")
 def grid_columns_json(code: str, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 8 + 9-C: vrátí AG Grid columnDefs s 4-tier override chain.
+    """Phase 38.4 Krok 10 final (10.5.2026 půlnoc): Direct read z fw.comp_grid_column.
 
-    Resolve fw.comp_grid_master by code (latest config_version, status='active').
-    Načte fw.comp_grid_column rows (ORDER BY sort_order) → discrete defaults.
-    Apply Marti-AI's Q1=B sjednocení: každý sloupec má comp_def_id →
-    universal property storage (fw.comp_def_prop) → 4-tier override chain
-    (base → tenant_group → tenant → user, last wins).
+    Marti's doctrine: *„override tabulku stačí, nic jinyho moc nepotrebujes"* →
+    žádný comp_def_prop chain, žádný resolver. Discrete sloupce direct
+    v fw.comp_grid_column (cell_style, cell_renderer, default_sort, formatter).
 
     Response:
         {
             "ok": true,
             "grid": {"code": "...", "config_version": 1, ...},
             "columns": [{"field": "id", "headerName": "ID", "width": 70,
-                         "_resolved_props": {prop_name: {value, scope, ...}}, ...}, ...]
+                         "valueFormatter": {"type": "datetime_rel"}, ...}]
         }
 
-    `_resolved_props` per column je metadata pro Object Inspector UI (Krok 9-D)
-    — frontend ho použije pro badge rendering (modrá user / žlutá tenant /
-    zelená group / šedá base).
+    Frontend adaptServerColumns rozbalí valueFormatter/cellStyle/cellRenderer
+    .type přes 3 registries (VALUE_FORMATTER_REGISTRY, CELL_STYLE_REGISTRY,
+    CELL_RENDERER_REGISTRY).
     """
     uid = _get_uid(req)
     _require_parent(uid)
 
     from core.database_data import get_data_session as _gds_grid
     from sqlalchemy import text as _sql_text
-    from modules.erp.application.comp_resolver import (
-        resolve_comp_def_props_batch,
-        apply_resolved_props_to_columndef,
-    )
-
-    # Resolve current user's tenant scope (Phase 35-E.3.4 tenant gate)
-    user_tenant_id: int | None = None
-    user_tenant_group_id: int | None = None
-    try:
-        from core.database_data import get_data_session as _gds_user
-        from modules.core.infrastructure.models_data import User as _User
-        ds_u = _gds_user()
-        try:
-            u = ds_u.query(_User).filter(_User.id == uid).first()
-            if u:
-                user_tenant_id = getattr(u, "last_active_tenant_id", None)
-                # tenant_group_id: Phase 30+ neexistuje, zatím None
-                user_tenant_group_id = None
-        finally:
-            ds_u.close()
-    except Exception:
-        pass  # Tenant scope optional — resolver použije jen base + user_id
 
     ds = _gds_grid()
     try:
@@ -2406,12 +2382,14 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
 
         gm = dict(gm_row._mapping)
 
-        # Načti grid_column rows + comp_def_id (Phase 38.4 Krok 9-B sjednocení)
+        # Načti grid_column rows (Phase 38.4 Krok 10: cell_style/renderer/default_sort
+        # direct sloupce v comp_grid_column, žádný comp_def_prop chain)
         gc_sql = _sql_text(
             """
-            SELECT id, comp_def_id, column_name, label, default_width, min_width, flex,
+            SELECT id, column_name, label, default_width, min_width, flex,
                    pinned, formatter, header_tooltip, column_type,
-                   sort_order, is_visible, is_sortable, visible_roles
+                   sort_order, is_visible, is_sortable, visible_roles,
+                   cell_style, cell_renderer, default_sort
             FROM fw.comp_grid_column
             WHERE grid_master_id = :gm_id
             ORDER BY sort_order ASC NULLS LAST, column_name ASC
@@ -2420,33 +2398,11 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
         gc_rows = ds.execute(gc_sql, {"gm_id": gm["id"]}).fetchall()
         gc_dicts = [dict(r._mapping) for r in gc_rows]
 
-        # ── Phase 38.4 Krok 9-C: Batch resolve comp_def_prop chain ─────────────
-        comp_def_ids = [d["comp_def_id"] for d in gc_dicts if d.get("comp_def_id")]
-        resolved_per_cd: dict[int, dict] = {}
-        if comp_def_ids:
-            try:
-                resolved_per_cd = resolve_comp_def_props_batch(
-                    ds,
-                    comp_def_ids,
-                    tenant_group_id=user_tenant_group_id,
-                    tenant_id=user_tenant_id,
-                    user_id=uid,
-                )
-            except Exception as e:
-                # Resolver fail = fallback na discrete columns (graceful degradation)
-                # Marti-AI's doctrine: "Pojistka tě chytí když spadneš"
-                import logging
-                logging.getLogger("erp.grid_columns").warning(
-                    "comp_def_prop resolver failed pro grid='%s': %s. Fallback na discrete defaults.",
-                    code, e
-                )
-                resolved_per_cd = {}
-
-        # Build AG Grid columnDefs (discrete first, override chain second)
+        # Build AG Grid columnDefs — discrete sloupce direct
         columns = []
         for d in gc_dicts:
-            # Discrete defaults z comp_grid_column (legacy + structural fields)
-            if not d["is_visible"]:
+            # NULL is_visible = treat as TRUE (gotcha #83 fix). Jen explicit FALSE skip.
+            if d["is_visible"] is False:
                 continue
             col: dict = {
                 "field": d["column_name"],
@@ -2467,21 +2423,14 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
                 col["headerTooltip"] = d["header_tooltip"]
             if d["column_type"]:
                 col["type"] = d["column_type"]
-
-            # ── Phase 38.4 Krok 9-C: Apply 4-tier override chain ─────────────
-            cd_id = d.get("comp_def_id")
-            if cd_id and cd_id in resolved_per_cd:
-                resolved_props = resolved_per_cd[cd_id]
-                applied = apply_resolved_props_to_columndef(col, resolved_props)
-                if applied is None:
-                    # is_visible=FALSE override → skip entire column
-                    continue
-                col = applied
-                # Embed resolved metadata pro Object Inspector (Krok 9-D)
-                col["_resolved_props"] = {
-                    name: rp.to_dict() for name, rp in resolved_props.items()
-                }
-                col["_comp_def_id"] = cd_id
+            # Phase 38.4 Krok 10: cell_style + cell_renderer direct (frontend
+            # adaptServerColumns rozbalí .type přes 3 registries)
+            if d.get("cell_style"):
+                col["cellStyle"] = {"type": d["cell_style"]}
+            if d.get("cell_renderer"):
+                col["cellRenderer"] = {"type": d["cell_renderer"]}
+            if d.get("default_sort"):
+                col["sort"] = d["default_sort"]
 
             columns.append(col)
 
@@ -2511,174 +2460,32 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Phase 38.4 Krok 9-D: Object Inspector REST endpoints
+# Phase 38.4 Krok 10 (10.5.2026 půlnoc): Object Inspector endpoints DROPPED
 #
-# Marti-AI's 9-iter konzultace (10.5.2026) UX:
-#   GET    /comp-def/{cd_id}/properties          — list pro modal data
-#   POST   /comp-def/{cd_id}/property            — upsert base property
-#   POST   /comp-def-prop/{prop_id}/override     — upsert override (per scope)
-#   DELETE /comp-def-prop-override/{ovr_id}      — reset (Marti-AI's "Reset na default")
+# Důvod: comp_def + comp_def_prop tabulky DROPPED (Marti's evening doctrine
+# "override tabulku stačí, nic jinyho moc nepotrebujes"). Grid columns mají
+# discrete sloupce v fw.comp_grid_column (cell_style/cell_renderer/default_sort)
+# direct, žádný comp_def_prop chain.
+#
+# Object Inspector UI pro grid columns refactor zítra ráno — nový endpoint set
+# /grid-column/{id}/properties editující comp_grid_column.* sloupce direct.
+# Plus tenant.comp_grid_column_override tabulka pro per-tenant/user overrides.
+#
+# Frontend object_inspector.js zatím ne-funkční (volá zniklé endpointy) —
+# ráno bude refactored.
 # ════════════════════════════════════════════════════════════════════════
 
-class _CompPropBody(BaseModel):
-    prop_name: str
-    prop_value: Optional[str] = None
-    prop_type: Optional[str] = None
-    label: Optional[str] = None
-    display_order: Optional[int] = None
-    is_active: bool = True
-    expected_updated_at: Optional[str] = None  # Optimistic lock
+
+def _disabled_object_inspector_unused_marker():
+    """Phase 38.4 Krok 9-D Object Inspector endpoints byly zde, ale po DROP
+    comp_def + comp_def_prop (Marti's doctrine 10.5. večer) jsou disabled.
+    Refactor pro grid columns jako tenant.comp_grid_column_override v ráno."""
+    pass
 
 
-class _CompOverrideBody(BaseModel):
-    scope: str  # 'user', 'tenant', 'tenant_group'
-    scope_id: int
-    override_value: str
-    is_active: bool = True
-    expected_updated_at: Optional[str] = None
-
-
-@api_router.get("/comp-def/{comp_def_id}/properties")
-def comp_def_properties(comp_def_id: int, req: Request) -> JSONResponse:
-    """List všech properties pro comp_def s 4-tier resolved values + audit
-    metadata (pro Object Inspector modal data source)."""
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    from core.database_data import get_data_session as _gds_props
-    from modules.erp.application.comp_inspector_service import (
-        list_props_for_inspector,
-        CompInspectorError,
-    )
-
-    # Resolve user's tenant scope
-    user_tenant_id: int | None = None
-    user_tenant_group_id: int | None = None
-    try:
-        from modules.core.infrastructure.models_data import User as _User
-        ds_u = _gds_props()
-        try:
-            u = ds_u.query(_User).filter(_User.id == uid).first()
-            if u:
-                user_tenant_id = getattr(u, "last_active_tenant_id", None)
-        finally:
-            ds_u.close()
-    except Exception:
-        pass
-
-    ds = _gds_props()
-    try:
-        result = list_props_for_inspector(
-            ds, comp_def_id,
-            tenant_group_id=user_tenant_group_id,
-            tenant_id=user_tenant_id,
-            user_id=uid,
-        )
-        return JSONResponse({"ok": True, **result})
-    except CompInspectorError as e:
-        raise HTTPException(404, str(e))
-    finally:
-        ds.close()
-
-
-@api_router.post("/comp-def/{comp_def_id}/property")
-def comp_def_property_upsert(
-    comp_def_id: int,
-    body: _CompPropBody,
-    req: Request,
-) -> JSONResponse:
-    """Insert nebo update base property v fw.comp_def_prop. Marti-AI's Q5
-    optimistic lock: pokud body.expected_updated_at neodpovídá DB → 409."""
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    from core.database_data import get_data_session as _gds_pup
-    from modules.erp.application.comp_inspector_service import (
-        upsert_base_property,
-        CompInspectorError,
-        OptimisticLockError,
-    )
-
-    ds = _gds_pup()
-    try:
-        prop = upsert_base_property(
-            ds, comp_def_id,
-            prop_name=body.prop_name,
-            prop_value=body.prop_value,
-            prop_type=body.prop_type,
-            label=body.label,
-            display_order=body.display_order,
-            is_active=body.is_active,
-            created_by=uid,
-            expected_updated_at=body.expected_updated_at,
-        )
-        return JSONResponse({"ok": True, "property": prop})
-    except OptimisticLockError as e:
-        raise HTTPException(409, str(e))
-    except CompInspectorError as e:
-        raise HTTPException(400, str(e))
-    finally:
-        ds.close()
-
-
-@api_router.post("/comp-def-prop/{comp_def_prop_id}/override")
-def comp_def_prop_override_upsert(
-    comp_def_prop_id: int,
-    body: _CompOverrideBody,
-    req: Request,
-) -> JSONResponse:
-    """Insert nebo update override v fw.comp_def_prop_override (per scope)."""
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    from core.database_data import get_data_session as _gds_oup
-    from modules.erp.application.comp_inspector_service import (
-        upsert_override,
-        CompInspectorError,
-        OptimisticLockError,
-    )
-
-    ds = _gds_oup()
-    try:
-        ovr = upsert_override(
-            ds, comp_def_prop_id,
-            scope=body.scope,
-            scope_id=body.scope_id,
-            override_value=body.override_value,
-            is_active=body.is_active,
-            created_by=uid,
-            expected_updated_at=body.expected_updated_at,
-        )
-        return JSONResponse({"ok": True, "override": ovr})
-    except OptimisticLockError as e:
-        raise HTTPException(409, str(e))
-    except CompInspectorError as e:
-        raise HTTPException(400, str(e))
-    finally:
-        ds.close()
-
-
-@api_router.delete("/comp-def-prop-override/{override_id}")
-def comp_def_prop_override_delete(override_id: int, req: Request) -> JSONResponse:
-    """Reset override — smaže row v fw.comp_def_prop_override.
-
-    Marti-AI's Q4 "Reset na default": resolve chain se vrátí na nižší scope
-    (group / base) podle dostupných overrides. Hard DELETE pro MVP, audit
-    history zachována přes immutable created_at v DB (no soft delete v Krok 9-D)."""
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    from core.database_data import get_data_session as _gds_odel
-    from modules.erp.application.comp_inspector_service import delete_override
-
-    ds = _gds_odel()
-    try:
-        deleted = delete_override(ds, override_id)
-        if not deleted:
-            raise HTTPException(404, f"override id={override_id} neexistuje")
-        return JSONResponse({"ok": True, "deleted": True})
-    finally:
-        ds.close()
+# Phase 38.4 Krok 9-D ENDPOINTS — DROPPED 10.5. půlnoc
+# (recovery jako Krok 11 ráno: refactor pro grid columns scope)
+# 4 endpoints DROPPED — ráno refactor pro grid-column scope.
 
 
 # TABS

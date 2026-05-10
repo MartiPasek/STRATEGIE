@@ -75,6 +75,10 @@ VALUES
 
 -- ════════════════════════════════════════════════════════════════════════
 -- 3. COMP_GRID_COLUMN rows
+-- POZOR: explicit is_visible=TRUE všude — backend filter `if not d["is_visible"]:
+-- continue` by NULL interpretoval jako True a přeskočil sloupec
+-- (Phase 38.4 Krok 10 fix 10.5.2026 vecer). Plus backend opraven na
+-- defensive `is_visible is False` semantics.
 -- ════════════════════════════════════════════════════════════════════════
 -- ── security_users (13 columns) ───────────────────────────────────────
 INSERT INTO fw.comp_grid_column

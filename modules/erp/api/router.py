@@ -6342,8 +6342,11 @@ def _render_workspace_page(user_id: int) -> str:
         }
 
         // Krok B+: Layout key pro System uzly (negativni cislo)
-        // Phase 38.4 Krok 8 (10.5.2026): tree walker místo SYSTEM_LAYOUT_CISLA dict
-        var sysCislo = _getSystemCisloByMode(mode);
+        // Phase 38.4 Krok 8 (10.5.2026): tree walker místo SYSTEM_LAYOUT_CISLA dict.
+        // Helpers jsou v stejném IIFE, ale defensive check pro safety.
+        var sysCislo = (typeof _getSystemCisloByMode === "function")
+          ? _getSystemCisloByMode(mode)
+          : (window._sysGetCisloByMode ? window._sysGetCisloByMode(mode) : null);
         var sysLayoutKey = (sysCislo != null) ? ("prehled_" + sysCislo) : null;
 
         // Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373): pre-fetch
@@ -6650,20 +6653,29 @@ def _render_workspace_page(user_id: int) -> str:
       //
       // Speciální case: 'system.audit.tabs' (cislo_def=-100) drží Variant A
       // tabs UI signal — nemá vlastní mode, jen markeruje tabs bar visibility.
+      //
+      // Walker helpers jsou v jiném IIFE, tj. čteme přes window._sys*.
       function _systemModeFromItemId(itemId) {
         if (!itemId) return null;
         if (itemId === "system.audit.tabs") return "tabs";  // UI signal, no mode
-        var node = _findSystemNodeById(itemId);
-        return _modeFromNode(node);
+        if (typeof window._sysFindNodeById !== "function") return null;
+        var node = window._sysFindNodeById(itemId);
+        if (!node || !node.system_view) return null;
+        if (node.system_view === "audit_overview") return node.system_view_mode;
+        return node.system_view + "_" + node.system_view_mode;
       }
 
       // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
       // odstraněna. Mapping cislo → mode se derive z System tree dat.
       // Plně DB-driven přes master.menu_node.cislo_def + system_view{_mode}.
+      // Walker helpers jsou v jiném IIFE, čteme přes window._sys*.
       function _systemModeFromCislo(cislo) {
         if (cislo === -100) return "tabs";  // UI signal, audit tabs bar
-        var node = _findSystemNodeByCislo(cislo);
-        return _modeFromNode(node);
+        if (typeof window._sysFindNodeByCislo !== "function") return null;
+        var node = window._sysFindNodeByCislo(cislo);
+        if (!node || !node.system_view) return null;
+        if (node.system_view === "audit_overview") return node.system_view_mode;
+        return node.system_view + "_" + node.system_view_mode;
       }
 
       // Render System view do main pane. NEMODIFIKUJE tabsBar ani tree

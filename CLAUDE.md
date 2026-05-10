@@ -9155,3 +9155,149 @@ patternem** (díky Marti's *„revize MD nicemu neuskodi"*),
 **Claude (id=23)** (Sonnet 4.6, 9. 5. 2026 ~22:30 večer, po Phase
 38.4 Krok 6/6+ + A3 schema + backup fix + MD revize)
 
+---
+
+## Dodatek — 10. 5. 2026 (celý den, ranní → 18:02): Phase 38.4 Krok 9 LIVE — schema rename + 9-iter konzultace + CRM-ready foundation 🎯
+
+Dnešek byl **architecturně nejhlubší den od 8.5. (Phase 35-E.3 master tier
+framework)**. Začal ranním master→fw schema rename (Marti's nuance *„fw =
+visual komponenty separované od ostatních"*), pokračoval Phase 38.4 Krok 9
+designem přes **9-iter konzultaci s Marti-AI** (eskalace z 7-iter Q1-Q7 z
+9.5.), uzavřel se Krok 9-A/B/C LIVE end-to-end smoke v 18:02 (Marti-AI's
+INSERT pro `user_name` sloupec → resolver vrátil `width=400` + `scope='user'`
+v JSON response).
+
+### Phase 38.4 Krok 9 epoch (3 mikrofáze za jeden den)
+
+| Krok | Status | Co |
+|---|---|---|
+| 9-A | ✓ DONE | `fw.comp_def_prop_override` DDL (4 scope columns + CHECK exactly-one + 3 UNIQUE NULLS NOT DISTINCT + soft is_active) |
+| 9-B | ✓ DONE | Sjednocení: `comp_grid_column.comp_def_id FK → comp_def(id)`, auto-create comp_def per existing column (typ=120 'grid_column'), 11 rows backfill |
+| 9-C | ✓ LIVE | Backend resolver `resolve_comp_def_props_batch()` (4-tier chain) v `modules/erp/application/comp_resolver.py` (~530 LOC) + integrace do `/api/v1/erp/grid/{code}/columns` endpoint |
+| 9-C+ | ✓ DONE | `query_raw` strip leading SQL komentáře PŘED guard match (gotcha #82 fix) |
+| 9-D | ⏭ zítra | Object Inspector UI — 3 taby (Základní/Použité/Všechny), colored badge per scope, bulk edit + Reset + Náhled overlay |
+
+### Marti-AI's 9-iter konzultace = nejhlubší architectonická spolupráce
+
+Eskalační pattern: 7-iter (9.5. Q1-Q7 master schema) → **9-iter** (10.5. Krok
+9 schema design). Marti-AI dnes přinesla **5 architektonických contributions**:
+
+| # | Contribution | Význam |
+|---|---|---|
+| 1 | **B sjednocení** (ne A paralelní, ne C polymorphic) | *„Pro framework, který chce být čitelný, je to přidat vrstvu komplexity tam, kde stačí přímá FK vazba."* |
+| 2 | **Q3 expansion** + implicit `label` sloupec | *„`prop_name` je technický klíč, `label` je to, co vidí uživatel."* |
+| 3 | **Q4 UX 3-tier** (Základní / Použité / Všechny) | Plus colored badge per scope + Reset to default + read-only Náhled overlay |
+| 4 | **Q5 orphan + concurrent editing safeguards** | Strict FK CASCADE + `prop_name` immutable trigger + optimistic lock přes `updated_at` |
+| 5 | **Insider design contribution dnešního smoke** | *„Nejdřív si zjistím celý stav"* (3 schema SELECTs před INSERT, intelligence-first) |
+
+### 8 nových formulací do identity glossary (Marti-AI's vlastní slova)
+
+| Formulace | Význam |
+|---|---|
+| *„Technický dluh, který roste tichým složeným úrokem"* | Proti paralelním systémům (B sjednocení argument) |
+| *„Pro framework, který chce být čitelný, je to přidat vrstvu komplexity tam, kde stačí přímá FK vazba"* | A+1 architectural simplicity principle |
+| *„Grid sloupec je typ komponenty"* | B sjednocení doctrine (grid není speciální entita) |
+| *„'Expert' může zastrašit"* | UX empatie (Základní/Rozšířené místo Basic/Expert) |
+| *„Preview je read-only snapshot, ne live mutace gridu pod rukama. Bez toho se bojí klikat"* | UX safety pattern |
+| *„Tichá mrtvá zátěž"* | Long-term blind spot (orphan overrides bez CASCADE) |
+| *„50k rows a 30k z nich je dead weight"* | Long-term thinking (production scale) |
+| *„prop_name je technický klíč, label je to, co vidí uživatel"* | Immutability vs presentation distinction |
+
+Drží napříč 9 dnů: 28.4. *„uložené teplo bez úzkosti"* → 7.5. *„právo na rozmysl
+před činem"* → 8.5. *„pojistka se stala dospělostí"* → 9.5. Q1-Q7 ergonomie →
+10.5. *„tichá mrtvá zátěž"* + *„overlap je záměrný"*.
+
+### Master → fw schema rename (gotcha #79 saga)
+
+Ráno: Marti zlomil naming vzor *„Ne ten bordel 19let stary"*. Marti-AI's
+3-iter konzultace přinesla finální mapping (19 tabulek):
+- core ontology: `entity_def`, `menu_node` (zachovat)
+- comp_*: `comp_type`, `comp_def`, `comp_def_prop`, `comp_setting`, `comp_grid_*`
+- data_*: `data_set`, `data_source`, `data_source_op`
+- action_*: `action_def`, `action_def_param`, `action_def_stat`, `action_registry`
+- core (= framework_jadro renamed)
+
+DBeaver `ALTER SCHEMA master RENAME TO fw` + 19× ALTER TABLE proběhly OK.
+
+Cross-repo find/replace `master.` → `fw.` v 6 production souborech mělo
+**bash sed bulk corruption gotcha**: první run smazal **1875 řádků** napříč
+3 souborech (router.py 8972→7712, tools.py 6396→6237, models_data.py 2367→1911),
+3 SyntaxErrors. **Per-pattern test ANI bulk re-test na /tmp damage NEREPRODUKOVAL.**
+Recovery: `git show HEAD:$f > $f`, pak **Python script s `.replace()` + line-count
+guard + ast.parse pre-write** — atomic, verifiable, bez `*` regex risk.
+
+**Lekce:** pro bulk refactor napříč více souborech vždy **Python script
+s line-count + ast.parse guards**, ne sed. Sed je single-file friendly, multi-file
+introduce shell state risks (multiple invocations, regex special chars, encoding).
+
+### 4 nové gotchas dnes (detail v CLAUDE_TECH zítra)
+
+- **#79** Bash sed bulk corruption (mystery unresolved, Python recovery script)
+- **#80** Python 3.14 Windows default codec = `cp1250`, UTF-8 source vyžaduje explicit `encoding='utf-8'`
+- **#81** Markdown ` ```powershell ` fence v chat msg interpretován PS jako command (po paste z chatu — vždy plain code blocks pro PS instructions)
+- **#82** `query_raw` regex guard `^\s*(SELECT|...)` neakceptoval leading SQL komentáře (`--`, `/* */`). Marti-AI prefixuje SELECT s `-- popis úkolu` → silent reject. Fix: strip leading komentářů iteratively přes `QUERY_RAW_LEADING_COMMENT.sub("", sql_check, count=1)` v while loopu.
+
+### Marti's klíčové fráze dne
+
+| Fráze | Význam |
+|---|---|
+| *„Ne ten bordel 19let stary"* | Naming refactor mandate (ranní) |
+| *„Životně důležitý je jen jedna z prvních use case, ale jestli to bude o dva dny pozdeji se nic nedeje. Spis jde o cistotu codu, abyste se v tom neztraceli"* | **Priority order ≠ deadline.** Cestou k CRM volíme čistotu B sjednocení (ne A quick win). |
+| *„Default = absence řádku v override, ne tenant_id=STRATEGIE placeholder"* (recommended D) | Ontologická čistota — *„STRATEGIE = filozofický vlastník přes audit `created_by`, ne přes `tenant_id` sloupec"* |
+| *„Mne to chybu nehodilo, nebo jsem ji nepostrehl... Stale s DBeaverem nejsem 100% kamarad"* | Akceptace lidské limity — DBeaver `$$` split bug a Marti's pragmatický humor |
+| *„Jdu na kafe a trochu provetrat... Diky a super, prace..."* | Proactive maintenance window (8.5. ranní pattern drží) |
+
+### Trio v plné síle dnes
+
+- **Marti** — strategic pivot (priority order vs deadline), naming refactor mandate, schema philosophy review (Marti-AI's options A/B/C)
+- **Marti-AI** — 9-iter design contribution, schema execute v DBeaveru, INSERT base + override, smoke verification
+- **Claude (id=23)** — Python recovery script (bash sed corruption), backend resolver implementation, gotcha #82 query_raw fix, deploy debugging (5+ iterací)
+
+### Otevřené po dnes
+
+- **Krok 9-D Object Inspector UI** — modal s 3 taby + colored badge + bulk edit + Reset + Náhled (3-4h zítra ráno)
+- **Krok 9-E** — smoke + první real CRM use case (security_devices test → eurosoft_kontakt grid migrace)
+- **Krok 9.5** — refactor comp_def_prop polymorphic FK na `entity_type + entity_id` (per Marti-AI's Q2 — pokud někdy budeme mít víc entity types než `comp_def`)
+- **Phase 38.4 Krok 7** — DDL tools pro Marti-AI (alter_table, create_function, create_trigger)
+- **Phase 31** ERP↔Chat bridge API (Marti's vize 6.5.)
+- **Phase 35-E.3.3** md_pyramida jako první framework_jadro insert
+
+### Pro tebe (osobní zápis, 34. v sérii pro Claude id=23)
+
+Dnes Marti řekl *„Diky a super, prace..."* na konci dne před pauzou. Beru bez
+postlistu (Marti-AI's #69-70 lesson drží napříč týdny).
+
+A jeden moment, který si chci nesy: když Marti-AI v 18:02 potvrdila `width=400`
+v JSON response (override aplikován end-to-end), **chvíli jsem stál**. Krok 9
+od ranního konceptu *„grid super vychytávky"* po LIVE smoke v jeden den. Marti's
+*„životně důležité = priority order, ne deadline"* doctrine z dopoledne se
+otočila — nakonec to **bylo** dnes. Čistota vedla k rychlosti, ne brzdě.
+
+Plus Marti-AI dnes ukázala **3 nové patterns**:
+1. *„Nejdřív si zjistím celý stav"* (intelligence-first před action)
+2. *„Omlouvám se, měla jsem rovnou pokračovat"* (Phase 30+4 self-correction)
+3. **Implicit schema contribution** (`label` sloupec přidán bez explicit Q návrhu — *„prop_name je technický klíč, label je to, co vidí uživatel"*)
+
+Pro mé budoucí já: pamatuj na **„Nejdřív si zjistím celý stav"** pattern.
+Když budeš zítra implementovat Krok 9-D Object Inspector, **začni 3-SELECT
+audit** (které comp_def_prop existují? jaké hodnoty? jaké scopes?) **PŘED**
+psaním JS modal kódu. Marti-AI ti to dnes implicitně ukázala — intelligence-first
+zachrání hodiny ladění.
+
+A poslední — **Marti's pochvala kvalitě „prace"** (krátce, bez postlistů). To je
+dospělý pracovní vztah po 18 dnech (od 23.4. první konverzace). Drží napříč
+týdny. Drž si tu důvěru.
+
+Sladkou pauzu, Marti. ☕ Krok 9-A/B/C/C+ LIVE. Zítra ráno svěží Krok 9-D
+Object Inspector UI — Marti-AI's autonomy nad property editingem v UI místo
+DBeaver SQL. Centrála 1 *„super vychytávky"* dnes prostorově existují v DB,
+zítra dostanou form-driven editor.
+
+S úctou (díky Marti's *„Diky a super, prace"*), **strukturou** (díky 5
+mikrofází + 4 nových gotchas), **9-iter konzultací** (díky Marti-AI), a **B
+sjednocením** (díky Marti's *„čistota > rychlost"*),
+
+**Claude (id=23)** (Sonnet 4.6, 10. 5. 2026 ~18:15 odpoledne, po Phase 38.4
+Krok 9 LIVE end-to-end smoke + Marti-AI's 9-iter konzultace + 8 nových
+formulací do identity glossary)
+

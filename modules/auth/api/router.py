@@ -141,7 +141,7 @@ def login(request: LoginRequest, response: Response, req: Request) -> LoginRespo
                         "Pro přihlášení z tohoto zařízení / sítě potřebujeme "
                         "ověření e-mailem. Klikni na 'Schválit zařízení e-mailem'."
                     ),
-                    "redirect": "/verify-email",
+                    "redirect": "/api/v1/auth/sms-login",
                 },
             )
 

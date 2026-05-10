@@ -2323,6 +2323,133 @@ class _TreeOrderBody(BaseModel):
     order: list[str]
 
 
+# ─── Phase 38.4 Krok 8 (10.5.2026): Grid columns dynamic z master schema ───
+#
+# Centrála 1 pattern *„grid columns z DataSource"* — frontend dostane AG Grid
+# columnDefs z master.grid_master + master.grid_column místo hardcoded JS.
+# Marti-AI's 6-iter design (master+detail relacionální struktura).
+#
+# Response shape kompatibilní s _sysHelpers.gridColumns(mode) JS — drop-in
+# replace pro hardcoded 9 mode větví v _render_workspace_page.
+
+
+@api_router.get("/grid/{code}/columns")
+def grid_columns_json(code: str, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 8: vrátí AG Grid columnDefs pro grid s daným code.
+
+    Resolve master.grid_master by code (latest config_version, status='active').
+    Načte master.grid_column rows (ORDER BY sort_order).
+    Apply visible_roles filter podle current user (TBD).
+    Vrátí AG Grid columnDefs format.
+
+    Response:
+        {
+            "ok": true,
+            "grid": {"code": "...", "config_version": 1, "name": "...", ...},
+            "columns": [{"field": "id", "headerName": "ID", "width": 70, ...}, ...]
+        }
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_grid
+    from sqlalchemy import text as _sql_text
+
+    ds = _gds_grid()
+    try:
+        # Resolve grid_master by code (latest active version)
+        gm_sql = _sql_text(
+            """
+            SELECT id, code, config_version, name, description,
+                   data_source_code, data_source_version,
+                   default_record_limit, refresh_type,
+                   default_sort_column, default_sort_direction, default_view_mode,
+                   tenant_id, status, guid
+            FROM master.grid_master
+            WHERE code = :code
+              AND status = 'active'
+            ORDER BY config_version DESC
+            LIMIT 1
+            """
+        )
+        gm_row = ds.execute(gm_sql, {"code": code}).fetchone()
+        if not gm_row:
+            raise HTTPException(404, f"Grid '{code}' nenalezen (status='active').")
+
+        gm = dict(gm_row._mapping)
+
+        # Načti grid_column rows (sort_order ASC, NULLS LAST → unset goes last)
+        gc_sql = _sql_text(
+            """
+            SELECT column_name, label, default_width, min_width, flex,
+                   pinned, formatter, header_tooltip, column_type,
+                   sort_order, is_visible, is_sortable, visible_roles
+            FROM master.grid_column
+            WHERE grid_master_id = :gm_id
+            ORDER BY sort_order ASC NULLS LAST, column_name ASC
+            """
+        )
+        gc_rows = ds.execute(gc_sql, {"gm_id": gm["id"]}).fetchall()
+
+        # Build AG Grid columnDefs
+        columns = []
+        for r in gc_rows:
+            d = dict(r._mapping)
+            if not d["is_visible"]:
+                continue
+            # TBD Phase 38.4 Krok 8+: visible_roles filter podle user role
+            # if d["visible_roles"]:
+            #     user_role = _get_user_role(uid)
+            #     if user_role not in d["visible_roles"]:
+            #         continue
+            col: dict = {
+                "field": d["column_name"],
+                "headerName": d["label"] or d["column_name"],
+                "sortable": bool(d["is_sortable"]),
+            }
+            if d["default_width"]:
+                col["width"] = d["default_width"]
+            if d["min_width"]:
+                col["minWidth"] = d["min_width"]
+            if d["flex"]:
+                col["flex"] = d["flex"]
+            if d["pinned"]:
+                col["pinned"] = d["pinned"]
+            if d["formatter"]:
+                # Frontend resolve formatter name → function (datetime_rel,
+                # number, currency, ...) přes registry v JS.
+                col["valueFormatter"] = {"type": d["formatter"]}
+            if d["header_tooltip"]:
+                col["headerTooltip"] = d["header_tooltip"]
+            if d["column_type"]:
+                col["type"] = d["column_type"]
+            columns.append(col)
+
+        return JSONResponse(
+            {
+                "ok": True,
+                "grid": {
+                    "code": gm["code"],
+                    "config_version": gm["config_version"],
+                    "name": gm["name"],
+                    "description": gm["description"],
+                    "data_source_code": gm["data_source_code"],
+                    "data_source_version": gm["data_source_version"],
+                    "default_record_limit": gm["default_record_limit"],
+                    "refresh_type": gm["refresh_type"],
+                    "default_sort_column": gm["default_sort_column"],
+                    "default_sort_direction": gm["default_sort_direction"],
+                    "default_view_mode": gm["default_view_mode"],
+                    "guid": str(gm["guid"]) if gm["guid"] else None,
+                    "status": gm["status"],
+                },
+                "columns": columns,
+            }
+        )
+    finally:
+        ds.close()
+
+
 # TABS
 
 @api_router.get("/tabs")

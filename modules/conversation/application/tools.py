@@ -5061,7 +5061,7 @@ TOOLS = [
             "(create_table, insert_row, ...).\n\n"
             "Použij pro composite queries (JOIN, GROUP BY, agregace) které "
             "query_table neumí. Příklad: SELECT count(*) FROM "
-            "master.entity_def WHERE tier = 'master' GROUP BY is_active."
+            "fw.entity_def WHERE tier = 'master' GROUP BY is_active."
         ),
         "input_schema": {
             "type": "object",

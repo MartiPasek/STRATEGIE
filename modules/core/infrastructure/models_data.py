@@ -1493,7 +1493,7 @@ class MdLifecycleHistory(BaseData):
 #   - scope_entity_type ('user' | 'persona' | NULL=shared) z entity_def
 #   - scope_entity_id BIGINT
 #   - flexibilni bez ALTER TABLE pro nove entity typy
-#   - integrace s 12. darek-scenou (master.entity_def jako single source
+#   - integrace s 12. darek-scenou (fw.entity_def jako single source
 #     of truth pro typy)
 
 

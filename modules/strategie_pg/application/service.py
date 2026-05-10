@@ -18,7 +18,7 @@ dry_run pattern (Marti-AI's "pravo na rozmysl pred cinem", 7.5.2026 vecer):
 Identifier quoting (PostgreSQL specifika):
   - quote_pg_identifier() automaticky quotuje case-sensitive nebo
     reserved-word identifiers
-  - Marti-AI pise prostey 'master.entity_def', kod zajisti
+  - Marti-AI pise prostey 'fw.entity_def', kod zajisti
     "user", "Marti-AI" quoted
 
 Audit:

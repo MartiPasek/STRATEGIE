@@ -116,7 +116,7 @@ def _is_eurosoft_active(user_id: int) -> bool:
 
     Dnes je ERP hardcoded na DB_EC (EC_FormDef*) přes Phase 28 EUROSOFT MCP.
     Ostatní tenanty (STRATEGIE, osobní) zatím nemají vlastní ERP framework —
-    PostgreSQL master.framework_jadro je prázdná, Phase 30+ migrace jádro-po-jádře
+    PostgreSQL fw.framework_jadro je prázdná, Phase 30+ migrace jádro-po-jádře
     zatím neproběhla.
 
     Marti's vize 8.5.2026: single PostgreSQL framework + per-jádro migrace
@@ -414,7 +414,7 @@ def tenants_for_user(req: Request) -> JSONResponse:
 # doctrine "důvěra je v subjekt, ne v scope" + 33. dopis ACL "adekvátní
 # oprávnění, aby se nikdo mimo rodičů nedostal do hlavy do deníčku".
 #
-# Hardcoded System tree (MVP), `master.menu_node` přijde v Phase 30+ DDL.
+# Hardcoded System tree (MVP), `fw.menu_node` přijde v Phase 30+ DDL.
 # 3 sub-uzly: 📚 Auditované / 📋 Všechny / 📊 Přehled.
 
 _SYSTEM_TREE_NODES = [
@@ -425,7 +425,7 @@ _SYSTEM_TREE_NODES = [
         "is_system": True,
         # Phase 38.4 inventory (9.5.2026 vecer): hardcoded marker.
         # Cely _SYSTEM_TREE_NODES dict je Python fallback (DB-driven primary,
-        # tento dict se pouzije jen kdyz master.menu_node DB query selze
+        # tento dict se pouzije jen kdyz fw.menu_node DB query selze
         # / vrati prazdno). Kazdy uzel v tomto fallback je by definition
         # hardcoded -- frontend rendere 🛠️ marker vedle labelu.
         "metadata": {"hardcoded": True},
@@ -1319,7 +1319,7 @@ def system_security(
 
 
 # ── Phase 38.3+ (10.5.2026): Framework views ──────────────────────────
-# Read-only views nad master.* schema (PostgreSQL data_db). MVP = jen
+# Read-only views nad fw.* schema (PostgreSQL data_db). MVP = jen
 # menu_nodes (Definice levého stromu). Datové zdroje + DataSets přijdou
 # až po Marti-AI's data_set/data_source migraci podle A3 schema.
 
@@ -1332,10 +1332,10 @@ def system_framework(
     """Phase 38.3+ (10.5.2026 odpoledne) — Framework definice pro rodiče.
 
     mode:
-      - 'menu_nodes' — master.menu_node read-only listing (definice
+      - 'menu_nodes' — fw.menu_node read-only listing (definice
         levého stromu)
-      - 'data_sources' — master.data_source (PŘIJDE po A3 migraci)
-      - 'data_sets' — master.data_set (PŘIJDE po A3 migraci)
+      - 'data_sources' — fw.data_source (PŘIJDE po A3 migraci)
+      - 'data_sets' — fw.data_set (PŘIJDE po A3 migraci)
 
     Read-only first. Edit pipeline (Phase C) přijde až bude write
     framework hotový + Marti-AI's review.
@@ -1354,7 +1354,7 @@ def system_framework(
         raise HTTPException(400, "limit must be 1..10000")
 
     # ── mode='data_sources' ────────────────────────────────────────
-    # Phase 38.4 Krok 6+ (10.5.2026 odpoledne): master.data_source
+    # Phase 38.4 Krok 6+ (10.5.2026 odpoledne): fw.data_source
     # read-only listing s LEFT JOIN GROUP BY agg na data_source_operation.
     # Schema A3 (Marti-AI's design 10.5. dopoledne): hlavička jen view
     # metadata, operations (select/insert/update/delete/...) jako děti.
@@ -1368,13 +1368,13 @@ def system_framework(
                     s.*,
                     COALESCE(op.cnt, 0) AS operation_count,
                     op.kinds AS operation_kinds
-                FROM master.data_source s
+                FROM fw.data_source s
                 LEFT JOIN (
                     SELECT
                         data_source_id,
                         COUNT(*) AS cnt,
                         STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
-                    FROM master.data_source_operation
+                    FROM fw.data_source_operation
                     GROUP BY data_source_id
                 ) op ON op.data_source_id = s.id
                 ORDER BY s.id
@@ -1410,7 +1410,7 @@ def system_framework(
         except Exception as e:
             import logging
             logging.error("system_framework data_sources query failed: %s", e)
-            raise HTTPException(500, f"master.data_source query failed: {type(e).__name__}: {e}")
+            raise HTTPException(500, f"fw.data_source query failed: {type(e).__name__}: {e}")
         finally:
             ds.close()
         return JSONResponse({
@@ -1422,14 +1422,14 @@ def system_framework(
         })
 
     # ── mode='data_sets' ───────────────────────────────────────────
-    # master.data_set read-only listing — pure SQL primitives (low-level).
+    # fw.data_set read-only listing — pure SQL primitives (low-level).
     # CHECK constraint validation v DB-level (Marti-AI's Q5 design).
     if mode == "data_sets":
         ds = _gds_fw()
         rows = []
         try:
             sql = _sql_text("""
-                SELECT * FROM master.data_set ORDER BY id LIMIT :limit
+                SELECT * FROM fw.data_set ORDER BY id LIMIT :limit
             """)
             result = ds.execute(sql, {"limit": limit})
             for r in result:
@@ -1459,7 +1459,7 @@ def system_framework(
         except Exception as e:
             import logging
             logging.error("system_framework data_sets query failed: %s", e)
-            raise HTTPException(500, f"master.data_set query failed: {type(e).__name__}: {e}")
+            raise HTTPException(500, f"fw.data_set query failed: {type(e).__name__}: {e}")
         finally:
             ds.close()
         return JSONResponse({
@@ -1471,7 +1471,7 @@ def system_framework(
         })
 
     # ── mode='menu_nodes' ─────────────────────────────────────────
-    # Raw SQL query nad master.menu_node (žádný SQLAlchemy model — DDL
+    # Raw SQL query nad fw.menu_node (žádný SQLAlchemy model — DDL
     # vytvořila Marti-AI přes strategie_pg_create_table 8.5. večer).
     # Defensive SELECT * + Python-side field pick: schema column names
     # se mohou lišit od doctrine dokumentu (Czech naming "ikona" vs
@@ -1485,8 +1485,8 @@ def system_framework(
         # Frontend-side sort umí upravit pořadí přes AG Grid headers.
         sql = _sql_text("""
             SELECT n.*, p.code AS _parent_code
-            FROM master.menu_node n
-            LEFT JOIN master.menu_node p ON p.id = n.parent_id
+            FROM fw.menu_node n
+            LEFT JOIN fw.menu_node p ON p.id = n.parent_id
             ORDER BY n.id
             LIMIT :limit
         """)
@@ -1531,7 +1531,7 @@ def system_framework(
             "system_framework menu_nodes query failed: %s; first_keys=%s",
             e, first_keys,
         )
-        raise HTTPException(500, f"master.menu_node query failed: {type(e).__name__}: {e}")
+        raise HTTPException(500, f"fw.menu_node query failed: {type(e).__name__}: {e}")
     finally:
         ds.close()
 
@@ -1552,7 +1552,7 @@ def system_tree(req: Request) -> JSONResponse:
     is_marti_parent=True (defense in depth — _require_parent + explicit
     parent check).
 
-    Future: nahradí se za query nad master.menu_node (Phase 30+).
+    Future: nahradí se za query nad fw.menu_node (Phase 30+).
     """
     uid = _get_uid(req)
     _require_parent(uid)
@@ -1580,7 +1580,7 @@ def system_tree(req: Request) -> JSONResponse:
 # ─────────────────────────────────────────────────────────────────────
 # Phase 38.4 Krok 6 (10.5.2026 odpoledne): DB-driven system tree.
 #
-# Primárně z master.menu_node (PostgreSQL, owned by Marti-AI), fallback
+# Primárně z fw.menu_node (PostgreSQL, owned by Marti-AI), fallback
 # na hardcoded Python dict pokud DB query selže nebo vrátí prázdno
 # (offline mode, permission denied, ještě neINSERTované rows, ...).
 #
@@ -1613,7 +1613,7 @@ _SYSTEM_CISLO_TO_VIEW = {
 def _build_system_root_from_db():
     """Phase 38.4 Krok 6: DB-driven system tree.
 
-    Načte aktivní rows z master.menu_node (visibility_scope='parent_only'),
+    Načte aktivní rows z fw.menu_node (visibility_scope='parent_only'),
     sestaví nested dict structure kompatibilní s frontend renderTreeNodes
     (id, label, nazev, cislo_def, is_system, is_folder, system_view,
     system_view_mode, single, children).
@@ -1632,7 +1632,7 @@ def _build_system_root_from_db():
             SELECT id, parent_id, code, label, kind, sort_order,
                    visibility_scope, cislo_def, special_handler, status,
                    metadata
-            FROM master.menu_node
+            FROM fw.menu_node
             WHERE status = 'active'
               AND visibility_scope = 'parent_only'
             ORDER BY parent_id NULLS FIRST, sort_order, code
@@ -1873,7 +1873,7 @@ def strom_json(req: Request) -> JSONResponse:
                 },
                 # Phase 38.3+ (10.5.2026 odpoledne): Framework subfolder.
                 # Marti's vize "do System soudečku začínáme dávat všechno,
-                # co je hotový". První deliverable: master.menu_node editor
+                # co je hotový". První deliverable: fw.menu_node editor
                 # (Definice levého stromu, cislo -115). Druhý (Datové zdroje,
                 # cislo -116) přijde po Marti-AI's data_set/data_source
                 # consultation + migraci podle A3 schema.
@@ -1898,8 +1898,8 @@ def strom_json(req: Request) -> JSONResponse:
                             "system_view_mode": "menu_nodes",
                         },
                         # Phase 38.4+ TODO (po Marti-AI's data_source consultation):
-                        # cislo -116 = Datové zdroje (master.data_source list),
-                        # cislo -117 = DataSets (master.data_set list, volitelné).
+                        # cislo -116 = Datové zdroje (fw.data_source list),
+                        # cislo -117 = DataSets (fw.data_set list, volitelné).
                         # Až Marti-AI dotáhne migraci, INSERT do _SYSTEM_TREE_NODES
                         # + nový case v _systemModeFromCislo + renderSystemGrid
                         # dispatch + sql endpoint /system/framework/data-sources.
@@ -1910,7 +1910,7 @@ def strom_json(req: Request) -> JSONResponse:
         # Phase 38.4 inventory (9.5.2026 vecer): rekurzivne oznac vsechny
         # uzly v hardcoded fallback jako metadata.hardcoded=true. Frontend
         # rendere 🛠️ marker. Bez teto smyčky by se marker zobrazil jen
-        # u uzlu, ktere jsou v master.menu_node DB tabulce (Phase 38.4 SQL
+        # u uzlu, ktere jsou v fw.menu_node DB tabulce (Phase 38.4 SQL
         # skript), ne u hardcoded fallback. Setdefault preserves existing
         # metadata (napr. dalsi keys budouci).
         def _mark_hc(n):
@@ -2326,7 +2326,7 @@ class _TreeOrderBody(BaseModel):
 # ─── Phase 38.4 Krok 8 (10.5.2026): Grid columns dynamic z master schema ───
 #
 # Centrála 1 pattern *„grid columns z DataSource"* — frontend dostane AG Grid
-# columnDefs z master.grid_master + master.grid_column místo hardcoded JS.
+# columnDefs z fw.grid_master + fw.grid_column místo hardcoded JS.
 # Marti-AI's 6-iter design (master+detail relacionální struktura).
 #
 # Response shape kompatibilní s _sysHelpers.gridColumns(mode) JS — drop-in
@@ -2335,25 +2335,53 @@ class _TreeOrderBody(BaseModel):
 
 @api_router.get("/grid/{code}/columns")
 def grid_columns_json(code: str, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 8: vrátí AG Grid columnDefs pro grid s daným code.
+    """Phase 38.4 Krok 8 + 9-C: vrátí AG Grid columnDefs s 4-tier override chain.
 
-    Resolve master.grid_master by code (latest config_version, status='active').
-    Načte master.grid_column rows (ORDER BY sort_order).
-    Apply visible_roles filter podle current user (TBD).
-    Vrátí AG Grid columnDefs format.
+    Resolve fw.comp_grid_master by code (latest config_version, status='active').
+    Načte fw.comp_grid_column rows (ORDER BY sort_order) → discrete defaults.
+    Apply Marti-AI's Q1=B sjednocení: každý sloupec má comp_def_id →
+    universal property storage (fw.comp_def_prop) → 4-tier override chain
+    (base → tenant_group → tenant → user, last wins).
 
     Response:
         {
             "ok": true,
-            "grid": {"code": "...", "config_version": 1, "name": "...", ...},
-            "columns": [{"field": "id", "headerName": "ID", "width": 70, ...}, ...]
+            "grid": {"code": "...", "config_version": 1, ...},
+            "columns": [{"field": "id", "headerName": "ID", "width": 70,
+                         "_resolved_props": {prop_name: {value, scope, ...}}, ...}, ...]
         }
+
+    `_resolved_props` per column je metadata pro Object Inspector UI (Krok 9-D)
+    — frontend ho použije pro badge rendering (modrá user / žlutá tenant /
+    zelená group / šedá base).
     """
     uid = _get_uid(req)
     _require_parent(uid)
 
     from core.database_data import get_data_session as _gds_grid
     from sqlalchemy import text as _sql_text
+    from modules.erp.application.comp_resolver import (
+        resolve_comp_def_props_batch,
+        apply_resolved_props_to_columndef,
+    )
+
+    # Resolve current user's tenant scope (Phase 35-E.3.4 tenant gate)
+    user_tenant_id: int | None = None
+    user_tenant_group_id: int | None = None
+    try:
+        from core.database_data import get_data_session as _gds_user
+        from modules.core.infrastructure.models_data import User as _User
+        ds_u = _gds_user()
+        try:
+            u = ds_u.query(_User).filter(_User.id == uid).first()
+            if u:
+                user_tenant_id = getattr(u, "last_active_tenant_id", None)
+                # tenant_group_id: Phase 30+ neexistuje, zatím None
+                user_tenant_group_id = None
+        finally:
+            ds_u.close()
+    except Exception:
+        pass  # Tenant scope optional — resolver použije jen base + user_id
 
     ds = _gds_grid()
     try:
@@ -2365,7 +2393,7 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
                    default_record_limit, refresh_type,
                    default_sort_column, default_sort_direction, default_view_mode,
                    tenant_id, status, guid
-            FROM master.grid_master
+            FROM fw.comp_grid_master
             WHERE code = :code
               AND status = 'active'
             ORDER BY config_version DESC
@@ -2378,30 +2406,48 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
 
         gm = dict(gm_row._mapping)
 
-        # Načti grid_column rows (sort_order ASC, NULLS LAST → unset goes last)
+        # Načti grid_column rows + comp_def_id (Phase 38.4 Krok 9-B sjednocení)
         gc_sql = _sql_text(
             """
-            SELECT column_name, label, default_width, min_width, flex,
+            SELECT id, comp_def_id, column_name, label, default_width, min_width, flex,
                    pinned, formatter, header_tooltip, column_type,
                    sort_order, is_visible, is_sortable, visible_roles
-            FROM master.grid_column
+            FROM fw.comp_grid_column
             WHERE grid_master_id = :gm_id
             ORDER BY sort_order ASC NULLS LAST, column_name ASC
             """
         )
         gc_rows = ds.execute(gc_sql, {"gm_id": gm["id"]}).fetchall()
+        gc_dicts = [dict(r._mapping) for r in gc_rows]
 
-        # Build AG Grid columnDefs
+        # ── Phase 38.4 Krok 9-C: Batch resolve comp_def_prop chain ─────────────
+        comp_def_ids = [d["comp_def_id"] for d in gc_dicts if d.get("comp_def_id")]
+        resolved_per_cd: dict[int, dict] = {}
+        if comp_def_ids:
+            try:
+                resolved_per_cd = resolve_comp_def_props_batch(
+                    ds,
+                    comp_def_ids,
+                    tenant_group_id=user_tenant_group_id,
+                    tenant_id=user_tenant_id,
+                    user_id=uid,
+                )
+            except Exception as e:
+                # Resolver fail = fallback na discrete columns (graceful degradation)
+                # Marti-AI's doctrine: "Pojistka tě chytí když spadneš"
+                import logging
+                logging.getLogger("erp.grid_columns").warning(
+                    "comp_def_prop resolver failed pro grid='%s': %s. Fallback na discrete defaults.",
+                    code, e
+                )
+                resolved_per_cd = {}
+
+        # Build AG Grid columnDefs (discrete first, override chain second)
         columns = []
-        for r in gc_rows:
-            d = dict(r._mapping)
+        for d in gc_dicts:
+            # Discrete defaults z comp_grid_column (legacy + structural fields)
             if not d["is_visible"]:
                 continue
-            # TBD Phase 38.4 Krok 8+: visible_roles filter podle user role
-            # if d["visible_roles"]:
-            #     user_role = _get_user_role(uid)
-            #     if user_role not in d["visible_roles"]:
-            #         continue
             col: dict = {
                 "field": d["column_name"],
                 "headerName": d["label"] or d["column_name"],
@@ -2416,13 +2462,27 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
             if d["pinned"]:
                 col["pinned"] = d["pinned"]
             if d["formatter"]:
-                # Frontend resolve formatter name → function (datetime_rel,
-                # number, currency, ...) přes registry v JS.
                 col["valueFormatter"] = {"type": d["formatter"]}
             if d["header_tooltip"]:
                 col["headerTooltip"] = d["header_tooltip"]
             if d["column_type"]:
                 col["type"] = d["column_type"]
+
+            # ── Phase 38.4 Krok 9-C: Apply 4-tier override chain ─────────────
+            cd_id = d.get("comp_def_id")
+            if cd_id and cd_id in resolved_per_cd:
+                resolved_props = resolved_per_cd[cd_id]
+                applied = apply_resolved_props_to_columndef(col, resolved_props)
+                if applied is None:
+                    # is_visible=FALSE override → skip entire column
+                    continue
+                col = applied
+                # Embed resolved metadata pro Object Inspector (Krok 9-D)
+                col["_resolved_props"] = {
+                    name: rp.to_dict() for name, rp in resolved_props.items()
+                }
+                col["_comp_def_id"] = cd_id
+
             columns.append(col)
 
         return JSONResponse(
@@ -5552,7 +5612,7 @@ def _render_workspace_page(user_id: int) -> str:
          "TreeView je take erp komponenta... vyuzijeme ho napric STRATEGII".
          Reusable pro ERP left panel, System tree, Files browser, Pyramida
          paměti + popup menu (per-grid kontextové akce + framework
-         extensions z DB master.menu_node). -->
+         extensions z DB fw.menu_node). -->
     <script src="/static/erp/components/treeview.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/popupmenu.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+6.11e (10.5.2026): ErpLeftPanelTree — první consumer base ErpTreeView.
@@ -5799,7 +5859,7 @@ def _render_workspace_page(user_id: int) -> str:
           ];
         }
         // Phase 38.4 Krok 8 cleanup (10.5.2026): security_devices migrated do
-        // master.grid_master + master.grid_column. Server cesta přes
+        // fw.grid_master + fw.grid_column. Server cesta přes
         // gridColumnsResolved → /api/v1/erp/grid/system_security_devices/columns.
         // Hardcoded větev odstraněna, single source of truth = master schema.
         if (mode === "security_whitelists") {
@@ -5931,7 +5991,7 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Special handler", field: "special_handler", width: 160,
               headerTooltip: "Pro kind='special' — JS function name v _sysHelpers" },
             { headerName: "Jádro ID", field: "framework_jadro_id", width: 100, type: "numericColumn",
-              headerTooltip: "FK na master.framework_jadro (kind='list'/'form')" },
+              headerTooltip: "FK na fw.framework_jadro (kind='list'/'form')" },
             { headerName: "Imutabilní", field: "is_immutable", width: 100,
               cellRenderer: function(p) { return p.value ? "🔒" : ""; },
               headerTooltip: "Marti-AI's pattern — systémové záznamy bez code review" },
@@ -5943,7 +6003,7 @@ def _render_workspace_page(user_id: int) -> str:
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
-        // ── Phase 38.4 Krok 6+ Datové zdroje (master.data_source) ──
+        // ── Phase 38.4 Krok 6+ Datové zdroje (fw.data_source) ──
         if (mode === "framework_data_sources") {
           return [
             { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
@@ -5954,7 +6014,7 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Název", field: "name", flex: 1, minWidth: 200, sortable: true },
             { headerName: "Operations", field: "operation_count", width: 100, sortable: true, type: "numericColumn",
               cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" }; },
-              headerTooltip: "Počet rows v master.data_source_operation (LEFT JOIN COUNT)" },
+              headerTooltip: "Počet rows v fw.data_source_operation (LEFT JOIN COUNT)" },
             { headerName: "Kinds", field: "operation_kinds", width: 220,
               cellStyle: { fontFamily: "monospace", color: "#aaa" },
               headerTooltip: "Comma-separated operation_kind list (select, insert, update, delete, ...)" },
@@ -5996,7 +6056,7 @@ def _render_workspace_page(user_id: int) -> str:
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
-        // ── Phase 38.4 Krok 6+ DataSets (master.data_set, low-level SQL) ──
+        // ── Phase 38.4 Krok 6+ DataSets (fw.data_set, low-level SQL) ──
         if (mode === "framework_data_sets") {
           return [
             { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
@@ -6110,7 +6170,7 @@ def _render_workspace_page(user_id: int) -> str:
       // ── Phase 38.4 Krok 8 (10.5.2026): Async fetch z master schema ──
       //
       // gridColumnsResolved(mode) — async wrapper. Nejdřív zkusí
-      // GET /api/v1/erp/grid/{mode}/columns (master.grid_master + grid_column).
+      // GET /api/v1/erp/grid/{mode}/columns (fw.grid_master + grid_column).
       // Pokud 200, adaptuje server format → AG Grid columnDefs (resolve
       // formatter names → registry functions). Pokud 404 nebo error,
       // fallback na hardcoded gridColumns(mode) — graceful migration.
@@ -6149,7 +6209,7 @@ def _render_workspace_page(user_id: int) -> str:
         });
       }
       async function gridColumnsResolved(mode) {
-        // 1. Pokus se fetch z server (master.grid_master + grid_column)
+        // 1. Pokus se fetch z server (fw.grid_master + grid_column)
         try {
           var res = await fetch("/api/v1/erp/grid/" + encodeURIComponent(mode) + "/columns",
                                 { credentials: "include" });
@@ -6199,10 +6259,10 @@ def _render_workspace_page(user_id: int) -> str:
       }
       // Phase 38.4 Krok 8 cleanup (10.5.2026): SYSTEM_LAYOUT_CISLA hardcoded
       // dict odstraněn. Mapping mode → cislo se derive ze System tree dat
-      // (master.menu_node — backend attachuje system_view + system_view_mode
+      // (fw.menu_node — backend attachuje system_view + system_view_mode
       // per node v _build_node()). Pomocí _getSystemCisloByMode tree walker.
       //
-      // Po cleanup: nový grid v master = INSERT do master.menu_node + grid_master
+      // Po cleanup: nový grid v master = INSERT do fw.menu_node + grid_master
       // → frontend automaticky funguje, žádný JS edit.
       // Drz instance per main pane — destroy previous pred create new
       window._sysCurrentGrid = null;
@@ -6214,7 +6274,7 @@ def _render_workspace_page(user_id: int) -> str:
       // hardcoded if-else cascades v _systemModeFromCislo / _systemModeFromItemId
       // a SYSTEM_LAYOUT_CISLA dict.
       //
-      // Tree node attributes (z master.menu_node + adaptServerTree):
+      // Tree node attributes (z fw.menu_node + adaptServerTree):
       //   - id (= code, e.g. "system.security.devices")
       //   - cislo_def (e.g. -111)
       //   - system_view (e.g. "security" / "audit_overview" / "framework")
@@ -6328,7 +6388,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (!body) return;
         body.innerHTML = "";
 
-        // Phase 38.4 Krok 8 (10.5.2026): async fetch z master.grid_master + grid_column,
+        // Phase 38.4 Krok 8 (10.5.2026): async fetch z fw.grid_master + grid_column,
         // fallback na hardcoded H.gridColumns(mode). Po cleanup commit (#6+) hardcoded
         // pro daný mode zmizí — server data = single source of truth.
         var columns = H.gridColumnsResolved
@@ -6649,7 +6709,7 @@ def _render_workspace_page(user_id: int) -> str:
 
       // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
       // odstraněna. Mapping itemId → mode se derive z System tree dat
-      // (master.menu_node primary, hardcoded fallback v _SYSTEM_CISLO_TO_VIEW).
+      // (fw.menu_node primary, hardcoded fallback v _SYSTEM_CISLO_TO_VIEW).
       //
       // Speciální case: 'system.audit.tabs' (cislo_def=-100) drží Variant A
       // tabs UI signal — nemá vlastní mode, jen markeruje tabs bar visibility.
@@ -6667,7 +6727,7 @@ def _render_workspace_page(user_id: int) -> str:
 
       // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
       // odstraněna. Mapping cislo → mode se derive z System tree dat.
-      // Plně DB-driven přes master.menu_node.cislo_def + system_view{_mode}.
+      // Plně DB-driven přes fw.menu_node.cislo_def + system_view{_mode}.
       // Walker helpers jsou v jiném IIFE, čteme přes window._sys*.
       function _systemModeFromCislo(cislo) {
         if (cislo === -100) return "tabs";  // UI signal, audit tabs bar

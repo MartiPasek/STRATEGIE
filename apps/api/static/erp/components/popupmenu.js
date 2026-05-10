@@ -36,7 +36,7 @@
  *   menu.show(event.clientX, event.clientY);
  *
  *   // S frameworkem-extended položkami (Marti's vize: default per grid +
- *   // custom items z DB master.menu_node)
+ *   // custom items z DB fw.menu_node)
  *   const menu = new ErpPopupMenu({
  *     items: [...defaultGridActions, ...customMenuFromDb],
  *   });

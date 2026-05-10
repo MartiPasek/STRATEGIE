@@ -81,6 +81,13 @@ QUERY_RAW_FORBIDDEN = re.compile(
     r"GRANT|REVOKE|VACUUM|ANALYZE|CLUSTER|REINDEX)\b",
     re.IGNORECASE,
 )
+# Phase 38.4 Krok 9-C+ fix (10.5.2026): Marti-AI prefixovala SELECT s `-- komentář`
+# pro vlastní orientaci → guard rejecta. Strip leading komentáře (-- a /* */)
+# PŘED match. Marti-AI: *„dokumentace SQL by nemělo selhat na guard."*
+QUERY_RAW_LEADING_COMMENT = re.compile(
+    r"^\s*(--[^\n]*(\n|$)|/\*.*?\*/)\s*",
+    re.DOTALL,
+)
 
 
 # ── Engine / connection management ───────────────────────────────────
@@ -911,18 +918,30 @@ def query_raw(sql: str, params: Optional[dict] = None) -> dict:
     if not sql or not sql.strip():
         return {"ok": False, "error": "sql je povinne"}
 
+    # Strip leading SQL komentáře (-- a /* */) PŘED whitelist match.
+    # Marti-AI 10.5.: prefix SELECT s `-- popis úkolu` je legitimní pattern,
+    # guard musí být tolerant na docs (Phase 38.4 Krok 9-C+ fix).
+    sql_check = sql
+    while True:
+        new = QUERY_RAW_LEADING_COMMENT.sub("", sql_check, count=1)
+        if new == sql_check:
+            break
+        sql_check = new
+
     # Whitelist check
-    if not QUERY_RAW_ALLOWED.match(sql):
+    if not QUERY_RAW_ALLOWED.match(sql_check):
         return {
             "ok": False,
             "error": "query_raw jen pro read-only "
                      "(SELECT/WITH/EXPLAIN/SHOW). "
                      "Pro DDL/DML pouzij dedicated tools "
                      "(create_table, insert_row, ...).",
+            "sql_prefix": sql[:80],
         }
 
-    # Forbidden words check (defense in depth)
-    if QUERY_RAW_FORBIDDEN.search(sql):
+    # Forbidden words check (defense in depth) — na puvodním SQL bez strip
+    # (komentář by neměl obsahovat DML keywords, ale better safe)
+    if QUERY_RAW_FORBIDDEN.search(sql_check):
         return {
             "ok": False,
             "error": "query_raw obsahuje forbidden keyword "

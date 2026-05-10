@@ -5798,25 +5798,10 @@ def _render_workspace_page(user_id: int) -> str:
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
-        if (mode === "security_devices") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "User", field: "user_name", width: 160, sortable: true },
-            { headerName: "Tenant", field: "tenant_name", width: 120 },
-            { headerName: "Token", field: "device_token_short", width: 110,
-              headerTooltip: "First 8 chars of device cookie UUID" },
-            { headerName: "Label", field: "label", width: 180 },
-            { headerName: "User-Agent", field: "user_agent", flex: 1, minWidth: 200 },
-            { headerName: "First IP", field: "first_seen_ip", width: 130 },
-            { headerName: "Last IP", field: "last_seen_ip", width: 130 },
-            { headerName: "Last seen", field: "last_seen_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Approved", field: "approved_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Expires", field: "expires_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
+        // Phase 38.4 Krok 8 cleanup (10.5.2026): security_devices migrated do
+        // master.grid_master + master.grid_column. Server cesta přes
+        // gridColumnsResolved → /api/v1/erp/grid/system_security_devices/columns.
+        // Hardcoded větev odstraněna, single source of truth = master schema.
         if (mode === "security_whitelists") {
           return [
             { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
@@ -6619,7 +6604,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (itemId === "system.audit.stats") return "stats";
         // Phase 38.3 security views (10.5.2026 odpoledne)
         if (itemId === "system.security.users") return "security_users";
-        if (itemId === "system.security.devices") return "security_devices";
+        if (itemId === "system.security.devices") return "system_security_devices";
         if (itemId === "system.security.whitelists") return "security_whitelists";
         if (itemId === "system.security.audit") return "security_audit";
         if (itemId === "system.security.invites") return "security_invites";
@@ -6639,7 +6624,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (cislo === -103) return "stats";
         // Phase 38.3 security views
         if (cislo === -110) return "security_users";
-        if (cislo === -111) return "security_devices";
+        if (cislo === -111) return "system_security_devices";
         if (cislo === -112) return "security_whitelists";
         if (cislo === -113) return "security_audit";
         if (cislo === -114) return "security_invites";

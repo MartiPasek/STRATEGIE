@@ -8534,9 +8534,12 @@ def _render_workspace_page(user_id: int) -> str:
       const ErpRefresh = {
         // Map<cisloStr, fetchedAtMs> — per-tab freshness timestamps
         _gridFreshness: new Map(),
-        STALE_AT_MS: 5 * 60 * 1000,        // 5 min → orange
-        VERY_STALE_AT_MS: 15 * 60 * 1000,  // 15 min → pulse
-        POLL_INTERVAL_MS: 30 * 1000,       // re-check kazdych 30s
+        // Phase 38.5+ (10.5.2026 vecer Marti's debugging): TEST values
+        // 60s/90s/10s pro odladění detection logic. Po smoke vrátit na
+        // 5min / 15min / 30s (production values).
+        STALE_AT_MS: 60 * 1000,            // TEST 60s → orange (prod: 5*60*1000)
+        VERY_STALE_AT_MS: 90 * 1000,       // TEST 90s → pulse  (prod: 15*60*1000)
+        POLL_INTERVAL_MS: 10 * 1000,       // TEST 10s polling  (prod: 30*1000)
 
         // Volat po uspesnem fetchi (v _loadTabData po `tab.data = data`)
         markFresh(cislo) {
@@ -8938,6 +8941,13 @@ def _render_workspace_page(user_id: int) -> str:
         if (tab.cislo < 0) {
           tab.data = { _system: true };  // sentinel — renderTabIntoMain rozumí
           _renderTabIntoMain(tab);
+          // Phase 38.5+ (10.5.2026 vecer Marti's debugging): System tabs taky
+          // markFresh — security_devices grid + audit-overview byly bug, ikona
+          // refresh nikdy nemarkla freshness pro negative cisla → stale
+          // detection nikdy nezafungovala. System grids fetchují data uvnitř
+          // renderSystemGrid, ale pro MVP označíme fresh při otevření tabu
+          // (re-fetch uvnitř system view → re-call markFresh later, nice-to-have).
+          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
           return;
         }
         const userLimit = loadPrehledLimit(tab.cislo);

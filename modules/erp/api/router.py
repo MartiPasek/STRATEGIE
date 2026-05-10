@@ -8648,22 +8648,24 @@ def _render_workspace_page(user_id: int) -> str:
       const _martiBtn = document.getElementById("erpMartiAiBtn");
       if (_martiBtn) {
         _martiBtn.addEventListener("click", () => {
-          // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): named target
-          // místo "_blank" — když okno chatu už existuje, druhý klik ho jen
-          // **focusne**, neotevře nové. Marti: "Klikem na Moje Marti se
-          // otevre nove okno s chatem... Dalsim klikem dalsi a dalsi...
-          // To je zmatek. Je treba mit vzdy jen jedno okno s chatem."
+          // Phase 38.5+ (10.5.2026): window.open() z PWA window Chrome
+          // interpretuje jako "browser tab" navigation (bila Chrome lista).
+          // Pro Chat PWA install s launch_handler.client_mode='focus-existing'
+          // musime pouzit anchor click — Chrome's PWA navigation handler
+          // detekuje installed PWA scope match a otevre v Chat PWA window
+          // (existing focus / new). window.open je programmatic = bypasses
+          // PWA detection.
           //
-          // Phase 38.5+ (9.5.2026 vecer): Marti nainstaloval chat PWA
-          // (real install pres Chrome menu "Install"), takze window.open
-          // automaticky otevira chat URL v chat PWA window (zadny chrome
-          // bar). ERP zustava otevrena paralelne — Marti ma side-by-side
-          // ERP + chat. Named target "strategie-chat" zajistuje ze druhy
-          // klik focusne existing chat window misto otevreni dalsiho.
-          const w = window.open("/", "strategie-chat");
-          if (w) {
-            try { w.focus(); } catch (e) {}
-          }
+          // Plus named target "strategie-chat" stale soucasti pro fallback
+          // (browser without PWA install) — ten alespon focusne existing tab
+          // misto noveho.
+          const a = document.createElement("a");
+          a.href = "/";
+          a.target = "strategie-chat";
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
         });
       }
       // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): zakázat browser

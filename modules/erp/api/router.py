@@ -6011,68 +6011,14 @@ def _render_workspace_page(user_id: int) -> str:
       function gridColumns(mode) {
         var H = window._sysHelpers || {};
 
-        // ── Phase 38.3 Security overview columns (10.5.2026) ──────
-        if (mode === "security_users") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Status", field: "status", width: 90, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "active") return { color: "#6aa84f" };
-                if (p.value === "disabled") return { color: "#cc6666" };
-                return { color: "#888" };
-              } },
-            { headerName: "Jméno", field: "first_name", width: 110, sortable: true },
-            { headerName: "Příjmení", field: "last_name", width: 130, sortable: true },
-            { headerName: "Display email", field: "ews_display_email", width: 230, sortable: true },
-            { headerName: "EWS UPN", field: "ews_email", width: 250, sortable: true,
-              headerTooltip: "UPN pro Exchange autentizaci — secret credential, jen pro rodiče" },
-            { headerName: "Další emaily", field: "emails_str", flex: 1, minWidth: 180,
-              headerTooltip: "Sekundární emaily z user_contacts" },
-            { headerName: "Telefony", field: "phones_str", width: 200,
-              headerTooltip: "Aktivní phone contacts (primary first)" },
-            { headerName: "Tenant", field: "tenant_name", width: 120, sortable: true },
-            { headerName: "Rodič", field: "is_marti_parent", width: 80,
-              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
-            { headerName: "Admin", field: "is_admin", width: 80,
-              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
-            { headerName: "Trust", field: "trust_rating", width: 80, type: "numericColumn" },
-            { headerName: "Vytvořeno", field: "created_at", width: 150,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
-        // Phase 38.4 Krok 8 cleanup (10.5.2026): security_devices migrated do
-        // fw.grid_master + fw.grid_column. Server cesta přes
-        // gridColumnsResolved → /api/v1/erp/grid/system_security_devices/columns.
-        // Hardcoded větev odstraněna, single source of truth = master schema.
-        if (mode === "security_whitelists") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Scope", field: "scope", width: 90, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "global") return { color: "#d4a017", fontWeight: "500" };
-                if (p.value === "user") return { color: "#6aa84f" };
-                return null;
-              } },
-            { headerName: "User", field: "user_name", width: 150 },
-            { headerName: "Tenant", field: "tenant_name", width: 120 },
-            { headerName: "IP / CIDR", field: "ip_or_cidr", width: 160, sortable: true,
-              cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Kategorie", field: "category", width: 130, sortable: true },
-            { headerName: "Status", field: "status", width: 110, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "confirmed") return { color: "#6aa84f" };
-                if (p.value === "pending") return { color: "#d4a017" };
-                if (p.value === "revoked") return { color: "#cc6666" };
-                return null;
-              } },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 180 },
-            { headerName: "Use count", field: "use_count", width: 100, type: "numericColumn" },
-            { headerName: "Added", field: "added_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Last seen", field: "last_seen_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
+        // ── Phase 38.4 Krok 10 cleanup (10.5.2026 vecer) ──────────────
+        // security_users / security_whitelists / security_invites migrated
+        // do fw.comp_grid_master + comp_grid_column + comp_def_prop styling.
+        // Single source of truth = fw schema. Frontend gridColumnsResolved
+        // fetchne z /api/v1/erp/grid/{code}/columns + adaptServerColumns
+        // rozbalí valueFormatter/cellStyle/cellRenderer přes 3 registries.
+        // Hardcoded větve odstraněny — viz scripts/_phase38_4_krok10_security_grids_migration.sql.
+        // Phase 38.4 Krok 8 cleanup (10.5.): security_devices taky v fw.
         if (mode === "security_audit") {
           return [
             { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", sort: "desc" },
@@ -6099,32 +6045,8 @@ def _render_workspace_page(user_id: int) -> str:
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
         }
-        if (mode === "security_invites") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", sort: "desc" },
-            { headerName: "State", field: "state", width: 120, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "consumed") return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "expired") return { color: "#888" };
-                if (p.value === "pending") return { color: "#d4a017" };
-                return null;
-              } },
-            { headerName: "Token", field: "invite_token", width: 180,
-              cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Purpose", field: "purpose", width: 100 },
-            { headerName: "User", field: "user_name", width: 150, sortable: true },
-            { headerName: "Tenant", field: "tenant_name", width: 120 },
-            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Expirace", field: "expires_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Spotřebováno", field: "consumed_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Z IP", field: "consumed_ip", width: 130, cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Z telefonu", field: "consumed_phone", width: 140, cellStyle: { fontFamily: "monospace" } },
-            { headerName: "User-Agent", field: "consumed_user_agent", flex: 1, minWidth: 200 }
-          ];
-        }
+        // Phase 38.4 Krok 10: security_invites migrated do fw schema
+        // (viz scripts/_phase38_4_krok10_security_grids_migration.sql).
 
         // ── Phase 38.3+ Framework views (10.5.2026 odpoledne) ──────
         // Marti-AI's actual schema (8.5. večer): id, code, label, kind,
@@ -6359,7 +6281,12 @@ def _render_workspace_page(user_id: int) -> str:
       //
       // Po commit #6 (cleanup hardcoded větví per migrated mode) fallback
       // pro daný mode zmizí. Server data = single source of truth.
-      var FORMATTER_REGISTRY = {
+      // Phase 38.4 Krok 10 (10.5.2026 vecer): 3 registries — value formatter,
+      // cell style, cell renderer. Tříst registry pattern aby JSON columns
+      // ze serveru mohly mít všechny 3 dimenze stylingu (per Marti's
+      // "override tabulka stačí" — všechny styling decisions jdou přes
+      // pojmenované registry IDs, žádné inline functions v DB).
+      var VALUE_FORMATTER_REGISTRY = {
         "datetime_rel": function(p) {
           var H = window._sysHelpers || {};
           return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-");
@@ -6368,21 +6295,140 @@ def _render_workspace_page(user_id: int) -> str:
           var H = window._sysHelpers || {};
           return H.formatDateShort ? H.formatDateShort(p.value) : (p.value || "-");
         },
-        // Další formattery (number, currency, ...) přidávat per use case
+        "sql_truncate": function(p) {
+          if (!p.value) return "-";
+          var s = String(p.value).replace(/\s+/g, " ").trim();
+          return s.length > 100 ? s.substring(0, 100) + "…" : s;
+        },
+        "params_count": function(p) {
+          if (!p.value) return "-";
+          try {
+            var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
+            return Array.isArray(arr) ? String(arr.length) : "?";
+          } catch (e) { return "?"; }
+        },
       };
+      var CELL_STYLE_REGISTRY = {
+        // Generic
+        "mono": function() { return { fontFamily: "monospace" }; },
+        "mono_dim": function() { return { fontFamily: "monospace", color: "#888" }; },
+        "mono_small": function() { return { fontFamily: "monospace", color: "#666", fontSize: "11px" }; },
+        "mono_code": function() { return { fontFamily: "monospace", fontSize: "11px", color: "#bbb" }; },
+        "dim_italic": function() { return { color: "#aaa", fontStyle: "italic" }; },
+        "weight_600": function() { return { fontWeight: "600" }; },
+        // Status enums
+        "status_active_disabled": function(p) {
+          if (p.value === "active") return { color: "#6aa84f" };
+          if (p.value === "disabled") return { color: "#cc6666" };
+          return { color: "#888" };
+        },
+        "status_lifecycle": function(p) {
+          // Phase 38.4 standard: active green / archived gray / draft yellow / deprecated red
+          if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+          if (p.value === "archived") return { color: "#888" };
+          if (p.value === "draft") return { color: "#d4a017" };
+          if (p.value === "deprecated") return { color: "#cc6666" };
+          return null;
+        },
+        "status_confirmed_pending_revoked": function(p) {
+          if (p.value === "confirmed") return { color: "#6aa84f" };
+          if (p.value === "pending") return { color: "#d4a017" };
+          if (p.value === "revoked") return { color: "#cc6666" };
+          return null;
+        },
+        "state_invite": function(p) {
+          if (p.value === "consumed") return { color: "#6aa84f", fontWeight: "500" };
+          if (p.value === "expired") return { color: "#888" };
+          if (p.value === "pending") return { color: "#d4a017" };
+          return null;
+        },
+        "result_security": function(p) {
+          var v = p.value || "";
+          if (v.indexOf("success") >= 0 || v === "verify_consumed") return { color: "#6aa84f" };
+          if (v.indexOf("failed") >= 0) return { color: "#cc6666" };
+          if (v === "rate_limited") return { color: "#d4a017", fontWeight: "500" };
+          if (v === "verify_required") return { color: "#888" };
+          if (v === "verify_sent") return { color: "#7ba8d4" };
+          return null;
+        },
+        "scope_global_user": function(p) {
+          if (p.value === "global") return { color: "#d4a017", fontWeight: "500" };
+          if (p.value === "user") return { color: "#6aa84f" };
+          return null;
+        },
+        "kind_node": function(p) {
+          if (p.value === "folder") return { color: "#d4a017" };
+          if (p.value === "list") return { color: "#7ba8d4" };
+          if (p.value === "form") return { color: "#6aa84f" };
+          if (p.value === "iframe") return { color: "#aa66cc" };
+          if (p.value === "special") return { color: "#cc6666" };
+          return null;
+        },
+        "visibility_scope": function(p) {
+          if (p.value === "parent_only") return { color: "#cc6666" };
+          if (p.value === "parent_or_admin") return { color: "#d4a017" };
+          if (p.value === "tenant_member") return { color: "#6aa84f" };
+          if (p.value === "public") return { color: "#7ba8d4" };
+          return null;
+        },
+        "refresh_type": function(p) {
+          if (p.value === "manual") return { color: "#888" };
+          if (p.value === "auto") return { color: "#7ba8d4" };
+          if (p.value === "on_focus") return { color: "#d4a017" };
+          return null;
+        },
+        "kind_data_set": function(p) {
+          if (p.value === "select") return { color: "#7ba8d4", fontWeight: "500" };
+          if (p.value === "insert") return { color: "#6aa84f" };
+          if (p.value === "update") return { color: "#d4a017" };
+          if (p.value === "delete") return { color: "#cc6666" };
+          if (p.value === "procedure") return { color: "#aa66cc" };
+          if (p.value === "pre_open") return { color: "#888" };
+          if (p.value === "copy") return { color: "#7bd4a8" };
+          return null;
+        },
+        // Numeric counts
+        "count_positive_green": function(p) {
+          return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" };
+        },
+        "count_positive_dim": function(p) {
+          return (p.value > 0) ? { color: "#888" } : null;
+        },
+        "count_positive_yellow": function(p) {
+          return (p.value > 0) ? { color: "#d4a017" } : null;
+        },
+        "parent_code_dim": function() {
+          return { fontFamily: "monospace", color: "#888" };
+        },
+      };
+      var CELL_RENDERER_REGISTRY = {
+        "yes_check": function(p) { return p.value ? "✓" : ""; },
+        "lock_icon": function(p) { return p.value ? "🔒" : ""; },
+        "wrench_icon": function(p) { return p.value ? "🔧" : ""; },
+        "thoughts_count": function(p) { return p.value > 0 ? "📝 " + p.value : "—"; },
+      };
+      // Backward compat alias (Phase 38.3 legacy code)
+      var FORMATTER_REGISTRY = VALUE_FORMATTER_REGISTRY;
+
       function adaptServerColumns(serverCols) {
         // Server vrací: [{"field":"id", "headerName":"ID", "width":70,
-        //                "valueFormatter":{"type":"datetime_rel"}, ...}]
-        // AG Grid potřebuje: valueFormatter jako function. Rozbalíme.
+        //                "valueFormatter":{"type":"datetime_rel"},
+        //                "cellStyle":{"type":"mono"},
+        //                "cellRenderer":{"type":"yes_check"}, ...}]
+        // AG Grid potřebuje: všechny tři jako function. Rozbalíme přes
+        // 3 registries (Phase 38.4 Krok 10 (10.5.)).
         return serverCols.map(function(c) {
           var col = {};
           for (var k in c) {
             if (k === "valueFormatter" && c[k] && c[k].type) {
-              var fn = FORMATTER_REGISTRY[c[k].type];
-              if (fn) {
-                col.valueFormatter = fn;
-              }
-              // Pokud unknown formatter, skip — AG Grid použije default toString
+              var fn = VALUE_FORMATTER_REGISTRY[c[k].type];
+              if (fn) col.valueFormatter = fn;
+            } else if (k === "cellStyle" && c[k] && c[k].type) {
+              var fn2 = CELL_STYLE_REGISTRY[c[k].type];
+              if (fn2) col.cellStyle = fn2;
+            } else if (k === "cellRenderer" && c[k] && c[k].type) {
+              var fn3 = CELL_RENDERER_REGISTRY[c[k].type];
+              if (fn3) col.cellRenderer = fn3;
             } else {
               col[k] = c[k];
             }

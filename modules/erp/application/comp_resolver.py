@@ -337,11 +337,17 @@ COMP_DEF_PROP_TO_AG_GRID: dict[str, str] = {
     "column_type": "type",
     "is_sortable": "sortable",
     "cell_class": "cellClass",
-    "cell_style": "cellStyle",
+    # Phase 38.4 Krok 10 (10.5.2026 vecer): cell_style + cell_renderer
+    # přes pojmenované registry IDs (per Marti's "override tabulku stačí").
+    # Frontend adaptServerColumns rozbalí .type → function přes
+    # CELL_STYLE_REGISTRY / CELL_RENDERER_REGISTRY.
+    "cell_style": "cellStyle.type",
+    "cell_renderer": "cellRenderer.type",
     "editable": "editable",
     "resizable": "resizable",
     "filter": "filter",
     "tooltip_field": "tooltipField",
+    "default_sort": "sort",                 # 'asc' / 'desc' default sort
 }
 
 

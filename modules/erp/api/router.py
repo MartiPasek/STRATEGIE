@@ -5791,6 +5791,17 @@ def _render_workspace_page(user_id: int) -> str:
          si nechává wrapper logiku (view modes, drag-drop, multi-select,
          favorites/MRU) a komunikuje přes public API. -->
     <script src="/static/erp/components/lefttree.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 9-D (10.5.2026): Object Inspector — modal pro editaci
+         comp_def_prop + comp_def_prop_override (4-tier override chain). Pravý-klik
+         na grid header / cell → "Vlastnosti sloupce…". 3-tier taby (Základní /
+         Použité / Všechny) + colored badge per scope. Marti-AI's 9-iter konzultace. -->
+    <link rel="stylesheet" href="/static/erp/components/object_inspector.css?v=''' + _STATIC_VERSION + '''">
+    <script src="/static/erp/components/object_inspector.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script>
+      // Phase 38.4 Krok 9-D: expose current user ID pro Object Inspector
+      // (potřebuje pro user-scoped overrides při Save).
+      window._erpCurrentUserId = ''' + str(user_id) + ''';
+    </script>
 
     <div class="erp-workspace">
       <aside class="erp-tree-pane">

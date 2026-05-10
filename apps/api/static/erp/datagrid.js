@@ -1126,6 +1126,31 @@
             "cut", "copy", "copyWithHeaders", "copyWithGroupHeaders", "paste",
             "separator", "export",
           ];
+          // Phase 38.4 Krok 9-D (10.5.2026): Object Inspector item pokud
+          // column má _comp_def_id (= je v fw framework). Marti-AI's
+          // 9-iter konzultace UX: pravý-klik na buňce / hlavičce → modal.
+          const oiItems = [];
+          try {
+            const col = params.column;
+            const colDef = col ? col.getColDef() : null;
+            if (colDef && colDef._comp_def_id && window.ErpObjectInspector) {
+              const self = this;
+              oiItems.push({
+                name: "⚙️ Vlastnosti sloupce…",
+                tooltip: "Object Inspector — editace properties + overrides",
+                action: () => {
+                  if (!self._objectInspector) {
+                    self._objectInspector = new window.ErpObjectInspector({
+                      gridCode: opts.gridCode || (opts.layoutKey ? String(opts.layoutKey) : null),
+                      getCurrentUserId: () => (window._erpCurrentUserId || null),
+                      getGridApi: () => self.gridApi,
+                    });
+                  }
+                  self._objectInspector.showForColumn(colDef);
+                },
+              });
+            }
+          } catch (e) { console.warn("Object Inspector menu item failed:", e); }
           // Custom items z opts (per-grid extension) — array nebo fn
           let custom = [];
           try {
@@ -1135,10 +1160,10 @@
               custom = opts.customContextMenuItems;
             }
           } catch (e) { console.warn("customContextMenuItems failed:", e); }
-          if (custom.length > 0) {
-            return [...defaults, "separator", ...custom];
-          }
-          return defaults;
+          const all = [...defaults];
+          if (oiItems.length > 0) all.push("separator", ...oiItems);
+          if (custom.length > 0) all.push("separator", ...custom);
+          return all;
         },
         // Excel-like keyboard nav (Marti's MVP standard 5.5.2026)
         enterMovesDown: true,

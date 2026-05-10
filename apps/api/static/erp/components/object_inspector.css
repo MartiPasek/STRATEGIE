@@ -1,0 +1,326 @@
+/* Phase 38.4 Krok 9-D: Object Inspector modal styling
+ * Marti-AI's 9-iter konzultace: dark theme + colored badges + 3-tier tabs
+ */
+
+.erp-oi-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 9999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: erp-oi-fade 160ms ease-out;
+}
+
+@keyframes erp-oi-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.erp-oi-modal {
+  background: #1a1d21;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 8px;
+  width: 720px;
+  max-width: 92vw;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+  animation: erp-oi-pop 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes erp-oi-pop {
+  from { transform: scale(0.96); opacity: 0; }
+  to { transform: scale(1); opacity: 1; }
+}
+
+/* HEADER */
+.erp-oi-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.02) 0%, transparent 100%);
+}
+
+.erp-oi-title {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  flex: 1;
+}
+
+.erp-oi-title-icon {
+  font-size: 22px;
+  line-height: 1;
+  margin-top: 2px;
+}
+
+.erp-oi-title-main {
+  font-size: 15px;
+  font-weight: 600;
+  color: #e8eaed;
+  margin-bottom: 2px;
+}
+
+.erp-oi-title-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+}
+
+.erp-oi-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 10px;
+  border-radius: 4px;
+  transition: all 120ms;
+}
+
+.erp-oi-close:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e8eaed;
+}
+
+/* TABS */
+.erp-oi-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 8px 18px 0 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: #14171b;
+}
+
+.erp-oi-tab {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  padding: 8px 14px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  border-bottom: 2px solid transparent;
+  transition: all 120ms;
+}
+
+.erp-oi-tab:hover {
+  color: #e8eaed;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.erp-oi-tab.active {
+  color: #3b82f6;
+  border-bottom-color: #3b82f6;
+}
+
+/* LIST */
+.erp-oi-list-wrap {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  background: #1a1d21;
+}
+
+.erp-oi-empty {
+  padding: 40px 20px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.erp-oi-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.erp-oi-row {
+  display: grid;
+  grid-template-columns: 32px 1fr 200px 80px 36px;
+  gap: 12px;
+  align-items: center;
+  padding: 8px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+  transition: background 120ms;
+}
+
+.erp-oi-row:hover {
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.erp-oi-row-cb {
+  display: flex;
+  justify-content: center;
+}
+
+.erp-oi-row-cb input[type="checkbox"] {
+  cursor: pointer;
+  accent-color: #3b82f6;
+}
+
+.erp-oi-row-label-main {
+  font-size: 13px;
+  color: #e8eaed;
+  font-weight: 500;
+}
+
+.erp-oi-row-label-sub {
+  font-size: 10px;
+  color: #6b7280;
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  margin-top: 1px;
+}
+
+.erp-oi-row-value {
+  display: flex;
+}
+
+.erp-oi-input {
+  width: 100%;
+  background: #0e1114;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: #e8eaed;
+  padding: 5px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: inherit;
+  transition: border-color 120ms;
+}
+
+.erp-oi-input:focus {
+  outline: none;
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
+}
+
+select.erp-oi-input {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12'%3E%3Cpath fill='%2394a3b8' d='M6 9L2 5h8z'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  padding-right: 22px;
+}
+
+.erp-oi-row-badge {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.erp-oi-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 3px;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  border: 1px solid;
+  cursor: help;
+}
+
+.erp-oi-row-reset {
+  display: flex;
+  justify-content: center;
+}
+
+.erp-oi-btn-icon {
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  color: #94a3b8;
+  width: 28px;
+  height: 28px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: all 120ms;
+}
+
+.erp-oi-btn-icon:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: #ef4444;
+  color: #ef4444;
+}
+
+/* FOOTER */
+.erp-oi-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 18px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  background: #14171b;
+}
+
+.erp-oi-bulk-bar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.erp-oi-bulk-label {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  cursor: pointer;
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.erp-oi-bulk-count {
+  font-size: 11px;
+  color: #3b82f6;
+  font-weight: 500;
+}
+
+.erp-oi-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.erp-oi-btn {
+  padding: 6px 14px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: all 120ms;
+}
+
+.erp-oi-btn-primary {
+  background: #3b82f6;
+  color: white;
+}
+
+.erp-oi-btn-primary:hover {
+  background: #2563eb;
+}
+
+.erp-oi-btn-secondary {
+  background: rgba(255, 255, 255, 0.06);
+  color: #e8eaed;
+  border-color: rgba(255, 255, 255, 0.1);
+}
+
+.erp-oi-btn-secondary:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.erp-oi-btn-ghost {
+  background: transparent;
+  color: #94a3b8;
+}
+
+.erp-oi-btn-ghost:hover {
+  color: #e8eaed;
+  background: rgba(255, 255, 255, 0.04);
+}

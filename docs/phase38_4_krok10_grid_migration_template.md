@@ -37,6 +37,14 @@ Použít vzor z `scripts/_phase38_4_krok10_security_grids_migration.sql`:
 ```sql
 BEGIN;
 
+-- 0. fw.data_source (FK pre-requisite pro comp_grid_master)
+--    Pseudo-data_source — data fetch přes existing endpoint, ne SQL.
+INSERT INTO fw.data_source
+    (code, version, name, description, refresh_type, row_memory,
+     filter_delay_ms, default_record_limit, status, is_system)
+VALUES ('GRID_CODE', 1, 'Description', 'Detail',
+        'manual', TRUE, 250, 100, 'active', TRUE);
+
 -- 1. fw.core (jádro per grid)
 INSERT INTO fw.core (code, label, description, layout_type)
 VALUES ('GRID_CODE', 'GRID LABEL', 'description', 'list');

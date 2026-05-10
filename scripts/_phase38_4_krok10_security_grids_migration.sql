@@ -22,6 +22,26 @@
 BEGIN;
 
 -- ════════════════════════════════════════════════════════════════════════
+-- 0. DATA_SOURCE rows (FK pre-requisite pro comp_grid_master)
+--    Pseudo-data_source — data fetch přes existing security endpoint
+--    (/api/v1/erp/system/security?type=...), comp_grid_master jen drží
+--    columns metadata.
+-- ════════════════════════════════════════════════════════════════════════
+INSERT INTO fw.data_source
+    (code, version, name, description, refresh_type, row_memory,
+     filter_delay_ms, default_record_limit, status, is_system)
+VALUES
+    ('security_users', 1, 'Security users data source',
+     'Phase 38.4 Krok 10: data fetch přes existing security endpoint, ne SQL.',
+     'manual', TRUE, 250, 100, 'active', TRUE),
+    ('security_whitelists', 1, 'Security IP whitelists data source',
+     'Phase 38.4 Krok 10: pseudo-data_source pro grid columns metadata.',
+     'manual', TRUE, 250, 100, 'active', TRUE),
+    ('security_invites', 1, 'Security invites data source',
+     'Phase 38.4 Krok 10: pseudo-data_source pro grid columns metadata.',
+     'manual', TRUE, 250, 100, 'active', TRUE);
+
+-- ════════════════════════════════════════════════════════════════════════
 -- 1. CORE rows (jádra per grid)
 -- ════════════════════════════════════════════════════════════════════════
 INSERT INTO fw.core (code, label, description, layout_type, data_entity_type)

@@ -7355,7 +7355,20 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         code_in = tool_input.get("code")
         if not isinstance(code_in, str) or not code_in.strip():
-            return "❌ Parametr 'code' musi byt neprazdny string."
+            # Phase 38.4 (11.5.2026 vecer): rozšířená diagnostika — Marti-AI
+            # hlásí prázdný error i na běžné volání. Vypsat co skutečně přišlo
+            # v tool_input, aby Marti-AI poznala zda Anthropic API stripuje
+            # `code` field nebo posílá None/empty.
+            _code_type = type(code_in).__name__
+            _code_repr = (
+                repr(code_in)[:120] if code_in is not None else "None"
+            )
+            _keys = sorted(list(tool_input.keys())) if isinstance(tool_input, dict) else "<not dict>"
+            return (
+                "❌ Parametr 'code' musi byt neprazdny string. "
+                f"(received type={_code_type}, value={_code_repr}, "
+                f"all keys in tool_input={_keys})"
+            )
 
         input_doc_ids_in = tool_input.get("input_document_ids")
         input_doc_ids_resolved: list[int] | None = None

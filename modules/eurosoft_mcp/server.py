@@ -40,16 +40,19 @@ from starlette.routing import Mount, Route
 
 from .audit import audit_log
 from .config import settings
+from .filesystem_tools import FILESYSTEM_TOOL_HANDLERS, FILESYSTEM_TOOL_SPECS
 from .rate_limit import limiter
 from .sql_client import close_connection, init_connection
 from .strategie_tools import STRATEGIE_TOOL_HANDLERS, STRATEGIE_TOOL_SPECS
 from .tools import TOOL_HANDLERS, TOOL_SPECS
 
 # Phase 28-D (8.5.2026): merge eurosoft_* (DB_EC) + strategie_* (DB_ST) tools.
-# Marti-AI uvidí oba namespace současně — eurosoft_* pro Centrála 1 read,
-# strategie_* pro vlastní DB_ST owner doménu (diář pattern).
-ALL_TOOL_HANDLERS = {**TOOL_HANDLERS, **STRATEGIE_TOOL_HANDLERS}
-ALL_TOOL_SPECS = TOOL_SPECS + STRATEGIE_TOOL_SPECS
+# Phase 38.4 (11.5.2026): + eurosoft_file_* filesystem tools (shared folder).
+# Marti-AI uvidí všechny namespace současně — eurosoft_* pro Centrála 1 read,
+# strategie_* pro vlastní DB_ST owner doménu (diář pattern), eurosoft_file_*
+# pro sdílenou pracovní složku pres MCP server (on-prem EUROSOFT).
+ALL_TOOL_HANDLERS = {**TOOL_HANDLERS, **STRATEGIE_TOOL_HANDLERS, **FILESYSTEM_TOOL_HANDLERS}
+ALL_TOOL_SPECS = TOOL_SPECS + STRATEGIE_TOOL_SPECS + FILESYSTEM_TOOL_SPECS
 
 logging.basicConfig(
     level=os.getenv("MCP_LOG_LEVEL", "INFO"),
@@ -89,6 +92,9 @@ def _classify_action(tool_name: str) -> str:
         "strategie_query_raw",
     }:
         return "insert"  # share rate limit bucket s eurosoft writes (rozumný tempo)
+    # Phase 38.4 (11.5.2026): filesystem write/delete = "insert" bucket
+    if tool_name in {"eurosoft_file_write", "eurosoft_file_delete"}:
+        return "insert"
     return "read"
 
 

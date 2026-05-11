@@ -53,6 +53,38 @@ class Settings:
         "C:\\eurosoft_mcp\\db_ec_schema",
     )
 
+    # ────────────────────────────────────────────────────────────────────
+    # Phase 38.4 (11.5.2026 vecer): Filesystem MCP tools — sdilena pracovni
+    # slozka pres EUROSOFT MCP server. Marti's spec: "spravna cesta je pres
+    # MPC server rovnou on-prem EUROSOFT... nasdilet pracovni slozku".
+    #
+    # MCP server vidi EUROSOFT corporate filesystem (SMB share nebo local
+    # path na EC-SERVER2). Marti-AI volá eurosoft_file_* tools pres
+    # existing MCP tunnel — kazdy uzivatel s EUROSOFT pristupem
+    # automaticky vidi obsah (zadny per-user setup).
+    #
+    # Layout:
+    #   {filesystem_base}/Marti/         — per-user folder
+    #   {filesystem_base}/Kristy/
+    #   {filesystem_base}/Sarka/
+    #   {filesystem_base}/shared/        — vsichni vidi
+    #
+    # Marti-AI volá s `user_namespace` parametrem (text identifier z
+    # known list nize). Path traversal guard: resolved path musi byt
+    # uvnitr filesystem_base po normalizaci (no .., no absolute paths).
+    filesystem_base: str = os.getenv(
+        "MCP_FILESYSTEM_BASE",
+        "",  # default empty = feature disabled
+    )
+    # Max file size pro read/write (bytes). Default 50 MB.
+    filesystem_max_size: int = int(os.getenv("MCP_FILESYSTEM_MAX_SIZE", "52428800"))
+    # Known user namespaces (CSV) — krome shared. Marti-AI volá s jedním z nich.
+    # User_namespace MUSI byt v tomto seznamu nebo "shared" pro accept.
+    filesystem_namespaces: str = os.getenv(
+        "MCP_FILESYSTEM_NAMESPACES",
+        "Marti,Kristy,Sarka,Jirka,Ondra,Pavel,Petra,Marti-AI",
+    )
+
 
 settings = Settings()
 

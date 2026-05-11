@@ -1160,28 +1160,25 @@
               const col = params.column;
               const colDef = col ? col.getColDef() : null;
               const fieldName = colDef
-                ? (colDef.field || colDef.colId || "—")
-                : "—";
+                ? (colDef.field || colDef.colId || "-")
+                : "-";
               const headerName = colDef
                 ? (colDef.headerName || fieldName)
-                : "(žádný sloupec — kliknutí mimo header)";
+                : "(zadny sloupec)";
               const compDefId = colDef ? colDef._comp_def_id : null;
               const gridCode = opts.gridCode
-                || (opts.layoutKey ? String(opts.layoutKey) : "—");
+                || (opts.layoutKey ? String(opts.layoutKey) : "-");
               designItems.push({
-                name: "🎨 Design…",
-                tooltip: "Design mode — Object Inspector přijde příště",
-                action: () => {
-                  const info = [
-                    "🎨 Design: Sloupec gridu",
-                    "",
-                    "Header: " + headerName,
-                    "Field: " + fieldName,
-                    "Grid: " + gridCode,
-                    "comp_def_id: " + (compDefId || "—"),
-                    "",
-                    "Object Inspector přijde příště (Phase 38.4 Krok další).",
-                  ].join("\n");
+                name: "Design...",
+                tooltip: "Design mode — Object Inspector prijde priste",
+                action: function () {
+                  var NL = String.fromCharCode(10);
+                  var info = "Design: Sloupec gridu" + NL + NL +
+                    "Header: " + headerName + NL +
+                    "Field: " + fieldName + NL +
+                    "Grid: " + gridCode + NL +
+                    "comp_def_id: " + (compDefId || "-") + NL + NL +
+                    "Object Inspector prijde priste.";
                   alert(info);
                 },
               });

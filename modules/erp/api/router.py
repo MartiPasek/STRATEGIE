@@ -8689,28 +8689,26 @@ def _render_workspace_page(user_id: int) -> str:
           // mód aktivní + single selection (design je per-entity, ne bulk).
           // MVP placeholder = alert s identifikací; Object Inspector přijde dál.
           if (window._erpDesignMode === true && !multi) {
-            const itemId = item.getAttribute("data-id") || "—";
-            const labelEl = item.querySelector(".erp-tree-label");
-            const label = labelEl
-              ? (labelEl.dataset.erpOrigText || labelEl.textContent || "")
-              : "";
-            const code = item.getAttribute("data-code") || "";
-            const dispatchKind = item.getAttribute("data-dispatch-kind") || "";
+            var _designItemId = item.getAttribute("data-id") || "-";
+            var _designLabelEl = item.querySelector(".erp-tree-label");
+            var _designLabel = "";
+            if (_designLabelEl) {
+              _designLabel = _designLabelEl.dataset.erpOrigText || _designLabelEl.textContent || "";
+            }
+            var _designCode = item.getAttribute("data-code") || "";
+            var _designDispatchKind = item.getAttribute("data-dispatch-kind") || "";
             menuItems.push({
               icon: "🎨",
               label: "Design…",
-              handler: () => {
-                const info = [
-                  "🎨 Design: Soudeček / přehled v tree",
-                  "",
-                  "Label: " + (label || "—"),
-                  "cislo_def: " + cislo,
-                  "menu_node.id: " + itemId,
-                  code ? ("code: " + code) : null,
-                  dispatchKind ? ("dispatch_kind: " + dispatchKind) : null,
-                  "",
-                  "Object Inspector přijde příště (Phase 38.4 Krok další).",
-                ].filter(Boolean).join("\n");
+              handler: function () {
+                var NL = String.fromCharCode(10);
+                var info = "Design: Soudecek / prehled v tree" + NL + NL +
+                  "Label: " + (_designLabel || "-") + NL +
+                  "cislo_def: " + cislo + NL +
+                  "menu_node.id: " + _designItemId;
+                if (_designCode) info += NL + "code: " + _designCode;
+                if (_designDispatchKind) info += NL + "dispatch_kind: " + _designDispatchKind;
+                info += NL + NL + "Object Inspector prijde priste.";
                 alert(info);
               },
             });

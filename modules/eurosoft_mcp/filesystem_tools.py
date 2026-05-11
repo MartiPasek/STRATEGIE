@@ -87,9 +87,11 @@ def _resolve_path(user_namespace: str, subpath: str = "") -> tuple[Path | None, 
 # Tool 1: list folder contents
 # ─────────────────────────────────────────────────────────────────────
 
-async def eurosoft_file_list(arguments: dict[str, Any]) -> dict[str, Any]:
-    user_namespace = arguments.get("user_namespace", "")
-    subpath = arguments.get("subpath", "")
+async def eurosoft_file_list(
+    user_namespace: str = "",
+    subpath: str = "",
+    **_extra: Any,
+) -> dict[str, Any]:
     target, err = _resolve_path(user_namespace, subpath)
     if err:
         return {"ok": False, "error": err}
@@ -132,10 +134,13 @@ async def eurosoft_file_list(arguments: dict[str, Any]) -> dict[str, Any]:
 # Tool 2: read file
 # ─────────────────────────────────────────────────────────────────────
 
-async def eurosoft_file_read(arguments: dict[str, Any]) -> dict[str, Any]:
-    user_namespace = arguments.get("user_namespace", "")
-    path = arguments.get("path", "")
-    encoding = (arguments.get("encoding") or "utf-8").lower()
+async def eurosoft_file_read(
+    user_namespace: str = "",
+    path: str = "",
+    encoding: str | None = None,
+    **_extra: Any,
+) -> dict[str, Any]:
+    encoding = (encoding or "utf-8").lower()
     if not path:
         return {"ok": False, "error": "Parametr 'path' chybi."}
     target, err = _resolve_path(user_namespace, path)
@@ -192,12 +197,16 @@ async def eurosoft_file_read(arguments: dict[str, Any]) -> dict[str, Any]:
 # Tool 3: write file
 # ─────────────────────────────────────────────────────────────────────
 
-async def eurosoft_file_write(arguments: dict[str, Any]) -> dict[str, Any]:
-    user_namespace = arguments.get("user_namespace", "")
-    path = arguments.get("path", "")
-    content = arguments.get("content", "")
-    encoding = (arguments.get("encoding") or "utf-8").lower()
-    mode = (arguments.get("mode") or "overwrite").lower()
+async def eurosoft_file_write(
+    user_namespace: str = "",
+    path: str = "",
+    content: str = "",
+    encoding: str | None = None,
+    mode: str | None = None,
+    **_extra: Any,
+) -> dict[str, Any]:
+    encoding = (encoding or "utf-8").lower()
+    mode = (mode or "overwrite").lower()
     if not path:
         return {"ok": False, "error": "Parametr 'path' chybi."}
     if mode not in ("overwrite", "fail_if_exists", "append"):
@@ -257,9 +266,11 @@ async def eurosoft_file_write(arguments: dict[str, Any]) -> dict[str, Any]:
 # Tool 4: delete file
 # ─────────────────────────────────────────────────────────────────────
 
-async def eurosoft_file_delete(arguments: dict[str, Any]) -> dict[str, Any]:
-    user_namespace = arguments.get("user_namespace", "")
-    path = arguments.get("path", "")
+async def eurosoft_file_delete(
+    user_namespace: str = "",
+    path: str = "",
+    **_extra: Any,
+) -> dict[str, Any]:
     if not path:
         return {"ok": False, "error": "Parametr 'path' chybi."}
     target, err = _resolve_path(user_namespace, path)

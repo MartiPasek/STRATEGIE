@@ -1660,7 +1660,7 @@ def system_tree(req: Request) -> JSONResponse:
     return JSONResponse({
         "ok": True,
         "tree": _SYSTEM_TREE_NODES,
-    })
+    }, headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"})
 
 
 # ── Phase B (5.5.2026): Tree + Přehled JSON endpoints ────────────────
@@ -2018,7 +2018,7 @@ def strom_json(req: Request) -> JSONResponse:
         "tree": tree,
         "root_count": len(tree),
         "is_parent": is_parent,
-    })
+    }, headers={"Cache-Control": "no-store, no-cache, must-revalidate", "Pragma": "no-cache"})
 
 
 _PREHLED_DEFAULT_LIMIT = 1000   # když přehled nemá MaxRecords ani user override
@@ -6689,7 +6689,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (!tree) {
           tree = new ErpLeftPanelTree(treeRoot, {
             dataSource: async () => {
-              const r = await fetch("/api/v1/erp/strom", { credentials: "include" });
+              const r = await fetch("/api/v1/erp/strom", { credentials: "include", cache: "no-store" });
               if (!r.ok) {
                 throw new Error("Strom nelze načíst (status " + r.status + ").");
               }

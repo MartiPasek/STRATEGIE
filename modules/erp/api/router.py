@@ -3890,20 +3890,44 @@ def _render_full_page(
       background: var(--surface);
     }}
     .erp-tree-toggle-btn .erp-tree-toggle-expand {{ display: none; }}
-    /* Collapsed state — workspace má .tree-collapsed class */
+    /* Collapsed state — workspace má .tree-collapsed class.
+       11.5.2026 fix (Marti's *„sipka mimo zoom"* trap):
+         1. Celá collapsed pane je clickable → expand kdekoliv kliknutím
+         2. Resize handle ZŮSTÁVÁ visible (pravá hrana 32px pane) → drag-to-expand
+         3. Failsafe tooltip + persistent hint */
     .erp-workspace.tree-collapsed .erp-tree-pane {{
       flex: 0 0 32px !important;
+      cursor: pointer;
+      position: relative;
+    }}
+    .erp-workspace.tree-collapsed .erp-tree-pane::after {{
+      content: "›";
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      font-size: 22px;
+      color: var(--text-muted);
+      pointer-events: none;
+      opacity: 0.55;
+      transition: opacity .15s;
+    }}
+    .erp-workspace.tree-collapsed .erp-tree-pane:hover::after {{
+      opacity: 1;
+      color: var(--accent);
     }}
     .erp-workspace.tree-collapsed .erp-tree-search,
     .erp-workspace.tree-collapsed .erp-tree-root,
     .erp-workspace.tree-collapsed .erp-tree-footer,
     .erp-workspace.tree-collapsed .erp-tree-header-slot,
-    .erp-workspace.tree-collapsed .erp-resize-handle {{
+    .erp-workspace.tree-collapsed .erp-tree-header {{
       display: none !important;
     }}
-    .erp-workspace.tree-collapsed .erp-tree-header {{
-      padding: 7px 4px;
-      justify-content: center;
+    /* Resize handle ZŮSTÁVÁ visible — drag doprava = expand pane.
+       Marti's safety net: kdyby click expand selhal (PWA zoom edge case),
+       drag handle je vždy 5px pásek na hraně 32px pane. */
+    .erp-workspace.tree-collapsed .erp-resize-handle {{
+      display: block !important;
     }}
     .erp-workspace.tree-collapsed .erp-tree-toggle-btn .erp-tree-toggle-collapse {{ display: none; }}
     .erp-workspace.tree-collapsed .erp-tree-toggle-btn .erp-tree-toggle-expand {{ display: inline; }}
@@ -4322,26 +4346,34 @@ def _render_full_page(
       background: var(--surface2);
       color: var(--error);
     }}
-    .erp-tab-add {{
+    /* Phase 38.4 (11.5.2026 vecer): close-all button VLEVO (nahrazuje + button) */
+    .erp-tab-close-all {{
       flex-shrink: 0;
-      width: 28px; height: 28px;
-      align-self: center;
-      margin: 0 0 0 6px;
+      padding: 4px 10px;
+      margin-right: 4px;
       background: transparent;
-      border: 1px dashed var(--border);
-      border-radius: 4px;
-      color: var(--text-muted);
+      border: none;
+      color: #888;
+      cursor: pointer;
       font-size: 16px;
       line-height: 1;
-      cursor: pointer;
-      padding: 0;
-      transition: all 0.12s;
+      border-radius: 3px;
     }}
-    .erp-tab-add:hover {{
-      border-color: var(--accent);
-      border-style: solid;
-      color: var(--accent);
-      background: var(--surface);
+    .erp-tab-close-all:hover {{
+      background: rgba(204, 102, 102, 0.15);
+      color: #cc6666;
+    }}
+    .erp-tab.pinned {{
+      background: rgba(212, 184, 138, 0.08);
+      border-left: 2px solid rgba(212, 184, 138, 0.6);
+    }}
+    .erp-tab.pinned.active {{
+      background: rgba(212, 184, 138, 0.15);
+    }}
+    .erp-tab-pin-icon {{
+      font-size: 10px;
+      margin-right: 4px;
+      opacity: 0.7;
     }}
     .erp-tabs-bar::-webkit-scrollbar {{ height: 4px; }}
     .erp-tabs-bar::-webkit-scrollbar-thumb {{
@@ -6845,6 +6877,12 @@ def _render_workspace_page(user_id: int) -> str:
       if (resizeHandle) {
         resizeHandle.addEventListener("mousedown", (ev) => {
           ev.preventDefault();
+          // 11.5.2026 fix: pokud je tree collapsed a user táhne resize handle,
+          // nejdřív expand (auto-recovery). Drag pak nastaví novou šířku.
+          if (workspaceEl && workspaceEl.classList.contains("tree-collapsed")) {
+            applyTreeCollapsed(false);
+            saveTreeCollapsed(false);
+          }
           const startX = ev.clientX;
           const startWidth = loadTreeWidth();
           resizeHandle.classList.add("dragging");
@@ -7914,6 +7952,19 @@ def _render_workspace_page(user_id: int) -> str:
           saveTreeCollapsed(next);
         });
       }
+      // 11.5.2026 fix: click kdekoli na collapsed pane = expand.
+      // Marti's trap *„sipka mimo zoom"* — když je `›` button mimo viewport
+      // kvůli PWA zoom edge case, celá 32px pane je clickable jako fallback.
+      const treePaneEl = document.querySelector(".erp-tree-pane");
+      if (treePaneEl) {
+        treePaneEl.addEventListener("click", (ev) => {
+          if (!workspaceEl.classList.contains("tree-collapsed")) return;
+          // Skip pokud click prošel přes resize handle (jeho own handler řeší expand)
+          if (ev.target && ev.target.closest(".erp-resize-handle")) return;
+          applyTreeCollapsed(false);
+          saveTreeCollapsed(false);
+        });
+      }
       // Ctrl+B / Cmd+B keyboard shortcut
       document.addEventListener("keydown", (ev) => {
         if ((ev.ctrlKey || ev.metaKey) && (ev.key === "b" || ev.key === "B")) {
@@ -8895,8 +8946,12 @@ def _render_workspace_page(user_id: int) -> str:
           label: labelText,
           data: null,
           gridState: null,
+          pinned: false,
+          lastAccessedAt: Date.now(),
         };
         tabsState.tabs.push(tab);
+        // Phase 38.4 (11.5.2026 vecer): LRU eviction po push (pred persist)
+        _evictOldestTab();
         // B+8.1c: API persist new tab — AWAIT aby následný switchTab
         // (POST /tabs/{cislo}/active) nezávodil s create. Pokud network
         // fail, _apiCall vrátí null bez throw → switchTab pokračuje.
@@ -8923,6 +8978,10 @@ def _render_workspace_page(user_id: int) -> str:
           }
         }
         tabsState.activeIndex = idx;
+        // Phase 38.4 (11.5.2026 vecer): track lastAccessedAt pro LRU eviction
+        if (tabsState.tabs[idx]) {
+          tabsState.tabs[idx].lastAccessedAt = Date.now();
+        }
         renderTabsBar();
         const tab = tabsState.tabs[idx];
         // B+8.1c: API persist active tab (fire-and-forget)
@@ -9019,6 +9078,11 @@ def _render_workspace_page(user_id: int) -> str:
         switchTab(tabsState.activeIndex);
       }
 
+      // Phase 38.4 (11.5.2026 vecer): MAX_TABS LRU eviction cap.
+      // Pokud bys mel vic, openTab() automaticky zavre nejstarsi
+      // unpinned tab (LRU). User vidi vzdy nejpouzivanejsich N tabu.
+      const MAX_TABS_VISIBLE = 10;
+
       function renderTabsBar() {
         if (!tabsBarEl) return;
         if (tabsState.tabs.length === 0) {
@@ -9028,24 +9092,52 @@ def _render_workspace_page(user_id: int) -> str:
         }
         tabsBarEl.removeAttribute("hidden");
         let html = "";
+        // Phase 38.4 (11.5.2026 vecer): Close-all-except-active button VLEVO.
+        // Marti's spec: nahrada za stary "+" button, ten zmizel — user otevira
+        // nove pres tree click (existing flow).
+        html += '<button type="button" class="erp-tab-close-all" id="erpTabCloseAll" ' +
+                'title="Zavřít všechny záložky kromě aktivní">⊗</button>';
         tabsState.tabs.forEach((t, i) => {
           const active = (i === tabsState.activeIndex);
+          const pinned = (t.pinned === true);
           html += '<div class="erp-tab' + (active ? ' active' : '') +
-                  '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) + '">';
+                  (pinned ? ' pinned' : '') +
+                  '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) +
+                  (pinned ? ' (📌 pinned)' : '') + '">';
+          if (pinned) {
+            html += '<span class="erp-tab-pin-icon" title="Připnutá záložka">📌</span>';
+          }
           html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
           html += '<button type="button" class="erp-tab-close" data-tab-close="' + i +
                   '" title="Zavřít záložku">×</button>';
           html += '</div>';
         });
-        html += '<button type="button" class="erp-tab-add" id="erpTabAdd" ' +
-                'title="Otevřít nový přehled (vyber ve stromu)">+</button>';
         tabsBarEl.innerHTML = html;
-        // Event delegation
+        // Event delegation — click switch + close × + close-all + right-click pin
         tabsBarEl.querySelectorAll(".erp-tab").forEach(el => {
           el.addEventListener("click", (ev) => {
             if (ev.target.classList.contains("erp-tab-close")) return;
             const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
             if (!isNaN(idx)) switchTab(idx);
+          });
+          // Right-click toggle pin (Marti's spec — později persistence)
+          el.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault();
+            const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
+            if (isNaN(idx)) return;
+            const tab = tabsState.tabs[idx];
+            if (!tab) return;
+            tab.pinned = !tab.pinned;
+            // Pinned tabs sort to left (pinned by access order, unpinned by access order)
+            tabsState.tabs.sort((a, b) => {
+              if ((a.pinned || false) !== (b.pinned || false)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+              return (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0);
+            });
+            // Re-find active index after sort
+            const newActiveIdx = tabsState.tabs.indexOf(tabsState.tabs[idx]);
+            tabsState.activeIndex = newActiveIdx >= 0 ? newActiveIdx : 0;
+            saveTabsState();
+            renderTabsBar();
           });
         });
         tabsBarEl.querySelectorAll(".erp-tab-close").forEach(el => {
@@ -9055,16 +9147,61 @@ def _render_workspace_page(user_id: int) -> str:
             if (!isNaN(idx)) closeTab(idx);
           });
         });
-        const addBtn = document.getElementById("erpTabAdd");
-        if (addBtn && treeSearchInput) {
-          addBtn.addEventListener("click", () => {
-            // + button = focus tree filter (pak user vybere přehled = openTab)
-            if (workspaceEl && workspaceEl.classList.contains("tree-collapsed")) {
-              applyTreeCollapsed(false);
-              saveTreeCollapsed(false);
-            }
-            try { treeSearchInput.focus(); treeSearchInput.select(); } catch (e) {}
+        const closeAllBtn = document.getElementById("erpTabCloseAll");
+        if (closeAllBtn) {
+          closeAllBtn.addEventListener("click", () => {
+            // Zavrit vse krome aktivni (pinned zustanou) — Marti's mandate
+            const activeTab = tabsState.tabs[tabsState.activeIndex];
+            if (!activeTab) return;
+            const survivors = tabsState.tabs.filter(t => t === activeTab || t.pinned === true);
+            // Issue DELETE per tab being closed (backend persistence)
+            tabsState.tabs.forEach(t => {
+              if (!survivors.includes(t)) {
+                try {
+                  fetch("/api/v1/erp/tabs/" + encodeURIComponent(t.cislo), {
+                    method: "DELETE", credentials: "include"
+                  });
+                } catch (e) {}
+                try { ErpRefresh.forget(t.cislo); } catch (e) {}
+              }
+            });
+            tabsState.tabs = survivors;
+            tabsState.activeIndex = survivors.indexOf(activeTab);
+            saveTabsState();
+            renderTabsBar();
           });
+        }
+      }
+
+      // Phase 38.4 (11.5.2026 vecer): LRU eviction — zavre nejstarsi
+      // unpinned non-active tab kdyz tabs.length > MAX_TABS_VISIBLE.
+      function _evictOldestTab() {
+        while (tabsState.tabs.length > MAX_TABS_VISIBLE) {
+          // Najdi nejstarsi non-pinned, non-active
+          let oldestIdx = -1;
+          let oldestTime = Infinity;
+          for (let i = 0; i < tabsState.tabs.length; i++) {
+            const t = tabsState.tabs[i];
+            if (i === tabsState.activeIndex) continue;
+            if (t.pinned === true) continue;
+            const accessTime = t.lastAccessedAt || 0;
+            if (accessTime < oldestTime) {
+              oldestTime = accessTime;
+              oldestIdx = i;
+            }
+          }
+          if (oldestIdx < 0) break;  // vse pinned nebo jen aktivni
+          const victim = tabsState.tabs[oldestIdx];
+          try {
+            fetch("/api/v1/erp/tabs/" + encodeURIComponent(victim.cislo), {
+              method: "DELETE", credentials: "include"
+            });
+          } catch (e) {}
+          try { ErpRefresh.forget(victim.cislo); } catch (e) {}
+          tabsState.tabs.splice(oldestIdx, 1);
+          if (tabsState.activeIndex > oldestIdx) {
+            tabsState.activeIndex--;
+          }
         }
       }
 

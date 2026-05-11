@@ -35,6 +35,7 @@ from modules.erp.application.centrala_reader import CentralaReader, TYP_NAMES
 from modules.erp.application.render_generator import render_form
 from modules.erp.application import grid_layout_service
 from modules.erp.application import erp_user_state_service as user_state_svc
+from modules.erp.application import data_source_runner as ds_runner
 from modules.thoughts.application.service import is_marti_parent
 
 logger = get_logger("erp.api")
@@ -1542,6 +1543,93 @@ def system_framework(
         "shown": len(rows),
         "limit": limit,
     })
+
+
+# ── Phase 38.4 Krok 12 (11.5.2026): Generic data source executor ─────────
+# A3 architecture runtime — generic endpoint nad fw.data_source + data_source_op
+# + data_set chain. Marti's vize *„zbavit se hardcoded"* — postupně migrace
+# hardcoded Python query branches z router.py do fw.data_set.sql_text.
+# Parent gate + ALLOWED_KINDS whitelist (jen SELECT) drží defense.
+
+@api_router.get("/data/{code}")
+def data_source_execute(
+    code: str,
+    req: Request,
+    variant: str = "default",
+) -> JSONResponse:
+    """Phase 38.4 Krok 12 — generic A3 runtime executor.
+
+    URL: GET /api/v1/erp/data/{code}?variant=default&limit=100&tenant_id=...
+
+    Path: code — fw.data_source.code (audit_audited, framework_data_sources, ...)
+    Query: variant (default 'default') + libovolné named params pro sql_text
+
+    Returns: JSON s rows + applied_params + data_source/operation metadata.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # Local import (gotcha #7 — UnboundLocalError prevention)
+    from core.database_data import get_data_session as _gds_data
+
+    raw_params = dict(req.query_params)
+    raw_params.pop("variant", None)  # variant je explicit kwarg
+
+    session = _gds_data()
+    try:
+        try:
+            result = ds_runner.run_data_source(
+                session,
+                code=code,
+                raw_params=raw_params,
+                variant=variant,
+                kind="select",
+            )
+        except ds_runner.DataSourceNotFoundError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "data_source_not_found", "detail": str(exc)},
+                status_code=404,
+            )
+        except ds_runner.DataSourceOperationNotFoundError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "operation_not_found", "detail": str(exc)},
+                status_code=404,
+            )
+        except ds_runner.DataSourceExecuteError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
+                status_code=500,
+            )
+        except ds_runner.DataSourceError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "data_source_error", "detail": str(exc)},
+                status_code=400,
+            )
+    finally:
+        session.close()
+
+    return JSONResponse(result)
+
+
+@api_router.get("/data")
+def data_source_list(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).
+
+    URL: GET /api/v1/erp/data
+    Returns: JSON {"ok": True, "items": [{code, name, description, operation_count, kinds}, ...]}
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_data_list
+
+    session = _gds_data_list()
+    try:
+        items = ds_runner.list_available_codes(session)
+    finally:
+        session.close()
+
+    return JSONResponse({"ok": True, "items": items})
 
 
 @api_router.get("/system/tree")

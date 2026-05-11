@@ -3891,37 +3891,24 @@ def _render_full_page(
     }}
     .erp-tree-toggle-btn .erp-tree-toggle-expand {{ display: none; }}
     /* Collapsed state — workspace má .tree-collapsed class.
-       11.5.2026 fix (Marti's *„sipka mimo zoom"* trap):
-         1. Celá collapsed pane je clickable → expand kdekoliv kliknutím
-         2. Resize handle ZŮSTÁVÁ visible (pravá hrana 32px pane) → drag-to-expand
-         3. Failsafe tooltip + persistent hint */
+       11.5.2026 revize (Marti's UX feedback po prvním fixu):
+         1. Restore › ikonka NAHOŘE v pozici jako collapse ‹ (symetrický design)
+         2. Celá collapsed pane je clickable jako failsafe (pro PWA zoom edge)
+         3. Resize handle ZŮSTÁVÁ visible (drag-to-expand pojistka) */
     .erp-workspace.tree-collapsed .erp-tree-pane {{
       flex: 0 0 32px !important;
       cursor: pointer;
-      position: relative;
     }}
-    .erp-workspace.tree-collapsed .erp-tree-pane::after {{
-      content: "›";
-      position: absolute;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%);
-      font-size: 22px;
-      color: var(--text-muted);
-      pointer-events: none;
-      opacity: 0.55;
-      transition: opacity .15s;
-    }}
-    .erp-workspace.tree-collapsed .erp-tree-pane:hover::after {{
-      opacity: 1;
-      color: var(--accent);
-    }}
-    .erp-workspace.tree-collapsed .erp-tree-search,
+    .erp-workspace.tree-collapsed .erp-tree-search-inline,
     .erp-workspace.tree-collapsed .erp-tree-root,
     .erp-workspace.tree-collapsed .erp-tree-footer,
-    .erp-workspace.tree-collapsed .erp-tree-header-slot,
-    .erp-workspace.tree-collapsed .erp-tree-header {{
+    .erp-workspace.tree-collapsed .erp-tree-header-slot {{
       display: none !important;
+    }}
+    /* Header ZŮSTÁVÁ visible — drží toggle button NAHOŘE (Marti's spec) */
+    .erp-workspace.tree-collapsed .erp-tree-header {{
+      padding: 7px 4px;
+      justify-content: center;
     }}
     /* Resize handle ZŮSTÁVÁ visible — drag doprava = expand pane.
        Marti's safety net: kdyby click expand selhal (PWA zoom edge case),
@@ -8887,12 +8874,15 @@ def _render_workspace_page(user_id: int) -> str:
       }
       function saveTabsState() {
         try {
-          // Persistuj jen lehkou meta — ne data ani gridState (ty se znovu fetchnou)
+          // Persistuj jen lehkou meta — ne data ani gridState (ty se znovu fetchnou).
+          // 11.5. fix: ukládat i pinned + lastAccessedAt aby LRU + pin přežily reload.
           const persist = {
             tabs: tabsState.tabs.map(t => ({
               cislo: t.cislo,
               itemId: t.itemId,
               label: t.label,
+              pinned: t.pinned === true,
+              lastAccessedAt: typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : 0,
             })),
             activeIndex: tabsState.activeIndex,
           };
@@ -9181,12 +9171,51 @@ def _render_workspace_page(user_id: int) -> str:
             renderTabsBar();
           });
         }
+        // 11.5. fix #4: dynamic overflow eviction po každém render.
+        // Pokud taby přetékají scrollbar (scrollWidth > clientWidth),
+        // evikuj nejstarší unpinned non-active dokud se zarovnají.
+        // Guards proti infinite loop uvnitř _scheduleOverflowEviction.
+        _scheduleOverflowEviction();
+      }
+
+      // Phase 38.4 (11.5.2026 vecer): dynamic overflow eviction — po
+      // každém renderTabsBar kontrolujeme jestli se taby vejdou do bar
+      // šířky. Pokud scrollWidth > clientWidth → eviktujeme nejstarší
+      // unpinned non-active dokud se nezarovnají, nebo dokud nezbude jen
+      // pinned + active (failsafe). Volá se přes requestAnimationFrame
+      // aby DOM layout byl už spočítaný.
+      let _overflowEvictionScheduled = false;
+      function _scheduleOverflowEviction() {
+        if (_overflowEvictionScheduled) return;
+        if (!tabsBarEl) return;
+        _overflowEvictionScheduled = true;
+        requestAnimationFrame(() => {
+          _overflowEvictionScheduled = false;
+          let safety = 50;  // hard guard proti infinite loop
+          while (safety-- > 0 && tabsBarEl.scrollWidth > tabsBarEl.clientWidth + 2) {
+            const before = tabsState.tabs.length;
+            _evictOldestTab(true);  // single-step mode
+            if (tabsState.tabs.length === before) break;  // nelze dál (vse pinned/active)
+            // Re-render po každém splice — DOM musí reflect aktuální state
+            // pro další scrollWidth check (synchronně, ne v rAF).
+            _renderTabsBarSync();
+          }
+        });
+      }
+      // Sync helper — volá se uvnitř overflow loop. Nesmí volat
+      // _scheduleOverflowEviction znovu (infinite recursion guard).
+      function _renderTabsBarSync() {
+        const wasScheduled = _overflowEvictionScheduled;
+        _overflowEvictionScheduled = true;
+        renderTabsBar();
+        _overflowEvictionScheduled = wasScheduled;
       }
 
       // Phase 38.4 (11.5.2026 vecer): LRU eviction — zavre nejstarsi
-      // unpinned non-active tab kdyz tabs.length > MAX_TABS_VISIBLE.
-      function _evictOldestTab() {
-        while (tabsState.tabs.length > MAX_TABS_VISIBLE) {
+      // unpinned non-active tab kdyz tabs.length > MAX_TABS_VISIBLE,
+      // nebo (singleStep=true) jen jeden krok pro overflow eviction.
+      function _evictOldestTab(singleStep) {
+        while (singleStep || tabsState.tabs.length > MAX_TABS_VISIBLE) {
           // Najdi nejstarsi non-pinned, non-active
           let oldestIdx = -1;
           let oldestTime = Infinity;
@@ -9212,6 +9241,7 @@ def _render_workspace_page(user_id: int) -> str:
           if (tabsState.activeIndex > oldestIdx) {
             tabsState.activeIndex--;
           }
+          if (singleStep) return;  // overflow eviction = jeden krok
         }
       }
 

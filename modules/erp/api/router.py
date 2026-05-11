@@ -5826,32 +5826,9 @@ def _render_workspace_page(user_id: int) -> str:
         // rozbalí valueFormatter/cellStyle/cellRenderer přes 3 registries.
         // Hardcoded větve odstraněny — viz scripts/_phase38_4_krok10_security_grids_migration.sql.
         // Phase 38.4 Krok 8 cleanup (10.5.): security_devices taky v fw.
-        if (mode === "security_audit") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", sort: "desc" },
-            { headerName: "Result", field: "result", width: 130, sortable: true,
-              cellStyle: function(p) {
-                var v = p.value || "";
-                if (v.indexOf("success") >= 0 || v === "verify_consumed") return { color: "#6aa84f" };
-                if (v.indexOf("failed") >= 0) return { color: "#cc6666" };
-                if (v === "rate_limited") return { color: "#d4a017", fontWeight: "500" };
-                if (v === "verify_required") return { color: "#888" };
-                if (v === "verify_sent") return { color: "#7ba8d4" };
-                return null;
-              } },
-            { headerName: "User", field: "user_name", width: 150 },
-            { headerName: "Email attempted", field: "email_attempted", width: 230 },
-            { headerName: "IP", field: "ip", width: 130, cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Layer", field: "layer_matched", width: 110 },
-            { headerName: "Detail", field: "layer_detail", width: 180 },
-            { headerName: "Reason", field: "reason", flex: 1, minWidth: 200 },
-            { headerName: "Internal", field: "internal", width: 90,
-              cellRenderer: function(p) { return p.value ? "✓" : ""; } },
-            { headerName: "Cookie", field: "device_token_short", width: 100 },
-            { headerName: "Když", field: "created_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
+        // Phase 38.4 Krok 10-B (11.5.2026): security_audit migrated do fw schema
+        // (viz scripts/_phase38_4_krok10b_security_audit_migration.sql).
+        // Tím je security batch 4/4 kompletni: devices/users/whitelists/invites/audit.
         // Phase 38.4 Krok 10: security_invites migrated do fw schema
         // (viz scripts/_phase38_4_krok10_security_grids_migration.sql).
 

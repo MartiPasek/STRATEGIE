@@ -88,6 +88,13 @@
           // (hardcoded fallback). _decorateLeftPanelLi cte
           // node.metadata?.hardcoded a appenduje 🛠️ k row.
           metadata: n.metadata || null,
+          // Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind pass-through
+          // pro A3/HW/orphan marker (✅/🛠️/🔄/⚠️). Backend _build_node
+          // computuje z fw.hw_registry.shadow_mode lookup (LEFT JOIN via
+          // menu_node.core_id → core.code → hw_registry.code).
+          // _decorateLeftPanelLi cte node.dispatch_kind a appenduje
+          // symbol k row.
+          dispatch_kind: n.dispatch_kind || null,
           // Recursive children
           children: Array.isArray(n.children) && n.children.length > 0
             ? ErpLeftPanelTree.adaptServerTree(n.children)

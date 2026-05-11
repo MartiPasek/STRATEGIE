@@ -61,6 +61,14 @@ def _serialize_tab(t: ErpUserTab) -> dict:
         "itemId": t.item_id,
         "sortOrder": int(t.sort_order or 0),
         "isActive": bool(t.is_active),
+        # Phase 38.4 (11.5.2026 vecer): pinned + lastAccessedAt persistence
+        # přes DB. Frontend write-through při right-click contextmenu (pin)
+        # a při switchTab (bump access). Naformátováno jako ISO + epoch ms
+        # pro frontend rovnou (Date.now() compat).
+        "pinned": bool(t.pinned),
+        "lastAccessedAt": (
+            int(t.last_accessed_at.timestamp() * 1000) if t.last_accessed_at else None
+        ),
         "openedAt": t.opened_at.isoformat() if t.opened_at else None,
     }
 
@@ -229,6 +237,38 @@ def set_active_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
             ds.commit()
             return False
         existing.is_active = True
+        # Phase 38.4 (11.5.2026 vecer): bump last_accessed_at pro LRU
+        # eviction když taby overflow bar šířku.
+        existing.last_accessed_at = _now()
+        ds.commit()
+        return True
+    finally:
+        ds.close()
+
+
+def set_tab_pinned(
+    user_id: int, tenant_id: int, cislo_def: int, pinned: bool
+) -> bool:
+    """Phase 38.4 (11.5.2026 vecer): toggle pinned status pro záložku.
+
+    Right-click v UI → toggle. Pinned záložky se neeviktují při overflow
+    a close ikona vpravo se mění × → 📌 (decorative, no-op click).
+    Returns True pokud tab existoval.
+    """
+    ds = get_data_session()
+    try:
+        existing = (
+            ds.query(ErpUserTab)
+            .filter(
+                ErpUserTab.user_id == user_id,
+                ErpUserTab.tenant_id == tenant_id,
+                ErpUserTab.cislo_def == cislo_def,
+            )
+            .one_or_none()
+        )
+        if not existing:
+            return False
+        existing.pinned = bool(pinned)
         ds.commit()
         return True
     finally:

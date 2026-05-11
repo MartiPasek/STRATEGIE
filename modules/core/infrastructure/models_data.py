@@ -1854,6 +1854,14 @@ class ErpUserTab(BaseData):
     item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 38.4 (11.5.2026 vecer): pinned záložky přežijí F5 reload.
+    # Right-click v UI toggluje pin/unpin (close ikona vpravo = 📌 místo ×).
+    pinned: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # last_accessed_at — bump při switchTab, použito pro LRU eviction
+    # když taby overflow šířku bar (oldest unpinned non-active se eviktuje).
+    last_accessed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     opened_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
     )

@@ -2809,6 +2809,27 @@ def user_tabs_set_active(cislo_def: int, req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "found": found})
 
 
+class _PinnedBody(BaseModel):
+    """Phase 38.4 (11.5.2026 vecer): body schema pro toggle pin."""
+    pinned: bool
+
+
+@api_router.post("/tabs/{cislo_def}/pinned")
+def user_tabs_set_pinned(
+    cislo_def: int, body: _PinnedBody, req: Request
+) -> JSONResponse:
+    """Phase 38.4 (11.5.2026 vecer): toggle pinned na záložce.
+
+    Marti's request — pinned status musí přežít F5 reload. Write-through:
+    UI right-click → POST tady → DB. Při hydrate vrátí _serialize_tab pinned.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    tid = _get_tenant_id(uid)
+    found = user_state_svc.set_tab_pinned(uid, tid, cislo_def, body.pinned)
+    return JSONResponse({"ok": True, "found": found})
+
+
 @api_router.post("/tabs/reorder")
 def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
     uid = _get_uid(req)
@@ -9117,7 +9138,7 @@ def _render_workspace_page(user_id: int) -> str:
             const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
             if (!isNaN(idx)) switchTab(idx);
           });
-          // Right-click toggle pin (Marti's spec — později persistence)
+          // Right-click toggle pin — Phase 38.4 (11.5.2026 vecer) write-through DB.
           el.addEventListener("contextmenu", (ev) => {
             ev.preventDefault();
             const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
@@ -9126,15 +9147,20 @@ def _render_workspace_page(user_id: int) -> str:
             if (!tab) return;
             tab.pinned = !tab.pinned;
             // Pinned tabs sort to left (pinned by access order, unpinned by access order)
+            const targetTab = tab;
             tabsState.tabs.sort((a, b) => {
               if ((a.pinned || false) !== (b.pinned || false)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
               return (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0);
             });
             // Re-find active index after sort
-            const newActiveIdx = tabsState.tabs.indexOf(tabsState.tabs[idx]);
+            const newActiveIdx = tabsState.tabs.indexOf(targetTab);
             tabsState.activeIndex = newActiveIdx >= 0 ? newActiveIdx : 0;
             saveTabsState();
             renderTabsBar();
+            // 11.5. write-through DB — pin status musí přežít F5 reload.
+            // Fire-and-forget (frontend už updatnul, server jen audit).
+            _apiCall("POST", "/api/v1/erp/tabs/" + encodeURIComponent(targetTab.cislo) + "/pinned",
+                     { pinned: targetTab.pinned });
           });
         });
         tabsBarEl.querySelectorAll(".erp-tab-close").forEach(el => {
@@ -9385,6 +9411,12 @@ def _render_workspace_page(user_id: int) -> str:
                 cislo: t.cislo,
                 itemId: t.itemId,
                 label: t.label,
+                // Phase 38.4 (11.5.2026 vecer): hydrate pinned + lastAccessedAt
+                // z DB (priorita nad localStorage). Marti's request — pinned
+                // záložky musí přežít F5 reload.
+                pinned: t.pinned === true,
+                lastAccessedAt: (typeof t.lastAccessedAt === "number")
+                  ? t.lastAccessedAt : null,
               })),
               activeIndex: (typeof tabsR.activeIndex === "number")
                 ? tabsR.activeIndex : -1,

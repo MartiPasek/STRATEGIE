@@ -2991,9 +2991,20 @@ def _render_full_page(
                         or (u.email if hasattr(u, "email") else None)
                         or f"User #{user_id}"
                     )
+                    # Phase 38.4 (11.5.2026 vecer): footer user je teď clickable
+                    # button s popoverem. V popoveru toggle Design mode (analog
+                    # tenant switcher pattern). Marti's spec: separate flag od
+                    # chat DEV — ERP "design mode" odkrývá fw struktury &
+                    # override hints (později Object Inspector, drag-drop).
                     user_name_html = (
-                        f' · <span class="erp-footer-user">'
+                        f' · <button type="button" class="erp-footer-user-btn" '
+                        f'id="erpFooterUserBtn" title="Profil & nastavení">'
+                        f'<span class="erp-footer-user">'
                         f'{html.escape(str(name))}</span>'
+                        f'<span class="erp-footer-user-caret">▴</span>'
+                        f'</button>'
+                        f'<div class="erp-footer-user-popover" '
+                        f'id="erpFooterUserPopover" hidden></div>'
                     )
                     tid = getattr(u, "last_active_tenant_id", None)
                     if tid:
@@ -3708,6 +3719,102 @@ def _render_full_page(
     body:has(.erp-workspace) > footer .erp-footer-tenant {{
       color: var(--accent2);
       font-weight: 500;
+    }}
+    /* Phase 38.4 (11.5.2026 vecer): user dropdown footer button — analog
+       tenant switcher. Hover/active styling identický pro UX konzistenci. */
+    .erp-footer-user-btn {{
+      background: transparent;
+      border: 1px solid transparent;
+      border-radius: 4px;
+      padding: 1px 6px;
+      margin: 0;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      cursor: pointer;
+      font: inherit;
+      color: inherit;
+      transition: background 120ms, border-color 120ms;
+    }}
+    .erp-footer-user-btn:hover {{
+      background: rgba(255, 255, 255, 0.05);
+      border-color: var(--border);
+    }}
+    .erp-footer-user-btn.active {{
+      background: rgba(255, 255, 255, 0.07);
+      border-color: var(--accent);
+    }}
+    .erp-footer-user-caret {{
+      font-size: 9px;
+      opacity: 0.7;
+      line-height: 1;
+    }}
+    .erp-footer-user-popover {{
+      position: fixed;
+      bottom: 32px;
+      left: 90px;
+      min-width: 240px;
+      max-width: 320px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.5);
+      padding: 4px 0;
+      z-index: 1000;
+      max-height: 320px;
+      overflow-y: auto;
+    }}
+    .erp-footer-user-popover[hidden] {{
+      display: none;
+    }}
+    .erp-user-popover-item {{
+      padding: 9px 14px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      font-size: 12px;
+      transition: background 100ms;
+    }}
+    .erp-user-popover-item:hover {{
+      background: rgba(255, 255, 255, 0.06);
+    }}
+    .erp-user-popover-item-label {{
+      color: var(--text);
+      font-weight: 500;
+    }}
+    .erp-user-popover-item-toggle {{
+      font-family: 'DM Mono', monospace;
+      font-size: 10px;
+      letter-spacing: 0.05em;
+      padding: 2px 8px;
+      border-radius: 3px;
+      background: rgba(255, 255, 255, 0.06);
+      color: var(--muted);
+    }}
+    .erp-user-popover-item.on .erp-user-popover-item-toggle {{
+      background: rgba(94, 234, 212, 0.18);
+      color: #5eead4;
+    }}
+    /* Design mode badge v pravém horním rohu ERP workspace.
+       Teal palette (distinct od chat DEV purpurové) — Marti's spec:
+       "stejna ikona v rohu jako v chatu", ale jiný flag + jiná barva. */
+    .erp-design-badge {{
+      position: fixed;
+      top: 9px;
+      right: 16px;
+      z-index: 9999;
+      padding: 4px 9px;
+      background: rgba(94, 234, 212, 0.15);
+      color: #5eead4;
+      border: 1px solid rgba(94, 234, 212, 0.35);
+      border-radius: 4px;
+      font-size: 11px;
+      font-family: 'DM Mono', monospace;
+      letter-spacing: 0.06em;
+      user-select: none;
+      pointer-events: none;
     }}
     /* Phase 35-E.3.2 (8.5.2026): tenant switcher button + popover */
     .erp-footer-tenant-btn {{
@@ -7783,6 +7890,105 @@ def _render_workspace_page(user_id: int) -> str:
       } else {
         // Document již plně parsed — DOM má footer; ale pojistka přes RAF
         requestAnimationFrame(_zoomInit);
+      }
+
+      // ── Phase 38.4 (11.5.2026 vecer): Footer user dropdown + Design mode ─
+      // Marti's spec: footer user "Marti" je teď clickable button s popoverem.
+      // V popoveru toggle Design mode — separate flag od chat DEV mode.
+      // localStorage `erp.design.mode.enabled` (per-browser, nezávislý od
+      // users.dev_mode_enabled v chatu). Když ON, teal "🎨 DESIGN" badge
+      // se objeví v pravém horním rohu (analog chat purpurová DEV).
+      const ERP_DESIGN_MODE_KEY = 'erp.design.mode.enabled';
+
+      function getErpDesignMode() {
+        try { return localStorage.getItem(ERP_DESIGN_MODE_KEY) === '1'; }
+        catch (e) { return false; }
+      }
+      function setErpDesignMode(on) {
+        try { localStorage.setItem(ERP_DESIGN_MODE_KEY, on ? '1' : '0'); }
+        catch (e) {}
+        renderErpDesignBadge();
+        // Expose state na window pro budoucí ERP feature gates (Phase 30+
+        // framework builder, Object Inspector, atd.).
+        try { window._erpDesignMode = !!on; } catch (e) {}
+      }
+      function renderErpDesignBadge() {
+        const on = getErpDesignMode();
+        let badge = document.getElementById('erpDesignBadge');
+        if (on) {
+          if (!badge) {
+            badge = document.createElement('span');
+            badge.id = 'erpDesignBadge';
+            badge.className = 'erp-design-badge';
+            badge.textContent = '🎨 DESIGN';
+            badge.title = 'ERP design režim — odhaluje framework struktury & override hints. Separate od chat DEV.';
+            document.body.appendChild(badge);
+          }
+        } else if (badge) {
+          badge.remove();
+        }
+      }
+      // Init při page load
+      renderErpDesignBadge();
+      try { window._erpDesignMode = getErpDesignMode(); } catch (e) {}
+
+      function _erpRenderUserPopover() {
+        const pop = document.getElementById('erpFooterUserPopover');
+        if (!pop) return;
+        pop.innerHTML = '';
+        const on = getErpDesignMode();
+        // Design mode toggle item
+        const designItem = document.createElement('div');
+        designItem.className = 'erp-user-popover-item' + (on ? ' on' : '');
+        designItem.innerHTML =
+          '<span class="erp-user-popover-item-label">🎨 Design režim</span>' +
+          '<span class="erp-user-popover-item-toggle">' + (on ? 'ZAP' : 'VYP') + '</span>';
+        designItem.title = 'Odhalí framework struktury a override hints v UI. Neovlivňuje chat DEV mode.';
+        designItem.addEventListener('click', () => {
+          setErpDesignMode(!getErpDesignMode());
+          _erpRenderUserPopover();
+        });
+        pop.appendChild(designItem);
+        // Future: další položky (profile, settings, logout, atd.)
+      }
+
+      function _erpToggleUserPopover() {
+        const btn = document.getElementById('erpFooterUserBtn');
+        const pop = document.getElementById('erpFooterUserPopover');
+        if (!btn || !pop) return;
+        if (pop.hasAttribute('hidden')) {
+          _erpRenderUserPopover();
+          pop.removeAttribute('hidden');
+          btn.classList.add('active');
+        } else {
+          pop.setAttribute('hidden', '');
+          btn.classList.remove('active');
+        }
+      }
+
+      // Click handler + outside-click close
+      {
+        const userBtn = document.getElementById('erpFooterUserBtn');
+        const userPop = document.getElementById('erpFooterUserPopover');
+        if (userBtn) {
+          userBtn.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            _erpToggleUserPopover();
+          });
+        }
+        document.addEventListener('click', (ev) => {
+          if (!userPop || userPop.hasAttribute('hidden')) return;
+          if (userBtn && userBtn.contains(ev.target)) return;
+          if (userPop.contains(ev.target)) return;
+          userPop.setAttribute('hidden', '');
+          if (userBtn) userBtn.classList.remove('active');
+        });
+        document.addEventListener('keydown', (ev) => {
+          if (ev.key === 'Escape' && userPop && !userPop.hasAttribute('hidden')) {
+            userPop.setAttribute('hidden', '');
+            if (userBtn) userBtn.classList.remove('active');
+          }
+        });
       }
 
       // ── Phase 35-E.3.2 (8.5.2026): Footer tenant switcher ───────────

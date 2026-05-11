@@ -1612,6 +1612,110 @@ def data_source_execute(
     return JSONResponse(jsonable_encoder(result))
 
 
+@api_router.get("/hw/{code}")
+def hw_dispatch(code: str, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 13.3 — 3-tier dispatcher via fw.hw_registry.shadow_mode.
+
+    Lookup hw_registry by code, per shadow_mode:
+      - 'primary'  → run A3 chain via DataSourceRunner (shadow_data_source_id)
+      - 'compare'  → run A3 + log shadow comparison (TODO Phase 14+)
+      - 'audit'    → return delegate_url for legacy + log A3 shadow (TODO Phase 14+)
+      - 'off'      → return delegate_url for legacy (frontend follow)
+
+    Returns:
+      {
+        "ok": true,
+        "dispatch_kind": "a3_primary" | "hw_off" | "hw_audit" | "hw_compare",
+        "hw_registry_id": N,
+        "shadow_mode": "...",
+        "rows": [...]                    -- jen pro a3_primary
+        "delegate_url": "/api/v1/erp/..."  -- jen pro hw_off/audit/compare
+      }
+
+    Frontend `gridDataResolved` cesta:
+      - Pokud `rows` v response → use directly (A3 path)
+      - Pokud `delegate_url` → follow s fetch + extract data.rows
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_hw
+    from sqlalchemy import text as _sql_text_hw
+
+    raw_params = dict(req.query_params)
+
+    session = _gds_hw()
+    try:
+        hw_row = session.execute(
+            _sql_text_hw("""
+                SELECT id, code, label, kind, shadow_mode, shadow_data_source_id,
+                       endpoint_url, http_method, response_hint, is_deprecated
+                FROM fw.hw_registry
+                WHERE code = :code AND is_active = TRUE
+                LIMIT 1
+            """),
+            {"code": code}
+        ).mappings().first()
+
+        if not hw_row:
+            return JSONResponse(
+                {"ok": False, "error": "hw_not_found", "code": code},
+                status_code=404,
+            )
+
+        mode = hw_row["shadow_mode"]
+        result_base = {
+            "ok": True,
+            "hw_registry_id": hw_row["id"],
+            "shadow_mode": mode,
+            "is_deprecated": hw_row["is_deprecated"],
+        }
+
+        if mode == "primary" and hw_row["shadow_data_source_id"]:
+            # A3 chain via DataSourceRunner (Krok 12)
+            try:
+                a3_result = ds_runner.run_data_source(
+                    session, code=code, raw_params=raw_params, kind="select"
+                )
+                return JSONResponse({
+                    **result_base,
+                    "dispatch_kind": "a3_primary",
+                    "rows": a3_result.get("rows", []),
+                    "row_count": a3_result.get("row_count", 0),
+                    "applied_params": a3_result.get("applied_params", {}),
+                })
+            except ds_runner.DataSourceError as exc:
+                # A3 failed — fallback to legacy URL if available
+                if hw_row["endpoint_url"]:
+                    return JSONResponse({
+                        **result_base,
+                        "dispatch_kind": "hw_fallback_legacy",
+                        "delegate_url": hw_row["endpoint_url"],
+                        "a3_error": str(exc),
+                    })
+                return JSONResponse(
+                    {"ok": False, "error": "a3_failed", "detail": str(exc)},
+                    status_code=500,
+                )
+
+        # hw_off / hw_audit / hw_compare — frontend follows delegate_url
+        if not hw_row["endpoint_url"]:
+            return JSONResponse(
+                {"ok": False, "error": "no_endpoint_url",
+                 "shadow_mode": mode, "code": code},
+                status_code=400,
+            )
+
+        return JSONResponse({
+            **result_base,
+            "dispatch_kind": "hw_" + mode,
+            "delegate_url": hw_row["endpoint_url"],
+        })
+
+    finally:
+        session.close()
+
+
 @api_router.get("/data")
 def data_source_list(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).
@@ -6391,34 +6495,49 @@ def _render_workspace_page(user_id: int) -> str:
         return cols || [];
       }
       async function gridDataResolved(mode) {
-        // Phase 38.4 Krok 12 (11.5.2026): A3-first data fetch.
-        // Try /api/v1/erp/data/{code} first (DB-driven via fw.data_source +
-        // data_source_op + data_set). Fallback na legacy hardcoded endpoint
-        // pokud A3 neni registered (e.g. security_* zatim nema data_source_op).
+        // Phase 38.4 Krok 13.3 (11.5.2026): 3-tier dispatch via fw.hw_registry.
+        // Backend /hw/{code} endpoint handles A3/HW/legacy decision via
+        // shadow_mode ENUM. Frontend just calls /hw/{code} a follow delegate_url
+        // if backend says so.
+        //
+        // Marti-AI's *„uniformita vítězí nad speciálními případy"* — žádný
+        // tier logic v frontend, vše rozhoduje backend přes hw_registry.
 
-        // Map UI mode → A3 data_source code
+        // Map UI mode → hw_registry code
         var code = mode;
         if (mode === "audited" || mode === "all" || mode === "stats") {
           code = "audit_" + mode;
         }
-        // security_* a framework_* zustanou as-is
+        // security_* a framework_* zustanou as-is (matchovany code v hw_registry)
 
-        // Try A3 first
+        // Phase 13.3 — 3-tier dispatch via /hw/{code}
         try {
-          var r = await fetch("/api/v1/erp/data/" + encodeURIComponent(code),
-                              { credentials: "include" });
+          var r = await fetch("/api/v1/erp/hw/" + encodeURIComponent(code),
+                              { credentials: "include", cache: "no-store" });
           if (r.ok) {
             var d = await r.json();
-            if (d && d.ok && Array.isArray(d.rows)) {
-              return d.rows;
+            if (d && d.ok) {
+              // A3 primary — rows direct v response
+              if (Array.isArray(d.rows)) {
+                return d.rows;
+              }
+              // hw_off / hw_audit / hw_compare — follow delegate_url
+              if (d.delegate_url) {
+                var rd = await fetch(d.delegate_url,
+                                     { credentials: "include", cache: "no-store" });
+                if (rd.ok) {
+                  var dd = await rd.json();
+                  return dd.rows || dd.conversations || [];
+                }
+              }
             }
           }
-          // 404 / 500 / non-ok → fall through to legacy
+          // hw_registry doesn't have entry (404) → fall through to legacy
         } catch (e) {
           // network error → fall through
         }
 
-        // Legacy hardcoded dispatch (existing patterns)
+        // Legacy hardcoded dispatch (fallback pro mody bez hw_registry entries)
         var url;
         if (mode.indexOf("security_") === 0) {
           url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(mode.substring(9));
@@ -6427,7 +6546,7 @@ def _render_workspace_page(user_id: int) -> str:
         } else {
           url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
         }
-        var res = await fetch(url, { credentials: "include" });
+        var res = await fetch(url, { credentials: "include", cache: "no-store" });
         if (!res.ok) {
           throw new Error("HTTP " + res.status + " from " + url);
         }

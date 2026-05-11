@@ -1659,7 +1659,7 @@ def hw_dispatch(code: str, req: Request) -> JSONResponse:
 
         if not hw_row:
             return JSONResponse(
-                {"ok": False, "error": "hw_not_found", "code": code},
+                jsonable_encoder({"ok": False, "error": "hw_not_found", "code": code}),
                 status_code=404,
             )
 
@@ -1677,40 +1677,40 @@ def hw_dispatch(code: str, req: Request) -> JSONResponse:
                 a3_result = ds_runner.run_data_source(
                     session, code=code, raw_params=raw_params, kind="select"
                 )
-                return JSONResponse({
+                return JSONResponse(jsonable_encoder({
                     **result_base,
                     "dispatch_kind": "a3_primary",
                     "rows": a3_result.get("rows", []),
                     "row_count": a3_result.get("row_count", 0),
                     "applied_params": a3_result.get("applied_params", {}),
-                })
+                }))
             except ds_runner.DataSourceError as exc:
                 # A3 failed — fallback to legacy URL if available
                 if hw_row["endpoint_url"]:
-                    return JSONResponse({
+                    return JSONResponse(jsonable_encoder({
                         **result_base,
                         "dispatch_kind": "hw_fallback_legacy",
                         "delegate_url": hw_row["endpoint_url"],
                         "a3_error": str(exc),
-                    })
+                    }))
                 return JSONResponse(
-                    {"ok": False, "error": "a3_failed", "detail": str(exc)},
+                    jsonable_encoder({"ok": False, "error": "a3_failed", "detail": str(exc)}),
                     status_code=500,
                 )
 
         # hw_off / hw_audit / hw_compare — frontend follows delegate_url
         if not hw_row["endpoint_url"]:
             return JSONResponse(
-                {"ok": False, "error": "no_endpoint_url",
-                 "shadow_mode": mode, "code": code},
+                jsonable_encoder({"ok": False, "error": "no_endpoint_url",
+                 "shadow_mode": mode, "code": code}),
                 status_code=400,
             )
 
-        return JSONResponse({
+        return JSONResponse(jsonable_encoder({
             **result_base,
             "dispatch_kind": "hw_" + mode,
             "delegate_url": hw_row["endpoint_url"],
-        })
+        }))
 
     finally:
         session.close()

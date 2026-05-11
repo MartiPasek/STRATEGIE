@@ -8685,6 +8685,37 @@ def _render_workspace_page(user_id: int) -> str:
             });
           }
 
+          // Phase 38.4 (11.5.2026 vecer): DESIGN položka — jen když design
+          // mód aktivní + single selection (design je per-entity, ne bulk).
+          // MVP placeholder = alert s identifikací; Object Inspector přijde dál.
+          if (window._erpDesignMode === true && !multi) {
+            const itemId = item.getAttribute("data-id") || "—";
+            const labelEl = item.querySelector(".erp-tree-label");
+            const label = labelEl
+              ? (labelEl.dataset.erpOrigText || labelEl.textContent || "")
+              : "";
+            const code = item.getAttribute("data-code") || "";
+            const dispatchKind = item.getAttribute("data-dispatch-kind") || "";
+            menuItems.push({
+              icon: "🎨",
+              label: "Design…",
+              handler: () => {
+                const info = [
+                  "🎨 Design: Soudeček / přehled v tree",
+                  "",
+                  "Label: " + (label || "—"),
+                  "cislo_def: " + cislo,
+                  "menu_node.id: " + itemId,
+                  code ? ("code: " + code) : null,
+                  dispatchKind ? ("dispatch_kind: " + dispatchKind) : null,
+                  "",
+                  "Object Inspector přijde příště (Phase 38.4 Krok další).",
+                ].filter(Boolean).join("\n");
+                alert(info);
+              },
+            });
+          }
+
           _showTreeContextMenu(ev.clientX, ev.clientY, menuItems);
         });
 

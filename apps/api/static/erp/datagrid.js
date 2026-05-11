@@ -1151,6 +1151,42 @@
               });
             }
           } catch (e) { console.warn("Object Inspector menu item failed:", e); }
+          // Phase 38.4 (11.5.2026 vecer): DESIGN položka — jen když design
+          // mód aktivní (window._erpDesignMode). MVP placeholder = alert
+          // s identifikací target sloupce; Object Inspector přijde příště.
+          const designItems = [];
+          try {
+            if (window._erpDesignMode === true) {
+              const col = params.column;
+              const colDef = col ? col.getColDef() : null;
+              const fieldName = colDef
+                ? (colDef.field || colDef.colId || "—")
+                : "—";
+              const headerName = colDef
+                ? (colDef.headerName || fieldName)
+                : "(žádný sloupec — kliknutí mimo header)";
+              const compDefId = colDef ? colDef._comp_def_id : null;
+              const gridCode = opts.gridCode
+                || (opts.layoutKey ? String(opts.layoutKey) : "—");
+              designItems.push({
+                name: "🎨 Design…",
+                tooltip: "Design mode — Object Inspector přijde příště",
+                action: () => {
+                  const info = [
+                    "🎨 Design: Sloupec gridu",
+                    "",
+                    "Header: " + headerName,
+                    "Field: " + fieldName,
+                    "Grid: " + gridCode,
+                    "comp_def_id: " + (compDefId || "—"),
+                    "",
+                    "Object Inspector přijde příště (Phase 38.4 Krok další).",
+                  ].join("\n");
+                  alert(info);
+                },
+              });
+            }
+          } catch (e) { console.warn("Design menu item failed:", e); }
           // Custom items z opts (per-grid extension) — array nebo fn
           let custom = [];
           try {
@@ -1162,6 +1198,7 @@
           } catch (e) { console.warn("customContextMenuItems failed:", e); }
           const all = [...defaults];
           if (oiItems.length > 0) all.push("separator", ...oiItems);
+          if (designItems.length > 0) all.push("separator", ...designItems);
           if (custom.length > 0) all.push("separator", ...custom);
           return all;
         },

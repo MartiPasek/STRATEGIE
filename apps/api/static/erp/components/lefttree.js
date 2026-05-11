@@ -95,6 +95,12 @@
           // _decorateLeftPanelLi cte node.dispatch_kind a appenduje
           // symbol k row.
           dispatch_kind: n.dispatch_kind || null,
+          // Phase 38.4 (11.5.2026 vecer): core.id + core.code + menu_node PK
+          // pass-through pro DESIGN mode alerty (smazat legacy cislo_def).
+          // n.id = row["code"] (text identifier), n.menu_node_pk = row["id"] (INT PK).
+          menu_node_pk: n.menu_node_pk || null,
+          core_id: n.core_id || null,
+          core_code: n.core_code || null,
           // Recursive children
           children: Array.isArray(n.children) && n.children.length > 0
             ? ErpLeftPanelTree.adaptServerTree(n.children)
@@ -187,6 +193,15 @@
 
       // 2. data-cislo-def attribute (legacy API pro tabs/MRU/favorites)
       if (cisloDefStr) li.dataset.cisloDef = cisloDefStr;
+
+      // Phase 38.4 (11.5.2026 vecer): expose fw.* identifiers na DOM
+      // pro DESIGN mode context menu (akce 1/3 - soudecek + core prehledu).
+      // Tree context menu handler v router.py je vyčítá přes getAttribute.
+      // menu_node_pk = INT PK z fw.menu_node.id (data-id je row["code"] text).
+      if (node.dispatch_kind) li.dataset.dispatchKind = node.dispatch_kind;
+      if (node.menu_node_pk != null) li.dataset.menuNodePk = String(node.menu_node_pk);
+      if (node.core_id != null) li.dataset.coreId = String(node.core_id);
+      if (node.core_code) li.dataset.coreCode = node.core_code;
 
       // 3. System markers (Phase 35-E.4)
       if (node.is_system === true) {

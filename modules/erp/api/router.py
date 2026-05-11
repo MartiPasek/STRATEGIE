@@ -1897,6 +1897,13 @@ def _build_system_root_from_db():
             node = {
                 "id": row["code"],
                 "cislo_def": cislo,
+                # Phase 38.4 (11.5.2026 vecer): primary fw.* IDs pro DESIGN mode.
+                # node["id"] = row["code"] (text, legacy convention pro routing).
+                # menu_node_pk = row["id"] (INT, skutečný DB primary key).
+                # core_id / core_code = fw.core LEFT JOIN přes menu_node.core_id.
+                "menu_node_pk": row.get("id"),
+                "core_id": row.get("core_id"),
+                "core_code": row.get("core_code"),
                 "is_system": True,
                 "is_folder": (row.get("kind") == "folder"),
                 "label": row["label"],
@@ -8689,24 +8696,34 @@ def _render_workspace_page(user_id: int) -> str:
           // mód aktivní + single selection (design je per-entity, ne bulk).
           // MVP placeholder = alert s identifikací; Object Inspector přijde dál.
           if (window._erpDesignMode === true && !multi) {
-            var _designItemId = item.getAttribute("data-id") || "-";
+            // Phase 38.4 (11.5.2026 vecer): fw.* identifikatory pro DESIGN.
+            //   data-menu-node-pk = fw.menu_node.id (INT PK, primary)
+            //   data-id           = fw.menu_node.code (text identifier)
+            //   data-core-id      = fw.core.id (INT PK, pokud menu_node.core_id IS NOT NULL)
+            //   data-core-code    = fw.core.code (text)
+            //   data-dispatch-kind = a3_primary / hw_off / hw_audit / hw_compare / orphan
+            // Legacy cislo_def smazano z alertu (Centrala 1 pozustatek).
+            var _designMenuNodePk = item.getAttribute("data-menu-node-pk") || "";
+            var _designMenuNodeCode = item.getAttribute("data-id") || "";
             var _designLabelEl = item.querySelector(".erp-tree-label");
             var _designLabel = "";
             if (_designLabelEl) {
               _designLabel = _designLabelEl.dataset.erpOrigText || _designLabelEl.textContent || "";
             }
-            var _designCode = item.getAttribute("data-code") || "";
             var _designDispatchKind = item.getAttribute("data-dispatch-kind") || "";
+            var _designCoreId = item.getAttribute("data-core-id") || "";
+            var _designCoreCode = item.getAttribute("data-core-code") || "";
             menuItems.push({
               icon: "🎨",
               label: "Design: Soudecek + core prehledu",
               handler: function () {
                 var NL = String.fromCharCode(10);
                 var info = "Design akce 1/3: SOUDECEK + CORE PREHLEDU" + NL + NL +
-                  "ID soudecku (menu_node.id): " + _designItemId + NL +
-                  "Label: " + (_designLabel || "-") + NL +
-                  "cislo_def: " + cislo;
-                if (_designCode) info += NL + "code: " + _designCode;
+                  "ID soudecku (menu_node.id): " + (_designMenuNodePk || "-") + NL +
+                  "menu_node.code: " + (_designMenuNodeCode || "-") + NL +
+                  "Label: " + (_designLabel || "-");
+                if (_designCoreId) info += NL + "ID core prehledu (core.id): " + _designCoreId;
+                if (_designCoreCode) info += NL + "core.code: " + _designCoreCode;
                 if (_designDispatchKind) info += NL + "dispatch_kind: " + _designDispatchKind;
                 info += NL + NL +
                   "Tato akce = sprava soudecku a zalozeni / editace core prehledu." + NL +
@@ -9823,7 +9840,8 @@ def _render_error_page(title: str, msg: str) -> str:
     <div class="erp-error">
       <h1>{html.escape(title)}</h1>
       <p>{html.escape(msg)}</p>
-      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>    </div>
+      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
+    </div>
     '''
     return _render_full_page(
         title=title,

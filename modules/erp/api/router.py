@@ -4363,17 +4363,15 @@ def _render_full_page(
       background: rgba(204, 102, 102, 0.15);
       color: #cc6666;
     }}
-    .erp-tab.pinned {{
-      background: rgba(212, 184, 138, 0.08);
-      border-left: 2px solid rgba(212, 184, 138, 0.6);
+    /* 11.5. revize: pinned styling jen v close-icon vpravo (Marti's UX feedback).
+       Žádná left-border / background změna na celé záložce. */
+    .erp-tab-close.pinned {{
+      cursor: default;
+      opacity: 0.85;
     }}
-    .erp-tab.pinned.active {{
-      background: rgba(212, 184, 138, 0.15);
-    }}
-    .erp-tab-pin-icon {{
-      font-size: 10px;
-      margin-right: 4px;
-      opacity: 0.7;
+    .erp-tab-close.pinned:hover {{
+      background: transparent !important;
+      color: inherit !important;
     }}
     .erp-tabs-bar::-webkit-scrollbar {{ height: 4px; }}
     .erp-tabs-bar::-webkit-scrollbar-thumb {{
@@ -7959,7 +7957,10 @@ def _render_workspace_page(user_id: int) -> str:
       if (treePaneEl) {
         treePaneEl.addEventListener("click", (ev) => {
           if (!workspaceEl.classList.contains("tree-collapsed")) return;
-          // Skip pokud click prošel přes resize handle (jeho own handler řeší expand)
+          // Skip pokud target je toggle button (race condition: button handler
+          // už collapse změnil; bubble do pane by hned undid). Plus pokud klik
+          // prošel přes resize handle (jeho own handler řeší expand).
+          if (ev.target && ev.target.closest(".erp-tree-toggle-btn")) return;
           if (ev.target && ev.target.closest(".erp-resize-handle")) return;
           applyTreeCollapsed(false);
           saveTreeCollapsed(false);
@@ -9094,22 +9095,28 @@ def _render_workspace_page(user_id: int) -> str:
         let html = "";
         // Phase 38.4 (11.5.2026 vecer): Close-all-except-active button VLEVO.
         // Marti's spec: nahrada za stary "+" button, ten zmizel — user otevira
-        // nove pres tree click (existing flow).
+        // nove pres tree click (existing flow). 11.5. revize: normalni × misto ⊗
+        // (Marti's UX feedback).
         html += '<button type="button" class="erp-tab-close-all" id="erpTabCloseAll" ' +
-                'title="Zavřít všechny záložky kromě aktivní">⊗</button>';
+                'title="Zavřít všechny záložky kromě aktivní">×</button>';
         tabsState.tabs.forEach((t, i) => {
           const active = (i === tabsState.activeIndex);
           const pinned = (t.pinned === true);
+          // 11.5. revize: žádný pinned styling na celé záložce (Marti's UX
+          // feedback). Místo toho close ikona vpravo: × pro běžné, 📌 pro pinned.
+          // Right-click toggle pin <=> close (pinned tab close icon = 📌 disabled).
           html += '<div class="erp-tab' + (active ? ' active' : '') +
-                  (pinned ? ' pinned' : '') +
                   '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) +
-                  (pinned ? ' (📌 pinned)' : '') + '">';
-          if (pinned) {
-            html += '<span class="erp-tab-pin-icon" title="Připnutá záložka">📌</span>';
-          }
+                  (pinned ? ' (📌 připnutá — pravý klik pro odepnutí)' : '') + '">';
           html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
-          html += '<button type="button" class="erp-tab-close" data-tab-close="' + i +
-                  '" title="Zavřít záložku">×</button>';
+          const closeChar = pinned ? '📌' : '×';
+          const closeTitle = pinned
+            ? 'Připnutá záložka (pravý klik pro odepnutí)'
+            : 'Zavřít záložku';
+          html += '<button type="button" class="erp-tab-close' +
+                  (pinned ? ' pinned' : '') +
+                  '" data-tab-close="' + i +
+                  '" title="' + closeTitle + '">' + closeChar + '</button>';
           html += '</div>';
         });
         tabsBarEl.innerHTML = html;
@@ -9143,6 +9150,9 @@ def _render_workspace_page(user_id: int) -> str:
         tabsBarEl.querySelectorAll(".erp-tab-close").forEach(el => {
           el.addEventListener("click", (ev) => {
             ev.stopPropagation();
+            // 11.5. revize: pinned tab → close icon je 📌 (no-op na klik),
+            // jen right-click ho odepne. User must unpin first to close.
+            if (el.classList.contains("pinned")) return;
             const idx = parseInt(el.getAttribute("data-tab-close"), 10);
             if (!isNaN(idx)) closeTab(idx);
           });
@@ -9302,19 +9312,28 @@ def _render_workspace_page(user_id: int) -> str:
       function restoreTabsFromStorage() {
         const persisted = loadTabsState();
         if (!persisted || !persisted.tabs || persisted.tabs.length === 0) return;
-        // Re-create tab metadata (data + gridState se znovu fetchnou)
+        // Re-create tab metadata (data + gridState se znovu fetchnou).
+        // 11.5. fix: restore pinned + lastAccessedAt (default = false + now)
+        // tak aby _evictOldestTab měl správný stav pro decisions.
+        const now = Date.now();
         tabsState.tabs = persisted.tabs.map(t => ({
           cislo: t.cislo,
           itemId: t.itemId,
           label: t.label,
           data: null,
           gridState: null,
+          pinned: t.pinned === true,
+          lastAccessedAt: typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : now,
         }));
         const idx = (persisted.activeIndex >= 0 && persisted.activeIndex < tabsState.tabs.length)
           ? persisted.activeIndex
           : 0;
+        tabsState.activeIndex = idx;
+        // 11.5. fix: po restore zavolat eviction — pokud uloženo > MAX_TABS_VISIBLE,
+        // oldest unpinned non-active se zahodí (LRU cap drží i napříč reload).
+        _evictOldestTab();
         renderTabsBar();
-        switchTab(idx);
+        switchTab(tabsState.activeIndex);
       }
 
       // B+8.1c (6.5.2026): API hydration — fetch user state z DB,

@@ -21,6 +21,7 @@ import html
 import time
 
 from fastapi import APIRouter, HTTPException, Request, Response
+from fastapi.encoders import jsonable_encoder
 from fastapi.responses import HTMLResponse, JSONResponse
 
 # B+4.2 (5.5.2026): cache busting pro static assets — každý API restart
@@ -1608,7 +1609,7 @@ def data_source_execute(
     finally:
         session.close()
 
-    return JSONResponse(result)
+    return JSONResponse(jsonable_encoder(result))
 
 
 @api_router.get("/data")
@@ -1629,7 +1630,7 @@ def data_source_list(req: Request) -> JSONResponse:
     finally:
         session.close()
 
-    return JSONResponse({"ok": True, "items": items})
+    return JSONResponse(jsonable_encoder({"ok": True, "items": items}))
 
 
 @api_router.get("/system/tree")

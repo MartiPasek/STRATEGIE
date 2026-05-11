@@ -9384,7 +9384,20 @@ def _render_workspace_page(user_id: int) -> str:
         const idx = (persisted.activeIndex >= 0 && persisted.activeIndex < tabsState.tabs.length)
           ? persisted.activeIndex
           : 0;
-        tabsState.activeIndex = idx;
+        // 11.5. fix #2: pinned záložky seřadit vlevo (jako po right-click toggle).
+        // DB GET vrací podle sort_order (původní pořadí otevření), ale UI musí
+        // pinned umístit první. Marti's request — pinned drží přes F5 i pozici.
+        // Capture active tab před sort, pak najdi nový index.
+        const activeTabRef = tabsState.tabs[idx] || null;
+        tabsState.tabs.sort((a, b) => {
+          if ((a.pinned || false) !== (b.pinned || false)) {
+            return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+          }
+          return (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0);
+        });
+        tabsState.activeIndex = activeTabRef
+          ? Math.max(0, tabsState.tabs.indexOf(activeTabRef))
+          : 0;
         // 11.5. fix: po restore zavolat eviction — pokud uloženo > MAX_TABS_VISIBLE,
         // oldest unpinned non-active se zahodí (LRU cap drží i napříč reload).
         _evictOldestTab();

@@ -6336,11 +6336,56 @@ def _render_workspace_page(user_id: int) -> str:
         }
         return cols || [];
       }
+      async function gridDataResolved(mode) {
+        // Phase 38.4 Krok 12 (11.5.2026): A3-first data fetch.
+        // Try /api/v1/erp/data/{code} first (DB-driven via fw.data_source +
+        // data_source_op + data_set). Fallback na legacy hardcoded endpoint
+        // pokud A3 neni registered (e.g. security_* zatim nema data_source_op).
+
+        // Map UI mode → A3 data_source code
+        var code = mode;
+        if (mode === "audited" || mode === "all" || mode === "stats") {
+          code = "audit_" + mode;
+        }
+        // security_* a framework_* zustanou as-is
+
+        // Try A3 first
+        try {
+          var r = await fetch("/api/v1/erp/data/" + encodeURIComponent(code),
+                              { credentials: "include" });
+          if (r.ok) {
+            var d = await r.json();
+            if (d && d.ok && Array.isArray(d.rows)) {
+              return d.rows;
+            }
+          }
+          // 404 / 500 / non-ok → fall through to legacy
+        } catch (e) {
+          // network error → fall through
+        }
+
+        // Legacy hardcoded dispatch (existing patterns)
+        var url;
+        if (mode.indexOf("security_") === 0) {
+          url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(mode.substring(9));
+        } else if (mode.indexOf("framework_") === 0) {
+          url = "/api/v1/erp/system/framework?mode=" + encodeURIComponent(mode.substring(10));
+        } else {
+          url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
+        }
+        var res = await fetch(url, { credentials: "include" });
+        if (!res.ok) {
+          throw new Error("HTTP " + res.status + " from " + url);
+        }
+        var data = await res.json();
+        return data.rows || data.conversations || [];
+      }
       if (window._sysHelpers) {
         window._sysHelpers.gridColumns = gridColumns;
         window._sysHelpers.gridColumnsResolved = gridColumnsResolved;
+        window._sysHelpers.gridDataResolved = gridDataResolved;
         window._sysHelpers.formatterRegistry = FORMATTER_REGISTRY;
-        console.log("[ERP-DIAG] _sysHelpers.gridColumns + gridColumnsResolved loaded");
+        console.log("[ERP-DIAG] _sysHelpers.gridColumns + gridColumnsResolved + gridDataResolved loaded");
       } else {
         console.error("[ERP-DIAG] _sysHelpers missing — gridColumns nelze pripojit");
       }
@@ -6449,45 +6494,10 @@ def _render_workspace_page(user_id: int) -> str:
         main.innerHTML =
           '<div id="erpSysGridBody" style="height:100%;background:var(--bg);">Nacitam...</div>';
 
-        // Fetch data — Phase 38.3 (10.5.2026): mode prefix určí endpoint.
-        // 'security_*'  → /system/security?mode={trimmed}
-        // 'framework_*' → /system/framework?mode={trimmed}  (Phase 38.3+, 10.5.)
-        // 'audited' / 'all' / 'stats' → /system/audit-overview?mode={mode}
-        var data;
-        var url;
-        var isSecurityMode = (mode && mode.indexOf("security_") === 0);
-        var isFrameworkMode = (mode && mode.indexOf("framework_") === 0);
-        if (isSecurityMode) {
-          var secSubMode = mode.substring("security_".length);  // "users" / "devices" / ...
-          url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(secSubMode);
-        } else if (isFrameworkMode) {
-          var fwSubMode = mode.substring("framework_".length);  // "menu_nodes" / "data_sources" / ...
-          url = "/api/v1/erp/system/framework?mode=" + encodeURIComponent(fwSubMode);
-        } else {
-          url = "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);
-        }
-        try {
-          var res = await fetch(url, { credentials: "include" });
-          if (!res.ok) {
-            var txt = await res.text();
-            var bodyErr = document.getElementById("erpSysGridBody");
-            if (bodyErr) {
-              bodyErr.innerHTML = '<div style="padding:20px;color:#f88">Chyba ' + res.status + ': ' + _escAttr(txt.substring(0, 200)) + '</div>';
-            }
-            return;
-          }
-          data = await res.json();
-        } catch (e) {
-          var bodyEx = document.getElementById("erpSysGridBody");
-          if (bodyEx) {
-            bodyEx.innerHTML = '<div style="padding:20px;color:#f88">Chyba: ' + _escAttr(String(e)) + '</div>';
-          }
-          return;
-        }
-
+        // Phase 38.4 Krok 12 (11.5.2026): data fetch přes H.gridDataResolved
+        // (A3-first /api/v1/erp/data/{code}, legacy fallback uvnitř helperu).
         var body = document.getElementById("erpSysGridBody");
         if (!body) return;
-        body.innerHTML = "";
 
         // Phase 38.4 Krok 8 (10.5.2026): async fetch z fw.grid_master + grid_column,
         // fallback na hardcoded H.gridColumns(mode). Po cleanup commit (#6+) hardcoded
@@ -6496,11 +6506,14 @@ def _render_workspace_page(user_id: int) -> str:
           ? await H.gridColumnsResolved(mode)
           : (H.gridColumns ? H.gridColumns(mode) : []);
         var rowData;
-        if (isSecurityMode || isFrameworkMode || mode === "stats") {
-          rowData = data.rows || [];
-        } else {
-          rowData = data.conversations || [];
+        try {
+          rowData = await H.gridDataResolved(mode);
+        } catch (e) {
+          console.error("[ERP] gridDataResolved failed for mode=" + mode + ":", e);
+          body.innerHTML = '<div style="padding:20px;color:#f88">Chyba: ' + _escAttr(String(e)) + '</div>';
+          return;
         }
+        body.innerHTML = "";
 
         // Krok B+: Layout key pro System uzly (negativni cislo)
         // Phase 38.4 Krok 8 (10.5.2026): tree walker místo SYSTEM_LAYOUT_CISLA dict.

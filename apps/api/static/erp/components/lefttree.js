@@ -217,22 +217,12 @@
         }
       }
 
-      // 6. Hardcoded marker (🛠️) — Phase 38.4 inventory (9.5.2026 vecer).
-      //    Marti's pattern: visual marker pro uzly, kde nejaka cast je
-      //    hardcoded v kodu (Python tree fallback, JS grid columns,
-      //    magic numbers, ...). Postupne se odznacuje, jak framework
-      //    dotahne (Phase 30+ migrace, Marti-AI editing pres UI).
-      //    Storage: master.menu_node.metadata->>'hardcoded' (JSONB).
-      if (node.metadata && node.metadata.hardcoded === true) {
-        const row = li.querySelector(":scope > ." + cls + "-row");
-        if (row && !row.querySelector("." + cls + "-hardcoded-marker")) {
-          const marker = document.createElement("span");
-          marker.className = cls + "-hardcoded-marker";
-          marker.textContent = "🛠️";
-          marker.title = "Tento uzel ma nejakou cast hardcoded v kodu (Phase 38.4 inventory).";
-          row.appendChild(marker);
-        }
-      }
+      // 6. Hardcoded marker (🛠️) — DEPRECATED Phase 38.4 Krok 13.4 (11.5.2026).
+      //    Puvodne ze 9.5. vecer (metadata.hardcoded=true). Nahrazen
+      //    dispatch_kind markerem (sekce 7) ktery rozlisuje a3_primary
+      //    vs hw_off vs hw_audit/compare vs orphan — preciznejsi semantika
+      //    via fw.hw_registry.shadow_mode lookup.
+      //    Marti's *„Ted jen odebrat tu puvodni ikonu ze stromu"* (11.5. vecer).
 
       // 7. Dispatch kind marker (Phase 38.4 Krok 13.4 — 11.5.2026 vecer).
       //    Backend (router.py _build_system_root_from_db) computuje

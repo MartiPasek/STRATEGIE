@@ -1151,14 +1151,19 @@
               });
             }
           } catch (e) { console.warn("Object Inspector menu item failed:", e); }
-          // Phase 38.4 (11.5.2026 vecer): DESIGN položka — jen když design
-          // mód aktivní (window._erpDesignMode). MVP placeholder = alert
-          // s identifikací target sloupce; Object Inspector přijde příště.
+          // Phase 38.4 (11.5.2026 vecer): DESIGN položky — jen když design
+          // mód aktivní (window._erpDesignMode). Marti's spec: 3 různé hardcoded
+          // formy podle kontextu kliku.
+          //   • cell na řádku       → akce 3/3 "Jádro pro řádek" (row form)
+          //   • header / footer     → akce 2/3 "Core přehledu"
+          //   • tree row (jinde)    → akce 1/3 (router.py)
+          // MVP placeholder = alert s identifikací; hardcoded formy přijdou dál.
           const designItems = [];
           try {
             if (window._erpDesignMode === true) {
               const col = params.column;
               const colDef = col ? col.getColDef() : null;
+              const node = params.node;  // null pro header / no-row area
               const fieldName = colDef
                 ? (colDef.field || colDef.colId || "-")
                 : "-";
@@ -1168,20 +1173,39 @@
               const compDefId = colDef ? colDef._comp_def_id : null;
               const gridCode = opts.gridCode
                 || (opts.layoutKey ? String(opts.layoutKey) : "-");
+              const NL = String.fromCharCode(10);
+
+              // Akce 2/3 — Core přehledu (vždy v design mode, na headeru i řádku)
               designItems.push({
-                name: "Design...",
-                tooltip: "Design mode — Object Inspector prijde priste",
+                name: "Design: Core prehledu",
+                tooltip: "Editace core prehledu (akce 2/3)",
                 action: function () {
-                  var NL = String.fromCharCode(10);
-                  var info = "Design: Sloupec gridu" + NL + NL +
-                    "Header: " + headerName + NL +
-                    "Field: " + fieldName + NL +
-                    "Grid: " + gridCode + NL +
-                    "comp_def_id: " + (compDefId || "-") + NL + NL +
-                    "Object Inspector prijde priste.";
+                  var info = "Design akce 2/3: CORE PREHLEDU" + NL + NL +
+                    "Grid: " + gridCode + NL + NL +
+                    "Tato akce = editace core prehledu (sloupce, layout, default filter)." + NL +
+                    "Hardcoded form prijde priste.";
                   alert(info);
                 },
               });
+
+              // Akce 3/3 — Jádro pro řádek (jen pokud klikáme na řádku)
+              if (node && node.data) {
+                const rowId = node.data.ID || node.data.id || node.data.Id || node.id || "-";
+                designItems.push({
+                  name: "Design: Jadro pro radek",
+                  tooltip: "Editace jadra (row form) pro tento radek (akce 3/3)",
+                  action: function () {
+                    var info = "Design akce 3/3: JADRO PRO RADEK" + NL + NL +
+                      "Grid: " + gridCode + NL +
+                      "Row ID: " + rowId + NL +
+                      "Sloupec klepnutí: " + headerName + " (field: " + fieldName + ")" + NL +
+                      "comp_def_id sloupce: " + (compDefId || "-") + NL + NL +
+                      "Tato akce = nove jadro / uprava jadra pro editaci vety prehledu." + NL +
+                      "Hardcoded form prijde priste.";
+                    alert(info);
+                  },
+                });
+              }
             }
           } catch (e) { console.warn("Design menu item failed:", e); }
           // Custom items z opts (per-grid extension) — array nebo fn
@@ -1225,6 +1249,11 @@
             // do AG Grid status baru — sloučení dvou řádek do jedné.
             // 150ms aby AG Grid status bar měl čas se mountnout.
             setTimeout(() => this._relocateToolbarToStatusBar(), 150);
+            // Phase 38.4 (11.5.2026 vecer): status bar right-click → akce 2/3
+            // "Core přehledu". Marti's spec: pravý klik na patičku gridu
+            // řeší přehled core, ne row jádro. AG Grid `getContextMenuItems`
+            // tu oblast nezachycuje — attach DOM listener přímo.
+            setTimeout(() => this._attachStatusBarDesignHandler(), 200);
           });
         },
         onFirstDataRendered: (params) => {
@@ -1938,6 +1967,38 @@
      * Fallback: pokud status bar element neexistuje (AG Grid neinitnul),
      * toolbar zůstane na své původní pozici (skrytý).
      */
+    /**
+     * Phase 38.4 (11.5.2026 vecer): pravý klik na status bar gridu vyvolá
+     * akci 2/3 — Core přehledu. Marti's spec: footer = core přehledu,
+     * řádek = jádro pro větu, soudeček v tree = soudeček + core mgmt.
+     *
+     * Gated na window._erpDesignMode (per-browser flag z footer dropdown).
+     */
+    _attachStatusBarDesignHandler() {
+      if (!this.gridContainer || this._destroyed) return;
+      var statusBar = this.gridContainer.querySelector(".ag-status-bar");
+      if (!statusBar) return;  // Status bar disabled na tomto gridu
+      if (statusBar._erpDesignAttached) return;  // Idempotent
+      statusBar._erpDesignAttached = true;
+      var self = this;
+      statusBar.addEventListener("contextmenu", function (ev) {
+        if (window._erpDesignMode !== true) return;  // Žádný handler mimo design mode
+        // Pokud user pravý-klikl na toolbar (button, dropdown) — nechej
+        // jeho own handler, neotevřej design alert.
+        if (ev.target && ev.target.closest(".erp-grid-toolbar")) return;
+        ev.preventDefault();
+        var NL = String.fromCharCode(10);
+        var gridCode = (self.options.gridCode)
+          || (self.options.layoutKey ? String(self.options.layoutKey) : "-");
+        var info = "Design akce 2/3: CORE PREHLEDU" + NL + NL +
+          "Grid: " + gridCode + NL + NL +
+          "Tato akce = editace core prehledu (sloupce, layout, default filter)." + NL +
+          "Hardcoded form prijde priste." + NL + NL +
+          "(Trigger: pravy klik na paticku gridu)";
+        alert(info);
+      });
+    }
+
     _relocateToolbarToStatusBar(retryCount) {
       if (!this.toolbarEl || !this.gridContainer) return;
       retryCount = retryCount || 0;

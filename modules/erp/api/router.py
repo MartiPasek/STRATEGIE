@@ -8699,16 +8699,18 @@ def _render_workspace_page(user_id: int) -> str:
             var _designDispatchKind = item.getAttribute("data-dispatch-kind") || "";
             menuItems.push({
               icon: "🎨",
-              label: "Design…",
+              label: "Design: Soudecek + core prehledu",
               handler: function () {
                 var NL = String.fromCharCode(10);
-                var info = "Design: Soudecek / prehled v tree" + NL + NL +
+                var info = "Design akce 1/3: SOUDECEK + CORE PREHLEDU" + NL + NL +
+                  "ID soudecku (menu_node.id): " + _designItemId + NL +
                   "Label: " + (_designLabel || "-") + NL +
-                  "cislo_def: " + cislo + NL +
-                  "menu_node.id: " + _designItemId;
+                  "cislo_def: " + cislo;
                 if (_designCode) info += NL + "code: " + _designCode;
                 if (_designDispatchKind) info += NL + "dispatch_kind: " + _designDispatchKind;
-                info += NL + NL + "Object Inspector prijde priste.";
+                info += NL + NL +
+                  "Tato akce = sprava soudecku a zalozeni / editace core prehledu." + NL +
+                  "Hardcoded form prijde priste.";
                 alert(info);
               },
             });
@@ -9821,8 +9823,7 @@ def _render_error_page(title: str, msg: str) -> str:
     <div class="erp-error">
       <h1>{html.escape(title)}</h1>
       <p>{html.escape(msg)}</p>
-      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
-    </div>
+      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>    </div>
     '''
     return _render_full_page(
         title=title,

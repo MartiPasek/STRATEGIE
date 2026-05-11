@@ -1719,8 +1719,7 @@ def _build_system_root_from_db():
     try:
         sql = _sql_text_st("""
             SELECT id, parent_id, code, label, kind, sort_order,
-                   visibility_scope, cislo_def, special_handler, status,
-                   metadata
+                   visibility_scope, cislo_def, special_handler, status
             FROM fw.menu_node
             WHERE status = 'active'
               AND visibility_scope = 'parent_only'
@@ -1751,34 +1750,75 @@ def _build_system_root_from_db():
         return None
 
     def _build_node(row):
-        cislo = row.get("cislo_def")
-        sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
-        children_db = by_parent.get(row["id"], [])
-        # Stable sort by sort_order, code tiebreak
-        children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
-        children = [_build_node(c) for c in children_db]
-        node = {
-            "id": row["code"],
-            "cislo_def": cislo,
-            "is_system": True,
-            "is_folder": (row.get("kind") == "folder"),
-            "label": row["label"],
-            "nazev": row["label"],
-        }
-        # Phase 38.4 inventory (9.5.2026 vecer): metadata passthrough pro
-        # hardcoded marker (🛠️) renderer ve frontend.
-        # JSONB column na DB strane, dict na Python strane (psycopg auto-parse).
-        meta = row.get("metadata")
-        if meta:
-            node["metadata"] = meta
-        if sv:
-            node["system_view"] = sv
-            node["system_view_mode"] = svm
-            if single:
-                node["single"] = True
-        if children:
-            node["children"] = children
-        return node
+        # Phase 38.4 Krok 12-D (11.5.2026): Marti's resilient rendering mandate
+        # *„odchytit chybu, polozku stromu vykreslit a chybu zobrazit v pravem
+        # panelu"*. Per-node + per-child try/except — failure jednoho rowu
+        # nesmí dropnout siblings ani parent. Error node má is_error=True
+        # + error_detail string pro frontend right-panel render.
+        try:
+            cislo = row.get("cislo_def")
+            sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
+            children_db = by_parent.get(row["id"], [])
+            children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+            children = []
+            for c in children_db:
+                try:
+                    child_node = _build_node(c)
+                    if child_node:
+                        children.append(child_node)
+                except Exception as child_exc:
+                    import logging as _logging_tree_c
+                    _logging_tree_c.exception(
+                        "system tree _build_node child failed for row id=%s code=%s",
+                        c.get("id"), c.get("code"),
+                    )
+                    children.append({
+                        "id": (c.get("code") or "err-{}".format(c.get("id"))),
+                        "label": (c.get("label") or "?") + " ⚠️",
+                        "nazev": (c.get("label") or "?") + " ⚠️",
+                        "is_system": True,
+                        "is_folder": False,
+                        "is_error": True,
+                        "error_detail": "{}: {}".format(type(child_exc).__name__, child_exc),
+                        "metadata": {"error": True, "hardcoded": False},
+                    })
+            node = {
+                "id": row["code"],
+                "cislo_def": cislo,
+                "is_system": True,
+                "is_folder": (row.get("kind") == "folder"),
+                "label": row["label"],
+                "nazev": row["label"],
+            }
+            # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
+            # v fw.menu_node, vrátí None — bezpečné).
+            meta = row.get("metadata")
+            if meta:
+                node["metadata"] = meta
+            if sv:
+                node["system_view"] = sv
+                node["system_view_mode"] = svm
+                if single:
+                    node["single"] = True
+            if children:
+                node["children"] = children
+            return node
+        except Exception as exc:
+            import logging as _logging_tree_n
+            _logging_tree_n.exception(
+                "system tree _build_node failed for row id=%s code=%s",
+                row.get("id"), row.get("code"),
+            )
+            return {
+                "id": (row.get("code") or "err-{}".format(row.get("id"))),
+                "label": (row.get("label") or "?") + " ⚠️",
+                "nazev": (row.get("label") or "?") + " ⚠️",
+                "is_system": True,
+                "is_folder": False,
+                "is_error": True,
+                "error_detail": "{}: {}".format(type(exc).__name__, exc),
+                "metadata": {"error": True, "hardcoded": False},
+            }
 
     return _build_node(system_db)
 
@@ -1986,12 +2026,26 @@ def strom_json(req: Request) -> JSONResponse:
                             "system_view": "framework",
                             "system_view_mode": "menu_nodes",
                         },
-                        # Phase 38.4+ TODO (po Marti-AI's data_source consultation):
-                        # cislo -116 = Datové zdroje (fw.data_source list),
-                        # cislo -117 = DataSets (fw.data_set list, volitelné).
-                        # Až Marti-AI dotáhne migraci, INSERT do _SYSTEM_TREE_NODES
-                        # + nový case v _systemModeFromCislo + renderSystemGrid
-                        # dispatch + sql endpoint /system/framework/data-sources.
+                        {
+                            "id": "system.framework.data_sources",
+                            "cislo_def": -116,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "🔌 Datové zdroje",
+                            "nazev": "🔌 Datové zdroje",
+                            "system_view": "framework",
+                            "system_view_mode": "data_sources",
+                        },
+                        {
+                            "id": "system.framework.data_sets",
+                            "cislo_def": -117,
+                            "is_system": True,
+                            "is_folder": False,
+                            "label": "⚙️ DataSets",
+                            "nazev": "⚙️ DataSets",
+                            "system_view": "framework",
+                            "system_view_mode": "data_sets",
+                        },
                     ],
                 },
             ],

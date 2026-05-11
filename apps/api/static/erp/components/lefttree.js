@@ -229,19 +229,18 @@
       //    node.dispatch_kind z fw.menu_node.core_id → fw.core.code →
       //    fw.hw_registry.shadow_mode lookup chain. Marker zobrazuje
       //    runtime dispatch stav per node:
+      //    Marti's doctrine 11.5. vecer: *„Standard je A3, marker jen
+      //    pro odchylky"*. Tj. a3_primary = no marker (expected behavior),
+      //    markery jen pro anomalies (legacy, migration, orphan).
       //
-      //      'a3_primary'  → ✅ (A3 chain primary, no hardcoded fallback)
+      //      'a3_primary'  → no marker (standard A3 chain, expected)
       //      'hw_off'      → 🛠️ (legacy hardcoded endpoint, no shadow)
       //      'hw_audit'    → 🔄 (audit shadow mode — passive observation)
       //      'hw_compare'  → 🔄 (compare shadow mode — diff validation)
       //      'orphan'      → ⚠️ (leaf bez hw_registry match — needs attention)
       //      null/folder   → no marker (folders nejsou dispatchable)
-      //
-      //    Marker se prida pred hardcoded marker (pokud oba existuji,
-      //    dispatch_kind je primary signal, hardcoded je secondary).
       if (node.dispatch_kind) {
         const dispatchMarkers = {
-          "a3_primary": { symbol: "✅", title: "A3 dispatch chain (primary)" },
           "hw_off":     { symbol: "🛠️", title: "Legacy hardcoded endpoint (hw_registry shadow_mode=off)" },
           "hw_audit":   { symbol: "🔄", title: "Shadow audit mode (hw_registry shadow_mode=audit)" },
           "hw_compare": { symbol: "🔄", title: "Shadow compare mode (hw_registry shadow_mode=compare)" },

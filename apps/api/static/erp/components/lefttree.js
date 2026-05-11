@@ -226,6 +226,42 @@
           row.appendChild(marker);
         }
       }
+
+      // 7. Dispatch kind marker (Phase 38.4 Krok 13.4 — 11.5.2026 vecer).
+      //    Backend (router.py _build_system_root_from_db) computuje
+      //    node.dispatch_kind z fw.menu_node.core_id → fw.core.code →
+      //    fw.hw_registry.shadow_mode lookup chain. Marker zobrazuje
+      //    runtime dispatch stav per node:
+      //
+      //      'a3_primary'  → ✅ (A3 chain primary, no hardcoded fallback)
+      //      'hw_off'      → 🛠️ (legacy hardcoded endpoint, no shadow)
+      //      'hw_audit'    → 🔄 (audit shadow mode — passive observation)
+      //      'hw_compare'  → 🔄 (compare shadow mode — diff validation)
+      //      'orphan'      → ⚠️ (leaf bez hw_registry match — needs attention)
+      //      null/folder   → no marker (folders nejsou dispatchable)
+      //
+      //    Marker se prida pred hardcoded marker (pokud oba existuji,
+      //    dispatch_kind je primary signal, hardcoded je secondary).
+      if (node.dispatch_kind) {
+        const dispatchMarkers = {
+          "a3_primary": { symbol: "✅", title: "A3 dispatch chain (primary)" },
+          "hw_off":     { symbol: "🛠️", title: "Legacy hardcoded endpoint (hw_registry shadow_mode=off)" },
+          "hw_audit":   { symbol: "🔄", title: "Shadow audit mode (hw_registry shadow_mode=audit)" },
+          "hw_compare": { symbol: "🔄", title: "Shadow compare mode (hw_registry shadow_mode=compare)" },
+          "orphan":     { symbol: "⚠️", title: "Leaf bez fw.hw_registry zaznamu (orphan dispatch)" }
+        };
+        const m = dispatchMarkers[node.dispatch_kind];
+        if (m) {
+          const row = li.querySelector(":scope > ." + cls + "-row");
+          if (row && !row.querySelector("." + cls + "-dispatch-marker")) {
+            const dm = document.createElement("span");
+            dm.className = cls + "-dispatch-marker";
+            dm.textContent = " " + m.symbol;
+            dm.title = m.title;
+            row.appendChild(dm);
+          }
+        }
+      }
     }
 
     _injectStarOn(li, cls) {

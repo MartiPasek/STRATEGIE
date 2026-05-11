@@ -1821,13 +1821,21 @@ def _build_system_root_from_db():
 
     ds = _gds_st()
     try:
+        # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
+        # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
+        # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
+        # bez core/hw vrátí NULL hw_shadow_mode → _build_node mapuje na 'orphan'.
         sql = _sql_text_st("""
-            SELECT id, parent_id, code, label, kind, sort_order,
-                   visibility_scope, cislo_def, special_handler, status
-            FROM fw.menu_node
-            WHERE status = 'active'
-              AND visibility_scope = 'parent_only'
-            ORDER BY parent_id NULLS FIRST, sort_order, code
+            SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
+                   n.visibility_scope, n.cislo_def, n.special_handler, n.status,
+                   n.core_id, c.code AS core_code,
+                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
+            FROM fw.menu_node n
+            LEFT JOIN fw.core c ON c.id = n.core_id
+            LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
+            WHERE n.status = 'active'
+              AND n.visibility_scope = 'parent_only'
+            ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.code
         """)
         result = ds.execute(sql)
         rows = [dict(r._mapping) for r in result]
@@ -1894,6 +1902,27 @@ def _build_system_root_from_db():
                 "label": row["label"],
                 "nazev": row["label"],
             }
+            # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind compute pro
+            # sidebar marker. Folders vrátí None (žádný marker), leafs
+            # mapují přes hw_shadow_mode → a3_primary/hw_off/hw_audit/
+            # hw_compare. Pokud node má core_id ale žádný hw match (nebo
+            # core_id IS NULL u leaf nodu), vrátí 'orphan' = ⚠️.
+            #
+            # Mapování:
+            #   folder                      → None (no marker)
+            #   hw_shadow_mode='primary'    → 'a3_primary' (✅)
+            #   hw_shadow_mode='off'        → 'hw_off' (🛠️)
+            #   hw_shadow_mode='audit'      → 'hw_audit' (🔄)
+            #   hw_shadow_mode='compare'    → 'hw_compare' (🔄)
+            #   leaf bez hw match           → 'orphan' (⚠️)
+            if row.get("kind") != "folder":
+                hw_mode = row.get("hw_shadow_mode")
+                if hw_mode == "primary":
+                    node["dispatch_kind"] = "a3_primary"
+                elif hw_mode in ("off", "audit", "compare"):
+                    node["dispatch_kind"] = "hw_" + hw_mode
+                else:
+                    node["dispatch_kind"] = "orphan"
             # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
             # v fw.menu_node, vrátí None — bezpečné).
             meta = row.get("metadata")

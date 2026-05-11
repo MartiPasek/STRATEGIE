@@ -7967,28 +7967,35 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       // Click handler + outside-click close
-      {
+      // 11.5. fix: footer button je rendered v _render_full_page (AFTER
+      // workspace <main>), takže inline IIFE getElementById vrací null.
+      // Wrap init do DOMContentLoaded (stejný pattern jako tenant switcher).
+      function _erpInitUserDropdown() {
         const userBtn = document.getElementById('erpFooterUserBtn');
         const userPop = document.getElementById('erpFooterUserPopover');
-        if (userBtn) {
-          userBtn.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            _erpToggleUserPopover();
-          });
-        }
+        if (!userBtn || !userPop) return;
+        userBtn.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          _erpToggleUserPopover();
+        });
         document.addEventListener('click', (ev) => {
-          if (!userPop || userPop.hasAttribute('hidden')) return;
-          if (userBtn && userBtn.contains(ev.target)) return;
+          if (userPop.hasAttribute('hidden')) return;
+          if (userBtn.contains(ev.target)) return;
           if (userPop.contains(ev.target)) return;
           userPop.setAttribute('hidden', '');
-          if (userBtn) userBtn.classList.remove('active');
+          userBtn.classList.remove('active');
         });
         document.addEventListener('keydown', (ev) => {
-          if (ev.key === 'Escape' && userPop && !userPop.hasAttribute('hidden')) {
+          if (ev.key === 'Escape' && !userPop.hasAttribute('hidden')) {
             userPop.setAttribute('hidden', '');
-            if (userBtn) userBtn.classList.remove('active');
+            userBtn.classList.remove('active');
           }
         });
+      }
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', _erpInitUserDropdown, { once: true });
+      } else {
+        _erpInitUserDropdown();
       }
 
       // ── Phase 35-E.3.2 (8.5.2026): Footer tenant switcher ───────────

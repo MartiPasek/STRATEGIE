@@ -2002,6 +2002,186 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         ds.close()
 
 
+# ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 14b (12.5.2026 vecer): fw-form template renderer
+#
+# Marti's pivot z 12.5. večera: build fw-native form rendering. Marti's
+# *„template formu uz s panelem"* + Marti-AI's flat-data doctrine
+# (region_slot column → field-level section info, žádný container comp_def).
+#
+# Architektura:
+#   fw.core (kind='form', data_entity_type='user')
+#   └── fw.comp_def (type_id=302 form, parent_core_id=core.id)
+#         layout JSONB: {"panels": [{"slot": "x", "label": "...", "order": ...}, ...]}
+#         └── fw.comp_def (type_id=2/7 edit/combobox, parent_comp_def_id=form.id)
+#               region_slot='x' — určuje, do jakého panelu pole patří
+#
+# Endpoint:
+#   GET /api/v1/erp/fw-form/{core_code}/{row_id}
+#   Vrací: {core, form, fields, data} — frontend renderer ho použije.
+# ────────────────────────────────────────────────────────────────────
+
+# Per-entity routing — kde najít data row pro fw-form rendering.
+# Whitelist + select column list (security: blokuje leak password_hash atd.).
+# Future: přesunout do fw.core.data_source_config JSONB per row.
+_FW_FORM_ENTITY_MAP: dict = {
+    "user": {
+        "schema": "public",
+        "table": "users",
+        "id_column": "id",
+        # Whitelist sloupcu pro frontend (NESMI obsahovat password_hash,
+        # ews credentials, atd.). Per-field permission gating jde přes
+        # fw.comp_def.layout.readonly later (Phase 38.4 Krok 14b-write).
+        "select_columns": [
+            "id", "status", "legal_name", "first_name", "last_name",
+            "short_name", "ews_email", "ews_display_email",
+            "trust_rating", "is_marti_parent", "is_admin",
+            "last_active_tenant_id",
+            "created_at", "updated_at",
+        ],
+    },
+}
+
+
+@api_router.get("/fw-form/{core_code}/{row_id}")
+def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
+    """Load fw form spec + row data pro frontend rendering.
+
+    Generic template — funguje pro any fw.core s kind='form' a registered
+    entity v _FW_FORM_ENTITY_MAP. Pro user_edit core (data_entity_type='user')
+    vrátí user row z public.users (filtered přes select_columns whitelist).
+
+    Returns:
+        200: {core, form, fields, data}
+        404: core_code nenalezen, nebo row_id neexistuje
+        501: data_entity_type není v _FW_FORM_ENTITY_MAP (whitelist miss)
+    """
+    from core.database_data import get_data_session as _gds_fwform
+    from sqlalchemy import text as _sql_text_fwform
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_fwform()
+    try:
+        # 1. Load fw.core by code (kind='form' + is_active=true)
+        core_row = ds.execute(_sql_text_fwform("""
+            SELECT id, code, label, description, layout_type,
+                   data_entity_type, data_source_config, version,
+                   layout_template, created_at
+            FROM fw.core
+            WHERE code = :code
+              AND is_active = true
+              AND layout_type = 'form'
+        """), {"code": core_code}).mappings().one_or_none()
+
+        if not core_row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core code='{core_code}' (kind=form) nenalezen"},
+                status_code=404,
+            )
+
+        core_dict = dict(core_row)
+
+        # 2. Validate data_entity_type → table mapping
+        entity_type = core_dict.get("data_entity_type")
+        if not entity_type or entity_type not in _FW_FORM_ENTITY_MAP:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP. "
+                        f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+                    ),
+                },
+                status_code=501,
+            )
+
+        entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+
+        # 3. Load root form comp_def (type_id=302, parent_core_id=core.id)
+        form_row = ds.execute(_sql_text_fwform("""
+            SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                   cd.sort_order, cd.is_active,
+                   ct.code AS comp_type_code, ct.label AS comp_type_label
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            WHERE cd.parent_core_id = :core_id
+              AND cd.type_id = 302
+              AND cd.is_active = true
+            ORDER BY cd.sort_order ASC, cd.id ASC
+            LIMIT 1
+        """), {"core_id": core_dict["id"]}).mappings().one_or_none()
+
+        if not form_row:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"fw.comp_def s type_id=302 (form) pro "
+                        f"parent_core_id={core_dict['id']} nenalezen. "
+                        f"Form template chybí — INSERT comp_def s "
+                        f"type_id=302 + layout.panels JSONB."
+                    ),
+                },
+                status_code=404,
+            )
+
+        form_dict = dict(form_row)
+
+        # 4. Load field comp_defs (parent_comp_def_id=form.id)
+        fields_rows = ds.execute(_sql_text_fwform("""
+            SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                   cd.sort_order, cd.region_slot, cd.is_active,
+                   ct.code AS comp_type_code, ct.label AS comp_type_label
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            WHERE cd.parent_comp_def_id = :form_id
+              AND cd.is_active = true
+            ORDER BY cd.region_slot ASC, cd.sort_order ASC, cd.id ASC
+        """), {"form_id": form_dict["id"]}).mappings().all()
+
+        fields_list = [dict(f) for f in fields_rows]
+
+        # 5. Load data row from target entity table
+        schema_name = entity_config["schema"]
+        table_name = entity_config["table"]
+        id_column = entity_config["id_column"]
+        cols_list = entity_config["select_columns"]
+        cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+
+        data_query = (
+            f'SELECT {cols_sql} '
+            f'FROM "{schema_name}"."{table_name}" '
+            f'WHERE "{id_column}" = :row_id'
+        )
+        data_row = ds.execute(
+            _sql_text_fwform(data_query), {"row_id": row_id}
+        ).mappings().one_or_none()
+
+        if not data_row:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Row {entity_type} id={row_id} nenalezen v "
+                        f"{schema_name}.{table_name}"
+                    ),
+                },
+                status_code=404,
+            )
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "core": core_dict,
+            "form": form_dict,
+            "fields": fields_list,
+            "data": dict(data_row),
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.get("/data")
 def data_source_list(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).

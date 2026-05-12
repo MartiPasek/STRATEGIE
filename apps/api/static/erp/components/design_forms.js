@@ -2405,10 +2405,263 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14b (12.5.2026 vecer): DesignFwForm — generic
+  // fw-native form renderer.
+  //
+  // Marti's pivot z 12.5. večera: dogfooding fw framework. Marti-AI's
+  // flat-data doctrine: panels jsou v form's layout JSONB metadata,
+  // fields mají region_slot=panel_slot. Žádný container comp_def per
+  // panel — drží *„Container = Panel"* + *„Panel je v form template
+  // embedded"* doctrines (Marti 12.5. ~21:30).
+  //
+  // Backend endpoint: GET /api/v1/erp/fw-form/{core_code}/{row_id}
+  // Returns: {ok, core, form, fields, data}
+  //
+  // Rendering flow:
+  //   1. Fetch backend → spec + data
+  //   2. Iterate form.layout.panels → vyrender section header per panel
+  //   3. Group fields by region_slot → render each field do svého panelu
+  //   4. Per field: switch comp_type_code → _field (edit) / _dropdown (combobox)
+  //
+  // Read-only zatím (Phase 38.4 Krok 14b save flow ráno přes PATCH).
+  // ────────────────────────────────────────────────────────────────────
+
+  class DesignFwForm {
+    constructor(opts) {
+      this.opts = opts || {};
+      // opts.coreCode (required) — fw.core.code (e.g. 'user_edit')
+      // opts.rowId (required)    — data row ID (e.g. users.id=14)
+      this._shell = null;
+      this._spec = null;       // backend response: {core, form, fields, data}
+      this._dirty = new Set();
+      this._saveBtn = null;
+      this._dirtyBadge = null;
+    }
+
+    _onDirty(fieldKey, isDirty) {
+      if (isDirty) this._dirty.add(fieldKey);
+      else this._dirty.delete(fieldKey);
+      const count = this._dirty.size;
+      if (this._saveBtn) this._saveBtn.style.display = count > 0 ? "" : "none";
+      if (this._dirtyBadge) {
+        const _wBadge = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
+        this._dirtyBadge.textContent = count > 0 ? "● " + count + " " + _wBadge : "";
+        this._dirtyBadge.style.display = count > 0 ? "" : "none";
+      }
+      _markFormDirty(this, count > 0);
+    }
+
+    async _beforeCloseHandler() {
+      if (!this._dirty || this._dirty.size === 0) return "close";
+      const count = this._dirty.size;
+      const phrase = count > 1
+        ? (count < 5 ? "provedené změny" : "provedených změn")
+        : "provedenou změnu";
+      const decision = await _confirmDarkDialog({
+        title: "Neuložené změny",
+        message: "Mám uložit tebou " + phrase + "? (" + count + ")",
+      });
+      if (decision === true) {
+        // TODO Phase 38.4 Krok 14b ráno — PATCH endpoint
+        console.warn("Save not implemented yet — Krok 14b ráno.");
+        return "save";
+      }
+      if (decision === false) return "close";
+      return "cancel"; // null (Esc / click outside) → keep modal open
+    }
+
+    async open() {
+      const coreCode = this.opts.coreCode;
+      const rowId = this.opts.rowId;
+      if (!coreCode || rowId == null) {
+        console.error("DesignFwForm: coreCode + rowId required");
+        return;
+      }
+
+      // Build shell s loading placeholder
+      this._shell = _buildModalShell({
+        title: "Načítám…",
+        width: "920px",
+        beforeClose: () => this._beforeCloseHandler(),
+        onClose: () => _markFormDirty(this, false),
+      });
+      document.body.appendChild(this._shell.overlay);
+
+      const loading = document.createElement("div");
+      loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
+      loading.textContent = "Načítám " + coreCode + " #" + rowId + "…";
+      this._shell.body.appendChild(loading);
+
+      try {
+        const resp = await fetch(
+          "/api/v1/erp/fw-form/" + encodeURIComponent(coreCode) + "/" + encodeURIComponent(rowId)
+        );
+        if (!resp.ok) {
+          const errBody = await resp.json().catch(() => ({}));
+          throw new Error(
+            "HTTP " + resp.status + ": " + (errBody.error || resp.statusText)
+          );
+        }
+        this._spec = await resp.json();
+        if (!this._spec || !this._spec.ok) {
+          throw new Error(
+            "Backend error: " + (this._spec && this._spec.error || "unknown")
+          );
+        }
+        this._render();
+      } catch (e) {
+        this._showError("Načítání selhalo: " + e.message);
+      }
+    }
+
+    _showError(msg) {
+      if (this._shell && this._shell.body) {
+        this._shell.body.innerHTML = "";
+        const err = document.createElement("div");
+        err.style.cssText = "padding:20px;color:#e88;background:#3a1818;border:1px solid #5a2828;border-radius:4px;margin:16px;";
+        err.textContent = msg;
+        this._shell.body.appendChild(err);
+      }
+    }
+
+    _render() {
+      this._shell.body.innerHTML = "";
+
+      const core = this._spec.core;
+      const form = this._spec.form;
+      const fields = this._spec.fields || [];
+      const data = this._spec.data || {};
+
+      // Title z core.label (preferuj nad form.caption)
+      if (this._shell.title) {
+        this._shell.title.textContent = core.label || form.caption || core.code;
+      }
+
+      // Root content container
+      const root = document.createElement("div");
+      root.className = "erp-design-tab-content";
+      root.style.cssText = "padding:0;";
+
+      // Extract panels z form.layout (JSONB) — Marti-AI's flat-data doctrine
+      const formLayout = form.layout || {};
+      let panels = Array.isArray(formLayout.panels) ? formLayout.panels.slice() : [];
+
+      // Pokud form layout nemá panels → default panel "main" (Marti's doctrine:
+      // panel je MANDATORY, fallback pro forms bez explicit panels)
+      if (panels.length === 0) {
+        panels = [{ slot: "main", label: "Obsah", order: 10 }];
+      }
+
+      // Sort panels by order
+      panels.sort((a, b) => (a.order || 0) - (b.order || 0));
+
+      // Group fields by region_slot
+      const fieldsBySlot = {};
+      for (const f of fields) {
+        const slot = f.region_slot || "main";
+        if (!fieldsBySlot[slot]) fieldsBySlot[slot] = [];
+        fieldsBySlot[slot].push(f);
+      }
+
+      // Render každý panel jako sekce (reuse _sectionBuild helper z Krok 14a)
+      const D = this._onDirty.bind(this);
+      for (const panel of panels) {
+        const slotFields = fieldsBySlot[panel.slot] || [];
+        const sec = _sectionBuild(panel.label, "panel: " + panel.slot);
+
+        if (slotFields.length === 0) {
+          const hint = document.createElement("div");
+          hint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
+          hint.textContent = "(panel '" + panel.slot + "' nemá žádné fields)";
+          sec.grid.appendChild(hint);
+        } else {
+          // Sort fields v panelu by sort_order
+          slotFields.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          for (const f of slotFields) {
+            const value = data[f.name];
+            const fieldEl = this._renderField(f, value, D);
+            if (fieldEl) sec.grid.appendChild(fieldEl);
+          }
+        }
+        root.appendChild(sec.wrap);
+      }
+
+      this._shell.body.appendChild(root);
+
+      // Footer — dirty badge (clickable revert later) + Save (hidden until dirty) + Zavřít
+      this._setupFooter();
+    }
+
+    _renderField(field, value, onDirty) {
+      const fieldKey = (this._spec.core.code || "fw_form") + "." + field.name;
+      const compType = field.comp_type_code;
+      const fieldLayout = field.layout || {};
+      const label = field.caption || field.name;
+      const readonly = !!fieldLayout.readonly;
+
+      switch (compType) {
+        case "edit":
+          return _field(label, value, fieldKey, {
+            readonly: readonly,
+            mono: !!fieldLayout.mono,
+            onDirty: onDirty,
+          });
+
+        case "combobox":
+          const items = Array.isArray(fieldLayout.enum_values)
+            ? fieldLayout.enum_values.map(e => ({ value: e.value, label: e.label }))
+            : [];
+          return _dropdown(label, value, fieldKey, {
+            readonly: readonly,
+            items: items,
+            onDirty: onDirty,
+          });
+
+        default:
+          // Unknown comp_type → readonly fallback (don't crash, just show value as text)
+          console.warn(
+            "DesignFwForm: unknown comp_type '" + compType + "' for field '" +
+            field.name + "' — falling back to readonly input."
+          );
+          return _field(label + " (?" + compType + ")", value, fieldKey, {
+            readonly: true,
+            onDirty: onDirty,
+          });
+      }
+    }
+
+    _setupFooter() {
+      // Dirty badge (clickable later for revert)
+      this._dirtyBadge = document.createElement("span");
+      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;cursor:default;";
+      this._dirtyBadge.title = "Neuložené změny (save Krok 14b ráno)";
+      this._shell.footer.appendChild(this._dirtyBadge);
+
+      // Save btn (hidden until dirty)
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.textContent = "💾 Uložit (TODO)";
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;display:none;opacity:0.6;";
+      this._saveBtn.disabled = true; // Save flow Krok 14b ráno
+      this._saveBtn.title = "Save flow: Phase 38.4 Krok 14b (PATCH endpoint, ráno 13.5.)";
+      this._shell.footer.appendChild(this._saveBtn);
+
+      // Zavřít btn
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "Zavřít";
+      closeBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      closeBtn.addEventListener("click", () => this._shell.close());
+      this._shell.footer.appendChild(closeBtn);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   // Export
   // ────────────────────────────────────────────────────────────────────
 
   global.DesignSoudecekCoreForm = DesignSoudecekCoreForm;
   global.DesignJadroRadekForm = DesignJadroRadekForm;
+  global.DesignFwForm = DesignFwForm;
 
 })(window);

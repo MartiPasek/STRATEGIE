@@ -1704,28 +1704,44 @@
     const wrap = document.createElement("div");
     wrap.className = "erp-design-section";
     wrap.style.cssText = "margin-bottom:14px;";
-    const hdr = document.createElement("div");
-    hdr.className = "erp-design-section-title";
-    hdr.style.cssText = "font-size:12px;font-weight:600;color:#a8b4c2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #2a3340;cursor:context-menu;";
-    // A1o: stable fieldKey + orig label fallback (pro Vratit na vychozi)
-    hdr.setAttribute("data-design-fieldkey", sectionKey);
-    hdr.dataset.designOrigLabel = title;
-    if (systemTitle) {
-      hdr.dataset.designOrigSystemLabel = systemTitle;
-      const userSpan = document.createElement("span");
-      userSpan.className = "section-title-user";
-      userSpan.textContent = title;
-      hdr.appendChild(userSpan);
-      const sysSpan = document.createElement("span");
-      sysSpan.className = "section-title-system";
-      sysSpan.textContent = systemTitle;
-      hdr.appendChild(sysSpan);
-    } else {
-      hdr.textContent = title;
+
+    // Marti's doctrine (12.5.2026 ~23:30): "Panel nema label... Je to jen
+    // plocha." Pokud title (user label) je empty string nebo NULL → SKIP
+    // header rendering uplne (zadne padding, zadny border-bottom).
+    // Drzi Centrala 1 paralela — root form panel byl 'def' (parent_name),
+    // ne věc s display title.
+    //
+    // Edge case: pokud title="" ale systemTitle="..." (technical), stale
+    // skip — Marti's intent je 'panel as canvas', technical info je
+    // pro debug ne pro UI.
+    const hasUserTitle = title != null && String(title).trim() !== "";
+
+    if (hasUserTitle) {
+      const hdr = document.createElement("div");
+      hdr.className = "erp-design-section-title";
+      hdr.style.cssText = "font-size:12px;font-weight:600;color:#a8b4c2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #2a3340;cursor:context-menu;";
+      // A1o: stable fieldKey + orig label fallback (pro Vratit na vychozi)
+      hdr.setAttribute("data-design-fieldkey", sectionKey);
+      hdr.dataset.designOrigLabel = title;
+      if (systemTitle) {
+        hdr.dataset.designOrigSystemLabel = systemTitle;
+        const userSpan = document.createElement("span");
+        userSpan.className = "section-title-user";
+        userSpan.textContent = title;
+        hdr.appendChild(userSpan);
+        const sysSpan = document.createElement("span");
+        sysSpan.className = "section-title-system";
+        sysSpan.textContent = systemTitle;
+        hdr.appendChild(sysSpan);
+      } else {
+        hdr.textContent = title;
+      }
+      // A1o: initial label/color apply (uzivatelske preference z localStorage)
+      _applyInitialSectionOverrides(hdr, sectionKey);
+      wrap.appendChild(hdr);
     }
-    // A1o: initial label/color apply (uzivatelske preference z localStorage)
-    _applyInitialSectionOverrides(hdr, sectionKey);
-    wrap.appendChild(hdr);
+    // ELSE: panel je plocha, header skip (Marti's "panel nema label" doctrine).
+
     const grid = document.createElement("div");
     grid.className = "erp-design-grid";
     grid.style.cssText = "display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:8px 14px;";
@@ -2630,7 +2646,9 @@
       const D = this._onDirty.bind(this);
       for (const panel of panels) {
         const slotFields = fieldsBySlot[panel.slot] || [];
-        const sec = _sectionBuild(panel.label, "panel: " + panel.slot);
+        // Marti's doctrine (12.5.2026 ~23:30): "Panel nema label... Je to jen plocha."
+        // Empty label ("") nebo undefined → _sectionBuild skip header rendering.
+        const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
         if (slotFields.length === 0) {
           const hint = document.createElement("div");

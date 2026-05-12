@@ -56,6 +56,8 @@
   }
   if (!global._erpDesignBeforeUnloadInstalled) {
     global._erpDesignBeforeUnloadInstalled = true;
+    // Fallback: native browser warning pro tab close / browser back /
+    // adresar manual URL change (kde keydown intercept nepomuze).
     global.addEventListener("beforeunload", (ev) => {
       if (_dirtyForms.size > 0) {
         ev.preventDefault();
@@ -63,6 +65,52 @@
         return "";
       }
     });
+    // A1r polish (12.5.2026 vecer doma): Marti's request "uprav dialog
+    // na dark design". Native beforeunload dialog NELZE prepsat (security
+    // / phishing prevention v modernich prohlizecich). ALE F5 / Ctrl+R
+    // muzeme zachytit pres keydown event a ukazat nas dark
+    // _confirmDarkDialog. Pokud user potvrdi, location.reload(). Pokud
+    // zrusi, modal zustane otevreny.
+    //
+    // Pokryti:
+    //   F5         → keydown intercept → dark dialog ✓
+    //   Ctrl+R     → keydown intercept → dark dialog ✓
+    //   Ctrl+Shift+R → same ✓
+    //   ✕ tab      → beforeunload native dialog (fallback)
+    //   Browser back/forward → beforeunload native dialog (fallback)
+    //   Address bar URL change → beforeunload native dialog (fallback)
+    global.addEventListener("keydown", async (ev) => {
+      const isF5 = ev.key === "F5" || ev.keyCode === 116;
+      const isCtrlR = (ev.ctrlKey || ev.metaKey) && (ev.key === "r" || ev.key === "R");
+      if (!isF5 && !isCtrlR) return;
+      if (_dirtyForms.size === 0) return; // no dirty → allow native reload
+      // Intercept native reload
+      ev.preventDefault();
+      ev.stopPropagation();
+      // Count dirty fields across all open forms
+      let totalDirty = 0;
+      _dirtyForms.forEach((f) => {
+        if (f && f._dirty && typeof f._dirty.size === "number") {
+          totalDirty += f._dirty.size;
+        }
+      });
+      // Czech plural (A1q pattern): 1 = neulozenou zmenu, 2-4 = neulozene zmeny, 5+ = neulozenych zmen
+      const phrase = totalDirty === 1
+        ? "1 neuloženou změnu"
+        : (totalDirty < 5 ? totalDirty + " neuložené změny" : totalDirty + " neuložených změn");
+      const decision = await _confirmDarkDialog({
+        title: "Obnovit stránku?",
+        message: "Máš " + phrase + " v otevřeném design dialogu.\n\nPři obnovení (F5) se neuložené změny ztratí. Opravdu chceš obnovit?",
+        ok: "Obnovit (změny se ztratí)",
+        cancel: "Zůstat",
+      });
+      if (decision === true) {
+        // User potvrdil — clear dirty tracking aby beforeunload neprerusil reload
+        _dirtyForms.clear();
+        global.location.reload();
+      }
+      // decision === false → keep dialog open, do nothing
+    }, true); // capture phase — zachyti i pred input field handler
   }
 
   // ────────────────────────────────────────────────────────────────────

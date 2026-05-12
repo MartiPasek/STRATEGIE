@@ -54,22 +54,25 @@
   const OVERRIDES_LS_KEY = "erp.design.overrides.v1";
 
   // Load user-side overrides z localStorage (merge nad hardcoded defaults)
+  // Krok 14a-A1n #2 (12.5.2026 vecer): pridana kategorie "colors" pro
+  // dekorativni barvy field-by-field (Marti's request — 10 decent colors).
   function _loadUserOverrides() {
     try {
       const raw = localStorage.getItem(OVERRIDES_LS_KEY);
-      if (!raw) return { labels: {}, hints: {} };
+      if (!raw) return { labels: {}, hints: {}, colors: {} };
       const obj = JSON.parse(raw);
       return {
         labels: (obj && obj.labels) || {},
         hints: (obj && obj.hints) || {},
+        colors: (obj && obj.colors) || {},
       };
     } catch (e) {
-      return { labels: {}, hints: {} };
+      return { labels: {}, hints: {}, colors: {} };
     }
   }
 
   function _saveUserOverride(kind, fieldKey, value) {
-    // kind = "labels" | "hints"; value: string | null (null = delete override)
+    // kind = "labels" | "hints" | "colors"; value: string | null (null = delete override)
     try {
       const u = _loadUserOverrides();
       if (value == null || value === "") {
@@ -82,6 +85,23 @@
       console.warn("save override failed:", e);
     }
   }
+
+  // Krok 14a-A1n #2: palette pro field decorations. Decentni dark-friendly
+  // accent barvy, navrzene tak aby kontrastovaly s pozadim #1a1f26 ale
+  // nedominantni. Pouzite jako border-top na .erp-field-design (3px).
+  const DESIGN_FIELD_PALETTE = [
+    { id: null,        name: "Bez barvy",  hex: "transparent" },
+    { id: "sand",      name: "Písek",      hex: "#d4b88a" },
+    { id: "sage",      name: "Šalvěj",     hex: "#a8c69b" },
+    { id: "steel",     name: "Ocel",       hex: "#9bb8e0" },
+    { id: "rose",      name: "Růže",       hex: "#c69eb0" },
+    { id: "lavender",  name: "Levandule",  hex: "#b8a4d4" },
+    { id: "peach",     name: "Broskev",    hex: "#d4a87f" },
+    { id: "mint",      name: "Máta",       hex: "#8fc8b9" },
+    { id: "mustard",   name: "Hořčice",    hex: "#c4b076" },
+    { id: "slate",     name: "Břidlice",   hex: "#9aabbf" },
+    { id: "coral",     name: "Korál",      hex: "#d4858f" },
+  ];
 
   // User overrides cache — nactema jednou při module load
   let _USER_OVERRIDES = _loadUserOverrides();
@@ -205,14 +225,45 @@
       // Krok 14a-A1j #3 (12.5.2026): sjednocena min-height u all design fields
       // — Marti's polish, aby po revertu / show system names komponenty
       // nepreskakovaly nahoru/dolu. Label vzdy zabira misto i kdyz prazdny.
+      // Krok 14a-A1n #1 (12.5.2026 vecer): vsechny inputs/dropdowns/formlist
+      // maji forced 32px height — sjednoceno napric komponentami.
       ".erp-design-modal .erp-field-design {\n" +
       "  min-height: 56px;\n" +
+      "  box-sizing: border-box;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-design > *,\n" +
+      ".erp-design-modal .erp-field-design *[class*=\"erp-\"] {\n" +
+      "  box-sizing: border-box;\n" +
+      "}\n" +
+      // Unified 32px height pro all input-like controls v design modu.
+      // Vyhradi se memo (multiline) — to ma vlastni height.
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-input,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-input-input,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-input input,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-dropdown,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-dropdown-trigger,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-formlist,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-formlist-trigger,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) > select,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) > input {\n" +
+      "  height: 32px !important;\n" +
+      "  min-height: 32px !important;\n" +
+      "  line-height: 1.4;\n" +
       "}\n" +
       ".erp-design-modal .erp-input-label,\n" +
       ".erp-design-modal .erp-dropdown-label,\n" +
       ".erp-design-modal .erp-memo-label {\n" +
       "  min-height: 16px;\n" +
       "  display: block;\n" +
+      "}\n" +
+      // Krok 14a-A1n #2 (12.5.2026 vecer): field color decoration — top
+      // border 3px v dekorativni barve z palette. Marti's polish — uzivatel
+      // si muze field obarvit pro organizaci (napr. vsechny povinne fields
+      // jednu barvou). Set via data-design-color attribute.
+      ".erp-design-modal .erp-field-design[data-design-color] {\n" +
+      "  border-top: 3px solid var(--field-color, transparent);\n" +
+      "  padding-top: 4px;\n" +
+      "  border-radius: 3px 3px 0 0;\n" +
       "}\n" +
       // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): description pair toggling.
       // - Sekce Popis je hidden by default; 📖 ikona ji ukaze
@@ -760,6 +811,8 @@
       wrap._kind = "field";
       // Krok 14a-A1j #1: ulozit puvodni hardcoded label pro revert fallback
       wrap.dataset.designOrigLabel = label || "";
+      // Krok 14a-A1n #2: initial color apply (z localStorage overrides)
+      _applyInitialColor(wrap, opts.fieldKey);
       // Krok 14a-A1i #2: right-click handle na label pro inline override edit
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-input-label");
@@ -866,6 +919,8 @@
       wrap._kind = "memo";
       // Krok 14a-A1j #1: puvodni label fallback
       wrap.dataset.designOrigLabel = label || "";
+      // Krok 14a-A1n #2: initial color apply (z localStorage overrides)
+      _applyInitialColor(wrap, opts.fieldKey);
       // Krok 14a-A1i #2: right-click handle na label
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
@@ -982,7 +1037,7 @@
   // Etapa 3 přesune do fw.framework_property POST endpointu.
   // ────────────────────────────────────────────────────────────────────
 
-  function _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, anchorEl) {
+  function _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, anchorEl, currentColor) {
     return new Promise((resolve) => {
       const ovr = document.createElement("div");
       ovr.className = "erp-confirm-overlay";
@@ -1033,6 +1088,47 @@
       hintWrap.appendChild(hintArea);
       body.appendChild(hintWrap);
 
+      // Phase 38.4 Krok 14a-A1n #2 (12.5.2026 vecer): color palette pro
+      // dekorativni obarveni fieldu. Click swatch → select; "Bez barvy"
+      // swatch resetuje. Vybrana barva ma vizualni hint (border ring).
+      const colorWrap = document.createElement("div");
+      colorWrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+      const colorLbl = document.createElement("label");
+      colorLbl.textContent = "Barva pole (organizační — horní okraj)";
+      colorLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      colorWrap.appendChild(colorLbl);
+      const swatches = document.createElement("div");
+      swatches.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:center;";
+      let _selectedColor = currentColor || null;
+      function _renderSwatches() {
+        swatches.innerHTML = "";
+        DESIGN_FIELD_PALETTE.forEach((c) => {
+          const sw = document.createElement("button");
+          sw.type = "button";
+          sw.title = c.name;
+          sw.dataset.colorId = c.id || "";
+          const isSelected = (c.id || null) === (_selectedColor || null);
+          const isClear = c.id === null;
+          if (isClear) {
+            sw.textContent = "✕";
+            sw.style.cssText = "width:28px;height:28px;border-radius:50%;border:1.5px solid " +
+              (isSelected ? "#d4b88a" : "#3a4754") + ";background:transparent;color:#8a96a4;cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;line-height:1;";
+          } else {
+            sw.style.cssText = "width:28px;height:28px;border-radius:50%;border:" +
+              (isSelected ? "3px solid #e8eef5" : "1.5px solid " + c.hex) +
+              ";background:" + c.hex + ";cursor:pointer;padding:0;";
+          }
+          sw.addEventListener("click", () => {
+            _selectedColor = c.id || null;
+            _renderSwatches();
+          });
+          swatches.appendChild(sw);
+        });
+      }
+      _renderSwatches();
+      colorWrap.appendChild(swatches);
+      body.appendChild(colorWrap);
+
       const note = document.createElement("div");
       note.style.cssText = "font-size:11px;color:#5d6975;font-style:italic;line-height:1.5;";
       note.textContent = "MVP: ukládá se do prohlížeče (localStorage). V budoucí Etapě 3 půjde do databáze (fw.framework_property).";
@@ -1075,13 +1171,14 @@
       cancelBtn.addEventListener("click", () => { cleanup(); resolve(null); });
       clearBtn.addEventListener("click", () => {
         cleanup();
-        resolve({ label: null, hint: null, _cleared: true });
+        resolve({ label: null, hint: null, color: null, _cleared: true });
       });
       okBtn.addEventListener("click", () => {
         cleanup();
         resolve({
           label: labelInp.value.trim() || null,
           hint: hintArea.value.trim() || null,
+          color: _selectedColor || null,
         });
       });
       ovr.addEventListener("click", (ev) => {
@@ -1093,13 +1190,35 @@
     });
   }
 
+  // Krok 14a-A1n #2 (12.5.2026 vecer): resolve color override → hex string
+  function _resolveColor(fieldKey) {
+    if (!fieldKey) return null;
+    const colorId = _USER_OVERRIDES.colors[fieldKey];
+    if (!colorId) return null;
+    const palette = DESIGN_FIELD_PALETTE.find(c => c.id === colorId);
+    return palette ? palette.hex : null;
+  }
+
+  // Krok 14a-A1n #2: initial color apply pri konstrukci field wrappu.
+  // Pouziva se v _field, _memo, _dropdown po wrap._fieldKey assignment.
+  function _applyInitialColor(w, fieldKey) {
+    if (!fieldKey) return;
+    const hex = _resolveColor(fieldKey);
+    if (hex) {
+      w.dataset.designColor = _USER_OVERRIDES.colors[fieldKey];
+      w.style.setProperty("--field-color", hex);
+    }
+  }
+
   // Apply override → update DOM labels + hints v live modal po Save.
   // Krok 14a-A1j #1 bugfix: pouzij wrap.dataset.designOrigLabel jako
   // fallback (jinak po "Vratit na vychozi" label zmizel uplne).
+  // Krok 14a-A1n #2: applyje i color override (border-top + CSS var).
   function _reapplyOverridesForField(w, fieldKey) {
     const origFallback = w.dataset.designOrigLabel || "";
     const newLabel = _resolveLabel(fieldKey, origFallback);
     const newHint = _resolveHint(fieldKey);
+    const newColor = _resolveColor(fieldKey);
     const labelEl = w.querySelector(".erp-input-label, .erp-dropdown-label, .erp-memo-label, label");
     if (labelEl) {
       // Preserve lock badge if present (data-lock-badge byl set v helpers)
@@ -1112,6 +1231,14 @@
     }
     if (newHint) w.dataset.designHint = newHint;
     else delete w.dataset.designHint;
+    // Krok 14a-A1n #2 color decoration — CSS var + data attribute.
+    if (newColor) {
+      w.dataset.designColor = _USER_OVERRIDES.colors[fieldKey];
+      w.style.setProperty("--field-color", newColor);
+    } else {
+      delete w.dataset.designColor;
+      w.style.removeProperty("--field-color");
+    }
   }
 
   function _reapplyOverridesInDOM(fieldKey) {
@@ -1144,14 +1271,17 @@
       if (!fieldKey) return;
       const currentLabel = _USER_OVERRIDES.labels[fieldKey] || LABEL_OVERRIDES[fieldKey] || "";
       const currentHint = _USER_OVERRIDES.hints[fieldKey] || HINT_OVERRIDES[fieldKey] || "";
-      _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, labelEl).then(result => {
+      const currentColor = _USER_OVERRIDES.colors[fieldKey] || null;
+      _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, labelEl, currentColor).then(result => {
         if (result == null) return;  // cancelled
         // Apply changes
         if (result._cleared) {
           delete _USER_OVERRIDES.labels[fieldKey];
           delete _USER_OVERRIDES.hints[fieldKey];
+          delete _USER_OVERRIDES.colors[fieldKey];
           _saveUserOverride("labels", fieldKey, null);
           _saveUserOverride("hints", fieldKey, null);
+          _saveUserOverride("colors", fieldKey, null);
         } else {
           if (result.label != null) {
             _USER_OVERRIDES.labels[fieldKey] = result.label;
@@ -1166,6 +1296,13 @@
           } else {
             delete _USER_OVERRIDES.hints[fieldKey];
             _saveUserOverride("hints", fieldKey, null);
+          }
+          if (result.color != null) {
+            _USER_OVERRIDES.colors[fieldKey] = result.color;
+            _saveUserOverride("colors", fieldKey, result.color);
+          } else {
+            delete _USER_OVERRIDES.colors[fieldKey];
+            _saveUserOverride("colors", fieldKey, null);
           }
         }
         _reapplyOverridesInDOM(fieldKey);
@@ -1337,6 +1474,8 @@
       wrap._kind = "dropdown";
       // Krok 14a-A1j #1: puvodni label fallback pro revert
       wrap.dataset.designOrigLabel = label || "";
+      // Krok 14a-A1n #2: initial color apply (z localStorage overrides)
+      _applyInitialColor(wrap, opts.fieldKey);
       // Krok 14a-A1i #2: right-click handle na label
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-dropdown-label");

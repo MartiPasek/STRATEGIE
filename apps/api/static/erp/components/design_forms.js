@@ -196,6 +196,12 @@
       "  scrollbar-width: thin;\n" +
       "  scrollbar-color: #2a3340 #0f141a;\n" +
       "}\n" +
+      // Krok 14a-A1m #3 (12.5.2026 odpoledne): PageControl content uvnitr
+      // design modalu nemusi mit vlastni scroll — body uz scrolluje.
+      // Schova zdvojený scrollbar napravo od PageControl. Marti's polish.
+      ".erp-design-modal .erp-pagecontrol-content {\n" +
+      "  overflow: visible !important;\n" +
+      "}\n" +
       // Krok 14a-A1j #3 (12.5.2026): sjednocena min-height u all design fields
       // — Marti's polish, aby po revertu / show system names komponenty
       // nepreskakovaly nahoru/dolu. Label vzdy zabira misto i kdyz prazdny.
@@ -228,6 +234,24 @@
       // system mode (systemToggle on): show system memo, hide user
       "body[data-design-system-names=\"1\"] .erp-design-modal .desc-memo-user {\n" +
       "  display: none;\n" +
+      "}\n" +
+      // Phase 38.4 Krok 14a-A1m #1 (12.5.2026 odpoledne): section title
+      // (GroupBox label) pair — stejny pattern jako u komponent. User
+      // mode = user title, system mode = system title (typicky table /
+      // column nazev nebo technicky popis).
+      "body:not([data-design-system-names=\"1\"]) .erp-design-modal .section-title-system {\n" +
+      "  display: none;\n" +
+      "}\n" +
+      "body[data-design-system-names=\"1\"] .erp-design-modal .section-title-user {\n" +
+      "  display: none;\n" +
+      "}\n" +
+      // System title — barevny accent (orange) aby vyvojar videl ze je v\n" +
+      // system rezimu. Pattern z desc-memo-system.\n" +
+      "body[data-design-system-names=\"1\"] .erp-design-modal .erp-design-section-title {\n" +
+      "  color: #c9943a;\n" +
+      "  font-family: 'Consolas', 'Monaco', monospace;\n" +
+      "  text-transform: none;\n" +
+      "  letter-spacing: 0;\n" +
       "}\n" +
       // Krok 14a-A1l #1: vizualne odlisit system description (pro vyvojare)
       // — tmavsi pozadi + zluty/oranzovy okraj. User description je default.
@@ -423,30 +447,28 @@
     });
     rightActions.appendChild(sysToggle);
 
-    // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): 📖 toggle pro Popis sekce.
-    // Click → toggle dialog[data-design-descriptions="0|1"] → CSS rule
-    // ukaze/skryje .erp-design-descriptions vsude v form.
+    // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 ikona otevre
+    // SAMOSTATNY popup s jednim velkym memo (CLAUDE.md per core). Pres
+    // sysToggle se prepina mezi user a system popis. Nepouziva inline
+    // sekci ve form — popis je v krabicce per entity.
     const descToggle = document.createElement("button");
     descToggle.type = "button";
     descToggle.className = "erp-design-desctoggle";
-    function _renderDescToggleLabel() {
-      const on = dialog.dataset.designDescriptions === "1";
-      descToggle.textContent = "📖";
-      descToggle.title = on
-        ? "Skrýt popis core (system + user description)."
-        : "Zobrazit popis core (system + user description).";
-      descToggle.style.cssText = "background:" + (on ? "#3a4a5a" : "#1f2530") +
-        ";border:1px solid " + (on ? "#5a6877" : "#2a3340") +
-        ";color:#cfd6df;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
-    }
-    dialog.dataset.designDescriptions = "0"; // default hidden
-    _renderDescToggleLabel();
+    descToggle.textContent = "📖";
+    descToggle.title = "Otevřít popis core (systémový + uživatelský — jako CLAUDE.md pro tohle jádro).";
+    descToggle.style.cssText = "background:#1f2530;border:1px solid #2a3340;color:#cfd6df;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
     descToggle.addEventListener("click", () => {
-      const on = dialog.dataset.designDescriptions === "1";
-      dialog.dataset.designDescriptions = on ? "0" : "1";
-      _renderDescToggleLabel();
+      if (typeof opts.onShowDescriptions === "function") {
+        try { opts.onShowDescriptions(); }
+        catch (e) { console.error("onShowDescriptions failed:", e); }
+      } else {
+        console.warn("📖 clicked but form did not register onShowDescriptions handler");
+      }
     });
-    rightActions.appendChild(descToggle);
+    // Krok 14a-A1m #2: v popupu (recursion) nepotrebujeme dalsi 📖 ikonu.
+    if (opts.hideDescToggle !== true) {
+      rightActions.appendChild(descToggle);
+    }
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
@@ -456,17 +478,18 @@
     rightActions.appendChild(closeBtn);
     header.appendChild(rightActions);
 
-    // Phase 38.4 Krok 14a-A1l #2 (12.5.2026): body flex:0 0 auto + max-height
-    // cap → dialog auto-fits content vertically. Žádný prázdný prostor dole
-    // při resize:both. Když content > max-height, body scrolluje. Footer
-    // margin-top:auto pushes na bottom dialogu i při stretch (Marti polish).
+    // Phase 38.4 Krok 14a-A1m #4 (12.5.2026 odpoledne): body flex:1 1 auto
+    // + min-height:0 → footer vždy viditelný i při zmenšení okna. Footer
+    // flex:0 0 auto = vždy rendered na bottom flex columnu. Body scrolluje
+    // když content > available space. Žádný margin-top:auto na footer —
+    // body fills empty space (dialog bg = body bg = invisible).
     const body = document.createElement("div");
     body.className = "erp-modal-body";
-    body.style.cssText = "padding:12px 16px;overflow-y:auto;overflow-x:hidden;flex:0 0 auto;min-height:120px;max-height:calc(90vh - 110px);";
+    body.style.cssText = "padding:12px 16px;overflow-y:auto;overflow-x:hidden;flex:1 1 auto;min-height:0;";
 
     const footer = document.createElement("div");
     footer.className = "erp-modal-footer";
-    footer.style.cssText = "padding:10px 16px;border-top:1px solid #2a3340;display:flex;align-items:center;justify-content:flex-end;gap:8px;background:#141a20;margin-top:auto;flex:0 0 auto;";
+    footer.style.cssText = "padding:10px 16px;border-top:1px solid #2a3340;display:flex;align-items:center;justify-content:flex-end;gap:8px;background:#141a20;flex:0 0 auto;";
 
     dialog.appendChild(header);
     dialog.appendChild(body);
@@ -551,6 +574,106 @@
     header.addEventListener("mousedown", _onHeaderMouseDown);
 
     return { overlay, dialog, header, body, footer, title, close };
+  }
+
+  // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): popup pro description
+  // memo (system + user). Otevre se z 📖 ikony v hlavnim formu. Obdoba
+  // CLAUDE.md pro jednu konkretni core entitu — velky memo pres cele okno,
+  // toggle mezi system a user popisem pres globalni sysToggle.
+  //
+  // opts:
+  //   - entityLabel: human-readable nazev entity (zobrazi se v title)
+  //   - entityKind: "core" nebo "menu_node" (urcuje fieldKey prefix)
+  //   - descUser: aktualni text user popisu
+  //   - descSystem: aktualni text system popisu
+  //   - onDirty: callback (fieldKey, isDirty) — kompatibilni s form's _onDirty
+  function _buildDescriptionsPopup(opts) {
+    opts = opts || {};
+    const entityKind = opts.entityKind === "menu_node" ? "mn" : "core";
+    const labelStr = opts.entityLabel ? String(opts.entityLabel) : "(bez labelu)";
+    const titleText = "📖 Popis: " + labelStr;
+
+    // Popup nepouziva beforeClose handler — dirty tracking je v hlavnim
+    // formu (memo nas vola onDirty primo). Close = vzdy povoleno, data
+    // zustanou v form's state.
+    const shell = _buildModalShell({
+      title: titleText,
+      width: "1100px",
+      hideDescToggle: true,
+    });
+    document.body.appendChild(shell.overlay);
+
+    // Body — vertikalni flex, 2 memos vedle sebe via CSS toggle.
+    // Memo full-width, full-height (60vh).
+    shell.body.style.padding = "0";
+    shell.body.style.display = "flex";
+    shell.body.style.flexDirection = "column";
+
+    const info = document.createElement("div");
+    info.style.cssText = "padding:10px 16px;background:#141a20;border-bottom:1px solid #2a3340;color:#8a96a4;font-size:11px;line-height:1.5;";
+    info.innerHTML =
+      "<span class=\"section-title-user\">👁️ Uživatelský popis — k čemu jádro slouží, jak s ním pracovat. Markdown.</span>" +
+      "<span class=\"section-title-system\">🔧 Systémový popis (vývojáři) — implementace, data zdroje, edge cases, debug. Markdown.</span>" +
+      "<br><span style=\"font-size:10px;opacity:0.7;\">Přepnout pomocí ikony 👁️ uživatel / system v hlavičce. Je to jako CLAUDE.md pro tohle jádro.</span>";
+    shell.body.appendChild(info);
+
+    // Memo container — fills body, 60vh height
+    const memoContainer = document.createElement("div");
+    memoContainer.style.cssText = "padding:12px 16px;flex:1 1 auto;display:flex;flex-direction:column;min-height:0;";
+    shell.body.appendChild(memoContainer);
+
+    // User memo
+    const userWrap = _memo("Popis (uživatel)", opts.descUser, {
+      fieldKey: entityKind + ".description_user",
+      onDirty: opts.onDirty,
+      rows: 22,
+      maxRows: 40,
+    });
+    userWrap.classList.add("desc-memo-user");
+    userWrap.classList.add("design-desc-popup-memo");
+    userWrap.style.flex = "1 1 auto";
+    userWrap.style.minHeight = "0";
+    userWrap.style.display = "flex";
+    userWrap.style.flexDirection = "column";
+    memoContainer.appendChild(userWrap);
+
+    // System memo
+    const sysWrap = _memo("Popis (systém — vývojáři)", opts.descSystem, {
+      fieldKey: entityKind + ".description_system",
+      onDirty: opts.onDirty,
+      rows: 22,
+      maxRows: 40,
+    });
+    sysWrap.classList.add("desc-memo-system");
+    sysWrap.classList.add("design-desc-popup-memo");
+    sysWrap.style.flex = "1 1 auto";
+    sysWrap.style.minHeight = "0";
+    sysWrap.style.display = "flex";
+    sysWrap.style.flexDirection = "column";
+    memoContainer.appendChild(sysWrap);
+
+    // Stretch memo textareas to fill memoContainer
+    function _stretchMemo(wrap) {
+      const ta = wrap.querySelector("textarea");
+      if (ta) {
+        ta.style.flex = "1 1 auto";
+        ta.style.minHeight = "300px";
+        ta.style.height = "60vh";
+        ta.style.resize = "vertical";
+      }
+    }
+    _stretchMemo(userWrap);
+    _stretchMemo(sysWrap);
+
+    // Footer — Zavrit (Save flow Krok 14b)
+    const closeBtn = document.createElement("button");
+    closeBtn.type = "button";
+    closeBtn.textContent = "Zavřít";
+    closeBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+    closeBtn.addEventListener("click", () => shell.close());
+    shell.footer.appendChild(closeBtn);
+
+    return shell;
   }
 
   function _field(label, value, opts) {
@@ -1249,13 +1372,29 @@
     return wrap;
   }
 
-  function _sectionBuild(title) {
+  // Phase 38.4 Krok 14a-A1m #1 (12.5.2026 odpoledne): GroupBox label
+  // pair (user + system). Stejny princip jako pro komponenty:
+  // sysToggle prepina mezi user title (default) a system title (developer
+  // mode). Pokud `systemTitle` nezadan, ukaze se title v obou rezimech.
+  function _sectionBuild(title, systemTitle) {
     const wrap = document.createElement("div");
     wrap.className = "erp-design-section";
     wrap.style.cssText = "margin-bottom:14px;";
     const hdr = document.createElement("div");
-    hdr.textContent = title;
+    hdr.className = "erp-design-section-title";
     hdr.style.cssText = "font-size:12px;font-weight:600;color:#a8b4c2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #2a3340;";
+    if (systemTitle) {
+      const userSpan = document.createElement("span");
+      userSpan.className = "section-title-user";
+      userSpan.textContent = title;
+      hdr.appendChild(userSpan);
+      const sysSpan = document.createElement("span");
+      sysSpan.className = "section-title-system";
+      sysSpan.textContent = systemTitle;
+      hdr.appendChild(sysSpan);
+    } else {
+      hdr.textContent = title;
+    }
     wrap.appendChild(hdr);
     const grid = document.createElement("div");
     grid.className = "erp-design-grid";
@@ -1302,6 +1441,37 @@
         "Save flow přijde v Kroku 14b (backend POST endpointy).\n\n" +
         "Změněná pole (zatím nejsou ukládána):\n" + fields
       );
+    }
+
+    // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
+    // description memo. Vybere entitu podle aktivniho tabu —
+    // Soudecek tab → menu_node, Prehled tab → core.
+    _openDescriptionsPopup() {
+      // Vyber aktivni entity podle aktivniho tabu PageControl.
+      const activeId = this._pc && typeof this._pc.getActiveId === "function"
+        ? this._pc.getActiveId() : "soudecek";
+      const data = this._data || {};
+      let entityKind, entityLabel, descUser, descSystem;
+      if (activeId === "prehled" && data.core && data.core.id) {
+        entityKind = "core";
+        entityLabel = data.core.label || data.core.code || "(bez labelu)";
+        descUser = data.core.description_user;
+        descSystem = data.core.description_system;
+      } else {
+        // Default: Soudecek tab / menu_node
+        const mn = data.menu_node || {};
+        entityKind = "menu_node";
+        entityLabel = mn.label || mn.code || "(bez labelu)";
+        descUser = mn.description_user;
+        descSystem = mn.description_system;
+      }
+      _buildDescriptionsPopup({
+        entityKind: entityKind,
+        entityLabel: entityLabel,
+        descUser: descUser,
+        descSystem: descSystem,
+        onDirty: this._onDirty.bind(this),
+      });
     }
 
     // Phase 38.4 Krok 14a-A1k #4: před zavřením oken pres ✕ se zeptej,
@@ -1394,6 +1564,10 @@
         title: title,
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
+        // Phase 38.4 Krok 14a-A1m #2: 📖 callback — otevre popup s description
+        // memo. Podle aktivniho tabu vybere entity (Soudecek tab → menu_node,
+        // Prehled tab → core).
+        onShowDescriptions: () => this._openDescriptionsPopup(),
       });
       document.body.appendChild(this._shell.overlay);
 
@@ -1537,7 +1711,8 @@
       const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
 
       // Section: Identifikace — ID readonly (PK), Kind je enum dropdown
-      const idSec = _sectionBuild("Identifikace");
+      // Krok 14a-A1m #1: section title pair (user / system technical name).
+      const idSec = _sectionBuild("Identifikace", "fw.menu_node — identita");
       idSec.grid.appendChild(_f("ID (menu_node.id)", mn.id, "mn.id", { mono: true, readonly: true }));
       idSec.grid.appendChild(_f("Code", mn.code, "mn.code", { mono: true }));
       idSec.grid.appendChild(_f("Label", mn.label, "mn.label"));
@@ -1546,7 +1721,7 @@
 
       // Section: Hierarchie — parent_id/parent_code readonly, status/visibility/
       // is_immutable jsou enum dropdowny
-      const treeSec = _sectionBuild("Hierarchie a pořadí");
+      const treeSec = _sectionBuild("Hierarchie a pořadí", "fw.menu_node — tree position + visibility");
       treeSec.grid.appendChild(_f("Parent ID", mn.parent_id, "mn.parent_id", { mono: true, readonly: true }));
       treeSec.grid.appendChild(_f("Parent Code", mn.parent_code, "mn.parent_code", { mono: true, readonly: true }));
       treeSec.grid.appendChild(_f("Sort Order", mn.sort_order, "mn.sort_order", { mono: true }));
@@ -1556,37 +1731,16 @@
       root.appendChild(treeSec.wrap);
 
       // Section: Core vazba — FK readonly (vybira se pres picker, Krok 14b)
-      const coreSec = _sectionBuild("Vazba na Core přehledu");
+      const coreSec = _sectionBuild("Vazba na Core přehledu", "fw.menu_node — core_id FK + legacy chain");
       coreSec.grid.appendChild(_f("core_id (FK)", mn.core_id, "mn.core_id", { mono: true, readonly: true }));
       coreSec.grid.appendChild(_f("cislo_def (legacy)", mn.cislo_def, "mn.cislo_def", { mono: true, readonly: true }));
       coreSec.grid.appendChild(_f("framework_jadro_id", mn.framework_jadro_id, "mn.framework_jadro_id", { mono: true, readonly: true }));
       coreSec.grid.appendChild(_f("special_handler", mn.special_handler, "mn.special_handler"));
       root.appendChild(coreSec.wrap);
 
-      // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): Popis sekce — PAIR memos
-      // (user + system). Sekce skryta by default, ukaze ji 📖 ikona v header.
-      // CSS rule toggle pro user/system varianta podle globalniho sysToggle.
-      const descSec = _sectionBuild("Popis");
-      descSec.wrap.classList.add("erp-design-descriptions");
-      // User memo (default visible v user mode)
-      const mnDescUser = _memo("Popis (uživatel)", mn.description_user, {
-        fieldKey: "mn.description_user",
-        onDirty: D,
-        rows: 3,
-        maxRows: 8,
-      });
-      mnDescUser.classList.add("desc-memo-user");
-      descSec.grid.appendChild(mnDescUser);
-      // System memo (visible v system mode — pro vyvojare)
-      const mnDescSystem = _memo("Popis (systém — vývojáři)", mn.description_system, {
-        fieldKey: "mn.description_system",
-        onDirty: D,
-        rows: 3,
-        maxRows: 8,
-      });
-      mnDescSystem.classList.add("desc-memo-system");
-      descSec.grid.appendChild(mnDescSystem);
-      root.appendChild(descSec.wrap);
+      // Phase 38.4 Krok 14a-A1m #2 (12.5.2026): popis je v separatnim popupu
+      // (📖 ikona v header). Zadna inline Popis sekce v form. Krabicka pro
+      // detailni popis core / soudecku — obdoba CLAUDE.md per entity.
 
       return root;
     }
@@ -1610,7 +1764,8 @@
 
       // Section: Core identita — ID/version/parent_framework_id readonly,
       // layout_type je enum dropdown, ostatni editable.
-      const idSec = _sectionBuild("Identifikace Core");
+      // Krok 14a-A1m #1: section title pair.
+      const idSec = _sectionBuild("Identifikace Core", "fw.core — identita + layout + version");
       idSec.grid.appendChild(_f("ID (core.id)", core.id, "core.id", { mono: true, readonly: true }));
       idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
       idSec.grid.appendChild(_f("Label", core.label, "core.label"));
@@ -1621,31 +1776,11 @@
       idSec.grid.appendChild(_f("Parent framework ID", core.parent_framework_id, "core.parent_framework_id", { mono: true, readonly: true }));
       root.appendChild(idSec.wrap);
 
-      // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): Popis sekce — PAIR memos
-      // (user + system). Sekce skryta by default, ukaze ji 📖 ikona v header.
-      // CSS rule toggle pro user/system varianta podle globalniho sysToggle.
-      const descSec = _sectionBuild("Popis");
-      descSec.wrap.classList.add("erp-design-descriptions");
-      const coreDescUser = _memo("Popis (uživatel)", core.description_user, {
-        fieldKey: "core.description_user",
-        onDirty: D,
-        rows: 3,
-        maxRows: 8,
-      });
-      coreDescUser.classList.add("desc-memo-user");
-      descSec.grid.appendChild(coreDescUser);
-      const coreDescSystem = _memo("Popis (systém — vývojáři)", core.description_system, {
-        fieldKey: "core.description_system",
-        onDirty: D,
-        rows: 3,
-        maxRows: 8,
-      });
-      coreDescSystem.classList.add("desc-memo-system");
-      descSec.grid.appendChild(coreDescSystem);
-      root.appendChild(descSec.wrap);
+      // Phase 38.4 Krok 14a-A1m #2 (12.5.2026): popis v separatnim popupu
+      // (📖 ikona v header). Zadna inline Popis sekce v form.
 
       // Section: Sloupce (preview, Krok 14b doplni inline editor)
-      const colsSec = _sectionBuild("Sloupce (read-only preview) — inline editor Krok 14b");
+      const colsSec = _sectionBuild("Sloupce", "fw.comp_def WHERE parent_core_id = " + core.id);
       const cols = (this._data && this._data.columns) || [];
       if (cols.length === 0) {
         const empty = document.createElement("div");
@@ -1726,6 +1861,28 @@
       );
     }
 
+    // Phase 38.4 Krok 14a-A1m #2: 📖 popup pro description memo.
+    // Form 3 ma jednu entity (core), tedy bez tab-aware vyberu.
+    _openDescriptionsPopup() {
+      const core = (this._data && this._data.core) || null;
+      if (!core || !core.id) {
+        _confirmDarkDialog({
+          title: "Popis není k dispozici",
+          message: "Tento grid nemá záznam v fw.core (hardcoded view).\nPopis bude k dispozici, až mu vytvoříme core entry.",
+          ok: "OK",
+          cancel: null,
+        });
+        return;
+      }
+      _buildDescriptionsPopup({
+        entityKind: "core",
+        entityLabel: core.label || core.code || "(bez labelu)",
+        descUser: core.description_user,
+        descSystem: core.description_system,
+        onDirty: this._onDirty.bind(this),
+      });
+    }
+
     // Phase 38.4 Krok 14a-A1k #4: před zavřením oken pres ✕ se zeptej,
     // pokud jsou neuložené změny. Dark design, 3 tlačítka.
     async _beforeCloseHandler() {
@@ -1755,6 +1912,8 @@
         title: title,
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
+        // Krok 14a-A1m #2: 📖 callback — otevre popup s description memo.
+        onShowDescriptions: () => this._openDescriptionsPopup(),
       });
       document.body.appendChild(this._shell.overlay);
 
@@ -1836,7 +1995,8 @@
       const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
 
       // Section: Kontext kliku — vsechno readonly (jen orientacni informace)
-      const ctxSec = _sectionBuild("Kontext kliku v gridu");
+      // Krok 14a-A1m #1: section title pair (UI state, no DB)
+      const ctxSec = _sectionBuild("Kontext kliku v gridu", "UI state (gridCode + rowId + headerName + compDefId)");
       ctxSec.grid.appendChild(_f("Grid (core.code)", this.opts.gridCode, "ctx.gridCode", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Řádek (ID)", this.opts.rowId, "ctx.rowId", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Klepnutý sloupec", this.opts.headerName, "ctx.headerName", { readonly: true }));
@@ -1846,7 +2006,8 @@
       // Section: Jadro identita — ID/version readonly (PK + lineage), ostatni editable
       const core = (this._data && this._data.core) || null;
       if (core && core.id) {
-        const idSec = _sectionBuild("Jádro (fw.core) — identita");
+        // Krok 14a-A1m #1: section title pair.
+        const idSec = _sectionBuild("Jádro pro řádek — identita", "fw.core — identita + layout + version");
         idSec.grid.appendChild(_f("ID", core.id, "core.id", { mono: true, readonly: true }));
         idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
         idSec.grid.appendChild(_f("Label", core.label, "core.label"));
@@ -1855,29 +2016,10 @@
         idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
         root.appendChild(idSec.wrap);
 
-        // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): Popis sekce — PAIR memos
-        // (user + system). Sekce skryta by default, ukaze ji 📖 ikona v header.
-        const descSec = _sectionBuild("Popis");
-        descSec.wrap.classList.add("erp-design-descriptions");
-        const dUser = _memo("Popis (uživatel)", core.description_user, {
-          fieldKey: "core.description_user",
-          onDirty: D,
-          rows: 3,
-          maxRows: 8,
-        });
-        dUser.classList.add("desc-memo-user");
-        descSec.grid.appendChild(dUser);
-        const dSystem = _memo("Popis (systém — vývojáři)", core.description_system, {
-          fieldKey: "core.description_system",
-          onDirty: D,
-          rows: 3,
-          maxRows: 8,
-        });
-        dSystem.classList.add("desc-memo-system");
-        descSec.grid.appendChild(dSystem);
-        root.appendChild(descSec.wrap);
+        // Phase 38.4 Krok 14a-A1m #2 (12.5.2026): popis v separatnim popupu
+        // (📖 ikona v header). Zadna inline Popis sekce.
       } else {
-        const noCore = _sectionBuild("Jádro (fw.core)");
+        const noCore = _sectionBuild("Jádro pro řádek", "fw.core — žádný záznam");
         const empty = document.createElement("div");
         empty.style.cssText = "padding:8px 12px;color:#5d6975;font-style:italic;grid-column:1/-1;";
         empty.textContent = "Žádné jádro pro grid '" + (this.opts.gridCode || "?") + "' (hardcoded view bez core entry, nebo grid neexistuje v fw.core).";
@@ -1886,7 +2028,8 @@
       }
 
       // Section: Picker poli (placeholder Krok 14c)
-      const pickerSec = _sectionBuild("Picker polí (Krok 14c — dvoupanelový)");
+      // Krok 14a-A1m #1: section title pair.
+      const pickerSec = _sectionBuild("Výběr polí pro formulář", "fw.comp_def + fw.entity_def attributes (Krok 14c)");
       const pickerHint = document.createElement("div");
       pickerHint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
       pickerHint.textContent = "Vlevo dostupná pole (entity_def attributes), vpravo vybraná pro form. Drag-drop nebo dvojklik. Implementace v Kroku 14c.";
@@ -1894,7 +2037,7 @@
       root.appendChild(pickerSec.wrap);
 
       // Section: Data source (placeholder)
-      const dsSec = _sectionBuild("Data source (Krok 14b — insert/update/upsert mode)");
+      const dsSec = _sectionBuild("Data — odkud čte, kam zapisuje", "fw.data_set + fw.data_source + fw.data_source_op (Krok 14b)");
       const dsHint = document.createElement("div");
       dsHint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
       dsHint.textContent = "fw.data_source linkovaný k tomuto jádru pro zápis. Mode: insert / update / upsert. Implementace v Kroku 14b.";

@@ -1712,10 +1712,14 @@
       if (!this._dirty || this._dirty.size === 0) return "close";
       const count = this._dirty.size;
       const fields = Array.from(this._dirty).join(", ");
-      const plural = count > 1 ? (count < 5 ? "změny" : "změn") : "změnu";
+      // A1p: Czech grammar — adjektivum + noun spolu (1 = provedenou změnu,
+      // 2-4 = provedené změny, 5+ = provedených změn).
+      const phrase = count > 1
+        ? (count < 5 ? "provedené změny" : "provedených změn")
+        : "provedenou změnu";
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
-        message: "Mám uložit tebou provedené " + plural + "? (" + count + ")\n\nPole: " + fields,
+        message: "Mám uložit tebou " + phrase + "? (" + count + ")\n\nPole: " + fields,
         threeButtons: true,
         yes: "Ano",
         no: "Ne",
@@ -2121,10 +2125,14 @@
       if (!this._dirty || this._dirty.size === 0) return "close";
       const count = this._dirty.size;
       const fields = Array.from(this._dirty).join(", ");
-      const plural = count > 1 ? (count < 5 ? "změny" : "změn") : "změnu";
+      // A1p: Czech grammar — adjektivum + noun spolu (1 = provedenou změnu,
+      // 2-4 = provedené změny, 5+ = provedených změn).
+      const phrase = count > 1
+        ? (count < 5 ? "provedené změny" : "provedených změn")
+        : "provedenou změnu";
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
-        message: "Mám uložit tebou provedené " + plural + "? (" + count + ")\n\nPole: " + fields,
+        message: "Mám uložit tebou " + phrase + "? (" + count + ")\n\nPole: " + fields,
         threeButtons: true,
         yes: "Ano",
         no: "Ne",

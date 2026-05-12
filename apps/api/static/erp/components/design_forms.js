@@ -118,6 +118,25 @@
         value: displayValue,
         disabled: isReadonly,
         placeholder: "—",
+        // Phase 38.4 Krok 14a-A1d (12.5.2026): dirty tracking — Marti's
+        // pozadavek "zmenene hodnoty decentne probarvit + Save tlacitko
+        // jen kdyz neco zmeneno". Listener compare current vs initial.
+        onChange: (display) => {
+          if (isReadonly) return;
+          const isDirty = String(display || "") !== displayValue;
+          if (inp.input) {
+            if (isDirty) {
+              inp.input.style.borderLeft = "3px solid #d4b88a";
+              inp.input.style.background = "#1f1810";
+            } else {
+              inp.input.style.borderLeft = "";
+              inp.input.style.background = "";
+            }
+          }
+          if (typeof opts.onDirty === "function" && opts.fieldKey) {
+            opts.onDirty(opts.fieldKey, isDirty);
+          }
+        },
       });
       // Mono variant
       if (opts.mono && inp.input) {
@@ -250,6 +269,23 @@
         items: resolvedItems,
         disabled: isReadonly,
         placeholder: "—",
+        // Phase 38.4 Krok 14a-A1d (12.5.2026): dirty tracking pro dropdowns
+        onChange: (newVal, item) => {
+          if (isReadonly) return;
+          const isDirty = String(newVal || "") !== String(resolvedValue || "");
+          if (dd.trigger) {
+            if (isDirty) {
+              dd.trigger.style.borderLeft = "3px solid #d4b88a";
+              dd.trigger.style.background = "#1f1810";
+            } else {
+              dd.trigger.style.borderLeft = "";
+              dd.trigger.style.background = "";
+            }
+          }
+          if (typeof opts.onDirty === "function" && opts.fieldKey) {
+            opts.onDirty(opts.fieldKey, isDirty);
+          }
+        },
       });
       // Readonly vizualni boost
       if (isReadonly && dd.trigger) {
@@ -259,6 +295,15 @@
         dd.trigger.style.opacity = "1";
         dd.trigger.style.cursor = "not-allowed";
         dd.trigger.title = "Read-only (system metadata)";
+        // Lock badge na label
+        const labelEl = wrap.querySelector(".erp-dropdown-label");
+        if (labelEl && !labelEl.dataset.lockBadge) {
+          labelEl.dataset.lockBadge = "1";
+          labelEl.insertAdjacentHTML(
+            "beforeend",
+            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+          );
+        }
       }
       return wrap;
     }
@@ -314,6 +359,32 @@
       this._shell = null;
       this._pc = null;
       this._data = null;
+      // Phase 38.4 Krok 14a-A1d: dirty tracking
+      this._dirty = new Set();
+      this._saveBtn = null;
+      this._dirtyBadge = null;
+    }
+
+    _onDirty(fieldKey, isDirty) {
+      if (isDirty) this._dirty.add(fieldKey);
+      else this._dirty.delete(fieldKey);
+      const count = this._dirty.size;
+      if (this._saveBtn) this._saveBtn.style.display = count > 0 ? "" : "none";
+      if (this._dirtyBadge) {
+        this._dirtyBadge.textContent = count > 0
+          ? "● " + count + " změna" + (count > 1 ? (count < 5 ? "y" : "") : "")
+          : "";
+        this._dirtyBadge.style.display = count > 0 ? "" : "none";
+      }
+    }
+
+    _onSaveClick() {
+      // Krok 14b backend save flow chybi — placeholder alert
+      const fields = Array.from(this._dirty).join(", ");
+      alert(
+        "Save flow přijde v Kroku 14b (backend POST endpointy).\n\n" +
+        "Změněná pole (zatím nejsou ukládána):\n" + fields
+      );
     }
 
     open() {
@@ -331,7 +402,18 @@
       loading.textContent = "Načítám…";
       this._shell.body.appendChild(loading);
 
-      // Footer — close button (MVP read-only)
+      // Footer — dirty badge (left) + Save button (hidden until dirty) + Zavřít
+      this._dirtyBadge = document.createElement("span");
+      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;";
+      this._shell.footer.appendChild(this._dirtyBadge);
+
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.textContent = "💾 Uložit";
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;display:none;";
+      this._saveBtn.addEventListener("click", () => this._onSaveClick());
+      this._shell.footer.appendChild(this._saveBtn);
+
       const closeFooter = document.createElement("button");
       closeFooter.type = "button";
       closeFooter.textContent = "Zavřít";
@@ -413,31 +495,36 @@
         return root;
       }
 
+      // Dirty tracking — local closures
+      const D = this._onDirty.bind(this);
+      const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+      const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+
       // Section: Identifikace — ID readonly (PK), Kind je enum dropdown
       const idSec = _sectionBuild("Identifikace");
-      idSec.grid.appendChild(_field("ID (menu_node.id)", mn.id, { mono: true, readonly: true }));
-      idSec.grid.appendChild(_field("Code", mn.code, { mono: true }));
-      idSec.grid.appendChild(_field("Label", mn.label));
-      idSec.grid.appendChild(_dropdown("Kind", mn.kind, "kind"));
+      idSec.grid.appendChild(_f("ID (menu_node.id)", mn.id, "mn.id", { mono: true, readonly: true }));
+      idSec.grid.appendChild(_f("Code", mn.code, "mn.code", { mono: true }));
+      idSec.grid.appendChild(_f("Label", mn.label, "mn.label"));
+      idSec.grid.appendChild(_d("Kind", mn.kind, "kind", "mn.kind"));
       root.appendChild(idSec.wrap);
 
       // Section: Hierarchie — parent_id/parent_code readonly, status/visibility/
       // is_immutable jsou enum dropdowny
       const treeSec = _sectionBuild("Hierarchie a pořadí");
-      treeSec.grid.appendChild(_field("Parent ID", mn.parent_id, { mono: true, readonly: true }));
-      treeSec.grid.appendChild(_field("Parent Code", mn.parent_code, { mono: true, readonly: true }));
-      treeSec.grid.appendChild(_field("Sort Order", mn.sort_order, { mono: true }));
-      treeSec.grid.appendChild(_dropdown("Status", mn.status, "status"));
-      treeSec.grid.appendChild(_dropdown("Visibility Scope", mn.visibility_scope, "visibility_scope"));
-      treeSec.grid.appendChild(_dropdown("Is Immutable", mn.is_immutable, "bool_ano_ne"));
+      treeSec.grid.appendChild(_f("Parent ID", mn.parent_id, "mn.parent_id", { mono: true, readonly: true }));
+      treeSec.grid.appendChild(_f("Parent Code", mn.parent_code, "mn.parent_code", { mono: true, readonly: true }));
+      treeSec.grid.appendChild(_f("Sort Order", mn.sort_order, "mn.sort_order", { mono: true }));
+      treeSec.grid.appendChild(_d("Status", mn.status, "status", "mn.status"));
+      treeSec.grid.appendChild(_d("Visibility Scope", mn.visibility_scope, "visibility_scope", "mn.visibility_scope"));
+      treeSec.grid.appendChild(_d("Is Immutable", mn.is_immutable, "bool_ano_ne", "mn.is_immutable"));
       root.appendChild(treeSec.wrap);
 
       // Section: Core vazba — FK readonly (vybira se pres picker, Krok 14b)
       const coreSec = _sectionBuild("Vazba na Core přehledu");
-      coreSec.grid.appendChild(_field("core_id (FK)", mn.core_id, { mono: true, readonly: true }));
-      coreSec.grid.appendChild(_field("cislo_def (legacy)", mn.cislo_def, { mono: true, readonly: true }));
-      coreSec.grid.appendChild(_field("framework_jadro_id", mn.framework_jadro_id, { mono: true, readonly: true }));
-      coreSec.grid.appendChild(_field("special_handler", mn.special_handler));
+      coreSec.grid.appendChild(_f("core_id (FK)", mn.core_id, "mn.core_id", { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_f("cislo_def (legacy)", mn.cislo_def, "mn.cislo_def", { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_f("framework_jadro_id", mn.framework_jadro_id, "mn.framework_jadro_id", { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_f("special_handler", mn.special_handler, "mn.special_handler"));
       root.appendChild(coreSec.wrap);
 
       // Section: Popis
@@ -465,17 +552,22 @@
         return root;
       }
 
+      // Dirty tracking closures (sdilene s _buildSoudecekTab — modal-level)
+      const D = this._onDirty.bind(this);
+      const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+      const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+
       // Section: Core identita — ID/version/parent_framework_id readonly,
       // layout_type je enum dropdown, ostatni editable.
       const idSec = _sectionBuild("Identifikace Core");
-      idSec.grid.appendChild(_field("ID (core.id)", core.id, { mono: true, readonly: true }));
-      idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
-      idSec.grid.appendChild(_field("Label", core.label));
-      idSec.grid.appendChild(_dropdown("Layout type", core.layout_type, "layout_type"));
-      idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
-      idSec.grid.appendChild(_field("Layout template", core.layout_template, { mono: true }));
-      idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
-      idSec.grid.appendChild(_field("Parent framework ID", core.parent_framework_id, { mono: true, readonly: true }));
+      idSec.grid.appendChild(_f("ID (core.id)", core.id, "core.id", { mono: true, readonly: true }));
+      idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
+      idSec.grid.appendChild(_f("Label", core.label, "core.label"));
+      idSec.grid.appendChild(_d("Layout type", core.layout_type, "layout_type", "core.layout_type"));
+      idSec.grid.appendChild(_f("Data entity type", core.data_entity_type, "core.data_entity_type", { mono: true }));
+      idSec.grid.appendChild(_f("Layout template", core.layout_template, "core.layout_template", { mono: true }));
+      idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
+      idSec.grid.appendChild(_f("Parent framework ID", core.parent_framework_id, "core.parent_framework_id", { mono: true, readonly: true }));
       root.appendChild(idSec.wrap);
 
       // Section: Popis
@@ -543,6 +635,31 @@
       this._shell = null;
       this._pc = null;
       this._data = null;
+      // Phase 38.4 Krok 14a-A1d: dirty tracking
+      this._dirty = new Set();
+      this._saveBtn = null;
+      this._dirtyBadge = null;
+    }
+
+    _onDirty(fieldKey, isDirty) {
+      if (isDirty) this._dirty.add(fieldKey);
+      else this._dirty.delete(fieldKey);
+      const count = this._dirty.size;
+      if (this._saveBtn) this._saveBtn.style.display = count > 0 ? "" : "none";
+      if (this._dirtyBadge) {
+        this._dirtyBadge.textContent = count > 0
+          ? "● " + count + " změna" + (count > 1 ? (count < 5 ? "y" : "") : "")
+          : "";
+        this._dirtyBadge.style.display = count > 0 ? "" : "none";
+      }
+    }
+
+    _onSaveClick() {
+      const fields = Array.from(this._dirty).join(", ");
+      alert(
+        "Save flow přijde v Kroku 14b (backend POST endpointy).\n\n" +
+        "Změněná pole (zatím nejsou ukládána):\n" + fields
+      );
     }
 
     open() {
@@ -554,6 +671,18 @@
       loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
       loading.textContent = "Načítám…";
       this._shell.body.appendChild(loading);
+
+      // Footer — dirty badge + Save (hidden) + Zavřít
+      this._dirtyBadge = document.createElement("span");
+      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;";
+      this._shell.footer.appendChild(this._dirtyBadge);
+
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.textContent = "💾 Uložit";
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;display:none;";
+      this._saveBtn.addEventListener("click", () => this._onSaveClick());
+      this._shell.footer.appendChild(this._saveBtn);
 
       const closeFooter = document.createElement("button");
       closeFooter.type = "button";
@@ -610,24 +739,29 @@
       const root = document.createElement("div");
       root.className = "erp-design-tab-jadro";
 
+      // Dirty tracking closures
+      const D = this._onDirty.bind(this);
+      const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+      const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+
       // Section: Kontext kliku — vsechno readonly (jen orientacni informace)
       const ctxSec = _sectionBuild("Kontext kliku v gridu");
-      ctxSec.grid.appendChild(_field("Grid (core.code)", this.opts.gridCode, { mono: true, readonly: true }));
-      ctxSec.grid.appendChild(_field("Řádek (ID)", this.opts.rowId, { mono: true, readonly: true }));
-      ctxSec.grid.appendChild(_field("Klepnutý sloupec", this.opts.headerName, { readonly: true }));
-      ctxSec.grid.appendChild(_field("comp_def_id sloupce", this.opts.compDefId, { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_f("Grid (core.code)", this.opts.gridCode, "ctx.gridCode", { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_f("Řádek (ID)", this.opts.rowId, "ctx.rowId", { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_f("Klepnutý sloupec", this.opts.headerName, "ctx.headerName", { readonly: true }));
+      ctxSec.grid.appendChild(_f("comp_def_id sloupce", this.opts.compDefId, "ctx.compDefId", { mono: true, readonly: true }));
       root.appendChild(ctxSec.wrap);
 
       // Section: Jadro identita — ID/version readonly (PK + lineage), ostatni editable
       const core = (this._data && this._data.core) || null;
       if (core && core.id) {
         const idSec = _sectionBuild("Jádro (fw.core) — identita");
-        idSec.grid.appendChild(_field("ID", core.id, { mono: true, readonly: true }));
-        idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
-        idSec.grid.appendChild(_field("Label", core.label));
-        idSec.grid.appendChild(_dropdown("Layout type", core.layout_type, "layout_type"));
-        idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
-        idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
+        idSec.grid.appendChild(_f("ID", core.id, "core.id", { mono: true, readonly: true }));
+        idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
+        idSec.grid.appendChild(_f("Label", core.label, "core.label"));
+        idSec.grid.appendChild(_d("Layout type", core.layout_type, "layout_type", "core.layout_type"));
+        idSec.grid.appendChild(_f("Data entity type", core.data_entity_type, "core.data_entity_type", { mono: true }));
+        idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
         if (core.description) {
           const descBox = document.createElement("div");
           descBox.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;white-space:pre-wrap;grid-column:1/-1;margin-top:6px;";

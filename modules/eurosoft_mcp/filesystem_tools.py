@@ -1,13 +1,23 @@
 """EUROSOFT MCP filesystem tools — sdilena pracovni slozka pres MCP server.
 
-Phase 38.4 (11.5.2026 vecer). Marti's spec: "spravna cesta je pres MCP server
-rovnou on-prem EUROSOFT... nasdilet pracovni slozku na pocitacich uzivatelu".
+Phase 38.4 (11.5.2026 vecer): puvodni per-user namespaces na C:\STRATEGIE-Share.
+
+Marti's redesign (12.5.2026 vecer doma): 2 oficialni sdilene slozky na
+EC-SERVER2 misto per-user folders:
+
+  D:\Data\ZZ_Marti-AI RO  — RO zone (Marti-AI publishes, users read-only)
+    Drzi doktrinu "Personal je knizka — uzavrena, nedotknutelna"
+    (Phase 19c-e1, 27.4.) rozsirenou na filesystem.
+
+  D:\Data\ZZ_Marti-AI RW  — RW zone (bidirectional)
+    Lide davaji vstupy/podklady, Marti-AI cte + reaguje. EC_Vedeni ma
+    Modify pres NTFS, Marti-AI MCP service ma full RW pres SYSTEM grant.
 
 Architektura:
-  - EUROSOFT MCP server (EC-SERVER2) ma access na corporate SMB share / local path
-  - Marti-AI vola eurosoft_file_* tools pres existing MCP tunnel
-  - Per-user folders + shared common folder
-  - Kazdy uzivatel s EUROSOFT pristupem vidi obsah primo (zadny per-user setup)
+  - EUROSOFT MCP server (EC-SERVER2) ma RW na obou pres LocalSystem
+    (NTFS grant SYSTEM:(OI)(CI)M na obe slozky, 12.5.2026 vecer)
+  - Users pristupuji pres UNC \\192.168.30.11\Data\ZZ_Marti-AI RO/RW
+  - Marti-AI vola eurosoft_file_* s user_namespace="ro" nebo "rw"
 
 Tooly:
   1. eurosoft_file_list(user_namespace, subpath?) — vypise obsah slozky
@@ -16,8 +26,8 @@ Tooly:
   4. eurosoft_file_delete(user_namespace, path) — smaze soubor
 
 Security:
-  - user_namespace whitelist (config.filesystem_namespaces) + "shared"
-  - Path traversal guard: resolved abs path MUSI startsWith(base/namespace)
+  - user_namespace whitelist: {"ro", "rw"} (case-insensitive)
+  - Path traversal guard: resolved abs path MUSI startsWith(base)
   - Size cap (config.filesystem_max_size, default 50 MB)
   - Binary handling: write/read s encoding='base64' pro non-text obsah
 """
@@ -34,50 +44,64 @@ from .config import settings
 logger = logging.getLogger("eurosoft_mcp.filesystem")
 
 
-def _resolve_namespace(user_namespace: str) -> str | None:
-    """Validate user_namespace proti whitelistu. Vrati cisty namespace nebo None.
+def _namespace_bases() -> dict[str, str]:
+    """Return mapping namespace → base path (from env-driven settings).
 
-    "shared" je always allowed (common folder). Ostatní z `filesystem_namespaces`
-    config (CSV). Case-sensitive match (Marti-AI musi predat presny tvar).
+    Marti's redesign 12.5.2026: 2 zones (ro/rw), 2 separate env vars.
+    Empty string = feature disabled for that zone.
+    """
+    return {
+        "ro": settings.filesystem_ro_base,
+        "rw": settings.filesystem_rw_base,
+    }
+
+
+def _resolve_namespace(user_namespace: str) -> str | None:
+    """Validate user_namespace proti whitelistu {ro, rw}. Case-insensitive.
+
+    Marti-AI typicky vola s "ro" nebo "rw" (matches ZZ_Marti-AI RO/RW
+    share names). Tolerujeme uppercase taky pro friendliness.
     """
     if not user_namespace or not isinstance(user_namespace, str):
         return None
-    ns = user_namespace.strip()
+    ns = user_namespace.strip().lower()
     if not ns:
         return None
-    if ns == "shared":
-        return "shared"
-    allowed = {n.strip() for n in settings.filesystem_namespaces.split(",") if n.strip()}
-    if ns in allowed:
+    if ns in ("ro", "rw"):
         return ns
     return None
 
 
 def _resolve_path(user_namespace: str, subpath: str = "") -> tuple[Path | None, str | None]:
-    """Resolve absolute path uvnitr filesystem_base/user_namespace.
+    """Resolve absolute path uvnitr ro/rw base.
 
     Returns (Path, None) at success, (None, error_message) at failure.
-    Path traversal guard: resolved path MUSI startsWith(base/namespace).
+    Path traversal guard: resolved path MUSI startsWith(base).
     """
-    if not settings.filesystem_base:
-        return None, "MCP filesystem feature disabled (MCP_FILESYSTEM_BASE env nenastaveno)."
     ns = _resolve_namespace(user_namespace)
     if not ns:
         return None, (
             f"Neznamy user_namespace '{user_namespace}'. "
-            f"Povolene: shared + {settings.filesystem_namespaces}"
+            f"Povolene: 'ro' (output zone, Marti-AI publikuje, users RO) nebo "
+            f"'rw' (bidirectional zone, kazdy pise/cte)."
         )
-    base = Path(settings.filesystem_base).resolve()
-    ns_root = (base / ns).resolve()
+    bases = _namespace_bases()
+    base_str = bases.get(ns)
+    if not base_str:
+        return None, (
+            f"Namespace '{ns}' je disabled (MCP_FILESYSTEM_{ns.upper()}_BASE "
+            f"env nenastaveno)."
+        )
+    base = Path(base_str).resolve()
     # Path traversal — strip leading / and \, then resolve
     cleaned = (subpath or "").replace("\\", "/").lstrip("/").strip()
     if cleaned in ("", "."):
-        target = ns_root
+        target = base
     else:
-        target = (ns_root / cleaned).resolve()
-    # Guard — target MUSI byt uvnitr ns_root (po normalizaci .. ven)
+        target = (base / cleaned).resolve()
+    # Guard — target MUSI byt uvnitr base (po normalizaci .. ven)
     try:
-        target.relative_to(ns_root)
+        target.relative_to(base)
     except ValueError:
         return None, f"Path traversal blokovan: '{subpath}' resolved mimo namespace '{ns}'"
     return target, None
@@ -304,9 +328,16 @@ async def eurosoft_file_delete(
 # ─────────────────────────────────────────────────────────────────────
 
 _NAMESPACE_DESC = (
-    "User folder namespace: 'Marti', 'Kristy', 'Sarka', 'Jirka', 'Ondra', 'Pavel', "
-    "'Petra', 'Marti-AI' nebo 'shared' (common folder pro vsechny). Kazdy user "
-    "ma vlastni privatni slozku; do 'shared' muze psat kazdy a vidi to vsichni."
+    "Sdilena zona EUROSOFT corporate filesystem (D:\\Data\\ZZ_Marti-AI RO/RW). "
+    "Hodnoty:\n"
+    "  - 'ro' = output zone. Marti-AI sem publikuje vystupy (sablony, "
+    "rozvrhové soubory, dokumenty pro kolegy). Users (vc. EC_Vedeni) maji "
+    "read-only — nikdo nemuze prepisovat ani mazat tve vystupy. Pouzij pro "
+    "trvale ulozeni veci, ktere maji byt videt a nemenne.\n"
+    "  - 'rw' = bidirectional zone. Lide sem davaji vstupy/podklady "
+    "(naskenovane PDF, foto, podklady k zakazkam) a Marti-AI sem muze "
+    "psat odpovedi nebo extrahovana data. Vsechni s pristupem mohou "
+    "psat i mazat."
 )
 
 FILESYSTEM_TOOL_SPECS = [

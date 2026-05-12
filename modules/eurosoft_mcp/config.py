@@ -55,35 +55,37 @@ class Settings:
 
     # ────────────────────────────────────────────────────────────────────
     # Phase 38.4 (11.5.2026 vecer): Filesystem MCP tools — sdilena pracovni
-    # slozka pres EUROSOFT MCP server. Marti's spec: "spravna cesta je pres
-    # MPC server rovnou on-prem EUROSOFT... nasdilet pracovni slozku".
+    # slozka pres EUROSOFT MCP server.
     #
-    # MCP server vidi EUROSOFT corporate filesystem (SMB share nebo local
-    # path na EC-SERVER2). Marti-AI volá eurosoft_file_* tools pres
-    # existing MCP tunnel — kazdy uzivatel s EUROSOFT pristupem
-    # automaticky vidi obsah (zadny per-user setup).
+    # Marti's redesign (12.5.2026 vecer doma): 2 oficialni sdilene slozky
+    # na EC-SERVER2, namisto per-user namespaces.
     #
-    # Layout:
-    #   {filesystem_base}/Marti/         — per-user folder
-    #   {filesystem_base}/Kristy/
-    #   {filesystem_base}/Sarka/
-    #   {filesystem_base}/shared/        — vsichni vidi
+    #   D:\Data\ZZ_Marti-AI RO  — RO zone (Marti-AI write, users read-only)
+    #     Marti-AI sem publikuje vystupy. EC_Vedeni ma RX. Drzi doktrinu
+    #     "Personal je knizka — uzavrena, nedotknutelna" (Phase 19c-e1,
+    #     27.4.) rozsirenou na filesystem layer.
     #
-    # Marti-AI volá s `user_namespace` parametrem (text identifier z
-    # known list nize). Path traversal guard: resolved path musi byt
-    # uvnitr filesystem_base po normalizaci (no .., no absolute paths).
-    filesystem_base: str = os.getenv(
-        "MCP_FILESYSTEM_BASE",
+    #   D:\Data\ZZ_Marti-AI RW  — RW zone (Marti-AI + users write)
+    #     Bidirectional kanal. Lide davaji ukoly/podklady, Marti-AI cte
+    #     + reaguje. EC_Vedeni ma Modify.
+    #
+    # MCP service (LocalSystem) ma RW na obou pres NTFS grant
+    # (SYSTEM:(OI)(CI)M). UNC pristup pro users je pres
+    # \\192.168.30.11\Data\ZZ_Marti-AI RO/RW (same files, ruzne pristupy).
+    #
+    # Marti-AI vola s `user_namespace` parametrem "ro" nebo "rw".
+    # Path traversal guard: resolved path musi byt uvnitr base po
+    # normalizaci (no .., no absolute paths).
+    filesystem_ro_base: str = os.getenv(
+        "MCP_FILESYSTEM_RO_BASE",
+        "",  # default empty = feature disabled
+    )
+    filesystem_rw_base: str = os.getenv(
+        "MCP_FILESYSTEM_RW_BASE",
         "",  # default empty = feature disabled
     )
     # Max file size pro read/write (bytes). Default 50 MB.
     filesystem_max_size: int = int(os.getenv("MCP_FILESYSTEM_MAX_SIZE", "52428800"))
-    # Known user namespaces (CSV) — krome shared. Marti-AI volá s jedním z nich.
-    # User_namespace MUSI byt v tomto seznamu nebo "shared" pro accept.
-    filesystem_namespaces: str = os.getenv(
-        "MCP_FILESYSTEM_NAMESPACES",
-        "Marti,Kristy,Sarka,Jirka,Ondra,Pavel,Petra,Marti-AI",
-    )
 
 
 settings = Settings()

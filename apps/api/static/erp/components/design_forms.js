@@ -2306,7 +2306,11 @@
         this._showError("Chybí gridCode (fw.core.code).");
         return;
       }
-      const url = "/api/v1/erp/design/core-by-code/" + encodeURIComponent(gridCode);
+      // Phase 38.4 Krok 14b (12.5.2026 ~23:30): Marti's bug catch —
+      // pred fix fetched /design/core-by-code/{grid} (= list core), now
+      // fetches /design/form-core-for-grid/{grid} → vrací form_core nebo
+      // empty state s entity_type + suggested_form_code (pro scaffold akci).
+      const url = "/api/v1/erp/design/form-core-for-grid/" + encodeURIComponent(gridCode);
       fetch(url, { credentials: "same-origin", cache: "no-store" })
         .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject("HTTP " + r.status + ": " + t)))
         .then(data => {
@@ -2352,35 +2356,94 @@
 
       // Section: Kontext kliku — vsechno readonly (jen orientacni informace)
       // Krok 14a-A1m #1: section title pair (UI state, no DB)
+      // Krok 14b (12.5.2026 ~23:30): plus data_entity_type z list core
+      // (po refactoru _fetchData → /form-core-for-grid endpoint)
       const ctxSec = _sectionBuild("Kontext kliku v gridu", "UI state (gridCode + rowId + headerName + compDefId)");
       ctxSec.grid.appendChild(_f("Grid (core.code)", this.opts.gridCode, "ctx.gridCode", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Řádek (ID)", this.opts.rowId, "ctx.rowId", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Klepnutý sloupec", this.opts.headerName, "ctx.headerName", { readonly: true }));
       ctxSec.grid.appendChild(_f("comp_def_id sloupce", this.opts.compDefId, "ctx.compDefId", { mono: true, readonly: true }));
+      const entityType = (this._data && this._data.entity_type) || null;
+      ctxSec.grid.appendChild(_f("Typ datové entity", entityType, "ctx.entityType", { mono: true, readonly: true }));
       root.appendChild(ctxSec.wrap);
 
-      // Section: Jadro identita — ID/version readonly (PK + lineage), ostatni editable
-      const core = (this._data && this._data.core) || null;
-      if (core && core.id) {
-        // Krok 14a-A1m #1: section title pair.
+      // Section: Jadro identita — pro FORM core (ne list core!).
+      // Phase 38.4 Krok 14b (12.5.2026 ~23:30): Marti's bug catch fix —
+      // pred refactor zobrazoval list core (security_users, id=11, layout=list)
+      // jako "Jádro pro řádek identita", což bylo semanticky nesprávné.
+      // Po refactor: form_core (kind='form', data_entity_type matches list).
+      // Pokud form_core neexistuje → empty state s "Vytvoř form detail" button.
+      const formCore = (this._data && this._data.form_core) || null;
+      const found = !!(this._data && this._data.found);
+      const suggestedCode = (this._data && this._data.suggested_form_code) || null;
+
+      if (found && formCore && formCore.id) {
+        // Form core existuje — render identitu (existing pattern)
         const idSec = _sectionBuild("Jádro pro řádek — identita", "fw.core — identita + layout + version");
-        idSec.grid.appendChild(_f("ID", core.id, "core.id", { mono: true, readonly: true }));
-        idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
-        idSec.grid.appendChild(_f("Label", core.label, "core.label"));
-        idSec.grid.appendChild(_d("Layout type", core.layout_type, "layout_type", "core.layout_type"));
-        idSec.grid.appendChild(_f("Data entity type", core.data_entity_type, "core.data_entity_type", { mono: true }));
-        idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
+        idSec.grid.appendChild(_f("ID", formCore.id, "form_core.id", { mono: true, readonly: true }));
+        idSec.grid.appendChild(_f("Code", formCore.code, "form_core.code", { mono: true }));
+        idSec.grid.appendChild(_f("Label", formCore.label, "form_core.label"));
+        idSec.grid.appendChild(_d("Layout type", formCore.layout_type, "layout_type", "form_core.layout_type"));
+        idSec.grid.appendChild(_f("Data entity type", formCore.data_entity_type, "form_core.data_entity_type", { mono: true }));
+        idSec.grid.appendChild(_f("Layout template", formCore.layout_template, "form_core.layout_template", { mono: true }));
+        idSec.grid.appendChild(_f("Version", formCore.version, "form_core.version", { mono: true, readonly: true }));
         root.appendChild(idSec.wrap);
 
-        // Phase 38.4 Krok 14a-A1m #2 (12.5.2026): popis v separatnim popupu
-        // (📖 ikona v header). Zadna inline Popis sekce.
+        // Krok 14a-A1m #2: popis v separatnim popupu (📖 ikona v header).
       } else {
-        const noCore = _sectionBuild("Jádro pro řádek", "fw.core — žádný záznam");
-        const empty = document.createElement("div");
-        empty.style.cssText = "padding:8px 12px;color:#5d6975;font-style:italic;grid-column:1/-1;";
-        empty.textContent = "Žádné jádro pro grid '" + (this.opts.gridCode || "?") + "' (hardcoded view bez core entry, nebo grid neexistuje v fw.core).";
-        noCore.grid.appendChild(empty);
-        root.appendChild(noCore.wrap);
+        // Form core neexistuje → Marti's "Vytvoř form detail" vychytávka.
+        // Phase 38.4 Krok 14b-3 (12.5.2026 ~23:30): empty state s placeholder
+        // button. Backend scaffold POST endpoint v Krok 14b-4 (next commit).
+        const emptySec = _sectionBuild("Jádro pro řádek — identita", "fw.core form — zatím neexistuje");
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "padding:20px;text-align:center;grid-column:1/-1;";
+
+        const hint = document.createElement("div");
+        hint.style.cssText = "color:#8a96a4;font-size:13px;line-height:1.6;margin-bottom:16px;";
+        if (entityType) {
+          hint.innerHTML =
+            "Tento grid (<code style='color:#cfd6df;'>" +
+            _esc(this.opts.gridCode || "?") +
+            "</code>) zatím nemá <strong>form detail</strong>." +
+            "<br>Klik založí <code style='color:#cfd6df;'>fw.core (" +
+            _esc(suggestedCode || "?") +
+            ")</code> + <code style='color:#cfd6df;'>fw.comp_def form 302</code> root s defaultním panelem <em>Obsah</em>.";
+        } else {
+          hint.innerHTML =
+            "Tento grid (<code style='color:#cfd6df;'>" +
+            _esc(this.opts.gridCode || "?") +
+            "</code>) nemá nastavený <strong>typ datové entity</strong>." +
+            "<br>Bez něj nelze založit form detail. Doplň <code style='color:#cfd6df;'>data_entity_type</code> v list core přes <em>Design: Core přehledu</em>.";
+        }
+        wrap.appendChild(hint);
+
+        if (entityType) {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = "🪄 Vytvoř form detail";
+          btn.style.cssText =
+            "padding:10px 24px;background:#3a5a3a;border:1px solid #4a7a4a;" +
+            "border-radius:4px;color:#e8eef5;cursor:pointer;font-size:13px;" +
+            "font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,0.3);";
+          btn.title = "Phase 38.4 Krok 14b-4 (next commit): POST /api/v1/erp/design/scaffold-form";
+          btn.addEventListener("click", () => {
+            // TODO Krok 14b-4: POST scaffold endpoint + reload _fetchData().
+            console.warn("Scaffold endpoint chybí — Krok 14b-4 next commit.");
+            alert(
+              "Vytvoř form detail — backend scaffold endpoint chybí.\n" +
+              "Krok 14b-4 (next commit) přidá POST /api/v1/erp/design/scaffold-form.\n\n" +
+              "Plán INSERT (po scaffold backend live):\n" +
+              "  1. fw.core code='" + (suggestedCode || "?") + "' kind=form data_entity_type='" + entityType + "'\n" +
+              "  2. fw.comp_def type_id=302 (form root) s layout.panels = [{slot:'obsah', label:'Obsah'}]\n" +
+              "  3. (volitelně) fw.data_source row pro insert/update binding\n" +
+              "  4. Reload — modal ukáže nový form core identity"
+            );
+          });
+          wrap.appendChild(btn);
+        }
+
+        emptySec.grid.appendChild(wrap);
+        root.appendChild(emptySec.wrap);
       }
 
       // Section: Picker poli (placeholder Krok 14c)

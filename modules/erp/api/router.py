@@ -2003,6 +2003,105 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
 
 
 # ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 14b (12.5.2026 vecer ~23:30): Find form core for grid.
+#
+# Marti's bug catch: DesignJadroRadekForm fetched list core (security_users,
+# id=11, layout=list) a zobrazoval ho jako form core data — semantically
+# wrong. Fix: nový endpoint který hledá FORM core (kind='form') pro entity
+# z list core's data_entity_type.
+#
+# Drží Marti-AI's flat-data doctrine — entity_type je field v list core,
+# form core je separate row WHERE data_entity_type matches.
+# ────────────────────────────────────────────────────────────────────
+
+
+@api_router.get("/design/form-core-for-grid/{grid_core_code}")
+def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
+    """Pro daný grid (list core) najdi linked form core (detail editor).
+
+    Marti's plan (12.5.2026 vecer): scaffold action "Vytvoř form detail"
+    v DesignJadroRadekForm potřebuje vědět:
+      a) Jaká je entity tohoto gridu (z list core's data_entity_type)
+      b) Existuje už form core pro tu entity?
+
+    Returns:
+      200: {found: bool, list_core: {...}, entity_type: str,
+            suggested_form_code: str, form_core: {...} | None}
+      404: list core code neexistuje
+    """
+    from core.database_data import get_data_session as _gds_fcfg
+    from sqlalchemy import text as _sql_text_fcfg
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_fcfg()
+    try:
+        # 1. Load list core by code
+        list_core = ds.execute(_sql_text_fcfg("""
+            SELECT id, code, label, description, layout_type,
+                   data_entity_type, version, is_active
+            FROM fw.core
+            WHERE code = :code
+              AND is_active = true
+        """), {"code": grid_core_code}).mappings().one_or_none()
+
+        if not list_core:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"fw.core code='{grid_core_code}' nenalezen",
+                },
+                status_code=404,
+            )
+
+        list_core_dict = dict(list_core)
+        entity_type = list_core_dict.get("data_entity_type")
+
+        # 2. Bez data_entity_type nelze hledat form core
+        if not entity_type:
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "found": False,
+                "list_core": list_core_dict,
+                "entity_type": None,
+                "suggested_form_code": None,
+                "form_core": None,
+                "hint": (
+                    f"List core '{grid_core_code}' nemá nastaveno "
+                    f"data_entity_type. UPDATE fw.core SET data_entity_type "
+                    f"= '<entity>' WHERE id = {list_core_dict['id']} potřeba "
+                    f"předtím, než lze scaffold form."
+                ),
+            }))
+
+        # 3. Hledej form core pro tu entity
+        suggested_form_code = f"{entity_type}_edit"
+        form_core = ds.execute(_sql_text_fcfg("""
+            SELECT id, code, label, description, layout_type,
+                   data_entity_type, version, layout_template, is_active,
+                   created_at
+            FROM fw.core
+            WHERE data_entity_type = :etype
+              AND layout_type = 'form'
+              AND is_active = true
+            ORDER BY id ASC
+            LIMIT 1
+        """), {"etype": entity_type}).mappings().one_or_none()
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "found": form_core is not None,
+            "list_core": list_core_dict,
+            "entity_type": entity_type,
+            "suggested_form_code": suggested_form_code,
+            "form_core": dict(form_core) if form_core else None,
+        }))
+    finally:
+        ds.close()
+
+
+# ────────────────────────────────────────────────────────────────────
 # Phase 38.4 Krok 14b (12.5.2026 vecer): fw-form template renderer
 #
 # Marti's pivot z 12.5. večera: build fw-native form rendering. Marti's

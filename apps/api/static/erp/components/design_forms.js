@@ -195,6 +195,18 @@
       ".erp-design-modal textarea {\n" +
       "  scrollbar-width: thin;\n" +
       "  scrollbar-color: #2a3340 #0f141a;\n" +
+      "}\n" +
+      // Krok 14a-A1j #3 (12.5.2026): sjednocena min-height u all design fields
+      // — Marti's polish, aby po revertu / show system names komponenty
+      // nepreskakovaly nahoru/dolu. Label vzdy zabira misto i kdyz prazdny.
+      ".erp-design-modal .erp-field-design {\n" +
+      "  min-height: 56px;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-input-label,\n" +
+      ".erp-design-modal .erp-dropdown-label,\n" +
+      ".erp-design-modal .erp-memo-label {\n" +
+      "  min-height: 16px;\n" +
+      "  display: block;\n" +
       "}\n"
     );
     document.head.appendChild(style);
@@ -294,6 +306,31 @@
     title.style.cssText = "font-size:14px;font-weight:600;color:#e8eef5;";
     title.textContent = opts.title || "Design";
     header.appendChild(title);
+
+    // Krok 14a-A1j #2 (12.5.2026): system names toggle vpravo v header
+    // — pro techniky pri ladeni; pri zapnutem zobrazuje raw fieldKey
+    // (např. "mn.code" misto "Code") napric vsech komponent.
+    const sysToggle = document.createElement("button");
+    sysToggle.type = "button";
+    sysToggle.className = "erp-design-systoggle";
+    function _renderSysToggleLabel() {
+      const on = window._erpDesignShowSystemNames === true;
+      sysToggle.textContent = on ? "👁️ system" : "👁️ uživatel";
+      sysToggle.title = on
+        ? "Zobrazují se system fieldKey (např. mn.code). Klikni pro přepnutí na uživatelské názvy."
+        : "Zobrazují se uživatelské názvy. Klikni pro přepnutí na system fieldKey (debug).";
+      sysToggle.style.cssText = "background:" + (on ? "#3a4a5a" : "#1f2530") +
+        ";border:1px solid " + (on ? "#5a6877" : "#2a3340") +
+        ";color:#cfd6df;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:10px;";
+    }
+    _renderSysToggleLabel();
+    sysToggle.addEventListener("click", () => {
+      window._erpDesignShowSystemNames = !window._erpDesignShowSystemNames;
+      _renderSysToggleLabel();
+      _reapplyAllOverridesInDOM();
+    });
+    header.appendChild(sysToggle);
+
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "×";
@@ -407,7 +444,7 @@
           labelEl.dataset.lockBadge = "1";
           labelEl.insertAdjacentHTML(
             "beforeend",
-            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+            ' <span data-lock-badge="1" style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
           );
         }
       }
@@ -416,6 +453,8 @@
       wrap._origVal = displayValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "field";
+      // Krok 14a-A1j #1: ulozit puvodni hardcoded label pro revert fallback
+      wrap.dataset.designOrigLabel = label || "";
       // Krok 14a-A1i #2: right-click handle na label pro inline override edit
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-input-label");
@@ -511,7 +550,7 @@
           labelEl.dataset.lockBadge = "1";
           labelEl.insertAdjacentHTML(
             "beforeend",
-            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+            ' <span data-lock-badge="1" style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
           );
         }
       }
@@ -520,6 +559,8 @@
       wrap._origVal = displayValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "memo";
+      // Krok 14a-A1j #1: puvodni label fallback
+      wrap.dataset.designOrigLabel = label || "";
       // Krok 14a-A1i #2: right-click handle na label
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
@@ -736,24 +777,38 @@
   }
 
   // Apply override → update DOM labels + hints v live modal po Save.
-  // Brute-force ale OK pro MVP: query all design fields, re-resolve a write.
+  // Krok 14a-A1j #1 bugfix: pouzij wrap.dataset.designOrigLabel jako
+  // fallback (jinak po "Vratit na vychozi" label zmizel uplne).
+  function _reapplyOverridesForField(w, fieldKey) {
+    const origFallback = w.dataset.designOrigLabel || "";
+    const newLabel = _resolveLabel(fieldKey, origFallback);
+    const newHint = _resolveHint(fieldKey);
+    const labelEl = w.querySelector(".erp-input-label, .erp-dropdown-label, .erp-memo-label, label");
+    if (labelEl) {
+      // Preserve lock badge if present (data-lock-badge byl set v helpers)
+      const lockBadge = labelEl.querySelector("[data-lock-badge]");
+      labelEl.textContent = newLabel;
+      if (lockBadge) labelEl.appendChild(lockBadge);
+      // Keep right-click handle (dataset attr survives textContent assignment? NE — dataset attr persists on element directly, NOT on textNode)
+      labelEl.setAttribute("data-design-fieldkey", fieldKey);
+      labelEl.style.cursor = "context-menu";
+    }
+    if (newHint) w.dataset.designHint = newHint;
+    else delete w.dataset.designHint;
+  }
+
   function _reapplyOverridesInDOM(fieldKey) {
-    // Najdi všechny .erp-field-design wrappery s tímto fieldKey
     document.querySelectorAll(".erp-field-design").forEach(w => {
       if (w._fieldKey !== fieldKey) return;
-      const newLabel = _resolveLabel(fieldKey, "");
-      const newHint = _resolveHint(fieldKey);
-      // Update label DOM element
-      const labelEl = w.querySelector(".erp-input-label, .erp-dropdown-label, .erp-memo-label, label");
-      if (labelEl) {
-        // Preserve lock badge if present
-        const lockBadge = labelEl.querySelector("[data-lock-badge], [title='Read-only']");
-        labelEl.textContent = newLabel;
-        if (lockBadge) labelEl.appendChild(lockBadge);
-      }
-      // Update hint dataset
-      if (newHint) w.dataset.designHint = newHint;
-      else delete w.dataset.designHint;
+      _reapplyOverridesForField(w, fieldKey);
+    });
+  }
+
+  // Krok 14a-A1j #2: full-form re-apply pro system mode toggle (flip flag a refresh labels napric vsech otevrenych modalu).
+  function _reapplyAllOverridesInDOM() {
+    document.querySelectorAll(".erp-field-design").forEach(w => {
+      if (!w._fieldKey) return;
+      _reapplyOverridesForField(w, w._fieldKey);
     });
   }
 
@@ -804,6 +859,9 @@
 
   function _resolveLabel(fieldKey, fallback) {
     if (!fieldKey) return fallback;
+    // Krok 14a-A1j #2: pokud je zapnuty system mode toggle, zobraz fieldKey
+    // raw (napr. "mn.code" misto "Code") — pro techniky pri ladeni.
+    if (window._erpDesignShowSystemNames === true) return fieldKey;
     // User override má prednost pred hardcoded (Marti's polish #2)
     if (_USER_OVERRIDES.labels[fieldKey]) return _USER_OVERRIDES.labels[fieldKey];
     if (LABEL_OVERRIDES[fieldKey]) return LABEL_OVERRIDES[fieldKey];
@@ -951,7 +1009,7 @@
           labelEl.dataset.lockBadge = "1";
           labelEl.insertAdjacentHTML(
             "beforeend",
-            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+            ' <span data-lock-badge="1" style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
           );
         }
       }
@@ -960,6 +1018,8 @@
       wrap._origVal = resolvedValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "dropdown";
+      // Krok 14a-A1j #1: puvodni label fallback pro revert
+      wrap.dataset.designOrigLabel = label || "";
       // Krok 14a-A1i #2: right-click handle na label
       if (opts.fieldKey) {
         const labelEl = wrap.querySelector(".erp-dropdown-label");

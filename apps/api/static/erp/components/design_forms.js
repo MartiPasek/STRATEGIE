@@ -38,6 +38,121 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1g #3 (12.5.2026 odpoledne): Dark scrollbar
+  // pro design modal body + page control content. Inject once při module load.
+  // ────────────────────────────────────────────────────────────────────
+
+  (function _injectDesignFormsCss() {
+    if (document.getElementById("erp-design-forms-css")) return;
+    const style = document.createElement("style");
+    style.id = "erp-design-forms-css";
+    style.textContent = (
+      // Dark scrollbar pro design modal body + page control content area + memo
+      ".erp-design-modal .erp-modal-body::-webkit-scrollbar,\n" +
+      ".erp-design-modal .erp-pagecontrol-content::-webkit-scrollbar,\n" +
+      ".erp-design-modal textarea::-webkit-scrollbar {\n" +
+      "  width: 10px; height: 10px;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-modal-body::-webkit-scrollbar-track,\n" +
+      ".erp-design-modal .erp-pagecontrol-content::-webkit-scrollbar-track,\n" +
+      ".erp-design-modal textarea::-webkit-scrollbar-track {\n" +
+      "  background: #0f141a;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-modal-body::-webkit-scrollbar-thumb,\n" +
+      ".erp-design-modal .erp-pagecontrol-content::-webkit-scrollbar-thumb,\n" +
+      ".erp-design-modal textarea::-webkit-scrollbar-thumb {\n" +
+      "  background: #2a3340; border-radius: 5px;\n" +
+      "  border: 2px solid #1a1f26;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-modal-body::-webkit-scrollbar-thumb:hover,\n" +
+      ".erp-design-modal .erp-pagecontrol-content::-webkit-scrollbar-thumb:hover,\n" +
+      ".erp-design-modal textarea::-webkit-scrollbar-thumb:hover {\n" +
+      "  background: #3a4754;\n" +
+      "}\n" +
+      // Firefox scrollbar
+      ".erp-design-modal .erp-modal-body,\n" +
+      ".erp-design-modal .erp-pagecontrol-content,\n" +
+      ".erp-design-modal textarea {\n" +
+      "  scrollbar-width: thin;\n" +
+      "  scrollbar-color: #2a3340 #0f141a;\n" +
+      "}\n"
+    );
+    document.head.appendChild(style);
+  })();
+
+  // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1g #2 (12.5.2026 odpoledne): Dark confirm dialog
+  // centered v page. Replace native browser confirm() (Marti's stížnost
+  // na bílý native prompt v levém horním rohu).
+  //
+  // Vraci Promise<boolean> — true = OK, false = Zrušit/Esc.
+  // ────────────────────────────────────────────────────────────────────
+
+  function _confirmDarkDialog(opts) {
+    opts = opts || {};
+    const title = opts.title || "Potvrdit";
+    const message = opts.message || "";
+    const okLabel = opts.ok || "OK";
+    const cancelLabel = opts.cancel || "Zrušit";
+
+    return new Promise((resolve) => {
+      const ovr = document.createElement("div");
+      ovr.className = "erp-confirm-overlay";
+      ovr.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9500;display:flex;align-items:center;justify-content:center;";
+
+      const dlg = document.createElement("div");
+      dlg.className = "erp-confirm-dialog erp-design-modal";
+      dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:420px;max-width:90vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+
+      const hdr = document.createElement("div");
+      hdr.style.cssText = "padding:12px 16px;border-bottom:1px solid #2a3340;background:#141a20;font-size:14px;font-weight:600;color:#e8eef5;";
+      hdr.textContent = title;
+      dlg.appendChild(hdr);
+
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;color:#cfd6df;font-size:13px;line-height:1.5;white-space:pre-wrap;";
+      body.textContent = message;
+      dlg.appendChild(body);
+
+      const ftr = document.createElement("div");
+      ftr.style.cssText = "padding:10px 16px;border-top:1px solid #2a3340;background:#141a20;display:flex;justify-content:flex-end;gap:8px;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = cancelLabel;
+      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = okLabel;
+      okBtn.style.cssText = "padding:6px 16px;background:#5a3a3a;border:1px solid #7a4a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+
+      ftr.appendChild(cancelBtn);
+      ftr.appendChild(okBtn);
+      dlg.appendChild(ftr);
+      ovr.appendChild(dlg);
+      document.body.appendChild(ovr);
+
+      function cleanup() {
+        try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
+        document.removeEventListener("keydown", onKey);
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") { cleanup(); resolve(false); }
+        else if (ev.key === "Enter") { cleanup(); resolve(true); }
+      }
+      cancelBtn.addEventListener("click", () => { cleanup(); resolve(false); });
+      okBtn.addEventListener("click", () => { cleanup(); resolve(true); });
+      ovr.addEventListener("click", (ev) => {
+        if (ev.target === ovr) { cleanup(); resolve(false); }
+      });
+      dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
+      document.addEventListener("keydown", onKey);
+      setTimeout(() => okBtn.focus(), 50);
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   // Shared modal skeleton (reuse modal CSS z erp-modal patternu)
   // ────────────────────────────────────────────────────────────────────
 
@@ -363,22 +478,19 @@
       const wrap = document.createElement("div");
       wrap.className = "erp-field erp-field-design erp-field-dropdown";
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
-      // Phase 38.4 Krok 14a-A1f #3 (12.5.2026 odpoledne): Marti's polish —
-      // oznacit puvodni hodnotu v dropdown items aby user videl, ktera byla
-      // originalni (vedle aktualne vybrane). Marker za label = "  ← původní".
-      const itemsWithOriginalMarker = resolvedItems.map(it => {
-        if (!isReadonly && resolvedValue && String(it.value) === String(resolvedValue)) {
-          return Object.assign({}, it, { label: it.label + "  ← původní" });
-        }
-        return it;
-      });
+      // Phase 38.4 Krok 14a-A1g #1 (12.5.2026 odpoledne polish): marker
+      // "← původní" se v panel ukazuje JEN kdyz je hodnota zmenena.
+      // V initial state (clean): items bez markeru.
       const dd = new global.ErpDropdown(wrap, {
         label: label,
         value: resolvedValue,
-        items: itemsWithOriginalMarker,
+        items: resolvedItems,
         disabled: isReadonly,
         placeholder: "—",
         // Phase 38.4 Krok 14a-A1d (12.5.2026): dirty tracking pro dropdowns
+        // Krok 14a-A1g #1 (12.5.2026 odpoledne): dynamic re-mark — pri zmene
+        // pridame "← původní" marker na puvodni polozku v items list (panel),
+        // pri vraceni zpet ho odstranime.
         onChange: (newVal, item) => {
           if (isReadonly) return;
           const isDirty = String(newVal || "") !== String(resolvedValue || "");
@@ -390,6 +502,20 @@
               dd.trigger.style.borderLeft = "";
               dd.trigger.style.background = "";
             }
+          }
+          // Dynamic marker: pri dirty pridame marker na puvodni polozku
+          // (jen v panel — trigger label ukazuje aktualne vybranou, ktera
+          // marker nepotrebuje). Pri clean state: items bez markerů.
+          if (isDirty && resolvedValue) {
+            const markedItems = resolvedItems.map(it => {
+              if (String(it.value) === String(resolvedValue)) {
+                return Object.assign({}, it, { label: it.label + "  ← původní" });
+              }
+              return it;
+            });
+            dd.setItems(markedItems);
+          } else {
+            dd.setItems(resolvedItems);
           }
           if (typeof opts.onDirty === "function" && opts.fieldKey) {
             opts.onDirty(opts.fieldKey, isDirty);
@@ -505,16 +631,21 @@
     }
 
     _onRevertClick() {
-      // Phase 38.4 Krok 14a-A1f #4 (12.5.2026): klik na dirty badge — confirm + revert.
+      // Phase 38.4 Krok 14a-A1f #4: klik na dirty badge — confirm + revert.
+      // Krok 14a-A1g #2 (12.5.2026 odpoledne): nahrazujeme native confirm()
+      // za dark centered dialog (Marti's polish — UX konzistence).
       if (!this._dirty.size) return;
       const count = this._dirty.size;
       const fields = Array.from(this._dirty).join(", ");
-      const ok = confirm(
-        "Vrátit " + count + " změn" + (count > 1 ? (count < 5 ? "y" : "") : "") + "?\n\n" +
-        "Pole: " + fields
-      );
-      if (!ok) return;
-      this._revertAll();
+      _confirmDarkDialog({
+        title: "Vrátit změny?",
+        message: "Vrátit " + count + " změn" + (count > 1 ? (count < 5 ? "y" : "") : "") +
+          " do původního stavu?\n\nPole: " + fields,
+        ok: "Vrátit",
+        cancel: "Zrušit",
+      }).then(ok => {
+        if (ok) this._revertAll();
+      });
     }
 
     _revertAll() {

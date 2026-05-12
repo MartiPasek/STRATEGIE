@@ -226,6 +226,12 @@
     const message = opts.message || "";
     const okLabel = opts.ok || "OK";
     const cancelLabel = opts.cancel || "Zrušit";
+    // Krok 14a-A1k #4: 3-button mode (Ano / Ne / Zrušit) pro close-with-dirty.
+    // Resolve hodnoty: opts.threeButtons → "yes" | "no" | "cancel"
+    //                  normal mode      → true | false
+    const threeBtn = !!opts.threeButtons;
+    const yesLabel = opts.yes || "Ano";
+    const noLabel = opts.no || "Ne";
 
     return new Promise((resolve) => {
       const ovr = document.createElement("div");
@@ -249,6 +255,47 @@
       const ftr = document.createElement("div");
       ftr.style.cssText = "padding:10px 16px;border-top:1px solid #2a3340;background:#141a20;display:flex;justify-content:flex-end;gap:8px;";
 
+      if (threeBtn) {
+        // 3-button: Ano (save) | Ne (discard) | Zrušit (stay)
+        const yesBtn = document.createElement("button");
+        yesBtn.type = "button";
+        yesBtn.textContent = yesLabel;
+        yesBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+        const noBtn = document.createElement("button");
+        noBtn.type = "button";
+        noBtn.textContent = noLabel;
+        noBtn.style.cssText = "padding:6px 16px;background:#5a3a3a;border:1px solid #7a4a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;";
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = cancelLabel;
+        cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+        ftr.appendChild(cancelBtn);
+        ftr.appendChild(noBtn);
+        ftr.appendChild(yesBtn);
+        dlg.appendChild(ftr);
+        ovr.appendChild(dlg);
+        document.body.appendChild(ovr);
+        function cleanup() {
+          try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
+          document.removeEventListener("keydown", onKey);
+        }
+        function onKey(ev) {
+          if (ev.key === "Escape") { cleanup(); resolve("cancel"); }
+          else if (ev.key === "Enter") { cleanup(); resolve("yes"); }
+        }
+        yesBtn.addEventListener("click", () => { cleanup(); resolve("yes"); });
+        noBtn.addEventListener("click", () => { cleanup(); resolve("no"); });
+        cancelBtn.addEventListener("click", () => { cleanup(); resolve("cancel"); });
+        ovr.addEventListener("click", (ev) => {
+          if (ev.target === ovr) { cleanup(); resolve("cancel"); }
+        });
+        dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
+        document.addEventListener("keydown", onKey);
+        setTimeout(() => yesBtn.focus(), 50);
+        return;
+      }
+
+      // 2-button (default): OK / Cancel
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
       cancelBtn.textContent = cancelLabel;
@@ -300,16 +347,19 @@
 
     const header = document.createElement("div");
     header.className = "erp-modal-header";
-    header.style.cssText = "padding:10px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;justify-content:space-between;background:#141a20;";
+    header.style.cssText = "padding:10px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;justify-content:space-between;background:#141a20;user-select:none;";
     const title = document.createElement("div");
     title.className = "erp-modal-title";
-    title.style.cssText = "font-size:14px;font-weight:600;color:#e8eef5;";
+    title.style.cssText = "font-size:14px;font-weight:600;color:#e8eef5;flex:1 1 auto;";
     title.textContent = opts.title || "Design";
     header.appendChild(title);
 
-    // Krok 14a-A1j #2 (12.5.2026): system names toggle vpravo v header
-    // — pro techniky pri ladeni; pri zapnutem zobrazuje raw fieldKey
-    // (např. "mn.code" misto "Code") napric vsech komponent.
+    // Krok 14a-A1k #1 (12.5.2026): header right container — toggle vpravo
+    // s gapem od close button.
+    const rightActions = document.createElement("div");
+    rightActions.className = "erp-modal-header-actions";
+    rightActions.style.cssText = "display:flex;align-items:center;gap:12px;flex:0 0 auto;";
+
     const sysToggle = document.createElement("button");
     sysToggle.type = "button";
     sysToggle.className = "erp-design-systoggle";
@@ -317,11 +367,11 @@
       const on = window._erpDesignShowSystemNames === true;
       sysToggle.textContent = on ? "👁️ system" : "👁️ uživatel";
       sysToggle.title = on
-        ? "Zobrazují se system fieldKey (např. mn.code). Klikni pro přepnutí na uživatelské názvy."
+        ? "Zobrazují se system fieldKey. Klikni pro přepnutí na uživatelské názvy."
         : "Zobrazují se uživatelské názvy. Klikni pro přepnutí na system fieldKey (debug).";
       sysToggle.style.cssText = "background:" + (on ? "#3a4a5a" : "#1f2530") +
         ";border:1px solid " + (on ? "#5a6877" : "#2a3340") +
-        ";color:#cfd6df;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:10px;";
+        ";color:#cfd6df;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;";
     }
     _renderSysToggleLabel();
     sysToggle.addEventListener("click", () => {
@@ -329,14 +379,15 @@
       _renderSysToggleLabel();
       _reapplyAllOverridesInDOM();
     });
-    header.appendChild(sysToggle);
+    rightActions.appendChild(sysToggle);
 
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
     closeBtn.textContent = "×";
     closeBtn.style.cssText = "background:transparent;border:none;color:#8a96a4;font-size:22px;cursor:pointer;padding:0 6px;line-height:1;";
     closeBtn.setAttribute("aria-label", "Zavrit");
-    header.appendChild(closeBtn);
+    rightActions.appendChild(closeBtn);
+    header.appendChild(rightActions);
 
     const body = document.createElement("div");
     body.className = "erp-modal-body";
@@ -351,22 +402,82 @@
     dialog.appendChild(footer);
     overlay.appendChild(dialog);
 
-    function close() {
+    function _doClose() {
       try { overlay.parentNode && overlay.parentNode.removeChild(overlay); } catch (e) {}
       document.removeEventListener("keydown", _onKey);
+      _removeDragListeners();
+    }
+    // Krok 14a-A1k #4 (12.5.2026): requestClose ptá se attached
+    // beforeClose callback (form třídy) — pokud dirty, 3-button confirm.
+    async function close() {
+      if (typeof opts.beforeClose === "function") {
+        try {
+          const decision = await opts.beforeClose();
+          if (decision === "cancel") return;
+          // "save" / "close" / undefined → close pokračuje (save side řeší callback)
+        } catch (e) {
+          console.warn("beforeClose handler failed:", e);
+          // fallback: close anyway
+        }
+      }
+      _doClose();
     }
     function _onKey(ev) {
       if (ev.key === "Escape") close();
     }
     closeBtn.addEventListener("click", close);
-    overlay.addEventListener("click", (ev) => {
-      if (ev.target === overlay) close();
-    });
+    // Krok 14a-A1k #2: click mimo modal NEzavírá (Marti's polish — popup
+    // musí být explicit). Jen × button / Esc / footer Zavřít.
     document.addEventListener("keydown", _onKey);
-    // Phase 38.4 Krok 14a-A1f (12.5.2026): disable nativni context menu
-    // v modal dialog (Marti's #1 polish — Chrome's "Vyjmout/Kopírovat/Vložit
-    // Emojí/Heslo" matoucí v Design formu). Ctrl+C/V/X keyboard zachovan.
+    // Phase 38.4 Krok 14a-A1f: disable nativni context menu v modal dialog
     dialog.addEventListener("contextmenu", (ev) => ev.preventDefault());
+
+    // Krok 14a-A1k #3 (12.5.2026): movable popup — drag na header.
+    // Initial: dialog je centered via flex layout. Po prvním drag přepneme
+    // na manual positioning (position:fixed + computed left/top).
+    let _dragState = null;
+    function _onHeaderMouseDown(ev) {
+      // Ne dragujeme pokud klik na buttons (sysToggle, closeBtn) — preserve native click
+      if (ev.target.closest("button")) return;
+      if (ev.button !== 0) return;  // jen left mouse
+      const rect = dialog.getBoundingClientRect();
+      // Switch overlay z flex-centering na manual placement
+      overlay.style.alignItems = "flex-start";
+      overlay.style.justifyContent = "flex-start";
+      dialog.style.position = "absolute";
+      dialog.style.left = rect.left + "px";
+      dialog.style.top = rect.top + "px";
+      dialog.style.margin = "0";
+      _dragState = {
+        startX: ev.clientX,
+        startY: ev.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+      };
+      document.addEventListener("mousemove", _onDragMove);
+      document.addEventListener("mouseup", _onDragEnd);
+      ev.preventDefault();
+    }
+    function _onDragMove(ev) {
+      if (!_dragState) return;
+      const dx = ev.clientX - _dragState.startX;
+      const dy = ev.clientY - _dragState.startY;
+      const newLeft = Math.max(0, Math.min(window.innerWidth - 100, _dragState.startLeft + dx));
+      const newTop = Math.max(0, Math.min(window.innerHeight - 60, _dragState.startTop + dy));
+      dialog.style.left = newLeft + "px";
+      dialog.style.top = newTop + "px";
+    }
+    function _onDragEnd() {
+      _dragState = null;
+      document.removeEventListener("mousemove", _onDragMove);
+      document.removeEventListener("mouseup", _onDragEnd);
+    }
+    function _removeDragListeners() {
+      document.removeEventListener("mousemove", _onDragMove);
+      document.removeEventListener("mouseup", _onDragEnd);
+    }
+    header.style.cursor = "move";
+    header.addEventListener("mousedown", _onHeaderMouseDown);
 
     return { overlay, dialog, header, body, footer, title, close };
   }
@@ -1110,6 +1221,29 @@
       );
     }
 
+    // Phase 38.4 Krok 14a-A1k #4: před zavřením oken pres ✕ se zeptej,
+    // pokud jsou neuložené změny. Dark design, 3 tlačítka.
+    async _beforeCloseHandler() {
+      if (!this._dirty || this._dirty.size === 0) return "close";
+      const count = this._dirty.size;
+      const fields = Array.from(this._dirty).join(", ");
+      const plural = count > 1 ? (count < 5 ? "změny" : "změn") : "změnu";
+      const decision = await _confirmDarkDialog({
+        title: "Neuložené změny",
+        message: "Mám uložit tebou provedené " + plural + "? (" + count + ")\n\nPole: " + fields,
+        threeButtons: true,
+        yes: "Ano",
+        no: "Ne",
+        cancel: "Zrušit",
+      });
+      if (decision === "cancel") return "cancel";
+      if (decision === "yes") {
+        this._onSaveClick();
+        return "save";
+      }
+      return "close"; // "no" — zavřít bez uložení
+    }
+
     _onRevertClick() {
       // Phase 38.4 Krok 14a-A1f #4: klik na dirty badge — confirm + revert.
       // Krok 14a-A1g #2 (12.5.2026 odpoledne): nahrazujeme native confirm()
@@ -1173,7 +1307,11 @@
       // form je stejny, jen jiny default tab. Uzivatel vidi scope (soudecek + core).
       const title = "Design: Soudeček + Core přehledu";
 
-      this._shell = _buildModalShell({ title: title, width: "920px" });
+      this._shell = _buildModalShell({
+        title: title,
+        width: "920px",
+        beforeClose: () => this._beforeCloseHandler(),
+      });
       document.body.appendChild(this._shell.overlay);
 
       // Loading placeholder
@@ -1477,9 +1615,36 @@
       );
     }
 
+    // Phase 38.4 Krok 14a-A1k #4: před zavřením oken pres ✕ se zeptej,
+    // pokud jsou neuložené změny. Dark design, 3 tlačítka.
+    async _beforeCloseHandler() {
+      if (!this._dirty || this._dirty.size === 0) return "close";
+      const count = this._dirty.size;
+      const fields = Array.from(this._dirty).join(", ");
+      const plural = count > 1 ? (count < 5 ? "změny" : "změn") : "změnu";
+      const decision = await _confirmDarkDialog({
+        title: "Neuložené změny",
+        message: "Mám uložit tebou provedené " + plural + "? (" + count + ")\n\nPole: " + fields,
+        threeButtons: true,
+        yes: "Ano",
+        no: "Ne",
+        cancel: "Zrušit",
+      });
+      if (decision === "cancel") return "cancel";
+      if (decision === "yes") {
+        this._onSaveClick();
+        return "save";
+      }
+      return "close"; // "no" — zavřít bez uložení
+    }
+
     open() {
       const title = "Design: Jádro pro řádek";
-      this._shell = _buildModalShell({ title: title, width: "920px" });
+      this._shell = _buildModalShell({
+        title: title,
+        width: "920px",
+        beforeClose: () => this._beforeCloseHandler(),
+      });
       document.body.appendChild(this._shell.overlay);
 
       const loading = document.createElement("div");

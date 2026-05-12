@@ -2124,6 +2124,181 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
 
 
 # ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 14b-4 (12.5.2026 ~23:30): Scaffold form action.
+#
+# Marti's vize z 12.5. ~22:30: "Na nasem HW formu pro detail dame
+# tlacitko vytvor form, ktere nam insertuje core a form302... Tim
+# bychom meli vyhrano."
+#
+# Atomic transaction: INSERT fw.core + fw.comp_def form 302 s default
+# panel layout. Idempotent — pokud user_edit core jiz existuje, vrati
+# existing (ne 409 ani duplikat).
+#
+# Marti's "panel je plocha" doctrine — default panel ma label=""
+# (invisible header, jen grid).
+# ────────────────────────────────────────────────────────────────────
+
+# Default labels per entity_type — fallback pro scaffold. Marti pak
+# muze edit label pres Design: Core prehledu UI (po Save flow Krok 14b
+# audit + PATCH endpoint, rano 13.5.).
+_SCAFFOLD_ENTITY_LABELS: dict = {
+    "user": {
+        "label": "Editace uživatele",
+        "description": "Form detail pro user account (Phase 38.4 Krok 14b)",
+    },
+    # Future entities (kontakt, zakazka, doklad, ...) zde
+}
+
+
+@api_router.post("/design/scaffold-form")
+async def design_scaffold_form(req: Request) -> JSONResponse:
+    """Vytvor form detail pro daný entity_type (Marti's vychytavka).
+
+    Atomic transaction:
+      1. Check pokud suggested_code existuje → idempotent return existing
+      2. INSERT fw.core (kind='form', data_entity_type=entity_type)
+      3. INSERT fw.comp_def form 302 root s default panel
+         layout={"panels": [{"slot": "main", "label": "", "order": 10}]}
+
+    Body:
+      {
+        "entity_type": "user",
+        "suggested_code": "user_edit",  // default: f"{entity_type}_edit"
+        "list_core_id": 11,              // optional, pro audit
+        "list_core_code": "security_users"  // optional, pro audit
+      }
+
+    Returns:
+      200: {ok, core_id, form_id, core_code, created: bool, existing: bool}
+      400: validation error (missing entity_type)
+      500: DB error (rollback)
+    """
+    from core.database_data import get_data_session as _gds_sff
+    from sqlalchemy import text as _sql_text_sff
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    entity_type = (body.get("entity_type") or "").strip()
+    suggested_code = (body.get("suggested_code") or "").strip()
+    list_core_id = body.get("list_core_id")  # optional audit
+    list_core_code = body.get("list_core_code")  # optional audit
+
+    if not entity_type:
+        return JSONResponse(
+            {"ok": False, "error": "entity_type je povinne (např. 'user')"},
+            status_code=400,
+        )
+    if not suggested_code:
+        suggested_code = f"{entity_type}_edit"
+
+    # Default labels per entity_type
+    defaults = _SCAFFOLD_ENTITY_LABELS.get(entity_type, {
+        "label": f"Editace {entity_type}",
+        "description": f"Form detail pro {entity_type} (Phase 38.4 Krok 14b)",
+    })
+
+    ds = _gds_sff()
+    try:
+        # 1. Idempotency check
+        existing_core = ds.execute(_sql_text_sff("""
+            SELECT id, code, label, layout_type, data_entity_type, is_active
+            FROM fw.core
+            WHERE code = :code
+              AND is_active = true
+        """), {"code": suggested_code}).mappings().one_or_none()
+
+        if existing_core:
+            # Najdi form comp_def (existing) pro return
+            existing_form = ds.execute(_sql_text_sff("""
+                SELECT id, name FROM fw.comp_def
+                WHERE parent_core_id = :core_id
+                  AND type_id = 302
+                  AND is_active = true
+                ORDER BY id ASC LIMIT 1
+            """), {"core_id": existing_core["id"]}).mappings().one_or_none()
+
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "core_id": existing_core["id"],
+                "form_id": existing_form["id"] if existing_form else None,
+                "core_code": existing_core["code"],
+                "created": False,
+                "existing": True,
+                "message": f"Form '{suggested_code}' už existuje — vracím existing.",
+            }))
+
+        # 2. INSERT fw.core
+        new_core = ds.execute(_sql_text_sff("""
+            INSERT INTO fw.core (
+                code, label, description, layout_type, data_entity_type,
+                is_active, tenant_visibility, version, layout_template
+            ) VALUES (
+                :code, :label, :description, 'form', :entity_type,
+                true, 'all', 1, 'single'
+            )
+            RETURNING id, code, label, layout_type, data_entity_type
+        """), {
+            "code": suggested_code,
+            "label": defaults["label"],
+            "description": defaults["description"],
+            "entity_type": entity_type,
+        }).mappings().one()
+
+        new_core_id = new_core["id"]
+
+        # 3. INSERT fw.comp_def form 302 root s default panel (label="" — Marti's
+        # "panel je plocha, header invisible" doctrine)
+        import json as _json_sff
+        default_layout = {
+            "panels": [
+                {"slot": "main", "label": "", "order": 10},
+            ]
+        }
+        new_form = ds.execute(_sql_text_sff("""
+            INSERT INTO fw.comp_def (
+                type_id, name, caption, parent_core_id,
+                is_active, sort_order, layout
+            ) VALUES (
+                302, 'main', :caption, :parent_core_id,
+                true, 10, CAST(:layout AS jsonb)
+            )
+            RETURNING id, name, type_id
+        """), {
+            "caption": defaults["label"],
+            "parent_core_id": new_core_id,
+            "layout": _json_sff.dumps(default_layout, ensure_ascii=False),
+        }).mappings().one()
+
+        ds.commit()
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "core_id": new_core_id,
+            "form_id": new_form["id"],
+            "core_code": new_core["code"],
+            "created": True,
+            "existing": False,
+            "message": f"Form '{suggested_code}' vytvořen.",
+            "audit": {
+                "list_core_id": list_core_id,
+                "list_core_code": list_core_code,
+                "entity_type": entity_type,
+            },
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"scaffold-form failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"INSERT failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+# ────────────────────────────────────────────────────────────────────
 # Phase 38.4 Krok 14b (12.5.2026 vecer): fw-form template renderer
 #
 # Marti's pivot z 12.5. večera: build fw-native form rendering. Marti's

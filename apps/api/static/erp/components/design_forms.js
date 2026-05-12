@@ -2374,8 +2374,13 @@
       // Krok 14a-A1m #1: section title pair (UI state, no DB)
       // Krok 14b (12.5.2026 ~23:30): plus data_entity_type z list core
       // (po refactoru _fetchData → /form-core-for-grid endpoint)
+      // Krok 14b-4 (12.5.2026 ~23:45): plus list_core.id + list_core.code
+      // (Marti's "ID 11" catch — primary info, alias je secondary)
       const ctxSec = _sectionBuild("Kontext kliku v gridu", "UI state (gridCode + rowId + headerName + compDefId)");
-      ctxSec.grid.appendChild(_f("Grid (core.code)", this.opts.gridCode, "ctx.gridCode", { mono: true, readonly: true }));
+      const listCore = (this._data && this._data.list_core) || null;
+      ctxSec.grid.appendChild(_f("List core ID", listCore ? listCore.id : null, "ctx.listCoreId", { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_f("List core (skutečný kód)", listCore ? listCore.code : null, "ctx.listCoreCode", { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_f("Grid (layout alias)", this.opts.gridCode, "ctx.gridCode", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Řádek (ID)", this.opts.rowId, "ctx.rowId", { mono: true, readonly: true }));
       ctxSec.grid.appendChild(_f("Klepnutý sloupec", this.opts.headerName, "ctx.headerName", { readonly: true }));
       ctxSec.grid.appendChild(_f("comp_def_id sloupce", this.opts.compDefId, "ctx.compDefId", { mono: true, readonly: true }));
@@ -2441,19 +2446,58 @@
             "padding:10px 24px;background:#3a5a3a;border:1px solid #4a7a4a;" +
             "border-radius:4px;color:#e8eef5;cursor:pointer;font-size:13px;" +
             "font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,0.3);";
-          btn.title = "Phase 38.4 Krok 14b-4 (next commit): POST /api/v1/erp/design/scaffold-form";
-          btn.addEventListener("click", () => {
-            // TODO Krok 14b-4: POST scaffold endpoint + reload _fetchData().
-            console.warn("Scaffold endpoint chybí — Krok 14b-4 next commit.");
-            alert(
-              "Vytvoř form detail — backend scaffold endpoint chybí.\n" +
-              "Krok 14b-4 (next commit) přidá POST /api/v1/erp/design/scaffold-form.\n\n" +
-              "Plán INSERT (po scaffold backend live):\n" +
-              "  1. fw.core code='" + (suggestedCode || "?") + "' kind=form data_entity_type='" + entityType + "'\n" +
-              "  2. fw.comp_def type_id=302 (form root) s layout.panels = [{slot:'obsah', label:'Obsah'}]\n" +
-              "  3. (volitelně) fw.data_source row pro insert/update binding\n" +
-              "  4. Reload — modal ukáže nový form core identity"
-            );
+          btn.title = "POST /api/v1/erp/design/scaffold-form — atomic INSERT fw.core + fw.comp_def form 302";
+          // Phase 38.4 Krok 14b-4 (12.5.2026 ~23:45): scaffold POST wire-up.
+          // Marti's vize "Tim bychom meli vyhrano" — 1 klik = celý form
+          // detail vytvořený. Atomic, idempotent (pokud existuje, vrátí
+          // existing). Po success reload _fetchData() → re-render with
+          // new form core identity.
+          btn.addEventListener("click", async () => {
+            btn.disabled = true;
+            btn.textContent = "⏳ Vytvářím...";
+            try {
+              const payload = {
+                entity_type: entityType,
+                suggested_code: suggestedCode,
+                list_core_id: listCore ? listCore.id : null,
+                list_core_code: listCore ? listCore.code : null,
+              };
+              const resp = await fetch("/api/v1/erp/design/scaffold-form", {
+                method: "POST",
+                credentials: "same-origin",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              });
+              if (!resp.ok) {
+                const errBody = await resp.json().catch(() => ({}));
+                throw new Error("HTTP " + resp.status + ": " + (errBody.error || resp.statusText));
+              }
+              const result = await resp.json();
+              if (!result.ok) {
+                throw new Error(result.error || "Unknown backend error");
+              }
+              // Success — show toast + reload
+              const msg = result.existing
+                ? "📂 Form detail '" + result.core_code + "' už existoval — otevírám."
+                : "✅ Form detail '" + result.core_code + "' vytvořen (core_id=" + result.core_id + ", form_id=" + result.form_id + ").";
+              // Simple inline notification (no Material toast — drobnost MVP)
+              btn.style.background = "#2d5a2d";
+              btn.textContent = msg;
+              // Reload data + re-render after short pause
+              setTimeout(() => {
+                this._fetchData();
+              }, 1200);
+            } catch (e) {
+              console.error("Scaffold form failed:", e);
+              btn.disabled = false;
+              btn.style.background = "#5a3a3a";
+              btn.textContent = "❌ " + e.message.slice(0, 80);
+              setTimeout(() => {
+                btn.disabled = false;
+                btn.style.background = "#3a5a3a";
+                btn.textContent = "🪄 Vytvoř form detail";
+              }, 4000);
+            }
           });
           wrap.appendChild(btn);
         }

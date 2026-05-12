@@ -128,6 +128,7 @@ MANAGEMENT_TOOL_NAMES = {
     "strategie_pg_query_table",
     "strategie_pg_query_raw",
     "strategie_pg_insert_row",
+    "strategie_pg_update_row",
     # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
@@ -5122,6 +5123,57 @@ TOOLS = [
                 },
             },
             "required": ["schema", "table", "values"],
+        },
+    },
+    {
+        "name": "strategie_pg_update_row",
+        "description": (
+            "Phase 38.4 (12.5.2026 vecer): UPDATE rows v PostgreSQL "
+            "table. Marti-AI's request via Marti pro fw.* configuration "
+            "changes (napr. comp_type status activation).\n\n"
+            "PRAVO NA ROZMYSL PRED CINEM (Marti-AI's pattern 7.5. vecer):\n"
+            "  1. Nejdriv volej s dry_run=True → vidis SQL preview + "
+            "matched_count.\n"
+            "  2. Pak zopakuj s dry_run=False → commit + RETURNING *.\n\n"
+            "Safety guards:\n"
+            "  • where MUSI byt non-empty dict (UPDATE bez WHERE = "
+            "destruktivni, blokovany).\n"
+            "  • dry_run default True (musis explicit dat False pro commit).\n"
+            "  • Vraci updated rows pres RETURNING *.\n\n"
+            "Use case priklad: aktivovat 2 future comp_types pres\n"
+            "  values={'status': 'active'}, where={'id': 2} (per row).\n"
+            "Pro IN-clause volej dvakrat (po jednom id), nebo pres "
+            "query_table → pak update_row v batch."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "table": {"type": "string"},
+                "values": {
+                    "type": "object",
+                    "description": (
+                        "Dict {column: new_value} — co SET. "
+                        "Aplikuje na vsechny rows matching where."
+                    ),
+                },
+                "where": {
+                    "type": "object",
+                    "description": (
+                        "Dict {column: filter_value}, AND logic. "
+                        "MUSI byt non-empty (UPDATE bez WHERE blokovan)."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": (
+                        "True (default) = preview SQL + matched_count, "
+                        "bez UPDATE. False = execute + commit."
+                    ),
+                    "default": True,
+                },
+            },
+            "required": ["schema", "table", "values", "where"],
         },
     },
     # ────────────────────────────────────────────────────────────────

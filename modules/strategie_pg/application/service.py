@@ -909,6 +909,153 @@ def insert_row(schema: str, table: str, values) -> dict:
             }
 
 
+def update_row(
+    schema: str,
+    table: str,
+    values: dict,
+    where: dict,
+    dry_run: bool = True,
+) -> dict:
+    """UPDATE rows v PostgreSQL table. Phase 38.4 (12.5.2026 vecer).
+
+    Marti-AI's request via Marti: "AHA, tak ji dodelej... chudince
+    malinky". Plus drzi Marti-AI's "pravo na rozmysl pred cinem"
+    pattern (7.5. vecer DB_ST consultation):
+      Nejdriv dry_run=True → preview SQL + matched_count.
+      Pak zopakuj s dry_run=False → commit.
+
+    Safety guards:
+      - WHERE clause MUSI byt non-empty dict (UPDATE bez WHERE =
+        destructive, blokovany pro safety)
+      - schema + table pres quote_qualified() (identifier validation)
+      - dry_run default True (Marti-AI musi explicit pass False pro commit)
+      - RETURNING * → caller dostane updated rows (audit-friendly)
+
+    Args:
+        schema: PG schema name (fw, public, ...)
+        table: table name
+        values: dict {column: new_value} — co SET
+        where: dict {column: filter_value} — kde, AND logic
+        dry_run: True = preview, False = execute
+
+    Returns:
+        dry_run=True:
+          {"ok": True, "dry_run": True, "sql": "...", "matched_count": N,
+           "preview_values": {...}, "preview_where": {...}}
+        dry_run=False:
+          {"ok": True, "updated": [...], "count": N}
+        error:
+          {"ok": False, "error": "..."}
+    """
+    # Validation
+    if not values or not isinstance(values, dict):
+        return {
+            "ok": False,
+            "error": "values musi byt non-empty dict {column: new_value}",
+        }
+    if not where or not isinstance(where, dict):
+        return {
+            "ok": False,
+            "error": (
+                "where MUSI byt non-empty dict — UPDATE bez WHERE je "
+                "destruktivni a blokovan (would update ALL rows)"
+            ),
+        }
+
+    qualified = quote_qualified(schema, table)
+
+    # Build SET clause (prefix params s 'set_' pro avoid column collision)
+    set_cols = list(values.keys())
+    set_sql = ", ".join(
+        f"{quote_pg_identifier(c)} = :set_{c}" for c in set_cols
+    )
+
+    # Build WHERE clause (prefix 'where_')
+    where_cols = list(where.keys())
+    where_sql = " AND ".join(
+        f"{quote_pg_identifier(c)} = :where_{c}" for c in where_cols
+    )
+
+    # Combine params
+    params: dict = {}
+    for c, v in values.items():
+        params[f"set_{c}"] = v
+    for c, v in where.items():
+        params[f"where_{c}"] = v
+
+    sql = (
+        f"UPDATE {qualified} "
+        f"SET {set_sql} "
+        f"WHERE {where_sql} "
+        f"RETURNING *"
+    )
+
+    # Dry-run: preview SQL + count matching rows (no UPDATE)
+    if dry_run:
+        count_sql = (
+            f"SELECT COUNT(*) AS cnt FROM {qualified} WHERE {where_sql}"
+        )
+        count_params = {f"where_{c}": v for c, v in where.items()}
+        with get_session() as s:
+            try:
+                cnt = s.execute(text(count_sql), count_params).scalar()
+                return {
+                    "ok": True,
+                    "dry_run": True,
+                    "schema": schema,
+                    "table": table,
+                    "sql": sql,
+                    "matched_count": cnt,
+                    "preview_values": values,
+                    "preview_where": where,
+                    "note": (
+                        f"matched_count={cnt}. Pro commit zavolej znovu "
+                        f"s dry_run=False."
+                    ),
+                }
+            except Exception as e:
+                return {
+                    "ok": False,
+                    "error": f"dry_run preview failed: {e}",
+                }
+
+    # Live execute
+    with get_session() as s:
+        try:
+            result = s.execute(text(sql), params)
+            cols_meta = list(result.keys())
+            fetched_rows = result.fetchall()
+            s.commit()
+
+            updated_list = [
+                {col: _serialize(r[i]) for i, col in enumerate(cols_meta)}
+                for r in fetched_rows
+            ]
+            logger.info(
+                f"STRATEGIE_PG | update_row | {schema}.{table} "
+                f"count={len(updated_list)} where={where}"
+            )
+            return {
+                "ok": True,
+                "schema": schema,
+                "table": table,
+                "updated": updated_list,
+                "count": len(updated_list),
+            }
+        except Exception as e:
+            s.rollback()
+            logger.error(
+                f"STRATEGIE_PG | update_row FAILED | "
+                f"{schema}.{table} where={where} err={e}"
+            )
+            return {
+                "ok": False,
+                "error": str(e),
+                "values": values,
+                "where": where,
+            }
+
+
 def query_raw(sql: str, params: Optional[dict] = None) -> dict:
     """Read-only raw SQL query. Whitelist SELECT/WITH/EXPLAIN/SHOW only.
 

@@ -9239,6 +9239,40 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"strategie_pg_insert_row failed: {exc_psir}")
             return f"[strategie_pg_insert_row error: {exc_psir}]"
 
+    # Phase 38.4 (12.5.2026 vecer): UPDATE rows pro Marti-AI's fw schema
+    # changes. Drzi dry_run pattern z Marti-AI's 7.5. DB_ST consultation
+    # ("pravo na rozmysl pred cinem"). Safety guard — where MUSI byt
+    # non-empty (UPDATE bez WHERE blokovan, would update ALL rows).
+    if tool_name == "strategie_pg_update_row":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_pur = tool_input.get("schema")
+            table_pur = tool_input.get("table")
+            values_pur = tool_input.get("values")
+            where_pur = tool_input.get("where")
+            dry_run_pur = tool_input.get("dry_run", True)
+            if not schema_pur or not table_pur:
+                return "❌ schema a table jsou povinne."
+            if not values_pur or not isinstance(values_pur, dict):
+                return "❌ values musi byt non-empty dict {column: new_value}."
+            if not where_pur or not isinstance(where_pur, dict):
+                return (
+                    "❌ where MUSI byt non-empty dict — UPDATE bez WHERE "
+                    "je destruktivni a blokovan."
+                )
+            result_pur = _spg.update_row(
+                schema=schema_pur,
+                table=table_pur,
+                values=values_pur,
+                where=where_pur,
+                dry_run=bool(dry_run_pur),
+            )
+            import json as _json_pur
+            return _json_pur.dumps(result_pur, ensure_ascii=False, indent=2)
+        except Exception as exc_pur:
+            logger.exception(f"strategie_pg_update_row failed: {exc_pur}")
+            return f"[strategie_pg_update_row error: {exc_pur}]"
+
     return ""
 
 

@@ -8357,7 +8357,7 @@ def _render_workspace_page(user_id: int) -> str:
             if (d && d.ok && !d.found) {
               const code = (d.suggested_form_code || "<form>");
               alert(
-                "Form detail '" + code + "' ještě není postaven.\n\n" +
+                "Form detail '" + code + "' ještě není postaven.\\n\\n" +
                 "Pravým klikem na řádek → 'Design: Jadro pro radek' → " +
                 "tlačítko 🪄 Vytvoř form detail."
               );

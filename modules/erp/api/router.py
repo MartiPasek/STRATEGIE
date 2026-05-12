@@ -1753,6 +1753,12 @@ def _serialize_menu_node(row_dict: dict) -> dict:
         "special_handler": row_dict.get("special_handler"),
         "is_immutable": bool(row_dict.get("is_immutable")),
         "description": row_dict.get("description"),
+        # Phase 38.4 Krok 14a-A1l #1 (12.5.2026): dva popisy — system (vyvojari)
+        # + user (uzivatele). Fallback na existujici `description` jako user
+        # description; system zatim NULL. Marti-AI nasledne doplni DDL
+        # (ALTER TABLE fw.menu_node ADD COLUMN description_user/_system TEXT).
+        "description_user": row_dict.get("description_user") if row_dict.get("description_user") is not None else row_dict.get("description"),
+        "description_system": row_dict.get("description_system"),
         "core_id": row_dict.get("core_id"),
         "created_at": _iso(row_dict.get("created_at")),
         "updated_at": _iso(row_dict.get("updated_at")),
@@ -1769,6 +1775,9 @@ def _serialize_core(row_dict: dict) -> dict:
         "code": row_dict.get("code"),
         "label": row_dict.get("label"),
         "description": row_dict.get("description"),
+        # Phase 38.4 Krok 14a-A1l #1: dva popisy — viz menu_node komentar vyse.
+        "description_user": row_dict.get("description_user") if row_dict.get("description_user") is not None else row_dict.get("description"),
+        "description_system": row_dict.get("description_system"),
         "layout_type": row_dict.get("layout_type"),
         "data_entity_type": row_dict.get("data_entity_type"),
         "version": row_dict.get("version"),

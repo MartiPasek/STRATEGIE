@@ -1901,16 +1901,38 @@ def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
 
 @api_router.get("/design/core-by-code/{core_code}")
 def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14a: lookup by fw.core.code (Form 3 use case — gridCode)."""
+    """Phase 38.4 Krok 14a (12.5.2026): lookup by fw.core.code (Form 3 + grid akce 2).
+
+    Krok 14a-fix (12.5.2026): pokud `core_code` matches pattern `prehled_-{cislo}`
+    (System grid prefix z layoutKey, Phase 35-E.4 Krok B+/C+), fallback lookup
+    přes menu_node.cislo_def → core_id. Tím akce 2 + 3 chodí i pro System grids.
+    """
+    import re
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
     ds = _gds_fw()
     try:
+        # Primary: přímý match fw.core.code
         core = _fetch_core(ds, "c.code = :code", {"code": core_code})
+
+        # Fallback: System grid prefix `prehled_-{cislo}` -> cislo_def negative
         if not core:
-            # Form 3 case — pokud grid nemá core entry (hardcoded view),
-            # vrátíme empty core (frontend ukáže placeholder).
+            m = re.match(r"^prehled_(-?\d+)$", core_code)
+            if m:
+                cislo = int(m.group(1))
+                # Najdi menu_node s tim cislo_def, vezmi jeho core_id
+                mn_for_cislo = _fetch_menu_node(
+                    ds, "n.cislo_def = :cislo", {"cislo": cislo}
+                )
+                if mn_for_cislo and mn_for_cislo.get("core_id"):
+                    core = _fetch_core(
+                        ds, "c.id = :id", {"id": mn_for_cislo["core_id"]}
+                    )
+
+        if not core:
+            # Form 3 case — grid bez core entry (hardcoded view nebo neznámý prefix).
+            # Frontend ukáže placeholder *„hardcoded view bez core entry"*.
             return JSONResponse(jsonable_encoder({
                 "menu_node": None,
                 "core": None,

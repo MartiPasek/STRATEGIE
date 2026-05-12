@@ -95,42 +95,46 @@
     return { overlay, dialog, header, body, footer, title, close };
   }
 
-  function _readonlyInput(label, value, opts) {
-    // Phase 38.4 Krok 14a (12.5.2026): UI Kit dogfooding — pokud ErpInput
-    // existuje, pouzij ho s disabled:true (selectable text + native UI Kit
-    // styling + ready pro Krok 14b save toggle). Fallback raw divs.
+  function _field(label, value, opts) {
+    // Phase 38.4 Krok 14a-A1b (12.5.2026 dop.): UI Kit dogfooding + edit mode.
+    // Default: editable (disabled=false). Save flow chybi (Krok 14b TODO) —
+    // user-typed zmeny zustavaji v inputu, pri zavreni modalu se ztrati.
+    //
+    // Pouzij `opts.readonly = true` pro system metadata fields (ID,
+    // created_at, updated_at, parent_code computed, framework_jadro_id atd.).
+    // `opts.mono = true` pro monospace font (id, code, FK fields).
     opts = opts || {};
+    const isReadonly = !!opts.readonly;
     const displayValue = (value == null || value === "") ? "" : String(value);
 
-    // UI Kit cesta — pouze pokud ErpInput zaregistrovan
+    // UI Kit cesta — pokud ErpInput zaregistrovan
     if (typeof global.ErpInput === "function") {
       const wrap = document.createElement("div");
-      wrap.className = "erp-field erp-field-readonly-uikit";
+      wrap.className = "erp-field erp-field-design" + (isReadonly ? " erp-field-readonly-uikit" : " erp-field-editable-uikit");
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
-      // ErpInput vytvori vlastni label + input + container styly
       const inp = new global.ErpInput(wrap, {
         type: "text",
         label: label,
         value: displayValue,
-        disabled: true,  // gray out + ne-editable, ale select+copy chodi
+        disabled: isReadonly,  // jen system fields jsou disabled, ostatni RW
         placeholder: "—",
       });
-      // Mono variant — override CSS class
+      // Mono variant — override font styling
       if (opts.mono && inp.input) {
         inp.input.style.fontFamily = "ui-monospace,Consolas,monospace";
         inp.input.style.fontSize = "11px";
       }
-      // Empty value: ukázat em-dash place-holder vizuálně
+      // Empty value placeholder
       if (!displayValue && inp.input) {
         inp.input.placeholder = "—";
-        inp.input.style.color = "#5d6975";
       }
       return wrap;
     }
 
-    // Fallback raw divs (pokud ErpInput.js nezaregistrován)
+    // Fallback raw divs (pokud ErpInput.js nezaregistrován) — vzdy "ne-editable"
+    // protoze raw div neumi typing. ErpInput musi byt nactenej (B+6.2).
     const wrap = document.createElement("div");
-    wrap.className = "erp-field erp-field-readonly";
+    wrap.className = "erp-field erp-field-fallback";
     wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
     const lab = document.createElement("label");
     lab.textContent = label;
@@ -148,6 +152,9 @@
     wrap.appendChild(val);
     return wrap;
   }
+
+  // Backward-compat alias (stara nazev pred Krok 14a-A1b refactor)
+  const _readonlyInput = _field;
 
   function _sectionBuild(title) {
     const wrap = document.createElement("div");
@@ -275,30 +282,31 @@
         return root;
       }
 
-      // Section: Identifikace
+      // Section: Identifikace — ID readonly (PK), ostatni editable
       const idSec = _sectionBuild("Identifikace");
-      idSec.grid.appendChild(_readonlyInput("ID (menu_node.id)", mn.id, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Code", mn.code, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Label", mn.label));
-      idSec.grid.appendChild(_readonlyInput("Kind", mn.kind));
+      idSec.grid.appendChild(_field("ID (menu_node.id)", mn.id, { mono: true, readonly: true }));
+      idSec.grid.appendChild(_field("Code", mn.code, { mono: true }));
+      idSec.grid.appendChild(_field("Label", mn.label));
+      idSec.grid.appendChild(_field("Kind", mn.kind));
       root.appendChild(idSec.wrap);
 
-      // Section: Hierarchie a poradi
+      // Section: Hierarchie — parent_id/parent_code readonly (FK + computed),
+      // sort_order/status/visibility/is_immutable editable
       const treeSec = _sectionBuild("Hierarchie a pořadí");
-      treeSec.grid.appendChild(_readonlyInput("Parent ID", mn.parent_id, { mono: true }));
-      treeSec.grid.appendChild(_readonlyInput("Parent Code", mn.parent_code, { mono: true }));
-      treeSec.grid.appendChild(_readonlyInput("Sort Order", mn.sort_order, { mono: true }));
-      treeSec.grid.appendChild(_readonlyInput("Status", mn.status));
-      treeSec.grid.appendChild(_readonlyInput("Visibility Scope", mn.visibility_scope));
-      treeSec.grid.appendChild(_readonlyInput("Is Immutable", mn.is_immutable ? "ano" : "ne"));
+      treeSec.grid.appendChild(_field("Parent ID", mn.parent_id, { mono: true, readonly: true }));
+      treeSec.grid.appendChild(_field("Parent Code", mn.parent_code, { mono: true, readonly: true }));
+      treeSec.grid.appendChild(_field("Sort Order", mn.sort_order, { mono: true }));
+      treeSec.grid.appendChild(_field("Status", mn.status));
+      treeSec.grid.appendChild(_field("Visibility Scope", mn.visibility_scope));
+      treeSec.grid.appendChild(_field("Is Immutable", mn.is_immutable ? "ano" : "ne"));
       root.appendChild(treeSec.wrap);
 
-      // Section: Core vazba
+      // Section: Core vazba — FK readonly (vybira se pres picker, Krok 14b)
       const coreSec = _sectionBuild("Vazba na Core přehledu");
-      coreSec.grid.appendChild(_readonlyInput("core_id (FK)", mn.core_id, { mono: true }));
-      coreSec.grid.appendChild(_readonlyInput("cislo_def (legacy)", mn.cislo_def, { mono: true }));
-      coreSec.grid.appendChild(_readonlyInput("framework_jadro_id", mn.framework_jadro_id, { mono: true }));
-      coreSec.grid.appendChild(_readonlyInput("special_handler", mn.special_handler));
+      coreSec.grid.appendChild(_field("core_id (FK)", mn.core_id, { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_field("cislo_def (legacy)", mn.cislo_def, { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_field("framework_jadro_id", mn.framework_jadro_id, { mono: true, readonly: true }));
+      coreSec.grid.appendChild(_field("special_handler", mn.special_handler));
       root.appendChild(coreSec.wrap);
 
       // Section: Popis
@@ -326,16 +334,18 @@
         return root;
       }
 
-      // Section: Core identita
+      // Section: Core identita — ID/version/parent_framework_id readonly,
+      // ostatni editable. (Marti-AI's Q6 lineage: version+parent_framework_id
+      // se updates pres create-new-version flow, ne in-place edit.)
       const idSec = _sectionBuild("Identifikace Core");
-      idSec.grid.appendChild(_readonlyInput("ID (core.id)", core.id, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Code", core.code, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Label", core.label));
-      idSec.grid.appendChild(_readonlyInput("Layout type", core.layout_type));
-      idSec.grid.appendChild(_readonlyInput("Data entity type", core.data_entity_type, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Layout template", core.layout_template, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Version", core.version, { mono: true }));
-      idSec.grid.appendChild(_readonlyInput("Parent framework ID", core.parent_framework_id, { mono: true }));
+      idSec.grid.appendChild(_field("ID (core.id)", core.id, { mono: true, readonly: true }));
+      idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
+      idSec.grid.appendChild(_field("Label", core.label));
+      idSec.grid.appendChild(_field("Layout type", core.layout_type));
+      idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
+      idSec.grid.appendChild(_field("Layout template", core.layout_template, { mono: true }));
+      idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
+      idSec.grid.appendChild(_field("Parent framework ID", core.parent_framework_id, { mono: true, readonly: true }));
       root.appendChild(idSec.wrap);
 
       // Section: Popis
@@ -470,24 +480,24 @@
       const root = document.createElement("div");
       root.className = "erp-design-tab-jadro";
 
-      // Section: Kontext kliku (z gridu)
+      // Section: Kontext kliku — vsechno readonly (jen orientacni informace)
       const ctxSec = _sectionBuild("Kontext kliku v gridu");
-      ctxSec.grid.appendChild(_readonlyInput("Grid (core.code)", this.opts.gridCode, { mono: true }));
-      ctxSec.grid.appendChild(_readonlyInput("Řádek (ID)", this.opts.rowId, { mono: true }));
-      ctxSec.grid.appendChild(_readonlyInput("Klepnutý sloupec", this.opts.headerName));
-      ctxSec.grid.appendChild(_readonlyInput("comp_def_id sloupce", this.opts.compDefId, { mono: true }));
+      ctxSec.grid.appendChild(_field("Grid (core.code)", this.opts.gridCode, { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_field("Řádek (ID)", this.opts.rowId, { mono: true, readonly: true }));
+      ctxSec.grid.appendChild(_field("Klepnutý sloupec", this.opts.headerName, { readonly: true }));
+      ctxSec.grid.appendChild(_field("comp_def_id sloupce", this.opts.compDefId, { mono: true, readonly: true }));
       root.appendChild(ctxSec.wrap);
 
-      // Section: Jadro identita
+      // Section: Jadro identita — ID/version readonly (PK + lineage), ostatni editable
       const core = (this._data && this._data.core) || null;
       if (core && core.id) {
         const idSec = _sectionBuild("Jádro (fw.core) — identita");
-        idSec.grid.appendChild(_readonlyInput("ID", core.id, { mono: true }));
-        idSec.grid.appendChild(_readonlyInput("Code", core.code, { mono: true }));
-        idSec.grid.appendChild(_readonlyInput("Label", core.label));
-        idSec.grid.appendChild(_readonlyInput("Layout type", core.layout_type));
-        idSec.grid.appendChild(_readonlyInput("Data entity type", core.data_entity_type, { mono: true }));
-        idSec.grid.appendChild(_readonlyInput("Version", core.version, { mono: true }));
+        idSec.grid.appendChild(_field("ID", core.id, { mono: true, readonly: true }));
+        idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
+        idSec.grid.appendChild(_field("Label", core.label));
+        idSec.grid.appendChild(_field("Layout type", core.layout_type));
+        idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
+        idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
         if (core.description) {
           const descBox = document.createElement("div");
           descBox.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;white-space:pre-wrap;grid-column:1/-1;margin-top:6px;";

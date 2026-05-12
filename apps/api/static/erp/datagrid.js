@@ -1176,15 +1176,36 @@
               const NL = String.fromCharCode(10);
 
               // Akce 2/3 — Core přehledu (vždy v design mode, na headeru i řádku)
+              // Phase 38.4 Krok 14a (12.5.2026 rano): otevre DesignSoudecekCoreForm
+              // s default focus na Tab "Přehled" (gridCode = fw.core.code).
               designItems.push({
                 name: "Design: Core prehledu",
                 tooltip: "Editace core prehledu (akce 2/3)",
                 action: function () {
-                  var info = "Design akce 2/3: CORE PREHLEDU" + NL + NL +
-                    "Grid: " + gridCode + NL + NL +
-                    "Tato akce = editace core prehledu (sloupce, layout, default filter)." + NL +
-                    "Hardcoded form prijde priste.";
-                  alert(info);
+                  try {
+                    if (typeof window.DesignSoudecekCoreForm !== "function") {
+                      alert("DesignSoudecekCoreForm neni nactena (design_forms.js missing).");
+                      return;
+                    }
+                    // gridCode je fw.core.code → backend `core-by-code` endpoint
+                    // (via menu_node-by-code variant nepouzitelne, gridCode neni menu_node.code).
+                    // Pouzijeme menuNodeCode (uvidi se v backend lookup), ale primarni cesta:
+                    // backend dostane gridCode (= core.code), najde menu_node WHERE core_id = ?.
+                    // Pro MVP: pouzijeme coreId path az frontend doplni core resolution.
+                    // Zde primy backend hit pres `menu-node-by-code` neexistuje pro core code,
+                    // takze pouzijeme novy intent endpoint. Workaround MVP: zkusime
+                    // fetch /design/core-by-code/{gridCode} a po nem find_menu_node.
+                    // gridCode = fw.core.code (z opts.gridCode v ErpDataGrid),
+                    // tj. predame jako coreCode -> backend `core-by-code/{code}`
+                    // endpoint, ktery vrati {menu_node, core, columns}.
+                    new window.DesignSoudecekCoreForm({
+                      coreCode: gridCode,
+                      initialTab: "prehled",
+                    }).open();
+                  } catch (e) {
+                    console.error("DesignSoudecekCoreForm (grid header) open failed:", e);
+                    alert("Chyba otevreni Design formu: " + e.message);
+                  }
                 },
               });
 
@@ -1195,14 +1216,22 @@
                   name: "Design: Jadro pro radek",
                   tooltip: "Editace jadra (row form) pro tento radek (akce 3/3)",
                   action: function () {
-                    var info = "Design akce 3/3: JADRO PRO RADEK" + NL + NL +
-                      "Grid: " + gridCode + NL +
-                      "Row ID: " + rowId + NL +
-                      "Sloupec klepnutí: " + headerName + " (field: " + fieldName + ")" + NL +
-                      "comp_def_id sloupce: " + (compDefId || "-") + NL + NL +
-                      "Tato akce = nove jadro / uprava jadra pro editaci vety prehledu." + NL +
-                      "Hardcoded form prijde priste.";
-                    alert(info);
+                    // Phase 38.4 Krok 14a: otevre DesignJadroRadekForm s gridCode + rowId.
+                    try {
+                      if (typeof window.DesignJadroRadekForm !== "function") {
+                        alert("DesignJadroRadekForm neni nactena (design_forms.js missing).");
+                        return;
+                      }
+                      new window.DesignJadroRadekForm({
+                        gridCode: gridCode,
+                        rowId: rowId,
+                        headerName: headerName + " (field: " + fieldName + ")",
+                        compDefId: compDefId,
+                      }).open();
+                    } catch (e) {
+                      console.error("DesignJadroRadekForm open failed:", e);
+                      alert("Chyba otevreni Design formu: " + e.message);
+                    }
                   },
                 });
               }

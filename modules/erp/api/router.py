@@ -1716,6 +1716,207 @@ def hw_dispatch(code: str, req: Request) -> JSONResponse:
         session.close()
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14a (12.5.2026 rano): Design forms read-only endpoints
+# ════════════════════════════════════════════════════════════════════════════
+# 3 endpoints pro `design_forms.js` (DesignSoudecekCoreForm + DesignJadroRadekForm)
+# MVP scope: jen GET (zobrazeni), zadny POST/save. Save = Krok 14b.
+#
+# Vsechny endpointy vrací JSON {"menu_node": {...}|null, "core": {...}|null,
+# "columns": [{...}]} — defensive proti schema drift (dict.get z row mapping).
+# ════════════════════════════════════════════════════════════════════════════
+
+
+def _serialize_menu_node(row_dict: dict) -> dict:
+    """Map fw.menu_node row dict to JSON-friendly form. Defensive vs schema drift."""
+    def _iso(v):
+        try: return v.isoformat() if v else None
+        except Exception: return None
+    return {
+        "id": row_dict.get("id"),
+        "code": row_dict.get("code"),
+        "label": row_dict.get("label"),
+        "kind": row_dict.get("kind"),
+        "parent_id": row_dict.get("parent_id"),
+        "parent_code": row_dict.get("_parent_code"),
+        "sort_order": row_dict.get("sort_order"),
+        "status": row_dict.get("status"),
+        "visibility_scope": row_dict.get("visibility_scope"),
+        "cislo_def": row_dict.get("cislo_def"),
+        "framework_jadro_id": row_dict.get("framework_jadro_id"),
+        "special_handler": row_dict.get("special_handler"),
+        "is_immutable": bool(row_dict.get("is_immutable")),
+        "description": row_dict.get("description"),
+        "core_id": row_dict.get("core_id"),
+        "created_at": _iso(row_dict.get("created_at")),
+        "updated_at": _iso(row_dict.get("updated_at")),
+    }
+
+
+def _serialize_core(row_dict: dict) -> dict:
+    """Map fw.core row dict to JSON-friendly form. Defensive vs schema drift."""
+    def _iso(v):
+        try: return v.isoformat() if v else None
+        except Exception: return None
+    return {
+        "id": row_dict.get("id"),
+        "code": row_dict.get("code"),
+        "label": row_dict.get("label"),
+        "description": row_dict.get("description"),
+        "layout_type": row_dict.get("layout_type"),
+        "data_entity_type": row_dict.get("data_entity_type"),
+        "version": row_dict.get("version"),
+        "parent_framework_id": row_dict.get("parent_framework_id"),
+        "layout_template": row_dict.get("layout_template"),
+        "shadow_mode": row_dict.get("shadow_mode"),
+        "created_at": _iso(row_dict.get("created_at")),
+        "updated_at": _iso(row_dict.get("updated_at")),
+    }
+
+
+def _fetch_menu_node(ds, where_sql: str, params: dict) -> dict | None:
+    """SELECT n.*, p.code AS _parent_code FROM fw.menu_node n LEFT JOIN ... WHERE ..."""
+    sql = _sql_text(f"""
+        SELECT n.*, p.code AS _parent_code
+        FROM fw.menu_node n
+        LEFT JOIN fw.menu_node p ON p.id = n.parent_id
+        WHERE {where_sql}
+        LIMIT 1
+    """)
+    result = ds.execute(sql, params).first()
+    return dict(result._mapping) if result else None
+
+
+def _fetch_core(ds, where_sql: str, params: dict) -> dict | None:
+    """SELECT c.* FROM fw.core c WHERE ..."""
+    sql = _sql_text(f"SELECT c.* FROM fw.core c WHERE {where_sql} LIMIT 1")
+    result = ds.execute(sql, params).first()
+    return dict(result._mapping) if result else None
+
+
+def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
+    """SELECT comp_def WHERE parent_core_id = core_id (Phase 38.4 Krok 9-B
+    uniform components doctrine — grid sloupec je typ komponenty).
+
+    Defensive: pokud parent_core_id sloupec neexistuje (schema drift),
+    vrátí []. Frontend si umí poradit s prazdnym seznamem.
+    """
+    try:
+        sql = _sql_text("""
+            SELECT id, code, label, field_name, comp_type_id, sort_order,
+                   parent_core_id
+            FROM fw.comp_def
+            WHERE parent_core_id = :core_id
+            ORDER BY COALESCE(sort_order, 0), id
+            LIMIT :limit
+        """)
+        result = ds.execute(sql, {"core_id": core_id, "limit": limit})
+        return [dict(r._mapping) for r in result]
+    except Exception:
+        import logging
+        logging.exception("_fetch_columns_for_core failed for core_id=%s", core_id)
+        return []
+
+
+@api_router.get("/design/menu-node/{menu_node_id}")
+def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14a (12.5.2026): GET menu_node + linked core + columns."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_fw()
+    try:
+        mn = _fetch_menu_node(ds, "n.id = :id", {"id": menu_node_id})
+        if not mn:
+            raise HTTPException(404, f"menu_node id={menu_node_id} not found")
+        core = None
+        columns: list[dict] = []
+        if mn.get("core_id"):
+            core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
+            if core and core.get("id"):
+                columns = _fetch_columns_for_core(ds, core["id"])
+        return JSONResponse(jsonable_encoder({
+            "menu_node": _serialize_menu_node(mn),
+            "core": _serialize_core(core) if core else None,
+            "columns": columns,
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.get("/design/menu-node-by-code/{menu_node_code}")
+def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_fw()
+    try:
+        mn = _fetch_menu_node(ds, "n.code = :code", {"code": menu_node_code})
+        if not mn:
+            raise HTTPException(404, f"menu_node code={menu_node_code} not found")
+        core = None
+        columns: list[dict] = []
+        if mn.get("core_id"):
+            core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
+            if core and core.get("id"):
+                columns = _fetch_columns_for_core(ds, core["id"])
+        return JSONResponse(jsonable_encoder({
+            "menu_node": _serialize_menu_node(mn),
+            "core": _serialize_core(core) if core else None,
+            "columns": columns,
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.get("/design/core/{core_id}")
+def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14a: reverse — GET core + columns + linked menu_node (if any)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_fw()
+    try:
+        core = _fetch_core(ds, "c.id = :id", {"id": core_id})
+        if not core:
+            raise HTTPException(404, f"core id={core_id} not found")
+        columns = _fetch_columns_for_core(ds, core["id"])
+        # Find menu_node linked to this core (if any)
+        mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core_id})
+        return JSONResponse(jsonable_encoder({
+            "menu_node": _serialize_menu_node(mn) if mn else None,
+            "core": _serialize_core(core),
+            "columns": columns,
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.get("/design/core-by-code/{core_code}")
+def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14a: lookup by fw.core.code (Form 3 use case — gridCode)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_fw()
+    try:
+        core = _fetch_core(ds, "c.code = :code", {"code": core_code})
+        if not core:
+            # Form 3 case — pokud grid nemá core entry (hardcoded view),
+            # vrátíme empty core (frontend ukáže placeholder).
+            return JSONResponse(jsonable_encoder({
+                "menu_node": None,
+                "core": None,
+                "columns": [],
+            }))
+        columns = _fetch_columns_for_core(ds, core["id"])
+        mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core["id"]})
+        return JSONResponse(jsonable_encoder({
+            "menu_node": _serialize_menu_node(mn) if mn else None,
+            "core": _serialize_core(core),
+            "columns": columns,
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.get("/data")
 def data_source_list(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).
@@ -6032,6 +6233,10 @@ def _render_workspace_page(user_id: int) -> str:
          Použité / Všechny) + colored badge per scope. Marti-AI's 9-iter konzultace. -->
     <link rel="stylesheet" href="/static/erp/components/object_inspector.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/components/object_inspector.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 14a (12.5.2026 rano): Design forms — Form 1+2 konsolidace
+         (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
+         3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->
+    <script src="/static/erp/components/design_forms.js?v=''' + _STATIC_VERSION + '''"></script>
     <script>
       // Phase 38.4 Krok 9-D: expose current user ID pro Object Inspector
       // (potřebuje pro user-scoped overrides při Save).
@@ -8717,18 +8922,28 @@ def _render_workspace_page(user_id: int) -> str:
               icon: "🎨",
               label: "Design: Soudecek + core prehledu",
               handler: function () {
-                var NL = String.fromCharCode(10);
-                var info = "Design akce 1/3: SOUDECEK + CORE PREHLEDU" + NL + NL +
-                  "ID soudecku (menu_node.id): " + (_designMenuNodePk || "-") + NL +
-                  "menu_node.code: " + (_designMenuNodeCode || "-") + NL +
-                  "Label: " + (_designLabel || "-");
-                if (_designCoreId) info += NL + "ID core prehledu (core.id): " + _designCoreId;
-                if (_designCoreCode) info += NL + "core.code: " + _designCoreCode;
-                if (_designDispatchKind) info += NL + "dispatch_kind: " + _designDispatchKind;
-                info += NL + NL +
-                  "Tato akce = sprava soudecku a zalozeni / editace core prehledu." + NL +
-                  "Hardcoded form prijde priste.";
-                alert(info);
+                // Phase 38.4 Krok 14a (12.5.2026 rano): nahrazujeme alert placeholder
+                // -> otevirame DesignSoudecekCoreForm s default focus na Tab "Soudecek".
+                try {
+                  if (typeof window.DesignSoudecekCoreForm !== "function") {
+                    alert("DesignSoudecekCoreForm neni nactena (design_forms.js missing).");
+                    return;
+                  }
+                  var formOpts = { initialTab: "soudecek" };
+                  // Preferred: menuNodeId (INT PK). Fallback: menuNodeCode (text).
+                  if (_designMenuNodePk) {
+                    formOpts.menuNodeId = parseInt(_designMenuNodePk, 10);
+                  } else if (_designMenuNodeCode) {
+                    formOpts.menuNodeCode = _designMenuNodeCode;
+                  } else {
+                    alert("Chybi menu_node identifikator (data-menu-node-pk nebo data-id).");
+                    return;
+                  }
+                  new window.DesignSoudecekCoreForm(formOpts).open();
+                } catch (e) {
+                  console.error("DesignSoudecekCoreForm open failed:", e);
+                  alert("Chyba otevreni Design formu: " + e.message);
+                }
               },
             });
           }

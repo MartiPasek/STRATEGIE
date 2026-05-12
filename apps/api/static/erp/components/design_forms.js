@@ -174,17 +174,23 @@
     }
 
     _fetchData(initialTab) {
-      const id = this.opts.menuNodeId || this.opts.menuNodeCode || this.opts.coreId;
+      const id = this.opts.menuNodeId || this.opts.menuNodeCode
+        || this.opts.coreId || this.opts.coreCode;
       if (!id) {
-        this._showError("Chybí ID — předej menuNodeId, menuNodeCode nebo coreId.");
+        this._showError("Chybí ID — předej menuNodeId, menuNodeCode, coreId nebo coreCode.");
         return;
       }
-      // Build URL — backend resolve podle typu identifiku
+      // Build URL — backend resolve podle typu identifiku.
+      // Vsechny 4 endpointy vraci {menu_node, core, columns} — frontend
+      // si poradi (Tab "Soudecek" empty pokud menu_node=null, Tab "Prehled"
+      // empty pokud core=null).
       let url;
       if (this.opts.menuNodeId) {
         url = "/api/v1/erp/design/menu-node/" + encodeURIComponent(this.opts.menuNodeId);
       } else if (this.opts.coreId) {
         url = "/api/v1/erp/design/core/" + encodeURIComponent(this.opts.coreId);
+      } else if (this.opts.coreCode) {
+        url = "/api/v1/erp/design/core-by-code/" + encodeURIComponent(this.opts.coreCode);
       } else {
         url = "/api/v1/erp/design/menu-node-by-code/" + encodeURIComponent(this.opts.menuNodeCode);
       }

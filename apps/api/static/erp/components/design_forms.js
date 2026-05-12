@@ -225,15 +225,20 @@
     opts = opts || {};
     const isReadonly = !!opts.readonly;
     const displayValue = (value == null || value === "") ? "" : String(value);
+    // Krok 14a-A1h: label override + hint resolution (Marti's polish #2 + #3)
+    const resolvedLabel = _resolveLabel(opts.fieldKey, label);
+    const resolvedHint = _resolveHint(opts.fieldKey);
 
     // UI Kit cesta — pokud ErpInput zaregistrovan
     if (typeof global.ErpInput === "function") {
       const wrap = document.createElement("div");
       wrap.className = "erp-field erp-field-design" + (isReadonly ? " erp-field-readonly-uikit" : " erp-field-editable-uikit");
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      // Hint na wrap (browser native title, ~1s delay)
+      if (resolvedHint) wrap.title = resolvedHint;
       const inp = new global.ErpInput(wrap, {
         type: "text",
-        label: label,
+        label: resolvedLabel,
         value: displayValue,
         disabled: isReadonly,
         placeholder: "—",
@@ -277,7 +282,6 @@
         inp.input.style.borderBottomLeftRadius = "0";
         inp.input.style.opacity = "1";
         inp.input.style.cursor = "not-allowed";
-        inp.input.title = "Read-only (system metadata)";
         const labelEl = wrap.querySelector(".erp-input-label");
         if (labelEl && !labelEl.dataset.lockBadge) {
           labelEl.dataset.lockBadge = "1";
@@ -331,6 +335,9 @@
     opts = opts || {};
     const isReadonly = !!opts.readonly;
     const displayValue = (value == null || value === "") ? "" : String(value);
+    // Krok 14a-A1h: label + hint override
+    const resolvedLabel = _resolveLabel(opts.fieldKey, label);
+    const resolvedHint = _resolveHint(opts.fieldKey);
 
     if (typeof global.ErpMemo === "function") {
       const wrap = document.createElement("div");
@@ -338,8 +345,9 @@
         (isReadonly ? " erp-field-readonly-memo" : "");
       // Span full width — description je dlouhy text, neni vhodne v auto-fit grid 220px
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;grid-column:1/-1;";
+      if (resolvedHint) wrap.title = resolvedHint;
       const memo = new global.ErpMemo(wrap, {
-        label: label,
+        label: resolvedLabel,
         value: displayValue,
         rows: opts.rows || 3,
         maxRows: opts.maxRows || 8,
@@ -371,7 +379,6 @@
         memo.textarea.style.borderBottomLeftRadius = "0";
         memo.textarea.style.opacity = "1";
         memo.textarea.style.cursor = "not-allowed";
-        memo.textarea.title = "Read-only (system metadata)";
         const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
         if (labelEl && !labelEl.dataset.lockBadge) {
           labelEl.dataset.lockBadge = "1";
@@ -407,6 +414,83 @@
     }
     wrap.appendChild(val);
     return wrap;
+  }
+
+  // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1h (12.5.2026 odpoledne): Marti's polish #2 + #3.
+  //   #2 LABEL_OVERRIDES — human-friendly display label per fieldKey.
+  //      MVP hardcoded; Etapa 3 (Phase 30+) nahradí z fw.framework_property.
+  //   #3 HINT_OVERRIDES — popisy field-by-field, ukáží se po ~1s hover
+  //      (browser native title attribute). Pokud hint neni, nic se neukaze.
+  //      MVP hardcoded; Etapa 3 nahradí z DB.
+  // ────────────────────────────────────────────────────────────────────
+
+  const LABEL_OVERRIDES = {
+    // fw.menu_node
+    "mn.cislo_def": "Číslo definice (legacy Centrála 1)",
+    "mn.framework_jadro_id": "Vazba na jádro (legacy)",
+    "mn.special_handler": "Speciální handler",
+    "mn.visibility_scope": "Rozsah viditelnosti",
+    "mn.is_immutable": "Neměnitelný",
+    "mn.sort_order": "Pořadí řazení",
+    "mn.parent_id": "Nadřazený uzel (ID)",
+    "mn.parent_code": "Nadřazený uzel (kód)",
+    "mn.core_id": "Vazba na Core přehled (FK)",
+    // fw.core
+    "core.layout_type": "Typ rozložení",
+    "core.layout_template": "Šablona rozložení",
+    "core.data_entity_type": "Typ datové entity",
+    "core.parent_framework_id": "Nadřazené jádro (lineage)",
+    "core.version": "Verze",
+    // Form 3 context
+    "ctx.gridCode": "Grid kde uživatel klikl (core.code)",
+    "ctx.rowId": "ID řádku v gridu",
+    "ctx.headerName": "Sloupec, na který uživatel klikl",
+    "ctx.compDefId": "ID definice sloupce (comp_def)",
+  };
+
+  const HINT_OVERRIDES = {
+    // fw.menu_node
+    "mn.id": "Primární klíč v fw.menu_node tabulce (read-only).",
+    "mn.code": "Unikátní textový identifikátor uzlu (např. system.framework.menu_nodes).",
+    "mn.label": "Lidsky čitelný název uzlu zobrazený v ERP stromě.",
+    "mn.kind": "Typ uzlu: list (přehled), form (jádro), folder (soudeček), iframe, special.",
+    "mn.parent_id": "FK na rodičovský fw.menu_node — určuje pozici ve stromě.",
+    "mn.parent_code": "Computed: code rodiče. Změna parenta se dělá přes parent_id (Krok 14c picker).",
+    "mn.sort_order": "Pořadí ve stromě v rámci stejného rodiče (rostoucí).",
+    "mn.status": "active = viditelný, draft = ve vývoji, archived = skrytý.",
+    "mn.visibility_scope": "Kdo vidí tento uzel: parent_only (rodiče), admin, tenant_member, public.",
+    "mn.cislo_def": "Legacy číslo z Centrály 1. Nové uzly mají core_id FK na fw.core.",
+    "mn.framework_jadro_id": "Phase 28-D legacy lineage. Pro nové uzly použij core_id.",
+    "mn.special_handler": "Custom handler pro speciální typy (např. dynamic generation pro audit_*).",
+    "mn.is_immutable": "Pokud ano, nelze editovat ani smazat (system pojistka).",
+    "mn.description": "Volitelný popis uzlu — kde se používá, kdo ho vytvořil, pro koho je určen.",
+    "mn.core_id": "FK na fw.core (Core přehled). NULL pro folders/iframes/special bez data view.",
+    // fw.core
+    "core.id": "Primární klíč v fw.core (read-only).",
+    "core.code": "Unikátní textový identifikátor core (např. framework_menu_nodes).",
+    "core.label": "Lidsky čitelný název core zobrazený jako title přehledu / formu.",
+    "core.layout_type": "list = grid view (přehled řádků), form = single record (jádro), special = hardcoded.",
+    "core.layout_template": "Volitelná šablona pro pixel-aware layout (single, multi-pane).",
+    "core.data_entity_type": "FK na fw.entity_def.code — typ entity, kterou core reprezentuje (např. menu_node, core, comp_def).",
+    "core.version": "Phase 8.5. Marti-AI's Q6 — verze pro lineage bez history tabulky.",
+    "core.parent_framework_id": "Phase 8.5. Marti-AI's Q6 — FK na předchozí verzi (self-FK pro lineage).",
+    "core.description": "Popis core — co reprezentuje, kdy byl vytvořen, kdo je tvůrce.",
+    // Form 3 context
+    "ctx.gridCode": "core.code gridu, kde uživatel klikl pravým na řádek.",
+    "ctx.rowId": "ID řádku v datovém zdroji (např. menu_node.id, comp_def.id).",
+    "ctx.headerName": "Header label sloupce + field_name v technické formě.",
+    "ctx.compDefId": "FK na fw.comp_def (definice sloupce). NULL pro System grids bez comp_def chain.",
+  };
+
+  function _resolveLabel(fieldKey, fallback) {
+    if (fieldKey && LABEL_OVERRIDES[fieldKey]) return LABEL_OVERRIDES[fieldKey];
+    return fallback;
+  }
+
+  function _resolveHint(fieldKey) {
+    if (fieldKey && HINT_OVERRIDES[fieldKey]) return HINT_OVERRIDES[fieldKey];
+    return null;
   }
 
   // ────────────────────────────────────────────────────────────────────
@@ -458,6 +542,9 @@
     // opts.readonly: true = disabled dropdown (system metadata).
     opts = opts || {};
     const isReadonly = !!opts.readonly;
+    // Krok 14a-A1h: label + hint override
+    const resolvedLabel = _resolveLabel(opts.fieldKey, label);
+    const resolvedHint = _resolveHint(opts.fieldKey);
 
     // Resolve items — string preset OR array
     let resolvedItems = [];
@@ -478,6 +565,7 @@
       const wrap = document.createElement("div");
       wrap.className = "erp-field erp-field-design erp-field-dropdown";
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      if (resolvedHint) wrap.title = resolvedHint;
       // Phase 38.4 Krok 14a-A1g #1 (12.5.2026 odpoledne polish): marker
       // "← původní" se v panel ukazuje JEN kdyz je hodnota zmenena.
       // V initial state (clean): items bez markeru.
@@ -532,7 +620,6 @@
         dd.trigger.style.borderBottomLeftRadius = "0";
         dd.trigger.style.opacity = "1";
         dd.trigger.style.cursor = "not-allowed";
-        dd.trigger.title = "Read-only (system metadata)";
         // Lock badge na label
         const labelEl = wrap.querySelector(".erp-dropdown-label");
         if (labelEl && !labelEl.dataset.lockBadge) {

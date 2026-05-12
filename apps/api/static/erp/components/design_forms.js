@@ -800,15 +800,15 @@
         inp.input.placeholder = "—";
       }
       // Phase 38.4 Krok 14a-A1c: readonly visual zvyrazneni
+      // Krok 14a-A1p (12.5.2026 vecer, druhy pokus): Marti's polish —
+      // accent border (3px solid #5a6877) zrusen u RO uplne. Patri JEN
+      // na dirty fields (amber #d4b88a, line ~782). RO se odlisuje
+      // tichym pattern: background + color + cursor + 🔒 badge.
+      // A1f mel uz to delat ale jen vypnul rohy — accent border tam
+      // zustal. Ted ho dropnem cely.
       if (isReadonly && inp.input) {
         inp.input.style.background = "#1a2028";
         inp.input.style.color = "#9ba8b8";
-        inp.input.style.borderLeft = "3px solid #5a6877";
-        // Krok 14a-A1f #2 (12.5.2026 odpoledne): Marti's polish — readonly
-        // nema mit zaobleny levy roh (accent border + zaobleny vypada zvlastni).
-        // Dirty fields se zaoblenim zustanou (mene casto, vic akce orientovane).
-        inp.input.style.borderTopLeftRadius = "0";
-        inp.input.style.borderBottomLeftRadius = "0";
         inp.input.style.opacity = "1";
         inp.input.style.cursor = "not-allowed";
         const labelEl = wrap.querySelector(".erp-input-label");
@@ -911,12 +911,11 @@
         },
       });
       // Readonly vizualni boost (analog _field)
+      // Krok 14a-A1p (12.5.2026 vecer): accent border zrusen u RO,
+      // viz _field komentar (RO = tichy lock pattern).
       if (isReadonly && memo.textarea) {
         memo.textarea.style.background = "#1a2028";
         memo.textarea.style.color = "#9ba8b8";
-        memo.textarea.style.borderLeft = "3px solid #5a6877";
-        memo.textarea.style.borderTopLeftRadius = "0";
-        memo.textarea.style.borderBottomLeftRadius = "0";
         memo.textarea.style.opacity = "1";
         memo.textarea.style.cursor = "not-allowed";
         const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
@@ -1520,13 +1519,11 @@
         },
       });
       // Readonly vizualni boost
+      // Krok 14a-A1p (12.5.2026 vecer): accent border zrusen u RO,
+      // viz _field komentar (RO = tichy lock pattern).
       if (isReadonly && dd.trigger) {
         dd.trigger.style.background = "#1a2028";
         dd.trigger.style.color = "#9ba8b8";
-        dd.trigger.style.borderLeft = "3px solid #5a6877";
-        // Krok 14a-A1f #2: readonly nema zaobleny levy roh
-        dd.trigger.style.borderTopLeftRadius = "0";
-        dd.trigger.style.borderBottomLeftRadius = "0";
         dd.trigger.style.opacity = "1";
         dd.trigger.style.cursor = "not-allowed";
         // Lock badge na label

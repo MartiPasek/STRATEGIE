@@ -98,11 +98,10 @@
       const phrase = totalDirty === 1
         ? "1 neuloženou změnu"
         : (totalDirty < 5 ? totalDirty + " neuložené změny" : totalDirty + " neuložených změn");
+      // A1t: default Ano/Ne (Marti's polish — sjednoceny lidsky pattern).
       const decision = await _confirmDarkDialog({
         title: "Obnovit stránku?",
         message: "Máš " + phrase + " v otevřeném design dialogu.\n\nPři obnovení (F5) se neuložené změny ztratí. Opravdu chceš obnovit?",
-        ok: "Obnovit (změny se ztratí)",
-        cancel: "Zůstat",
       });
       if (decision === true) {
         // User potvrdil — clear dirty tracking aby beforeunload neprerusil reload
@@ -423,8 +422,13 @@
     opts = opts || {};
     const title = opts.title || "Potvrdit";
     const message = opts.message || "";
-    const okLabel = opts.ok || "OK";
-    const cancelLabel = opts.cancel || "Zrušit";
+    // A1t (12.5.2026 vecer doma): Marti's polish — defaults Ano/Ne misto
+    // OK/Zrušit. Lidsky srozumitelnejsi. Plus order Ano-left/Ne-right
+    // (Marti's "rad vzdy nejdrive Ano a pak Ne").
+    // opts.cancel === null → 1-button mode (info dialog s jen OK)
+    const okLabel = opts.ok || "Ano";
+    const cancelLabel = opts.cancel === null ? null : (opts.cancel || "Ne");
+    const showCancel = cancelLabel !== null;
     // Krok 14a-A1k #4: 3-button mode (Ano / Ne / Zrušit) pro close-with-dirty.
     // Resolve hodnoty: opts.threeButtons → "yes" | "no" | "cancel"
     //                  normal mode      → true | false
@@ -494,19 +498,23 @@
         return;
       }
 
-      // 2-button (default): OK / Cancel
-      const cancelBtn = document.createElement("button");
-      cancelBtn.type = "button";
-      cancelBtn.textContent = cancelLabel;
-      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      // 2-button (default): Ano / Ne — nebo 1-button mode (info dialog, cancel: null)
+      let cancelBtn = null;
+      if (showCancel) {
+        cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = cancelLabel;
+        cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      }
 
       const okBtn = document.createElement("button");
       okBtn.type = "button";
       okBtn.textContent = okLabel;
       okBtn.style.cssText = "padding:6px 16px;background:#5a3a3a;border:1px solid #7a4a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
 
-      ftr.appendChild(cancelBtn);
+      // A1t order: Ano (left/primary) → Ne (right/secondary)
       ftr.appendChild(okBtn);
+      if (cancelBtn) ftr.appendChild(cancelBtn);
       dlg.appendChild(ftr);
       ovr.appendChild(dlg);
       document.body.appendChild(ovr);
@@ -515,14 +523,18 @@
         try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
         document.removeEventListener("keydown", onKey);
       }
+      // A1t safety: Esc / click outside = null (keep modal, "did nothing").
+      // Explicit Ano (true) / Ne (false) jsou jediné destruktivni cesty.
+      // Caller pak rozlisuje: true = positive action, false = negative
+      // action, null = no-op (nepokracuj).
       function onKey(ev) {
-        if (ev.key === "Escape") { cleanup(); resolve(false); }
+        if (ev.key === "Escape") { cleanup(); resolve(null); }
         else if (ev.key === "Enter") { cleanup(); resolve(true); }
       }
-      cancelBtn.addEventListener("click", () => { cleanup(); resolve(false); });
+      if (cancelBtn) cancelBtn.addEventListener("click", () => { cleanup(); resolve(false); });
       okBtn.addEventListener("click", () => { cleanup(); resolve(true); });
       ovr.addEventListener("click", (ev) => {
-        if (ev.target === ovr) { cleanup(); resolve(false); }
+        if (ev.target === ovr) { cleanup(); resolve(null); }
       });
       dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
       document.addEventListener("keydown", onKey);
@@ -1802,20 +1814,23 @@
       const phrase = count > 1
         ? (count < 5 ? "provedené změny" : "provedených změn")
         : "provedenou změnu";
+      // A1t (12.5.2026 vecer doma): Marti's polish — drop 3-button mode.
+      // 3 stavy decision:
+      //   true (Ano click) → save + close
+      //   false (Ne click) → close without save (explicit destructive)
+      //   null (Esc / click outside) → keep modal open (invisible cancel)
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
         message: "Mám uložit tebou " + phrase + "? (" + count + ")",
-        threeButtons: true,
-        yes: "Ano",
-        no: "Ne",
-        cancel: "Zrušit",
       });
-      if (decision === "cancel") return "cancel";
-      if (decision === "yes") {
+      if (decision === true) {
         this._onSaveClick();
         return "save";
       }
-      return "close"; // "no" — zavřít bez uložení
+      if (decision === false) {
+        return "close"; // explicit Ne → zavřít bez uložení
+      }
+      return "cancel"; // null (Esc / click outside) → keep modal open
     }
 
     _onRevertClick() {
@@ -1830,8 +1845,7 @@
       _confirmDarkDialog({
         title: "Vrátit změny?",
         message: "Vrátit " + count + " " + _wRevert + " do původního stavu?",
-        ok: "Vrátit",
-        cancel: "Zrušit",
+        // A1t: default Ano/Ne (Marti's polish — Vrátit/Zrušit lidsky matoucí)
       }).then(ok => {
         if (ok) this._revertAll();
       });
@@ -2222,20 +2236,23 @@
       const phrase = count > 1
         ? (count < 5 ? "provedené změny" : "provedených změn")
         : "provedenou změnu";
+      // A1t (12.5.2026 vecer doma): Marti's polish — drop 3-button mode.
+      // 3 stavy decision:
+      //   true (Ano click) → save + close
+      //   false (Ne click) → close without save (explicit destructive)
+      //   null (Esc / click outside) → keep modal open (invisible cancel)
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
         message: "Mám uložit tebou " + phrase + "? (" + count + ")",
-        threeButtons: true,
-        yes: "Ano",
-        no: "Ne",
-        cancel: "Zrušit",
       });
-      if (decision === "cancel") return "cancel";
-      if (decision === "yes") {
+      if (decision === true) {
         this._onSaveClick();
         return "save";
       }
-      return "close"; // "no" — zavřít bez uložení
+      if (decision === false) {
+        return "close"; // explicit Ne → zavřít bez uložení
+      }
+      return "cancel"; // null (Esc / click outside) → keep modal open
     }
 
     open() {

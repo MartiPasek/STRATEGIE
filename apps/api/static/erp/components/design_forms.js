@@ -1659,8 +1659,11 @@
       const count = this._dirty.size;
       if (this._saveBtn) this._saveBtn.style.display = count > 0 ? "" : "none";
       if (this._dirtyBadge) {
+        // A1q (12.5.2026 vecer): Czech plural fix — Marti's polish.
+        // 1 = "změna", 2-4 = "změny", 5+ = "změn".
+        const _wBadge = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
         this._dirtyBadge.textContent = count > 0
-          ? "● " + count + " změna" + (count > 1 ? (count < 5 ? "y" : "") : "")
+          ? "● " + count + " " + _wBadge
           : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
@@ -1711,15 +1714,14 @@
     async _beforeCloseHandler() {
       if (!this._dirty || this._dirty.size === 0) return "close";
       const count = this._dirty.size;
-      const fields = Array.from(this._dirty).join(", ");
-      // A1p: Czech grammar — adjektivum + noun spolu (1 = provedenou změnu,
-      // 2-4 = provedené změny, 5+ = provedených změn).
+      // A1q (12.5.2026 vecer): drop "Pole: ..." výpis — Marti's request.
+      // Userové konkretním fieldKey názvům (mn.visibility_scope) nerozumí.
       const phrase = count > 1
         ? (count < 5 ? "provedené změny" : "provedených změn")
         : "provedenou změnu";
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
-        message: "Mám uložit tebou " + phrase + "? (" + count + ")\n\nPole: " + fields,
+        message: "Mám uložit tebou " + phrase + "? (" + count + ")",
         threeButtons: true,
         yes: "Ano",
         no: "Ne",
@@ -1739,11 +1741,12 @@
       // za dark centered dialog (Marti's polish — UX konzistence).
       if (!this._dirty.size) return;
       const count = this._dirty.size;
-      const fields = Array.from(this._dirty).join(", ");
+      // A1q (12.5.2026 vecer): plural fix (1=zmenu, 2-4=zmeny, 5+=zmen)
+      // + drop "Pole: ..." výpis (Marti's request, userove fieldKey nerozumi).
+      const _wRevert = count === 1 ? "změnu" : (count < 5 ? "změny" : "změn");
       _confirmDarkDialog({
         title: "Vrátit změny?",
-        message: "Vrátit " + count + " změn" + (count > 1 ? (count < 5 ? "y" : "") : "") +
-          " do původního stavu?\n\nPole: " + fields,
+        message: "Vrátit " + count + " " + _wRevert + " do původního stavu?",
         ok: "Vrátit",
         cancel: "Zrušit",
       }).then(ok => {
@@ -2082,8 +2085,11 @@
       const count = this._dirty.size;
       if (this._saveBtn) this._saveBtn.style.display = count > 0 ? "" : "none";
       if (this._dirtyBadge) {
+        // A1q (12.5.2026 vecer): Czech plural fix — Marti's polish.
+        // 1 = "změna", 2-4 = "změny", 5+ = "změn".
+        const _wBadge = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
         this._dirtyBadge.textContent = count > 0
-          ? "● " + count + " změna" + (count > 1 ? (count < 5 ? "y" : "") : "")
+          ? "● " + count + " " + _wBadge
           : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
@@ -2124,15 +2130,14 @@
     async _beforeCloseHandler() {
       if (!this._dirty || this._dirty.size === 0) return "close";
       const count = this._dirty.size;
-      const fields = Array.from(this._dirty).join(", ");
-      // A1p: Czech grammar — adjektivum + noun spolu (1 = provedenou změnu,
-      // 2-4 = provedené změny, 5+ = provedených změn).
+      // A1q (12.5.2026 vecer): drop "Pole: ..." výpis — Marti's request.
+      // Userové konkretním fieldKey názvům (mn.visibility_scope) nerozumí.
       const phrase = count > 1
         ? (count < 5 ? "provedené změny" : "provedených změn")
         : "provedenou změnu";
       const decision = await _confirmDarkDialog({
         title: "Neuložené změny",
-        message: "Mám uložit tebou " + phrase + "? (" + count + ")\n\nPole: " + fields,
+        message: "Mám uložit tebou " + phrase + "? (" + count + ")",
         threeButtons: true,
         yes: "Ano",
         no: "Ne",

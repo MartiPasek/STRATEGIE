@@ -38,6 +38,34 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1r (12.5.2026 vecer, Marti's bug catch):
+  // F5 / tab close / browser back s otevrenym Design modal s dirty fields
+  // mel zavrit modal bez varovani. Fix: window.beforeunload listener
+  // + global Set s dirty form instances. Browser ukaze NATIVE warning
+  // (custom message neni v modernich prohlizecich supportable kvuli
+  // security — phishing prevention). Native hlaska je dostatecna.
+  // ────────────────────────────────────────────────────────────────────
+  const _dirtyForms = new Set();
+  function _markFormDirty(formInst, isDirty) {
+    if (!formInst) return;
+    if (isDirty) {
+      _dirtyForms.add(formInst);
+    } else {
+      _dirtyForms.delete(formInst);
+    }
+  }
+  if (!global._erpDesignBeforeUnloadInstalled) {
+    global._erpDesignBeforeUnloadInstalled = true;
+    global.addEventListener("beforeunload", (ev) => {
+      if (_dirtyForms.size > 0) {
+        ev.preventDefault();
+        ev.returnValue = "";
+        return "";
+      }
+    });
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   // Phase 38.4 Krok 14a-A1g #3 (12.5.2026 odpoledne): Dark scrollbar
   // pro design modal body + page control content. Inject once při module load.
   // ────────────────────────────────────────────────────────────────────
@@ -582,6 +610,11 @@
         }
       }
       _doClose();
+      // A1r (12.5.2026): notify caller (form class) ze close je hotovy
+      // — pro cleanup dirty tracking v global Set.
+      if (typeof opts.onClose === "function") {
+        try { opts.onClose(); } catch (e) { console.warn("onClose handler failed:", e); }
+      }
     }
     function _onKey(ev) {
       if (ev.key === "Escape") close();
@@ -1667,6 +1700,8 @@
           : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
+      // A1r (12.5.2026 vecer): global dirty tracking pro F5/tab close warning.
+      _markFormDirty(this, count > 0);
     }
 
     _onSaveClick() {
@@ -1803,6 +1838,8 @@
         title: title,
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
+        // A1r (12.5.2026): cleanup global dirty tracking po close.
+        onClose: () => _markFormDirty(this, false),
         // Phase 38.4 Krok 14a-A1m #2: 📖 callback — otevre popup s description
         // memo. Podle aktivniho tabu vybere entity (Soudecek tab → menu_node,
         // Prehled tab → core).
@@ -2093,6 +2130,8 @@
           : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
+      // A1r (12.5.2026 vecer): global dirty tracking pro F5/tab close warning.
+      _markFormDirty(this, count > 0);
     }
 
     _onSaveClick() {
@@ -2157,6 +2196,8 @@
         title: title,
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
+        // A1r (12.5.2026): cleanup global dirty tracking po close.
+        onClose: () => _markFormDirty(this, false),
         // Krok 14a-A1m #2: 📖 callback — otevre popup s description memo.
         onShowDescriptions: () => this._openDescriptionsPopup(),
       });

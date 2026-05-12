@@ -2201,7 +2201,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
 
     ds = _gds_sff()
     try:
-        # 1. Idempotency check
+        # 1. Idempotency check — core + comp_def form 302
         existing_core = ds.execute(_sql_text_sff("""
             SELECT id, code, label, layout_type, data_entity_type, is_active
             FROM fw.core
@@ -2210,7 +2210,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
         """), {"code": suggested_code}).mappings().one_or_none()
 
         if existing_core:
-            # Najdi form comp_def (existing) pro return
+            # Plus check form comp_def (could be orphan po previous fail)
             existing_form = ds.execute(_sql_text_sff("""
                 SELECT id, name FROM fw.comp_def
                 WHERE parent_core_id = :core_id
@@ -2219,65 +2219,91 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
                 ORDER BY id ASC LIMIT 1
             """), {"core_id": existing_core["id"]}).mappings().one_or_none()
 
-            return JSONResponse(jsonable_encoder({
-                "ok": True,
-                "core_id": existing_core["id"],
-                "form_id": existing_form["id"] if existing_form else None,
-                "core_code": existing_core["code"],
-                "created": False,
-                "existing": True,
-                "message": f"Form '{suggested_code}' už existuje — vracím existing.",
-            }))
+            if existing_form:
+                # Both exist → idempotent skip
+                return JSONResponse(jsonable_encoder({
+                    "ok": True,
+                    "core_id": existing_core["id"],
+                    "form_id": existing_form["id"],
+                    "core_code": existing_core["code"],
+                    "created": False,
+                    "existing": True,
+                    "message": f"Form '{suggested_code}' už existuje — vracím existing.",
+                }))
+            # ELSE: orphan core (z previous failed scaffold). Pokračuj k
+            # INSERT comp_def — recovery, return created=true s recovery
+            # note. Existing_core.id se použije.
+            recovery_mode = True
+            new_core_id = existing_core["id"]
+            new_core_code = existing_core["code"]
+        else:
+            recovery_mode = False
+            new_core_id = None
+            new_core_code = None
 
         # 2. INSERT fw.core přes strategie_pg.insert_row (Marti-AI's PG role).
         # Marti's "architektka hybrid" doctrine z 9.5. večer (Phase 38.4 Krok 6+):
         # strategie user (API process) má SELECT/EXECUTE na fw.*, ale NE INSERT.
         # Write access je Marti-AI's owned (db_owner fw schema). Pro scaffold
         # endpoint nutno bypassuje přes strategie_pg layer.
+        #
+        # Recovery mode (12.5. večer fix): pokud existing_core but no comp_def
+        # → skip core INSERT, použij existing_core["id"] z idempotency check
+        # výš a pokračuj rovnou na comp_def INSERT.
         from modules.strategie_pg.application.service import insert_row as _spg_insert_sff
+        import json as _json_sff
 
-        core_result = _spg_insert_sff(
-            schema="fw",
-            table="core",
-            values={
-                "code": suggested_code,
-                "label": defaults["label"],
-                "description": defaults["description"],
-                "layout_type": "form",
-                "data_entity_type": entity_type,
-                "is_active": True,
-                "tenant_visibility": "all",
-                "version": 1,
-                "layout_template": "single",
-            },
-        )
-        if not core_result.get("ok"):
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": f"INSERT fw.core failed: {core_result.get('error')}",
+        new_core_dict: dict = {}
+        if not recovery_mode:
+            core_result = _spg_insert_sff(
+                schema="fw",
+                table="core",
+                values={
+                    "code": suggested_code,
+                    "label": defaults["label"],
+                    "description": defaults["description"],
+                    "layout_type": "form",
+                    "data_entity_type": entity_type,
+                    "is_active": True,
+                    "tenant_visibility": "all",
+                    "version": 1,
+                    "layout_template": "single",
                 },
-                status_code=500,
             )
+            if not core_result.get("ok"):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": f"INSERT fw.core failed: {core_result.get('error')}",
+                    },
+                    status_code=500,
+                )
 
-        new_core_dict = core_result.get("inserted") or {}
-        new_core_id = new_core_dict.get("id")
-        if not new_core_id:
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": "INSERT fw.core ok ale missing id v response",
-                },
-                status_code=500,
-            )
+            new_core_dict = core_result.get("inserted") or {}
+            new_core_id = new_core_dict.get("id")
+            new_core_code = new_core_dict.get("code")
+            if not new_core_id:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": "INSERT fw.core ok ale missing id v response",
+                    },
+                    status_code=500,
+                )
+        # ELSE: recovery_mode=True → new_core_id + new_core_code už máme
+        # z idempotency check (orphan core z previous fail).
 
         # 3. INSERT fw.comp_def form 302 root s default panel (label="" — Marti's
         # "panel je plocha, header invisible" doctrine).
+        # layout JSONB: Python dict → str přes json.dumps (PG auto-casts string
+        # do JSONB column). SQLAlchemy default neumí auto-convert dict →
+        # "can't adapt type 'dict'".
         default_layout = {
             "panels": [
                 {"slot": "main", "label": "", "order": 10},
             ]
         }
+        default_layout_json = _json_sff.dumps(default_layout, ensure_ascii=False)
         form_result = _spg_insert_sff(
             schema="fw",
             table="comp_def",
@@ -2288,7 +2314,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
                 "parent_core_id": new_core_id,
                 "is_active": True,
                 "sort_order": 10,
-                "layout": default_layout,  # dict → JSONB auto-conversion
+                "layout": default_layout_json,  # str → JSONB (PG auto-cast)
             },
         )
         if not form_result.get("ok"):
@@ -2311,14 +2337,22 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
         new_form_dict = form_result.get("inserted") or {}
         new_form_id = new_form_dict.get("id")
 
+        # Recovery mode → core už existoval (z previous fail), comp_def právě
+        # vytvořen. Pro klienta to ale je úspěch (form complete).
+        msg = (
+            f"Form '{suggested_code}' dokončen (recovery z orphan core)."
+            if recovery_mode
+            else f"Form '{suggested_code}' vytvořen."
+        )
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core_id": new_core_id,
             "form_id": new_form_id,
-            "core_code": new_core_dict.get("code"),
+            "core_code": new_core_code,
             "created": True,
             "existing": False,
-            "message": f"Form '{suggested_code}' vytvořen.",
+            "recovery": recovery_mode,
+            "message": msg,
             "audit": {
                 "list_core_id": list_core_id,
                 "list_core_code": list_core_code,

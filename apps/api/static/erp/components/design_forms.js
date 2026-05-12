@@ -96,7 +96,39 @@
   }
 
   function _readonlyInput(label, value, opts) {
+    // Phase 38.4 Krok 14a (12.5.2026): UI Kit dogfooding — pokud ErpInput
+    // existuje, pouzij ho s disabled:true (selectable text + native UI Kit
+    // styling + ready pro Krok 14b save toggle). Fallback raw divs.
     opts = opts || {};
+    const displayValue = (value == null || value === "") ? "" : String(value);
+
+    // UI Kit cesta — pouze pokud ErpInput zaregistrovan
+    if (typeof global.ErpInput === "function") {
+      const wrap = document.createElement("div");
+      wrap.className = "erp-field erp-field-readonly-uikit";
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      // ErpInput vytvori vlastni label + input + container styly
+      const inp = new global.ErpInput(wrap, {
+        type: "text",
+        label: label,
+        value: displayValue,
+        disabled: true,  // gray out + ne-editable, ale select+copy chodi
+        placeholder: "—",
+      });
+      // Mono variant — override CSS class
+      if (opts.mono && inp.input) {
+        inp.input.style.fontFamily = "ui-monospace,Consolas,monospace";
+        inp.input.style.fontSize = "11px";
+      }
+      // Empty value: ukázat em-dash place-holder vizuálně
+      if (!displayValue && inp.input) {
+        inp.input.placeholder = "—";
+        inp.input.style.color = "#5d6975";
+      }
+      return wrap;
+    }
+
+    // Fallback raw divs (pokud ErpInput.js nezaregistrován)
     const wrap = document.createElement("div");
     wrap.className = "erp-field erp-field-readonly";
     wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
@@ -107,11 +139,11 @@
     const val = document.createElement("div");
     val.className = "erp-readonly-value";
     val.style.cssText = "padding:5px 8px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;min-height:22px;color:#cfd6df;font-family:" + (opts.mono ? "ui-monospace,Consolas,monospace" : "inherit") + ";font-size:" + (opts.mono ? "11px" : "12px") + ";word-break:break-all;";
-    if (value == null || value === "") {
+    if (!displayValue) {
       val.textContent = "—";
       val.style.color = "#5d6975";
     } else {
-      val.textContent = String(value);
+      val.textContent = displayValue;
     }
     wrap.appendChild(val);
     return wrap;

@@ -29,6 +29,12 @@ from fastapi.responses import HTMLResponse, JSONResponse
 # Hodnota fixed při module load (= API process start), neměnná do restartu.
 _STATIC_VERSION = str(int(time.time()))
 
+# Phase 38.4 Krok 14a (12.5.2026): module-level alias pro `text` pouzity v
+# shared helper funkcich (_fetch_menu_node, _fetch_core, _fetch_columns_for_core).
+# Unique name `_sql_text_fw` aby se neshodoval s existing local `_sql_text`
+# v jinych handlerech (gotcha #7 shadow safety).
+from sqlalchemy import text as _sql_text_fw
+
 from pydantic import BaseModel, Field
 
 from core.logging import get_logger
@@ -1776,7 +1782,7 @@ def _serialize_core(row_dict: dict) -> dict:
 
 def _fetch_menu_node(ds, where_sql: str, params: dict) -> dict | None:
     """SELECT n.*, p.code AS _parent_code FROM fw.menu_node n LEFT JOIN ... WHERE ..."""
-    sql = _sql_text(f"""
+    sql = _sql_text_fw(f"""
         SELECT n.*, p.code AS _parent_code
         FROM fw.menu_node n
         LEFT JOIN fw.menu_node p ON p.id = n.parent_id
@@ -1789,7 +1795,7 @@ def _fetch_menu_node(ds, where_sql: str, params: dict) -> dict | None:
 
 def _fetch_core(ds, where_sql: str, params: dict) -> dict | None:
     """SELECT c.* FROM fw.core c WHERE ..."""
-    sql = _sql_text(f"SELECT c.* FROM fw.core c WHERE {where_sql} LIMIT 1")
+    sql = _sql_text_fw(f"SELECT c.* FROM fw.core c WHERE {where_sql} LIMIT 1")
     result = ds.execute(sql, params).first()
     return dict(result._mapping) if result else None
 
@@ -1802,7 +1808,7 @@ def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
     vrátí []. Frontend si umí poradit s prazdnym seznamem.
     """
     try:
-        sql = _sql_text("""
+        sql = _sql_text_fw("""
             SELECT id, code, label, field_name, comp_type_id, sort_order,
                    parent_core_id
             FROM fw.comp_def
@@ -1821,6 +1827,7 @@ def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
 @api_router.get("/design/menu-node/{menu_node_id}")
 def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14a (12.5.2026): GET menu_node + linked core + columns."""
+    from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
     ds = _gds_fw()
@@ -1846,6 +1853,7 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
 @api_router.get("/design/menu-node-by-code/{menu_node_code}")
 def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier)."""
+    from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
     ds = _gds_fw()
@@ -1871,6 +1879,7 @@ def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
 @api_router.get("/design/core/{core_id}")
 def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14a: reverse — GET core + columns + linked menu_node (if any)."""
+    from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
     ds = _gds_fw()
@@ -1893,6 +1902,7 @@ def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
 @api_router.get("/design/core-by-code/{core_code}")
 def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14a: lookup by fw.core.code (Form 3 use case — gridCode)."""
+    from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
     ds = _gds_fw()

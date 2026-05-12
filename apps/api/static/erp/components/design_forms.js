@@ -42,6 +42,126 @@
   // pro design modal body + page control content. Inject once při module load.
   // ────────────────────────────────────────────────────────────────────
 
+  // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1i (12.5.2026): Marti's polish — custom dark
+  // tooltip nahrazuje browser native `title` attribute (Marti's #1:
+  // hinty maji byt take dark design). 1s delay before show, fade-in.
+  //
+  // Plus inline override editing: right-click na label otevre popup
+  // (userLabel + hint editor). Save → localStorage MVP, Etapa 3 do DB.
+  // ────────────────────────────────────────────────────────────────────
+
+  const OVERRIDES_LS_KEY = "erp.design.overrides.v1";
+
+  // Load user-side overrides z localStorage (merge nad hardcoded defaults)
+  function _loadUserOverrides() {
+    try {
+      const raw = localStorage.getItem(OVERRIDES_LS_KEY);
+      if (!raw) return { labels: {}, hints: {} };
+      const obj = JSON.parse(raw);
+      return {
+        labels: (obj && obj.labels) || {},
+        hints: (obj && obj.hints) || {},
+      };
+    } catch (e) {
+      return { labels: {}, hints: {} };
+    }
+  }
+
+  function _saveUserOverride(kind, fieldKey, value) {
+    // kind = "labels" | "hints"; value: string | null (null = delete override)
+    try {
+      const u = _loadUserOverrides();
+      if (value == null || value === "") {
+        delete u[kind][fieldKey];
+      } else {
+        u[kind][fieldKey] = value;
+      }
+      localStorage.setItem(OVERRIDES_LS_KEY, JSON.stringify(u));
+    } catch (e) {
+      console.warn("save override failed:", e);
+    }
+  }
+
+  // User overrides cache — nactema jednou při module load
+  let _USER_OVERRIDES = _loadUserOverrides();
+
+  // ────────────────────────────────────────────────────────────────────
+  // Dark tooltip — global singleton, hover handler s 1s delay
+  // ────────────────────────────────────────────────────────────────────
+
+  let _tooltipEl = null;
+  let _tooltipTimer = null;
+
+  function _getTooltipEl() {
+    if (_tooltipEl) return _tooltipEl;
+    _tooltipEl = document.createElement("div");
+    _tooltipEl.className = "erp-design-tooltip";
+    _tooltipEl.style.cssText = (
+      "position:fixed;z-index:9700;background:#0f141a;border:1px solid #3a4754;" +
+      "color:#cfd6df;font-size:11px;line-height:1.5;padding:8px 10px;border-radius:4px;" +
+      "max-width:340px;box-shadow:0 4px 16px rgba(0,0,0,0.6);" +
+      "pointer-events:none;display:none;opacity:0;transition:opacity 0.15s ease;"
+    );
+    document.body.appendChild(_tooltipEl);
+    return _tooltipEl;
+  }
+
+  function _showTooltip(text, x, y) {
+    const t = _getTooltipEl();
+    t.textContent = text;
+    t.style.display = "block";
+    // Position — prefer below cursor, but flip above if no space
+    const pad = 12;
+    let left = x + pad;
+    let top = y + pad;
+    // After 1ms (DOM measured), adjust
+    requestAnimationFrame(() => {
+      const r = t.getBoundingClientRect();
+      if (left + r.width > window.innerWidth - 8) left = window.innerWidth - r.width - 8;
+      if (top + r.height > window.innerHeight - 8) top = y - r.height - pad;
+      if (left < 8) left = 8;
+      if (top < 8) top = 8;
+      t.style.left = left + "px";
+      t.style.top = top + "px";
+      t.style.opacity = "1";
+    });
+  }
+
+  function _hideTooltip() {
+    if (_tooltipTimer) { clearTimeout(_tooltipTimer); _tooltipTimer = null; }
+    if (_tooltipEl) {
+      _tooltipEl.style.opacity = "0";
+      _tooltipEl.style.display = "none";
+    }
+  }
+
+  function _installDarkTooltips() {
+    if (window._erpDesignTooltipsInstalled) return;
+    window._erpDesignTooltipsInstalled = true;
+    let lastX = 0, lastY = 0;
+    document.addEventListener("mousemove", (ev) => {
+      lastX = ev.clientX; lastY = ev.clientY;
+    }, true);
+    document.addEventListener("mouseover", (ev) => {
+      // Find ancestor element s data-design-hint
+      const el = ev.target.closest && ev.target.closest("[data-design-hint]");
+      if (!el) return;
+      const hint = el.getAttribute("data-design-hint");
+      if (!hint) return;
+      _hideTooltip();
+      _tooltipTimer = setTimeout(() => {
+        _showTooltip(hint, lastX, lastY);
+      }, 1000);
+    }, true);
+    document.addEventListener("mouseout", (ev) => {
+      const el = ev.target.closest && ev.target.closest("[data-design-hint]");
+      if (!el) return;
+      _hideTooltip();
+    }, true);
+  }
+  _installDarkTooltips();
+
   (function _injectDesignFormsCss() {
     if (document.getElementById("erp-design-forms-css")) return;
     const style = document.createElement("style");
@@ -235,7 +355,7 @@
       wrap.className = "erp-field erp-field-design" + (isReadonly ? " erp-field-readonly-uikit" : " erp-field-editable-uikit");
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
       // Hint na wrap (browser native title, ~1s delay)
-      if (resolvedHint) wrap.title = resolvedHint;
+      if (resolvedHint) wrap.dataset.designHint = resolvedHint;
       const inp = new global.ErpInput(wrap, {
         type: "text",
         label: resolvedLabel,
@@ -291,12 +411,19 @@
           );
         }
       }
-      // Krok 14a-A1f #4 (12.5.2026): attach instance + origVal na wrap
-      // pro budouci `_revertAll()` (klik na dirty badge → confirm → reset).
+      // Krok 14a-A1f #4: attach instance + origVal pro _revertAll()
       wrap._inst = inp;
       wrap._origVal = displayValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "field";
+      // Krok 14a-A1i #2: right-click handle na label pro inline override edit
+      if (opts.fieldKey) {
+        const labelEl = wrap.querySelector(".erp-input-label");
+        if (labelEl) {
+          labelEl.setAttribute("data-design-fieldkey", opts.fieldKey);
+          labelEl.style.cursor = "context-menu";
+        }
+      }
       return wrap;
     }
 
@@ -345,7 +472,7 @@
         (isReadonly ? " erp-field-readonly-memo" : "");
       // Span full width — description je dlouhy text, neni vhodne v auto-fit grid 220px
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;grid-column:1/-1;";
-      if (resolvedHint) wrap.title = resolvedHint;
+      if (resolvedHint) wrap.dataset.designHint = resolvedHint;
       const memo = new global.ErpMemo(wrap, {
         label: resolvedLabel,
         value: displayValue,
@@ -393,6 +520,14 @@
       wrap._origVal = displayValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "memo";
+      // Krok 14a-A1i #2: right-click handle na label
+      if (opts.fieldKey) {
+        const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
+        if (labelEl) {
+          labelEl.setAttribute("data-design-fieldkey", opts.fieldKey);
+          labelEl.style.cursor = "context-menu";
+        }
+      }
       return wrap;
     }
 
@@ -483,13 +618,203 @@
     "ctx.compDefId": "FK na fw.comp_def (definice sloupce). NULL pro System grids bez comp_def chain.",
   };
 
+  // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14a-A1i #2: Right-click popup pro inline editaci
+  // user labelu + hintu komponenty. Persistence v localStorage (MVP),
+  // Etapa 3 přesune do fw.framework_property POST endpointu.
+  // ────────────────────────────────────────────────────────────────────
+
+  function _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, anchorEl) {
+    return new Promise((resolve) => {
+      const ovr = document.createElement("div");
+      ovr.className = "erp-confirm-overlay";
+      ovr.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9600;display:flex;align-items:center;justify-content:center;";
+      const dlg = document.createElement("div");
+      dlg.className = "erp-confirm-dialog erp-design-modal";
+      dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:520px;max-width:95vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+
+      const hdr = document.createElement("div");
+      hdr.style.cssText = "padding:12px 16px;border-bottom:1px solid #2a3340;background:#141a20;font-size:14px;font-weight:600;color:#e8eef5;";
+      hdr.textContent = "Nastavení komponenty";
+      const sub = document.createElement("div");
+      sub.style.cssText = "font-size:11px;color:#8a96a4;font-weight:normal;font-family:ui-monospace,Consolas,monospace;margin-top:2px;";
+      sub.textContent = "fieldKey: " + fieldKey;
+      hdr.appendChild(sub);
+      dlg.appendChild(hdr);
+
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:12px;";
+
+      // Label input
+      const labelWrap = document.createElement("div");
+      labelWrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      const labelLbl = document.createElement("label");
+      labelLbl.textContent = "Uživatelský název (zobrazí se místo systémového)";
+      labelLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      labelWrap.appendChild(labelLbl);
+      const labelInp = document.createElement("input");
+      labelInp.type = "text";
+      labelInp.value = currentLabel || "";
+      labelInp.placeholder = "(nechej prázdné pro výchozí)";
+      labelInp.style.cssText = "padding:6px 8px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:13px;";
+      labelWrap.appendChild(labelInp);
+      body.appendChild(labelWrap);
+
+      // Hint textarea
+      const hintWrap = document.createElement("div");
+      hintWrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      const hintLbl = document.createElement("label");
+      hintLbl.textContent = "Hint (popis při hover > 1s)";
+      hintLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      hintWrap.appendChild(hintLbl);
+      const hintArea = document.createElement("textarea");
+      hintArea.value = currentHint || "";
+      hintArea.placeholder = "(nechej prázdné pro žádný hint)";
+      hintArea.rows = 4;
+      hintArea.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;font-family:inherit;resize:vertical;line-height:1.5;";
+      hintWrap.appendChild(hintArea);
+      body.appendChild(hintWrap);
+
+      const note = document.createElement("div");
+      note.style.cssText = "font-size:11px;color:#5d6975;font-style:italic;line-height:1.5;";
+      note.textContent = "MVP: ukládá se do prohlížeče (localStorage). V budoucí Etapě 3 půjde do databáze (fw.framework_property).";
+      body.appendChild(note);
+
+      dlg.appendChild(body);
+
+      const ftr = document.createElement("div");
+      ftr.style.cssText = "padding:10px 16px;border-top:1px solid #2a3340;background:#141a20;display:flex;justify-content:space-between;gap:8px;align-items:center;";
+
+      const clearBtn = document.createElement("button");
+      clearBtn.type = "button";
+      clearBtn.textContent = "Vrátit na výchozí";
+      clearBtn.style.cssText = "padding:6px 12px;background:transparent;border:1px solid #3a4754;border-radius:3px;color:#8a96a4;cursor:pointer;font-size:11px;margin-right:auto;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Zrušit";
+      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = "💾 Uložit";
+      okBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+
+      ftr.appendChild(clearBtn);
+      ftr.appendChild(cancelBtn);
+      ftr.appendChild(okBtn);
+      dlg.appendChild(ftr);
+      ovr.appendChild(dlg);
+      document.body.appendChild(ovr);
+
+      function cleanup() {
+        try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
+        document.removeEventListener("keydown", onKey);
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") { cleanup(); resolve(null); }
+      }
+      cancelBtn.addEventListener("click", () => { cleanup(); resolve(null); });
+      clearBtn.addEventListener("click", () => {
+        cleanup();
+        resolve({ label: null, hint: null, _cleared: true });
+      });
+      okBtn.addEventListener("click", () => {
+        cleanup();
+        resolve({
+          label: labelInp.value.trim() || null,
+          hint: hintArea.value.trim() || null,
+        });
+      });
+      ovr.addEventListener("click", (ev) => {
+        if (ev.target === ovr) { cleanup(); resolve(null); }
+      });
+      dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
+      document.addEventListener("keydown", onKey);
+      setTimeout(() => labelInp.focus(), 50);
+    });
+  }
+
+  // Apply override → update DOM labels + hints v live modal po Save.
+  // Brute-force ale OK pro MVP: query all design fields, re-resolve a write.
+  function _reapplyOverridesInDOM(fieldKey) {
+    // Najdi všechny .erp-field-design wrappery s tímto fieldKey
+    document.querySelectorAll(".erp-field-design").forEach(w => {
+      if (w._fieldKey !== fieldKey) return;
+      const newLabel = _resolveLabel(fieldKey, "");
+      const newHint = _resolveHint(fieldKey);
+      // Update label DOM element
+      const labelEl = w.querySelector(".erp-input-label, .erp-dropdown-label, .erp-memo-label, label");
+      if (labelEl) {
+        // Preserve lock badge if present
+        const lockBadge = labelEl.querySelector("[data-lock-badge], [title='Read-only']");
+        labelEl.textContent = newLabel;
+        if (lockBadge) labelEl.appendChild(lockBadge);
+      }
+      // Update hint dataset
+      if (newHint) w.dataset.designHint = newHint;
+      else delete w.dataset.designHint;
+    });
+  }
+
+  function _installFieldLabelRightClick() {
+    if (window._erpDesignLabelRCInstalled) return;
+    window._erpDesignLabelRCInstalled = true;
+    document.addEventListener("contextmenu", (ev) => {
+      // Find ancestor element s data-design-fieldkey
+      const labelEl = ev.target.closest && ev.target.closest("[data-design-fieldkey]");
+      if (!labelEl) return;
+      // Jen v design modu (Marti's request)
+      if (!window._erpDesignMode) return;
+      ev.preventDefault();
+      ev.stopPropagation();
+      const fieldKey = labelEl.getAttribute("data-design-fieldkey");
+      if (!fieldKey) return;
+      const currentLabel = _USER_OVERRIDES.labels[fieldKey] || LABEL_OVERRIDES[fieldKey] || "";
+      const currentHint = _USER_OVERRIDES.hints[fieldKey] || HINT_OVERRIDES[fieldKey] || "";
+      _openFieldSettingsPopup(fieldKey, currentLabel, currentHint, labelEl).then(result => {
+        if (result == null) return;  // cancelled
+        // Apply changes
+        if (result._cleared) {
+          delete _USER_OVERRIDES.labels[fieldKey];
+          delete _USER_OVERRIDES.hints[fieldKey];
+          _saveUserOverride("labels", fieldKey, null);
+          _saveUserOverride("hints", fieldKey, null);
+        } else {
+          if (result.label != null) {
+            _USER_OVERRIDES.labels[fieldKey] = result.label;
+            _saveUserOverride("labels", fieldKey, result.label);
+          } else {
+            delete _USER_OVERRIDES.labels[fieldKey];
+            _saveUserOverride("labels", fieldKey, null);
+          }
+          if (result.hint != null) {
+            _USER_OVERRIDES.hints[fieldKey] = result.hint;
+            _saveUserOverride("hints", fieldKey, result.hint);
+          } else {
+            delete _USER_OVERRIDES.hints[fieldKey];
+            _saveUserOverride("hints", fieldKey, null);
+          }
+        }
+        _reapplyOverridesInDOM(fieldKey);
+      });
+    }, true);
+  }
+  _installFieldLabelRightClick();
+
   function _resolveLabel(fieldKey, fallback) {
-    if (fieldKey && LABEL_OVERRIDES[fieldKey]) return LABEL_OVERRIDES[fieldKey];
+    if (!fieldKey) return fallback;
+    // User override má prednost pred hardcoded (Marti's polish #2)
+    if (_USER_OVERRIDES.labels[fieldKey]) return _USER_OVERRIDES.labels[fieldKey];
+    if (LABEL_OVERRIDES[fieldKey]) return LABEL_OVERRIDES[fieldKey];
     return fallback;
   }
 
   function _resolveHint(fieldKey) {
-    if (fieldKey && HINT_OVERRIDES[fieldKey]) return HINT_OVERRIDES[fieldKey];
+    if (!fieldKey) return null;
+    // User override má prednost
+    if (_USER_OVERRIDES.hints[fieldKey]) return _USER_OVERRIDES.hints[fieldKey];
+    if (HINT_OVERRIDES[fieldKey]) return HINT_OVERRIDES[fieldKey];
     return null;
   }
 
@@ -565,7 +890,7 @@
       const wrap = document.createElement("div");
       wrap.className = "erp-field erp-field-design erp-field-dropdown";
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
-      if (resolvedHint) wrap.title = resolvedHint;
+      if (resolvedHint) wrap.dataset.designHint = resolvedHint;
       // Phase 38.4 Krok 14a-A1g #1 (12.5.2026 odpoledne polish): marker
       // "← původní" se v panel ukazuje JEN kdyz je hodnota zmenena.
       // V initial state (clean): items bez markeru.
@@ -635,6 +960,14 @@
       wrap._origVal = resolvedValue;
       wrap._fieldKey = opts.fieldKey || null;
       wrap._kind = "dropdown";
+      // Krok 14a-A1i #2: right-click handle na label
+      if (opts.fieldKey) {
+        const labelEl = wrap.querySelector(".erp-dropdown-label");
+        if (labelEl) {
+          labelEl.setAttribute("data-design-fieldkey", opts.fieldKey);
+          labelEl.style.cursor = "context-menu";
+        }
+      }
       return wrap;
     }
 

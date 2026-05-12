@@ -2046,11 +2046,33 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
               AND is_active = true
         """), {"code": grid_core_code}).mappings().one_or_none()
 
+        # Fallback z Phase 35-E.4 Krok B+/C+ + Phase 38.4 Krok 14a-fix
+        # (0ec791b, 12.5.2026 rano): System grid frontend posila gridCode
+        # ve formátu `prehled_-{cislo_def}` (např. prehled_-110 pro Uživatelé).
+        # Pokud direct match fail, fallback přes menu_node.cislo_def → core_id.
+        if not list_core:
+            import re as _re_fcfg
+            m = _re_fcfg.match(r"^prehled_(-?\d+)$", grid_core_code)
+            if m:
+                cislo = int(m.group(1))
+                mn_for_cislo = ds.execute(_sql_text_fcfg("""
+                    SELECT core_id FROM fw.menu_node
+                    WHERE cislo_def = :cislo
+                """), {"cislo": cislo}).mappings().one_or_none()
+                if mn_for_cislo and mn_for_cislo.get("core_id"):
+                    list_core = ds.execute(_sql_text_fcfg("""
+                        SELECT id, code, label, description, layout_type,
+                               data_entity_type, version, is_active
+                        FROM fw.core
+                        WHERE id = :id
+                          AND is_active = true
+                    """), {"id": mn_for_cislo["core_id"]}).mappings().one_or_none()
+
         if not list_core:
             return JSONResponse(
                 {
                     "ok": False,
-                    "error": f"fw.core code='{grid_core_code}' nenalezen",
+                    "error": f"fw.core code='{grid_core_code}' nenalezen (vč. prehled_-{{cislo}} fallback)",
                 },
                 status_code=404,
             )

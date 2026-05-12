@@ -91,6 +91,10 @@
       if (ev.target === overlay) close();
     });
     document.addEventListener("keydown", _onKey);
+    // Phase 38.4 Krok 14a-A1f (12.5.2026): disable nativni context menu
+    // v modal dialog (Marti's #1 polish — Chrome's "Vyjmout/Kopírovat/Vložit
+    // Emojí/Heslo" matoucí v Design formu). Ctrl+C/V/X keyboard zachovan.
+    dialog.addEventListener("contextmenu", (ev) => ev.preventDefault());
 
     return { overlay, dialog, header, body, footer, title, close };
   }
@@ -146,17 +150,19 @@
       if (!displayValue && inp.input) {
         inp.input.placeholder = "—";
       }
-      // Phase 38.4 Krok 14a-A1c (12.5.2026): readonly visual zvyrazneni
-      // — disabled ErpInput byl prilis bledy (Marti #1 feedback). Override
-      // input styly: tmavsi pozadi, accent left border, citelnejsi text.
+      // Phase 38.4 Krok 14a-A1c: readonly visual zvyrazneni
       if (isReadonly && inp.input) {
         inp.input.style.background = "#1a2028";
         inp.input.style.color = "#9ba8b8";
         inp.input.style.borderLeft = "3px solid #5a6877";
-        inp.input.style.opacity = "1";  // zrusit ErpInput default disabled opacity
+        // Krok 14a-A1f #2 (12.5.2026 odpoledne): Marti's polish — readonly
+        // nema mit zaobleny levy roh (accent border + zaobleny vypada zvlastni).
+        // Dirty fields se zaoblenim zustanou (mene casto, vic akce orientovane).
+        inp.input.style.borderTopLeftRadius = "0";
+        inp.input.style.borderBottomLeftRadius = "0";
+        inp.input.style.opacity = "1";
         inp.input.style.cursor = "not-allowed";
         inp.input.title = "Read-only (system metadata)";
-        // Pridat malou ikonu zamku pred label pro extra vizualni signal
         const labelEl = wrap.querySelector(".erp-input-label");
         if (labelEl && !labelEl.dataset.lockBadge) {
           labelEl.dataset.lockBadge = "1";
@@ -166,6 +172,12 @@
           );
         }
       }
+      // Krok 14a-A1f #4 (12.5.2026): attach instance + origVal na wrap
+      // pro budouci `_revertAll()` (klik na dirty badge → confirm → reset).
+      wrap._inst = inp;
+      wrap._origVal = displayValue;
+      wrap._fieldKey = opts.fieldKey || null;
+      wrap._kind = "field";
       return wrap;
     }
 
@@ -240,6 +252,8 @@
         memo.textarea.style.background = "#1a2028";
         memo.textarea.style.color = "#9ba8b8";
         memo.textarea.style.borderLeft = "3px solid #5a6877";
+        memo.textarea.style.borderTopLeftRadius = "0";
+        memo.textarea.style.borderBottomLeftRadius = "0";
         memo.textarea.style.opacity = "1";
         memo.textarea.style.cursor = "not-allowed";
         memo.textarea.title = "Read-only (system metadata)";
@@ -252,6 +266,11 @@
           );
         }
       }
+      // Krok 14a-A1f #4: attach instance pro _revertAll()
+      wrap._inst = memo;
+      wrap._origVal = displayValue;
+      wrap._fieldKey = opts.fieldKey || null;
+      wrap._kind = "memo";
       return wrap;
     }
 
@@ -344,10 +363,19 @@
       const wrap = document.createElement("div");
       wrap.className = "erp-field erp-field-design erp-field-dropdown";
       wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      // Phase 38.4 Krok 14a-A1f #3 (12.5.2026 odpoledne): Marti's polish —
+      // oznacit puvodni hodnotu v dropdown items aby user videl, ktera byla
+      // originalni (vedle aktualne vybrane). Marker za label = "  ← původní".
+      const itemsWithOriginalMarker = resolvedItems.map(it => {
+        if (!isReadonly && resolvedValue && String(it.value) === String(resolvedValue)) {
+          return Object.assign({}, it, { label: it.label + "  ← původní" });
+        }
+        return it;
+      });
       const dd = new global.ErpDropdown(wrap, {
         label: label,
         value: resolvedValue,
-        items: resolvedItems,
+        items: itemsWithOriginalMarker,
         disabled: isReadonly,
         placeholder: "—",
         // Phase 38.4 Krok 14a-A1d (12.5.2026): dirty tracking pro dropdowns
@@ -373,6 +401,9 @@
         dd.trigger.style.background = "#1a2028";
         dd.trigger.style.color = "#9ba8b8";
         dd.trigger.style.borderLeft = "3px solid #5a6877";
+        // Krok 14a-A1f #2: readonly nema zaobleny levy roh
+        dd.trigger.style.borderTopLeftRadius = "0";
+        dd.trigger.style.borderBottomLeftRadius = "0";
         dd.trigger.style.opacity = "1";
         dd.trigger.style.cursor = "not-allowed";
         dd.trigger.title = "Read-only (system metadata)";
@@ -386,6 +417,11 @@
           );
         }
       }
+      // Krok 14a-A1f #4: attach instance + origVal pro _revertAll()
+      wrap._inst = dd;
+      wrap._origVal = resolvedValue;
+      wrap._fieldKey = opts.fieldKey || null;
+      wrap._kind = "dropdown";
       return wrap;
     }
 
@@ -468,6 +504,58 @@
       );
     }
 
+    _onRevertClick() {
+      // Phase 38.4 Krok 14a-A1f #4 (12.5.2026): klik na dirty badge — confirm + revert.
+      if (!this._dirty.size) return;
+      const count = this._dirty.size;
+      const fields = Array.from(this._dirty).join(", ");
+      const ok = confirm(
+        "Vrátit " + count + " změn" + (count > 1 ? (count < 5 ? "y" : "") : "") + "?\n\n" +
+        "Pole: " + fields
+      );
+      if (!ok) return;
+      this._revertAll();
+    }
+
+    _revertAll() {
+      // Iterace pres vsechny .erp-field-design wrappery v modal body —
+      // kazdy ma attached _inst + _origVal + _kind (set v _field/_dropdown/_memo).
+      if (!this._shell || !this._shell.body) return;
+      const wraps = this._shell.body.querySelectorAll(".erp-field-design");
+      wraps.forEach(w => {
+        if (!w._inst || w._origVal == null) return;
+        try {
+          // Set original hodnotu
+          if (w._kind === "dropdown") {
+            w._inst.setValue(w._origVal);
+            // Clear dirty styling (onChange neproběhne při setValue programmatically v některých variantách,
+            // tak explicit cleanup)
+            if (w._inst.trigger) {
+              w._inst.trigger.style.borderLeft = "";
+              w._inst.trigger.style.background = "";
+            }
+          } else {
+            // _field / _memo — ErpInput / ErpMemo
+            w._inst.setValue(w._origVal);
+            const el = w._inst.input || w._inst.textarea;
+            if (el) {
+              el.style.borderLeft = "";
+              el.style.background = "";
+            }
+          }
+        } catch (e) {
+          console.warn("revert field failed:", w._fieldKey, e);
+        }
+      });
+      // Clear dirty state + hide save button
+      this._dirty.clear();
+      if (this._saveBtn) this._saveBtn.style.display = "none";
+      if (this._dirtyBadge) {
+        this._dirtyBadge.textContent = "";
+        this._dirtyBadge.style.display = "none";
+      }
+    }
+
     open() {
       const initialTab = this.opts.initialTab === "prehled" ? "prehled" : "soudecek";
       // Sjednoceny title napric obema akcemi (tree akce 1 + grid akce 2) —
@@ -483,9 +571,11 @@
       loading.textContent = "Načítám…";
       this._shell.body.appendChild(loading);
 
-      // Footer — dirty badge (left) + Save button (hidden until dirty) + Zavřít
+      // Footer — dirty badge (left, clickable → revert) + Save button (hidden) + Zavřít
       this._dirtyBadge = document.createElement("span");
-      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;";
+      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;cursor:pointer;text-decoration:underline;text-decoration-style:dotted;text-underline-offset:3px;";
+      this._dirtyBadge.title = "Klik pro vrácení všech změn (po potvrzení)";
+      this._dirtyBadge.addEventListener("click", () => this._onRevertClick());
       this._shell.footer.appendChild(this._dirtyBadge);
 
       this._saveBtn = document.createElement("button");

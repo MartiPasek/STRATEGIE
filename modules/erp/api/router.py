@@ -1806,6 +1806,11 @@ def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
 
     Defensive: pokud parent_core_id sloupec neexistuje (schema drift),
     vrátí []. Frontend si umí poradit s prazdnym seznamem.
+
+    Krok 14a-fix2 (12.5.2026): explicit ds.rollback() v except aby
+    nasledujici queries na stejne session nepadly s
+    `InFailedSqlTransaction` (PG drzi transakci v aborted state dokud
+    se nevoli rollback). Python try/except zachyti vyjimku ale PG ne.
     """
     try:
         sql = _sql_text_fw("""
@@ -1821,6 +1826,12 @@ def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
     except Exception:
         import logging
         logging.exception("_fetch_columns_for_core failed for core_id=%s", core_id)
+        # Rollback aborted transaction state — jinak naslidujici queries
+        # spadnou s `InFailedSqlTransaction` (Krok 14a-fix2).
+        try:
+            ds.rollback()
+        except Exception:
+            logging.exception("_fetch_columns_for_core: ds.rollback() failed")
         return []
 
 

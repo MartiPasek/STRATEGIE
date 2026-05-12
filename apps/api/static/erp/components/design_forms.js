@@ -256,14 +256,30 @@
       "  min-height: 16px;\n" +
       "  display: block;\n" +
       "}\n" +
-      // Krok 14a-A1n #2 (12.5.2026 vecer): field color decoration — top
-      // border 3px v dekorativni barve z palette. Marti's polish — uzivatel
-      // si muze field obarvit pro organizaci (napr. vsechny povinne fields
-      // jednu barvou). Set via data-design-color attribute.
-      ".erp-design-modal .erp-field-design[data-design-color] {\n" +
-      "  border-top: 3px solid var(--field-color, transparent);\n" +
-      "  padding-top: 4px;\n" +
-      "  border-radius: 3px 3px 0 0;\n" +
+      // Krok 14a-A1o (12.5.2026 vecer, Marti's polish po amnesii): field
+      // color decoration — barva pisma uvnitr fieldu (input value text,
+      // dropdown selected, memo textarea, formlist trigger) misto puvodni
+      // top-border linky z A1n. Marti's slova: "misto linky nahore aplikuj
+      // barvy na pismo fieldu". Vizualne intuitivnejsi — color je TAM,
+      // kde se ctou data, ne mimo. Set via data-design-color attribute +
+      // CSS variable --field-color.
+      ".erp-design-modal .erp-field-design[data-design-color] .erp-input-input,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] .erp-dropdown-trigger,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] .erp-formlist-trigger,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] .erp-memo-input,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] input,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] textarea,\n" +
+      ".erp-design-modal .erp-field-design[data-design-color] select {\n" +
+      "  color: var(--field-color, inherit) !important;\n" +
+      "}\n" +
+      // Krok 14a-A1o (12.5.2026 vecer): section title (GroupBox header)
+      // color override — stejny pattern jako field text. Cilime na cely
+      // header element (i jeho user/system spans), aby color zustal i
+      // pri toggle system mode.
+      ".erp-design-modal .erp-design-section-title[data-design-color],\n" +
+      ".erp-design-modal .erp-design-section-title[data-design-color] .section-title-user,\n" +
+      ".erp-design-modal .erp-design-section-title[data-design-color] .section-title-system {\n" +
+      "  color: var(--field-color, inherit) !important;\n" +
       "}\n" +
       // Phase 38.4 Krok 14a-A1l #1 (12.5.2026): description pair toggling.
       // - Sekce Popis je hidden by default; 📖 ikona ji ukaze
@@ -1210,6 +1226,50 @@
     }
   }
 
+  // Krok 14a-A1o (12.5.2026 vecer): initial label + color apply pro
+  // section title — analogie _applyInitialColor pro GroupBox header.
+  function _applyInitialSectionOverrides(hdr, sectionKey) {
+    if (!hdr || !sectionKey) return;
+    const userLabel = _USER_OVERRIDES.labels[sectionKey];
+    if (userLabel) {
+      const userSpan = hdr.querySelector(".section-title-user");
+      if (userSpan) userSpan.textContent = userLabel;
+      else if (!hdr.dataset.designOrigSystemLabel) hdr.textContent = userLabel;
+    }
+    const hex = _resolveColor(sectionKey);
+    if (hex) {
+      hdr.dataset.designColor = _USER_OVERRIDES.colors[sectionKey];
+      hdr.style.setProperty("--field-color", hex);
+    }
+  }
+
+  // Krok 14a-A1o: re-apply overrides na section title po popup save / revert.
+  function _reapplyOverridesForSection(hdr, sectionKey) {
+    const origLabel = hdr.dataset.designOrigLabel || "";
+    const origSysLabel = hdr.dataset.designOrigSystemLabel || "";
+    const newLabel = _USER_OVERRIDES.labels[sectionKey] || origLabel;
+    const newColor = _resolveColor(sectionKey);
+
+    // Update user span (default visible) nebo plain textContent (no systemTitle)
+    const userSpan = hdr.querySelector(".section-title-user");
+    if (userSpan) {
+      userSpan.textContent = newLabel;
+    } else {
+      // Plain section bez system title pair — preserve fieldkey attr
+      hdr.textContent = newLabel;
+      hdr.setAttribute("data-design-fieldkey", sectionKey);
+    }
+
+    // Color apply (font color via CSS rule + var)
+    if (newColor) {
+      hdr.dataset.designColor = _USER_OVERRIDES.colors[sectionKey];
+      hdr.style.setProperty("--field-color", newColor);
+    } else {
+      delete hdr.dataset.designColor;
+      hdr.style.removeProperty("--field-color");
+    }
+  }
+
   // Apply override → update DOM labels + hints v live modal po Save.
   // Krok 14a-A1j #1 bugfix: pouzij wrap.dataset.designOrigLabel jako
   // fallback (jinak po "Vratit na vychozi" label zmizel uplne).
@@ -1242,6 +1302,13 @@
   }
 
   function _reapplyOverridesInDOM(fieldKey) {
+    // Krok 14a-A1o: section.* prefix → cilenie na GroupBox title
+    if (fieldKey && fieldKey.indexOf("section.") === 0) {
+      document.querySelectorAll(
+        '.erp-design-section-title[data-design-fieldkey="' + fieldKey + '"]'
+      ).forEach(hdr => _reapplyOverridesForSection(hdr, fieldKey));
+      return;
+    }
     document.querySelectorAll(".erp-field-design").forEach(w => {
       if (w._fieldKey !== fieldKey) return;
       _reapplyOverridesForField(w, fieldKey);
@@ -1253,6 +1320,11 @@
     document.querySelectorAll(".erp-field-design").forEach(w => {
       if (!w._fieldKey) return;
       _reapplyOverridesForField(w, w._fieldKey);
+    });
+    // Krok 14a-A1o: section titles too
+    document.querySelectorAll(".erp-design-section-title[data-design-fieldkey]").forEach(hdr => {
+      const sectionKey = hdr.getAttribute("data-design-fieldkey");
+      if (sectionKey) _reapplyOverridesForSection(hdr, sectionKey);
     });
   }
 
@@ -1515,14 +1587,36 @@
   // pair (user + system). Stejny princip jako pro komponenty:
   // sysToggle prepina mezi user title (default) a system title (developer
   // mode). Pokud `systemTitle` nezadan, ukaze se title v obou rezimech.
+  //
+  // Krok 14a-A1o (12.5.2026 vecer, Marti's polish po amnesii): section
+  // title je teď taky right-click target — stejny popup (Label / Hint /
+  // Color) jako u field labelu. SectionKey odvozen z systemTitle (stable
+  // technical key) nebo z user title (fallback). Prefix "section." aby
+  // collision s fieldKey nehrozila.
+  function _sectionKeyFromTitle(title, systemTitle) {
+    // Preferuj systemTitle (stable identifier), fallback na user title.
+    const src = systemTitle || title || "";
+    const slug = String(src)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "_")
+      .replace(/^_+|_+$/g, "")
+      .slice(0, 60);
+    return "section." + (slug || "unnamed");
+  }
+
   function _sectionBuild(title, systemTitle) {
+    const sectionKey = _sectionKeyFromTitle(title, systemTitle);
     const wrap = document.createElement("div");
     wrap.className = "erp-design-section";
     wrap.style.cssText = "margin-bottom:14px;";
     const hdr = document.createElement("div");
     hdr.className = "erp-design-section-title";
-    hdr.style.cssText = "font-size:12px;font-weight:600;color:#a8b4c2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #2a3340;";
+    hdr.style.cssText = "font-size:12px;font-weight:600;color:#a8b4c2;text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #2a3340;cursor:context-menu;";
+    // A1o: stable fieldKey + orig label fallback (pro Vratit na vychozi)
+    hdr.setAttribute("data-design-fieldkey", sectionKey);
+    hdr.dataset.designOrigLabel = title;
     if (systemTitle) {
+      hdr.dataset.designOrigSystemLabel = systemTitle;
       const userSpan = document.createElement("span");
       userSpan.className = "section-title-user";
       userSpan.textContent = title;
@@ -1534,6 +1628,8 @@
     } else {
       hdr.textContent = title;
     }
+    // A1o: initial label/color apply (uzivatelske preference z localStorage)
+    _applyInitialSectionOverrides(hdr, sectionKey);
     wrap.appendChild(hdr);
     const grid = document.createElement("div");
     grid.className = "erp-design-grid";

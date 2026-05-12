@@ -1806,7 +1806,7 @@ def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 
     Primary: fw.comp_def WHERE parent_core_id = :core_id (Phase 38.4
     Krok 9-B uniform components doctrine — grid sloupec je typ komponenty).
 
-    Fallback: fw.comp_grid_column JOIN fw.grid_master ON code = :core_code
+    Fallback: fw.comp_grid_column JOIN fw.comp_grid_master ON code = :core_code
     (Phase 38.4 Krok 10 direct read — System grids maji sloupce primary
     v comp_grid_column, comp_def_prop chain nebyl backfilled). Frontend
     pak ukaze realne sloupce v Tab "Prehled (Core)" sekci.
@@ -1851,7 +1851,7 @@ def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 
                 gc.sort_order,
                 NULL::INTEGER AS parent_core_id
             FROM fw.comp_grid_column gc
-            JOIN fw.grid_master gm ON gm.id = gc.grid_master_id
+            JOIN fw.comp_grid_master gm ON gm.id = gc.grid_master_id
             WHERE gm.code = :core_code
               AND COALESCE(gc.is_visible, TRUE) = TRUE
             ORDER BY COALESCE(gc.sort_order, 0), gc.id

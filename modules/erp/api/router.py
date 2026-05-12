@@ -7756,9 +7756,30 @@ def _render_workspace_page(user_id: int) -> str:
             onRowClick: function(row, ev) {
               console.log("[ERP-SYS] row clicked", mode, row);
             },
+            // Phase 38.4 Krok 14b (12.5.2026 vecer): dblclick / Enter → fw form
+            // Marti's "Tim bychom meli vyhrano" — dogfooding fw framework pro
+            // System grids (security_users, security_devices, ...). gridCode =
+            // "prehled_" + sysCislo (např. "prehled_-110" pro security_users)
+            // se posle do form-core-for-grid endpoint, ten resolve na fw form core.
             onRowDoubleClick: function(row, ev) {
-              // TODO: Krok C+ drill-down modal (thought cards + Phase 37 timeline)
-              console.log("[ERP-SYS] row dblclick", mode, row);
+              if (!row) return;
+              var rowId = row.ID != null ? row.ID : (row.id != null ? row.id : null);
+              if (rowId == null || !sysLayoutKey) return;
+              if (typeof window._openFwFormForRow === "function") {
+                window._openFwFormForRow(sysLayoutKey, rowId, null);
+              } else {
+                console.warn("[ERP-SYS] _openFwFormForRow not loaded");
+              }
+            },
+            onRowEnter: function(row, ev) {
+              if (!row) return;
+              var rowId = row.ID != null ? row.ID : (row.id != null ? row.id : null);
+              if (rowId == null || !sysLayoutKey) return;
+              if (typeof window._openFwFormForRow === "function") {
+                window._openFwFormForRow(sysLayoutKey, rowId, null);
+              } else {
+                console.warn("[ERP-SYS] _openFwFormForRow not loaded");
+              }
             }
           });
         } catch (e) {
@@ -8284,10 +8305,18 @@ def _render_workspace_page(user_id: int) -> str:
           },
           // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
           // double click = open jádro detail. Šipky pouze navigují (Excel-like).
+          // Phase 38.4 Krok 14b (12.5.2026 vecer): Enter / dblclick → openFwFormForRow
+          // (fw-native form, např. user_edit). Pri 404 fallback openJadroInPane
+          // (legacy Centrála 1 jádro via data.id_edit).
           onRowDoubleClick: (rowData) => {
             const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
-            if (rowId == null || data.id_edit == null) return;
-            openJadroInPane(data.id_edit, rowId);
+            if (rowId == null) return;
+            openFwFormForRow("prehled_" + cislo, rowId, data.id_edit);
+          },
+          onRowEnter: (rowData) => {
+            const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
+            if (rowId == null) return;
+            openFwFormForRow("prehled_" + cislo, rowId, data.id_edit);
           },
         });
 
@@ -8295,6 +8324,60 @@ def _render_workspace_page(user_id: int) -> str:
         // smazán — interakce teď přes status bar Celkem (CzRowCountStatusPanel
         // limitContext.onChange v ErpDataGrid options).
       }
+
+      // ── Phase 38.4 Krok 14b (12.5.2026 vecer): openFwFormForRow ───────
+      // Marti's spec: dvojklik / Enter na radku gridu → fw-native form
+      // (DesignFwForm modal). Pri 404 (grid neni v fw.menu_node) fallback
+      // na legacy openJadroInPane (EC_FormDef ID = data.id_edit).
+      //
+      // Drz Marti's "Tim bychom meli vyhrano" doctrine (12.5. ~22:30) —
+      // scaffold + open jsou ekosystem pro dogfooding fw frameworku.
+      async function openFwFormForRow(gridCode, rowId, legacyFormId) {
+        if (!gridCode || rowId == null) return;
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/form-core-for-grid/" + encodeURIComponent(gridCode),
+            { credentials: "include" }
+          );
+          if (r.ok) {
+            const d = await r.json();
+            if (d && d.ok && d.found && d.form_core && d.form_core.code) {
+              if (typeof window.DesignFwForm !== "function") {
+                console.warn("[fw-form] DesignFwForm not loaded — fallback");
+              } else {
+                const modal = new window.DesignFwForm({
+                  coreCode: d.form_core.code,
+                  rowId: rowId,
+                });
+                await modal.open();
+                return;
+              }
+            }
+            // d.found=false → form template jeste neexistuje (scaffold needed)
+            if (d && d.ok && !d.found) {
+              const code = (d.suggested_form_code || "<form>");
+              alert(
+                "Form detail '" + code + "' ještě není postaven.\n\n" +
+                "Pravým klikem na řádek → 'Design: Jadro pro radek' → " +
+                "tlačítko 🪄 Vytvoř form detail."
+              );
+              return;
+            }
+          }
+        } catch (e) {
+          console.warn("[fw-form] lookup failed:", e);
+        }
+        // Fallback: legacy Centrála 1 jádro (jen pokud máme id_edit)
+        if (legacyFormId != null) {
+          openJadroInPane(legacyFormId, rowId);
+        } else {
+          console.warn(
+            "[fw-form] no fw form + no legacy fallback for gridCode=" + gridCode
+          );
+        }
+      }
+      // Expose pro renderSystemGrid (jiny IIFE) + debug
+      window._openFwFormForRow = openFwFormForRow;
 
       // ── Phase B+2.2: jádro modal popup (centered overlay) ───────
       // ── Phase B+6.6c (6.5.2026): JSON metadata + ErpForm orchestrator

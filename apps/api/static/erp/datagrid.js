@@ -1339,6 +1339,25 @@
             opts.onRowDoubleClick(event.data, event.event);
           }
         },
+        // Phase 38.4 Krok 14b (12.5.2026 vecer): Enter na radku gridu = open detail.
+        // Marti's spec: "Pri ENTER na radku gridu uzivatelu, nebo pres double clik
+        // je treba otevrit toto jadro s formem".
+        // Skip: pokud bunka v editing modu (Enter commituje edit) nebo Shift+Enter
+        // (multi-select line break v cell editoru).
+        onCellKeyDown: (event) => {
+          const ev = event.event;
+          if (!ev || ev.key !== "Enter") return;
+          if (ev.shiftKey || ev.ctrlKey || ev.altKey || ev.metaKey) return;
+          // Bunka v editing modu → ignoruj (Enter commituje edit)
+          try {
+            const editing = event.api.getEditingCells();
+            if (Array.isArray(editing) && editing.length > 0) return;
+          } catch (e) {}
+          if (typeof opts.onRowEnter === "function") {
+            ev.preventDefault();
+            opts.onRowEnter(event.data, ev);
+          }
+        },
         onCellValueChanged: (event) => {
           if (typeof opts.onCellEdit === "function") {
             opts.onCellEdit(event.data, event.colDef.field, event.oldValue, event.newValue);

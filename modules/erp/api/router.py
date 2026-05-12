@@ -1800,20 +1800,26 @@ def _fetch_core(ds, where_sql: str, params: dict) -> dict | None:
     return dict(result._mapping) if result else None
 
 
-def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
-    """SELECT comp_def WHERE parent_core_id = core_id (Phase 38.4 Krok 9-B
-    uniform components doctrine — grid sloupec je typ komponenty).
+def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 200) -> list[dict]:
+    """Phase 38.4 Krok 14a-fix3 (12.5.2026): 2-tier column lookup.
 
-    Defensive: pokud parent_core_id sloupec neexistuje (schema drift),
-    vrátí []. Frontend si umí poradit s prazdnym seznamem.
+    Primary: fw.comp_def WHERE parent_core_id = :core_id (Phase 38.4
+    Krok 9-B uniform components doctrine — grid sloupec je typ komponenty).
+
+    Fallback: fw.comp_grid_column JOIN fw.grid_master ON code = :core_code
+    (Phase 38.4 Krok 10 direct read — System grids maji sloupce primary
+    v comp_grid_column, comp_def_prop chain nebyl backfilled). Frontend
+    pak ukaze realne sloupce v Tab "Prehled (Core)" sekci.
 
     Krok 14a-fix2 (12.5.2026): explicit ds.rollback() v except aby
-    nasledujici queries na stejne session nepadly s
-    `InFailedSqlTransaction` (PG drzi transakci v aborted state dokud
-    se nevoli rollback). Python try/except zachyti vyjimku ale PG ne.
+    nasledujici queries na stejne session nepadly s `InFailedSqlTransaction`.
     """
+    import logging
+    rows: list[dict] = []
+
+    # Primary: uniform comp_def
     try:
-        sql = _sql_text_fw("""
+        sql_primary = _sql_text_fw("""
             SELECT id, code, label, field_name, comp_type_id, sort_order,
                    parent_core_id
             FROM fw.comp_def
@@ -1821,17 +1827,44 @@ def _fetch_columns_for_core(ds, core_id: int, limit: int = 200) -> list[dict]:
             ORDER BY COALESCE(sort_order, 0), id
             LIMIT :limit
         """)
-        result = ds.execute(sql, {"core_id": core_id, "limit": limit})
-        return [dict(r._mapping) for r in result]
+        result = ds.execute(sql_primary, {"core_id": core_id, "limit": limit})
+        rows = [dict(r._mapping) for r in result]
     except Exception:
-        import logging
-        logging.exception("_fetch_columns_for_core failed for core_id=%s", core_id)
-        # Rollback aborted transaction state — jinak naslidujici queries
-        # spadnou s `InFailedSqlTransaction` (Krok 14a-fix2).
+        logging.exception("_fetch_columns_for_core primary failed core_id=%s", core_id)
         try:
             ds.rollback()
         except Exception:
-            logging.exception("_fetch_columns_for_core: ds.rollback() failed")
+            logging.exception("_fetch_columns_for_core primary rollback failed")
+
+    if rows or not core_code:
+        return rows
+
+    # Fallback: System grids — comp_grid_column via grid_master.code = core.code
+    try:
+        sql_fallback = _sql_text_fw("""
+            SELECT
+                gc.id,
+                gc.column_name AS code,
+                gc.label,
+                gc.column_name AS field_name,
+                COALESCE(gc.column_type, 'grid_column') AS comp_type_id,
+                gc.sort_order,
+                NULL::INTEGER AS parent_core_id
+            FROM fw.comp_grid_column gc
+            JOIN fw.grid_master gm ON gm.id = gc.grid_master_id
+            WHERE gm.code = :core_code
+              AND COALESCE(gc.is_visible, TRUE) = TRUE
+            ORDER BY COALESCE(gc.sort_order, 0), gc.id
+            LIMIT :limit
+        """)
+        result = ds.execute(sql_fallback, {"core_code": core_code, "limit": limit})
+        return [dict(r._mapping) for r in result]
+    except Exception:
+        logging.exception("_fetch_columns_for_core fallback failed core_code=%s", core_code)
+        try:
+            ds.rollback()
+        except Exception:
+            logging.exception("_fetch_columns_for_core fallback rollback failed")
         return []
 
 
@@ -1851,7 +1884,7 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
         if mn.get("core_id"):
             core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
             if core and core.get("id"):
-                columns = _fetch_columns_for_core(ds, core["id"])
+                columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn),
             "core": _serialize_core(core) if core else None,
@@ -1877,7 +1910,7 @@ def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
         if mn.get("core_id"):
             core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
             if core and core.get("id"):
-                columns = _fetch_columns_for_core(ds, core["id"])
+                columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn),
             "core": _serialize_core(core) if core else None,
@@ -1898,7 +1931,7 @@ def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
         core = _fetch_core(ds, "c.id = :id", {"id": core_id})
         if not core:
             raise HTTPException(404, f"core id={core_id} not found")
-        columns = _fetch_columns_for_core(ds, core["id"])
+        columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         # Find menu_node linked to this core (if any)
         mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core_id})
         return JSONResponse(jsonable_encoder({
@@ -1949,7 +1982,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
                 "core": None,
                 "columns": [],
             }))
-        columns = _fetch_columns_for_core(ds, core["id"])
+        columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core["id"]})
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn) if mn else None,

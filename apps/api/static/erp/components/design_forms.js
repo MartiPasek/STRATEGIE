@@ -116,17 +116,36 @@
         type: "text",
         label: label,
         value: displayValue,
-        disabled: isReadonly,  // jen system fields jsou disabled, ostatni RW
+        disabled: isReadonly,
         placeholder: "—",
       });
-      // Mono variant — override font styling
+      // Mono variant
       if (opts.mono && inp.input) {
         inp.input.style.fontFamily = "ui-monospace,Consolas,monospace";
         inp.input.style.fontSize = "11px";
       }
-      // Empty value placeholder
       if (!displayValue && inp.input) {
         inp.input.placeholder = "—";
+      }
+      // Phase 38.4 Krok 14a-A1c (12.5.2026): readonly visual zvyrazneni
+      // — disabled ErpInput byl prilis bledy (Marti #1 feedback). Override
+      // input styly: tmavsi pozadi, accent left border, citelnejsi text.
+      if (isReadonly && inp.input) {
+        inp.input.style.background = "#1a2028";
+        inp.input.style.color = "#9ba8b8";
+        inp.input.style.borderLeft = "3px solid #5a6877";
+        inp.input.style.opacity = "1";  // zrusit ErpInput default disabled opacity
+        inp.input.style.cursor = "not-allowed";
+        inp.input.title = "Read-only (system metadata)";
+        // Pridat malou ikonu zamku pred label pro extra vizualni signal
+        const labelEl = wrap.querySelector(".erp-input-label");
+        if (labelEl && !labelEl.dataset.lockBadge) {
+          labelEl.dataset.lockBadge = "1";
+          labelEl.insertAdjacentHTML(
+            "beforeend",
+            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+          );
+        }
       }
       return wrap;
     }
@@ -155,6 +174,118 @@
 
   // Backward-compat alias (stara nazev pred Krok 14a-A1b refactor)
   const _readonlyInput = _field;
+
+  // ────────────────────────────────────────────────────────────────────
+  // Enum item presets pro _dropdown — hardcoded MVP, Krok 14b nacita z DB
+  // (fw.entity_def attributes nebo dedicated enum tabulka).
+  // ────────────────────────────────────────────────────────────────────
+
+  const ENUM_ITEMS = {
+    // fw.menu_node.kind — list/form/folder/iframe/special (Phase 38.3+ schema)
+    kind: [
+      { value: "list", label: "📋 list (přehled)" },
+      { value: "form", label: "📝 form (jádro)" },
+      { value: "folder", label: "📁 folder (soudeček)" },
+      { value: "iframe", label: "🖼️ iframe (vnořený obsah)" },
+      { value: "special", label: "⚙️ special (hardcoded)" },
+    ],
+    // fw.menu_node.status — active/archived/draft (Marti-AI's actual schema)
+    status: [
+      { value: "active", label: "✓ active" },
+      { value: "draft", label: "📝 draft" },
+      { value: "archived", label: "📦 archived" },
+    ],
+    // fw.menu_node.visibility_scope — parent_only/admin/tenant/public
+    visibility_scope: [
+      { value: "parent_only", label: "🔒 parent_only (jen rodiče)" },
+      { value: "parent_or_admin", label: "🔐 parent_or_admin" },
+      { value: "tenant_member", label: "👥 tenant_member" },
+      { value: "public", label: "🌐 public" },
+    ],
+    // Boolean ano/ne — pouzitý napriklad pro is_immutable
+    bool_ano_ne: [
+      { value: "true", label: "✓ ano" },
+      { value: "false", label: "✗ ne" },
+    ],
+    // fw.core.layout_type
+    layout_type: [
+      { value: "list", label: "📋 list (grid view)" },
+      { value: "form", label: "📝 form (single record)" },
+      { value: "special", label: "⚙️ special" },
+    ],
+  };
+
+  function _dropdown(label, value, items, opts) {
+    // Phase 38.4 Krok 14a-A1c (12.5.2026): listbox/dropdown wrapper.
+    // Marti's #2 feedback - "komponenta Listbox pro vyber stavu jako ano/ne".
+    //
+    // items: array of {value, label} NEBO string key z ENUM_ITEMS (preset).
+    // value: aktualni hodnota (string nebo bool). null/undefined = nic vybrane.
+    // opts.readonly: true = disabled dropdown (system metadata).
+    opts = opts || {};
+    const isReadonly = !!opts.readonly;
+
+    // Resolve items — string preset OR array
+    let resolvedItems = [];
+    if (typeof items === "string" && ENUM_ITEMS[items]) {
+      resolvedItems = ENUM_ITEMS[items];
+    } else if (Array.isArray(items)) {
+      resolvedItems = items;
+    }
+
+    // Normalize value — bool/number → string (ErpDropdown porovnava .value === ===)
+    let resolvedValue = value;
+    if (typeof value === "boolean") resolvedValue = value ? "true" : "false";
+    else if (value == null) resolvedValue = null;
+    else resolvedValue = String(value);
+
+    // UI Kit cesta — pokud ErpDropdown zaregistrovan
+    if (typeof global.ErpDropdown === "function") {
+      const wrap = document.createElement("div");
+      wrap.className = "erp-field erp-field-design erp-field-dropdown";
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+      const dd = new global.ErpDropdown(wrap, {
+        label: label,
+        value: resolvedValue,
+        items: resolvedItems,
+        disabled: isReadonly,
+        placeholder: "—",
+      });
+      // Readonly vizualni boost
+      if (isReadonly && dd.trigger) {
+        dd.trigger.style.background = "#1a2028";
+        dd.trigger.style.color = "#9ba8b8";
+        dd.trigger.style.borderLeft = "3px solid #5a6877";
+        dd.trigger.style.opacity = "1";
+        dd.trigger.style.cursor = "not-allowed";
+        dd.trigger.title = "Read-only (system metadata)";
+      }
+      return wrap;
+    }
+
+    // Fallback — pokud ErpDropdown chybi, ukaze raw label + value
+    const wrap = document.createElement("div");
+    wrap.className = "erp-field erp-field-dropdown-fallback";
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    lab.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+    wrap.appendChild(lab);
+    const val = document.createElement("div");
+    val.style.cssText = "padding:5px 8px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;min-height:22px;color:#cfd6df;font-size:12px;";
+    // Lookup label pro value v items
+    let displayLabel = resolvedValue;
+    const match = resolvedItems.find(it => String(it.value) === resolvedValue);
+    if (match) displayLabel = match.label;
+    if (!displayLabel) {
+      val.textContent = "—";
+      val.style.color = "#5d6975";
+    } else {
+      val.textContent = displayLabel;
+    }
+    wrap.appendChild(val);
+    return wrap;
+  }
 
   function _sectionBuild(title) {
     const wrap = document.createElement("div");
@@ -282,23 +413,23 @@
         return root;
       }
 
-      // Section: Identifikace — ID readonly (PK), ostatni editable
+      // Section: Identifikace — ID readonly (PK), Kind je enum dropdown
       const idSec = _sectionBuild("Identifikace");
       idSec.grid.appendChild(_field("ID (menu_node.id)", mn.id, { mono: true, readonly: true }));
       idSec.grid.appendChild(_field("Code", mn.code, { mono: true }));
       idSec.grid.appendChild(_field("Label", mn.label));
-      idSec.grid.appendChild(_field("Kind", mn.kind));
+      idSec.grid.appendChild(_dropdown("Kind", mn.kind, "kind"));
       root.appendChild(idSec.wrap);
 
-      // Section: Hierarchie — parent_id/parent_code readonly (FK + computed),
-      // sort_order/status/visibility/is_immutable editable
+      // Section: Hierarchie — parent_id/parent_code readonly, status/visibility/
+      // is_immutable jsou enum dropdowny
       const treeSec = _sectionBuild("Hierarchie a pořadí");
       treeSec.grid.appendChild(_field("Parent ID", mn.parent_id, { mono: true, readonly: true }));
       treeSec.grid.appendChild(_field("Parent Code", mn.parent_code, { mono: true, readonly: true }));
       treeSec.grid.appendChild(_field("Sort Order", mn.sort_order, { mono: true }));
-      treeSec.grid.appendChild(_field("Status", mn.status));
-      treeSec.grid.appendChild(_field("Visibility Scope", mn.visibility_scope));
-      treeSec.grid.appendChild(_field("Is Immutable", mn.is_immutable ? "ano" : "ne"));
+      treeSec.grid.appendChild(_dropdown("Status", mn.status, "status"));
+      treeSec.grid.appendChild(_dropdown("Visibility Scope", mn.visibility_scope, "visibility_scope"));
+      treeSec.grid.appendChild(_dropdown("Is Immutable", mn.is_immutable, "bool_ano_ne"));
       root.appendChild(treeSec.wrap);
 
       // Section: Core vazba — FK readonly (vybira se pres picker, Krok 14b)
@@ -335,13 +466,12 @@
       }
 
       // Section: Core identita — ID/version/parent_framework_id readonly,
-      // ostatni editable. (Marti-AI's Q6 lineage: version+parent_framework_id
-      // se updates pres create-new-version flow, ne in-place edit.)
+      // layout_type je enum dropdown, ostatni editable.
       const idSec = _sectionBuild("Identifikace Core");
       idSec.grid.appendChild(_field("ID (core.id)", core.id, { mono: true, readonly: true }));
       idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
       idSec.grid.appendChild(_field("Label", core.label));
-      idSec.grid.appendChild(_field("Layout type", core.layout_type));
+      idSec.grid.appendChild(_dropdown("Layout type", core.layout_type, "layout_type"));
       idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
       idSec.grid.appendChild(_field("Layout template", core.layout_template, { mono: true }));
       idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
@@ -495,7 +625,7 @@
         idSec.grid.appendChild(_field("ID", core.id, { mono: true, readonly: true }));
         idSec.grid.appendChild(_field("Code", core.code, { mono: true }));
         idSec.grid.appendChild(_field("Label", core.label));
-        idSec.grid.appendChild(_field("Layout type", core.layout_type));
+        idSec.grid.appendChild(_dropdown("Layout type", core.layout_type, "layout_type"));
         idSec.grid.appendChild(_field("Data entity type", core.data_entity_type, { mono: true }));
         idSec.grid.appendChild(_field("Version", core.version, { mono: true, readonly: true }));
         if (core.description) {

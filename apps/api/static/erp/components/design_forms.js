@@ -195,6 +195,87 @@
   const _readonlyInput = _field;
 
   // ────────────────────────────────────────────────────────────────────
+  // _memo — multi-line textarea pro description / poznamky
+  // Phase 38.4 Krok 14a-A1e (12.5.2026 odpoledne): Marti's polish #b —
+  // description fields jsou victs víceradkové, single-line ErpInput byl tesny.
+  // ────────────────────────────────────────────────────────────────────
+
+  function _memo(label, value, opts) {
+    opts = opts || {};
+    const isReadonly = !!opts.readonly;
+    const displayValue = (value == null || value === "") ? "" : String(value);
+
+    if (typeof global.ErpMemo === "function") {
+      const wrap = document.createElement("div");
+      wrap.className = "erp-field erp-field-design erp-field-memo" +
+        (isReadonly ? " erp-field-readonly-memo" : "");
+      // Span full width — description je dlouhy text, neni vhodne v auto-fit grid 220px
+      wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;grid-column:1/-1;";
+      const memo = new global.ErpMemo(wrap, {
+        label: label,
+        value: displayValue,
+        rows: opts.rows || 3,
+        maxRows: opts.maxRows || 8,
+        disabled: isReadonly,
+        placeholder: "—",
+        onChange: (val) => {
+          if (isReadonly) return;
+          const isDirty = String(val || "") !== displayValue;
+          if (memo.textarea) {
+            if (isDirty) {
+              memo.textarea.style.borderLeft = "3px solid #d4b88a";
+              memo.textarea.style.background = "#1f1810";
+            } else {
+              memo.textarea.style.borderLeft = "";
+              memo.textarea.style.background = "";
+            }
+          }
+          if (typeof opts.onDirty === "function" && opts.fieldKey) {
+            opts.onDirty(opts.fieldKey, isDirty);
+          }
+        },
+      });
+      // Readonly vizualni boost (analog _field)
+      if (isReadonly && memo.textarea) {
+        memo.textarea.style.background = "#1a2028";
+        memo.textarea.style.color = "#9ba8b8";
+        memo.textarea.style.borderLeft = "3px solid #5a6877";
+        memo.textarea.style.opacity = "1";
+        memo.textarea.style.cursor = "not-allowed";
+        memo.textarea.title = "Read-only (system metadata)";
+        const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
+        if (labelEl && !labelEl.dataset.lockBadge) {
+          labelEl.dataset.lockBadge = "1";
+          labelEl.insertAdjacentHTML(
+            "beforeend",
+            ' <span style="color:#8a96a4;font-size:10px;margin-left:4px;" title="Read-only">🔒</span>'
+          );
+        }
+      }
+      return wrap;
+    }
+
+    // Fallback — pokud ErpMemo chybi, ukaze text block
+    const wrap = document.createElement("div");
+    wrap.className = "erp-field erp-field-memo-fallback";
+    wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;grid-column:1/-1;";
+    const lab = document.createElement("label");
+    lab.textContent = label;
+    lab.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+    wrap.appendChild(lab);
+    const val = document.createElement("div");
+    val.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;min-height:50px;color:#cfd6df;font-size:12px;white-space:pre-wrap;";
+    if (!displayValue) {
+      val.textContent = "—";
+      val.style.color = "#5d6975";
+    } else {
+      val.textContent = displayValue;
+    }
+    wrap.appendChild(val);
+    return wrap;
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   // Enum item presets pro _dropdown — hardcoded MVP, Krok 14b nacita z DB
   // (fw.entity_def attributes nebo dedicated enum tabulka).
   // ────────────────────────────────────────────────────────────────────
@@ -389,9 +470,9 @@
 
     open() {
       const initialTab = this.opts.initialTab === "prehled" ? "prehled" : "soudecek";
-      const title = initialTab === "prehled"
-        ? "Design: Core přehledu"
-        : "Design: Soudeček + Core přehledu";
+      // Sjednoceny title napric obema akcemi (tree akce 1 + grid akce 2) —
+      // form je stejny, jen jiny default tab. Uzivatel vidi scope (soudecek + core).
+      const title = "Design: Soudeček + Core přehledu";
 
       this._shell = _buildModalShell({ title: title, width: "920px" });
       document.body.appendChild(this._shell.overlay);
@@ -481,6 +562,39 @@
         ],
         activeId: initialTab,
       });
+      // Phase 38.4 Krok 14a-A1e (12.5.2026 odpoledne): TabSheet stable height
+      // — Marti's #3 polish: switching tab nemá uskakovat. Set min-height na
+      // pageControl content area = vyssi z obou tab obsahu. Computed once
+      // po render (oba taby maji content vyrenderovany, jen jeden visible).
+      if (this._pc && this._pc.contentArea) {
+        // Compute max height pres oba taby (musime docasne unhide oba)
+        const maxH = this._computeMaxTabHeight(soudecekDiv, prehledDiv);
+        if (maxH > 0) {
+          this._pc.contentArea.style.minHeight = maxH + "px";
+        }
+      }
+    }
+
+    _computeMaxTabHeight(...tabContents) {
+      // Trick: docasne ukaž každý tab content (hidden = false), zmer scrollHeight,
+      // pak vrať zpet. Pages with display:none nemaji computed height.
+      let maxH = 0;
+      tabContents.forEach(div => {
+        if (!div) return;
+        const wasHidden = div.hidden;
+        const prevDisplay = div.style.display;
+        div.hidden = false;
+        div.style.display = "block";
+        div.style.position = "absolute";
+        div.style.visibility = "hidden";
+        const h = div.scrollHeight || 0;
+        if (h > maxH) maxH = h;
+        div.hidden = wasHidden;
+        div.style.display = prevDisplay;
+        div.style.position = "";
+        div.style.visibility = "";
+      });
+      return maxH;
     }
 
     _buildSoudecekTab() {
@@ -527,15 +641,15 @@
       coreSec.grid.appendChild(_f("special_handler", mn.special_handler, "mn.special_handler"));
       root.appendChild(coreSec.wrap);
 
-      // Section: Popis
-      if (mn.description) {
-        const descSec = _sectionBuild("Popis");
-        const descBox = document.createElement("div");
-        descBox.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;white-space:pre-wrap;grid-column:1/-1;";
-        descBox.textContent = mn.description;
-        descSec.grid.appendChild(descBox);
-        root.appendChild(descSec.wrap);
-      }
+      // Section: Popis — multi-line ErpMemo (Krok 14a-A1e #b polish)
+      const descSec = _sectionBuild("Popis");
+      descSec.grid.appendChild(_memo("Description", mn.description, {
+        fieldKey: "mn.description",
+        onDirty: D,
+        rows: 3,
+        maxRows: 8,
+      }));
+      root.appendChild(descSec.wrap);
 
       return root;
     }
@@ -570,15 +684,15 @@
       idSec.grid.appendChild(_f("Parent framework ID", core.parent_framework_id, "core.parent_framework_id", { mono: true, readonly: true }));
       root.appendChild(idSec.wrap);
 
-      // Section: Popis
-      if (core.description) {
-        const descSec = _sectionBuild("Popis");
-        const descBox = document.createElement("div");
-        descBox.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;white-space:pre-wrap;grid-column:1/-1;";
-        descBox.textContent = core.description;
-        descSec.grid.appendChild(descBox);
-        root.appendChild(descSec.wrap);
-      }
+      // Section: Popis — multi-line ErpMemo (Krok 14a-A1e #b polish)
+      const descSec = _sectionBuild("Popis");
+      descSec.grid.appendChild(_memo("Description", core.description, {
+        fieldKey: "core.description",
+        onDirty: D,
+        rows: 3,
+        maxRows: 8,
+      }));
+      root.appendChild(descSec.wrap);
 
       // Section: Sloupce (preview, Krok 14b doplni inline editor)
       const colsSec = _sectionBuild("Sloupce (read-only preview) — inline editor Krok 14b");
@@ -762,12 +876,13 @@
         idSec.grid.appendChild(_d("Layout type", core.layout_type, "layout_type", "core.layout_type"));
         idSec.grid.appendChild(_f("Data entity type", core.data_entity_type, "core.data_entity_type", { mono: true }));
         idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
-        if (core.description) {
-          const descBox = document.createElement("div");
-          descBox.style.cssText = "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;border-radius:3px;color:#cfd6df;font-size:12px;white-space:pre-wrap;grid-column:1/-1;margin-top:6px;";
-          descBox.textContent = core.description;
-          idSec.grid.appendChild(descBox);
-        }
+        // Description přes _memo (Krok 14a-A1e #b polish)
+        idSec.grid.appendChild(_memo("Description", core.description, {
+          fieldKey: "core.description",
+          onDirty: D,
+          rows: 3,
+          maxRows: 8,
+        }));
         root.appendChild(idSec.wrap);
       } else {
         const noCore = _sectionBuild("Jádro (fw.core)");

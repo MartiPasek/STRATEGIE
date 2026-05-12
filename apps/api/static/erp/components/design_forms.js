@@ -472,9 +472,11 @@
         cancelBtn.type = "button";
         cancelBtn.textContent = cancelLabel;
         cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
-        ftr.appendChild(cancelBtn);
-        ftr.appendChild(noBtn);
+        // A1t: 3-button mode (dead code po A1t, ale konzistentni order
+        // pro budouce pouziti) — Ano vlevo, Ne, Zrušit vpravo.
         ftr.appendChild(yesBtn);
+        ftr.appendChild(noBtn);
+        ftr.appendChild(cancelBtn);
         dlg.appendChild(ftr);
         ovr.appendChild(dlg);
         document.body.appendChild(ovr);
@@ -1262,9 +1264,12 @@
       okBtn.textContent = "💾 Uložit";
       okBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
 
+      // A1t (12.5.2026 vecer doma): Marti's polish — Uložit (primary) vlevo,
+      // Zrušit (secondary) vpravo. Sjednoceny order s _confirmDarkDialog.
+      // clearBtn ma margin-right:auto → zustava uplne vlevo.
       ftr.appendChild(clearBtn);
-      ftr.appendChild(cancelBtn);
       ftr.appendChild(okBtn);
+      ftr.appendChild(cancelBtn);
       dlg.appendChild(ftr);
       ovr.appendChild(dlg);
       document.body.appendChild(ovr);

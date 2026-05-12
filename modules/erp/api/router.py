@@ -2229,55 +2229,93 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
                 "message": f"Form '{suggested_code}' už existuje — vracím existing.",
             }))
 
-        # 2. INSERT fw.core
-        new_core = ds.execute(_sql_text_sff("""
-            INSERT INTO fw.core (
-                code, label, description, layout_type, data_entity_type,
-                is_active, tenant_visibility, version, layout_template
-            ) VALUES (
-                :code, :label, :description, 'form', :entity_type,
-                true, 'all', 1, 'single'
-            )
-            RETURNING id, code, label, layout_type, data_entity_type
-        """), {
-            "code": suggested_code,
-            "label": defaults["label"],
-            "description": defaults["description"],
-            "entity_type": entity_type,
-        }).mappings().one()
+        # 2. INSERT fw.core přes strategie_pg.insert_row (Marti-AI's PG role).
+        # Marti's "architektka hybrid" doctrine z 9.5. večer (Phase 38.4 Krok 6+):
+        # strategie user (API process) má SELECT/EXECUTE na fw.*, ale NE INSERT.
+        # Write access je Marti-AI's owned (db_owner fw schema). Pro scaffold
+        # endpoint nutno bypassuje přes strategie_pg layer.
+        from modules.strategie_pg.application.service import insert_row as _spg_insert_sff
 
-        new_core_id = new_core["id"]
+        core_result = _spg_insert_sff(
+            schema="fw",
+            table="core",
+            values={
+                "code": suggested_code,
+                "label": defaults["label"],
+                "description": defaults["description"],
+                "layout_type": "form",
+                "data_entity_type": entity_type,
+                "is_active": True,
+                "tenant_visibility": "all",
+                "version": 1,
+                "layout_template": "single",
+            },
+        )
+        if not core_result.get("ok"):
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"INSERT fw.core failed: {core_result.get('error')}",
+                },
+                status_code=500,
+            )
+
+        new_core_dict = core_result.get("inserted") or {}
+        new_core_id = new_core_dict.get("id")
+        if not new_core_id:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": "INSERT fw.core ok ale missing id v response",
+                },
+                status_code=500,
+            )
 
         # 3. INSERT fw.comp_def form 302 root s default panel (label="" — Marti's
-        # "panel je plocha, header invisible" doctrine)
-        import json as _json_sff
+        # "panel je plocha, header invisible" doctrine).
         default_layout = {
             "panels": [
                 {"slot": "main", "label": "", "order": 10},
             ]
         }
-        new_form = ds.execute(_sql_text_sff("""
-            INSERT INTO fw.comp_def (
-                type_id, name, caption, parent_core_id,
-                is_active, sort_order, layout
-            ) VALUES (
-                302, 'main', :caption, :parent_core_id,
-                true, 10, CAST(:layout AS jsonb)
+        form_result = _spg_insert_sff(
+            schema="fw",
+            table="comp_def",
+            values={
+                "type_id": 302,
+                "name": "main",
+                "caption": defaults["label"],
+                "parent_core_id": new_core_id,
+                "is_active": True,
+                "sort_order": 10,
+                "layout": default_layout,  # dict → JSONB auto-conversion
+            },
+        )
+        if not form_result.get("ok"):
+            # Rollback drobnost: fw.core už vložen, fw.comp_def fail. Marti by
+            # mohl reklamovat orphan core. Pro MVP necháváme orphan (Marti vidí
+            # v Design: Core přehledu, může smazat manual). Future: scaffold
+            # všechno v jedné transakci přes single SQL block.
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"INSERT fw.comp_def failed: {form_result.get('error')}. "
+                        f"fw.core (id={new_core_id}) byl už vytvořen (orphan)."
+                    ),
+                    "orphan_core_id": new_core_id,
+                },
+                status_code=500,
             )
-            RETURNING id, name, type_id
-        """), {
-            "caption": defaults["label"],
-            "parent_core_id": new_core_id,
-            "layout": _json_sff.dumps(default_layout, ensure_ascii=False),
-        }).mappings().one()
 
-        ds.commit()
+        new_form_dict = form_result.get("inserted") or {}
+        new_form_id = new_form_dict.get("id")
 
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core_id": new_core_id,
-            "form_id": new_form["id"],
-            "core_code": new_core["code"],
+            "form_id": new_form_id,
+            "core_code": new_core_dict.get("code"),
             "created": True,
             "existing": False,
             "message": f"Form '{suggested_code}' vytvořen.",
@@ -2288,10 +2326,9 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
             },
         }))
     except Exception as exc:
-        ds.rollback()
         logger.exception(f"scaffold-form failed: {exc}")
         return JSONResponse(
-            {"ok": False, "error": f"INSERT failed: {exc}"},
+            {"ok": False, "error": f"Scaffold failed: {exc}"},
             status_code=500,
         )
     finally:

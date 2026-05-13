@@ -2682,6 +2682,7 @@
       this._formDesignMode = !!on;
       this._updateFormDesignToggle();
       this._updateFormAddFieldBtn();  // Krok 14b+7.1: "+ Pole" button visibility
+      this._updateFormSaveSizeBtn();  // Krok 14b+11: 💾 Velikost button visibility
       if (this._spec) {
         // Re-render body (zachovat header) — hints + click handlers nove
         this._render();
@@ -2742,16 +2743,108 @@
         this._openFieldPicker();
       });
 
+      // Krok 14b+11 (13.5.2026 ~23:00, Marti's "ukladat vychozi velikost
+      // formu"): 💾 Velikost button. Visible jen v DESIGN mode. Click ->
+      // getBoundingClientRect aktualniho dialogu -> PATCH form layout
+      // JSONB s default_width + default_height -> toast.
+      const saveSizeBtn = document.createElement("button");
+      saveSizeBtn.type = "button";
+      saveSizeBtn.className = "erp-form-design-savesize";
+      saveSizeBtn.textContent = "💾 Velikost";
+      saveSizeBtn.title = "Uložit aktuální výšku a šířku jako výchozí pro tento formulář.";
+      this._formSaveSizeBtn = saveSizeBtn;
+      this._updateFormSaveSizeBtn();  // initial visibility
+      saveSizeBtn.addEventListener("click", () => {
+        this._saveFormDefaultSize();
+      });
+
       // Insert PRED sysToggle (= prvni button v rightActions) — toggle
       // je hlavni mode switch, ostatni jsou pomocna nastaveni.
+      // Order v rightActions po insertBefore (kazdy pred sysToggle):
+      //   toggle -> addBtn -> saveSizeBtn -> sysToggle (leftmost to rightmost)
       const sysToggle = rightActions.querySelector(".erp-design-systoggle");
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
         rightActions.insertBefore(addBtn, sysToggle);
+        rightActions.insertBefore(saveSizeBtn, sysToggle);
       } else {
         // Fallback: prepend (reverse order — addBtn pak toggle => toggle prvni)
+        rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
+      }
+    }
+
+    _updateFormSaveSizeBtn() {
+      if (!this._formSaveSizeBtn) return;
+      const on = this._formDesignMode === true;
+      // Visible jen v DESIGN mode (analog addFieldBtn). Visible vzdy v
+      // DESIGN, ne hover-only — Marti chce easy klik pro save size.
+      const visible = on && !!(this._spec && this._spec.form && this._spec.form.id);
+      this._formSaveSizeBtn.style.cssText =
+        "background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:600;" +
+        (visible ? "" : "display:none;");
+    }
+
+    async _saveFormDefaultSize() {
+      // Krok 14b+11: PATCH form root comp_def layout s aktualnimi
+      // dialog dimensions. _spec.form.id je root form comp_def (type_id=302).
+      if (!this._spec || !this._spec.form || !this._spec.form.id) {
+        _showToast("Form ID chybí v spec", "error");
+        return;
+      }
+      if (!this._shell || !this._shell.dialog) {
+        _showToast("Dialog reference chybí", "error");
+        return;
+      }
+      const dialog = this._shell.dialog;
+      // getBoundingClientRect vrati actual rendered size (po user resize
+      // pres CSS resize:both v dialog.style).
+      const rect = dialog.getBoundingClientRect();
+      const w = Math.round(rect.width);
+      const h = Math.round(rect.height);
+      // Defensive sanity (modal nesmi byt menší nez prakticky pouzitelne)
+      if (w < 400 || h < 300) {
+        _showToast(
+          "Velikost je moc malá (" + w + "×" + h + "). Min 400×300.",
+          "error",
+          3000
+        );
+        return;
+      }
+      const currentLayout = (this._spec.form.layout && typeof this._spec.form.layout === "object")
+        ? this._spec.form.layout
+        : {};
+      const newLayout = Object.assign({}, currentLayout, {
+        default_width: w + "px",
+        default_height: h + "px",
+      });
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(this._spec.form.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ layout: newLayout }),
+          }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        // Update local spec consistency — pri pristim open() pripada uz z
+        // backendu, ale instant local update pro current session
+        this._spec.form.layout = newLayout;
+        _showToast(
+          "Výchozí velikost uložena (" + w + " × " + h + " px)",
+          "success"
+        );
+      } catch (e) {
+        console.error("[DesignFwForm] save size failed:", e);
+        _showToast("Uložení velikosti selhalo: " + (e.message || e), "error", 3500);
       }
     }
 
@@ -2944,10 +3037,35 @@
             "Backend error: " + (this._spec && this._spec.error || "unknown")
           );
         }
+        // Krok 14b+11 (13.5.2026 ~23:00, Marti's "ukladat vychozi velikost
+        // formu"): apply layout.default_width / default_height z form root
+        // comp_def. Spec.form.layout je JSONB, persisted pres PATCH endpoint.
+        // Apply pred _render() aby grid layout (auto-fit) zacal s novou
+        // sirkou.
+        this._applyDefaultSize();
         this._render();
       } catch (e) {
         this._showError("Načítání selhalo: " + e.message);
       }
+    }
+
+    _applyDefaultSize() {
+      // Krok 14b+11: read this._spec.form.layout.default_width/_height
+      // (saved via 💾 Velikost button v DESIGN header). Apply jako inline
+      // dialog.style. Pokud nejsou, fallback na default modal velikost
+      // (920px width + min-height 500px z _buildModalShell).
+      if (!this._shell || !this._shell.dialog) return;
+      const formLayout = (this._spec.form && this._spec.form.layout) || {};
+      if (formLayout.default_width) {
+        this._shell.dialog.style.width = String(formLayout.default_width);
+      }
+      if (formLayout.default_height) {
+        this._shell.dialog.style.height = String(formLayout.default_height);
+      }
+      // Refresh 💾 button visibility — _attachFormDesignToggle se volal
+      // PRED fetch spec, gate `this._spec.form.id` byl false. Teď spec
+      // live, re-evaluate.
+      this._updateFormSaveSizeBtn();
     }
 
     _showError(msg) {

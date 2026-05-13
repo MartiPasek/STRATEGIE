@@ -2819,21 +2819,46 @@
           return el;
         }
         if (compType === "button") {
-          // Phase 38.4 Krok 14b+3 visual MVP: button render + onClick console.log.
-          // Save flow Krok 14b+5 (po PATCH endpoint LIVE) wire-up:
-          //   action='save_and_close' -> PATCH /api/v1/erp/.../{id} + close modal
-          //   action='abandon' -> dirty check -> "Mám uložit změny?" modal -> save+close / discard / stay
+          // Phase 38.4 Krok 14b+3 visual MVP -> Krok 14b+5 LIVE Save flow.
+          // 13.5.2026 ~12:30 polish (Marti's request):
+          //   - Standardni sirka (min/max constraint), ne grid-full
+          //   - ✓ green check icon na save action, ✗ red cross na abandon
+          //   - Right-aligned v grid cell (justify-self: end)
+          //
+          // action='save_and_close' -> PATCH endpoint + close modal
+          // action='abandon' -> dirty check -> "Mám uložit změny?" modal
           const el = document.createElement("button");
           el.type = "button";
           el.className = "erp-fw-template-btn";
           const variant = comp.variant || "secondary";
-          // Visual: primary=blue, secondary=neutral
-          if (variant === "primary") {
-            el.style.cssText = "padding:6px 18px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;margin:6px 4px 0 0;";
-          } else {
-            el.style.cssText = "padding:6px 18px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;margin:6px 4px 0 0;";
+          const action = comp.action || "noop";
+
+          // Icon prefix podle action (ne podle variant — variant je color,
+          // action je semantic: save vs abandon vs custom)
+          let iconHtml = "";
+          if (action === "save_and_close") {
+            iconHtml = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>';
+          } else if (action === "abandon") {
+            iconHtml = '<span style="color:#d4888a;font-weight:700;margin-right:6px;">✗</span>';
           }
-          el.textContent = comp.label || "(button)";
+          // Custom actions (future) — ne forcing icon
+
+          // Sirka: min 90px (visible), max 140px (compact). margin pro
+          // mezeru mezi buttons. grid-column: auto + justify-self: end aby
+          // sedele do flex-end pravidla footer panel.
+          const sizeStyle =
+            "min-width:90px;max-width:140px;padding:6px 16px;" +
+            "border-radius:3px;cursor:pointer;font-size:13px;" +
+            "margin:6px 4px 0 0;grid-column:auto;justify-self:end;";
+
+          if (variant === "primary") {
+            el.style.cssText = sizeStyle +
+              "background:#3a5a8a;border:1px solid #4a7ba8;color:#e8eef5;font-weight:600;";
+          } else {
+            el.style.cssText = sizeStyle +
+              "background:#2a3340;border:1px solid #3a4754;color:#cfd6df;";
+          }
+          el.innerHTML = iconHtml + (comp.label || "(button)");
           const action = comp.action || "noop";
           el.addEventListener("click", async () => {
             console.info("[DesignFwForm] template button click — action:", action);
@@ -2885,9 +2910,10 @@
     //   6. Jiná chyba -> error toast, modal zůstane otevřený (user může retry)
     async _handleSaveAndClose(btnEl) {
       // Visual: btn disabled + "Ukládám..." během PATCH
-      const originalText = btnEl.textContent;
+      // (preserve HTML innerHTML aby icon mohl být restored při error revert)
+      const originalHtml = btnEl.innerHTML;
       btnEl.disabled = true;
-      btnEl.textContent = "⏳ Ukládám…";
+      btnEl.innerHTML = "⏳ Ukládám…";
 
       try {
         const core = this._spec.core;
@@ -2899,7 +2925,7 @@
         if (!entityType || rowId == null) {
           alert("Save selhal: missing entity_type nebo row_id");
           btnEl.disabled = false;
-          btnEl.textContent = originalText;
+          btnEl.innerHTML = originalHtml;
           return;
         }
 
@@ -2962,7 +2988,7 @@
             "Zavři modal a otevři znovu (Enter / dvojklik), tvé změny budou ztraceny."
           );
           btnEl.disabled = false;
-          btnEl.textContent = originalText;
+          btnEl.innerHTML = originalHtml;
           return;
         }
 
@@ -2973,7 +2999,7 @@
             (errData.error || "(žádný error message)")
           );
           btnEl.disabled = false;
-          btnEl.textContent = originalText;
+          btnEl.innerHTML = originalHtml;
           return;
         }
 
@@ -2984,7 +3010,7 @@
         // Visual feedback — green flash krátce před close
         btnEl.style.background = "#3a7a3a";
         btnEl.style.borderColor = "#4a9a4a";
-        btnEl.textContent = "✅ Uloženo";
+        btnEl.innerHTML = "✅ Uloženo";
 
         // Clear dirty state (modal close handler nepokusí dirty check)
         this._dirty.clear();
@@ -2998,7 +3024,7 @@
         console.error("[DesignFwForm] save failed:", e);
         alert("Chyba spojení: " + (e.message || e));
         btnEl.disabled = false;
-        btnEl.textContent = originalText;
+        btnEl.innerHTML = originalHtml;
       }
     }
 

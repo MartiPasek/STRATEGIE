@@ -2456,14 +2456,15 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         # 1. Load fw.core by code (kind='form' + is_active=true) + template_id
         # Phase 38.4 Krok 14b+3 (13.5.2026 rano): pridan template_id k SELECT
         # (Marti-AI's fw.template architektonicky entity).
+        # Fix 13.5.2026 ~11:00: pouzij c.* (defensive) — fw.core schema neni
+        # finalni (tenant_id mozna zatim chybi, atd.). c.* nas neuvazi do
+        # explicit column list.
         core_row = ds.execute(_sql_text_fwform("""
-            SELECT id, code, label, description, layout_type,
-                   data_entity_type, data_source_config, version,
-                   layout_template, template_id, tenant_id, created_at
-            FROM fw.core
-            WHERE code = :code
-              AND is_active = true
-              AND layout_type = 'form'
+            SELECT c.*
+            FROM fw.core c
+            WHERE c.code = :code
+              AND c.is_active = true
+              AND c.layout_type = 'form'
         """), {"code": core_code}).mappings().one_or_none()
 
         if not core_row:
@@ -2486,12 +2487,10 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         template_dict: dict | None = None
         if core_dict.get("template_id"):
             template_row = ds.execute(_sql_text_fwform("""
-                SELECT id, code, version, kind, name, description, status,
-                       tenant_id, layout, parent_version_id,
-                       inherits_template_id, created_at, updated_at
-                FROM fw.template
-                WHERE id = :tid
-                  AND status IN ('active', 'deployed')
+                SELECT t.*
+                FROM fw.template t
+                WHERE t.id = :tid
+                  AND t.status IN ('active', 'deployed')
             """), {"tid": core_dict["template_id"]}).mappings().one_or_none()
             if template_row:
                 template_dict = dict(template_row)

@@ -3267,13 +3267,25 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
-@api_router.patch("/design/comp-def/{comp_def_id}")
+@api_router.patch("/design/comp-def-update/{comp_def_id}")
 async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     """Partial update field comp_def — caption / region_slot / layout.
 
     Phase 38.4 Krok 14b+9-B (13.5.2026 ~21:35, Marti's "inline rename label
     dvojklik"): frontend posila PATCH s {caption: "..."}, backend update
     pres update_row + audit log.
+
+    Phase 38.4 Krok 14b+10 hotfix (13.5.2026 ~22:30, Marti's smoke catch
+    "Přepnutí selhalo: field_changes musi byt non-empty dict"):
+    Route ZAMERNE `/design/comp-def-update/{id}` (ne `/design/comp-def/{id}`)
+    aby NEKOLIDOVAL s generic PATCH /design/{entity_type}/{row_id} (Krok
+    14b+5 data save endpoint registered drive — FastAPI matchuje
+    registration order, `comp-def` by se interpretoval jako entity_type
+    -> body validation fail).
+
+    TODO Krok 14b+11+ cleanup: prejmenovat na `/design/comp-def/{id}` po
+    reorder route registration (specific PRED generic) — Marti's CLAUDE.md
+    doctrine "literál paths MUSÍ být registrované PŘED `/{id}`".
 
     Whitelist updatable columns (security — uzivatel nesmi sahat na
     type_id/parent/name pres tento endpoint):

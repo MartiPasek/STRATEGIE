@@ -3751,8 +3751,10 @@
         always_new_row: !wasOn,
       });
       try {
+        // Krok 14b+10 hotfix: route /comp-def-update/{id} aby nekolidoval
+        // s generic PATCH /design/{entity_type}/{row_id}
         const r = await fetch(
-          "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
+          "/api/v1/erp/design/comp-def-update/" + encodeURIComponent(field.id),
           {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
@@ -3811,10 +3813,11 @@
         if (!trimmed || trimmed === originalLabel) {
           return; // revert beze zmeny
         }
-        // PATCH backend
+        // PATCH backend (Krok 14b+10 hotfix: route /comp-def-update/{id}
+        // aby nekolidoval s generic PATCH /design/{entity_type}/{row_id})
         try {
           const r = await fetch(
-            "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
+            "/api/v1/erp/design/comp-def-update/" + encodeURIComponent(field.id),
             {
               method: "PATCH",
               headers: { "Content-Type": "application/json" },

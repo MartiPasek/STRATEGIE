@@ -2631,7 +2631,10 @@
       if (this._shell && this._shell.body) {
         this._shell.body.style.display = "flex";
         this._shell.body.style.flexDirection = "column";
-        this._shell.body.style.padding = "0";
+        // Marti's polish (13.5.2026 ~15:00): padding kolem content
+        // (mezera mezi buttons/header a edges modalu). Predtim padding:0
+        // znamenalo footer touchnul bottom + right edge.
+        this._shell.body.style.padding = "16px 20px";
       }
 
       const loading = document.createElement("div");
@@ -2778,16 +2781,20 @@
           sec.grid.style.display = "flex";
           sec.grid.style.justifyContent = "flex-end";
           sec.grid.style.alignItems = "center";
-          sec.grid.style.gap = "8px";
+          // Marti's polish (13.5.2026 ~14:45): visible gap mezi OK/Storno
+          sec.grid.style.gap = "16px";
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.
-          // Plus interni layout: sec.wrap fills row, grid fills wrap.
+          // Marti's polish (13.5.2026 ~14:45): "alClient ten panel" —
+          // empty state hint MA rozsahnut na celou main panel area
+          // (sec.grid je hint container, fills wrap fully).
           sec.wrap.style.minHeight = "0"; // critical pro grid 1fr shrink
           sec.wrap.style.display = "flex";
           sec.wrap.style.flexDirection = "column";
           sec.grid.style.flex = "1 1 auto";
           sec.grid.style.minHeight = "0";
-          sec.grid.style.alignContent = "start";
+          // Drop alignContent:start — necháme hint stretch fill
+          // (alignContent default = stretch v grid s 1 item)
         }
         // header — no extra styling, Grid auto-rows assignuje natural height
 
@@ -2811,7 +2818,15 @@
         // Empty state — panel 'main' bez fields i bez template components
         if (templateComponents.length === 0 && slotFields.length === 0) {
           const hint = document.createElement("div");
-          hint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
+          // Phase 38.4 Krok 14b+5 polish #6 (13.5.2026 ~14:45, Marti's
+          // "alClient ten panel"): hint fills entire grid (1/-1 v obou
+          // axes) + display:flex + center align aby text vystreden uprostred
+          // velkeho boxu.
+          hint.style.cssText =
+            "padding:14px;background:#0f141a;border:1px dashed #2a3340;" +
+            "border-radius:4px;color:#5d6975;font-style:italic;" +
+            "text-align:center;grid-column:1/-1;grid-row:1/-1;" +
+            "display:flex;align-items:center;justify-content:center;";
           hint.textContent = "(panel '" + panel.slot + "' nemá žádné fields)";
           sec.grid.appendChild(hint);
         }

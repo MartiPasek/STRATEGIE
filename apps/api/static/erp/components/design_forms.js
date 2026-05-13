@@ -2610,6 +2610,19 @@
       });
       document.body.appendChild(this._shell.overlay);
 
+      // Phase 38.4 Krok 14b+5 polish fix #4 (13.5.2026 ~14:00):
+      // Modal dialog defaultne max-height:90vh ale ne min-height/height —
+      // to znamena ze flex:1 chain propagation se rozbije (dialog je
+      // content-sized). Fix: explicit min-height na dialog -> body fills
+      // -> root fills -> main panel grows alClient -> footer (margin-top:
+      // auto) push to bottom.
+      // Plus height: 70vh aby modal vždy mel konzistentni size pro form
+      // editing (ne resizing s rosting content -> stable layout).
+      if (this._shell && this._shell.dialog) {
+        this._shell.dialog.style.height = "70vh";
+        this._shell.dialog.style.minHeight = "500px";
+      }
+
       const loading = document.createElement("div");
       loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
       loading.textContent = "Načítám " + coreCode + " #" + rowId + "…";

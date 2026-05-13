@@ -4546,15 +4546,42 @@
           // Krok 14b+13.2 hotfix (14.5.2026 ~01:00, Marti's smoke "Detekce
           // probehne, ale do listboxu se to nepropise"): SIGNATURE MISMATCH
           // FIX. _dropdown signature je (label, value, ITEMS, opts) —
-          // items jako 3. parameter, ne v opts. Drive: predavany items
-          // uvnitr objektu jako opts.items, takze _dropdum dostal:
-          //   items = {fieldKey, readonly, items: [...], onDirty}  (obj!)
-          //   opts = undefined
-          // -> Array.isArray(items) v _dropdown failed -> 0 items -> empty.
-          // Analog Krok 14c+5 hotfix _field signature mismatch.
-          const items = Array.isArray(fieldLayout.enum_values)
-            ? fieldLayout.enum_values.map(e => ({ value: e.value, label: e.label }))
+          // items jako 3. parameter, ne v opts.
+          //
+          // Krok 14b+13.3 (14.5.2026 ~01:20, Marti's "Zatim se do listu
+          // nepropisou"): diagnostic log + defensive enum_values parsing.
+          // Pokud DB ulozil enum_values jako string (psycopg2 quirk pro
+          // double-encoded JSONB), parse pres JSON.parse fallback.
+          let enumVals = fieldLayout.enum_values;
+          if (typeof enumVals === "string") {
+            try {
+              enumVals = JSON.parse(enumVals);
+            } catch (e) {
+              console.warn("[DesignFwForm] enum_values is string, JSON.parse failed:", enumVals);
+              enumVals = null;
+            }
+          }
+          const items = Array.isArray(enumVals)
+            ? enumVals.map(e => {
+                if (typeof e === "string") return { value: e, label: e };
+                if (e && typeof e === "object") {
+                  return {
+                    value: e.value != null ? String(e.value) : "",
+                    label: e.label != null ? String(e.label) : String(e.value || ""),
+                  };
+                }
+                return null;
+              }).filter(Boolean)
             : [];
+          // Diagnostic log pro Marti — uvidí co lookup case dostává
+          console.info(
+            "[DesignFwForm] lookup case fieldKey=" + fieldKey,
+            "compType=" + compType,
+            "raw enum_values=", fieldLayout.enum_values,
+            "parsed enumVals=", enumVals,
+            "items.length=" + items.length,
+            "items=", items
+          );
           return _dropdown(label, value, items, {
             fieldKey: fieldKey,
             readonly: readonly,

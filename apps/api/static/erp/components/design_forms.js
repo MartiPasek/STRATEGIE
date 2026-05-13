@@ -2610,17 +2610,28 @@
       });
       document.body.appendChild(this._shell.overlay);
 
-      // Phase 38.4 Krok 14b+5 polish fix #4 (13.5.2026 ~14:00):
-      // Modal dialog defaultne max-height:90vh ale ne min-height/height —
-      // to znamena ze flex:1 chain propagation se rozbije (dialog je
-      // content-sized). Fix: explicit min-height na dialog -> body fills
-      // -> root fills -> main panel grows alClient -> footer (margin-top:
-      // auto) push to bottom.
-      // Plus height: 70vh aby modal vždy mel konzistentni size pro form
-      // editing (ne resizing s rosting content -> stable layout).
+      // Phase 38.4 Krok 14b+5 polish fix #5 (13.5.2026 ~14:30, po
+      // Marti's DevTools diagnostic):
+      //
+      // ROOT CAUSE NALEZEN: DevTools ukázal `body.display: "block"`,
+      // `body.flexDirection: "row"`. DesignFwForm.open() NIKDY nezavolal
+      // setup body = flex column (to byl jen v DesignSoudecekCoreForm).
+      // Bez body flex column, root flex:1 ne propagated, grid 1fr main
+      // panel zustal natural height.
+      //
+      // Plus Marti has manually resized dialog (drag corner) -> inline
+      // height: 394px. min-height: 500px nas chrání proti tomu být moc
+      // malé, ale dialog stále content-sized pokud user drag-shrinks.
       if (this._shell && this._shell.dialog) {
-        this._shell.dialog.style.height = "70vh";
         this._shell.dialog.style.minHeight = "500px";
+        // POZN: 70vh height removed — Marti's resize via drag corner
+        // override anyway. min-height 500px je dostatek pojistka.
+      }
+      // CRITICAL FIX — body MUSÍ být flex column pro root grid alClient:
+      if (this._shell && this._shell.body) {
+        this._shell.body.style.display = "flex";
+        this._shell.body.style.flexDirection = "column";
+        this._shell.body.style.padding = "0";
       }
 
       const loading = document.createElement("div");

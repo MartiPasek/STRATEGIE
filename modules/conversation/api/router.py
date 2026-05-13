@@ -205,6 +205,29 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             finally:
                 _ds_lc.close()
 
+            # Phase 14b+ (13.5.2026 dopoledne): shared_read enforcement.
+            # Pokud je user shared viewer s access_level='read', backend
+            # odmita POST /chat. Defense in depth — UI ma input disabled
+            # (index.html line ~5577 'sharedReadonly'), ale cookie/state
+            # bypass nesmi prochazet.
+            # RW sdileni (access_level='write') vsak prochazi — Marti's
+            # consult s Kristy 13.5.2026 dopoledne, sandbox debugging
+            # konverzace potrebuje multi-user write.
+            if user_id is not None:
+                from modules.conversation.application.share_service import (
+                    can_user_view_conversation as _cuvc,
+                )
+                _can_view, _role = _cuvc(user_id, request.conversation_id)
+                if _can_view and _role == "shared_read":
+                    raise HTTPException(
+                        status_code=403,
+                        detail=(
+                            "Tato konverzace je sdílena s tebou jen ke čtení. "
+                            "Pro zápis poproste vlastníka, aby upgradoval "
+                            "tvé sdílení na 'write' přes share modal."
+                        ),
+                    )
+
         conversation_id, reply, summary_info = chat(
             conversation_id=request.conversation_id,
             user_message=request.text,

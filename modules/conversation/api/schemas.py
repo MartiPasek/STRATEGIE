@@ -200,7 +200,8 @@ class ShareInfo(BaseModel):
 
 class AddShareRequest(BaseModel):
     user_id: int
-    access_level: str = "read"   # MVP: jen read
+    # Phase 14b+ (13.5.2026 dopoledne): RW LIVE. Accept 'read' nebo 'write'.
+    access_level: str = "read"
 
 
 class SharedWithMeItem(BaseModel):

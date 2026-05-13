@@ -100,9 +100,10 @@ def add_share(
     """
     if access_level not in ("read", "write"):
         raise ShareError("access_level musi byt 'read' nebo 'write'.")
-    # MVP: write zatim nepodporujeme
-    if access_level == "write":
-        raise ShareError("Write sdileni zatim neni implementovano, pouzij 'read'.")
+    # Phase 14b+ (13.5.2026 dopoledne): RW sdileni LIVE. Marti's request
+    # po konzultaci s Kristy ohledne shared sandbox debugging konverzace.
+    # Frontend has long-standing 'shared_write' role support (index.html
+    # line ~5547, my_role agent bar badge); backend gate odstranen.
 
     if target_user_id == user_id:
         raise ShareError("Nemuzes sdilet konverzaci sam se sebou.")

@@ -2528,7 +2528,7 @@
 <div class="members-modal-bg" id="convShareModalBg">
   <div class="members-modal">
     <h3 id="convShareModalTitle">Sdílet konverzaci</h3>
-    <p class="members-modal-sub" id="convShareModalSub">Vybraní uživatelé budou moci číst historii této konverzace.</p>
+    <p class="members-modal-sub" id="convShareModalSub">Vybraní uživatelé budou moci číst historii této konverzace. Pro zápis přepni na <b>read+write</b>.</p>
 
     <div class="members-section-title">Aktuálně sdíleno s</div>
     <div class="members-list" id="convShareList">
@@ -2536,6 +2536,15 @@
     </div>
 
     <div class="members-section-title">Sdílet s dalším uživatelem</div>
+    <!-- Phase 14b+ (13.5.2026): RO/RW toggle pro add. Default RO (safer). -->
+    <div class="members-share-mode" id="convShareModeToggle" style="margin-bottom:8px; display:flex; gap:14px; padding:6px 4px;">
+      <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:13px;">
+        <input type="radio" name="convShareMode" value="read" checked> <span>📖 Jen čtení</span>
+      </label>
+      <label style="display:flex; align-items:center; gap:5px; cursor:pointer; font-size:13px;">
+        <input type="radio" name="convShareMode" value="write"> <span>✏️ Čtení + zápis</span>
+      </label>
+    </div>
     <div class="members-picker" id="convSharePicker">
       <div class="members-picker-empty">Načítám…</div>
     </div>
@@ -8815,9 +8824,32 @@
         const nameEl = document.createElement('div');
         nameEl.className = 'members-row-name';
         nameEl.textContent = s.shared_with_name;
-        const roleEl = document.createElement('div');
+        // Phase 14b+ (13.5.2026): role text → clickable toggle pro upgrade/downgrade
+        // mezi 'read' ↔ 'write'. POST se stejnym target_user_id + jiny access_level
+        // dela idempotent upgrade (add_share existing path).
+        const roleEl = document.createElement('button');
         roleEl.className = 'members-row-role';
-        roleEl.textContent = s.access_level;
+        roleEl.type = 'button';
+        roleEl.style.cssText = 'cursor:pointer; background:none; border:1px solid #3a4754; border-radius:3px; padding:2px 8px; color:#cfd6df; font-size:11px;';
+        const _renderRoleLabel = (lvl) => (lvl === 'write' ? '✏️ read+write' : '📖 jen čtení');
+        roleEl.textContent = _renderRoleLabel(s.access_level);
+        roleEl.title = 'Klik = přepnout (read ↔ write)';
+        roleEl.addEventListener('click', async () => {
+          const newLevel = (s.access_level === 'write') ? 'read' : 'write';
+          try {
+            const r = await fetch(`/api/v1/conversation/${cid}/shares`, {
+              method: 'POST', credentials: 'include',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({ user_id: s.shared_with_user_id, access_level: newLevel }),
+            });
+            if (!r.ok) {
+              const err = await r.json().catch(() => ({}));
+              alert('Nelze přepnout: ' + (err.detail || r.status));
+              return;
+            }
+            await refreshConvShareModal();
+          } catch (e) { alert('Chyba spojení.'); }
+        });
         const removeBtn = document.createElement('button');
         removeBtn.className = 'members-row-btn';
         removeBtn.textContent = '× odebrat';
@@ -8872,11 +8904,17 @@
         const fullName = (u.first_name || '') + (u.last_name ? ' ' + u.last_name : '');
         row.textContent = `+ ${fullName.trim() || u.short_name || `#${u.user_id}`}`;
         row.addEventListener('click', async () => {
+          // Phase 14b+ (13.5.2026): read selected mode z RO/RW toggle
+          let _selectedMode = 'read';
+          try {
+            const _modeRadio = document.querySelector('input[name="convShareMode"]:checked');
+            if (_modeRadio && _modeRadio.value === 'write') _selectedMode = 'write';
+          } catch (e) {}
           try {
             const r = await fetch(`/api/v1/conversation/${cid}/shares`, {
               method: 'POST', credentials: 'include',
               headers: {'Content-Type': 'application/json'},
-              body: JSON.stringify({ user_id: u.user_id, access_level: 'read' }),
+              body: JSON.stringify({ user_id: u.user_id, access_level: _selectedMode }),
             });
             if (!r.ok) {
               const err = await r.json().catch(() => ({}));

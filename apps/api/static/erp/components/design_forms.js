@@ -2984,7 +2984,20 @@
 
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
         // PRED fields (fields jsou typicky v 'main' panel, components v 'header' / 'footer')
+        //
+        // Krok 14b+7.2 (13.5.2026 ~20:45, Marti's "Zrus pomocne fieldy
+        // Editace uživatele user #14 pending... jsou tam navic"): SKIP
+        // title / entity_badge / status_pill template komponenty. Modal
+        // title bar v _shell.title (z core.label) je sole title source —
+        // template komponenty duplikuji informaci ktera je vzdy viditelna.
+        // Buttons (OK/Storno) ZUSTAVAJI — to jsou funkcni actions, ne
+        // pomocne pills.
+        const SUPPRESSED_TEMPLATE_TYPES = new Set([
+          "title", "entity_badge", "status_pill"
+        ]);
         for (const comp of templateComponents) {
+          const compType = comp && comp.type ? String(comp.type) : "";
+          if (SUPPRESSED_TEMPLATE_TYPES.has(compType)) continue;  // skip
           const compEl = this._renderTemplateComponent(comp, core, data);
           if (compEl) sec.grid.appendChild(compEl);
         }
@@ -2992,44 +3005,28 @@
         // Render data fields (z fw.comp_def) — pokud nějaké patří k tomuto panelu
         if (slotFields.length > 0) {
           slotFields.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-          for (const f of slotFields) {
+          for (let idx = 0; idx < slotFields.length; idx++) {
+            const f = slotFields[idx];
             const value = data[f.name];
             const fieldEl = this._renderField(f, value, D);
-            if (fieldEl) sec.grid.appendChild(fieldEl);
-          }
-
-          // Phase 38.4 Krok 14b+7.1 (13.5.2026 ~20:30, Marti's "po pridani
-          // 1 pole hint zmizi"): footer hint pod fields — kompaktni clickable
-          // stripe "🎨 + Pridat dalsi pole". Jen v DESIGN mode + main panel +
-          // canPick. Marti's empty hint click pattern rozsireny na
-          // non-empty case.
-          if (panel.slot === "main"
-              && this._formDesignMode === true
-              && this._canPickFields()) {
-            const addMore = document.createElement("div");
-            addMore.className = "erp-form-add-more-hint";
-            addMore.style.cssText =
-              "grid-column:1/-1;margin-top:8px;padding:8px 12px;" +
-              "background:#0f141a;border:1px dashed #3a5a8a;" +
-              "border-radius:4px;color:#7ed4e8;font-size:12px;" +
-              "text-align:center;cursor:pointer;" +
-              "transition:background 0.15s,border-color 0.15s;";
-            addMore.textContent = "🎨 + Přidat další pole";
-            addMore.title = "Otevře paletu komponent pro přidání dalšího pole.";
-            addMore.addEventListener("mouseenter", () => {
-              addMore.style.background = "#141a20";
-              addMore.style.borderColor = "#5a8aaa";
-            });
-            addMore.addEventListener("mouseleave", () => {
-              addMore.style.background = "#0f141a";
-              addMore.style.borderColor = "#3a5a8a";
-            });
-            addMore.addEventListener("click", () => {
-              this._openFieldPicker();
-            });
-            sec.grid.appendChild(addMore);
+            if (fieldEl) {
+              // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field
+              // do draggable containeru pro reorder. Plus drag handle.
+              if (this._formDesignMode === true && panel.slot === "main") {
+                const wrapped = this._wrapFieldForDesign(fieldEl, f, idx, slotFields.length);
+                sec.grid.appendChild(wrapped);
+              } else {
+                sec.grid.appendChild(fieldEl);
+              }
+            }
           }
         }
+        // Krok 14b+7.2 (13.5.2026 ~20:45, Marti's "to okno na formu pridat
+        // dalsi pole je k nicemu... Nahradila ho tvoje futura v hlavicce +
+        // Pole"): footer hint "+ Pridat dalsi pole" SMAZAN. Header button
+        // "+ Pole" (z 14b+7.1) je sole entry point — vzdy visible v DESIGN
+        // mode, nezavisly od panel content / scroll position. Empty hint
+        // (v full-empty case) zustava — discoverability pro novy form.
 
         // Empty state — panel 'main' bez fields i bez template components
         if (templateComponents.length === 0 && slotFields.length === 0) {
@@ -3401,12 +3398,167 @@
       }
     }
 
+    // Krok 14b+8 (13.5.2026 ~21:00, Marti's "komponenty RO a ready for
+    // Drag and drop"): wrap field element do draggable containeru s grip
+    // handle. Volat jen v DESIGN mode + main panel.
+    //
+    // Drag state je per-form-instance (this._dragState). Drop computes
+    // novy sort_order pole + PATCH backend /design/comp-def/reorder.
+    _wrapFieldForDesign(fieldEl, field, index, total) {
+      const wrap = document.createElement("div");
+      wrap.className = "erp-field-design-wrap";
+      wrap.draggable = true;
+      wrap.dataset.fieldId = String(field.id);
+      wrap.dataset.fieldIndex = String(index);
+      wrap.style.cssText =
+        "display:grid;grid-template-columns:20px 1fr;gap:6px;align-items:start;" +
+        "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
+        "transition:background 0.1s,border-color 0.1s;cursor:grab;";
+
+      // Grip handle vlevo (drag icon)
+      const grip = document.createElement("div");
+      grip.className = "erp-field-design-grip";
+      grip.style.cssText =
+        "display:flex;align-items:center;justify-content:center;" +
+        "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
+        "user-select:none;height:24px;margin-top:18px;";
+      grip.textContent = "⋮⋮";  // double-vertical-dots grip
+      grip.title = "Drag pro zmenu poradi pole";
+      wrap.appendChild(grip);
+
+      // Field content
+      const content = document.createElement("div");
+      content.style.minWidth = "0";  // grid item shrink
+      content.appendChild(fieldEl);
+      wrap.appendChild(content);
+
+      // Drag events
+      wrap.addEventListener("dragstart", (ev) => {
+        wrap.style.opacity = "0.5";
+        wrap.style.cursor = "grabbing";
+        this._dragState = {
+          fieldId: field.id,
+          fromIndex: index,
+          el: wrap,
+        };
+        try {
+          ev.dataTransfer.effectAllowed = "move";
+          ev.dataTransfer.setData("text/plain", String(field.id));
+        } catch (e) {}
+      });
+      wrap.addEventListener("dragend", (ev) => {
+        wrap.style.opacity = "";
+        wrap.style.cursor = "grab";
+        // Clean drop indicators
+        const parent = wrap.parentElement;
+        if (parent) {
+          parent.querySelectorAll(".erp-field-design-wrap").forEach((el) => {
+            el.style.borderTopColor = "transparent";
+            el.style.borderBottomColor = "transparent";
+          });
+        }
+        this._dragState = null;
+      });
+      wrap.addEventListener("dragover", (ev) => {
+        if (!this._dragState) return;
+        if (this._dragState.fieldId === field.id) return; // sam sebe nemuze
+        ev.preventDefault();
+        try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+        // Visual indicator — pred / za podle vertical mouse position
+        const rect = wrap.getBoundingClientRect();
+        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+        wrap.style.borderTopColor = isAbove ? "#7ed4e8" : "transparent";
+        wrap.style.borderBottomColor = isAbove ? "transparent" : "#7ed4e8";
+      });
+      wrap.addEventListener("dragleave", (ev) => {
+        wrap.style.borderTopColor = "transparent";
+        wrap.style.borderBottomColor = "transparent";
+      });
+      wrap.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        if (!this._dragState) return;
+        const fromId = this._dragState.fieldId;
+        const toId = field.id;
+        if (fromId === toId) return;
+        const rect = wrap.getBoundingClientRect();
+        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+        // Compute new order array
+        this._performFieldReorder(fromId, toId, isAbove);
+      });
+
+      return wrap;
+    }
+
+    async _performFieldReorder(fromId, toId, dropAbove) {
+      // Krok 14b+8: compute novy order napriklad fields v main panelu,
+      // POST /design/comp-def/reorder s array {id, sort_order}. Po
+      // success reload spec + re-render.
+      const fields = this._spec.fields || [];
+      const mainFields = fields
+        .filter((f) => (f.region_slot || "main") === "main")
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const fromIdx = mainFields.findIndex((f) => f.id === fromId);
+      const toIdx = mainFields.findIndex((f) => f.id === toId);
+      if (fromIdx < 0 || toIdx < 0) {
+        console.warn("[DesignFwForm] reorder: from/to not found", fromId, toId);
+        return;
+      }
+      // Reorder
+      const [moved] = mainFields.splice(fromIdx, 1);
+      // Po splice se toIdx mohl posunout (pokud fromIdx < toIdx)
+      let insertAt = mainFields.findIndex((f) => f.id === toId);
+      if (insertAt < 0) insertAt = mainFields.length;
+      if (!dropAbove) insertAt += 1;
+      mainFields.splice(insertAt, 0, moved);
+      // Assign new sort_order — multiples of 10 pro budouci insert space
+      const payload = mainFields.map((f, i) => ({
+        id: f.id,
+        sort_order: (i + 1) * 10,
+      }));
+      try {
+        const r = await fetch("/api/v1/erp/design/comp-def/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ field_orders: payload }),
+        });
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        console.info("[DesignFwForm] reorder OK:", payload);
+        // Reload spec + re-render — nova order se projevi
+        const reloadResp = await fetch(
+          "/api/v1/erp/fw-form/" +
+            encodeURIComponent(this._spec.core.code) + "/" +
+            encodeURIComponent(this._spec.data.id || 0),
+          { credentials: "include" }
+        );
+        if (reloadResp.ok) {
+          const newSpec = await reloadResp.json();
+          if (newSpec.ok) {
+            this._spec = newSpec;
+            this._render();
+          }
+        }
+      } catch (e) {
+        console.error("[DesignFwForm] reorder failed:", e);
+        alert("Reorder selhal: " + (e.message || e));
+      }
+    }
+
     _renderField(field, value, onDirty) {
       const fieldKey = (this._spec.core.code || "fw_form") + "." + field.name;
       const compType = field.comp_type_code;
       const fieldLayout = field.layout || {};
       const label = field.caption || field.name;
-      const readonly = !!fieldLayout.readonly;
+      // Krok 14b+8 (13.5.2026 ~21:00, Marti's "v design form modu musi byt
+      // komponenty RO"): v DESIGN mode vsechny fields readonly bez ohledu
+      // na fieldLayout.readonly. Uzivatel vidi pozici/strukturu, ale
+      // needitujeme data behem reorder operace. Drz "audit primary, edit
+      // secondary, struktura terciary" — nelze najednou edit struct +
+      // edit dat (data save endpoint nesahá na struct).
+      const readonly = !!fieldLayout.readonly || this._formDesignMode === true;
 
       // Phase 38.4 Krok 14c (13.5.2026 ~16:00): dispatch rozsiren o vsech
       // 10 Marti-AI's preview_html-ready comp_types. Drz "uniformita

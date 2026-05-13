@@ -3267,6 +3267,139 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
+@api_router.put("/design/comp-def/reorder")
+async def design_reorder_comp_def(req: Request) -> JSONResponse:
+    """Bulk update sort_order pro fields v fw.comp_def.
+
+    Phase 38.4 Krok 14b+8 (13.5.2026 ~21:00, Marti's "drag and drop pro
+    jejich order na formu"): drop event ve DesignFwForm zavola PUT s
+    novymi sort_order pro vsechny fields v main panelu.
+
+    Body:
+        {"field_orders": [{"id": int, "sort_order": int}, ...]}
+
+    Returns:
+        200: {ok, updated_count, updated_ids}
+        400: invalid body
+        500: nektery UPDATE selhal (vraci errors array + partial updated_ids)
+    """
+    from core.database_data import get_data_session as _gds_rcd
+    from sqlalchemy import text as _sql_text_rcd
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    field_orders = body.get("field_orders")
+    if not isinstance(field_orders, list) or not field_orders:
+        return JSONResponse(
+            {"ok": False, "error": "field_orders musi byt non-empty list"},
+            status_code=400,
+        )
+
+    # caller_display lookup (audit human-readable name)
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_rcd
+        from modules.core.infrastructure.models_core import User as _User_rcd
+        cs_rcd = _gcs_rcd()
+        try:
+            u_rcd = cs_rcd.query(_User_rcd).filter_by(id=uid).first()
+            if u_rcd:
+                if u_rcd.short_name and u_rcd.short_name.strip():
+                    caller_display = u_rcd.short_name.strip()
+                elif u_rcd.first_name or u_rcd.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_rcd.first_name, u_rcd.last_name
+                    ])).strip()
+        finally:
+            cs_rcd.close()
+
+    # Per-field UPDATE pres update_row (strategie role nemoze UPDATE fw.*
+    # primo — Marti-AI je owner). Loop je acceptable pro <50 fields.
+    from modules.strategie_pg.application.service import update_row as _spg_update_rcd
+
+    updated_ids: list[int] = []
+    errors: list[dict] = []
+    for item in field_orders:
+        if not isinstance(item, dict):
+            continue
+        fid = item.get("id")
+        new_order = item.get("sort_order")
+        if not isinstance(fid, int) or not isinstance(new_order, int):
+            errors.append({"item": item, "error": "id + sort_order musi byt int"})
+            continue
+        upd = _spg_update_rcd(
+            schema="fw",
+            table="comp_def",
+            values={
+                "sort_order": new_order,
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+            },
+            where={"id": fid},
+            dry_run=False,
+        )
+        if upd.get("ok"):
+            updated_ids.append(fid)
+        else:
+            errors.append({"id": fid, "error": upd.get("error")})
+
+    # Activity log (savepoint pattern — audit fail nesmi rollback UPDATE)
+    ds_rcd = _gds_rcd()
+    try:
+        ds_rcd.execute(_sql_text_rcd("SAVEPOINT pre_audit_log"))
+        try:
+            ds_rcd.execute(_sql_text_rcd("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_field_reorder', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"reorder {len(updated_ids)} fields by {caller_display} "
+                    f"(errors: {len(errors)})"
+                ),
+            })
+            ds_rcd.execute(_sql_text_rcd("RELEASE SAVEPOINT pre_audit_log"))
+            ds_rcd.commit()
+        except Exception as _act_e:
+            try:
+                ds_rcd.execute(_sql_text_rcd("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds_rcd.commit()
+            except Exception:
+                ds_rcd.rollback()
+            logger.warning(f"design_reorder_comp_def activity_log failed: {_act_e}")
+    finally:
+        ds_rcd.close()
+
+    if errors:
+        return JSONResponse(
+            jsonable_encoder({
+                "ok": False,
+                "updated_count": len(updated_ids),
+                "updated_ids": updated_ids,
+                "errors": errors,
+            }),
+            status_code=500,
+        )
+    return JSONResponse(jsonable_encoder({
+        "ok": True,
+        "updated_count": len(updated_ids),
+        "updated_ids": updated_ids,
+    }))
+
+
 @api_router.get("/design/entity-columns/{entity_type}")
 def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
     """List columns z _FW_FORM_ENTITY_MAP s suggested comp_type per column.

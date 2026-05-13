@@ -2559,6 +2559,73 @@
       this._dirty = new Set();
       this._saveBtn = null;
       this._dirtyBadge = null;
+      // Phase 38.4 Krok 14b+7 (13.5.2026 ~20:00, Marti's "PROD/DESIGN
+      // trigger i na tom formu"): per-form mode flag, separate od
+      // window._erpDesignMode (global). Default PRODUCTION (safe — uzivatel
+      // otevre form, nesahá na strukturu nahodne). DESIGN mode aktivuje
+      // field picker + design-only UI. Toggle button v header (visible
+      // jen pokud global _erpDesignMode = true).
+      this._formDesignMode = false;
+      this._formDesignToggle = null;  // ref na button v header
+    }
+
+    // Phase 38.4 Krok 14b+7: helper pro UI re-render po toggle change.
+    // Re-render je nutny aby empty hint, field actions, drag handles, atd.
+    // reaktivne reflektovaly novy mode. Toggle se sama nepre-render — to
+    // udela _updateFormDesignToggle.
+    _setFormDesignMode(on) {
+      this._formDesignMode = !!on;
+      this._updateFormDesignToggle();
+      if (this._spec) {
+        // Re-render body (zachovat header) — hints + click handlers nove
+        this._render();
+      }
+    }
+
+    _updateFormDesignToggle() {
+      if (!this._formDesignToggle) return;
+      const on = this._formDesignMode;
+      this._formDesignToggle.textContent = on ? "🎨 DESIGN" : "📋 PRODUCTION";
+      this._formDesignToggle.title = on
+        ? "Form je v DESIGN módu — můžeš přidávat pole + editovat strukturu. Klikni pro PRODUCTION."
+        : "Form je v PRODUCTION módu — jen edit dat. Klikni pro DESIGN (přidávání polí).";
+      // Vizuálně: DESIGN = teal akcent (analog global DESIGN badge),
+      // PRODUCTION = neutral šedý.
+      this._formDesignToggle.style.cssText =
+        "background:" + (on ? "#1f4858" : "#1f2530") + ";" +
+        "border:1px solid " + (on ? "#3a8aa8" : "#2a3340") + ";" +
+        "color:" + (on ? "#7ed4e8" : "#cfd6df") + ";" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:" + (on ? "600" : "400") + ";";
+    }
+
+    _attachFormDesignToggle() {
+      // Krok 14b+7: toggle button visible jen pokud global ERP DESIGN
+      // je ON. Bez global flagu form je vzdy PRODUCTION (zadny toggle
+      // available — uzivatel nesmi sahat na strukturu).
+      if (!this._shell || !this._shell.header) return;
+      if (window._erpDesignMode !== true) return;  // gate
+      const rightActions = this._shell.header.querySelector(".erp-modal-header-actions");
+      if (!rightActions) return;
+      // Defensive: nepridavat duplikat (pri opt-out / re-open)
+      if (rightActions.querySelector(".erp-form-design-toggle")) return;
+      const toggle = document.createElement("button");
+      toggle.type = "button";
+      toggle.className = "erp-form-design-toggle";
+      this._formDesignToggle = toggle;
+      this._updateFormDesignToggle();  // initial text + style
+      toggle.addEventListener("click", () => {
+        this._setFormDesignMode(!this._formDesignMode);
+      });
+      // Insert PRED sysToggle (= prvni button v rightActions) — toggle
+      // je hlavni mode switch, ostatni jsou pomocna nastaveni.
+      const sysToggle = rightActions.querySelector(".erp-design-systoggle");
+      if (sysToggle) {
+        rightActions.insertBefore(toggle, sysToggle);
+      } else {
+        // Fallback: prepend
+        rightActions.insertBefore(toggle, rightActions.firstChild);
+      }
     }
 
     _onDirty(fieldKey, isDirty) {
@@ -2626,6 +2693,12 @@
         onClose: () => _markFormDirty(this, false),
       });
       document.body.appendChild(this._shell.overlay);
+
+      // Phase 38.4 Krok 14b+7 (13.5.2026 ~20:00, Marti's "PROD/DESIGN
+      // trigger i na tom formu"): attach toggle button v header. Visible
+      // jen pokud global _erpDesignMode = true. Default form mode =
+      // PRODUCTION (safe — uzivatel musi explicit prepnout do DESIGN).
+      this._attachFormDesignToggle();
 
       // Phase 38.4 Krok 14b+5 polish fix #5 (13.5.2026 ~14:30, po
       // Marti's DevTools diagnostic):
@@ -2845,70 +2918,92 @@
           // velkeho boxu.
           //
           // Krok 14c (13.5.2026 odpoledne): hint je clickable trigger pro
-          // FieldPickerModal — Marti otevre paletu pres double-click nebo
-          // right-click. Cursor:pointer + hover state pro discoverability.
+          // FieldPickerModal.
+          //
+          // Krok 14b+7 (13.5.2026 ~20:00): hint je clickable JEN v DESIGN
+          // mode. V PRODUCTION je hint neutralni info text bez click handleru
+          // (uzivatel nesmi sahat na strukturu omylem). Marti's "PROD/DESIGN
+          // trigger" doctrine — strukturalni zmeny vyzaduji explicit DESIGN
+          // mode.
+          const designMode = this._formDesignMode === true;
+          const canPick = panel.slot === "main"
+            && core.data_entity_type
+            && (this._spec.form && this._spec.form.id)
+            && typeof global.FieldPickerModal === "function";
+          const interactive = designMode && canPick;
+
           hint.style.cssText =
-            "padding:14px;background:#0f141a;border:1px dashed #2a3340;" +
+            "padding:14px;background:#0f141a;border:1px dashed " +
+            (interactive ? "#3a5a8a" : "#2a3340") + ";" +
             "border-radius:4px;color:#5d6975;font-style:italic;" +
             "text-align:center;grid-column:1/-1;grid-row:1/-1;" +
             "display:flex;align-items:center;justify-content:center;" +
-            "cursor:pointer;transition:background 0.15s,border-color 0.15s;";
-          hint.innerHTML =
-            "(panel '" + panel.slot + "' nemá žádné fields)<br>" +
-            "<span style=\"font-size:11px;color:#7a8696;margin-top:4px;\">" +
-            "Klikni pro otevření palety komponent ➕" +
-            "</span>";
+            "cursor:" + (interactive ? "pointer" : "default") + ";" +
+            "transition:background 0.15s,border-color 0.15s;";
 
-          // Hover visual
-          hint.addEventListener("mouseenter", () => {
-            hint.style.background = "#141a20";
-            hint.style.borderColor = "#3a5a8a";
-          });
-          hint.addEventListener("mouseleave", () => {
-            hint.style.background = "#0f141a";
-            hint.style.borderColor = "#2a3340";
-          });
-
-          // Click → open FieldPickerModal (jen pro main panel s entity_type)
-          if (panel.slot === "main" && core.data_entity_type) {
-            const formId = (this._spec.form && this._spec.form.id) || null;
-            if (formId && typeof global.FieldPickerModal === "function") {
-              hint.addEventListener("click", async () => {
-                const picker = new global.FieldPickerModal({
-                  entityType: core.data_entity_type,
-                  parentCompDefId: formId,
-                  onComplete: async (result) => {
-                    console.info("[DesignFwForm] FieldPicker complete:", result);
-                    // Reload form spec — fields by se měly objevit v main panel
-                    try {
-                      const r = await fetch(
-                        "/api/v1/erp/fw-form/" +
-                          encodeURIComponent(this._spec.core.code) + "/" +
-                          encodeURIComponent(this._spec.data.id || 0),
-                        { credentials: "include" }
-                      );
-                      if (r.ok) {
-                        const newSpec = await r.json();
-                        if (newSpec.ok) {
-                          this._spec = newSpec;
-                          this._render(); // re-render s novými fields
-                        }
-                      }
-                    } catch (e) {
-                      console.error("[DesignFwForm] reload after picker failed:", e);
-                      alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
-                    }
-                  },
-                });
-                await picker.open();
-              });
-              hint.title = "Klikni pro otevření palety komponent (Krok 14c)";
-            } else {
-              hint.title = "FieldPicker není k dispozici (entity_type nebo formId chybí)";
-              hint.style.cursor = "default";
-            }
+          if (interactive) {
+            hint.innerHTML =
+              "(panel '" + panel.slot + "' nemá žádné fields)<br>" +
+              "<span style=\"font-size:11px;color:#7ed4e8;margin-top:4px;\">" +
+              "🎨 Klikni pro otevření palety komponent ➕" +
+              "</span>";
+          } else if (canPick) {
+            // Production mode — info text s navodom prepnout DESIGN
+            hint.innerHTML =
+              "(panel '" + panel.slot + "' nemá žádné fields)<br>" +
+              "<span style=\"font-size:11px;color:#7a8696;margin-top:4px;\">" +
+              "Form je v PRODUCTION módu. Pro přidání polí přepni vpravo nahoře na 🎨 DESIGN." +
+              "</span>";
           } else {
-            hint.style.cursor = "default";
+            // No picker available (entity_type / formId chybi / panel != main)
+            hint.innerHTML = "(panel '" + panel.slot + "' nemá žádné fields)";
+          }
+
+          if (interactive) {
+            // Hover visual (jen v design mode)
+            hint.addEventListener("mouseenter", () => {
+              hint.style.background = "#141a20";
+              hint.style.borderColor = "#5a8aaa";
+            });
+            hint.addEventListener("mouseleave", () => {
+              hint.style.background = "#0f141a";
+              hint.style.borderColor = "#3a5a8a";
+            });
+
+            // Click → open FieldPickerModal
+            const formId = this._spec.form.id;
+            hint.addEventListener("click", async () => {
+              const picker = new global.FieldPickerModal({
+                entityType: core.data_entity_type,
+                parentCompDefId: formId,
+                onComplete: async (result) => {
+                  console.info("[DesignFwForm] FieldPicker complete:", result);
+                  // Reload form spec — fields by se měly objevit v main panel
+                  try {
+                    const r = await fetch(
+                      "/api/v1/erp/fw-form/" +
+                        encodeURIComponent(this._spec.core.code) + "/" +
+                        encodeURIComponent(this._spec.data.id || 0),
+                      { credentials: "include" }
+                    );
+                    if (r.ok) {
+                      const newSpec = await r.json();
+                      if (newSpec.ok) {
+                        this._spec = newSpec;
+                        this._render(); // re-render s novými fields
+                      }
+                    }
+                  } catch (e) {
+                    console.error("[DesignFwForm] reload after picker failed:", e);
+                    alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
+                  }
+                },
+              });
+              await picker.open();
+            });
+            hint.title = "Klikni pro otevření palety komponent (Krok 14c)";
+          } else if (canPick) {
+            hint.title = "Pro přidávání polí přepni form do DESIGN módu (button vpravo nahoře v header).";
           }
 
           sec.grid.appendChild(hint);

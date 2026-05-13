@@ -2678,13 +2678,30 @@
         this._shell.title.textContent = core.label || form.caption || core.code;
       }
 
-      // Root content container — flex column aby main panel mohl alClient grow.
-      // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:30, Marti's "alClient
-      // doctrine"): root je flex column, main panel ma flex:1, header/footer
-      // natural height. Body uz je flex column (line 770-772 open()).
+      // Root content container — Phase 38.4 Krok 14b+5 polish #4
+      // (13.5.2026 ~14:15, Marti's "main panel se na vysku nehybe"):
+      // Switch z flex column chain na **CSS Grid 3-row layout**.
+      //
+      // Důvod: flex chain propagation byla křehká (margin-top:auto +
+      // flex:1 + min-height:0 + nested wrappers). Pri jakémkoli broken
+      // link na vyšší úrovni main panel zustaval natural-sized.
+      //
+      // CSS Grid s `grid-template-rows: auto 1fr auto` je DETERMINISTIC:
+      //   - row 1: header (auto = natural height)
+      //   - row 2: main (1fr = fills remaining space — alClient!)
+      //   - row 3: footer (auto = natural)
+      //
+      // Vzdy funguje bez ohledu na parent dimensions (pokud root sám
+      // ma height — z flex:1 v body).
       const root = document.createElement("div");
       root.className = "erp-design-tab-content";
-      root.style.cssText = "padding:0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
+      root.style.cssText =
+        "padding:0;" +
+        "display:grid;" +
+        "grid-template-rows:auto 1fr auto;" +
+        "flex:1 1 auto;" +
+        "min-height:0;" +
+        "gap:14px;";
 
       // Extract panels — template.layout (Krok 14b+3) > form.layout (legacy)
       let panels = [];
@@ -2732,43 +2749,36 @@
         // Panel header — empty label = "panel je plocha" doctrine (12.5. 23:30)
         const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
-        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:45 fix #3 — Marti's
-        // "paticka se roztahuje" diagnoza po flex:0 0 auto nestacila):
+        // Phase 38.4 Krok 14b+5 polish #4 (13.5.2026 ~14:15): CSS Grid
+        // 3-row layout v root (auto 1fr auto) reseni alClient deterministicky.
+        // Sekce uz nepotrebuji flex magic — Grid jim assignuje row slot.
+        // Per-panel jen styling specific (footer separator, main fill).
         //
-        // Marti pravdepodobne ma resized modal dialog (modal ma resize:both),
-        // takze flex chain propagation se rozbije. Switch na **margin-top: auto
-        // trick** pro footer — CSS proven pattern "push to bottom v flex column"
-        // ktery funguje i kdyz flex:1 chain je broken.
-        //
-        // Plus main wrap dostane min-height: 100px aby empty state nebyl
-        // squished kdyz modal je maly.
+        // Drobnost: section's own internal layout (sec.grid) stays
+        // (display:grid auto-fit for fields v main, override pro footer
+        // flex row pro buttons alignment).
         if (panel.slot === "footer") {
-          sec.wrap.style.flex = "0 0 auto";
+          // Margin-bottom: 0 (vlastni grid row, no spacing below)
           sec.wrap.style.marginBottom = "0";
-          // ⭐ margin-top: auto — push footer to bottom of parent flex column.
-          // I kdyz flex:1 na main nefungue (resized dialog issues), tento
-          // trick zachova footer at bottom.
-          sec.wrap.style.marginTop = "auto";
-          // Grid: flex row right-aligned, buttons centered vertical, compact
+          // Visual separator nad footer
+          sec.wrap.style.borderTop = "1px solid #2a3340";
+          sec.wrap.style.paddingTop = "10px";
+          // Grid: flex row right-aligned, buttons centered vertical
           sec.grid.style.display = "flex";
           sec.grid.style.justifyContent = "flex-end";
           sec.grid.style.alignItems = "center";
           sec.grid.style.gap = "8px";
-          // Plus border-top jako visual separator footer od main panel
-          sec.wrap.style.borderTop = "1px solid #2a3340";
-          sec.wrap.style.paddingTop = "10px";
         } else if (panel.slot === "main") {
-          // Main grows — flex:1 + min-height pojistka
-          sec.wrap.style.flex = "1 1 auto";
-          sec.wrap.style.minHeight = "120px"; // visible space pro empty state
+          // Main je v Grid row 2 (1fr) — alClient automaticky.
+          // Plus interni layout: sec.wrap fills row, grid fills wrap.
+          sec.wrap.style.minHeight = "0"; // critical pro grid 1fr shrink
           sec.wrap.style.display = "flex";
           sec.wrap.style.flexDirection = "column";
           sec.grid.style.flex = "1 1 auto";
           sec.grid.style.minHeight = "0";
           sec.grid.style.alignContent = "start";
-        } else if (panel.slot === "header") {
-          sec.wrap.style.flex = "0 0 auto";
         }
+        // header — no extra styling, Grid auto-rows assignuje natural height
 
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
         // PRED fields (fields jsou typicky v 'main' panel, components v 'header' / 'footer')

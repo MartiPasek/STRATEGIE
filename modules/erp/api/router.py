@@ -9209,6 +9209,66 @@ def _render_workspace_page(user_id: int) -> str:
                                 } catch (eRedraw) {
                                   console.warn("[fw-form] redrawRows failed:", eRedraw);
                                 }
+                                // Phase 38.4 Krok 14b+6.1 (13.5.2026 ~19:50,
+                                // Marti's "dva radky oznacene" catch): po close
+                                // modal OS kurzor zustal nad gridem na jinem
+                                // radku, AG Grid aplikoval .ag-row-hover na ten
+                                // radek. Plus .ag-row-selected na nas novy radek
+                                // = dva visualne highlighted radky. Move OS
+                                // kurzor z JS nelze (browser security), ale
+                                // muzu sjednotit hover state:
+                                //   1. querySelectorAll [row-index="N"] (AG Grid
+                                //      renderuje row v left-pinned + center +
+                                //      right-pinned containers, vsechny zde)
+                                //   2. odebrat .ag-row-hover ze vsech ostatnich
+                                //      row DOM elementu v gridu
+                                //   3. pridat .ag-row-hover na nas radek (vsechny
+                                //      pinned/center instances)
+                                //   4. dispatch syntetic mouseenter/mouseover
+                                //      event pro AG Grid interni hover state
+                                //      (pripad ze AG Grid pouziva JS handlers
+                                //      misto pure CSS :hover)
+                                try {
+                                  var targetRowIndex = foundNode.rowIndex;
+                                  var rootEl = body;  // erpSysGridBody div
+                                  // Cleanup: odebrat .ag-row-hover ze vsech radku
+                                  var existingHovers = rootEl.querySelectorAll(".ag-row-hover");
+                                  for (var hi = 0; hi < existingHovers.length; hi++) {
+                                    existingHovers[hi].classList.remove("ag-row-hover");
+                                  }
+                                  // Apply na nas radek (vsechny DOM instances —
+                                  // pinned + center)
+                                  var ourRowEls = rootEl.querySelectorAll(
+                                    '[row-index="' + targetRowIndex + '"]'
+                                  );
+                                  for (var ri = 0; ri < ourRowEls.length; ri++) {
+                                    var rowEl = ourRowEls[ri];
+                                    rowEl.classList.add("ag-row-hover");
+                                    // Synthetic events (defensive — AG Grid
+                                    // event handler routing pokud listenuje)
+                                    try {
+                                      var meEvt = new MouseEvent("mouseenter", {
+                                        bubbles: false,
+                                        cancelable: true,
+                                        view: window
+                                      });
+                                      rowEl.dispatchEvent(meEvt);
+                                      var moEvt = new MouseEvent("mouseover", {
+                                        bubbles: true,
+                                        cancelable: true,
+                                        view: window
+                                      });
+                                      rowEl.dispatchEvent(moEvt);
+                                    } catch (eDispatch) {}
+                                  }
+                                  console.info(
+                                    "[fw-form] hover applied on rowIndex=" +
+                                    targetRowIndex + " (" + ourRowEls.length +
+                                    " DOM instances)"
+                                  );
+                                } catch (eHover) {
+                                  console.warn("[fw-form] hover sync failed:", eHover);
+                                }
                                 console.info(
                                   "[fw-form] post-refresh row selected:",
                                   savedRowId,

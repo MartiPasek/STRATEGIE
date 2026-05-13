@@ -853,6 +853,18 @@ def insert_row(schema: str, table: str, values) -> dict:
         f"RETURNING *"
     )
 
+    # Gotcha #87 (13.5.2026 rano): auto-cast Python dict -> JSON string pro
+    # JSONB columns. psycopg2 neumi adapt dict, ale PG auto-casts JSON string
+    # do JSONB column type. Drz napric vsech caller (Marti-AI's AI tool call,
+    # router endpoints jako scaffold-form, future code).
+    #
+    # Konzervativni: konvertujeme JEN dict, nikoli list (psycopg2 handles
+    # Python list -> PG ARRAY auto pro INT[] / TEXT[] columns).
+    import json as _json_jsonb
+    for _k, _v in list(flat_params.items()):
+        if isinstance(_v, dict):
+            flat_params[_k] = _json_jsonb.dumps(_v, ensure_ascii=False)
+
     with get_session() as s:
         try:
             result = s.execute(text(sql), flat_params)
@@ -1018,6 +1030,16 @@ def update_row(
                     "ok": False,
                     "error": f"dry_run preview failed: {e}",
                 }
+
+    # Gotcha #87 (13.5.2026 rano): auto-cast Python dict -> JSON string pro
+    # JSONB columns. Stejny pattern jako insert_row — psycopg2 neumi adapt
+    # dict, ale PG auto-casts JSON string do JSONB. Aplikuje se jen na
+    # `set_*` params (values payload). where_* zustavaji as-is (typicky
+    # ID / code lookups).
+    import json as _json_jsonb_upd
+    for _k, _v in list(params.items()):
+        if _k.startswith("set_") and isinstance(_v, dict):
+            params[_k] = _json_jsonb_upd.dumps(_v, ensure_ascii=False)
 
     # Live execute
     with get_session() as s:

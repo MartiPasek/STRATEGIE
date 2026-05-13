@@ -3267,7 +3267,7 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
-@api_router.patch("/design/comp-def-update/{comp_def_id}")
+@api_router.patch("/design/comp-def/update/{comp_def_id}")
 async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     """Partial update field comp_def — caption / region_slot / layout.
 
@@ -3275,17 +3275,23 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     dvojklik"): frontend posila PATCH s {caption: "..."}, backend update
     pres update_row + audit log.
 
-    Phase 38.4 Krok 14b+10 hotfix (13.5.2026 ~22:30, Marti's smoke catch
-    "Přepnutí selhalo: field_changes musi byt non-empty dict"):
-    Route ZAMERNE `/design/comp-def-update/{id}` (ne `/design/comp-def/{id}`)
-    aby NEKOLIDOVAL s generic PATCH /design/{entity_type}/{row_id} (Krok
-    14b+5 data save endpoint registered drive — FastAPI matchuje
-    registration order, `comp-def` by se interpretoval jako entity_type
-    -> body validation fail).
+    Phase 38.4 Krok 14b+10 hotfix #2 (13.5.2026 ~22:50, po prvnim
+    hotfix #1 failed):
 
-    TODO Krok 14b+11+ cleanup: prejmenovat na `/design/comp-def/{id}` po
-    reorder route registration (specific PRED generic) — Marti's CLAUDE.md
-    doctrine "literál paths MUSÍ být registrované PŘED `/{id}`".
+    PRVNI POKUS: `/design/comp-def-update/{id}` — STILL COLLIDED.
+    Pricina: 2 segments za /design/ -> generic /design/{entity_type}/
+    {row_id} matchuje s entity_type='comp-def-update', row_id=7.
+    FastAPI registration order rule: generic registered drive vyhrava.
+
+    DRUHY POKUS (LIVE): `/design/comp-def/update/{id}` — 3 segments
+    za /design/. Generic /design/{entity_type}/{row_id} expects PRESNE
+    2 segments -> nematchuje -> FastAPI continue na next route ->
+    matches my 3-segment route.
+
+    Marti's CLAUDE.md doctrine "literál paths MUSÍ být registrované
+    PŘED `/{id}`" applies. TODO Krok 14b+11+: refactor route order
+    (move PATCH block above line 2625 generic) + vratit na 2-segment
+    `/design/comp-def/{id}` (symmetric s DELETE).
 
     Whitelist updatable columns (security — uzivatel nesmi sahat na
     type_id/parent/name pres tento endpoint):

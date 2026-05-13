@@ -2631,10 +2631,11 @@
       if (this._shell && this._shell.body) {
         this._shell.body.style.display = "flex";
         this._shell.body.style.flexDirection = "column";
-        // Marti's polish (13.5.2026 ~15:00): padding kolem content
-        // (mezera mezi buttons/header a edges modalu). Predtim padding:0
-        // znamenalo footer touchnul bottom + right edge.
-        this._shell.body.style.padding = "16px 20px";
+        // Marti's polish (13.5.2026 ~15:00, iterace ~15:15):
+        // - Horizontal: 20px → 12px (40% reduce dle Marti's request)
+        // - Vertical: 16px → 8px (na polovinu)
+        // Compact ale stale visible breathing room od edges modalu.
+        this._shell.body.style.padding = "8px 12px";
       }
 
       const loading = document.createElement("div");
@@ -2715,7 +2716,9 @@
         "grid-template-rows:auto 1fr auto;" +
         "flex:1 1 auto;" +
         "min-height:0;" +
-        "gap:14px;";
+        // Marti's polish (13.5.2026 ~15:15): gap mezi panel rows na
+        // polovinu (14px → 7px) — compact spacing mezi header/main/footer.
+        "gap:7px;";
 
       // Extract panels — template.layout (Krok 14b+3) > form.layout (legacy)
       let panels = [];
@@ -2768,9 +2771,10 @@
         // Sekce uz nepotrebuji flex magic — Grid jim assignuje row slot.
         // Per-panel jen styling specific (footer separator, main fill).
         //
-        // Drobnost: section's own internal layout (sec.grid) stays
-        // (display:grid auto-fit for fields v main, override pro footer
-        // flex row pro buttons alignment).
+        // Drop default margin-bottom: 14px z _sectionBuild — root grid
+        // gap (7px po polish #7) ridi spacing mezi panel rows.
+        sec.wrap.style.marginBottom = "0";
+
         if (panel.slot === "footer") {
           // Margin-bottom: 0 (vlastni grid row, no spacing below)
           sec.wrap.style.marginBottom = "0";

@@ -2571,6 +2571,23 @@
         this._dirtyBadge.textContent = count > 0 ? "● " + count + " " + _wBadge : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
+      // Phase 38.4 Krok 14c hotfix (13.5.2026 ~17:30): live dirty indicator
+      // v modal title bar (po _setupFooter consolidation pres footer panel,
+      // dirty badge musi byt nekde visible). Pojistka — pokud titleEl exists,
+      // update jeho text s count suffix.
+      if (this._shell && this._shell.title) {
+        const baseTitle = this._spec && this._spec.core
+          ? (this._spec.core.label || this._spec.core.code || "Editace")
+          : "Editace";
+        if (count > 0) {
+          const _wBadge2 = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
+          this._shell.title.textContent = baseTitle + " — ● " + count + " " + _wBadge2;
+          this._shell.title.style.color = "#d4b88a"; // amber dirty accent
+        } else {
+          this._shell.title.textContent = baseTitle;
+          this._shell.title.style.color = ""; // default white
+        }
+      }
       _markFormDirty(this, count > 0);
     }
 
@@ -3194,9 +3211,14 @@
       // 10 Marti-AI's preview_html-ready comp_types. Drz "uniformita
       // vítězí" — kazdy known comp_type ma explicit branch, novy comp_type
       // = pridat case + pripadne UI Kit helper.
+      // Phase 38.4 Krok 14c hotfix (13.5.2026 ~17:30): _field/_dropdown/_memo
+      // signature je (label, value, opts) — fieldKey patri DO opts, nepredavat
+      // jako 3rd parameter (predtim bug: opts = string fieldKey, opts.onDirty
+      // undefined → dirty tracking nikdy nezavolan).
       switch (compType) {
         case "edit":
-          return _field(label, value, fieldKey, {
+          return _field(label, value, {
+            fieldKey: fieldKey,
             readonly: readonly,
             mono: !!fieldLayout.mono,
             onDirty: onDirty,
@@ -3204,7 +3226,8 @@
 
         case "number": {
           // _field s type=number — ErpInput podporuje type via opts
-          const el = _field(label, value, fieldKey, {
+          const el = _field(label, value, {
+            fieldKey: fieldKey,
             readonly: readonly,
             onDirty: onDirty,
           });
@@ -3267,7 +3290,8 @@
         case "date_modern": {
           // ErpDate komponenta (Phase B+6.7) — pokud zaregistrovana,
           // jinak fallback na _field s type='date'.
-          const el = _field(label, value, fieldKey, {
+          const el = _field(label, value, {
+            fieldKey: fieldKey,
             readonly: readonly,
             onDirty: onDirty,
           });
@@ -3281,13 +3305,15 @@
         case "memo": {
           // Textarea — pokud _memo helper zaregistrovan
           if (typeof _memo === "function") {
-            return _memo(label, value, fieldKey, {
+            return _memo(label, value, {
+              fieldKey: fieldKey,
               readonly: readonly,
               onDirty: onDirty,
             });
           }
           // Fallback: _field but multiline (cosmetic — height: 60px)
-          const el = _field(label, value, fieldKey, {
+          const el = _field(label, value, {
+            fieldKey: fieldKey,
             readonly: readonly,
             onDirty: onDirty,
           });
@@ -3322,7 +3348,8 @@
           const items = Array.isArray(fieldLayout.enum_values)
             ? fieldLayout.enum_values.map(e => ({ value: e.value, label: e.label }))
             : [];
-          return _dropdown(label, value, fieldKey, {
+          return _dropdown(label, value, {
+            fieldKey: fieldKey,
             readonly: readonly,
             items: items,
             onDirty: onDirty,
@@ -3333,7 +3360,8 @@
           // Multi-select — fallback na _field s comma-separated values (MVP).
           // Future: dedicated multi-select komponent.
           const displayVal = Array.isArray(value) ? value.join(", ") : (value || "");
-          return _field(label + " (multi)", displayVal, fieldKey, {
+          return _field(label + " (multi)", displayVal, {
+            fieldKey: fieldKey,
             readonly: true, // MVP: readonly pro multi-select
             onDirty: onDirty,
           });
@@ -3368,7 +3396,8 @@
           // File upload + button jsou special (non-edit) — render readonly placeholder
           // pro main panel display. Real interactivity prijde v dedicated UI Kit
           // wrappers (Phase 14d+).
-          return _field(label + " (" + compType + ")", value || "", fieldKey, {
+          return _field(label + " (" + compType + ")", value || "", {
+            fieldKey: fieldKey,
             readonly: true,
             onDirty: onDirty,
           });
@@ -3379,7 +3408,8 @@
             "DesignFwForm: unknown comp_type '" + compType + "' for field '" +
             field.name + "' — falling back to readonly input."
           );
-          return _field(label + " (?" + compType + ")", value, fieldKey, {
+          return _field(label + " (?" + compType + ")", value, {
+            fieldKey: fieldKey,
             readonly: true,
             onDirty: onDirty,
           });

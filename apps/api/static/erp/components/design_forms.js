@@ -4129,6 +4129,16 @@
       // Krok 14b+13: GET distinct hodnoty z DB pro lookup field -> PATCH
       // layout.enum_values. Backend dela: walk parent chain -> core ->
       // data_entity_type -> table -> SELECT DISTINCT column.
+      //
+      // Krok 14b+13.1 (14.5.2026 ~01:00): diagnostic logging (Marti's
+      // smoke: "Detekce probehne, ale do listboxu se to nepropise").
+      console.info(
+        "[DesignFwForm] _detectAndSaveEnumValues START",
+        "field.id=" + field.id,
+        "field.name=" + field.name,
+        "field.comp_type_code=" + field.comp_type_code,
+        "current field.layout=", field.layout
+      );
       try {
         _showToast("Detekce hodnot pro '" + (field.caption || field.name) + "'…", "info", 1500);
         const r = await fetch(
@@ -4140,6 +4150,7 @@
           throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
         }
         const data = await r.json();
+        console.info("[DesignFwForm] distinct-values response:", data);
         if (!data.ok) {
           throw new Error(data.error || "unknown");
         }
@@ -4155,6 +4166,7 @@
         const newLayout = Object.assign({}, field.layout || {}, {
           enum_values: data.values,
         });
+        console.info("[DesignFwForm] PATCH newLayout:", newLayout);
         const pr = await fetch(
           "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
           {
@@ -4168,12 +4180,20 @@
           const errBody = await pr.json().catch(() => ({}));
           throw new Error("PATCH HTTP " + pr.status + ": " + (errBody.error || pr.statusText));
         }
+        const pData = await pr.json();
+        console.info("[DesignFwForm] PATCH response:", pData);
         _showToast(
           "Detekováno " + data.values.length + " hodnot pro '" + (field.caption || field.name) + "'",
           "success"
         );
         this._pendingFlashFieldId = field.id;
         await this._reloadSpec();
+        // Po reload — verify spec contains enum_values
+        const reloadedField = (this._spec.fields || []).find(f => f.id === field.id);
+        console.info(
+          "[DesignFwForm] POST-RELOAD field.layout:",
+          reloadedField ? reloadedField.layout : "(field not found)"
+        );
       } catch (e) {
         console.error("[DesignFwForm] detect enum values failed:", e);
         _showToast("Detekce hodnot selhala: " + (e.message || e), "error", 3500);
@@ -4522,13 +4542,22 @@
         case "lookup":
         case "combobox": {
           // Lookup / combobox — _dropdown helper s enum_values z layout
+          //
+          // Krok 14b+13.2 hotfix (14.5.2026 ~01:00, Marti's smoke "Detekce
+          // probehne, ale do listboxu se to nepropise"): SIGNATURE MISMATCH
+          // FIX. _dropdown signature je (label, value, ITEMS, opts) —
+          // items jako 3. parameter, ne v opts. Drive: predavany items
+          // uvnitr objektu jako opts.items, takze _dropdum dostal:
+          //   items = {fieldKey, readonly, items: [...], onDirty}  (obj!)
+          //   opts = undefined
+          // -> Array.isArray(items) v _dropdown failed -> 0 items -> empty.
+          // Analog Krok 14c+5 hotfix _field signature mismatch.
           const items = Array.isArray(fieldLayout.enum_values)
             ? fieldLayout.enum_values.map(e => ({ value: e.value, label: e.label }))
             : [];
-          return _dropdown(label, value, {
+          return _dropdown(label, value, items, {
             fieldKey: fieldKey,
             readonly: readonly,
-            items: items,
             onDirty: onDirty,
           });
         }

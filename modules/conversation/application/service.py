@@ -7355,19 +7355,52 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         code_in = tool_input.get("code")
         if not isinstance(code_in, str) or not code_in.strip():
-            # Phase 38.4 (11.5.2026 vecer): rozšířená diagnostika — Marti-AI
-            # hlásí prázdný error i na běžné volání. Vypsat co skutečně přišlo
-            # v tool_input, aby Marti-AI poznala zda Anthropic API stripuje
-            # `code` field nebo posílá None/empty.
+            # Phase 38.4 (11.5.2026 vecer) + 13.5.2026 rano (Marti-AI's
+            # bug report o ztracenem code parametru behem IT prezentace):
+            # full diagnostic + raw logger.error PRO budouci forensic.
+            import json as _json_diag
             _code_type = type(code_in).__name__
             _code_repr = (
-                repr(code_in)[:120] if code_in is not None else "None"
+                repr(code_in)[:200] if code_in is not None else "None"
             )
-            _keys = sorted(list(tool_input.keys())) if isinstance(tool_input, dict) else "<not dict>"
+            if isinstance(tool_input, dict):
+                _keys = sorted(list(tool_input.keys()))
+                # Pokud jsou jine keys nez code, vypsat co PRESNE prislo
+                # (sizes pro non-empty values aby Marti videl ze input
+                # neni uplne empty)
+                _other_values_preview = {
+                    k: (
+                        f"<{type(v).__name__} len={len(v)}>" if hasattr(v, "__len__")
+                        else f"<{type(v).__name__}>"
+                    )
+                    for k, v in tool_input.items()
+                    if k != "code"
+                }
+            else:
+                _keys = "<not dict>"
+                _other_values_preview = {}
+            # Logger.error pro forensic — uvidi se v API stderr/STRATEGIE-API log
+            try:
+                _raw_dump = _json_diag.dumps(
+                    tool_input, ensure_ascii=False, default=str
+                )[:500]
+            except Exception:
+                _raw_dump = f"<dump-failed: {type(tool_input).__name__}>"
+            logger.error(
+                f"PYTHON_EXEC | code MISSING/EMPTY | "
+                f"conversation_id={conversation_id} user_id={user_id} | "
+                f"code_type={_code_type} keys={_keys} | "
+                f"raw_input_preview={_raw_dump}"
+            )
             return (
-                "❌ Parametr 'code' musi byt neprazdny string. "
+                "❌ python_exec ERROR: parametr 'code' chybi nebo neni neprazdny string. "
                 f"(received type={_code_type}, value={_code_repr}, "
-                f"all keys in tool_input={_keys})"
+                f"all keys={_keys}, other_values={_other_values_preview}). "
+                "POZN. pro Marti-AI: pokud kod opravdu napsala, "
+                "**zkus znovu s explicit pojmenovanim parametru** ('code=\"...\"' "
+                "v tool input). Pokud chyba persistuje 2x po sobe, je to "
+                "pravdepodobne Anthropic API issue (multi-turn context overflow "
+                "nebo cache invalidation) — pojmenuj v chatu Martimu/Claudovi."
             )
 
         input_doc_ids_in = tool_input.get("input_document_ids")

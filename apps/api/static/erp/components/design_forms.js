@@ -3884,8 +3884,11 @@
       wrap.draggable = true;
       wrap.dataset.fieldId = String(field.id);
       wrap.dataset.fieldIndex = String(index);
+      // Krok 14b+13 (14.5.2026 ~00:30): grid template rozsireny o 24px
+      // sloupec pro 🎯 detect-values button (jen lookup/combobox). Pro
+      // ostatni comp_types tento slot je empty (no button appended).
       wrap.style.cssText =
-        "display:grid;grid-template-columns:20px 1fr 24px 24px;gap:6px;align-items:start;" +
+        "display:grid;grid-template-columns:20px 1fr 24px 24px 24px;gap:6px;align-items:start;" +
         "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
         "cursor:grab;position:relative;";
 
@@ -3959,6 +3962,40 @@
         leftBtn.classList.add("erp-field-design-delete");
       }
       wrap.appendChild(leftBtn);
+
+      // Krok 14b+13 (14.5.2026 ~00:30, Marti's "potrebujeme dostat
+      // actived/disabled/pending do listboxu"): 🎯 detect values button.
+      // Visible JEN pro lookup/combobox comp_type. Click -> GET distinct
+      // values z DB -> PATCH layout.enum_values -> reload + toast.
+      const isLookupField = field.comp_type_code === "lookup" ||
+                            field.comp_type_code === "combobox";
+      if (isLookupField) {
+        const detectValsBtn = document.createElement("button");
+        detectValsBtn.type = "button";
+        detectValsBtn.className = "erp-field-design-detectvals";
+        detectValsBtn.textContent = "🎯";
+        detectValsBtn.title = "Auto-detekce hodnot pro dropdown — SELECT DISTINCT z DB.";
+        detectValsBtn.style.cssText =
+          "background:rgba(58,138,168,0.2);border:1px solid #3a8aa8;color:#7ed4e8;" +
+          "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
+          "cursor:pointer;font-size:11px;line-height:1;display:flex;" +
+          "align-items:center;justify-content:center;opacity:1 !important;";
+        detectValsBtn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          ev.preventDefault();
+          await this._detectAndSaveEnumValues(field);
+        });
+        detectValsBtn.addEventListener("dragstart", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        wrap.appendChild(detectValsBtn);
+      } else {
+        // Empty slot pro grid alignment (jine comp_types nemaji 🎯)
+        const spacer = document.createElement("div");
+        spacer.style.cssText = "width:22px;";
+        wrap.appendChild(spacer);
+      }
 
       // Krok 14b+9-D (13.5.2026 ~21:35): ✕ delete button vpravo (hover
       // visible jen v DESIGN mode). Click -> confirm dialog -> DELETE
@@ -4085,6 +4122,61 @@
       } catch (e) {
         console.error("[DesignFwForm] delete failed:", e);
         _showToast("Smazání selhalo: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    async _detectAndSaveEnumValues(field) {
+      // Krok 14b+13: GET distinct hodnoty z DB pro lookup field -> PATCH
+      // layout.enum_values. Backend dela: walk parent chain -> core ->
+      // data_entity_type -> table -> SELECT DISTINCT column.
+      try {
+        _showToast("Detekce hodnot pro '" + (field.caption || field.name) + "'…", "info", 1500);
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id) + "/distinct-values",
+          { credentials: "include" }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        const data = await r.json();
+        if (!data.ok) {
+          throw new Error(data.error || "unknown");
+        }
+        if (!Array.isArray(data.values) || data.values.length === 0) {
+          _showToast(
+            "Žádné distinct hodnoty pro '" + field.name + "' v tabulce " + (data.table || "?"),
+            "error",
+            3000
+          );
+          return;
+        }
+        // PATCH layout.enum_values (preserve other layout keys)
+        const newLayout = Object.assign({}, field.layout || {}, {
+          enum_values: data.values,
+        });
+        const pr = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ layout: newLayout }),
+          }
+        );
+        if (!pr.ok) {
+          const errBody = await pr.json().catch(() => ({}));
+          throw new Error("PATCH HTTP " + pr.status + ": " + (errBody.error || pr.statusText));
+        }
+        _showToast(
+          "Detekováno " + data.values.length + " hodnot pro '" + (field.caption || field.name) + "'",
+          "success"
+        );
+        this._pendingFlashFieldId = field.id;
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] detect enum values failed:", e);
+        _showToast("Detekce hodnot selhala: " + (e.message || e), "error", 3500);
       }
     }
 

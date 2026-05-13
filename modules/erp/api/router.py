@@ -3267,6 +3267,147 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
+@api_router.get("/design/comp-def/{comp_def_id}/distinct-values")
+async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResponse:
+    """Auto-detect dropdown hodnoty pro lookup/combobox field.
+
+    Phase 38.4 Krok 14b+13 (14.5.2026 ~00:30, Marti's "potrebujeme dostat
+    actived/disabled/pending do listboxu"): SELECT DISTINCT na zdrojove
+    tabulce -> vrati list of {value, label}.
+
+    Algorithm:
+      1. Find comp_def (column name)
+      2. Walk parent_comp_def chain UP -> find parent_core_id (form root)
+      3. Get fw.core.data_entity_type
+      4. Lookup _FW_FORM_ENTITY_MAP -> table name + whitelisted columns
+      5. SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL
+         ORDER BY 1
+      6. Return [{value, label}, ...]
+
+    Security:
+      - Parent gate (_require_parent)
+      - Column MUST be in entity_config["select_columns"] whitelist
+        (anti-SQL-injection, anti-PII-leak)
+      - Table name z _FW_FORM_ENTITY_MAP (no user input)
+
+    Returns:
+        200: {ok, comp_def_id, column, table, values: [{value, label}, ...]}
+        400: comp_def nema name/core, column not whitelisted
+        404: comp_def neexistuje
+    """
+    from core.database_data import get_data_session as _gds_dv
+    from sqlalchemy import text as _sql_text_dv
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds_dv = _gds_dv()
+    try:
+        # 1. Find comp_def + name
+        cd = ds_dv.execute(_sql_text_dv("""
+            SELECT id, name, parent_comp_def_id, parent_core_id
+            FROM fw.comp_def
+            WHERE id = :id AND is_active = true
+        """), {"id": comp_def_id}).mappings().one_or_none()
+        if not cd:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_def id={comp_def_id} neexistuje"},
+                status_code=404,
+            )
+        if not cd["name"]:
+            return JSONResponse(
+                {"ok": False, "error": "comp_def nema name (=column name)"},
+                status_code=400,
+            )
+
+        # 2. Walk parent chain UP -> find core_id
+        core_id = cd["parent_core_id"]
+        current_parent = cd["parent_comp_def_id"]
+        max_depth = 10
+        while not core_id and current_parent and max_depth > 0:
+            parent = ds_dv.execute(_sql_text_dv("""
+                SELECT id, parent_comp_def_id, parent_core_id
+                FROM fw.comp_def WHERE id = :id
+            """), {"id": current_parent}).mappings().one_or_none()
+            if not parent:
+                break
+            if parent["parent_core_id"]:
+                core_id = parent["parent_core_id"]
+                break
+            current_parent = parent["parent_comp_def_id"]
+            max_depth -= 1
+
+        if not core_id:
+            return JSONResponse(
+                {"ok": False, "error": "Nelze najit parent core (form root)"},
+                status_code=400,
+            )
+
+        # 3. Get core.data_entity_type
+        core = ds_dv.execute(_sql_text_dv("""
+            SELECT id, code, data_entity_type
+            FROM fw.core WHERE id = :id
+        """), {"id": core_id}).mappings().one_or_none()
+        if not core or not core["data_entity_type"]:
+            return JSONResponse(
+                {"ok": False, "error": "Core nema data_entity_type"},
+                status_code=400,
+            )
+
+        entity_type = core["data_entity_type"]
+        config = _FW_FORM_ENTITY_MAP.get(entity_type)
+        if not config:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"Entity type '{entity_type}' nezaregistrovan v _FW_FORM_ENTITY_MAP",
+                },
+                status_code=400,
+            )
+
+        # 4. Column whitelist check (anti-PII, anti-SQL-injection)
+        col_name = cd["name"]
+        allowed_cols = set(config["select_columns"])
+        if col_name not in allowed_cols:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Column '{col_name}' neni v whitelist "
+                        f"_FW_FORM_ENTITY_MAP[{entity_type}].select_columns"
+                    ),
+                },
+                status_code=400,
+            )
+
+        # 5. SELECT DISTINCT — col_name + table_name jsou whitelisted/server-side,
+        # bezpecne pres f-string interpolation (no user input)
+        schema_name = config.get("schema", "public")
+        table_name = config["table"]
+        sql = (
+            f'SELECT DISTINCT "{col_name}" AS val '
+            f'FROM "{schema_name}"."{table_name}" '
+            f'WHERE "{col_name}" IS NOT NULL '
+            f'ORDER BY 1'
+        )
+        rows = ds_dv.execute(_sql_text_dv(sql)).all()
+        values = [
+            {"value": str(r[0]), "label": str(r[0])}
+            for r in rows
+        ]
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "comp_def_id": comp_def_id,
+            "column": col_name,
+            "table": f"{schema_name}.{table_name}",
+            "values": values,
+            "count": len(values),
+        }))
+    finally:
+        ds_dv.close()
+
+
 @api_router.patch("/design/comp-def/update/{comp_def_id}")
 async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     """Partial update field comp_def — caption / region_slot / layout.

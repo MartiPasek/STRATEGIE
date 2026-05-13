@@ -2665,10 +2665,13 @@
         this._shell.title.textContent = core.label || form.caption || core.code;
       }
 
-      // Root content container
+      // Root content container — flex column aby main panel mohl alClient grow.
+      // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:30, Marti's "alClient
+      // doctrine"): root je flex column, main panel ma flex:1, header/footer
+      // natural height. Body uz je flex column (line 770-772 open()).
       const root = document.createElement("div");
       root.className = "erp-design-tab-content";
-      root.style.cssText = "padding:0;";
+      root.style.cssText = "padding:0;display:flex;flex-direction:column;flex:1 1 auto;min-height:0;";
 
       // Extract panels — template.layout (Krok 14b+3) > form.layout (legacy)
       let panels = [];

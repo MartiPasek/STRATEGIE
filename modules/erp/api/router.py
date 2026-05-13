@@ -9130,44 +9130,104 @@ def _render_workspace_page(user_id: int) -> str:
                   // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35): grid
                   // refresh callback po OK save. Marti's request: "aby bylo
                   // videt, ze se hodnota zmenila".
-                  onSaveSuccess: function(respData) {
+                  onSaveSuccess: async function(respData) {
                     console.info("[fw-form] onSaveSuccess — refresh grid", respData);
                     // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:50, Marti's
                     // request): preserve selected row po refresh. Save row_id
                     // pred refresh, post-render find + setSelected + scroll.
+                    //
+                    // Phase 38.4 Krok 14b+6 (13.5.2026 ~19:30, Marti's "radek
+                    // se po refreshi neoznaci, musim kliknout"): pridany 3
+                    // fixy ktere visualni selekci drzi:
+                    //   1. await renderSystemGrid PRED poll (driv: poll bezel
+                    //      pred destroy/recreate, chytil starou instanci)
+                    //   2. poll ceka na getDisplayedRowCount() > 0 (DOM rows
+                    //      v viewportu, ne jen node.data v AG Grid internals)
+                    //   3. setFocusedCell + redrawRows po setSelected ->
+                    //      keyboard focus + force CSS class apply na row el.
+                    //   4. type-coerce String() compare (driv: int vs string
+                    //      mismatch, === fail)
                     var savedRowId = respData && respData.row_id;
                     function _reselectRowAfterRefresh() {
                       if (savedRowId == null) return;
                       var attempts = 0;
-                      var maxAttempts = 30;  // 30 * 100ms = 3s timeout
+                      var maxAttempts = 40;  // 40 * 100ms = 4s timeout
                       var poll = setInterval(function() {
                         attempts++;
                         var grid = window._sysCurrentGrid;
-                        if (grid && grid.gridApi && typeof grid.gridApi.forEachNode === "function") {
-                          var foundNode = null;
-                          try {
-                            grid.gridApi.forEachNode(function(node) {
-                              if (!foundNode && node.data) {
-                                var rid = node.data.id != null ? node.data.id : node.data.ID;
-                                if (rid === savedRowId) foundNode = node;
-                              }
-                            });
-                          } catch (e) { /* gridApi not ready yet */ }
-                          if (foundNode) {
-                            clearInterval(poll);
+                        var apiReady = grid && grid.gridApi
+                          && typeof grid.gridApi.forEachNode === "function"
+                          && typeof grid.gridApi.getDisplayedRowCount === "function";
+                        if (apiReady) {
+                          var displayedCount = 0;
+                          try { displayedCount = grid.gridApi.getDisplayedRowCount(); } catch (e) {}
+                          if (displayedCount > 0) {
+                            var foundNode = null;
                             try {
-                              foundNode.setSelected(true);
-                              grid.gridApi.ensureNodeVisible(foundNode, "middle");
-                              console.info("[fw-form] post-refresh row selected:", savedRowId);
-                            } catch (e) {
-                              console.warn("[fw-form] setSelected failed:", e);
+                              grid.gridApi.forEachNode(function(node) {
+                                if (!foundNode && node.data) {
+                                  var rid = node.data.id != null ? node.data.id : node.data.ID;
+                                  // Type-coerce: respData.row_id muze byt int z
+                                  // PATCH response, node.data.id muze byt int /
+                                  // string podle column type. String() unify.
+                                  if (rid != null && String(rid) === String(savedRowId)) {
+                                    foundNode = node;
+                                  }
+                                }
+                              });
+                            } catch (e) { /* mid-render race, retry next tick */ }
+                            if (foundNode) {
+                              clearInterval(poll);
+                              try {
+                                // Selection — vnitrni AG Grid stav
+                                foundNode.setSelected(true);
+                                // Scroll do viewportu (pokud uz neni)
+                                grid.gridApi.ensureNodeVisible(foundNode, "middle");
+                                // Keyboard focus — vyznacne fokusni cellu z
+                                // prvni viditelnou column. Bez focused cell
+                                // AG Grid Enterprise nezvyrazni selection CSS
+                                // (Marti's "fyzicky musim kliknout" = klik
+                                // dava i focused cell, nejen selection).
+                                try {
+                                  var displayedCols = grid.gridApi.getAllDisplayedColumns();
+                                  if (displayedCols && displayedCols.length > 0) {
+                                    grid.gridApi.setFocusedCell(
+                                      foundNode.rowIndex,
+                                      displayedCols[0].getColId()
+                                    );
+                                  }
+                                } catch (eFocus) {
+                                  console.warn("[fw-form] setFocusedCell failed:", eFocus);
+                                }
+                                // Force CSS class apply — redraw konkretni
+                                // row. Bez toho AG Grid sice ma node.selected
+                                // = true, ale DOM `.ag-row-selected` class
+                                // neni aplikovana (selection state set pred
+                                // row mount do viewportu, race condition).
+                                try {
+                                  grid.gridApi.redrawRows({ rowNodes: [foundNode] });
+                                } catch (eRedraw) {
+                                  console.warn("[fw-form] redrawRows failed:", eRedraw);
+                                }
+                                console.info(
+                                  "[fw-form] post-refresh row selected:",
+                                  savedRowId,
+                                  "rowIndex=" + foundNode.rowIndex,
+                                  "attempts=" + attempts
+                                );
+                              } catch (e) {
+                                console.warn("[fw-form] setSelected failed:", e);
+                              }
+                              return;
                             }
-                            return;
                           }
                         }
                         if (attempts >= maxAttempts) {
                           clearInterval(poll);
-                          console.warn("[fw-form] post-refresh row select timeout id=" + savedRowId);
+                          console.warn(
+                            "[fw-form] post-refresh row select timeout id=" + savedRowId,
+                            "(grid=" + !!grid + " api=" + apiReady + ")"
+                          );
                         }
                       }, 100);
                     }
@@ -9177,7 +9237,12 @@ def _render_workspace_page(user_id: int) -> str:
                       var currentLabel = window._sysCurrentLabel || "";
                       if (currentMode) {
                         try {
-                          window._sysHelpers.renderSystemGrid(currentMode, currentLabel);
+                          // await -> renderSystemGrid je async function, fetch
+                          // data + create new ErpDataGrid. Driv: fire-and-forget
+                          // = poll bezel mezi destroy() a new ErpDataGrid(),
+                          // _sysCurrentGrid null = timeout. Now: await, poll
+                          // azi po creation, gridApi uz exists.
+                          await window._sysHelpers.renderSystemGrid(currentMode, currentLabel);
                           _reselectRowAfterRefresh();
                           return;
                         } catch (e) {
@@ -9188,7 +9253,12 @@ def _render_workspace_page(user_id: int) -> str:
                     // Legacy renderPrehled (positive cislo grids — current cislo z scope)
                     if (typeof cislo !== "undefined" && typeof loadPrehled === "function") {
                       try {
-                        loadPrehled(cislo, item);
+                        // loadPrehled muze nebo nemusi vracet Promise — pokud
+                        // ano, await; pokud ne, sync return = OK
+                        var maybePromise = loadPrehled(cislo, item);
+                        if (maybePromise && typeof maybePromise.then === "function") {
+                          await maybePromise;
+                        }
                         _reselectRowAfterRefresh();
                         return;
                       } catch (e) {

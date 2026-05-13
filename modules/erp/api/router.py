@@ -9132,14 +9132,53 @@ def _render_workspace_page(user_id: int) -> str:
                   // videt, ze se hodnota zmenila".
                   onSaveSuccess: function(respData) {
                     console.info("[fw-form] onSaveSuccess — refresh grid", respData);
+                    // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:50, Marti's
+                    // request): preserve selected row po refresh. Save row_id
+                    // pred refresh, post-render find + setSelected + scroll.
+                    var savedRowId = respData && respData.row_id;
+                    function _reselectRowAfterRefresh() {
+                      if (savedRowId == null) return;
+                      var attempts = 0;
+                      var maxAttempts = 30;  // 30 * 100ms = 3s timeout
+                      var poll = setInterval(function() {
+                        attempts++;
+                        var grid = window._sysCurrentGrid;
+                        if (grid && grid.gridApi && typeof grid.gridApi.forEachNode === "function") {
+                          var foundNode = null;
+                          try {
+                            grid.gridApi.forEachNode(function(node) {
+                              if (!foundNode && node.data) {
+                                var rid = node.data.id != null ? node.data.id : node.data.ID;
+                                if (rid === savedRowId) foundNode = node;
+                              }
+                            });
+                          } catch (e) { /* gridApi not ready yet */ }
+                          if (foundNode) {
+                            clearInterval(poll);
+                            try {
+                              foundNode.setSelected(true);
+                              grid.gridApi.ensureNodeVisible(foundNode, "middle");
+                              console.info("[fw-form] post-refresh row selected:", savedRowId);
+                            } catch (e) {
+                              console.warn("[fw-form] setSelected failed:", e);
+                            }
+                            return;
+                          }
+                        }
+                        if (attempts >= maxAttempts) {
+                          clearInterval(poll);
+                          console.warn("[fw-form] post-refresh row select timeout id=" + savedRowId);
+                        }
+                      }, 100);
+                    }
                     // System grid (security_users + ostatni negativni cislo grids)
                     if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
-                      // Re-render current System grid (drz state z _sysHelpers internal)
                       var currentMode = window._sysCurrentMode || null;
                       var currentLabel = window._sysCurrentLabel || "";
                       if (currentMode) {
                         try {
                           window._sysHelpers.renderSystemGrid(currentMode, currentLabel);
+                          _reselectRowAfterRefresh();
                           return;
                         } catch (e) {
                           console.warn("[fw-form] System grid refresh failed:", e);
@@ -9150,6 +9189,7 @@ def _render_workspace_page(user_id: int) -> str:
                     if (typeof cislo !== "undefined" && typeof loadPrehled === "function") {
                       try {
                         loadPrehled(cislo, item);
+                        _reselectRowAfterRefresh();
                         return;
                       } catch (e) {
                         console.warn("[fw-form] Legacy grid refresh failed:", e);

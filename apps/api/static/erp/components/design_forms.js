@@ -38,6 +38,111 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14b+9-A (13.5.2026 ~21:30, Marti's "vysperkovat pred
+  // zitrejsi prezentaci IT timu"): Toast notification system. Fixed
+  // bottom-right, fade-in/hold/fade-out animation. Stack support pokud
+  // multiple toasts (top-down).
+  //
+  // Types:
+  //   success (default) → green accent, ✓ icon
+  //   error             → red accent, ✕ icon
+  //   info              → blue accent, ℹ icon
+  // ────────────────────────────────────────────────────────────────────
+  function _ensureToastContainer() {
+    let c = document.getElementById("erp-toast-container");
+    if (c) return c;
+    c = document.createElement("div");
+    c.id = "erp-toast-container";
+    c.style.cssText =
+      "position:fixed;bottom:20px;right:20px;z-index:99999;" +
+      "display:flex;flex-direction:column-reverse;gap:8px;" +
+      "pointer-events:none;";
+    document.body.appendChild(c);
+    return c;
+  }
+
+  function _ensureToastStyles() {
+    if (document.getElementById("erp-toast-styles")) return;
+    const styles = document.createElement("style");
+    styles.id = "erp-toast-styles";
+    styles.textContent = [
+      "@keyframes erpToastIn {",
+      "  from { opacity: 0; transform: translateX(20px); }",
+      "  to   { opacity: 1; transform: translateX(0); }",
+      "}",
+      "@keyframes erpToastOut {",
+      "  from { opacity: 1; transform: translateX(0); }",
+      "  to   { opacity: 0; transform: translateX(20px); }",
+      "}",
+      ".erp-toast {",
+      "  display: flex; align-items: center; gap: 10px;",
+      "  padding: 10px 16px; border-radius: 4px;",
+      "  background: #1a1f26; border: 1px solid #2a3340;",
+      "  color: #cfd6df; font-size: 13px;",
+      "  box-shadow: 0 6px 20px rgba(0,0,0,0.5);",
+      "  pointer-events: auto; min-width: 220px; max-width: 380px;",
+      "  animation: erpToastIn 200ms ease;",
+      "}",
+      ".erp-toast.fadeout { animation: erpToastOut 300ms ease forwards; }",
+      ".erp-toast-icon { font-size: 16px; line-height: 1; flex: 0 0 auto; }",
+      ".erp-toast-msg { flex: 1 1 auto; }",
+      ".erp-toast-success { border-left: 3px solid #4caf6a; }",
+      ".erp-toast-success .erp-toast-icon { color: #4caf6a; }",
+      ".erp-toast-error { border-left: 3px solid #e57373; }",
+      ".erp-toast-error .erp-toast-icon { color: #e57373; }",
+      ".erp-toast-info { border-left: 3px solid #5a8aaa; }",
+      ".erp-toast-info .erp-toast-icon { color: #7ed4e8; }",
+      // Phase 38.4 Krok 14b+9-C: drag drop flash animations
+      "@keyframes erpFieldFlashSuccess {",
+      "  0%   { background: rgba(76,175,106,0.0); }",
+      "  20%  { background: rgba(76,175,106,0.3); }",
+      "  100% { background: rgba(76,175,106,0.0); }",
+      "}",
+      ".erp-field-design-wrap {",
+      "  transition: transform 200ms ease, border-color 150ms;",
+      "}",
+      ".erp-field-flash-success {",
+      "  animation: erpFieldFlashSuccess 700ms ease;",
+      "}",
+      // Phase 38.4 Krok 14b+9-D: hover ✕ delete button
+      ".erp-field-design-wrap .erp-field-design-delete {",
+      "  opacity: 0; transition: opacity 150ms;",
+      "}",
+      ".erp-field-design-wrap:hover .erp-field-design-delete {",
+      "  opacity: 1;",
+      "}",
+    ].join("\n");
+    document.head.appendChild(styles);
+  }
+
+  function _showToast(msg, type, durationMs) {
+    _ensureToastStyles();
+    const c = _ensureToastContainer();
+    type = type || "success";
+    durationMs = durationMs || 1800;
+    const icons = { success: "✓", error: "✕", info: "ℹ" };
+    const t = document.createElement("div");
+    t.className = "erp-toast erp-toast-" + type;
+    const iconEl = document.createElement("span");
+    iconEl.className = "erp-toast-icon";
+    iconEl.textContent = icons[type] || icons.success;
+    const msgEl = document.createElement("span");
+    msgEl.className = "erp-toast-msg";
+    msgEl.textContent = String(msg || "");
+    t.appendChild(iconEl);
+    t.appendChild(msgEl);
+    c.appendChild(t);
+    setTimeout(() => {
+      t.classList.add("fadeout");
+      setTimeout(() => {
+        try { t.parentNode && t.parentNode.removeChild(t); } catch (e) {}
+      }, 320);
+    }, durationMs);
+  }
+  // Export pro pouziti mimo design_forms.js (budouci ERP toasts)
+  global.erpShowToast = _showToast;
+
+  // ────────────────────────────────────────────────────────────────────
   // Phase 38.4 Krok 14a-A1r (12.5.2026 vecer, Marti's bug catch):
   // F5 / tab close / browser back s otevrenym Design modal s dirty fields
   // mel zavrit modal bez varovani. Fix: window.beforeunload listener
@@ -3372,8 +3477,19 @@
         btnEl.innerHTML = "✅ Uloženo";
 
         // Clear dirty state (modal close handler nepokusí dirty check)
+        const _changeCount = this._dirty.size;
         this._dirty.clear();
         _markFormDirty(this, false);
+
+        // Phase 38.4 Krok 14b+9-A (13.5.2026 ~21:30): toast notification
+        // misto silent close. Marti's prezentace polish.
+        const _wToast = _changeCount === 1 ? "změna" : (_changeCount < 5 ? "změny" : "změn");
+        _showToast(
+          _changeCount > 0
+            ? "Uloženo — " + _changeCount + " " + _wToast
+            : "Uloženo",
+          "success"
+        );
 
         // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35, Marti's
         // "refresh gridu po save" request): trigger callback s response
@@ -3392,7 +3508,7 @@
         }, 600);
       } catch (e) {
         console.error("[DesignFwForm] save failed:", e);
-        alert("Chyba spojení: " + (e.message || e));
+        _showToast("Save selhal: " + (e.message || e), "error", 3500);
         btnEl.disabled = false;
         btnEl.innerHTML = originalHtml;
       }
@@ -3411,9 +3527,21 @@
       wrap.dataset.fieldId = String(field.id);
       wrap.dataset.fieldIndex = String(index);
       wrap.style.cssText =
-        "display:grid;grid-template-columns:20px 1fr;gap:6px;align-items:start;" +
+        "display:grid;grid-template-columns:20px 1fr 24px;gap:6px;align-items:start;" +
         "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
-        "transition:background 0.1s,border-color 0.1s;cursor:grab;";
+        "cursor:grab;position:relative;";
+
+      // Krok 14b+9-C (13.5.2026 ~21:35): pending flash animation —
+      // pokud _pendingFlashFieldId match field.id, apply flash class +
+      // clear flag. Pouziva se po reorder + delete na novou pozici.
+      if (this._pendingFlashFieldId === field.id) {
+        wrap.classList.add("erp-field-flash-success");
+        this._pendingFlashFieldId = null;
+        // Cleanup class po animation tak ze re-render neopakuje
+        setTimeout(() => {
+          try { wrap.classList.remove("erp-field-flash-success"); } catch (e) {}
+        }, 800);
+      }
 
       // Grip handle vlevo (drag icon)
       const grip = document.createElement("div");
@@ -3431,6 +3559,54 @@
       content.style.minWidth = "0";  // grid item shrink
       content.appendChild(fieldEl);
       wrap.appendChild(content);
+
+      // Krok 14b+9-D (13.5.2026 ~21:35): ✕ delete button vpravo (hover
+      // visible jen v DESIGN mode). Click -> confirm dialog -> DELETE
+      // endpoint -> toast.
+      const delBtn = document.createElement("button");
+      delBtn.type = "button";
+      delBtn.className = "erp-field-design-delete";
+      delBtn.textContent = "✕";
+      delBtn.title = "Smazat pole '" + (field.caption || field.name) + "'";
+      delBtn.style.cssText =
+        "background:transparent;border:1px solid #5a2828;color:#e57373;" +
+        "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
+        "cursor:pointer;font-size:12px;line-height:1;display:flex;" +
+        "align-items:center;justify-content:center;";
+      delBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        const decision = await _confirmDarkDialog({
+          title: "Smazat pole",
+          message: "Opravdu smazat pole '" + (field.caption || field.name) + "'?\n\n" +
+                   "(soft-delete, struktura zachovana v audit historii)",
+        });
+        if (decision !== true) return;
+        await this._performFieldDelete(field);
+      });
+      // Defensive: zachytnout dragstart aby button click neaktivoval drag
+      delBtn.addEventListener("dragstart", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+      wrap.appendChild(delBtn);
+
+      // Krok 14b+9-B (13.5.2026 ~21:35): inline rename label (dvojklik).
+      // Najit label el v fieldEl + attach dblclick. Vsechny comp_type
+      // pouzivaji bud .erp-input-label nebo similar label div.
+      try {
+        const labelEl = fieldEl.querySelector(".erp-input-label, .erp-design-section-title, label");
+        if (labelEl) {
+          labelEl.style.cursor = "text";
+          labelEl.title = "Dvojklik pro přejmenování";
+          labelEl.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            this._startInlineRename(labelEl, field);
+          });
+        }
+      } catch (e) {
+        console.warn("[DesignFwForm] inline rename attach failed:", e);
+      }
 
       // Drag events
       wrap.addEventListener("dragstart", (ev) => {
@@ -3489,6 +3665,127 @@
       return wrap;
     }
 
+    async _performFieldDelete(field) {
+      // Krok 14b+9-D: DELETE /design/comp-def/{id} -> reload + toast.
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
+          { method: "DELETE", credentials: "include" }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        _showToast(
+          "Pole '" + (field.caption || field.name) + "' smazáno",
+          "success"
+        );
+        // Reload spec + re-render
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] delete failed:", e);
+        _showToast("Smazání selhalo: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    _startInlineRename(labelEl, field) {
+      // Krok 14b+9-B: replace label DIV s INPUT, focus + select.
+      // Enter -> PATCH caption. Esc -> revert. Blur -> commit pokud
+      // non-empty + zmena, jinak revert.
+      const originalLabel = field.caption || field.name;
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = originalLabel;
+      input.style.cssText =
+        "font-size:12px;color:#e8eef5;background:#0f141a;" +
+        "border:1px solid #3a8aa8;border-radius:3px;padding:2px 6px;" +
+        "width:100%;outline:none;";
+      // Hide label DIV, insert input pred nim (zachovat label v DOM
+      // pro snadny revert)
+      labelEl.style.display = "none";
+      labelEl.parentNode.insertBefore(input, labelEl);
+      // Vyznacit cely text pro rychly retype
+      setTimeout(() => {
+        input.focus();
+        try { input.select(); } catch (e) {}
+      }, 0);
+
+      let _committed = false;
+      const commit = async (newLabel) => {
+        if (_committed) return;
+        _committed = true;
+        const trimmed = String(newLabel || "").trim();
+        // Restore label DIV bez ohledu na outcome
+        try { input.parentNode.removeChild(input); } catch (e) {}
+        labelEl.style.display = "";
+        if (!trimmed || trimmed === originalLabel) {
+          return; // revert beze zmeny
+        }
+        // PATCH backend
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ caption: trimmed }),
+            }
+          );
+          if (!r.ok) {
+            const errBody = await r.json().catch(() => ({}));
+            throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+          }
+          _showToast("Popisek změněn: '" + trimmed + "'", "success");
+          // Flash na renamed field po reload
+          this._pendingFlashFieldId = field.id;
+          await this._reloadSpec();
+        } catch (e) {
+          console.error("[DesignFwForm] rename failed:", e);
+          _showToast("Přejmenování selhalo: " + (e.message || e), "error", 3500);
+        }
+      };
+      const cancel = () => {
+        if (_committed) return;
+        _committed = true;
+        try { input.parentNode.removeChild(input); } catch (e) {}
+        labelEl.style.display = "";
+      };
+      input.addEventListener("keydown", (ev) => {
+        if (ev.key === "Enter") {
+          ev.preventDefault();
+          commit(input.value);
+        } else if (ev.key === "Escape") {
+          ev.preventDefault();
+          cancel();
+        }
+      });
+      input.addEventListener("blur", () => {
+        commit(input.value);
+      });
+    }
+
+    async _reloadSpec() {
+      // Krok 14b+9: shared reload helper (used by delete + rename + reorder)
+      try {
+        const r = await fetch(
+          "/api/v1/erp/fw-form/" +
+            encodeURIComponent(this._spec.core.code) + "/" +
+            encodeURIComponent(this._spec.data.id || 0),
+          { credentials: "include" }
+        );
+        if (r.ok) {
+          const newSpec = await r.json();
+          if (newSpec.ok) {
+            this._spec = newSpec;
+            this._render();
+          }
+        }
+      } catch (e) {
+        console.error("[DesignFwForm] _reloadSpec failed:", e);
+      }
+    }
+
     async _performFieldReorder(fromId, toId, dropAbove) {
       // Krok 14b+8: compute novy order napriklad fields v main panelu,
       // POST /design/comp-def/reorder s array {id, sort_order}. Po
@@ -3527,23 +3824,15 @@
           throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
         }
         console.info("[DesignFwForm] reorder OK:", payload);
+        _showToast("Pořadí uloženo", "success");
+        // Krok 14b+9-C: flash na moved field po reload (pendingFlashFieldId
+        // se cte v _wrapFieldForDesign pri render).
+        this._pendingFlashFieldId = fromId;
         // Reload spec + re-render — nova order se projevi
-        const reloadResp = await fetch(
-          "/api/v1/erp/fw-form/" +
-            encodeURIComponent(this._spec.core.code) + "/" +
-            encodeURIComponent(this._spec.data.id || 0),
-          { credentials: "include" }
-        );
-        if (reloadResp.ok) {
-          const newSpec = await reloadResp.json();
-          if (newSpec.ok) {
-            this._spec = newSpec;
-            this._render();
-          }
-        }
+        await this._reloadSpec();
       } catch (e) {
         console.error("[DesignFwForm] reorder failed:", e);
-        alert("Reorder selhal: " + (e.message || e));
+        _showToast("Pořadí selhalo: " + (e.message || e), "error", 3500);
       }
     }
 

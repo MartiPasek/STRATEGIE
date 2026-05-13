@@ -3267,6 +3267,152 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
         ds.close()
 
 
+@api_router.patch("/design/comp-def/{comp_def_id}")
+async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
+    """Partial update field comp_def — caption / region_slot / layout.
+
+    Phase 38.4 Krok 14b+9-B (13.5.2026 ~21:35, Marti's "inline rename label
+    dvojklik"): frontend posila PATCH s {caption: "..."}, backend update
+    pres update_row + audit log.
+
+    Whitelist updatable columns (security — uzivatel nesmi sahat na
+    type_id/parent/name pres tento endpoint):
+      - caption (label visible v UI)
+      - region_slot (header/main/footer)
+      - layout (JSONB dict)
+
+    Body:
+        {caption?: str, region_slot?: str, layout?: dict}
+
+    Returns:
+        200: {ok, comp_def_id, updated_fields: [...]}
+        400: invalid body / nothing to update
+        404: comp_def neexistuje
+        500: UPDATE failed
+    """
+    from core.database_data import get_data_session as _gds_pcd
+    from sqlalchemy import text as _sql_text_pcd
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    # Whitelist updatable columns
+    ALLOWED = ("caption", "region_slot", "layout")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+    if not update_vals:
+        return JSONResponse(
+            {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
+            status_code=400,
+        )
+
+    # Defensive type check pro caption (string non-empty)
+    if "caption" in update_vals:
+        val = update_vals["caption"]
+        if not isinstance(val, str) or not val.strip():
+            return JSONResponse(
+                {"ok": False, "error": "caption musi byt non-empty string"},
+                status_code=400,
+            )
+        update_vals["caption"] = val.strip()
+
+    # caller_display lookup
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_pcd
+        from modules.core.infrastructure.models_core import User as _User_pcd
+        cs_pcd = _gcs_pcd()
+        try:
+            u_pcd = cs_pcd.query(_User_pcd).filter_by(id=uid).first()
+            if u_pcd:
+                if u_pcd.short_name and u_pcd.short_name.strip():
+                    caller_display = u_pcd.short_name.strip()
+                elif u_pcd.first_name or u_pcd.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_pcd.first_name, u_pcd.last_name
+                    ])).strip()
+        finally:
+            cs_pcd.close()
+
+    # Existence check
+    ds_pcd = _gds_pcd()
+    try:
+        existing = ds_pcd.execute(_sql_text_pcd("""
+            SELECT id, name, caption FROM fw.comp_def
+            WHERE id = :id AND is_active = true
+        """), {"id": comp_def_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_def id={comp_def_id} neexistuje nebo deactivated"},
+                status_code=404,
+            )
+
+        # UPDATE pres update_row (Marti-AI je owner fw.*)
+        from modules.strategie_pg.application.service import update_row as _spg_update_pcd
+        full_values = dict(update_vals)
+        full_values["updated_by_id"] = uid
+        full_values["updated_by_text"] = caller_display
+        upd = _spg_update_pcd(
+            schema="fw",
+            table="comp_def",
+            values=full_values,
+            where={"id": comp_def_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log (SAVEPOINT pattern)
+        ds_pcd.execute(_sql_text_pcd("SAVEPOINT pre_audit_log"))
+        try:
+            change_desc = ", ".join(
+                f"{k}={update_vals[k]!r}" for k in update_vals.keys()
+            )
+            ds_pcd.execute(_sql_text_pcd("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_field_update', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"field {existing['name']}: {change_desc} by {caller_display}"
+                ),
+            })
+            ds_pcd.execute(_sql_text_pcd("RELEASE SAVEPOINT pre_audit_log"))
+            ds_pcd.commit()
+        except Exception as _act_e:
+            try:
+                ds_pcd.execute(_sql_text_pcd("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds_pcd.commit()
+            except Exception:
+                ds_pcd.rollback()
+            logger.warning(f"design_patch_comp_def activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "comp_def_id": comp_def_id,
+            "updated_fields": list(update_vals.keys()),
+        }))
+    finally:
+        ds_pcd.close()
+
+
 @api_router.put("/design/comp-def/reorder")
 async def design_reorder_comp_def(req: Request) -> JSONResponse:
     """Bulk update sort_order pro fields v fw.comp_def.

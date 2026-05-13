@@ -8446,6 +8446,11 @@ def _render_workspace_page(user_id: int) -> str:
           main.innerHTML = '<div style="padding:20px;color:#f88">ErpDataGrid komponenta nenactena</div>';
           return;
         }
+        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35): track current
+        // mode + label aby fw form onSaveSuccess callback mohol refreshovat
+        // tento grid (volat renderSystemGrid znovu s same params).
+        window._sysCurrentMode = mode;
+        window._sysCurrentLabel = labelText || "";
         // Destroy predchozi instance (Marti's nav between System uzly)
         if (window._sysCurrentGrid && typeof window._sysCurrentGrid.destroy === "function") {
           try { window._sysCurrentGrid.destroy(); } catch (e) {}
@@ -9122,6 +9127,38 @@ def _render_workspace_page(user_id: int) -> str:
                 const modal = new window.DesignFwForm({
                   coreCode: d.form_core.code,
                   rowId: rowId,
+                  // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35): grid
+                  // refresh callback po OK save. Marti's request: "aby bylo
+                  // videt, ze se hodnota zmenila".
+                  onSaveSuccess: function(respData) {
+                    console.info("[fw-form] onSaveSuccess — refresh grid", respData);
+                    // System grid (security_users + ostatni negativni cislo grids)
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      // Re-render current System grid (drz state z _sysHelpers internal)
+                      var currentMode = window._sysCurrentMode || null;
+                      var currentLabel = window._sysCurrentLabel || "";
+                      if (currentMode) {
+                        try {
+                          window._sysHelpers.renderSystemGrid(currentMode, currentLabel);
+                          return;
+                        } catch (e) {
+                          console.warn("[fw-form] System grid refresh failed:", e);
+                        }
+                      }
+                    }
+                    // Legacy renderPrehled (positive cislo grids — current cislo z scope)
+                    if (typeof cislo !== "undefined" && typeof loadPrehled === "function") {
+                      try {
+                        loadPrehled(cislo, item);
+                        return;
+                      } catch (e) {
+                        console.warn("[fw-form] Legacy grid refresh failed:", e);
+                      }
+                    }
+                    // Last resort fallback — full page reload (heavy ale 100% works)
+                    console.warn("[fw-form] No grid refresh handler — falling back to location.reload()");
+                    location.reload();
+                  },
                 });
                 await modal.open();
                 return;

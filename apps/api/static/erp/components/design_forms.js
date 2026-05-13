@@ -3188,6 +3188,17 @@
         this._dirty.clear();
         _markFormDirty(this, false);
 
+        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35, Marti's
+        // "refresh gridu po save" request): trigger callback s response
+        // data. Callback v openFwFormForRow re-renderuje aktualni grid.
+        if (typeof this.opts.onSaveSuccess === "function") {
+          try {
+            this.opts.onSaveSuccess(respData);
+          } catch (e) {
+            console.error("[DesignFwForm] onSaveSuccess callback failed:", e);
+          }
+        }
+
         // Po krátké pauze close
         setTimeout(() => {
           this._shell.close();

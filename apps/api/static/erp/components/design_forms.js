@@ -3190,6 +3190,10 @@
       const label = field.caption || field.name;
       const readonly = !!fieldLayout.readonly;
 
+      // Phase 38.4 Krok 14c (13.5.2026 ~16:00): dispatch rozsiren o vsech
+      // 10 Marti-AI's preview_html-ready comp_types. Drz "uniformita
+      // vítězí" — kazdy known comp_type ma explicit branch, novy comp_type
+      // = pridat case + pripadne UI Kit helper.
       switch (compType) {
         case "edit":
           return _field(label, value, fieldKey, {
@@ -3198,13 +3202,174 @@
             onDirty: onDirty,
           });
 
-        case "combobox":
+        case "number": {
+          // _field s type=number — ErpInput podporuje type via opts
+          const el = _field(label, value, fieldKey, {
+            readonly: readonly,
+            onDirty: onDirty,
+          });
+          // Override input type to number (post-render tweak)
+          try {
+            const input = el.querySelector("input");
+            if (input) input.type = "number";
+          } catch (e) {}
+          return el;
+        }
+
+        case "checkbox_modern": {
+          // Boolean checkbox — value je true/false (nebo string '1'/'0')
+          const wrap = document.createElement("div");
+          wrap.className = "erp-field erp-field-design";
+          wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+          wrap._fieldKey = fieldKey;
+          wrap._kind = "field";
+
+          const labelEl = document.createElement("div");
+          labelEl.className = "erp-input-label";
+          labelEl.style.cssText = "font-size:12px;color:#a8b4c2;cursor:context-menu;";
+          labelEl.setAttribute("data-design-fieldkey", fieldKey);
+          labelEl.dataset.designOrigLabel = label;
+          labelEl.textContent = label;
+
+          const cbWrap = document.createElement("label");
+          cbWrap.style.cssText = "display:flex;align-items:center;gap:8px;padding:6px 0;cursor:pointer;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.style.cssText = "width:18px;height:18px;cursor:pointer;";
+          // Coerce value to bool: true / 'true' / 1 / '1' all → true
+          cb.checked = (value === true || value === "true" || value === 1 || value === "1");
+          cb.disabled = readonly;
+
+          const valLabel = document.createElement("span");
+          valLabel.style.cssText = "font-size:13px;color:#cfd6df;";
+          valLabel.textContent = cb.checked ? "Ano" : "Ne";
+          cbWrap.appendChild(cb);
+          cbWrap.appendChild(valLabel);
+
+          // _inst exposed pro Save handler (collect dirty value via .value())
+          wrap._inst = {
+            value: () => cb.checked,
+            input: cb,
+          };
+          wrap._origVal = cb.checked;
+          if (!readonly) {
+            cb.addEventListener("change", () => {
+              valLabel.textContent = cb.checked ? "Ano" : "Ne";
+              const isDirty = cb.checked !== wrap._origVal;
+              if (typeof onDirty === "function") onDirty(fieldKey, isDirty);
+            });
+          }
+          wrap.appendChild(labelEl);
+          wrap.appendChild(cbWrap);
+          return wrap;
+        }
+
+        case "date_modern": {
+          // ErpDate komponenta (Phase B+6.7) — pokud zaregistrovana,
+          // jinak fallback na _field s type='date'.
+          const el = _field(label, value, fieldKey, {
+            readonly: readonly,
+            onDirty: onDirty,
+          });
+          try {
+            const input = el.querySelector("input");
+            if (input) input.type = "date";
+          } catch (e) {}
+          return el;
+        }
+
+        case "memo": {
+          // Textarea — pokud _memo helper zaregistrovan
+          if (typeof _memo === "function") {
+            return _memo(label, value, fieldKey, {
+              readonly: readonly,
+              onDirty: onDirty,
+            });
+          }
+          // Fallback: _field but multiline (cosmetic — height: 60px)
+          const el = _field(label, value, fieldKey, {
+            readonly: readonly,
+            onDirty: onDirty,
+          });
+          try {
+            const input = el.querySelector("input");
+            if (input) {
+              const txt = document.createElement("textarea");
+              txt.value = value || "";
+              txt.style.cssText = input.style.cssText + ";min-height:60px;resize:vertical;";
+              txt.disabled = readonly;
+              input.parentElement.replaceChild(txt, input);
+              // Update _inst.value() to read from textarea
+              if (el._inst) {
+                el._inst.value = () => txt.value;
+                el._inst.input = txt;
+              }
+              if (!readonly) {
+                txt.addEventListener("input", () => {
+                  if (typeof onDirty === "function") {
+                    onDirty(fieldKey, txt.value !== (value || ""));
+                  }
+                });
+              }
+            }
+          } catch (e) {}
+          return el;
+        }
+
+        case "lookup":
+        case "combobox": {
+          // Lookup / combobox — _dropdown helper s enum_values z layout
           const items = Array.isArray(fieldLayout.enum_values)
             ? fieldLayout.enum_values.map(e => ({ value: e.value, label: e.label }))
             : [];
           return _dropdown(label, value, fieldKey, {
             readonly: readonly,
             items: items,
+            onDirty: onDirty,
+          });
+        }
+
+        case "lookup_multi": {
+          // Multi-select — fallback na _field s comma-separated values (MVP).
+          // Future: dedicated multi-select komponent.
+          const displayVal = Array.isArray(value) ? value.join(", ") : (value || "");
+          return _field(label + " (multi)", displayVal, fieldKey, {
+            readonly: true, // MVP: readonly pro multi-select
+            onDirty: onDirty,
+          });
+        }
+
+        case "label_readonly": {
+          // Read-only display label — bez input, jen text
+          const wrap = document.createElement("div");
+          wrap.className = "erp-field erp-field-design erp-field-readonly-label";
+          wrap.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+          wrap._fieldKey = fieldKey;
+          wrap._kind = "field";
+
+          const labelEl = document.createElement("div");
+          labelEl.style.cssText = "font-size:12px;color:#a8b4c2;cursor:context-menu;";
+          labelEl.setAttribute("data-design-fieldkey", fieldKey);
+          labelEl.dataset.designOrigLabel = label;
+          labelEl.textContent = label;
+
+          const valEl = document.createElement("div");
+          valEl.style.cssText = "padding:6px 8px;color:#cfd6df;font-size:13px;font-style:italic;";
+          valEl.textContent = (value == null || value === "") ? "—" : String(value);
+
+          wrap.appendChild(labelEl);
+          wrap.appendChild(valEl);
+          // No _inst — readonly, no dirty tracking
+          return wrap;
+        }
+
+        case "file":
+        case "button":
+          // File upload + button jsou special (non-edit) — render readonly placeholder
+          // pro main panel display. Real interactivity prijde v dedicated UI Kit
+          // wrappers (Phase 14d+).
+          return _field(label + " (" + compType + ")", value || "", fieldKey, {
+            readonly: true,
             onDirty: onDirty,
           });
 

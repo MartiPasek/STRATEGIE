@@ -2746,8 +2746,15 @@
 
       this._shell.body.appendChild(root);
 
-      // Footer — dirty badge (clickable revert later) + Save (hidden until dirty) + Zavřít
-      this._setupFooter();
+      // Phase 38.4 Krok 14b+5 polish (13.5.2026 dopoledne, Marti's
+      // request): footer template's OK/Storno tlacitka jsou jedine
+      // close actions — modal shell footer (Zavřít) ZRUSENO. Konsolidace
+      // UX: jedna paticka, jedne actions.
+      // Hide shell footer pokud existuje (defensive — _buildModalShell
+      // muze default render footer s padding).
+      if (this._shell && this._shell.footer) {
+        this._shell.footer.style.display = "none";
+      }
     }
 
     // Phase 38.4 Krok 14b+3 (13.5.2026 rano): render template-level component.
@@ -3033,30 +3040,11 @@
       }
     }
 
-    _setupFooter() {
-      // Dirty badge (clickable later for revert)
-      this._dirtyBadge = document.createElement("span");
-      this._dirtyBadge.style.cssText = "color:#d4b88a;font-size:12px;margin-right:auto;display:none;cursor:default;";
-      this._dirtyBadge.title = "Neuložené změny (save Krok 14b ráno)";
-      this._shell.footer.appendChild(this._dirtyBadge);
-
-      // Save btn (hidden until dirty)
-      this._saveBtn = document.createElement("button");
-      this._saveBtn.type = "button";
-      this._saveBtn.textContent = "💾 Uložit (TODO)";
-      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;display:none;opacity:0.6;";
-      this._saveBtn.disabled = true; // Save flow Krok 14b ráno
-      this._saveBtn.title = "Save flow: Phase 38.4 Krok 14b (PATCH endpoint, ráno 13.5.)";
-      this._shell.footer.appendChild(this._saveBtn);
-
-      // Zavřít btn
-      const closeBtn = document.createElement("button");
-      closeBtn.type = "button";
-      closeBtn.textContent = "Zavřít";
-      closeBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
-      closeBtn.addEventListener("click", () => this._shell.close());
-      this._shell.footer.appendChild(closeBtn);
-    }
+    // Phase 38.4 Krok 14b+5 polish (13.5.2026 dopoledne): _setupFooter
+    // ZRUSENO. Marti's request: "OK + Storno z templatu jsou v paticce
+    // formu, tlacitko Zavrit smazat" — konsolidace UX. Template buttons
+    // (footer panel components) jsou jedine close actions. _onDirty
+    // graceful no-op pokud _saveBtn / _dirtyBadge null.
   }
 
   // ────────────────────────────────────────────────────────────────────

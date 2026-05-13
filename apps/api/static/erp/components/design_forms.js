@@ -2716,6 +2716,28 @@
         // Panel header — empty label = "panel je plocha" doctrine (12.5. 23:30)
         const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
+        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:00, Marti's request):
+        //   - footer panel: flex row, right-aligned (oba buttons vedle sebe vpravo)
+        //   - main panel: flex:1 fill remaining vertical space (Delphi alClient
+        //     doctrine — "roztahne se na celou plochu")
+        //   - header panel: default grid (title + badge + status_pill)
+        if (panel.slot === "footer") {
+          sec.grid.style.display = "flex";
+          sec.grid.style.justifyContent = "flex-end";
+          sec.grid.style.gap = "8px";
+        } else if (panel.slot === "main") {
+          sec.wrap.style.flex = "1 1 auto";
+          sec.wrap.style.minHeight = "0";
+          sec.wrap.style.display = "flex";
+          sec.wrap.style.flexDirection = "column";
+          // Plus grid uvnitr main panel taky flex:1 aby fields cell area rostla
+          sec.grid.style.flex = "1 1 auto";
+          sec.grid.style.minHeight = "0";
+          // Empty state hint nebude vertical-centered ve velkem prostoru —
+          // align-content pro grid items aby zustaly nahore (not stretched)
+          sec.grid.style.alignContent = "start";
+        }
+
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
         // PRED fields (fields jsou typicky v 'main' panel, components v 'header' / 'footer')
         for (const comp of templateComponents) {

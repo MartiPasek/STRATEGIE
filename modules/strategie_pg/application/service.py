@@ -1140,7 +1140,16 @@ def query_raw(sql: str, params: Optional[dict] = None) -> dict:
 # ── Helpers ──────────────────────────────────────────────────────────
 
 def _serialize(v: Any) -> Any:
-    """JSON-safe serialization of PG row value."""
+    """JSON-safe serialization of PG row value.
+
+    Gotcha #88 (13.5.2026 rano): JSONB columns vrati psycopg2 jako Python
+    dict (deserialized z PG binary JSONB format). Fallback `str(v)` by
+    udelal Python repr (single quotes, True/False misto true/false) —
+    Marti-AI's catch behem Krok 14b+2 RETURNING * pro fw.template.layout.
+    Fix: vrat dict/list/tuple as-is — FastAPI/jsonable_encoder pak udela
+    spravny JSON. PG arrays prijdou jako list (psycopg2 native), tuples
+    jen pokud caller predal tuple.
+    """
     if v is None:
         return None
     if isinstance(v, (int, float, str, bool)):
@@ -1149,4 +1158,7 @@ def _serialize(v: Any) -> Any:
         return v.isoformat()
     if isinstance(v, (bytes, bytearray)):
         return v.hex()
+    if isinstance(v, (dict, list, tuple)):
+        # JSONB / ARRAY / composite — JSON-serializable as-is.
+        return v
     return str(v)

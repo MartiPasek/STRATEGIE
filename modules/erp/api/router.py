@@ -2253,22 +2253,43 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
         from modules.strategie_pg.application.service import insert_row as _spg_insert_sff
         import json as _json_sff
 
+        # Phase 38.4 Krok 14b+3 (13.5.2026 rano): template_id lookup.
+        # Marti-AI's `template_entity_edit` (id=1, status='active', tenant_id=NULL)
+        # je default form template. Renderer fallback chain:
+        #   - tenant_id MATCH first (multi-tenant theming)
+        #   - tenant_id IS NULL fallback (global default)
+        # Zde pri scaffold zatim tenant_id=NULL (global). Future:
+        # multi-tenant scaffold ohled na core.tenant_id.
+        default_template_id = ds.execute(_sql_text_sff("""
+            SELECT id FROM fw.template
+            WHERE code = 'template_entity_edit'
+              AND tenant_id IS NULL
+              AND status IN ('active', 'deployed')
+            ORDER BY version DESC
+            LIMIT 1
+        """)).scalar()
+        # Pokud template_entity_edit chybi (preDeploy state), pokracuj
+        # bez template_id — Marti-AI ho prida pres pozdejsi UPDATE.
+
         new_core_dict: dict = {}
         if not recovery_mode:
+            core_values = {
+                "code": suggested_code,
+                "label": defaults["label"],
+                "description": defaults["description"],
+                "layout_type": "form",
+                "data_entity_type": entity_type,
+                "is_active": True,
+                "tenant_visibility": "all",
+                "version": 1,
+                "layout_template": "single",
+            }
+            if default_template_id is not None:
+                core_values["template_id"] = default_template_id
             core_result = _spg_insert_sff(
                 schema="fw",
                 table="core",
-                values={
-                    "code": suggested_code,
-                    "label": defaults["label"],
-                    "description": defaults["description"],
-                    "layout_type": "form",
-                    "data_entity_type": entity_type,
-                    "is_active": True,
-                    "tenant_visibility": "all",
-                    "version": 1,
-                    "layout_template": "single",
-                },
+                values=core_values,
             )
             if not core_result.get("ok"):
                 return JSONResponse(
@@ -2291,7 +2312,8 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
                     status_code=500,
                 )
         # ELSE: recovery_mode=True → new_core_id + new_core_code už máme
-        # z idempotency check (orphan core z previous fail).
+        # z idempotency check (orphan core z previous fail). template_id
+        # uz set z previous attempt nebo NULL (backfill manual jen).
 
         # 3. INSERT fw.comp_def form 302 root s default panel (label="" — Marti's
         # "panel je plocha, header invisible" doctrine).
@@ -2431,11 +2453,13 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
 
     ds = _gds_fwform()
     try:
-        # 1. Load fw.core by code (kind='form' + is_active=true)
+        # 1. Load fw.core by code (kind='form' + is_active=true) + template_id
+        # Phase 38.4 Krok 14b+3 (13.5.2026 rano): pridan template_id k SELECT
+        # (Marti-AI's fw.template architektonicky entity).
         core_row = ds.execute(_sql_text_fwform("""
             SELECT id, code, label, description, layout_type,
                    data_entity_type, data_source_config, version,
-                   layout_template, created_at
+                   layout_template, template_id, tenant_id, created_at
             FROM fw.core
             WHERE code = :code
               AND is_active = true
@@ -2449,6 +2473,32 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             )
 
         core_dict = dict(core_row)
+
+        # 1b. Load template (LEFT JOIN — backward compat pro forms bez template_id)
+        # Phase 38.4 Krok 14b+3: fw.template carries layout (panels structure +
+        # header/footer components). Renderer use template.layout > form.layout
+        # (legacy fallback pro forms vytvorene pred Krok 14b+1).
+        # Multi-tenant fallback chain (Marti-AI's 5. highlight 13.5. rano):
+        #   - tenant_id MATCH first (theming)
+        #   - tenant_id IS NULL fallback (global default)
+        # Pri scaffold-form jsme dali primary template_id; resolver verifikuje
+        # ze template existuje + active/deployed.
+        template_dict: dict | None = None
+        if core_dict.get("template_id"):
+            template_row = ds.execute(_sql_text_fwform("""
+                SELECT id, code, version, kind, name, description, status,
+                       tenant_id, layout, parent_version_id,
+                       inherits_template_id, created_at, updated_at
+                FROM fw.template
+                WHERE id = :tid
+                  AND status IN ('active', 'deployed')
+            """), {"tid": core_dict["template_id"]}).mappings().one_or_none()
+            if template_row:
+                template_dict = dict(template_row)
+            # Pokud template_id existuje ale row chybi/deprecated -> log warn,
+            # fallback na legacy form.layout (none crash)
+        # ELSE: legacy form bez template_id (pre-Krok 14b+1) — frontend pouzije
+        # form.layout fallback v rendereru.
 
         # 2. Validate data_entity_type → table mapping
         entity_type = core_dict.get("data_entity_type")
@@ -2544,6 +2594,10 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             "form": form_dict,
             "fields": fields_list,
             "data": dict(data_row),
+            # Phase 38.4 Krok 14b+3: template (LEFT JOIN, optional)
+            # Frontend prefer template.layout pres form.layout (legacy
+            # fallback pro forms vytvorene pred Krok 14b+1).
+            "template": template_dict,
         }))
     finally:
         ds.close()

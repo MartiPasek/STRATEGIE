@@ -2654,6 +2654,11 @@
       const form = this._spec.form;
       const fields = this._spec.fields || [];
       const data = this._spec.data || {};
+      // Phase 38.4 Krok 14b+3 (13.5.2026 rano): template.layout takes precedence
+      // over form.layout. template ma vlastni header / main / footer panels +
+      // header/footer components (title / entity_badge / status_pill / button).
+      // Forms bez template_id → fallback na form.layout (legacy pre-Krok 14b+1).
+      const template = this._spec.template || null;
 
       // Title z core.label (preferuj nad form.caption)
       if (this._shell.title) {
@@ -2665,20 +2670,36 @@
       root.className = "erp-design-tab-content";
       root.style.cssText = "padding:0;";
 
-      // Extract panels z form.layout (JSONB) — Marti-AI's flat-data doctrine
-      const formLayout = form.layout || {};
-      let panels = Array.isArray(formLayout.panels) ? formLayout.panels.slice() : [];
-
-      // Pokud form layout nemá panels → default panel "main" (Marti's doctrine:
-      // panel je MANDATORY, fallback pro forms bez explicit panels)
-      if (panels.length === 0) {
-        panels = [{ slot: "main", label: "Obsah", order: 10 }];
+      // Extract panels — template.layout (Krok 14b+3) > form.layout (legacy)
+      let panels = [];
+      let layoutSource = "form"; // pro debug
+      if (template && template.layout) {
+        const tLayout = (typeof template.layout === "string")
+          ? JSON.parse(template.layout)
+          : template.layout;
+        if (Array.isArray(tLayout.panels)) {
+          panels = tLayout.panels.slice();
+          layoutSource = "template:" + (template.code || "?");
+        }
       }
+      if (panels.length === 0) {
+        const formLayout = form.layout || {};
+        if (Array.isArray(formLayout.panels)) {
+          panels = formLayout.panels.slice();
+          layoutSource = "form.layout";
+        }
+      }
+      // Posledni fallback: default panel "main" (Marti's doctrine: panel je MANDATORY)
+      if (panels.length === 0) {
+        panels = [{ slot: "main", label: "", order: 10, components: [] }];
+        layoutSource = "default-fallback";
+      }
+      console.info("[DesignFwForm] layout source:", layoutSource, "panels:", panels.length);
 
       // Sort panels by order
       panels.sort((a, b) => (a.order || 0) - (b.order || 0));
 
-      // Group fields by region_slot
+      // Group fields by region_slot (data komponenty z fw.comp_def, parent=form)
       const fieldsBySlot = {};
       for (const f of fields) {
         const slot = f.region_slot || "main";
@@ -2686,21 +2707,24 @@
         fieldsBySlot[slot].push(f);
       }
 
-      // Render každý panel jako sekce (reuse _sectionBuild helper z Krok 14a)
+      // Render každý panel jako sekce
       const D = this._onDirty.bind(this);
       for (const panel of panels) {
         const slotFields = fieldsBySlot[panel.slot] || [];
-        // Marti's doctrine (12.5.2026 ~23:30): "Panel nema label... Je to jen plocha."
-        // Empty label ("") nebo undefined → _sectionBuild skip header rendering.
+        const templateComponents = Array.isArray(panel.components) ? panel.components : [];
+
+        // Panel header — empty label = "panel je plocha" doctrine (12.5. 23:30)
         const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
-        if (slotFields.length === 0) {
-          const hint = document.createElement("div");
-          hint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
-          hint.textContent = "(panel '" + panel.slot + "' nemá žádné fields)";
-          sec.grid.appendChild(hint);
-        } else {
-          // Sort fields v panelu by sort_order
+        // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
+        // PRED fields (fields jsou typicky v 'main' panel, components v 'header' / 'footer')
+        for (const comp of templateComponents) {
+          const compEl = this._renderTemplateComponent(comp, core, data);
+          if (compEl) sec.grid.appendChild(compEl);
+        }
+
+        // Render data fields (z fw.comp_def) — pokud nějaké patří k tomuto panelu
+        if (slotFields.length > 0) {
           slotFields.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
           for (const f of slotFields) {
             const value = data[f.name];
@@ -2708,6 +2732,15 @@
             if (fieldEl) sec.grid.appendChild(fieldEl);
           }
         }
+
+        // Empty state — panel 'main' bez fields i bez template components
+        if (templateComponents.length === 0 && slotFields.length === 0) {
+          const hint = document.createElement("div");
+          hint.style.cssText = "padding:14px;background:#0f141a;border:1px dashed #2a3340;border-radius:4px;color:#5d6975;font-style:italic;text-align:center;grid-column:1/-1;";
+          hint.textContent = "(panel '" + panel.slot + "' nemá žádné fields)";
+          sec.grid.appendChild(hint);
+        }
+
         root.appendChild(sec.wrap);
       }
 
@@ -2715,6 +2748,122 @@
 
       // Footer — dirty badge (clickable revert later) + Save (hidden until dirty) + Zavřít
       this._setupFooter();
+    }
+
+    // Phase 38.4 Krok 14b+3 (13.5.2026 rano): render template-level component.
+    // template.layout.panels[].components = [{type: 'title'|'entity_badge'|'status_pill'|'button', ...}]
+    // - title: source='core.label' -> velky text
+    // - entity_badge: format='{entity_type} #{row_id}' -> maly badge
+    // - status_pill: source='data.status', optional=true -> colored pill (jen pokud data.status exists)
+    // - button: action='save_and_close'|'abandon' -> visual button s onClick (Save flow Krok 14b+5 wire-up)
+    _renderTemplateComponent(comp, core, data) {
+      if (!comp || !comp.type) return null;
+      const compType = comp.type;
+      try {
+        if (compType === "title") {
+          const el = document.createElement("h2");
+          el.className = "erp-fw-template-title";
+          el.style.cssText = "margin:0 0 8px;font-size:18px;font-weight:600;color:#e8eef5;grid-column:1/-1;";
+          el.textContent = this._resolveTemplateSource(comp.source, core, data) || core.label || "(bez nazvu)";
+          return el;
+        }
+        if (compType === "entity_badge") {
+          const el = document.createElement("span");
+          el.className = "erp-fw-template-badge";
+          el.style.cssText = "display:inline-block;padding:2px 8px;background:rgba(74,123,168,0.18);border:1px solid rgba(74,123,168,0.4);border-radius:10px;font-size:11px;color:#9bb5d6;font-family:'JetBrains Mono',monospace;grid-column:1/-1;justify-self:start;";
+          const entityType = core.data_entity_type || "?";
+          const rowId = (data && (data.id != null ? data.id : data.ID != null ? data.ID : "?")) ?? "?";
+          const format = comp.format || "{entity_type} #{row_id}";
+          el.textContent = format
+            .replace("{entity_type}", entityType)
+            .replace("{row_id}", rowId);
+          return el;
+        }
+        if (compType === "status_pill") {
+          const value = this._resolveTemplateSource(comp.source, core, data);
+          if (value == null || value === "") {
+            // Marti-AI's 'optional: true' doctrine — skip render pokud chybi
+            if (comp.optional) return null;
+            // ELSE: render empty pill (visible že tam má být status)
+          }
+          const el = document.createElement("span");
+          el.className = "erp-fw-template-status-pill";
+          el.style.cssText = "display:inline-block;padding:2px 10px;border-radius:10px;font-size:11px;font-weight:500;grid-column:1/-1;justify-self:start;";
+          // Color by status
+          const stat = String(value || "").toLowerCase();
+          if (stat === "active") {
+            el.style.background = "rgba(80,150,80,0.18)";
+            el.style.border = "1px solid rgba(80,150,80,0.5)";
+            el.style.color = "#8bc88b";
+          } else if (stat === "pending") {
+            el.style.background = "rgba(180,140,60,0.18)";
+            el.style.border = "1px solid rgba(180,140,60,0.5)";
+            el.style.color = "#d4b88a";
+          } else if (stat === "disabled") {
+            el.style.background = "rgba(180,80,80,0.18)";
+            el.style.border = "1px solid rgba(180,80,80,0.5)";
+            el.style.color = "#d4888a";
+          } else {
+            el.style.background = "rgba(140,140,140,0.18)";
+            el.style.border = "1px solid rgba(140,140,140,0.5)";
+            el.style.color = "#9ca3af";
+          }
+          el.textContent = value || "(no status)";
+          return el;
+        }
+        if (compType === "button") {
+          // Phase 38.4 Krok 14b+3 visual MVP: button render + onClick console.log.
+          // Save flow Krok 14b+5 (po PATCH endpoint LIVE) wire-up:
+          //   action='save_and_close' -> PATCH /api/v1/erp/.../{id} + close modal
+          //   action='abandon' -> dirty check -> "Mám uložit změny?" modal -> save+close / discard / stay
+          const el = document.createElement("button");
+          el.type = "button";
+          el.className = "erp-fw-template-btn";
+          const variant = comp.variant || "secondary";
+          // Visual: primary=blue, secondary=neutral
+          if (variant === "primary") {
+            el.style.cssText = "padding:6px 18px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;margin:6px 4px 0 0;";
+          } else {
+            el.style.cssText = "padding:6px 18px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;margin:6px 4px 0 0;";
+          }
+          el.textContent = comp.label || "(button)";
+          const action = comp.action || "noop";
+          el.addEventListener("click", () => {
+            console.info("[DesignFwForm] template button click — action:", action);
+            // Save flow wire-up later — Krok 14b+5
+            if (action === "save_and_close") {
+              alert("OK — Save flow Krok 14b+5 (PATCH endpoint) je TODO. Zatim visual only.");
+            } else if (action === "abandon") {
+              // Reuse existing _beforeCloseHandler (dirty check + close)
+              this._shell.close();
+            } else {
+              alert("Unknown action: " + action);
+            }
+          });
+          return el;
+        }
+        // Unknown component type → log + skip
+        console.warn("[DesignFwForm] unknown template component type:", compType, comp);
+        return null;
+      } catch (e) {
+        console.error("[DesignFwForm] template component render error:", e, comp);
+        return null;
+      }
+    }
+
+    // Helper — resolve template source path (e.g. 'core.label' -> core.label, 'data.status' -> data.status)
+    _resolveTemplateSource(source, core, data) {
+      if (!source) return null;
+      const parts = String(source).split(".");
+      let cur = null;
+      if (parts[0] === "core") cur = core;
+      else if (parts[0] === "data") cur = data;
+      else return null;
+      for (let i = 1; i < parts.length; i++) {
+        if (cur == null) return null;
+        cur = cur[parts[i]];
+      }
+      return cur;
     }
 
     _renderField(field, value, onDirty) {

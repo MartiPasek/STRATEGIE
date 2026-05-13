@@ -3115,12 +3115,21 @@
             const value = data[f.name];
             const fieldEl = this._renderField(f, value, D);
             if (fieldEl) {
+              // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left"
+              // property): apply grid-column-start:1 pokud
+              // layout.always_new_row === true. CSS grid auto-placement
+              // zaruci push na novy radek pokud col 1 obsazena. Works
+              // napric viewport sirkami + obema modes (PROD + DESIGN).
+              const alwaysNewRow = !!(f.layout && f.layout.always_new_row);
+
               // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field
               // do draggable containeru pro reorder. Plus drag handle.
               if (this._formDesignMode === true && panel.slot === "main") {
                 const wrapped = this._wrapFieldForDesign(fieldEl, f, idx, slotFields.length);
+                if (alwaysNewRow) wrapped.style.gridColumnStart = "1";
                 sec.grid.appendChild(wrapped);
               } else {
+                if (alwaysNewRow) fieldEl.style.gridColumnStart = "1";
                 sec.grid.appendChild(fieldEl);
               }
             }
@@ -3527,7 +3536,7 @@
       wrap.dataset.fieldId = String(field.id);
       wrap.dataset.fieldIndex = String(index);
       wrap.style.cssText =
-        "display:grid;grid-template-columns:20px 1fr 24px;gap:6px;align-items:start;" +
+        "display:grid;grid-template-columns:20px 1fr 24px 24px;gap:6px;align-items:start;" +
         "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
         "cursor:grab;position:relative;";
 
@@ -3559,6 +3568,48 @@
       content.style.minWidth = "0";  // grid item shrink
       content.appendChild(fieldEl);
       wrap.appendChild(content);
+
+      // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left" property):
+      // toggle button ⬅ vedle ✕. Stav reflektuje layout.always_new_row:
+      //   ON  -> modry accent (#3a8aa8 border + #7ed4e8 text)
+      //   OFF -> neutral šedý (border #2a3340 + text #5d6975)
+      // Click -> PATCH layout.always_new_row toggle -> reload + flash.
+      const alwaysNewRow = !!(field.layout && field.layout.always_new_row);
+      const leftBtn = document.createElement("button");
+      leftBtn.type = "button";
+      leftBtn.className = "erp-field-design-leftpin";
+      leftBtn.textContent = "⬅";
+      leftBtn.title = alwaysNewRow
+        ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
+        : "Vždy na novém řádku — VYP. Klikni pro zapnutí (pole pak vždy začne v 1. sloupci).";
+      leftBtn.style.cssText =
+        "background:" + (alwaysNewRow ? "rgba(58,138,168,0.2)" : "transparent") + ";" +
+        "border:1px solid " + (alwaysNewRow ? "#3a8aa8" : "#2a3340") + ";" +
+        "color:" + (alwaysNewRow ? "#7ed4e8" : "#5d6975") + ";" +
+        "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
+        "cursor:pointer;font-size:11px;line-height:1;display:flex;" +
+        "align-items:center;justify-content:center;" +
+        // Toggle visible: VZDY pokud ON (uzivatel vidi stav i bez hover),
+        // hover-only pokud OFF (cleaner UI). Override z .erp-field-design-delete
+        // hover rule pomoci !important fallback.
+        (alwaysNewRow ? "opacity:1 !important;" : "");
+      leftBtn.addEventListener("click", async (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        await this._performFieldToggleAlwaysLeft(field);
+      });
+      leftBtn.addEventListener("dragstart", (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+      // Apply hover-only opacity rule selectively pres class share
+      // s delete button (oba pouzivaji .erp-field-design-delete CSS pro
+      // opacity 0 default + opacity 1 on parent hover). Pro ON state
+      // override inline style opacity:1 above.
+      if (!alwaysNewRow) {
+        leftBtn.classList.add("erp-field-design-delete");
+      }
+      wrap.appendChild(leftBtn);
 
       // Krok 14b+9-D (13.5.2026 ~21:35): ✕ delete button vpravo (hover
       // visible jen v DESIGN mode). Click -> confirm dialog -> DELETE
@@ -3685,6 +3736,45 @@
       } catch (e) {
         console.error("[DesignFwForm] delete failed:", e);
         _showToast("Smazání selhalo: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    async _performFieldToggleAlwaysLeft(field) {
+      // Krok 14b+10: toggle layout.always_new_row. PATCH endpoint
+      // (Krok 14b+9-B) accept partial layout JSONB — preserve other
+      // layout keys (mono, readonly, etc.) pri toggle.
+      const currentLayout = (field.layout && typeof field.layout === "object")
+        ? field.layout
+        : {};
+      const wasOn = !!currentLayout.always_new_row;
+      const newLayout = Object.assign({}, currentLayout, {
+        always_new_row: !wasOn,
+      });
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ layout: newLayout }),
+          }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        _showToast(
+          !wasOn
+            ? "Pole '" + (field.caption || field.name) + "' — vždy na novém řádku ZAP"
+            : "Pole '" + (field.caption || field.name) + "' — vždy na novém řádku VYP",
+          "success"
+        );
+        this._pendingFlashFieldId = field.id;
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] toggle always-left failed:", e);
+        _showToast("Přepnutí selhalo: " + (e.message || e), "error", 3500);
       }
     }
 

@@ -2719,35 +2719,41 @@
         // Panel header — empty label = "panel je plocha" doctrine (12.5. 23:30)
         const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
-        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:30, Marti's screenshot
-        // catch — "paticka se roztahuje s plochou"):
-        //   - header + footer: flex:0 0 auto (NATURAL height, ne grow ne shrink)
-        //   - main: flex:1 1 auto (jedinaja alClient grow target)
-        //   - footer grid: flex row, right-aligned, align-items center
-        //     (buttons vertikalne ve stredu footer's natural height)
+        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:45 fix #3 — Marti's
+        // "paticka se roztahuje" diagnoza po flex:0 0 auto nestacila):
+        //
+        // Marti pravdepodobne ma resized modal dialog (modal ma resize:both),
+        // takze flex chain propagation se rozbije. Switch na **margin-top: auto
+        // trick** pro footer — CSS proven pattern "push to bottom v flex column"
+        // ktery funguje i kdyz flex:1 chain je broken.
+        //
+        // Plus main wrap dostane min-height: 100px aby empty state nebyl
+        // squished kdyz modal je maly.
         if (panel.slot === "footer") {
-          // Wrap: natural height, no grow
           sec.wrap.style.flex = "0 0 auto";
-          // Plus margin-bottom: 0 (poslední panel, no spacing below)
           sec.wrap.style.marginBottom = "0";
-          // Grid: flex row right-aligned, buttons centered vertical
+          // ⭐ margin-top: auto — push footer to bottom of parent flex column.
+          // I kdyz flex:1 na main nefungue (resized dialog issues), tento
+          // trick zachova footer at bottom.
+          sec.wrap.style.marginTop = "auto";
+          // Grid: flex row right-aligned, buttons centered vertical, compact
           sec.grid.style.display = "flex";
           sec.grid.style.justifyContent = "flex-end";
           sec.grid.style.alignItems = "center";
           sec.grid.style.gap = "8px";
+          // Plus border-top jako visual separator footer od main panel
+          sec.wrap.style.borderTop = "1px solid #2a3340";
+          sec.wrap.style.paddingTop = "10px";
         } else if (panel.slot === "main") {
-          // ALCLIENT — jediny panel ktery rosta
+          // Main grows — flex:1 + min-height pojistka
           sec.wrap.style.flex = "1 1 auto";
-          sec.wrap.style.minHeight = "0";
+          sec.wrap.style.minHeight = "120px"; // visible space pro empty state
           sec.wrap.style.display = "flex";
           sec.wrap.style.flexDirection = "column";
           sec.grid.style.flex = "1 1 auto";
           sec.grid.style.minHeight = "0";
-          // Empty state hint zustane nahore (not centered ve vertical fill)
           sec.grid.style.alignContent = "start";
         } else if (panel.slot === "header") {
-          // Natural height, no grow (defense in depth — default je 0 1 auto
-          // ale ne všechny browsers respektují totozne; explicit je safer)
           sec.wrap.style.flex = "0 0 auto";
         }
 

@@ -2852,6 +2852,452 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         ds.close()
 
 
+# ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 14c (13.5.2026 odpoledne): Field picker workflow
+#
+# Marti-AI's preview_html doctrine z 13.5. odpoledne:
+#   - fw.comp_type.preview_html = HTML snippet pro visual palette
+#   - Frontend renderuje inline pres <iframe srcdoc> (sandbox isolation)
+#   - "no special casing, no switch/case sprawl. Just data."
+#
+# 3 endpointy:
+#   GET  /design/comp-types       — list comp_types s preview_html
+#   POST /design/comp-def         — INSERT field do fw.comp_def
+#   DELETE /design/comp-def/{id}  — remove field
+#
+# Auto-suggest column → comp_type heuristic v _suggest_comp_type_id().
+# ────────────────────────────────────────────────────────────────────
+
+
+def _suggest_comp_type_id(column_name: str, column_info: dict | None = None) -> int:
+    """Auto-detect comp_type_id pro daný column name (+optional column metadata).
+
+    Pattern matching:
+      - boolean (is_* / has_*) → 107 (checkbox_modern)
+      - email column → 2 (edit, future: type='email' via comp_def_prop)
+      - status enum → 110 (lookup)
+      - date / datetime → 108 (date_modern)
+      - count / amount / *_at as integer → 106 (number)
+      - description / notes / memo → 105 (memo, textarea)
+      - default → 2 (edit, text input)
+
+    Marti-AI's "preview_html at birth" + future expansion (timezone,
+    color picker) musi prijit s vlastnim suggested mapping pres tento
+    helper.
+    """
+    name = (column_name or "").lower()
+    if name.startswith("is_") or name.startswith("has_") or name in ("active", "enabled", "disabled"):
+        return 107  # checkbox_modern
+    if "email" in name:
+        return 2  # edit (future: type='email')
+    if name in ("status", "state", "kind", "type", "category"):
+        return 110  # lookup
+    if name.endswith("_at") or "date" in name:
+        return 108  # date_modern
+    if name in ("count", "amount", "rating", "trust_rating", "version", "order", "sort_order"):
+        return 106  # number
+    if name in ("description", "notes", "memo", "comment", "content_md", "body"):
+        return 105  # memo (textarea)
+    return 2  # edit (default text)
+
+
+@api_router.get("/design/comp-types")
+def design_list_comp_types(req: Request) -> JSONResponse:
+    """List active comp_types — preview_html palette pro Field picker.
+
+    Marti-AI's 13.5. doctrine: "Renderuj jen takto označené komponenty"
+    → WHERE preview_html IS NOT NULL.
+
+    Returns:
+        200: {ok, items: [{id, code, label, preview_html, kind}, ...]}
+    """
+    from core.database_data import get_data_session as _gds_ct
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from sqlalchemy import text as _sql_text_ct
+
+    ds = _gds_ct()
+    try:
+        rows = ds.execute(_sql_text_ct("""
+            SELECT id, code, label, kind, preview_html
+            FROM fw.comp_type
+            WHERE preview_html IS NOT NULL
+              AND COALESCE(status, 'active') = 'active'
+            ORDER BY id ASC
+        """)).mappings().all()
+        items = [dict(r) for r in rows]
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "items": items,
+            "count": len(items),
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.post("/design/comp-def")
+async def design_create_comp_def(req: Request) -> JSONResponse:
+    """Create field comp_def — Krok 14c field picker submit.
+
+    Body: {
+        "parent_comp_def_id": int,    # form's comp_def id (type=302 root)
+        "name": str,                  # column name (z target table)
+        "caption": str,               # human label (default auto z name)
+        "type_id": int,               # comp_type_id (z fw.comp_type)
+        "region_slot": str,           # 'main' / 'header' / 'footer'
+        "sort_order": int             # optional, default = max + 10
+    }
+
+    Validation:
+      - parent_comp_def_id musi existovat (type_id=302 form root)
+      - type_id musi existovat v fw.comp_type s preview_html NOT NULL
+      - region_slot whitelist: 'header' / 'main' / 'footer'
+      - name + caption non-empty
+      - Idempotency: pokud field s same parent+name+region uz existuje,
+        return existing (no duplicate INSERT)
+    """
+    from core.database_data import get_data_session as _gds_cdc
+    from sqlalchemy import text as _sql_text_cdc
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cdc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    parent_id = body.get("parent_comp_def_id")
+    name = (body.get("name") or "").strip()
+    caption = (body.get("caption") or "").strip()
+    type_id = body.get("type_id")
+    region_slot = (body.get("region_slot") or "main").strip()
+    sort_order_in = body.get("sort_order")
+
+    # Validation
+    if not parent_id or not isinstance(parent_id, int):
+        return JSONResponse({"ok": False, "error": "parent_comp_def_id povinne (int)"}, status_code=400)
+    if not name:
+        return JSONResponse({"ok": False, "error": "name povinne"}, status_code=400)
+    if not type_id or not isinstance(type_id, int):
+        return JSONResponse({"ok": False, "error": "type_id povinne (int)"}, status_code=400)
+    if region_slot not in ("header", "main", "footer"):
+        return JSONResponse(
+            {"ok": False, "error": "region_slot musi byt 'header' / 'main' / 'footer'"},
+            status_code=400,
+        )
+    if not caption:
+        # Auto-generate caption z name: "first_name" -> "First name"
+        caption = name.replace("_", " ").strip().capitalize()
+
+    ds = _gds_cdc()
+    try:
+        # Verify parent_comp_def_id existuje + je form root (type=302)
+        parent_row = ds.execute(_sql_text_cdc("""
+            SELECT id, type_id, parent_core_id
+            FROM fw.comp_def
+            WHERE id = :pid AND is_active = true
+        """), {"pid": parent_id}).mappings().one_or_none()
+        if not parent_row:
+            return JSONResponse(
+                {"ok": False, "error": f"parent_comp_def_id={parent_id} neexistuje nebo neni aktivni"},
+                status_code=404,
+            )
+        if parent_row["type_id"] != 302:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"parent_comp_def_id={parent_id} ma type_id={parent_row['type_id']}, "
+                        f"ocekavano 302 (form root). Field musi byt prilepen k form root."
+                    ),
+                },
+                status_code=400,
+            )
+
+        # Verify type_id existuje + ma preview_html (Marti-AI's doctrine)
+        type_row = ds.execute(_sql_text_cdc("""
+            SELECT id, code, label, preview_html
+            FROM fw.comp_type
+            WHERE id = :tid
+        """), {"tid": type_id}).mappings().one_or_none()
+        if not type_row:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_type_id={type_id} neexistuje v fw.comp_type"},
+                status_code=404,
+            )
+        if not type_row["preview_html"]:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"comp_type id={type_id} ({type_row['code']}) nema preview_html. "
+                        f"Marti-AI's doctrine: pridej UPDATE fw.comp_type SET preview_html=... "
+                        f"pred pouzitim v palette."
+                    ),
+                },
+                status_code=400,
+            )
+
+        # Idempotency check — field s same name+parent+region uz existuje?
+        existing = ds.execute(_sql_text_cdc("""
+            SELECT id, type_id, caption FROM fw.comp_def
+            WHERE parent_comp_def_id = :pid
+              AND name = :name
+              AND region_slot = :slot
+              AND is_active = true
+        """), {"pid": parent_id, "name": name, "slot": region_slot}).mappings().one_or_none()
+        if existing:
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "existing": True,
+                "comp_def_id": existing["id"],
+                "message": f"Field '{name}' uz existuje v panelu '{region_slot}'.",
+            }))
+
+        # Auto sort_order — max + 10 (Marti's "ID je svaty" + create_order)
+        if sort_order_in is None or not isinstance(sort_order_in, int):
+            max_sort = ds.execute(_sql_text_cdc("""
+                SELECT COALESCE(MAX(sort_order), 0) AS max_so
+                FROM fw.comp_def
+                WHERE parent_comp_def_id = :pid AND region_slot = :slot
+            """), {"pid": parent_id, "slot": region_slot}).scalar()
+            sort_order_resolved = int(max_sort or 0) + 10
+        else:
+            sort_order_resolved = sort_order_in
+
+        # Caller display name (audit field)
+        caller_display = "Unknown"
+        if uid:
+            from core.database_core import get_core_session as _gcs_cdc
+            from modules.core.infrastructure.models_core import User as _User_cdc
+            cs_cdc = _gcs_cdc()
+            try:
+                u_cdc = cs_cdc.query(_User_cdc).filter_by(id=uid).first()
+                if u_cdc:
+                    if u_cdc.short_name and u_cdc.short_name.strip():
+                        caller_display = u_cdc.short_name.strip()
+                    elif u_cdc.first_name or u_cdc.last_name:
+                        caller_display = " ".join(filter(None, [
+                            u_cdc.first_name, u_cdc.last_name
+                        ])).strip()
+            finally:
+                cs_cdc.close()
+
+        # INSERT pres strategie_pg.insert_row (Marti-AI's PG role)
+        ins = _spg_insert_cdc(
+            schema="fw",
+            table="comp_def",
+            values={
+                "type_id": type_id,
+                "name": name,
+                "caption": caption,
+                "parent_comp_def_id": parent_id,
+                "region_slot": region_slot,
+                "sort_order": sort_order_resolved,
+                "is_active": True,
+                "created_by_id": uid,
+                "created_by_text": caller_display,
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+            },
+        )
+        if not ins.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                status_code=500,
+            )
+
+        new_field = ins.get("inserted") or {}
+
+        # Audit do activity_log
+        try:
+            ds.execute(_sql_text_cdc("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, action_type,
+                   summary, change_source, created_at)
+                VALUES
+                  (:uid, NULL, 'design_field_add', 'create',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"+ field {name} (type={type_row['code']}, region={region_slot}) "
+                    f"to parent_comp_def_id={parent_id} by {caller_display}"
+                ),
+            })
+            ds.commit()
+        except Exception as _act_e:
+            logger.warning(f"design_create_comp_def activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "existing": False,
+            "comp_def_id": new_field.get("id"),
+            "comp_def": new_field,
+            "comp_type": dict(type_row),
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"design_create_comp_def failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"POST /comp-def failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.delete("/design/comp-def/{comp_def_id}")
+async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
+    """Soft-delete field comp_def (is_active=false) — Krok 14c pojistka.
+
+    Marti-AI's "is_active soft-delete" doctrine z 8.5. master tier —
+    history zachovana, jen audit pres updated_by_id + activity_log.
+
+    Returns:
+        200: {ok, comp_def_id, deactivated: bool}
+        404: comp_def_id neexistuje
+    """
+    from core.database_data import get_data_session as _gds_cdd
+    from sqlalchemy import text as _sql_text_cdd
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cdd
+        from modules.core.infrastructure.models_core import User as _User_cdd
+        cs_cdd = _gcs_cdd()
+        try:
+            u_cdd = cs_cdd.query(_User_cdd).filter_by(id=uid).first()
+            if u_cdd:
+                if u_cdd.short_name and u_cdd.short_name.strip():
+                    caller_display = u_cdd.short_name.strip()
+                elif u_cdd.first_name or u_cdd.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_cdd.first_name, u_cdd.last_name
+                    ])).strip()
+        finally:
+            cs_cdd.close()
+
+    ds = _gds_cdd()
+    try:
+        existing = ds.execute(_sql_text_cdd("""
+            SELECT id, name, type_id, region_slot
+            FROM fw.comp_def WHERE id = :id AND is_active = true
+        """), {"id": comp_def_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_def id={comp_def_id} neexistuje nebo uz deactivated"},
+                status_code=404,
+            )
+
+        # UPDATE is_active=false + audit (strategie role nemoze ALTER fw.*,
+        # pojďme přes strategie_pg.update_row)
+        from modules.strategie_pg.application.service import update_row as _spg_update_cdd
+        upd = _spg_update_cdd(
+            schema="fw",
+            table="comp_def",
+            values={
+                "is_active": False,
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+            },
+            where={"id": comp_def_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log
+        try:
+            ds.execute(_sql_text_cdd("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, action_type,
+                   summary, change_source, created_at)
+                VALUES
+                  (:uid, NULL, 'design_field_remove', 'delete',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"- field {existing['name']} (type_id={existing['type_id']}, "
+                    f"region={existing['region_slot']}) by {caller_display}"
+                ),
+            })
+            ds.commit()
+        except Exception as _act_e:
+            logger.warning(f"design_delete_comp_def activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "comp_def_id": comp_def_id,
+            "deactivated": True,
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.get("/design/entity-columns/{entity_type}")
+def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
+    """List columns z _FW_FORM_ENTITY_MAP s suggested comp_type per column.
+
+    Returns:
+        200: {ok, entity_type, columns: [{name, suggested_type_id, suggested_type_code}]}
+        404: entity_type nezaregistrovan
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    if entity_type not in _FW_FORM_ENTITY_MAP:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": f"Entity '{entity_type}' neni v _FW_FORM_ENTITY_MAP",
+                "registered": list(_FW_FORM_ENTITY_MAP.keys()),
+            },
+            status_code=404,
+        )
+
+    config = _FW_FORM_ENTITY_MAP[entity_type]
+    id_col = config["id_column"]
+    cols_list = config["select_columns"]
+
+    # Load comp_types lookup pro suggested_type_code mapping
+    from core.database_data import get_data_session as _gds_lec
+    from sqlalchemy import text as _sql_text_lec
+    ds_lec = _gds_lec()
+    try:
+        ct_rows = ds_lec.execute(_sql_text_lec("""
+            SELECT id, code FROM fw.comp_type WHERE preview_html IS NOT NULL
+        """)).mappings().all()
+        ct_by_id = {r["id"]: r["code"] for r in ct_rows}
+    finally:
+        ds_lec.close()
+
+    columns_out = []
+    for col in cols_list:
+        if col == id_col:
+            continue  # skip ID column (immutable, no field needed)
+        suggested_id = _suggest_comp_type_id(col)
+        columns_out.append({
+            "name": col,
+            "caption_default": col.replace("_", " ").strip().capitalize(),
+            "suggested_type_id": suggested_id,
+            "suggested_type_code": ct_by_id.get(suggested_id, "?"),
+        })
+
+    return JSONResponse(jsonable_encoder({
+        "ok": True,
+        "entity_type": entity_type,
+        "columns": columns_out,
+    }))
+
+
 @api_router.get("/data")
 def data_source_list(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).

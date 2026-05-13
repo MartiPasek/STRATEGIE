@@ -2683,6 +2683,7 @@
       this._updateFormDesignToggle();
       this._updateFormAddFieldBtn();  // Krok 14b+7.1: "+ Pole" button visibility
       this._updateFormSaveSizeBtn();  // Krok 14b+11: 💾 Velikost button visibility
+      this._updateFormDetectMinBtn(); // Krok 14b+12: 📐 Min button visibility
       if (this._spec) {
         // Re-render body (zachovat header) — hints + click handlers nove
         this._render();
@@ -2758,21 +2759,181 @@
         this._saveFormDefaultSize();
       });
 
+      // Krok 14b+12 (13.5.2026 ~23:30, Marti's "detekovat min velikost"):
+      // 📐 Min button. Auto-detect kde fields zacnou "ukrajovat"
+      // (overflow). Iterate decrement width od current down po 20px until
+      // scrollWidth > clientWidth. Save layout.min_width / _height.
+      const detectMinBtn = document.createElement("button");
+      detectMinBtn.type = "button";
+      detectMinBtn.className = "erp-form-design-detectmin";
+      detectMinBtn.textContent = "📐 Min";
+      detectMinBtn.title = "Auto-detekce minimální velikosti formuláře — najít hranici kde komponenty začnou být ukrojené.";
+      this._formDetectMinBtn = detectMinBtn;
+      this._updateFormDetectMinBtn();
+      detectMinBtn.addEventListener("click", () => {
+        this._detectAndSaveMinSize();
+      });
+
       // Insert PRED sysToggle (= prvni button v rightActions) — toggle
       // je hlavni mode switch, ostatni jsou pomocna nastaveni.
       // Order v rightActions po insertBefore (kazdy pred sysToggle):
-      //   toggle -> addBtn -> saveSizeBtn -> sysToggle (leftmost to rightmost)
+      //   toggle -> addBtn -> saveSizeBtn -> detectMinBtn -> sysToggle
+      //   (leftmost to rightmost)
       const sysToggle = rightActions.querySelector(".erp-design-systoggle");
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
         rightActions.insertBefore(addBtn, sysToggle);
         rightActions.insertBefore(saveSizeBtn, sysToggle);
+        rightActions.insertBefore(detectMinBtn, sysToggle);
       } else {
-        // Fallback: prepend (reverse order — addBtn pak toggle => toggle prvni)
+        // Fallback: prepend (reverse order)
+        rightActions.insertBefore(detectMinBtn, rightActions.firstChild);
         rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
+    }
+
+    _updateFormDetectMinBtn() {
+      if (!this._formDetectMinBtn) return;
+      const on = this._formDesignMode === true;
+      const visible = on && !!(this._spec && this._spec.form && this._spec.form.id);
+      this._formDetectMinBtn.style.cssText =
+        "background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:600;" +
+        (visible ? "" : "display:none;");
+    }
+
+    async _detectAndSaveMinSize() {
+      // Krok 14b+12: auto-detect min size via iterate decrement +
+      // overflow check. Algorithm:
+      //   1. Save current dialog dimensions
+      //   2. Remove min constraints temporarily (allow shrinking)
+      //   3. Iterate decrement width (current → 200px, step 20px)
+      //      - Each step: set width, await rAF, check overflow
+      //      - First overflow = found minimum
+      //   4. Height: header + footer + min body (100px) — static calc
+      //   5. PATCH save min_width + min_height
+      //   6. Restore dialog to original size + apply new mins
+      if (!this._spec || !this._spec.form || !this._spec.form.id) {
+        _showToast("Form ID chybí v spec", "error");
+        return;
+      }
+      const dialog = this._shell && this._shell.dialog;
+      if (!dialog) {
+        _showToast("Dialog reference chybí", "error");
+        return;
+      }
+
+      // Save original state pro restore
+      const origW = dialog.style.width;
+      const origH = dialog.style.height;
+      const origMinW = dialog.style.minWidth;
+      const origMinH = dialog.style.minHeight;
+      const origTransition = dialog.style.transition;
+
+      _showToast("Detekce minimální velikosti…", "info", 1500);
+
+      // Temporarily remove min constraints (allow shrinking past current
+      // min) + disable transitions (instant resize per step)
+      dialog.style.minWidth = "0";
+      dialog.style.minHeight = "0";
+      dialog.style.transition = "none";
+
+      try {
+        // === WIDTH DETECTION ===
+        const startW = dialog.clientWidth;
+        let lastOKWidth = startW;
+        let testW = startW;
+        const STEP = 20;
+        const FLOOR = 200;
+        // Decrement until overflow detected nebo dosažen floor
+        while (testW > FLOOR) {
+          dialog.style.width = testW + "px";
+          // Force layout reflow + wait next animation frame
+          await new Promise((r) => requestAnimationFrame(r));
+          if (this._hasHorizontalOverflow(dialog)) {
+            break;
+          }
+          lastOKWidth = testW;
+          testW -= STEP;
+        }
+        const minWidth = Math.max(lastOKWidth + STEP, FLOOR);
+
+        // === HEIGHT DETECTION (static calc — header + footer + 100px body) ===
+        const header = dialog.querySelector(".erp-modal-header");
+        const footer = dialog.querySelector(".erp-modal-footer");
+        const hH = header ? header.offsetHeight : 50;
+        const fH = footer ? footer.offsetHeight : 50;
+        const MIN_BODY = 120;
+        const PADDING = 24;  // body padding 12+12 + dialog border
+        const minHeight = hH + fH + MIN_BODY + PADDING;
+
+        // === Restore original size ===
+        dialog.style.width = origW;
+        dialog.style.height = origH;
+        // Apply new mins (browser CSS prevent shrink under)
+        dialog.style.minWidth = minWidth + "px";
+        dialog.style.minHeight = minHeight + "px";
+        dialog.style.transition = origTransition;
+
+        // === PATCH save ===
+        const newLayout = Object.assign({}, this._spec.form.layout || {}, {
+          min_width: minWidth + "px",
+          min_height: minHeight + "px",
+        });
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(this._spec.form.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ layout: newLayout }),
+          }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        this._spec.form.layout = newLayout;
+        _showToast(
+          "Min velikost detekována: " + minWidth + " × " + minHeight + " px",
+          "success",
+          2500
+        );
+      } catch (e) {
+        // Restore original state na fail
+        dialog.style.width = origW;
+        dialog.style.height = origH;
+        dialog.style.minWidth = origMinW;
+        dialog.style.minHeight = origMinH;
+        dialog.style.transition = origTransition;
+        console.error("[DesignFwForm] detect min failed:", e);
+        _showToast("Detekce selhala: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    _hasHorizontalOverflow(dialog) {
+      // Check #1: dialog content exceeds dialog client width
+      // (rare protoze dialog ma overflow:hidden, ale defensive)
+      if (dialog.scrollWidth > dialog.clientWidth + 1) return true;
+      // Check #2: any field input clipped horizontally
+      // (form's grid auto-fit minmax(220px, 1fr) — when modal < 220+padding,
+      // grid item shrinks below 220 a input overflow contains its label/value)
+      const inputs = dialog.querySelectorAll(
+        "input, select, textarea, .erp-input-input, .erp-dropdown-trigger"
+      );
+      for (let i = 0; i < inputs.length; i++) {
+        const el = inputs[i];
+        // scrollWidth > clientWidth = horizontal content overflow (text
+        // clipped). +2px tolerance for sub-pixel rounding.
+        if (el.scrollWidth > el.clientWidth + 2) return true;
+      }
+      // Check #3: grid main panel scrollWidth (grid items extending beyond)
+      const grid = dialog.querySelector(".erp-design-grid");
+      if (grid && grid.scrollWidth > grid.clientWidth + 1) return true;
+      return false;
     }
 
     _updateFormSaveSizeBtn() {
@@ -3054,18 +3215,31 @@
       // (saved via 💾 Velikost button v DESIGN header). Apply jako inline
       // dialog.style. Pokud nejsou, fallback na default modal velikost
       // (920px width + min-height 500px z _buildModalShell).
+      //
+      // Krok 14b+12 (13.5.2026 ~23:30, Marti's "min velikost"): apply
+      // i min_width / min_height pres dialog.style.minWidth/minHeight.
+      // Browser native CSS min-* constraints prevent drag-resize pod min
+      // (resize:both nemoze shrink pod min-width).
       if (!this._shell || !this._shell.dialog) return;
       const formLayout = (this._spec.form && this._spec.form.layout) || {};
+      const dialog = this._shell.dialog;
       if (formLayout.default_width) {
-        this._shell.dialog.style.width = String(formLayout.default_width);
+        dialog.style.width = String(formLayout.default_width);
       }
       if (formLayout.default_height) {
-        this._shell.dialog.style.height = String(formLayout.default_height);
+        dialog.style.height = String(formLayout.default_height);
       }
-      // Refresh 💾 button visibility — _attachFormDesignToggle se volal
-      // PRED fetch spec, gate `this._spec.form.id` byl false. Teď spec
+      if (formLayout.min_width) {
+        dialog.style.minWidth = String(formLayout.min_width);
+      }
+      if (formLayout.min_height) {
+        dialog.style.minHeight = String(formLayout.min_height);
+      }
+      // Refresh button visibility — _attachFormDesignToggle se volal
+      // PRED fetch spec, gates `this._spec.form.id` byly false. Teď spec
       // live, re-evaluate.
       this._updateFormSaveSizeBtn();
+      this._updateFormDetectMinBtn();
     }
 
     _showError(msg) {

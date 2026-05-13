@@ -2842,33 +2842,48 @@
       dialog.style.transition = "none";
 
       try {
-        // === WIDTH DETECTION ===
+        // === WIDTH DETECTION (iterate + horizontal overflow check) ===
         const startW = dialog.clientWidth;
         let lastOKWidth = startW;
         let testW = startW;
-        const STEP = 20;
-        const FLOOR = 200;
-        // Decrement until overflow detected nebo dosažen floor
-        while (testW > FLOOR) {
+        const STEP_W = 20;
+        const FLOOR_W = 200;
+        while (testW > FLOOR_W) {
           dialog.style.width = testW + "px";
-          // Force layout reflow + wait next animation frame
           await new Promise((r) => requestAnimationFrame(r));
           if (this._hasHorizontalOverflow(dialog)) {
             break;
           }
           lastOKWidth = testW;
-          testW -= STEP;
+          testW -= STEP_W;
         }
-        const minWidth = Math.max(lastOKWidth + STEP, FLOOR);
+        const minWidth = Math.max(lastOKWidth + STEP_W, FLOOR_W);
 
-        // === HEIGHT DETECTION (static calc — header + footer + 100px body) ===
-        const header = dialog.querySelector(".erp-modal-header");
-        const footer = dialog.querySelector(".erp-modal-footer");
-        const hH = header ? header.offsetHeight : 50;
-        const fH = footer ? footer.offsetHeight : 50;
-        const MIN_BODY = 120;
-        const PADDING = 24;  // body padding 12+12 + dialog border
-        const minHeight = hH + fH + MIN_BODY + PADDING;
+        // Restore width PRED height detection (isolated test axes)
+        dialog.style.width = origW;
+        await new Promise((r) => requestAnimationFrame(r));
+
+        // === HEIGHT DETECTION (iterate + vertical overflow check) ===
+        // Krok 14b+12.1 (13.5.2026 ~23:50, Marti's "u vysky to chce jeste
+        // nejakou korekci"): static calc (header + footer + 120px) byla
+        // moc malá — body fields scrollované za footer. Replace dynamic
+        // iterate decrement (analog width) — first body overflow = found
+        // boundary kde fields zacnou byt skryté za footer.
+        const startH = dialog.clientHeight;
+        let lastOKHeight = startH;
+        let testH = startH;
+        const STEP_H = 20;
+        const FLOOR_H = 200;
+        while (testH > FLOOR_H) {
+          dialog.style.height = testH + "px";
+          await new Promise((r) => requestAnimationFrame(r));
+          if (this._hasVerticalOverflow(dialog)) {
+            break;
+          }
+          lastOKHeight = testH;
+          testH -= STEP_H;
+        }
+        const minHeight = Math.max(lastOKHeight + STEP_H, FLOOR_H);
 
         // === Restore original size ===
         dialog.style.width = origW;
@@ -2933,6 +2948,23 @@
       // Check #3: grid main panel scrollWidth (grid items extending beyond)
       const grid = dialog.querySelector(".erp-design-grid");
       if (grid && grid.scrollWidth > grid.clientWidth + 1) return true;
+      return false;
+    }
+
+    _hasVerticalOverflow(dialog) {
+      // Krok 14b+12.1 (13.5.2026 ~23:50, Marti's height korekce):
+      // Detekuje kdy body fields zacnou byt skryté za footer (body
+      // ma overflow-y:auto → scrollbar appear když scrollHeight > clientHeight).
+      //
+      // Marti's UX kriterium: VŠECHNY fields musi byt visible bez scroll.
+      // Pokud body scrolly, posledni field je hidden za footer → moc malá výška.
+      //
+      // Check #1: body scrollHeight > clientHeight (primary signal)
+      const body = dialog.querySelector(".erp-modal-body");
+      if (body && body.scrollHeight > body.clientHeight + 2) return true;
+      // Check #2: root grid scrollHeight > clientHeight (root je body content)
+      const root = dialog.querySelector(".erp-design-tab-content");
+      if (root && root.scrollHeight > root.clientHeight + 2) return true;
       return false;
     }
 

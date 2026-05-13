@@ -2719,26 +2719,36 @@
         // Panel header — empty label = "panel je plocha" doctrine (12.5. 23:30)
         const sec = _sectionBuild(panel.label || "", "panel: " + panel.slot);
 
-        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:00, Marti's request):
-        //   - footer panel: flex row, right-aligned (oba buttons vedle sebe vpravo)
-        //   - main panel: flex:1 fill remaining vertical space (Delphi alClient
-        //     doctrine — "roztahne se na celou plochu")
-        //   - header panel: default grid (title + badge + status_pill)
+        // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~13:30, Marti's screenshot
+        // catch — "paticka se roztahuje s plochou"):
+        //   - header + footer: flex:0 0 auto (NATURAL height, ne grow ne shrink)
+        //   - main: flex:1 1 auto (jedinaja alClient grow target)
+        //   - footer grid: flex row, right-aligned, align-items center
+        //     (buttons vertikalne ve stredu footer's natural height)
         if (panel.slot === "footer") {
+          // Wrap: natural height, no grow
+          sec.wrap.style.flex = "0 0 auto";
+          // Plus margin-bottom: 0 (poslední panel, no spacing below)
+          sec.wrap.style.marginBottom = "0";
+          // Grid: flex row right-aligned, buttons centered vertical
           sec.grid.style.display = "flex";
           sec.grid.style.justifyContent = "flex-end";
+          sec.grid.style.alignItems = "center";
           sec.grid.style.gap = "8px";
         } else if (panel.slot === "main") {
+          // ALCLIENT — jediny panel ktery rosta
           sec.wrap.style.flex = "1 1 auto";
           sec.wrap.style.minHeight = "0";
           sec.wrap.style.display = "flex";
           sec.wrap.style.flexDirection = "column";
-          // Plus grid uvnitr main panel taky flex:1 aby fields cell area rostla
           sec.grid.style.flex = "1 1 auto";
           sec.grid.style.minHeight = "0";
-          // Empty state hint nebude vertical-centered ve velkem prostoru —
-          // align-content pro grid items aby zustaly nahore (not stretched)
+          // Empty state hint zustane nahore (not centered ve vertical fill)
           sec.grid.style.alignContent = "start";
+        } else if (panel.slot === "header") {
+          // Natural height, no grow (defense in depth — default je 0 1 auto
+          // ale ne všechny browsers respektují totozne; explicit je safer)
+          sec.wrap.style.flex = "0 0 auto";
         }
 
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)

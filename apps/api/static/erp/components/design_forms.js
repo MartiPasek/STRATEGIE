@@ -2859,7 +2859,6 @@
               "background:#2a3340;border:1px solid #3a4754;color:#cfd6df;";
           }
           el.innerHTML = iconHtml + (comp.label || "(button)");
-          const action = comp.action || "noop";
           el.addEventListener("click", async () => {
             console.info("[DesignFwForm] template button click — action:", action);
             // Phase 38.4 Krok 14b+5 (13.5.2026 dopoledne): Save flow LIVE

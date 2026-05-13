@@ -2777,18 +2777,17 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             set_clauses.append(f'"{col}" = :set_{col}')
             params[f"set_{col}"] = new_val
 
-        # Audit fields (pokud column existuje — drz backward compat pro
-        # public.users ktery audit fields neumime — strategie role nema
-        # ALTER permissions tam dnes)
-        # Pojme conditionally add audit fields jen pokud table v fw.*
-        # (public.users vlastni audit pres activity_log row, ne column).
-        if schema_name == "fw":
-            set_clauses.extend([
-                'updated_by_id = :updated_by_id',
-                'updated_by_text = :updated_by_text',
-            ])
-            params["updated_by_id"] = uid
-            params["updated_by_text"] = caller_display
+        # Audit fields — po Marti's migrace 13.5. ~18:10 ma public.users
+        # taky audit columns (created_by_id/text + updated_by_id/text).
+        # Drop schema guard, audit fields set pro VSECHNY entity types.
+        # Pokud table nema column, UPDATE fail s explicit error — caller
+        # vidi v 500 response.
+        set_clauses.extend([
+            'updated_by_id = :updated_by_id',
+            'updated_by_text = :updated_by_text',
+        ])
+        params["updated_by_id"] = uid
+        params["updated_by_text"] = caller_display
 
         set_clauses.append("updated_at = NOW()")  # explicit timestamp update
 
@@ -2808,13 +2807,20 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             )
 
         # 3. activity_log audit row
+        # Phase 38.4 Krok 14b+5 hotfix (13.5.2026 ~18:30, Marti's silent
+        # fail catch): activity_log schema je actor (ne action_type),
+        # ts (ne created_at). Plus SAVEPOINT pattern — pokud INSERT
+        # selze, jen savepoint rollback, NE celé transakce.
+        # PG quirk: failed query v transaction → transaction aborted →
+        # subsequent commit() je silent no-op → UPDATE rolled back.
+        ds.execute(_sql_text_patch("SAVEPOINT pre_audit_log"))
         try:
             ds.execute(_sql_text_patch("""
                 INSERT INTO public.activity_log
-                  (user_id, persona_id, category, action_type,
-                   summary, change_source, created_at)
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
                 VALUES
-                  (:uid, NULL, 'design_save', 'update',
+                  (:uid, NULL, 'design_save', 'user',
                    :summary, 'ui', NOW())
             """), {
                 "uid": uid,
@@ -2823,8 +2829,10 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                     f"by {caller_display}: changed fields = {sorted(field_changes.keys())}"
                 ),
             })
+            ds.execute(_sql_text_patch("RELEASE SAVEPOINT pre_audit_log"))
         except Exception as _act_e:
-            # Activity log fail je non-fatal (audit miss, ale main UPDATE proběhl)
+            # Rollback to savepoint — main UPDATE zustava, audit miss
+            ds.execute(_sql_text_patch("ROLLBACK TO SAVEPOINT pre_audit_log"))
             logger.warning(f"design_patch_entity activity_log INSERT failed: {_act_e}")
 
         ds.commit()
@@ -3112,14 +3120,15 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
 
         new_field = ins.get("inserted") or {}
 
-        # Audit do activity_log
+        # Audit do activity_log (Krok 14b+5 hotfix — actor + ts, savepoint pattern)
+        ds.execute(_sql_text_cdc("SAVEPOINT pre_audit_log"))
         try:
             ds.execute(_sql_text_cdc("""
                 INSERT INTO public.activity_log
-                  (user_id, persona_id, category, action_type,
-                   summary, change_source, created_at)
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
                 VALUES
-                  (:uid, NULL, 'design_field_add', 'create',
+                  (:uid, NULL, 'design_field_add', 'user',
                    :summary, 'ui', NOW())
             """), {
                 "uid": uid,
@@ -3128,8 +3137,14 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
                     f"to parent_comp_def_id={parent_id} by {caller_display}"
                 ),
             })
+            ds.execute(_sql_text_cdc("RELEASE SAVEPOINT pre_audit_log"))
             ds.commit()
         except Exception as _act_e:
+            try:
+                ds.execute(_sql_text_cdc("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds.commit()  # commit po rollback to savepoint
+            except Exception:
+                ds.rollback()
             logger.warning(f"design_create_comp_def activity_log failed: {_act_e}")
 
         return JSONResponse(jsonable_encoder({
@@ -3216,14 +3231,15 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
                 status_code=500,
             )
 
-        # Activity log
+        # Activity log (Krok 14b+5 hotfix — actor + ts, savepoint pattern)
+        ds.execute(_sql_text_cdd("SAVEPOINT pre_audit_log"))
         try:
             ds.execute(_sql_text_cdd("""
                 INSERT INTO public.activity_log
-                  (user_id, persona_id, category, action_type,
-                   summary, change_source, created_at)
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
                 VALUES
-                  (:uid, NULL, 'design_field_remove', 'delete',
+                  (:uid, NULL, 'design_field_remove', 'user',
                    :summary, 'ui', NOW())
             """), {
                 "uid": uid,
@@ -3232,8 +3248,14 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
                     f"region={existing['region_slot']}) by {caller_display}"
                 ),
             })
+            ds.execute(_sql_text_cdd("RELEASE SAVEPOINT pre_audit_log"))
             ds.commit()
         except Exception as _act_e:
+            try:
+                ds.execute(_sql_text_cdd("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds.commit()
+            except Exception:
+                ds.rollback()
             logger.warning(f"design_delete_comp_def activity_log failed: {_act_e}")
 
         return JSONResponse(jsonable_encoder({

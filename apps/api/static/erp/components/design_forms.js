@@ -2869,6 +2869,15 @@
         // moc malá — body fields scrollované za footer. Replace dynamic
         // iterate decrement (analog width) — first body overflow = found
         // boundary kde fields zacnou byt skryté za footer.
+        //
+        // Krok 14b+12.2 (13.5.2026 ~00:10, Marti's korekce po smoke:
+        // "Asi to chce korekci o vysku hlavicky + vysku paticky"):
+        // iterate detekuje overflow boundary, ale visible body content
+        // muze mit edge case (padding mimo scrollHeight diff, sub-pixel
+        // rounding). Marti's intuition: PLUS bezpecnostni polštář =
+        // header.offsetHeight + footer.offsetHeight. To garantuje ze pri
+        // min height body content area >= "lastOK content" + (jeste jednou
+        // chrome velikost) → fields VŽDY visible bez nutnosti scroll.
         const startH = dialog.clientHeight;
         let lastOKHeight = startH;
         let testH = startH;
@@ -2876,6 +2885,9 @@
         const FLOOR_H = 200;
         while (testH > FLOOR_H) {
           dialog.style.height = testH + "px";
+          // Double rAF pro robust layout reflow (1x bylo nedostatecne v
+          // edge cases — Marti's height korekce smoke odhalila)
+          await new Promise((r) => requestAnimationFrame(r));
           await new Promise((r) => requestAnimationFrame(r));
           if (this._hasVerticalOverflow(dialog)) {
             break;
@@ -2883,7 +2895,20 @@
           lastOKHeight = testH;
           testH -= STEP_H;
         }
-        const minHeight = Math.max(lastOKHeight + STEP_H, FLOOR_H);
+        // Marti's korekce: + headerH + footerH bezpecnostni polštář
+        const headerEl = dialog.querySelector(".erp-modal-header");
+        const footerEl = dialog.querySelector(".erp-modal-footer");
+        const headerH = headerEl ? headerEl.offsetHeight : 50;
+        const footerH = footerEl ? footerEl.offsetHeight : 50;
+        const minHeight = Math.max(
+          lastOKHeight + headerH + footerH,
+          FLOOR_H
+        );
+        console.info(
+          "[DesignFwForm] min height calc: lastOK=" + lastOKHeight +
+          " + header=" + headerH + " + footer=" + footerH +
+          " = " + minHeight + "px"
+        );
 
         // === Restore original size ===
         dialog.style.width = origW;

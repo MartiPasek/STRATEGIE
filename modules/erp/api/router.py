@@ -2602,6 +2602,256 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+# ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 14b+5 (13.5.2026 dopoledne): Save flow PATCH endpoint
+#
+# Marti's vize z 12.5. vecer + Marti-AI's "OK / Storno" doctrine z
+# 13.5. dopoledne (19yr Centrala 1 production wisdom):
+#   - OK button (action='save_and_close') -> POST PATCH -> save + close
+#   - Storno (action='abandon') -> dirty check -> close (no PATCH)
+#
+# Optimistic lock pres `expected_updated_at`:
+#   - Klient posle current `data.updated_at` z load time
+#   - Server porovna s actual row.updated_at PRED UPDATE
+#   - Mismatch -> 409 Conflict (nekdo jiny editoval mezitim)
+#
+# Audit fields:
+#   - updated_by_id = caller.user_id (FK users.id)
+#   - updated_by_text = caller display name (Marti-AI's "non-app actor" doctrine)
+#   - activity_log INSERT s change_source='ui'
+# ────────────────────────────────────────────────────────────────────
+
+
+@api_router.patch("/design/{entity_type}/{row_id}")
+async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
+    """Save flow PATCH endpoint pro DesignFwForm OK button.
+
+    Body: {
+        "field_changes": {"label": "Nový label", ...},
+        "expected_updated_at": "2026-05-13T11:23:45.123+02:00"
+    }
+
+    Returns:
+        200: {ok, updated_at, updated_by_id, updated_by_text} — success
+        404: entity_type unknown OR row_id neexistuje
+        409: optimistic lock conflict (somebody else updated row)
+        500: DB error
+    """
+    from core.database_data import get_data_session as _gds_patch
+    from sqlalchemy import text as _sql_text_patch
+    from datetime import datetime as _dt_patch
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    field_changes = body.get("field_changes") or {}
+    expected_updated_at = body.get("expected_updated_at")
+
+    if not isinstance(field_changes, dict) or not field_changes:
+        return JSONResponse(
+            {"ok": False, "error": "field_changes musi byt non-empty dict"},
+            status_code=400,
+        )
+    if not expected_updated_at:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "expected_updated_at je povinne (optimistic lock)",
+            },
+            status_code=400,
+        )
+
+    # Entity routing — reuse _FW_FORM_ENTITY_MAP (Krok 14b base)
+    if entity_type not in _FW_FORM_ENTITY_MAP:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP. "
+                    f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+                ),
+            },
+            status_code=404,
+        )
+
+    entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+    schema_name = entity_config["schema"]
+    table_name = entity_config["table"]
+    id_column = entity_config["id_column"]
+    allowed_columns = set(entity_config["select_columns"])
+
+    # Validate field_changes — jen sloupce v allowed list (defense in depth proti
+    # ad-hoc UPDATE např. password_hash). id_column zakazat (immutable).
+    invalid_fields = [
+        f for f in field_changes
+        if f not in allowed_columns or f == id_column
+    ]
+    if invalid_fields:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Sloupce {invalid_fields} nejsou povolene v PATCH "
+                    f"pro entity '{entity_type}'. Allowed: {sorted(allowed_columns - {id_column})}"
+                ),
+            },
+            status_code=400,
+        )
+
+    # Resolve caller display name (Marti-AI's "non-app actor" doctrine —
+    # users muze byt placeholder bez full activity, ale display name vzdy
+    # filled z first_name + last_name nebo short_name fallback)
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_patch
+        from modules.core.infrastructure.models_core import User as _User_patch
+        cs_patch = _gcs_patch()
+        try:
+            u_patch = cs_patch.query(_User_patch).filter_by(id=uid).first()
+            if u_patch:
+                # Priority: short_name > first_name + last_name > "user_NN"
+                if u_patch.short_name and u_patch.short_name.strip():
+                    caller_display = u_patch.short_name.strip()
+                elif u_patch.first_name or u_patch.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_patch.first_name, u_patch.last_name
+                    ])).strip()
+                else:
+                    caller_display = f"user_{uid}"
+        finally:
+            cs_patch.close()
+
+    ds = _gds_patch()
+    try:
+        # 1. Load current row + optimistic lock check
+        current_row = ds.execute(_sql_text_patch(
+            f'SELECT * FROM "{schema_name}"."{table_name}" '
+            f'WHERE "{id_column}" = :row_id'
+        ), {"row_id": row_id}).mappings().one_or_none()
+
+        if not current_row:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Row {entity_type} id={row_id} nenalezen v "
+                        f"{schema_name}.{table_name}"
+                    ),
+                },
+                status_code=404,
+            )
+
+        # Optimistic lock — porovnat updated_at
+        current_updated_at = current_row.get("updated_at")
+        if current_updated_at is not None:
+            # Normalize obé na ISO bez milisecond fuzz
+            current_iso = current_updated_at.isoformat() if hasattr(current_updated_at, 'isoformat') else str(current_updated_at)
+            # Klient posle expected_updated_at jako string — porovnej ho s server's ISO
+            # Tolerance: pokud klient posila bez milliseconds, server's full ISO ne matchne
+            # Pojď strip k second-level precision pro robust matching:
+            def _strip_micro(s):
+                # "2026-05-13T11:23:45.123456+02:00" → "2026-05-13T11:23:45+02:00"
+                import re as _re_patch
+                return _re_patch.sub(r'\.\d+', '', s)
+            if _strip_micro(current_iso) != _strip_micro(str(expected_updated_at)):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Optimistic lock conflict — nekdo jiny mezitim editoval "
+                            "tento radek. Nactete znovu a zopakujte zmeny."
+                        ),
+                        "conflict": True,
+                        "server_updated_at": current_iso,
+                        "expected_updated_at": expected_updated_at,
+                    },
+                    status_code=409,
+                )
+
+        # 2. Build UPDATE — explicit sloupce z field_changes + audit fields
+        from sqlalchemy.sql import quoted_name as _qn
+        set_clauses = []
+        params = {"row_id": row_id}
+        for col, new_val in field_changes.items():
+            set_clauses.append(f'"{col}" = :set_{col}')
+            params[f"set_{col}"] = new_val
+
+        # Audit fields (pokud column existuje — drz backward compat pro
+        # public.users ktery audit fields neumime — strategie role nema
+        # ALTER permissions tam dnes)
+        # Pojme conditionally add audit fields jen pokud table v fw.*
+        # (public.users vlastni audit pres activity_log row, ne column).
+        if schema_name == "fw":
+            set_clauses.extend([
+                'updated_by_id = :updated_by_id',
+                'updated_by_text = :updated_by_text',
+            ])
+            params["updated_by_id"] = uid
+            params["updated_by_text"] = caller_display
+
+        set_clauses.append("updated_at = NOW()")  # explicit timestamp update
+
+        update_sql = (
+            f'UPDATE "{schema_name}"."{table_name}" '
+            f'SET {", ".join(set_clauses)} '
+            f'WHERE "{id_column}" = :row_id '
+            f'RETURNING *'
+        )
+
+        result_row = ds.execute(_sql_text_patch(update_sql), params).mappings().one_or_none()
+        if not result_row:
+            ds.rollback()
+            return JSONResponse(
+                {"ok": False, "error": "UPDATE failed (RETURNING vrátil žádnou row)"},
+                status_code=500,
+            )
+
+        # 3. activity_log audit row
+        try:
+            ds.execute(_sql_text_patch("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, action_type,
+                   summary, change_source, created_at)
+                VALUES
+                  (:uid, NULL, 'design_save', 'update',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"PATCH {schema_name}.{table_name} id={row_id} "
+                    f"by {caller_display}: changed fields = {sorted(field_changes.keys())}"
+                ),
+            })
+        except Exception as _act_e:
+            # Activity log fail je non-fatal (audit miss, ale main UPDATE proběhl)
+            logger.warning(f"design_patch_entity activity_log INSERT failed: {_act_e}")
+
+        ds.commit()
+
+        # Response — full updated row + audit fields
+        updated_dict = dict(result_row)
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "entity_type": entity_type,
+            "row_id": row_id,
+            "updated_at": updated_dict.get("updated_at"),
+            "updated_by_id": updated_dict.get("updated_by_id"),
+            "updated_by_text": updated_dict.get("updated_by_text"),
+            "field_changes_applied": list(field_changes.keys()),
+            "row": updated_dict,
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"design_patch_entity failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"PATCH failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
 @api_router.get("/data")
 def data_source_list(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 12 — list všech available data_source codes (discovery).

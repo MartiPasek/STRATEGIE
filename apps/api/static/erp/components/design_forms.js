@@ -2828,11 +2828,11 @@
           }
           el.textContent = comp.label || "(button)";
           const action = comp.action || "noop";
-          el.addEventListener("click", () => {
+          el.addEventListener("click", async () => {
             console.info("[DesignFwForm] template button click — action:", action);
-            // Save flow wire-up later — Krok 14b+5
+            // Phase 38.4 Krok 14b+5 (13.5.2026 dopoledne): Save flow LIVE
             if (action === "save_and_close") {
-              alert("OK — Save flow Krok 14b+5 (PATCH endpoint) je TODO. Zatim visual only.");
+              await this._handleSaveAndClose(el);
             } else if (action === "abandon") {
               // Reuse existing _beforeCloseHandler (dirty check + close)
               this._shell.close();
@@ -2864,6 +2864,135 @@
         cur = cur[parts[i]];
       }
       return cur;
+    }
+
+    // Phase 38.4 Krok 14b+5 (13.5.2026 dopoledne): OK button save_and_close action
+    // Marti's Centrala 1 doctrine: "OK = optimistic save + close. Bez ptaní."
+    //
+    // Flow:
+    //   1. Collect dirty field changes z this._dirty Set (field values z DOM)
+    //   2. Pokud žádné changes -> just close (clean OK = no-op + close)
+    //   3. POST PATCH /api/v1/erp/design/{entity}/{id} s field_changes + expected_updated_at
+    //   4. 200 -> green toast "Uloženo" + close modal
+    //   5. 409 -> dialog "Někdo jiný mezitím změnil řádek. Načíst znovu?"
+    //   6. Jiná chyba -> error toast, modal zůstane otevřený (user může retry)
+    async _handleSaveAndClose(btnEl) {
+      // Visual: btn disabled + "Ukládám..." během PATCH
+      const originalText = btnEl.textContent;
+      btnEl.disabled = true;
+      btnEl.textContent = "⏳ Ukládám…";
+
+      try {
+        const core = this._spec.core;
+        const data = this._spec.data || {};
+        const entityType = core.data_entity_type;
+        const rowId = data.id != null ? data.id : (data.ID != null ? data.ID : null);
+        const expectedUpdatedAt = data.updated_at;
+
+        if (!entityType || rowId == null) {
+          alert("Save selhal: missing entity_type nebo row_id");
+          btnEl.disabled = false;
+          btnEl.textContent = originalText;
+          return;
+        }
+
+        // Collect dirty changes z DOM. _field / _dropdown helpers ukladaji
+        // wrap._fieldKey + wrap._inst (UI Kit instance). Walkujem vsechny
+        // wrap divy v body a filtrujem ty co maji fieldKey v this._dirty.
+        const fieldChanges = {};
+        const allWraps = this._shell.body.querySelectorAll(".erp-field, .erp-dropdown, .erp-memo");
+        for (const wrap of allWraps) {
+          const fk = wrap._fieldKey;
+          if (!fk || !this._dirty.has(fk)) continue;
+          // fieldKey format: "<core.code>.<field.name>" -> extract field name
+          const parts = fk.split(".");
+          if (parts.length < 2) continue;
+          const fieldName = parts.slice(1).join(".");
+          // Get current value via UI Kit instance (.value() method) nebo
+          // fallback na DOM input.value
+          let val = null;
+          if (wrap._inst && typeof wrap._inst.value === "function") {
+            val = wrap._inst.value();
+          } else if (wrap._inst && wrap._inst.input) {
+            val = wrap._inst.input.value;
+          } else {
+            const inp = wrap.querySelector("input, textarea, select");
+            if (inp) val = inp.value;
+          }
+          fieldChanges[fieldName] = val;
+        }
+
+        // Pokud žádné changes -> clean close (Marti's "OK clean = close" doctrine)
+        if (Object.keys(fieldChanges).length === 0) {
+          console.info("[DesignFwForm] OK clicked, no dirty changes — closing.");
+          this._dirty.clear();
+          _markFormDirty(this, false);
+          this._shell.close();
+          return;
+        }
+
+        // POST PATCH
+        const r = await fetch(
+          "/api/v1/erp/design/" + encodeURIComponent(entityType) + "/" + encodeURIComponent(rowId),
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              field_changes: fieldChanges,
+              expected_updated_at: expectedUpdatedAt,
+            }),
+          }
+        );
+
+        if (r.status === 409) {
+          // Optimistic lock conflict
+          const errData = await r.json().catch(() => ({}));
+          alert(
+            "Konflikt: někdo jiný mezitím změnil tento řádek.\\n" +
+            "Server čas: " + (errData.server_updated_at || "?") + "\\n" +
+            "Tvůj čas: " + (errData.expected_updated_at || "?") + "\\n\\n" +
+            "Zavři modal a otevři znovu (Enter / dvojklik), tvé změny budou ztraceny."
+          );
+          btnEl.disabled = false;
+          btnEl.textContent = originalText;
+          return;
+        }
+
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          alert(
+            "Uložení selhalo: HTTP " + r.status + "\\n" +
+            (errData.error || "(žádný error message)")
+          );
+          btnEl.disabled = false;
+          btnEl.textContent = originalText;
+          return;
+        }
+
+        // 200 OK — toast + close
+        const respData = await r.json();
+        console.info("[DesignFwForm] PATCH success:", respData);
+
+        // Visual feedback — green flash krátce před close
+        btnEl.style.background = "#3a7a3a";
+        btnEl.style.borderColor = "#4a9a4a";
+        btnEl.textContent = "✅ Uloženo";
+
+        // Clear dirty state (modal close handler nepokusí dirty check)
+        this._dirty.clear();
+        _markFormDirty(this, false);
+
+        // Po krátké pauze close
+        setTimeout(() => {
+          this._shell.close();
+        }, 600);
+      } catch (e) {
+        console.error("[DesignFwForm] save failed:", e);
+        alert("Chyba spojení: " + (e.message || e));
+        btnEl.disabled = false;
+        btnEl.textContent = originalText;
+      }
     }
 
     _renderField(field, value, onDirty) {

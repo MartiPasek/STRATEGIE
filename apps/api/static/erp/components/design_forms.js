@@ -2576,6 +2576,7 @@
     _setFormDesignMode(on) {
       this._formDesignMode = !!on;
       this._updateFormDesignToggle();
+      this._updateFormAddFieldBtn();  // Krok 14b+7.1: "+ Pole" button visibility
       if (this._spec) {
         // Re-render body (zachovat header) — hints + click handlers nove
         this._render();
@@ -2609,6 +2610,8 @@
       if (!rightActions) return;
       // Defensive: nepridavat duplikat (pri opt-out / re-open)
       if (rightActions.querySelector(".erp-form-design-toggle")) return;
+
+      // Toggle button — PROD / DESIGN switch
       const toggle = document.createElement("button");
       toggle.type = "button";
       toggle.className = "erp-form-design-toggle";
@@ -2617,15 +2620,102 @@
       toggle.addEventListener("click", () => {
         this._setFormDesignMode(!this._formDesignMode);
       });
+
+      // Krok 14b+7.1 (13.5.2026 ~20:30, Marti's "po pridani 1 pole hint
+      // zmizi, nikde jinde nelze pridat"): "+ Pole" button vedle toggle.
+      // Visible JEN v DESIGN mode. Klik -> _openFieldPicker (vsechny entry
+      // points -- empty hint, footer hint, header button -- volaji stejnou
+      // logiku).
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.className = "erp-form-design-addfield";
+      addBtn.textContent = "➕ Pole";
+      addBtn.title = "Přidat pole do formuláře (otevře paletu komponent).";
+      this._formAddFieldBtn = addBtn;
+      this._updateFormAddFieldBtn();  // initial visibility (hidden bo PRODUCTION default)
+      addBtn.addEventListener("click", () => {
+        this._openFieldPicker();
+      });
+
       // Insert PRED sysToggle (= prvni button v rightActions) — toggle
       // je hlavni mode switch, ostatni jsou pomocna nastaveni.
       const sysToggle = rightActions.querySelector(".erp-design-systoggle");
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
+        rightActions.insertBefore(addBtn, sysToggle);
       } else {
-        // Fallback: prepend
+        // Fallback: prepend (reverse order — addBtn pak toggle => toggle prvni)
+        rightActions.insertBefore(addBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
+    }
+
+    _updateFormAddFieldBtn() {
+      if (!this._formAddFieldBtn) return;
+      const on = this._formDesignMode === true;
+      // Visible jen v DESIGN mode + pokud picker je vubec dostupny
+      // (entity_type + formId + FieldPickerModal class). Pred _spec
+      // loaded jen schovat default.
+      const canPick = this._canPickFields();
+      const visible = on && canPick;
+      this._formAddFieldBtn.style.display = visible ? "" : "none";
+      this._formAddFieldBtn.style.cssText =
+        "background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:600;" +
+        (visible ? "" : "display:none;");
+    }
+
+    _canPickFields() {
+      // Krok 14b+7.1: shared predicate — kdy je field picker dostupny.
+      // Pouziva header "+ Pole" button + empty hint + footer hint.
+      if (!this._spec) return false;
+      const core = this._spec.core;
+      const form = this._spec.form;
+      if (!core || !form) return false;
+      if (!core.data_entity_type) return false;
+      if (!form.id) return false;
+      if (typeof global.FieldPickerModal !== "function") return false;
+      return true;
+    }
+
+    async _openFieldPicker() {
+      // Krok 14b+7.1: shared handler pro vsechny field picker entry points
+      // (header "+ Pole" button, empty hint click, footer hint click).
+      // Bez tohoto helperu jsou 3 misto stejne logiky -- duplicita.
+      if (!this._canPickFields()) {
+        console.warn("[DesignFwForm] _openFieldPicker called but not canPick");
+        return;
+      }
+      const core = this._spec.core;
+      const formId = this._spec.form.id;
+      const picker = new global.FieldPickerModal({
+        entityType: core.data_entity_type,
+        parentCompDefId: formId,
+        onComplete: async (result) => {
+          console.info("[DesignFwForm] FieldPicker complete:", result);
+          // Reload form spec — fields by se měly objevit v main panel
+          try {
+            const r = await fetch(
+              "/api/v1/erp/fw-form/" +
+                encodeURIComponent(this._spec.core.code) + "/" +
+                encodeURIComponent(this._spec.data.id || 0),
+              { credentials: "include" }
+            );
+            if (r.ok) {
+              const newSpec = await r.json();
+              if (newSpec.ok) {
+                this._spec = newSpec;
+                this._render(); // re-render s novými fields
+              }
+            }
+          } catch (e) {
+            console.error("[DesignFwForm] reload after picker failed:", e);
+            alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
+          }
+        },
+      });
+      await picker.open();
     }
 
     _onDirty(fieldKey, isDirty) {
@@ -2907,6 +2997,38 @@
             const fieldEl = this._renderField(f, value, D);
             if (fieldEl) sec.grid.appendChild(fieldEl);
           }
+
+          // Phase 38.4 Krok 14b+7.1 (13.5.2026 ~20:30, Marti's "po pridani
+          // 1 pole hint zmizi"): footer hint pod fields — kompaktni clickable
+          // stripe "🎨 + Pridat dalsi pole". Jen v DESIGN mode + main panel +
+          // canPick. Marti's empty hint click pattern rozsireny na
+          // non-empty case.
+          if (panel.slot === "main"
+              && this._formDesignMode === true
+              && this._canPickFields()) {
+            const addMore = document.createElement("div");
+            addMore.className = "erp-form-add-more-hint";
+            addMore.style.cssText =
+              "grid-column:1/-1;margin-top:8px;padding:8px 12px;" +
+              "background:#0f141a;border:1px dashed #3a5a8a;" +
+              "border-radius:4px;color:#7ed4e8;font-size:12px;" +
+              "text-align:center;cursor:pointer;" +
+              "transition:background 0.15s,border-color 0.15s;";
+            addMore.textContent = "🎨 + Přidat další pole";
+            addMore.title = "Otevře paletu komponent pro přidání dalšího pole.";
+            addMore.addEventListener("mouseenter", () => {
+              addMore.style.background = "#141a20";
+              addMore.style.borderColor = "#5a8aaa";
+            });
+            addMore.addEventListener("mouseleave", () => {
+              addMore.style.background = "#0f141a";
+              addMore.style.borderColor = "#3a5a8a";
+            });
+            addMore.addEventListener("click", () => {
+              this._openFieldPicker();
+            });
+            sec.grid.appendChild(addMore);
+          }
         }
 
         // Empty state — panel 'main' bez fields i bez template components
@@ -2970,36 +3092,9 @@
               hint.style.borderColor = "#3a5a8a";
             });
 
-            // Click → open FieldPickerModal
-            const formId = this._spec.form.id;
-            hint.addEventListener("click", async () => {
-              const picker = new global.FieldPickerModal({
-                entityType: core.data_entity_type,
-                parentCompDefId: formId,
-                onComplete: async (result) => {
-                  console.info("[DesignFwForm] FieldPicker complete:", result);
-                  // Reload form spec — fields by se měly objevit v main panel
-                  try {
-                    const r = await fetch(
-                      "/api/v1/erp/fw-form/" +
-                        encodeURIComponent(this._spec.core.code) + "/" +
-                        encodeURIComponent(this._spec.data.id || 0),
-                      { credentials: "include" }
-                    );
-                    if (r.ok) {
-                      const newSpec = await r.json();
-                      if (newSpec.ok) {
-                        this._spec = newSpec;
-                        this._render(); // re-render s novými fields
-                      }
-                    }
-                  } catch (e) {
-                    console.error("[DesignFwForm] reload after picker failed:", e);
-                    alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
-                  }
-                },
-              });
-              await picker.open();
+            // Click → open FieldPickerModal (Krok 14b+7.1: shared helper)
+            hint.addEventListener("click", () => {
+              this._openFieldPicker();
             });
             hint.title = "Klikni pro otevření palety komponent (Krok 14c)";
           } else if (canPick) {

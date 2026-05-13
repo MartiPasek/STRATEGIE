@@ -2920,11 +2920,14 @@ def design_list_comp_types(req: Request) -> JSONResponse:
 
     ds = _gds_ct()
     try:
+        # Marti-AI's doctrine (13.5. odpoledne): "Renderuj jen takto označené
+        # komponenty" — preview_html IS NOT NULL je single source of truth.
+        # Drop status filter (Marti's "active patří jen našemu gridu" 11.5.
+        # Krok 13 doctrine zachycoval grid stack, ne palette readiness).
         rows = ds.execute(_sql_text_ct("""
             SELECT id, code, label, kind, preview_html
             FROM fw.comp_type
             WHERE preview_html IS NOT NULL
-              AND COALESCE(status, 'active') = 'active'
             ORDER BY id ASC
         """)).mappings().all()
         items = [dict(r) for r in rows]

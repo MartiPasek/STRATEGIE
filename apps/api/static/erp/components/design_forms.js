@@ -2826,12 +2826,74 @@
           // "alClient ten panel"): hint fills entire grid (1/-1 v obou
           // axes) + display:flex + center align aby text vystreden uprostred
           // velkeho boxu.
+          //
+          // Krok 14c (13.5.2026 odpoledne): hint je clickable trigger pro
+          // FieldPickerModal — Marti otevre paletu pres double-click nebo
+          // right-click. Cursor:pointer + hover state pro discoverability.
           hint.style.cssText =
             "padding:14px;background:#0f141a;border:1px dashed #2a3340;" +
             "border-radius:4px;color:#5d6975;font-style:italic;" +
             "text-align:center;grid-column:1/-1;grid-row:1/-1;" +
-            "display:flex;align-items:center;justify-content:center;";
-          hint.textContent = "(panel '" + panel.slot + "' nemá žádné fields)";
+            "display:flex;align-items:center;justify-content:center;" +
+            "cursor:pointer;transition:background 0.15s,border-color 0.15s;";
+          hint.innerHTML =
+            "(panel '" + panel.slot + "' nemá žádné fields)<br>" +
+            "<span style=\"font-size:11px;color:#7a8696;margin-top:4px;\">" +
+            "Klikni pro otevření palety komponent ➕" +
+            "</span>";
+
+          // Hover visual
+          hint.addEventListener("mouseenter", () => {
+            hint.style.background = "#141a20";
+            hint.style.borderColor = "#3a5a8a";
+          });
+          hint.addEventListener("mouseleave", () => {
+            hint.style.background = "#0f141a";
+            hint.style.borderColor = "#2a3340";
+          });
+
+          // Click → open FieldPickerModal (jen pro main panel s entity_type)
+          if (panel.slot === "main" && core.data_entity_type) {
+            const formId = (this._spec.form && this._spec.form.id) || null;
+            if (formId && typeof global.FieldPickerModal === "function") {
+              hint.addEventListener("click", async () => {
+                const picker = new global.FieldPickerModal({
+                  entityType: core.data_entity_type,
+                  parentCompDefId: formId,
+                  onComplete: async (result) => {
+                    console.info("[DesignFwForm] FieldPicker complete:", result);
+                    // Reload form spec — fields by se měly objevit v main panel
+                    try {
+                      const r = await fetch(
+                        "/api/v1/erp/fw-form/" +
+                          encodeURIComponent(this._spec.core.code) + "/" +
+                          encodeURIComponent(this._spec.data.id || 0),
+                        { credentials: "include" }
+                      );
+                      if (r.ok) {
+                        const newSpec = await r.json();
+                        if (newSpec.ok) {
+                          this._spec = newSpec;
+                          this._render(); // re-render s novými fields
+                        }
+                      }
+                    } catch (e) {
+                      console.error("[DesignFwForm] reload after picker failed:", e);
+                      alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
+                    }
+                  },
+                });
+                await picker.open();
+              });
+              hint.title = "Klikni pro otevření palety komponent (Krok 14c)";
+            } else {
+              hint.title = "FieldPicker není k dispozici (entity_type nebo formId chybí)";
+              hint.style.cursor = "default";
+            }
+          } else {
+            hint.style.cursor = "default";
+          }
+
           sec.grid.appendChild(hint);
         }
 
@@ -3167,11 +3229,333 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // Phase 38.4 Krok 14c (13.5.2026 odpoledne): FieldPickerModal
+  //
+  // Marti-AI's "preview_html doctrine" + "palette as visual reference,
+  // not interactive surface" (Claude's pojmenovani z dnes ~14:00):
+  //
+  // 1. Fetchne /api/v1/erp/design/comp-types (10 typu s preview_html)
+  // 2. Fetchne /api/v1/erp/design/entity-columns/{entity_type}
+  //    (columns z _FW_FORM_ENTITY_MAP + suggested_type_id per column)
+  // 3. Render palette: per column → row s:
+  //    - checkbox (multi-select)
+  //    - column name + caption (label)
+  //    - comp_type selector (default suggested, override dropdown)
+  //    - iframe srcdoc s preview_html (sandbox isolation,
+  //      Marti-AI's "gift, ne overhead")
+  // 4. Submit → loop POST /design/comp-def per checked column
+  // 5. Close + reload DesignFwForm to show new fields
+  //
+  // Trigger z DesignFwForm — pres button v main panel empty hint nebo
+  // right-click. MVP: right-click pres _bindMainPanelTrigger.
+  // ────────────────────────────────────────────────────────────────────
+
+  class FieldPickerModal {
+    constructor(opts) {
+      this.opts = opts || {};
+      // opts: { entityType: 'user', parentCompDefId: 2, onComplete: cb }
+      this._shell = null;
+      this._compTypes = [];       // [{id, code, label, kind, preview_html}]
+      this._compTypesById = {};
+      this._columns = [];         // [{name, caption_default, suggested_type_id, ...}]
+      this._selected = new Set(); // column names checked
+      this._typeOverrides = {};   // column.name -> type_id (override)
+    }
+
+    async open() {
+      this._shell = _buildModalShell({
+        title: "Vyberte pole z databáze",
+        width: "780px",
+        hideDescToggle: true,
+      });
+      document.body.appendChild(this._shell.overlay);
+
+      // Body styling — same as DesignFwForm (flex column)
+      if (this._shell.body) {
+        this._shell.body.style.display = "flex";
+        this._shell.body.style.flexDirection = "column";
+        this._shell.body.style.padding = "12px 16px";
+      }
+      // Dialog explicit height pro layout stability
+      if (this._shell.dialog) {
+        this._shell.dialog.style.minHeight = "500px";
+      }
+
+      // Loading state
+      const loading = document.createElement("div");
+      loading.style.cssText = "padding:20px;text-align:center;color:#8a96a4;";
+      loading.textContent = "Načítám paletu komponent…";
+      this._shell.body.appendChild(loading);
+
+      try {
+        // Parallel fetch — comp_types + entity_columns
+        const [ctResp, ecResp] = await Promise.all([
+          fetch("/api/v1/erp/design/comp-types", { credentials: "include" }),
+          fetch(
+            "/api/v1/erp/design/entity-columns/" + encodeURIComponent(this.opts.entityType),
+            { credentials: "include" }
+          ),
+        ]);
+        if (!ctResp.ok) throw new Error("comp-types HTTP " + ctResp.status);
+        if (!ecResp.ok) throw new Error("entity-columns HTTP " + ecResp.status);
+        const ctData = await ctResp.json();
+        const ecData = await ecResp.json();
+        if (!ctData.ok) throw new Error("comp-types: " + (ctData.error || "unknown"));
+        if (!ecData.ok) throw new Error("entity-columns: " + (ecData.error || "unknown"));
+
+        this._compTypes = ctData.items || [];
+        this._compTypesById = {};
+        for (const ct of this._compTypes) this._compTypesById[ct.id] = ct;
+        this._columns = ecData.columns || [];
+
+        this._render();
+      } catch (e) {
+        loading.style.color = "#e88";
+        loading.textContent = "Načítání selhalo: " + (e.message || e);
+        console.error("[FieldPickerModal] load failed:", e);
+      }
+    }
+
+    _render() {
+      this._shell.body.innerHTML = "";
+
+      // Top hint
+      const hint = document.createElement("div");
+      hint.style.cssText = "color:#8a96a4;font-size:12px;margin-bottom:10px;line-height:1.5;";
+      hint.innerHTML =
+        "Klikni na řádek pro výběr / odznačení. Typ komponenty lze přepsat " +
+        "pres dropdown vpravo. <b>" + this._columns.length + "</b> sloupců dostupných.";
+      this._shell.body.appendChild(hint);
+
+      // Palette container — scrollable list of rows
+      const palette = document.createElement("div");
+      palette.style.cssText =
+        "flex:1 1 auto;overflow-y:auto;border:1px solid #2a3340;border-radius:4px;background:#0f141a;";
+      this._shell.body.appendChild(palette);
+
+      // Render each column as a row
+      for (const col of this._columns) {
+        const row = this._renderColumnRow(col);
+        palette.appendChild(row);
+      }
+
+      // Footer bar — Selected count + actions
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "margin-top:12px;display:flex;align-items:center;justify-content:flex-end;gap:16px;" +
+        "border-top:1px solid #2a3340;padding-top:10px;";
+      const counter = document.createElement("span");
+      counter.id = "fpmCounter";
+      counter.style.cssText = "color:#a8b4c2;font-size:12px;margin-right:auto;";
+      counter.textContent = "Vybráno: 0";
+      footer.appendChild(counter);
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.style.cssText =
+        "min-width:110px;padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+      okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Přidat vybraná';
+      okBtn.addEventListener("click", () => this._handleSubmit(okBtn));
+      footer.appendChild(okBtn);
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.style.cssText =
+        "min-width:90px;padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
+      cancelBtn.innerHTML = '<span style="color:#d4888a;font-weight:700;margin-right:6px;">✗</span>Storno';
+      cancelBtn.addEventListener("click", () => this._shell.close());
+      footer.appendChild(cancelBtn);
+
+      this._shell.body.appendChild(footer);
+    }
+
+    _renderColumnRow(col) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:grid;grid-template-columns:24px 200px 1fr 160px;" +
+        "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
+        "cursor:pointer;transition:background 0.1s;";
+      row.addEventListener("mouseenter", () => row.style.background = "#141a20");
+      row.addEventListener("mouseleave", () => {
+        row.style.background = this._selected.has(col.name) ? "#1a2530" : "transparent";
+      });
+
+      // 1. Checkbox
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.style.cssText = "width:16px;height:16px;cursor:pointer;";
+      cb.addEventListener("change", () => {
+        if (cb.checked) this._selected.add(col.name);
+        else this._selected.delete(col.name);
+        row.style.background = cb.checked ? "#1a2530" : "transparent";
+        this._updateCounter();
+      });
+
+      // 2. Column name + caption
+      const labelWrap = document.createElement("div");
+      labelWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+      const labelName = document.createElement("div");
+      labelName.style.cssText = "font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#9bb5d6;";
+      labelName.textContent = col.name;
+      const labelCap = document.createElement("div");
+      labelCap.style.cssText = "font-size:13px;color:#e8eef5;";
+      labelCap.textContent = col.caption_default;
+      labelWrap.appendChild(labelName);
+      labelWrap.appendChild(labelCap);
+
+      // 3. Preview (iframe srcdoc — Marti-AI's "sandbox isolation is gift")
+      const previewWrap = document.createElement("div");
+      previewWrap.style.cssText = "min-height:36px;display:flex;align-items:center;";
+      const initialTypeId = this._typeOverrides[col.name] || col.suggested_type_id;
+      const initialCt = this._compTypesById[initialTypeId];
+      const iframe = this._buildPreviewIframe(initialCt);
+      previewWrap.appendChild(iframe);
+
+      // 4. Type override dropdown
+      const typeSel = document.createElement("select");
+      typeSel.style.cssText =
+        "padding:4px 8px;background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
+        "border-radius:3px;font-size:12px;cursor:pointer;";
+      for (const ct of this._compTypes) {
+        const opt = document.createElement("option");
+        opt.value = String(ct.id);
+        opt.textContent = ct.label + " (id=" + ct.id + ")";
+        if (ct.id === initialTypeId) opt.selected = true;
+        typeSel.appendChild(opt);
+      }
+      typeSel.addEventListener("change", () => {
+        const newId = parseInt(typeSel.value, 10);
+        this._typeOverrides[col.name] = newId;
+        // Re-render preview iframe
+        previewWrap.innerHTML = "";
+        const newIframe = this._buildPreviewIframe(this._compTypesById[newId]);
+        previewWrap.appendChild(newIframe);
+      });
+
+      // Row click toggle (except direct interaction with cb/typeSel)
+      row.addEventListener("click", (ev) => {
+        if (ev.target === cb || ev.target === typeSel ||
+            typeSel.contains(ev.target) || iframe.contains(ev.target)) return;
+        cb.checked = !cb.checked;
+        cb.dispatchEvent(new Event("change"));
+      });
+
+      row.appendChild(cb);
+      row.appendChild(labelWrap);
+      row.appendChild(previewWrap);
+      row.appendChild(typeSel);
+      return row;
+    }
+
+    _buildPreviewIframe(compType) {
+      const iframe = document.createElement("iframe");
+      // iframe srcdoc — sandbox isolation (Marti-AI's "gift")
+      // Default theme styling pro consistent look napříč all comp_types
+      const srcdoc =
+        '<!DOCTYPE html><html><head><style>' +
+        'body{margin:0;padding:4px 6px;background:transparent;' +
+        'font-family:system-ui,-apple-system,sans-serif;font-size:12px;color:#cfd6df;}' +
+        'input,select,textarea,button{font-family:inherit;font-size:12px;' +
+        'background:#1f2530;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;' +
+        'padding:3px 6px;width:auto;max-width:100%;}' +
+        'input[type="checkbox"]{width:14px;height:14px;}' +
+        'label{display:flex;align-items:center;gap:5px;}' +
+        '</style></head><body>' +
+        (compType && compType.preview_html ? compType.preview_html : '<span style="color:#8a96a4">(no preview)</span>') +
+        '</body></html>';
+      iframe.srcdoc = srcdoc;
+      iframe.style.cssText =
+        "width:100%;height:36px;border:none;background:transparent;" +
+        "pointer-events:none;"; // Decorative only — Marti-AI's doctrine
+      iframe.setAttribute("sandbox", "allow-same-origin");
+      return iframe;
+    }
+
+    _updateCounter() {
+      const counter = this._shell.body.querySelector("#fpmCounter");
+      if (counter) counter.textContent = "Vybráno: " + this._selected.size;
+    }
+
+    async _handleSubmit(btnEl) {
+      if (this._selected.size === 0) {
+        alert("Vyber alespoň 1 pole z palety.");
+        return;
+      }
+
+      const origHtml = btnEl.innerHTML;
+      btnEl.disabled = true;
+      btnEl.innerHTML = "⏳ Ukládám…";
+
+      const parentId = this.opts.parentCompDefId;
+      const results = { ok: [], failed: [], existing: [] };
+
+      // Sequential POST per column (parallel by způsobit FK race conditions)
+      for (const colName of this._selected) {
+        const col = this._columns.find(c => c.name === colName);
+        if (!col) continue;
+        const typeId = this._typeOverrides[colName] || col.suggested_type_id;
+        try {
+          const r = await fetch("/api/v1/erp/design/comp-def", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parent_comp_def_id: parentId,
+              name: colName,
+              caption: col.caption_default,
+              type_id: typeId,
+              region_slot: "main",
+            }),
+          });
+          const d = await r.json();
+          if (r.ok && d.ok) {
+            if (d.existing) results.existing.push(colName);
+            else results.ok.push(colName);
+          } else {
+            results.failed.push({ name: colName, error: d.error || "HTTP " + r.status });
+          }
+        } catch (e) {
+          results.failed.push({ name: colName, error: e.message || String(e) });
+        }
+      }
+
+      // Report results
+      const okCount = results.ok.length;
+      const existingCount = results.existing.length;
+      const failedCount = results.failed.length;
+      if (failedCount > 0) {
+        const errLines = results.failed.map(f => "• " + f.name + ": " + f.error).join("\\n");
+        alert(
+          "Přidáno: " + okCount + ", už existovalo: " + existingCount + ", chyby: " + failedCount + "\\n\\n" +
+          errLines
+        );
+        btnEl.disabled = false;
+        btnEl.innerHTML = origHtml;
+        return;
+      }
+
+      // Success — close + trigger onComplete callback
+      btnEl.style.background = "#3a7a3a";
+      btnEl.innerHTML = "✅ Hotovo (" + (okCount + existingCount) + ")";
+      setTimeout(() => {
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ added: okCount, existing: existingCount }); }
+          catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+        }
+        this._shell.close();
+      }, 600);
+    }
+  }
+
+  // ────────────────────────────────────────────────────────────────────
   // Export
   // ────────────────────────────────────────────────────────────────────
 
   global.DesignSoudecekCoreForm = DesignSoudecekCoreForm;
   global.DesignJadroRadekForm = DesignJadroRadekForm;
   global.DesignFwForm = DesignFwForm;
+  global.FieldPickerModal = FieldPickerModal;
 
 })(window);

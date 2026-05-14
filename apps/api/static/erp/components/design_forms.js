@@ -3202,24 +3202,98 @@
         this._dirtyBadge.textContent = count > 0 ? "● " + count + " " + _wBadge : "";
         this._dirtyBadge.style.display = count > 0 ? "" : "none";
       }
-      // Phase 38.4 Krok 14c hotfix (13.5.2026 ~17:30): live dirty indicator
-      // v modal title bar (po _setupFooter consolidation pres footer panel,
-      // dirty badge musi byt nekde visible). Pojistka — pokud titleEl exists,
-      // update jeho text s count suffix.
+      // Krok 14b+16 (14.5.2026 rano, Marti's polish):
+      //   1. Title bar zachovava AMBER accent pri dirty (visual signal)
+      //   2. ALE textContent BEZ "● N změn" — vyhodit count z hlavicky
+      //   3. Footer ma decent "● N změn" button (clickable revert) — _renderDirtyDiscardBtn
+      // Marti: "Z hlavicky vyhodit ostatni text ohledne zmen.
+      //         Pridat do paticky doleva ten kontext."
       if (this._shell && this._shell.title) {
         const baseTitle = this._spec && this._spec.core
           ? (this._spec.core.label || this._spec.core.code || "Editace")
           : "Editace";
-        if (count > 0) {
-          const _wBadge2 = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
-          this._shell.title.textContent = baseTitle + " — ● " + count + " " + _wBadge2;
-          this._shell.title.style.color = "#d4b88a"; // amber dirty accent
-        } else {
-          this._shell.title.textContent = baseTitle;
-          this._shell.title.style.color = ""; // default white
-        }
+        this._shell.title.textContent = baseTitle;  // VZDY base, bez count
+        this._shell.title.style.color = count > 0 ? "#d4b88a" : "";  // amber pri dirty
       }
+      // Refresh footer dirty discard button (visible jen pokud count > 0)
+      this._updateDirtyDiscardBtn();
       _markFormDirty(this, count > 0);
+    }
+
+    _updateDirtyDiscardBtn() {
+      if (!this._dirtyDiscardBtn) return;
+      const count = this._dirty.size;
+      const parent = this._dirtyDiscardBtn.parentElement;
+      if (count === 0) {
+        this._dirtyDiscardBtn.style.display = "none";
+        // Když discard hidden, parent footer flex by mel byt justify-end
+        // (jinak space-between rozšíří gap mezi OK/Storno do extrému).
+        if (parent) parent.style.justifyContent = "flex-end";
+        return;
+      }
+      const wBadge = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
+      this._dirtyDiscardBtn.textContent = "● " + count + " " + wBadge;
+      this._dirtyDiscardBtn.style.display = "";
+      // Visible discard btn -> space-between (vlevo discard, vpravo OK/Storno)
+      if (parent) parent.style.justifyContent = "space-between";
+    }
+
+    async _revertAllChanges() {
+      // Krok 14b+16: discard all dirty changes — reset každý field na origVal.
+      // Body fields jsou v sec.grid (per panel), kazdy field el ma _inst.
+      // Pro _field-based widgets (_inst.input.value = origVal),
+      // Pro checkbox/_dropdown vlastni reset.
+      if (!this._shell || !this._shell.body) return;
+      const fieldEls = this._shell.body.querySelectorAll("[data-design-fieldkey]");
+      const visited = new Set();
+      fieldEls.forEach((el) => {
+        // Find ancestor with _inst + _origVal (field wrapper)
+        let wrap = el;
+        while (wrap && !(wrap._inst && "_origVal" in wrap)) {
+          wrap = wrap.parentElement;
+          if (wrap === this._shell.body) { wrap = null; break; }
+        }
+        if (!wrap || !wrap._inst) return;
+        const fk = wrap._fieldKey;
+        if (!fk || visited.has(fk)) return;
+        visited.add(fk);
+        try {
+          const orig = wrap._origVal;
+          // Set value zpet — depend na widget type
+          if (wrap._inst.input && "checked" in wrap._inst.input) {
+            // Checkbox
+            wrap._inst.input.checked = !!orig;
+            const valLabel = wrap.querySelector("span");
+            if (valLabel && valLabel.textContent === "Ano" || valLabel && valLabel.textContent === "Ne") {
+              valLabel.textContent = wrap._inst.input.checked ? "Ano" : "Ne";
+            }
+          } else if (wrap._inst.input) {
+            // Input / textarea
+            wrap._inst.input.value = orig == null ? "" : String(orig);
+            // Reset visual dirty marker (amber border-left)
+            wrap._inst.input.style.borderLeft = "";
+            wrap._inst.input.style.background = "";
+          } else if (typeof wrap._inst.setValue === "function") {
+            // Dropdown / UI Kit widget
+            wrap._inst.setValue(orig);
+          }
+        } catch (e) {
+          console.warn("[DesignFwForm] revert field failed:", fk, e);
+        }
+      });
+      // Clear dirty set + update UI
+      this._dirty.clear();
+      _markFormDirty(this, false);
+      if (this._shell && this._shell.title) {
+        const baseTitle = this._spec && this._spec.core
+          ? (this._spec.core.label || this._spec.core.code || "Editace")
+          : "Editace";
+        this._shell.title.textContent = baseTitle;
+        this._shell.title.style.color = "";
+      }
+      this._updateDirtyDiscardBtn();
+      if (this._saveBtn) this._saveBtn.style.display = "none";
+      _showToast("Změny zrušeny", "info");
     }
 
     async _beforeCloseHandler() {
@@ -3473,12 +3547,49 @@
           // Visual separator nad footer
           sec.wrap.style.borderTop = "1px solid #2a3340";
           sec.wrap.style.paddingTop = "10px";
-          // Grid: flex row right-aligned, buttons centered vertical
+          // Krok 14b+16 (14.5.2026 rano, Marti's polish):
+          // Footer flex row se SPACE-BETWEEN — vlevo dirty discard button,
+          // vpravo OK/Storno buttons. Pri zero dirty: discard btn hidden,
+          // OK/Storno se prirozene posunou doleva (flex justify-end fallback).
           sec.grid.style.display = "flex";
-          sec.grid.style.justifyContent = "flex-end";
+          sec.grid.style.justifyContent = "space-between";
           sec.grid.style.alignItems = "center";
-          // Marti's polish (13.5.2026 ~14:45): visible gap mezi OK/Storno
           sec.grid.style.gap = "16px";
+
+          // Inject dirty discard button na ZACATEK (vlevo)
+          const discardBtn = document.createElement("button");
+          discardBtn.type = "button";
+          discardBtn.className = "erp-form-dirty-discard";
+          discardBtn.style.cssText =
+            "background:transparent;border:1px solid #5a4830;color:#d4b88a;" +
+            "padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;" +
+            "font-style:italic;transition:background 0.15s,border-color 0.15s;" +
+            "display:none;";  // initially hidden (count=0)
+          discardBtn.title = "Klikni pro zrušení všech tebou provedených změn (vrátit původní hodnoty).";
+          discardBtn.addEventListener("mouseenter", () => {
+            discardBtn.style.background = "#1f1810";
+            discardBtn.style.borderColor = "#7a5a3a";
+          });
+          discardBtn.addEventListener("mouseleave", () => {
+            discardBtn.style.background = "transparent";
+            discardBtn.style.borderColor = "#5a4830";
+          });
+          discardBtn.addEventListener("click", async () => {
+            const decision = await _confirmDarkDialog({
+              title: "Zrušit změny",
+              message: "Chceš, abych tebou provedené změny zrušila?",
+            });
+            if (decision === true) {
+              await this._revertAllChanges();
+            }
+          });
+          this._dirtyDiscardBtn = discardBtn;
+          sec.grid.appendChild(discardBtn);
+          // Update visibility podle aktualniho dirty count (volane po _render)
+          this._updateDirtyDiscardBtn();
+          // PLUS spacer pokud zadne discard btn: vytvori pravou cast space-between
+          // (flex justify-between potrebuje 2 children minimum aby spacing fungoval).
+          // OK/Storno buttons (template footer komponenty) append v dalším loop.
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.
           // Marti's polish (13.5.2026 ~14:45): "alClient ten panel" —

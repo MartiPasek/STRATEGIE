@@ -144,6 +144,186 @@ def erp_home(req: Request) -> HTMLResponse:
     return HTMLResponse(content=_render_workspace_page(uid))
 
 
+@router.get("/palette-popup", response_class=HTMLResponse)
+def erp_palette_popup(req: Request) -> HTMLResponse:
+    """Phase 38.4 Krok 14c+2 part B (14.5.2026 odpoledne):
+    Standalone popup window pro Paletu komponent.
+
+    Marti's "musi se chovat jako normalni samostatne okno... presunout
+    mysi i mimo oblast ERP aplikace" — popup window via window.open()
+    z parent FieldPickerModal. Cross-monitor drag-drop funguje natively
+    (HTML5 DnD je cross-window pro same-origin).
+
+    Auth: same session cookie jako parent ERP. _require_parent gate.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # Standalone HTML page — reuse design_forms.js gallery render.
+    # window.opener reference v JS pro drop event propagation do parent.
+    html = """<!DOCTYPE html>
+<html lang="cs">
+<head>
+<meta charset="UTF-8">
+<title>🎨 Paleta komponent</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; background: #0f141a; color: #cfd6df; font-family: system-ui, -apple-system, sans-serif; }
+  .palette-popup-header {
+    padding: 10px 14px; background: #141a20; border-bottom: 1px solid #2a3340;
+    display: flex; align-items: center; gap: 12px;
+  }
+  .palette-popup-title { font-size: 14px; font-weight: 600; color: #e8eef5; flex: 1 1 auto; }
+  .palette-popup-hint { font-size: 11px; color: #8a96a4; padding: 8px 14px; background: #141a20; }
+  .palette-popup-content { padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .erp-gallery-preview-scope { display: flex; align-items: center; gap: 5px; font-size: 12px; pointer-events: auto; }
+  .erp-gallery-preview-scope input, .erp-gallery-preview-scope select,
+  .erp-gallery-preview-scope textarea, .erp-gallery-preview-scope button {
+    font-family: inherit; font-size: 12px; background: #1f2530; border: 1px solid #2a3340;
+    color: #cfd6df; border-radius: 3px; padding: 3px 6px; max-width: 100%; caret-color: transparent;
+  }
+  .erp-gallery-preview-scope input[type="checkbox"] { width: 14px; height: 14px; }
+  .erp-gallery-preview-scope > [draggable="true"] { cursor: grab; transition: border-color 0.15s; }
+  .erp-gallery-preview-scope > [draggable="true"]:hover { border-color: #3a8aa8 !important; }
+  .erp-gallery-preview-scope > [draggable="true"]:active { cursor: grabbing; }
+  .erp-gallery-preview-scope input[type="number"] { -moz-appearance: textfield; }
+  .erp-gallery-preview-scope input[type="number"]::-webkit-inner-spin-button,
+  .erp-gallery-preview-scope input[type="number"]::-webkit-outer-spin-button {
+    -webkit-appearance: none; margin: 0;
+  }
+  .erp-gallery-preview-scope input[type="date"]::-webkit-calendar-picker-indicator,
+  .erp-gallery-preview-scope input[type="datetime-local"]::-webkit-calendar-picker-indicator {
+    filter: invert(0.7); opacity: 0.6;
+  }
+  .palette-card {
+    background: #141a20; border: 1px solid #2a3340; border-radius: 5px;
+    padding: 8px; display: flex; flex-direction: column; gap: 6px;
+    transition: border-color 0.15s;
+  }
+  .palette-card:hover { border-color: #3a8aa8; }
+  .palette-card-preview {
+    background: #1f2530; border-radius: 3px; padding: 6px; min-height: 36px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .palette-card-label { font-size: 12px; color: #e8eef5; font-weight: 600; }
+  .palette-card-code { font-family: ui-monospace, Consolas, monospace; font-size: 10px; color: #7ed4e8; opacity: 0.7; }
+  .palette-card-meta { font-size: 10px; color: #8a96a4; line-height: 1.3; border-top: 1px solid #1a2028; padding-top: 4px; margin-top: auto; }
+  .palette-card-meta .badge { background: #1f2530; padding: 1px 5px; border-radius: 2px; margin-right: 4px; }
+  .loading, .error { padding: 24px; text-align: center; color: #8a96a4; }
+  .error { color: #e88; }
+</style>
+</head>
+<body>
+<div class="palette-popup-header">
+  <div class="palette-popup-title">🎨 Paleta komponent</div>
+</div>
+<div class="palette-popup-hint">
+  Drag komponentu do ERP okna pro přidání pole. Toto okno můžeš přesunout kamkoliv (i na druhý monitor).
+</div>
+<div id="palette-content" class="palette-popup-content">
+  <div class="loading">Načítám...</div>
+</div>
+<script>
+(function() {
+  'use strict';
+  // Phase 38.4 Krok 14c+2 part B: standalone popup gallery.
+  // Cross-window drag-drop funguje nativě (HTML5 DnD je cross-window
+  // pro same-origin). Drop target je parent ERP window's DesignFwForm body.
+
+  const FORM_RELEVANT_HINTS = new Set([
+    "input", "input-number", "textarea", "checkbox",
+    "select", "multiselect", "datepicker", "datetimepicker",
+    "timepicker", "button", "speedbutton",
+    "fieldset", "tabs_outer", "tab_inner",
+    "label", "fileupload", "md_render"
+  ]);
+
+  const FORM_RELEVANT_CODES = new Set([
+    "label", "edit", "checkbox", "combobox", "memo", "number",
+    "checkbox_modern", "date_modern", "datetime", "lookup",
+    "lookup_multi", "file", "label_readonly", "groupbox",
+    "pagecontrol", "tabsheet", "button", "richedit"
+  ]);
+
+  async function loadAndRender() {
+    const container = document.getElementById('palette-content');
+    try {
+      const resp = await fetch('/api/v1/erp/design/comp-types', { credentials: 'include' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const data = await resp.json();
+      if (!data.ok) throw new Error(data.error || 'unknown');
+      const items = (data.items || []).filter(ct =>
+        FORM_RELEVANT_HINTS.has(ct.renderer_hint) || FORM_RELEVANT_CODES.has(ct.code)
+      );
+      container.innerHTML = '';
+      if (items.length === 0) {
+        container.innerHTML = '<div class="error">Žádné form-relevant komponenty.</div>';
+        return;
+      }
+      items.forEach(ct => container.appendChild(renderCard(ct)));
+    } catch (e) {
+      container.innerHTML = '<div class="error">Načítání selhalo: ' + (e.message || e) + '</div>';
+    }
+  }
+
+  function renderCard(ct) {
+    const card = document.createElement('div');
+    card.className = 'palette-card';
+
+    // Preview scope (inline DOM, draggable inner element)
+    const previewWrap = document.createElement('div');
+    previewWrap.className = 'palette-card-preview';
+    const scope = document.createElement('div');
+    scope.className = 'erp-gallery-preview-scope';
+    scope.innerHTML = ct.preview_html || '<span style="color:#8a96a4;font-size:11px;">(no preview)</span>';
+
+    const handle = scope.querySelector('input, select, textarea, button, label') || scope.firstElementChild;
+    if (handle) {
+      handle.setAttribute('draggable', 'true');
+      if (handle.tagName === 'INPUT' || handle.tagName === 'TEXTAREA') {
+        handle.setAttribute('readonly', '');
+      }
+      handle.addEventListener('mousedown', ev => ev.preventDefault());
+      handle.addEventListener('dragstart', ev => {
+        handle.style.opacity = '0.5';
+        ev.dataTransfer.effectAllowed = 'copy';
+        // Cross-window DnD: same mime type jako parent ERP gallery.
+        ev.dataTransfer.setData('application/x-erp-comp-type',
+          JSON.stringify({ id: ct.id, code: ct.code, label: ct.label }));
+        ev.dataTransfer.setData('text/plain', ct.code);
+      });
+      handle.addEventListener('dragend', () => handle.style.opacity = '1');
+    }
+    previewWrap.appendChild(scope);
+    card.appendChild(previewWrap);
+
+    const lbl = document.createElement('div');
+    lbl.className = 'palette-card-label';
+    lbl.textContent = ct.label;
+    card.appendChild(lbl);
+
+    const code = document.createElement('div');
+    code.className = 'palette-card-code';
+    code.textContent = ct.code + ' · id=' + ct.id;
+    card.appendChild(code);
+
+    const meta = document.createElement('div');
+    meta.className = 'palette-card-meta';
+    meta.innerHTML = '<span class="badge">' + (ct.kind || 'leaf') + '</span>' +
+                     (ct.description || '').slice(0, 50);
+    card.appendChild(meta);
+
+    return card;
+  }
+
+  loadAndRender();
+})();
+</script>
+</body>
+</html>
+"""
+    return HTMLResponse(content=html)
+
+
 @router.get("/system/audit-dashboard", response_class=HTMLResponse)
 def system_audit_dashboard(
     req: Request,

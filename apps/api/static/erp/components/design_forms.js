@@ -5373,6 +5373,54 @@
       });
       document.body.appendChild(this._shell.overlay);
 
+      // Phase 38.4 Krok 14c+2 part B (14.5.2026 odpoledne, Marti's
+      // "Drzi se stale vevnitr"): "Detach do okna" button v header.
+      // Click → window.open() popup window, lze přesunout na druhý
+      // monitor / kamkoliv mimo browser viewport. Cross-window drag-drop
+      // funguje nativně (HTML5 DnD je cross-window pro same-origin).
+      try {
+        const headerActions = this._shell.header &&
+          this._shell.header.querySelector(".erp-modal-header-actions");
+        if (headerActions) {
+          const detachBtn = document.createElement("button");
+          detachBtn.type = "button";
+          detachBtn.className = "erp-palette-detach";
+          detachBtn.textContent = "🪟 Do okna";
+          detachBtn.title = "Otevřít paletu v samostatném okně — lze přesunout na druhý monitor / mimo browser. Drag-drop do ERP funguje napříč okny.";
+          detachBtn.style.cssText =
+            "background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
+            "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+            "margin-right:4px;";
+          detachBtn.addEventListener("click", () => {
+            // Open popup window — Marti vidí standalone gallery
+            const popup = window.open(
+              "/erp/palette-popup",
+              "erp-palette-popup",
+              "width=420,height=720,resizable=yes,scrollbars=yes,toolbar=no,menubar=no"
+            );
+            if (!popup) {
+              _showToast("Popup blokován prohlížečem — povol popups pro tuto stránku", "error", 4000);
+              return;
+            }
+            // Close parent modal — popup je teted primary palette
+            // (Marti's intent: detach + use popup ve standalone režimu).
+            // Pokud Marti chce obojí, ot evře +Pole znovu.
+            popup.focus();
+            _showToast("Paleta otevřena v okně. Drag z popup → drop na ERP form.", "success", 3500);
+            this._shell.close();
+          });
+          // Insert pred closeBtn (poslední button v rightActions)
+          const closeBtn = headerActions.querySelector("button:last-child");
+          if (closeBtn) {
+            headerActions.insertBefore(detachBtn, closeBtn);
+          } else {
+            headerActions.appendChild(detachBtn);
+          }
+        }
+      } catch (e) {
+        console.warn("[FieldPickerModal] detach button attach failed:", e);
+      }
+
       // Body styling — same as DesignFwForm (flex column)
       if (this._shell.body) {
         this._shell.body.style.display = "flex";

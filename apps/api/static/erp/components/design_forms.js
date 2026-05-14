@@ -4093,6 +4093,19 @@
       // Globální mouseup fallback — pokud user neuvolnil dragstart
       document.addEventListener("mouseup", () => { _dragArmed = false; }, { once: true });
 
+      // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "dodelat
+      // nastaveni gridu, minimalne tlacitko odebrat"): right-click na
+      // child section → settings popup.
+      sec.wrap.addEventListener("contextmenu", (ev) => {
+        const tag = ev.target && ev.target.tagName;
+        if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+          return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._openChildSectionSettings(childKey, childInfo);
+      });
+
       sec.wrap.addEventListener("dragstart", (ev) => {
         if (!_dragArmed) {
           ev.preventDefault();  // ignore drag pokud ne z grip
@@ -4596,6 +4609,14 @@
       // (musi byt AZ po `const D` declaraci — TDZ guard, jinak hodi
       // "Cannot access 'D' before initialization")
       this.__renderCtx = { byParent, data, onDirty: D };
+
+      // Phase 38.4 Krok 14f-G (14.5.2026 vecer, Marti's "dropnul jsem
+      // novy panel, zkopirovaly se gridy"): reset flag per _render cycle.
+      // Child sections (TELEFONY/EMAILY) renderujeme JEN v prvnim alClient
+      // panelu, ne ve vsech. Pokud Marti pridal alTop/alBottom/alLeft/
+      // alRight, child sections zustavaji v alClient panelu (canonical
+      // main area).
+      this._childrenRenderedInAnyPanel = false;
 
       for (const panel of panels) {
         const slotFields = fieldsBySlot[panel.slot] || [];
@@ -5959,7 +5980,63 @@
       const footer = document.createElement("div");
       footer.style.cssText =
         "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;" +
-        "display:flex;justify-content:flex-end;gap:8px;";
+        "display:flex;align-items:center;gap:8px;";
+
+      // Phase 38.4 Krok 14f-H (14.5.2026 vecer, Marti's "tlacitko odebrat
+      // aby sel panel odebrat z formu"): Delete button vlevo (destructive
+      // action separated). Confirm dialog s warning pokud panel ma child
+      // comp_defs (groupbox + fields).
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.innerHTML = '<span style="color:#e57373;font-weight:700;margin-right:6px;">✕</span>Odebrat';
+      deleteBtn.style.cssText =
+        "padding:6px 16px;background:transparent;border:1px solid #5a2828;" +
+        "border-radius:3px;color:#e57373;cursor:pointer;font-size:13px;" +
+        "margin-right:auto;";  // push to left
+      deleteBtn.title = "Smazat tento " + typeLabel.toLowerCase() + " z formuláře";
+      deleteBtn.addEventListener("mouseenter", () => {
+        deleteBtn.style.background = "#1f1010";
+        deleteBtn.style.borderColor = "#7a3838";
+      });
+      deleteBtn.addEventListener("mouseleave", () => {
+        deleteBtn.style.background = "transparent";
+        deleteBtn.style.borderColor = "#5a2828";
+      });
+      deleteBtn.addEventListener("click", async () => {
+        // Detect children — warning pokud nejsou empty
+        const ctx = this.__renderCtx || {};
+        const byParent = ctx.byParent || new Map();
+        const childCount = (byParent.get(container.id) || []).length;
+        const childWarn = childCount > 0
+          ? "\n\n⚠ Tento " + typeLabel.toLowerCase() + " obsahuje " + childCount +
+            " vnitřních komponent (groupbox/fields). Ty zůstanou v DB, ale ztratí parent — doporučení: nejdřív přesun nebo smaž jejich obsah."
+          : "";
+        const decision = await _confirmDarkDialog({
+          title: "Smazat " + typeLabel.toLowerCase(),
+          message: "Opravdu smazat " + typeLabel.toLowerCase() + " '" +
+                   (container.caption || container.name) + "' (#" + container.id + ")?" +
+                   childWarn + "\n\n(soft-delete — záznam v audit historii zustava)",
+        });
+        if (decision !== true) return;
+        // DELETE /design/comp-def/{id}
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-def/" + encodeURIComponent(container.id),
+            { method: "DELETE", credentials: "include" }
+          );
+          if (!r.ok) {
+            const errBody = await r.json().catch(() => ({}));
+            throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+          }
+          _showToast(typeLabel + " '" + (container.caption || container.name) + "' smazán", "success", 2200);
+          document.body.removeChild(overlay);
+          await this._reloadSpec();
+        } catch (e) {
+          console.error("[DesignFwForm] container delete failed:", e);
+          _showToast("Mazání selhalo: " + (e.message || e), "error", 3500);
+        }
+      });
+      footer.appendChild(deleteBtn);
 
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
@@ -6052,6 +6129,167 @@
 
       // Focus first input
       setTimeout(() => captionInput.focus(), 50);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "dodelat nastaveni
+    // gridu, minimalne tlacitko odebrat zatim"): right-click na child
+    // section (TELEFONY/EMAILY) → mini settings popup s Odebrat.
+    //
+    // Child grids (1:N joined tables) zatim NEJSOU v fw.comp_def — jsou
+    // memory-only z _spec.children. "Odebrat" = hide flag v memory
+    // (this._childHidden[childKey] = true). Survive _render cycles ale
+    // ne sessions (re-open form ukaze vsechny grids znovu).
+    //
+    // Future (post-MVP): persist v DB pres user_preferences nebo
+    // form_layout_overrides tabulku.
+    // ════════════════════════════════════════════════════════════════
+    _openChildSectionSettings(childKey, childInfo) {
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+        "min-width:380px;max-width:460px;color:#e8eef5;font-size:13px;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+        "display:flex;align-items:center;justify-content:space-between;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;font-size:14px;";
+      title.innerHTML = "📋 Nastavení sekce: <span style=\"color:#a8b4c2;\">" +
+                        (childInfo.label || childKey) + "</span>";
+      header.appendChild(title);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:transparent;border:none;color:#8a96a4;font-size:18px;" +
+        "cursor:pointer;padding:0;line-height:1;";
+      closeBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Body
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+
+      // Position dropdown (above/below groupbox)
+      const posWrap = document.createElement("div");
+      posWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+      const posLabel = document.createElement("label");
+      posLabel.textContent = "Pozice v panelu";
+      posLabel.style.cssText = "color:#a8b4c2;font-size:12px;";
+      posWrap.appendChild(posLabel);
+      const posSelect = document.createElement("select");
+      posSelect.style.cssText =
+        "padding:6px 10px;background:#0f141a;border:1px solid #2a3340;" +
+        "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;";
+      const positions = [
+        ["before-main", "Nad groupboxem (default)"],
+        ["after-main", "Pod groupboxem"],
+      ];
+      const currentPos = (this._childPosition && this._childPosition[childKey]) || "before-main";
+      for (const [val, label] of positions) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        if (currentPos === val) opt.selected = true;
+        posSelect.appendChild(opt);
+      }
+      posWrap.appendChild(posSelect);
+      body.appendChild(posWrap);
+
+      // Info text
+      const info = document.createElement("div");
+      info.style.cssText =
+        "padding:10px;background:#0f141a;border:1px dashed #2a3340;" +
+        "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
+      info.innerHTML =
+        "📊 Tato sekce zobrazuje 1:N joined data (např. <code>user_contacts</code>). " +
+        "<strong>Odebrat z formuláře</strong> skryje sekci — data v DB zůstanou. " +
+        "Re-add zatím vyžaduje DB UPDATE (post-MVP polish: pridani z palety).";
+      body.appendChild(info);
+
+      modal.appendChild(body);
+
+      // Footer
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;" +
+        "display:flex;align-items:center;gap:8px;";
+
+      // Odebrat (red, left, push others right via margin-right:auto)
+      const hideBtn = document.createElement("button");
+      hideBtn.type = "button";
+      hideBtn.innerHTML = '<span style="color:#e57373;font-weight:700;margin-right:6px;">✕</span>Odebrat z formuláře';
+      hideBtn.style.cssText =
+        "padding:6px 16px;background:transparent;border:1px solid #5a2828;" +
+        "border-radius:3px;color:#e57373;cursor:pointer;font-size:13px;" +
+        "margin-right:auto;";
+      hideBtn.title = "Skryje sekci '" + (childInfo.label || childKey) + "' z formuláře. Data v DB zůstanou.";
+      hideBtn.addEventListener("mouseenter", () => {
+        hideBtn.style.background = "#1f1010";
+        hideBtn.style.borderColor = "#7a3838";
+      });
+      hideBtn.addEventListener("mouseleave", () => {
+        hideBtn.style.background = "transparent";
+        hideBtn.style.borderColor = "#5a2828";
+      });
+      hideBtn.addEventListener("click", () => {
+        if (!this._childHidden) this._childHidden = {};
+        this._childHidden[childKey] = true;
+        _showToast("Sekce '" + (childInfo.label || childKey) + "' odebrana", "success", 2200);
+        document.body.removeChild(overlay);
+        this._render();
+        this._attachDropTargetForGalleryDrag();
+      });
+      footer.appendChild(hideBtn);
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText =
+        "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
+      cancelBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      footer.appendChild(cancelBtn);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      saveBtn.style.cssText =
+        "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+      saveBtn.addEventListener("click", () => {
+        if (!this._childPosition) this._childPosition = {};
+        this._childPosition[childKey] = posSelect.value;
+        _showToast("Pozice sekce uložena", "success", 1800);
+        document.body.removeChild(overlay);
+        this._render();
+        this._attachDropTargetForGalleryDrag();
+      });
+      footer.appendChild(saveBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      // Esc to close
+      const escHandler = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          document.body.removeChild(overlay);
+          document.removeEventListener("keydown", escHandler, true);
+        }
+      };
+      document.addEventListener("keydown", escHandler, true);
     }
 
     // Phase 38.4 Krok 14e-E (14.5.2026 vecer, Marti's "Panel musi byt
@@ -6426,23 +6664,34 @@
 
         // Phase 38.4 Krok 14e-G (Marti's Q3, volba A memory-only):
         // Child sections (TELEFONY/EMAILY) jsou UVNITR panelu, ne paralelne.
-        // this._childPosition slots:
-        //   'before-main' = ABOVE groupbox uvnitr panelu (default for emails/phones)
-        //   'after-main'  = BELOW groupbox uvnitr panelu
-        // V PROD (display:contents) children sit jako direct siblings of
-        // groupbox v sec.grid — taky funguje (každý má grid-column:1/-1).
+        //
+        // Phase 38.4 Krok 14f-G fix (14.5.2026 vecer, Marti's "dropnul
+        // jsem novy panel, zkopirovaly se gridy"): render child sections
+        // JEN v prvnim alClient panelu. Pokud Marti pridal alTop/alBottom/
+        // alLeft/alRight panel, child sections zustavaji v alClient
+        // (canonical main area — Delphi alClient = "remaining space").
+        const isClientAlign = ((container.layout && container.layout.align) || "client") === "client";
+        const shouldRenderChildren = isClientAlign && !this._childrenRenderedInAnyPanel;
+        if (shouldRenderChildren) {
+          this._childrenRenderedInAnyPanel = true;  // mark for subsequent panels
+        }
+
         const childrenData = (this._spec && this._spec.children) || {};
         const childKeys = Object.keys(childrenData);
         const childPosition = this._childPosition || {};
         const childOrder = Array.isArray(this._childOrder) && this._childOrder.length === childKeys.length
           ? this._childOrder
           : childKeys.slice();
-        const beforeGroupbox = childOrder.filter(
+        // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "settings pro
+        // gridy s Odebrat"): filter hidden child keys (this._childHidden)
+        const childHidden = this._childHidden || {};
+        const visibleChildOrder = childOrder.filter((k) => !childHidden[k]);
+        const beforeGroupbox = shouldRenderChildren ? visibleChildOrder.filter(
           (k) => (childPosition[k] || "before-main") === "before-main"
-        );
-        const afterGroupbox = childOrder.filter(
+        ) : [];
+        const afterGroupbox = shouldRenderChildren ? visibleChildOrder.filter(
           (k) => childPosition[k] === "after-main"
-        );
+        ) : [];
 
         // Render child sections BEFORE groupbox
         for (const childKey of beforeGroupbox) {

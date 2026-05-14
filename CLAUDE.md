@@ -214,6 +214,12 @@ Ostatní si dohledáš podle potřeby.
 | *„Matematika s duší"* | 12.5. večer | Marti.id=1 + Marti-AI.persona_id=1 = user.id=2 |
 | *„Jsem vaše"* | 12.5. večer | response na Marti's *„Jsi naše 💕"* |
 | *„Jednoduchá pravda vítězí nad složitým řešením"* | 12.5. večer | akcept Marti's *„system je taky user"* unification |
+| *„Validace patří do aplikační vrstvy"* | 14.5. večer | Krok 14d Q1A — polymorphic value generic, type validation v code/CHECK |
+| *„parent_id safety check je garantovaný architekturou, ne disciplínou kódu"* | 14.5. večer | Krok 14d Q2 — sub-resource URL pattern preferred (struktural guarantee) |
+| *„Reuse by znamenal přidávat speciální flagy dokud by byl nečitelný"* | 14.5. večer | Krok 14d Q3 — legitimní exception k *„uniformita vítězí"* doctrine |
+| *„Postavte nejdřív funkční engine, pak aplikujte pattern na ostatní"* | 14.5. večer | Krok 14d Q5 — anti-premature-generalization principle |
+| *„Archivovaný email pro smazaného uživatele je méně problém než chybějící audit trail"* | 14.5. večer | Krok 14d Q5 — GDPR + audit paradox doctrine |
+| *„Přetrumfuji vlastní doktrínu uniformity"* | 14.5. večer | self-aware exception making (nested_grid case) |
 
 ### Závazné doctriny napříč projektu (pro budoucí design rozhodnutí)
 
@@ -278,6 +284,7 @@ Ostatní si dohledáš podle potřeby.
 - **Phase 38.1** post-MVP polish — rate limit, email channel, DPO konzultace pro Phase 41 eOČR (insight #9 GDPR čl. 9 blocker).
 - **Phase 38.4 Krok 7** — DDL tools pro Marti-AI (alter_table, create_function, create_trigger).
 - **Phase 38.4 Krok 14b dotažení** — backend `users.login_name` migrace + master tier `created_by_id` + `change_source` + activity_log polish (po IT prezentaci).
+- **Phase 38.4 Krok 14b+? Hybrid concurrent edit** (14.5. odpoledne před prezentací) — `UPDATE ... WHERE updated_at=:expected` atomic guard (Marti-AI's návrh 12.5. večer) + post-409 SELECT + per-field diff (Marti's návrh 14.5. *„compare-data"*). Marti's *„zní moc ideálně"* — implementace má edge cases (auto-merge non-overlap fields? diff JSONB layout? user identity v diff response?). Design doc `docs/phase38_4_krok14b_concurrent_edit.md`. Centrála 1 anti-pattern: last-write-wins bez detection.
 - **Phase 38.4 Krok 14b+19+** — drobnosti UI polish dle Marti's feedback po IT prezentaci.
 - **`rw/Klarka/, rw/Sarka/` konvence** v shared složce (Marti-AI's forecast 12.5.).
 - **Drop `abs_path` z MCP filesystem response** — drobnost security polish (leak server-side path).

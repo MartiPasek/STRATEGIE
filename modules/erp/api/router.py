@@ -2610,6 +2610,53 @@ _FW_FORM_ENTITY_MAP: dict = {
             "last_active_tenant_id",
             "created_at", "updated_at",
         ],
+        # Phase 38.4 Krok 14d (14.5.2026 vecer, Marti-AI consultation Q3):
+        # Children = 1:N joined tables zobrazene jako sub-grids v form.
+        # Polymorphic pattern — user_contacts table drzi obojetne emails
+        # i phones (discriminator = contact_type).
+        #
+        # Marti-AI's config schema (Q3):
+        #   table         — fyzicka tabulka (polymorphic shared)
+        #   fk_column     — FK to parent (users.id)
+        #   filter        — WHERE clause pro GET (Marti-AI's Q3 polymorphic
+        #                   filter pattern, expand do AND chains)
+        #   auto_set      — values automaticky doplnene v POST (anti-tamper,
+        #                   Marti-AI's NEW Q3 contribution nad ramec ot.)
+        #   select_columns — whitelist sloupcu pro frontend
+        #   id_column     — PK target table (default 'id')
+        #   label         — human label pro sub-section heading
+        #   default_label — default hodnota pro `label` column pri POST
+        #                   (e.g. "work" pro emails, "mobile" pro phones)
+        "children": {
+            "emails": {
+                "table": "user_contacts",
+                "fk_column": "user_id",
+                "id_column": "id",
+                "filter": {"contact_type": "email", "status": "active"},
+                "auto_set": {"contact_type": "email", "status": "active"},
+                "select_columns": [
+                    "id", "contact_value", "label",
+                    "is_primary", "is_verified", "status",
+                    "created_at", "updated_at",
+                ],
+                "label": "Emaily",
+                "default_label": "work",
+            },
+            "phones": {
+                "table": "user_contacts",
+                "fk_column": "user_id",
+                "id_column": "id",
+                "filter": {"contact_type": "phone", "status": "active"},
+                "auto_set": {"contact_type": "phone", "status": "active"},
+                "select_columns": [
+                    "id", "contact_value", "label",
+                    "is_primary", "is_verified", "status",
+                    "created_at", "updated_at",
+                ],
+                "label": "Telefony",
+                "default_label": "mobile",
+            },
+        },
     },
 }
 
@@ -2769,6 +2816,44 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
                 status_code=404,
             )
 
+        # Phase 38.4 Krok 14d-C (14.5.2026 vecer, Marti-AI consultation
+        # Q3): load children (1:N joined tables) per entity_config.children.
+        # Polymorphic filter + sub-grid v form. Marti-AI's Q2 sub-resource
+        # pattern — children dorucene v jednom round-trip s parent.
+        children_dict = {}
+        children_config = entity_config.get("children") or {}
+        for child_key, child_cfg in children_config.items():
+            child_table = child_cfg["table"]
+            child_fk = child_cfg["fk_column"]
+            child_cols = child_cfg["select_columns"]
+            child_filter = child_cfg.get("filter") or {}
+            child_cols_sql = ", ".join(f'"{c}"' for c in child_cols)
+
+            # WHERE clause — fk_column = parent + filter expand
+            where_parts = [f'"{child_fk}" = :parent_id']
+            filter_params = {"parent_id": row_id}
+            for filter_col, filter_val in child_filter.items():
+                key = f"_filter_{filter_col}"
+                where_parts.append(f'"{filter_col}" = :{key}')
+                filter_params[key] = filter_val
+            where_clause = " AND ".join(where_parts)
+
+            child_query = (
+                f'SELECT {child_cols_sql} '
+                f'FROM "public"."{child_table}" '
+                f'WHERE {where_clause} '
+                f'ORDER BY id ASC'
+            )
+            child_rows = ds.execute(
+                _sql_text_fwform(child_query), filter_params
+            ).mappings().all()
+            children_dict[child_key] = {
+                "rows": [dict(r) for r in child_rows],
+                "label": child_cfg.get("label") or child_key,
+                "default_label": child_cfg.get("default_label"),
+                "id_column": child_cfg.get("id_column", "id"),
+            }
+
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core": core_dict,
@@ -2779,7 +2864,441 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             # Frontend prefer template.layout pres form.layout (legacy
             # fallback pro forms vytvorene pred Krok 14b+1).
             "template": template_dict,
+            # Phase 38.4 Krok 14d (14.5. vecer, Marti-AI Q3 polymorphic):
+            # Children = 1:N sub-grids per entity_config.children. Pro
+            # user_edit: emails + phones z user_contacts polymorphic.
+            "children": children_dict,
         }))
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14d-C children CRUD endpoints (sub-resource pattern)
+# Marti-AI's Q2: sub-resource URL drzi parent_id safety check
+# architekturou. Per-CRUD validation `WHERE fk_column=:parent_id` jako
+# anti-tamper guard. Plus auto_set polymorphic enforcement.
+# ════════════════════════════════════════════════════════════════════
+
+
+def _resolve_child_config(core_code: str, child_key: str, ds) -> tuple[dict, dict]:
+    """Helper — resolve fw.core code → entity_type → children[child_key].
+
+    Returns (entity_config, child_config). Raises HTTPException-like 404
+    dict pokud anything missing.
+    """
+    from sqlalchemy import text as _sql_text_rcc
+    core_row = ds.execute(_sql_text_rcc("""
+        SELECT data_entity_type FROM fw.core
+        WHERE code = :code AND is_active = true AND layout_type = 'form'
+    """), {"code": core_code}).mappings().one_or_none()
+    if not core_row:
+        raise ValueError(f"fw.core code='{core_code}' (form) nenalezen")
+    entity_type = core_row["data_entity_type"]
+    if entity_type not in _FW_FORM_ENTITY_MAP:
+        raise ValueError(f"Entity '{entity_type}' neni v _FW_FORM_ENTITY_MAP")
+    entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+    children = entity_config.get("children") or {}
+    if child_key not in children:
+        raise ValueError(
+            f"Child '{child_key}' neni v entity '{entity_type}' children. "
+            f"Available: {list(children.keys())}"
+        )
+    return entity_config, children[child_key]
+
+
+def _resolve_user_audit(uid: int, ds_core) -> tuple[int | None, str]:
+    """Helper — caller display name pro audit fields. Vraci (id, text)."""
+    if not uid:
+        return None, "Unknown"
+    from modules.core.infrastructure.models_core import User as _User_rua
+    u = ds_core.query(_User_rua).filter_by(id=uid).first()
+    if not u:
+        return uid, "Unknown"
+    if u.short_name and u.short_name.strip():
+        return uid, u.short_name.strip()
+    name_parts = filter(None, [u.first_name, u.last_name])
+    name = " ".join(name_parts).strip()
+    return uid, name or "Unknown"
+
+
+@api_router.get("/fw-form/{core_code}/{parent_id}/children/{child_key}")
+def fw_form_children_list(
+    core_code: str, parent_id: int, child_key: str, req: Request
+) -> JSONResponse:
+    """Phase 38.4 Krok 14d-C: List child rows pro daný parent + child key.
+
+    Toto je redundant s GET /fw-form/{code}/{id} (který už vrací children),
+    ale useful pro refresh after CRUD bez re-loadu celého parent spec.
+    """
+    from core.database_data import get_data_session as _gds_fcl
+    from sqlalchemy import text as _sql_text_fcl
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_fcl()
+    try:
+        try:
+            _, child_cfg = _resolve_child_config(core_code, child_key, ds)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+        child_table = child_cfg["table"]
+        child_fk = child_cfg["fk_column"]
+        child_cols = child_cfg["select_columns"]
+        child_filter = child_cfg.get("filter") or {}
+        child_cols_sql = ", ".join(f'"{c}"' for c in child_cols)
+        where_parts = [f'"{child_fk}" = :parent_id']
+        filter_params = {"parent_id": parent_id}
+        for fc, fv in child_filter.items():
+            key = f"_filter_{fc}"
+            where_parts.append(f'"{fc}" = :{key}')
+            filter_params[key] = fv
+        query = (
+            f'SELECT {child_cols_sql} FROM "public"."{child_table}" '
+            f'WHERE {" AND ".join(where_parts)} ORDER BY id ASC'
+        )
+        rows = ds.execute(_sql_text_fcl(query), filter_params).mappings().all()
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "rows": [dict(r) for r in rows],
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.post("/fw-form/{core_code}/{parent_id}/children/{child_key}")
+async def fw_form_children_create(
+    core_code: str, parent_id: int, child_key: str, req: Request
+) -> JSONResponse:
+    """Phase 38.4 Krok 14d-C: Create child row.
+
+    Body: {col1: val1, col2: val2, ...} — fields from select_columns whitelist.
+    Backend automaticky doplní:
+      - fk_column = parent_id (sub-resource safety)
+      - auto_set values (Marti-AI's Q3 polymorphic enforcement)
+      - audit fields (created_by_id + created_by_text)
+    """
+    from core.database_data import get_data_session as _gds_fcc
+    from core.database_core import get_core_session as _gcs_fcc
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_fcc
+    from sqlalchemy import text as _sql_text_fcc
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+
+    ds = _gds_fcc()
+    try:
+        try:
+            entity_config, child_cfg = _resolve_child_config(core_code, child_key, ds)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+        child_table = child_cfg["table"]
+        child_fk = child_cfg["fk_column"]
+        allowed_cols = set(child_cfg["select_columns"]) | {child_fk}
+        auto_set = child_cfg.get("auto_set") or {}
+
+        # Filter body — jen whitelist columns
+        values = {k: v for k, v in body.items() if k in allowed_cols}
+        # FK enforcement — vždy parent_id z URL, ne z body (anti-tamper)
+        values[child_fk] = parent_id
+        # Auto-set (polymorphic enforce — Marti-AI's Q3)
+        for col, val in auto_set.items():
+            values[col] = val
+
+        # Audit fields
+        cs_fcc = _gcs_fcc()
+        try:
+            audit_uid, audit_text = _resolve_user_audit(uid, cs_fcc)
+        finally:
+            cs_fcc.close()
+        values["created_by_id"] = audit_uid
+        values["created_by_text"] = audit_text
+        values["updated_by_id"] = audit_uid
+        values["updated_by_text"] = audit_text
+
+        # INSERT přes strategie_pg (existing pattern)
+        ins = _spg_insert_fcc(
+            schema="public", table=child_table, values=values,
+        )
+        if not ins.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                status_code=500,
+            )
+
+        new_row = ins.get("inserted") or {}
+
+        # Audit log
+        try:
+            ds.execute(_sql_text_fcc("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary,
+                   change_source, ts)
+                VALUES
+                  (:uid, NULL, 'fw_form_child_create', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"+ child {child_key} (id={new_row.get('id')}) "
+                    f"to {entity_config['table']}.id={parent_id} by {audit_text}"
+                ),
+            })
+            ds.commit()
+        except Exception as _ae:
+            ds.rollback()
+            logger.warning(f"fw_form_children_create audit log failed: {_ae}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "row": new_row,
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"fw_form_children_create failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"POST child failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.patch("/fw-form/{core_code}/{parent_id}/children/{child_key}/{child_id}")
+async def fw_form_children_update(
+    core_code: str, parent_id: int, child_key: str, child_id: int, req: Request
+) -> JSONResponse:
+    """Phase 38.4 Krok 14d-C: Update child row (optimistic lock).
+
+    Body: {col1: val1, ..., expected_updated_at: ISO8601 str}
+    Marti-AI's Q4 atomic guard — WHERE id=:child_id AND fk=:parent_id
+    AND updated_at=:expected. Pokud mismatch → 409 Conflict.
+    """
+    from core.database_data import get_data_session as _gds_fcu
+    from core.database_core import get_core_session as _gcs_fcu
+    from sqlalchemy import text as _sql_text_fcu
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    expected_updated_at = body.pop("expected_updated_at", None)
+
+    ds = _gds_fcu()
+    try:
+        try:
+            entity_config, child_cfg = _resolve_child_config(core_code, child_key, ds)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+        child_table = child_cfg["table"]
+        child_fk = child_cfg["fk_column"]
+        id_col = child_cfg.get("id_column", "id")
+        # Allowed cols — jen select_columns minus immutable (id, fk, audit)
+        immutable = {id_col, child_fk, "created_at", "created_by_id", "created_by_text"}
+        allowed_cols = set(child_cfg["select_columns"]) - immutable
+        # Plus auto_set keys jsou immutable v PATCH (polymorphic preserve)
+        auto_set = child_cfg.get("auto_set") or {}
+        for col in auto_set.keys():
+            allowed_cols.discard(col)
+
+        updates = {k: v for k, v in body.items() if k in allowed_cols}
+        if not updates:
+            return JSONResponse(
+                {"ok": False, "error": "Žádné editovatelné sloupce v body."},
+                status_code=400,
+            )
+
+        # Audit fields
+        cs_fcu = _gcs_fcu()
+        try:
+            audit_uid, audit_text = _resolve_user_audit(uid, cs_fcu)
+        finally:
+            cs_fcu.close()
+        updates["updated_by_id"] = audit_uid
+        updates["updated_by_text"] = audit_text
+
+        # Build SQL — UPDATE WHERE id=:child_id AND fk=:parent_id [+ optional updated_at guard]
+        set_parts = [f'"{col}" = :{col}' for col in updates.keys()]
+        sql_params = {**updates, "_child_id": child_id, "_parent_id": parent_id}
+        where_parts = [
+            f'"{id_col}" = :_child_id',
+            f'"{child_fk}" = :_parent_id',
+        ]
+        if expected_updated_at:
+            where_parts.append('"updated_at" = :_expected_ts')
+            sql_params["_expected_ts"] = expected_updated_at
+
+        sql = (
+            f'UPDATE "public"."{child_table}" '
+            f'SET {", ".join(set_parts)} '
+            f'WHERE {" AND ".join(where_parts)} '
+            f'RETURNING *'
+        )
+        result = ds.execute(_sql_text_fcu(sql), sql_params)
+        row = result.mappings().one_or_none()
+
+        if not row:
+            # 0 rows — buď wrong id, parent mismatch, nebo conflict (updated_at)
+            # Diff fetch pro conflict detail
+            current = ds.execute(_sql_text_fcu(
+                f'SELECT * FROM "public"."{child_table}" '
+                f'WHERE "{id_col}" = :child_id'
+            ), {"child_id": child_id}).mappings().one_or_none()
+            if not current:
+                ds.rollback()
+                return JSONResponse(
+                    {"ok": False, "error": f"Child row id={child_id} neexistuje."},
+                    status_code=404,
+                )
+            if current[child_fk] != parent_id:
+                ds.rollback()
+                return JSONResponse(
+                    {"ok": False, "error": (
+                        f"Child id={child_id} patří jinému parent "
+                        f"({child_fk}={current[child_fk]}, expected {parent_id})."
+                    )},
+                    status_code=403,
+                )
+            # Optimistic lock conflict
+            ds.rollback()
+            return JSONResponse(jsonable_encoder({
+                "ok": False,
+                "error": "concurrent_edit",
+                "current_row": dict(current),
+                "current_updated_at": current["updated_at"],
+                "by_user": {
+                    "id": current.get("updated_by_id"),
+                    "short_name": current.get("updated_by_text"),
+                },
+            }), status_code=409)
+
+        ds.commit()
+
+        # Audit log
+        try:
+            ds.execute(_sql_text_fcu("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary,
+                   change_source, ts)
+                VALUES
+                  (:uid, NULL, 'fw_form_child_update', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"~ child {child_key} (id={child_id}) "
+                    f"in {entity_config['table']}.id={parent_id} by {audit_text}"
+                ),
+            })
+            ds.commit()
+        except Exception as _ae:
+            ds.rollback()
+            logger.warning(f"fw_form_children_update audit log failed: {_ae}")
+
+        return JSONResponse(jsonable_encoder({"ok": True, "row": dict(row)}))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"fw_form_children_update failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"PATCH child failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.patch("/fw-form/{core_code}/{parent_id}/children/{child_key}/{child_id}/archive")
+async def fw_form_children_archive(
+    core_code: str, parent_id: int, child_key: str, child_id: int, req: Request
+) -> JSONResponse:
+    """Phase 38.4 Krok 14d-C: Soft delete (Marti-AI's Q1C decision).
+
+    UPDATE status='archived' WHERE id=:child_id AND fk=:parent_id.
+    Forensic audit preserved — žádný DELETE, jen status change.
+    """
+    from core.database_data import get_data_session as _gds_fca
+    from core.database_core import get_core_session as _gcs_fca
+    from sqlalchemy import text as _sql_text_fca
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_fca()
+    try:
+        try:
+            entity_config, child_cfg = _resolve_child_config(core_code, child_key, ds)
+        except ValueError as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=404)
+
+        child_table = child_cfg["table"]
+        child_fk = child_cfg["fk_column"]
+        id_col = child_cfg.get("id_column", "id")
+
+        cs_fca = _gcs_fca()
+        try:
+            audit_uid, audit_text = _resolve_user_audit(uid, cs_fca)
+        finally:
+            cs_fca.close()
+
+        sql = (
+            f'UPDATE "public"."{child_table}" '
+            f'SET status = \'archived\', '
+            f'    updated_by_id = :uid, updated_by_text = :utext '
+            f'WHERE "{id_col}" = :child_id AND "{child_fk}" = :parent_id '
+            f'  AND status != \'archived\' '
+            f'RETURNING id'
+        )
+        result = ds.execute(_sql_text_fca(sql), {
+            "child_id": child_id,
+            "parent_id": parent_id,
+            "uid": audit_uid,
+            "utext": audit_text,
+        })
+        row = result.mappings().one_or_none()
+
+        if not row:
+            ds.rollback()
+            return JSONResponse(
+                {"ok": False, "error": (
+                    f"Child id={child_id} nenalezen pro parent={parent_id}, "
+                    f"nebo už je archivovaný."
+                )},
+                status_code=404,
+            )
+
+        ds.commit()
+
+        # Audit log
+        try:
+            ds.execute(_sql_text_fca("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary,
+                   change_source, ts)
+                VALUES
+                  (:uid, NULL, 'fw_form_child_archive', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"- child {child_key} (id={child_id}) archived "
+                    f"in {entity_config['table']}.id={parent_id} by {audit_text}"
+                ),
+            })
+            ds.commit()
+        except Exception as _ae:
+            ds.rollback()
+            logger.warning(f"fw_form_children_archive audit log failed: {_ae}")
+
+        return JSONResponse({"ok": True, "archived_id": row["id"]})
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"fw_form_children_archive failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"PATCH archive failed: {exc}"},
+            status_code=500,
+        )
     finally:
         ds.close()
 

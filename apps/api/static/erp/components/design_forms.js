@@ -111,6 +111,16 @@
       ".erp-field-design-wrap:hover .erp-field-design-delete {",
       "  opacity: 1;",
       "}",
+      // Phase 38.4 Krok 14c+3.1 (14.5.2026, Marti's "krizky na pravy okrak"):
+      // Action buttons (✕ + ⬅ OFF state) jako absolute overlay v pravem
+      // hornim rohu komponenty — visible jen on parent .erp-field-design-wrap
+      // hover. Sdílí `erp-field-design-action-hoveronly` class.
+      ".erp-field-design-wrap .erp-field-design-action-hoveronly {",
+      "  opacity: 0; transition: opacity 150ms;",
+      "}",
+      ".erp-field-design-wrap:hover .erp-field-design-action-hoveronly {",
+      "  opacity: 1;",
+      "}",
     ].join("\n");
     document.head.appendChild(styles);
   }
@@ -4532,11 +4542,17 @@
       wrap.draggable = true;
       wrap.dataset.fieldId = String(field.id);
       wrap.dataset.fieldIndex = String(index);
-      // Krok 14b+13 (14.5.2026 ~00:30): grid template rozsireny o 24px
-      // sloupec pro 🎯 detect-values button (jen lookup/combobox). Pro
-      // ostatni comp_types tento slot je empty (no button appended).
+      // Phase 38.4 Krok 14c+3.1 (14.5.2026 odpoledne, Marti's polish
+      // po dnešním testu):
+      //   "rendruj ty mazaci krizky na pravy okrak komponenty, ne mimo ni.
+      //    Tu sipku vlevo pinned rendruj hned vedle toho krizku vlevo."
+      //
+      // Refactor: action buttons (✕ delete, ⬅ pinned, 🎯 detect-values)
+      // jsou teted absolute overlay v pravem hornim rohu content. Grid
+      // template = jen grip (20px) + content (1fr) — žádné side columns.
+      // Content má position:relative pro absolute child positioning.
       wrap.style.cssText =
-        "display:grid;grid-template-columns:20px 1fr 24px 24px 24px;gap:6px;align-items:start;" +
+        "display:grid;grid-template-columns:20px 1fr;gap:6px;align-items:start;" +
         "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
         "cursor:grab;position:relative;";
 
@@ -4563,101 +4579,104 @@
       grip.title = "Drag pro zmenu poradi pole";
       wrap.appendChild(grip);
 
-      // Field content
+      // Field content — position:relative pro absolute overlay buttons
+      // (Krok 14c+3.1, Marti's "rendruj na pravy okrak komponenty").
       const content = document.createElement("div");
-      content.style.minWidth = "0";  // grid item shrink
+      content.style.cssText = "min-width:0;position:relative;";
       content.appendChild(fieldEl);
       wrap.appendChild(content);
 
-      // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left" property):
-      // toggle button ⬅ vedle ✕. Stav reflektuje layout.always_new_row:
-      //   ON  -> modry accent (#3a8aa8 border + #7ed4e8 text)
-      //   OFF -> neutral šedý (border #2a3340 + text #5d6975)
-      // Click -> PATCH layout.always_new_row toggle -> reload + flash.
+      // Phase 38.4 Krok 14c+3.1 (14.5.2026 odpoledne, Marti's polish):
+      // Action buttons jako absolute overlay v PRAVEM HORNIM rohu content
+      // (komponenta — input/select/atd.). Order zprava doleva:
+      //   ✕ delete (right:4px)        — destruktivni, nejvic vpravo
+      //   ⬅ pinned (right:30px)       — vedle ✕
+      //   🎯 detect-values (right:56px) — jen lookup, vedle ⬅
+      //
+      // Hover behavior: default opacity 0, parent .erp-field-design-wrap:hover
+      // → opacity 1 (CSS rule existing). ⬅ ON state má opacity:1 !important
+      // override (Marti vidí stav i bez hover).
       const alwaysNewRow = !!(field.layout && field.layout.always_new_row);
-      const leftBtn = document.createElement("button");
-      leftBtn.type = "button";
+      const isLookupField = field.comp_type_code === "lookup" ||
+                            field.comp_type_code === "combobox";
+
+      // Helper pro consistent button styling
+      const _mkActionBtn = (text, title, bg, border, color, right) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = text;
+        b.title = title;
+        b.style.cssText =
+          "position:absolute;top:2px;right:" + right + "px;" +
+          "background:" + bg + ";border:1px solid " + border + ";" +
+          "color:" + color + ";padding:0;width:22px;height:22px;" +
+          "border-radius:3px;cursor:pointer;font-size:11px;line-height:1;" +
+          "display:flex;align-items:center;justify-content:center;" +
+          "z-index:2;transition:opacity 0.15s;";
+        // Defensive: button nezachycuje drag wrap (preserve drag handle UX)
+        b.addEventListener("dragstart", (ev) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+        });
+        return b;
+      };
+
+      // ⬅ Pinned button (always_new_row toggle)
+      const leftBtn = _mkActionBtn(
+        "⬅",
+        alwaysNewRow
+          ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
+          : "Vždy na novém řádku — VYP. Klikni pro zapnutí.",
+        alwaysNewRow ? "rgba(58,138,168,0.2)" : "transparent",
+        alwaysNewRow ? "#3a8aa8" : "#2a3340",
+        alwaysNewRow ? "#7ed4e8" : "#5d6975",
+        30 + (isLookupField ? 26 : 0)  // pokud 🎯 visible, ⬅ se posune doleva
+      );
       leftBtn.className = "erp-field-design-leftpin";
-      leftBtn.textContent = "⬅";
-      leftBtn.title = alwaysNewRow
-        ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
-        : "Vždy na novém řádku — VYP. Klikni pro zapnutí (pole pak vždy začne v 1. sloupci).";
-      leftBtn.style.cssText =
-        "background:" + (alwaysNewRow ? "rgba(58,138,168,0.2)" : "transparent") + ";" +
-        "border:1px solid " + (alwaysNewRow ? "#3a8aa8" : "#2a3340") + ";" +
-        "color:" + (alwaysNewRow ? "#7ed4e8" : "#5d6975") + ";" +
-        "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
-        "cursor:pointer;font-size:11px;line-height:1;display:flex;" +
-        "align-items:center;justify-content:center;" +
-        // Toggle visible: VZDY pokud ON (uzivatel vidi stav i bez hover),
-        // hover-only pokud OFF (cleaner UI). Override z .erp-field-design-delete
-        // hover rule pomoci !important fallback.
-        (alwaysNewRow ? "opacity:1 !important;" : "");
+      if (!alwaysNewRow) {
+        // OFF state — hover-only (sdílí CSS rule s ✕)
+        leftBtn.classList.add("erp-field-design-action-hoveronly");
+      }
       leftBtn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         ev.preventDefault();
         await this._performFieldToggleAlwaysLeft(field);
       });
-      leftBtn.addEventListener("dragstart", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-      });
-      // Apply hover-only opacity rule selectively pres class share
-      // s delete button (oba pouzivaji .erp-field-design-delete CSS pro
-      // opacity 0 default + opacity 1 on parent hover). Pro ON state
-      // override inline style opacity:1 above.
-      if (!alwaysNewRow) {
-        leftBtn.classList.add("erp-field-design-delete");
-      }
-      wrap.appendChild(leftBtn);
+      content.appendChild(leftBtn);
 
-      // Krok 14b+13 (14.5.2026 ~00:30, Marti's "potrebujeme dostat
-      // actived/disabled/pending do listboxu"): 🎯 detect values button.
-      // Visible JEN pro lookup/combobox comp_type. Click -> GET distinct
-      // values z DB -> PATCH layout.enum_values -> reload + toast.
-      const isLookupField = field.comp_type_code === "lookup" ||
-                            field.comp_type_code === "combobox";
+      // 🎯 Detect values button — jen lookup/combobox
       if (isLookupField) {
-        const detectValsBtn = document.createElement("button");
-        detectValsBtn.type = "button";
+        const detectValsBtn = _mkActionBtn(
+          "🎯",
+          "Auto-detekce hodnot pro dropdown — SELECT DISTINCT z DB.",
+          "rgba(58,138,168,0.2)",
+          "#3a8aa8",
+          "#7ed4e8",
+          30  // vedle ⬅
+        );
         detectValsBtn.className = "erp-field-design-detectvals";
-        detectValsBtn.textContent = "🎯";
-        detectValsBtn.title = "Auto-detekce hodnot pro dropdown — SELECT DISTINCT z DB.";
-        detectValsBtn.style.cssText =
-          "background:rgba(58,138,168,0.2);border:1px solid #3a8aa8;color:#7ed4e8;" +
-          "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
-          "cursor:pointer;font-size:11px;line-height:1;display:flex;" +
-          "align-items:center;justify-content:center;opacity:1 !important;";
+        // 🎯 vždy visible pro lookup (action button, ne destructive)
+        detectValsBtn.style.opacity = "1";
         detectValsBtn.addEventListener("click", async (ev) => {
           ev.stopPropagation();
           ev.preventDefault();
           await this._detectAndSaveEnumValues(field);
         });
-        detectValsBtn.addEventListener("dragstart", (ev) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-        });
-        wrap.appendChild(detectValsBtn);
-      } else {
-        // Empty slot pro grid alignment (jine comp_types nemaji 🎯)
-        const spacer = document.createElement("div");
-        spacer.style.cssText = "width:22px;";
-        wrap.appendChild(spacer);
+        // Korekce: posune ⬅ ještě o 26px doleva (right:56) — leftBtn už
+        // má computed right=56 podle isLookupField vyše. 🎯 je v right:30.
+        content.appendChild(detectValsBtn);
       }
 
-      // Krok 14b+9-D (13.5.2026 ~21:35): ✕ delete button vpravo (hover
-      // visible jen v DESIGN mode). Click -> confirm dialog -> DELETE
-      // endpoint -> toast.
-      const delBtn = document.createElement("button");
-      delBtn.type = "button";
-      delBtn.className = "erp-field-design-delete";
-      delBtn.textContent = "✕";
-      delBtn.title = "Smazat pole '" + (field.caption || field.name) + "'";
-      delBtn.style.cssText =
-        "background:transparent;border:1px solid #5a2828;color:#e57373;" +
-        "padding:0;margin-top:18px;width:22px;height:22px;border-radius:3px;" +
-        "cursor:pointer;font-size:12px;line-height:1;display:flex;" +
-        "align-items:center;justify-content:center;";
+      // ✕ Delete button — nejvic vpravo (destruktivni action)
+      const delBtn = _mkActionBtn(
+        "✕",
+        "Smazat pole '" + (field.caption || field.name) + "'",
+        "transparent",
+        "#5a2828",
+        "#e57373",
+        4  // pravy okraj komponenty
+      );
+      delBtn.className = "erp-field-design-delete erp-field-design-action-hoveronly";
       delBtn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         ev.preventDefault();
@@ -4669,12 +4688,9 @@
         if (decision !== true) return;
         await this._performFieldDelete(field);
       });
-      // Defensive: zachytnout dragstart aby button click neaktivoval drag
-      delBtn.addEventListener("dragstart", (ev) => {
-        ev.preventDefault();
-        ev.stopPropagation();
-      });
-      wrap.appendChild(delBtn);
+      // Krok 14c+3.1: append do content (ne wrap), aby absolute positioning
+      // bylo relative k komponente, ne k cele rowě.
+      content.appendChild(delBtn);
 
       // Krok 14b+9-B (13.5.2026 ~21:35): inline rename label (dvojklik).
       // Najit label el v fieldEl + attach dblclick. Vsechny comp_type

@@ -4840,40 +4840,43 @@
         // Re-think: pojďme insert children-before-main PRED main append.
       }
 
-      // Phase 38.4 Krok 14d-D (14.5.2026 vecer, Marti-AI's Q3 polymorphic):
-      // Children sub-grids per spec.children (1:N joined tables). Marti's
-      // Variant A — sub-grid v form pod hlavnimi fields. Pattern z Centrály
-      // 1 DBGrid v TForm.
+      // Phase 38.4 Krok 14e-G (14.5.2026 vecer, Marti's "patri ty gridy
+      // taky na panel?"): Child sections JIZ jsou rendered UVNITR panel
+      // wrapper (viz _renderContainerNode pro 'panel'). Root level
+      // child rendering NENI potreba — children sit pod panelem.
       //
-      // Krok 14d-D polish 2 (14.5. vecer, Marti's "nahoru do main"):
-      // Per child key má position state ('before-main' | 'after-main' default).
-      // Default = render po panel loop (after-main). Pokud Marti dragoval
-      // section nad main panel, position='before-main' → vložit PRED main
-      // panel v root DOM (po render).
+      // _childOrder + _childPosition state initialization zachovan pro
+      // backward compat (legacy forms bez panelu, kde panel je memory-only
+      // virtual concept). _renderChildSection drag handlers stale pouzivaji
+      // tyto pro position tracking.
       const childrenData = (this._spec && this._spec.children) || {};
       const allKeys = Object.keys(childrenData);
       if (allKeys.length > 0) {
-        // Apply Marti's drag order (if any) — default = natural order z API
         if (!this._childOrder || this._childOrder.length !== allKeys.length) {
           this._childOrder = [...allKeys];
         } else {
-          // Defensive: filter out keys co nejsou v API (delete) + append nové
           this._childOrder = this._childOrder.filter(k => allKeys.includes(k));
           for (const k of allKeys) {
             if (!this._childOrder.includes(k)) this._childOrder.push(k);
           }
         }
         this._childPosition = this._childPosition || {};
-
-        // Split per position
+      }
+      // Defensive fallback: pokud form NEMA panel (legacy forms), render
+      // children sections na root level (former behavior). Probehne jen
+      // pokud root nema zadny .erp-design-panel descendant po render.
+      if (allKeys.length > 0 && !root.querySelector(".erp-design-panel")) {
+        console.warn(
+          "[DesignFwForm] form nemá panel container — render child sections " +
+          "na root level (legacy fallback). Doporuceni: pridat panel " +
+          "(comp_type_code='panel') jako prvni dite form rootu."
+        );
         const beforeMain = this._childOrder.filter(
           k => this._childPosition[k] === "before-main"
         );
         const afterMain = this._childOrder.filter(
           k => this._childPosition[k] !== "before-main"
         );
-
-        // Insert before-main children PRED main panel section v root
         if (beforeMain.length > 0) {
           const mainPanelEl = root.querySelector('[data-region-slot="main"]');
           for (const childKey of beforeMain) {
@@ -4887,8 +4890,6 @@
             }
           }
         }
-
-        // After-main children append na konci root (default)
         for (const childKey of afterMain) {
           const childInfo = childrenData[childKey];
           if (!childInfo) continue;
@@ -5676,28 +5677,48 @@
     }
 
     async _performFieldReorder(fromId, toId, dropAbove) {
-      // Krok 14b+8: compute novy order napriklad fields v main panelu,
-      // POST /design/comp-def/reorder s array {id, sort_order}. Po
-      // success reload spec + re-render.
+      // Phase 38.4 Krok 14e-F (14.5.2026 vecer): generalized to siblings
+      // (parent_comp_def_id match), ne pouze region_slot='main' fields.
+      // Funguje pro:
+      //   - leaf fields uvnitr groupbox (parent_comp_def_id=groupbox.id)
+      //   - panels uvnitr formu (parent_comp_def_id=form.id)
+      //   - groupboxes uvnitr panelu (parent_comp_def_id=panel.id)
       const fields = this._spec.fields || [];
-      const mainFields = fields
-        .filter((f) => (f.region_slot || "main") === "main")
-        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-      const fromIdx = mainFields.findIndex((f) => f.id === fromId);
-      const toIdx = mainFields.findIndex((f) => f.id === toId);
-      if (fromIdx < 0 || toIdx < 0) {
+      const fromComp = fields.find((f) => f.id === fromId);
+      const toComp = fields.find((f) => f.id === toId);
+      if (!fromComp || !toComp) {
         console.warn("[DesignFwForm] reorder: from/to not found", fromId, toId);
         return;
       }
+      const parentId = fromComp.parent_comp_def_id;
+      if (toComp.parent_comp_def_id !== parentId) {
+        console.warn(
+          "[DesignFwForm] reorder: cross-parent drag not supported yet",
+          "fromParent=" + parentId,
+          "toParent=" + toComp.parent_comp_def_id
+        );
+        _showToast("Drag mezi různými kontejnery zatím nepodporujeme", "error", 2500);
+        return;
+      }
+      // Sibling filter — vsech comp_def se stejnym parent_comp_def_id
+      const siblings = fields
+        .filter((f) => f.parent_comp_def_id === parentId)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      const fromIdx = siblings.findIndex((f) => f.id === fromId);
+      const toIdx = siblings.findIndex((f) => f.id === toId);
+      if (fromIdx < 0 || toIdx < 0) {
+        console.warn("[DesignFwForm] reorder: sibling lookup failed", fromId, toId);
+        return;
+      }
       // Reorder
-      const [moved] = mainFields.splice(fromIdx, 1);
+      const [moved] = siblings.splice(fromIdx, 1);
       // Po splice se toIdx mohl posunout (pokud fromIdx < toIdx)
-      let insertAt = mainFields.findIndex((f) => f.id === toId);
-      if (insertAt < 0) insertAt = mainFields.length;
+      let insertAt = siblings.findIndex((f) => f.id === toId);
+      if (insertAt < 0) insertAt = siblings.length;
       if (!dropAbove) insertAt += 1;
-      mainFields.splice(insertAt, 0, moved);
+      siblings.splice(insertAt, 0, moved);
       // Assign new sort_order — multiples of 10 pro budouci insert space
-      const payload = mainFields.map((f, i) => ({
+      const payload = siblings.map((f, i) => ({
         id: f.id,
         sort_order: (i + 1) * 10,
       }));
@@ -5750,6 +5771,84 @@
       return this._renderLeafField(comp, idx, total);
     }
 
+    // Phase 38.4 Krok 14e-E (14.5.2026 vecer, Marti's "Panel musi byt
+    // dragabled"): generic drag-and-drop pro containers (panel/groupbox).
+    // Analog _wrapFieldForDesign drag events, ale na container wrap.
+    // Reuse _performFieldReorder (Krok 14e-F generalized na siblings podle
+    // parent_comp_def_id).
+    _attachContainerDragEvents(wrap, container) {
+      wrap.addEventListener("dragstart", (ev) => {
+        // Defensive: pokud drag started z child input/button, neaktivuj
+        // container drag (necht child mu da event)
+        const isFromAction = ev.target && (
+          ev.target.tagName === "INPUT" ||
+          ev.target.tagName === "BUTTON" ||
+          ev.target.tagName === "TEXTAREA"
+        );
+        if (isFromAction) return;
+        wrap.style.opacity = "0.5";
+        this._dragState = {
+          fieldId: container.id,
+          fromIndex: 0,
+          el: wrap,
+          isContainer: true,
+        };
+        try {
+          ev.dataTransfer.effectAllowed = "move";
+          ev.dataTransfer.setData("text/plain", String(container.id));
+        } catch (e) {}
+      });
+      wrap.addEventListener("dragend", () => {
+        wrap.style.opacity = "";
+        wrap.style.outline = "";
+        // Clean drop indicators na siblings
+        if (wrap.parentElement) {
+          wrap.parentElement.querySelectorAll(".erp-design-panel, .erp-design-groupbox")
+            .forEach((el) => {
+              el.style.borderTopColor = "";
+              el.style.borderBottomColor = "";
+            });
+        }
+        this._dragState = null;
+      });
+      wrap.addEventListener("dragover", (ev) => {
+        if (!this._dragState || !this._dragState.isContainer) return;
+        if (this._dragState.fieldId === container.id) return;
+        ev.preventDefault();
+        try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+        const rect = wrap.getBoundingClientRect();
+        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+        wrap.style.outline = isAbove
+          ? "2px solid #7ed4e8"
+          : "2px solid transparent";
+        wrap.style.outlineOffset = isAbove ? "0" : "0";
+        // Visual indicator: thick top/bottom edge
+        wrap.style.borderTop = isAbove
+          ? "2px solid #7ed4e8"
+          : "1px dashed rgba(122, 134, 150, 0.3)";
+        wrap.style.borderBottom = isAbove
+          ? "1px dashed rgba(122, 134, 150, 0.3)"
+          : "2px solid #7ed4e8";
+      });
+      wrap.addEventListener("dragleave", () => {
+        wrap.style.outline = "";
+        wrap.style.borderTop = "1px dashed rgba(122, 134, 150, 0.3)";
+        wrap.style.borderBottom = "1px dashed rgba(122, 134, 150, 0.3)";
+      });
+      wrap.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        if (!this._dragState || !this._dragState.isContainer) return;
+        const fromId = this._dragState.fieldId;
+        const toId = container.id;
+        if (fromId === toId) return;
+        const rect = wrap.getBoundingClientRect();
+        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+        // Reuse generic reorder (Krok 14e-F: pracuje s siblings podle
+        // parent_comp_def_id, ne pouze 'main' fields)
+        this._performFieldReorder(fromId, toId, isAbove);
+      });
+    }
+
     _renderLeafField(comp, idx, total) {
       const ctx = this.__renderCtx || {};
       const data = ctx.data || {};
@@ -5784,29 +5883,96 @@
       const layout = container.layout || {};
       const children = byParent.get(container.id) || [];
 
-      // ─── Panel = invisible structural container ───────────────────
+      // ─── Panel = structural container ─────────────────────────────
       // Marti's doctrine (Krok 14e, 14.5.2026 vecer): panel je purely
-      // structural — žádný visual ramecek, žádný label, jen div pro
-      // grouping. Visual styling delegujeme na nested groupbox.
+      // structural — visual styling delegujeme na nested groupbox.
+      //
+      // V PROD mode: display:contents (panel se "rozpusti", children
+      //   prevzimaji grid placement of parent sec.grid → groupbox je
+      //   prime dite sec.grid grid-column:1/-1).
+      // V DESIGN mode (Krok 14e-E, 14.5. vecer): visible wrapper
+      //   s dashed border + drag handle pro reorder + child grid
+      //   sections uvnitr panelu (Marti's Q3 — child grids "patri na panel").
       if (code === "panel") {
+        const designMode = this._formDesignMode === true;
         const wrap = document.createElement("div");
         wrap.className = "erp-design-panel";
         wrap.dataset.compDefId = String(container.id);
         wrap.dataset.compTypeCode = "panel";
-        // Display: contents = panel se "rozpusti", children prevzimaji
-        // grid placement of parent (sec.grid). Tim padem children leaf
-        // fields chodi do same CSS grid jako pred Krok 14e. Container
-        // groupbox uvnitr panelu prepne layout zpet na block + vlastni
-        // grid pro vnitrek.
-        // ALTERNATIVA: panel jako display:grid s vlastnimi children
-        // (klasicky nested grid). Marti's volba 14.5. vecer: vetsina
-        // pripadu = 1 groupbox per panel, tj. display:contents staci.
-        wrap.style.display = "contents";
+        wrap.dataset.parentCompDefId = String(container.parent_comp_def_id || "");
 
+        if (designMode) {
+          // Visible wrapper s drag affordance
+          wrap.style.cssText =
+            "display:block;" +
+            "border:1px dashed rgba(122, 134, 150, 0.3);" +
+            "border-radius:4px;" +
+            "padding:8px;" +
+            "margin:4px 0;" +
+            "position:relative;" +
+            "grid-column:1/-1;";
+          wrap.draggable = true;
+
+          // Label "panel" v levem hornim rohu (subtle)
+          const lbl = document.createElement("div");
+          lbl.textContent = "▦ panel #" + container.id;
+          lbl.style.cssText =
+            "position:absolute;top:-8px;left:8px;" +
+            "background:#0d1117;color:#5d6975;" +
+            "font-size:10px;padding:1px 6px;" +
+            "border-radius:2px;letter-spacing:0.5px;" +
+            "user-select:none;pointer-events:none;";
+          wrap.appendChild(lbl);
+
+          // Drag listeners (analog _wrapFieldForDesign)
+          this._attachContainerDragEvents(wrap, container);
+        } else {
+          // PROD: invisible — children flow do parent grid directly
+          wrap.style.display = "contents";
+        }
+
+        // Phase 38.4 Krok 14e-G (Marti's Q3, volba A memory-only):
+        // Child sections (TELEFONY/EMAILY) jsou UVNITR panelu, ne paralelne.
+        // this._childPosition slots:
+        //   'before-main' = ABOVE groupbox uvnitr panelu (default for emails/phones)
+        //   'after-main'  = BELOW groupbox uvnitr panelu
+        // V PROD (display:contents) children sit jako direct siblings of
+        // groupbox v sec.grid — taky funguje (každý má grid-column:1/-1).
+        const childrenData = (this._spec && this._spec.children) || {};
+        const childKeys = Object.keys(childrenData);
+        const childPosition = this._childPosition || {};
+        const childOrder = Array.isArray(this._childOrder) && this._childOrder.length === childKeys.length
+          ? this._childOrder
+          : childKeys.slice();
+        const beforeGroupbox = childOrder.filter(
+          (k) => (childPosition[k] || "before-main") === "before-main"
+        );
+        const afterGroupbox = childOrder.filter(
+          (k) => childPosition[k] === "after-main"
+        );
+
+        // Render child sections BEFORE groupbox
+        for (const childKey of beforeGroupbox) {
+          const childInfo = childrenData[childKey];
+          if (!childInfo) continue;
+          const sec = this._renderChildSection(childKey, childInfo);
+          if (sec) wrap.appendChild(sec);
+        }
+
+        // Render container children (typically groupbox)
         for (let i = 0; i < children.length; i++) {
           const childEl = this._renderComponentTree(children[i], i, children.length);
           if (childEl) wrap.appendChild(childEl);
         }
+
+        // Render child sections AFTER groupbox
+        for (const childKey of afterGroupbox) {
+          const childInfo = childrenData[childKey];
+          if (!childInfo) continue;
+          const sec = this._renderChildSection(childKey, childInfo);
+          if (sec) wrap.appendChild(sec);
+        }
+
         return wrap;
       }
 

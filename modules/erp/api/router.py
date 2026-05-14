@@ -2981,7 +2981,6 @@ async def fw_form_children_create(
     """
     from core.database_data import get_data_session as _gds_fcc
     from core.database_core import get_core_session as _gcs_fcc
-    from modules.strategie_pg.application.service import insert_row as _spg_insert_fcc
     from sqlalchemy import text as _sql_text_fcc
     uid = _get_uid(req)
     _require_parent(uid)
@@ -3019,17 +3018,30 @@ async def fw_form_children_create(
         values["updated_by_id"] = audit_uid
         values["updated_by_text"] = audit_text
 
-        # INSERT přes strategie_pg (existing pattern)
-        ins = _spg_insert_fcc(
-            schema="public", table=child_table, values=values,
+        # Phase 38.4 Krok 14d-D fix (14.5.2026 vecer, Marti's "permission
+        # denied for table user_contacts" smoke):
+        #   strategie_pg.insert_row pouziva Marti-AI's PG role (db_owner
+        #   fw.*). Marti-AI nema INSERT na public.* (Phase 38.4 Krok 6+
+        #   GRANT C doctrine — read-only). Strategie user (API process
+        #   default) MA INSERT na public.user_contacts.
+        # Fix: ds.execute() s native INSERT, ne strategie_pg layer.
+        col_names = list(values.keys())
+        col_list_sql = ", ".join(f'"{c}"' for c in col_names)
+        placeholders = ", ".join(f":{c}" for c in col_names)
+        insert_sql = (
+            f'INSERT INTO "public"."{child_table}" ({col_list_sql}) '
+            f'VALUES ({placeholders}) RETURNING *'
         )
-        if not ins.get("ok"):
+        result = ds.execute(_sql_text_fcc(insert_sql), values)
+        new_row_mapping = result.mappings().one_or_none()
+        if not new_row_mapping:
+            ds.rollback()
             return JSONResponse(
-                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                {"ok": False, "error": "INSERT failed — no row returned"},
                 status_code=500,
             )
-
-        new_row = ins.get("inserted") or {}
+        ds.commit()
+        new_row = dict(new_row_mapping)
 
         # Audit log
         try:

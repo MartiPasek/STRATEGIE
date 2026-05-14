@@ -3909,6 +3909,88 @@
         "child:" + childKey
       );
 
+      // Phase 38.4 Krok 14d-D+ (14.5.2026 vecer, Marti's "dragable"):
+      // Per-section drag handle + dragover/drop reorder. MVP — in-memory
+      // state přes this._childOrder. Section wrap dostane draggable=true,
+      // grip ⋮⋮ vlevo (visual hint), drop target = jiná section / form.
+      sec.wrap.draggable = true;
+      sec.wrap.dataset.childSectionKey = childKey;
+      sec.wrap.style.cursor = "default";  // default — grab jen na grip
+
+      // Drag handle grip (visual + cursor:grab on hover)
+      const grip = document.createElement("div");
+      grip.textContent = "⋮⋮";
+      grip.title = "Drag pro přesun sekce nahoru/dolů";
+      grip.style.cssText =
+        "position:absolute;left:4px;top:8px;width:18px;height:24px;" +
+        "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
+        "user-select:none;display:flex;align-items:center;justify-content:center;" +
+        "z-index:2;transition:color 0.15s;";
+      grip.addEventListener("mouseenter", () => grip.style.color = "#7ed4e8");
+      grip.addEventListener("mouseleave", () => grip.style.color = "#5d6975");
+      sec.wrap.style.position = "relative";
+      sec.wrap.style.paddingLeft = "28px";  // make room pro grip
+      sec.wrap.appendChild(grip);
+
+      // Drag handlers — only initiate drag z grip area (mousedown na grip)
+      let _dragArmed = false;
+      grip.addEventListener("mousedown", () => { _dragArmed = true; });
+      // Globální mouseup fallback — pokud user neuvolnil dragstart
+      document.addEventListener("mouseup", () => { _dragArmed = false; }, { once: true });
+
+      sec.wrap.addEventListener("dragstart", (ev) => {
+        if (!_dragArmed) {
+          ev.preventDefault();  // ignore drag pokud ne z grip
+          return;
+        }
+        sec.wrap.style.opacity = "0.5";
+        ev.dataTransfer.effectAllowed = "move";
+        ev.dataTransfer.setData(
+          "application/x-erp-child-section",
+          childKey
+        );
+      });
+      sec.wrap.addEventListener("dragend", () => {
+        sec.wrap.style.opacity = "1";
+        _dragArmed = false;
+      });
+
+      sec.wrap.addEventListener("dragover", (ev) => {
+        const types = ev.dataTransfer && ev.dataTransfer.types;
+        if (!types || !Array.from(types).includes("application/x-erp-child-section")) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = "move";
+        sec.wrap.style.borderTop = "2px solid #7ed4e8";
+      });
+      sec.wrap.addEventListener("dragleave", (ev) => {
+        if (ev.target === sec.wrap) {
+          sec.wrap.style.borderTop = "";
+        }
+      });
+      sec.wrap.addEventListener("drop", (ev) => {
+        ev.preventDefault();
+        sec.wrap.style.borderTop = "";
+        const draggedKey = ev.dataTransfer.getData("application/x-erp-child-section");
+        if (!draggedKey || draggedKey === childKey) return;
+
+        // Reorder this._childOrder — move dragged key before this section
+        const order = this._childOrder || [];
+        const draggedIdx = order.indexOf(draggedKey);
+        const targetIdx = order.indexOf(childKey);
+        if (draggedIdx < 0 || targetIdx < 0) return;
+
+        order.splice(draggedIdx, 1);
+        // Insert dragged BEFORE target (Marti's "dat nahoru" pattern)
+        // Recompute targetIdx after splice (may have shifted)
+        const newTargetIdx = order.indexOf(childKey);
+        order.splice(newTargetIdx, 0, draggedKey);
+        this._childOrder = order;
+
+        // Re-render (preserve form data via this._spec, fresh DOM)
+        this._render();
+        this._attachDropTargetForGalleryDrag();
+      });
+
       // Hidden cols z select_columns (interní metadata)
       const HIDDEN_COLS = new Set([
         "id", "created_at", "updated_at", "created_by_id", "created_by_text",
@@ -4557,11 +4639,26 @@
       // HTML table s rows + ✕ archive button per row + + Přidat button.
       // MVP read-only display s native prompt() pro add/edit. Polish v
       // Krok 14d-E (inline edit UX, AG Grid mini, drag reorder).
+      //
+      // Krok 14d-D+ (14.5.2026 vecer, Marti's "udelej ho dragable"):
+      // Per-section drag handle grip vlevo. Apply preserve order po
+      // re-render přes this._childOrder array (in-memory state).
       const childrenData = (this._spec && this._spec.children) || {};
-      const childKeys = Object.keys(childrenData);
-      if (childKeys.length > 0) {
-        for (const childKey of childKeys) {
+      const allKeys = Object.keys(childrenData);
+      if (allKeys.length > 0) {
+        // Apply Marti's drag order (if any) — default = natural order z API
+        if (!this._childOrder || this._childOrder.length !== allKeys.length) {
+          this._childOrder = [...allKeys];
+        } else {
+          // Defensive: filter out keys co nejsou v API (delete) + append nové
+          this._childOrder = this._childOrder.filter(k => allKeys.includes(k));
+          for (const k of allKeys) {
+            if (!this._childOrder.includes(k)) this._childOrder.push(k);
+          }
+        }
+        for (const childKey of this._childOrder) {
           const childInfo = childrenData[childKey];
+          if (!childInfo) continue;
           root.appendChild(this._renderChildSection(childKey, childInfo));
         }
       }

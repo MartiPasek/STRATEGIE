@@ -783,16 +783,15 @@
     descToggle.type = "button";
     descToggle.className = "erp-design-desctoggle";
     // Krok 14b+18 (14.5.2026 rano, Marti's "ikonka kniha se tvari jako
-    // bily obdelnicek"): 📖 (open book) emoji v dark theme + Windows
-    // Segoe UI Emoji font renderuje jako prazdny bily rectangle (font
-    // fallback issue). Switch na 📘 (modra kniha) — barevny emoji,
-    // citelny na dark backgroundu. Plus label "Popis" misto jen ikony.
-    descToggle.innerHTML = "📘 <span style=\"font-size:11px;\">Popis</span>";
+    // bily obdelnicek"): 📖 → 📘 (modra kniha, colored emoji glyph).
+    // Krok 14b+18.1: Marti's polish "nech ji bez toho textu jen samotnou
+    // ikonku" — drop "Popis" label, jen 📘 emoji. Tooltip drzi affordance.
+    descToggle.textContent = "📘";
     descToggle.title = "Otevřít popis core (systémový + uživatelský — jako CLAUDE.md pro tohle jádro).";
     descToggle.style.cssText =
       "background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
-      "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:13px;" +
-      "line-height:1;display:flex;align-items:center;gap:4px;";
+      "padding:4px 8px;border-radius:3px;cursor:pointer;font-size:13px;" +
+      "line-height:1;";
     descToggle.addEventListener("click", () => {
       if (typeof opts.onShowDescriptions === "function") {
         try { opts.onShowDescriptions(); }

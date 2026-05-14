@@ -7353,7 +7353,24 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
         from modules.core.infrastructure.models_core import User as _User_pe
         from modules.core.infrastructure.models_data import Conversation as _Conv_pe
 
+        # Krok 14b+19 (14.5.2026 rano, Marti-AI's diagnostika 13.5. vecer):
+        # code_lines workaround pro Anthropic API single-field size limit.
+        # Marti-AI overila: kratky code (~print test) projde, velky code
+        # (stovky radku reportlab/xlsxwriter) -> code=None na server.
+        # Hypoteza: implicit size limit na tool_input single field. Bypass:
+        # array of lines (kazdy element kratky string) -> server joinuje.
+        code_lines_in = tool_input.get("code_lines")
         code_in = tool_input.get("code")
+        if isinstance(code_lines_in, list) and code_lines_in:
+            valid_lines = [str(ln) for ln in code_lines_in if isinstance(ln, str)]
+            if valid_lines:
+                code_assembled = "\n".join(valid_lines)
+                logger.info(
+                    f"PYTHON_EXEC | code_lines assembled | "
+                    f"conv_id={conversation_id} user_id={user_id} | "
+                    f"lines={len(valid_lines)} total_chars={len(code_assembled)}"
+                )
+                code_in = code_assembled
         if not isinstance(code_in, str) or not code_in.strip():
             # Phase 38.4 (11.5.2026 vecer) + 13.5.2026 rano (Marti-AI's
             # bug report o ztracenem code parametru behem IT prezentace):
@@ -7396,11 +7413,19 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 "❌ python_exec ERROR: parametr 'code' chybi nebo neni neprazdny string. "
                 f"(received type={_code_type}, value={_code_repr}, "
                 f"all keys={_keys}, other_values={_other_values_preview}). "
-                "POZN. pro Marti-AI: pokud kod opravdu napsala, "
-                "**zkus znovu s explicit pojmenovanim parametru** ('code=\"...\"' "
-                "v tool input). Pokud chyba persistuje 2x po sobe, je to "
-                "pravdepodobne Anthropic API issue (multi-turn context overflow "
-                "nebo cache invalidation) — pojmenuj v chatu Martimu/Claudovi."
+                "\n\nKrok 14b+19 RESCUE (14.5.2026, Marti-AI's diagnostika): "
+                "tato chyba je pravdepodobne Anthropic API single-field size "
+                "limit (kratky kod projde, velky se ztraci pri serializaci). "
+                "ZKUS ZNOVU s `code_lines` array MISTO `code` string:\n"
+                "  python_exec(code_lines=[\n"
+                "    \"import xlsxwriter\",\n"
+                "    \"wb = xlsxwriter.Workbook(OUTPUT_DIR / 'out.xlsx')\",\n"
+                "    \"ws = wb.add_worksheet('Sheet1')\",\n"
+                "    # ... kazdy radek samostatne ...\n"
+                "  ])\n"
+                "Server joinuje pres '\\n'. Bypass size limit. Pokud "
+                "code_lines TAKY selze, pojmenuj v chatu — zkusime "
+                "input_document_ids workflow (kod ulozit do RAG dokumentu)."
             )
 
         input_doc_ids_in = tool_input.get("input_document_ids")

@@ -3329,7 +3329,31 @@ TOOLS = [
                     "description": (
                         "Python source code k spusteni. Multi-line OK. exec() "
                         "v cistem namespace s predefined globals (OUTPUT_DIR, "
-                        "input_files, Path)."
+                        "input_files, Path). "
+                        "DULEZITE (Krok 14b+19, 14.5.2026): pokud kod je delsi nez "
+                        "~5000 znaku, POUZIJ `code_lines` (array of lines) MISTO "
+                        "`code` (string) — Anthropic API ma implicitni limit na "
+                        "single-field size v tool_input. Velky `code` string se "
+                        "ZTRACI pri serializaci (code=None na server). Marti-AI's "
+                        "13.5. diagnostika: kratky code projde, velky selze."
+                    ),
+                },
+                "code_lines": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Alternativa k `code` pro VELKY kod (>5000 znaku). Array "
+                        "of lines (kazdy element = jedna radka kodu, BEZ '\\n' na "
+                        "konci). Server joinuje pres '\\n'. Bypass Anthropic API "
+                        "single-field size limit. Pouzij pokud `code` parameter "
+                        "selhal s 'code=None' chybou nebo pokud planujes velky "
+                        "PDF/Excel/Word generator (stovky radku reportlab/xlsxwriter/docx). "
+                        "Priklad: code_lines=[\"import xlsxwriter\", \"wb = "
+                        "xlsxwriter.Workbook(OUTPUT_DIR / 'out.xlsx')\", "
+                        "\"ws = wb.add_worksheet('Sheet1')\", ...]. "
+                        "Pokud oba `code` i `code_lines` jsou poskytnuty, "
+                        "`code_lines` ma PREDNOST (assume caller overila ze "
+                        "code string failed)."
                     ),
                 },
                 "input_document_ids": {
@@ -3357,7 +3381,10 @@ TOOLS = [
                     ),
                 },
             },
-            "required": ["code"],
+            # Krok 14b+19: required dropped — bud code NEBO code_lines stačí.
+            # Handler check: pokud code_lines non-empty, code = "\n".join(code_lines).
+            # Pokud ani code ani code_lines, vraci forensic error (existing path
+            # z 50dfe4c diagnostic commit 13.5.).
         },
     },
     {

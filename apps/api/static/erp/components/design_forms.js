@@ -7190,9 +7190,10 @@
       } else if (this._activeTab === "layout") {
         // Phase 38.4 Krok 14f-C (14.5.2026 vecer, Marti's "Layout containers"
         // tab): paleta strukturalnich komponent (panel + groupbox).
-        // Filter: kind='container' + status='active'.
+        // Filter: kind='container'. Backend (Krok 14f-C fix) uz prefiltruje
+        // status='active' — frontend dropnu redundantni check.
         const layoutItems = (this._compTypes || []).filter(ct =>
-          ct.kind === "container" && ct.status === "active"
+          ct.kind === "container"
         );
 
         // Gallery grid (2-3 columns wider cards pro layout types)

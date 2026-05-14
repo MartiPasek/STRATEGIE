@@ -174,7 +174,27 @@ def erp_palette_popup(req: Request) -> HTMLResponse:
   }
   .palette-popup-title { font-size: 14px; font-weight: 600; color: #e8eef5; flex: 1 1 auto; }
   .palette-popup-hint { font-size: 11px; color: #8a96a4; padding: 8px 14px; background: #141a20; }
-  .palette-popup-content { padding: 12px; display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .palette-popup-content { padding: 12px; display: flex; flex-direction: column; gap: 16px; }
+  .palette-section-header {
+    font-size: 11px; color: #8a96a4; padding: 4px 0; letter-spacing: 0.5px;
+    text-transform: uppercase; border-bottom: 1px solid #2a3340; margin-bottom: 4px;
+  }
+  .palette-section-header.layout-accent { color: #a88cd4; border-bottom-color: rgba(168, 140, 212, 0.3); }
+  .palette-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 10px; }
+  .palette-layout-card {
+    background: #0f141a; border: 1px solid #2a3340; border-radius: 5px;
+    padding: 10px; display: flex; flex-direction: column; gap: 6px;
+    transition: border-color 0.15s;
+  }
+  .palette-layout-card:hover { border-color: #a88cd4; }
+  .palette-layout-visual {
+    padding: 10px; background: #141a20; border: 1px dashed; border-radius: 4px;
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+    min-height: 50px; cursor: grab;
+  }
+  .palette-layout-visual:active { cursor: grabbing; }
+  .palette-layout-icon { font-size: 22px; line-height: 1; }
+  .palette-layout-name { font-size: 13px; font-weight: 600; }
   .erp-gallery-preview-scope { display: flex; align-items: center; gap: 5px; font-size: 12px; pointer-events: auto; }
   .erp-gallery-preview-scope input, .erp-gallery-preview-scope select,
   .erp-gallery-preview-scope textarea, .erp-gallery-preview-scope button {
@@ -251,18 +271,116 @@ def erp_palette_popup(req: Request) -> HTMLResponse:
       if (!resp.ok) throw new Error('HTTP ' + resp.status);
       const data = await resp.json();
       if (!data.ok) throw new Error(data.error || 'unknown');
-      const items = (data.items || []).filter(ct =>
+
+      // Phase 38.4 Krok 14f-F (14.5.2026 vecer, Marti's "pridej do okna
+      // layout panel a groupbox"): split items na 2 sections.
+      const allItems = data.items || [];
+      const formItems = allItems.filter(ct =>
         FORM_RELEVANT_HINTS.has(ct.renderer_hint) || FORM_RELEVANT_CODES.has(ct.code)
       );
+      const layoutItems = allItems.filter(ct => ct.kind === 'container');
+
       container.innerHTML = '';
-      if (items.length === 0) {
-        container.innerHTML = '<div class="error">Žádné form-relevant komponenty.</div>';
-        return;
+
+      // Section 1: Form fields
+      if (formItems.length > 0) {
+        const hdr = document.createElement('div');
+        hdr.className = 'palette-section-header';
+        hdr.textContent = '📝 Form fields (' + formItems.length + ')';
+        container.appendChild(hdr);
+        const grid = document.createElement('div');
+        grid.className = 'palette-grid';
+        formItems.forEach(ct => grid.appendChild(renderCard(ct)));
+        container.appendChild(grid);
       }
-      items.forEach(ct => container.appendChild(renderCard(ct)));
+
+      // Section 2: Layout containers (panel + groupbox)
+      if (layoutItems.length > 0) {
+        const hdr = document.createElement('div');
+        hdr.className = 'palette-section-header layout-accent';
+        hdr.textContent = '📐 Layout containers (' + layoutItems.length + ')';
+        container.appendChild(hdr);
+        const grid = document.createElement('div');
+        grid.className = 'palette-grid';
+        layoutItems.forEach(ct => grid.appendChild(renderLayoutCard(ct)));
+        container.appendChild(grid);
+      }
+
+      if (formItems.length === 0 && layoutItems.length === 0) {
+        container.innerHTML = '<div class="error">Žádné komponenty.</div>';
+      }
     } catch (e) {
       container.innerHTML = '<div class="error">Načítání selhalo: ' + (e.message || e) + '</div>';
     }
+  }
+
+  // Phase 38.4 Krok 14f-F: render layout container card (panel/groupbox)
+  // s drag payload obsahujícím default layout. Cross-window DnD payload
+  // stejny format jako parent FieldPickerModal._renderLayoutCard.
+  function renderLayoutCard(ct) {
+    const card = document.createElement('div');
+    card.className = 'palette-layout-card';
+
+    const isPanel = ct.code === 'panel';
+    const isGroupbox = ct.code === 'groupbox';
+    const icon = isPanel ? '📦' : (isGroupbox ? '▦' : '▣');
+    const accent = isPanel ? '#a88cd4' : '#d4b88a';
+
+    let defaultLayout;
+    if (isPanel) defaultLayout = { align: 'client' };
+    else if (isGroupbox) defaultLayout = { border_mode: 'top', label: null };
+    else defaultLayout = {};
+
+    // Visual drag handle (icon + name)
+    const visual = document.createElement('div');
+    visual.className = 'palette-layout-visual';
+    visual.style.borderColor = accent;
+    visual.setAttribute('draggable', 'true');
+
+    const iconEl = document.createElement('span');
+    iconEl.className = 'palette-layout-icon';
+    iconEl.textContent = icon;
+    visual.appendChild(iconEl);
+
+    const nameEl = document.createElement('span');
+    nameEl.className = 'palette-layout-name';
+    nameEl.style.color = accent;
+    nameEl.textContent = ct.label;
+    visual.appendChild(nameEl);
+
+    visual.addEventListener('dragstart', ev => {
+      visual.style.opacity = '0.5';
+      ev.dataTransfer.effectAllowed = 'copy';
+      ev.dataTransfer.setData('application/x-erp-comp-type', JSON.stringify({
+        id: ct.id,
+        code: ct.code,
+        label: ct.label,
+        layout: defaultLayout,
+        is_container: true,
+      }));
+      ev.dataTransfer.setData('text/plain', ct.code);
+    });
+    visual.addEventListener('dragend', () => visual.style.opacity = '1');
+    card.appendChild(visual);
+
+    // Code + id
+    const codeEl = document.createElement('div');
+    codeEl.className = 'palette-card-code';
+    codeEl.style.color = accent;
+    codeEl.textContent = ct.code + ' · id=' + ct.id;
+    card.appendChild(codeEl);
+
+    // Hint
+    const meta = document.createElement('div');
+    meta.className = 'palette-card-meta';
+    let hint;
+    if (isPanel) hint = 'Strukturální (alClient default). Right-click pro nastavení.';
+    else if (isGroupbox) hint = 'Vizuální wrapper s linkou nahoře. Drag dovnitř panelu.';
+    else hint = ct.description || 'Container.';
+    meta.innerHTML = '<span class="badge">container</span>' + hint;
+    card.appendChild(meta);
+
+    return card;
   }
 
   function renderCard(ct) {
@@ -3673,10 +3791,17 @@ def design_list_comp_types(req: Request) -> JSONResponse:
         # komponenty" — preview_html IS NOT NULL je single source of truth.
         # Drop status filter (Marti's "active patří jen našemu gridu" 11.5.
         # Krok 13 doctrine zachycoval grid stack, ne palette readiness).
+        #
+        # Phase 38.4 Krok 14f-C fix (14.5.2026 vecer, Marti's "pridej do toho
+        # okna layout ten panel a groupbox"): container types (kind='container')
+        # nemaji preview_html (jsou structural, ne visual) — pridat exception
+        # OR kind='container' AND status='active'. Plus vratit status +
+        # renderer_hint pro frontend filtering.
         rows = ds.execute(_sql_text_ct("""
-            SELECT id, code, label, kind, preview_html
+            SELECT id, code, label, kind, preview_html, status, renderer_hint
             FROM fw.comp_type
             WHERE preview_html IS NOT NULL
+               OR (kind = 'container' AND status = 'active')
             ORDER BY id ASC
         """)).mappings().all()
         items = [dict(r) for r in rows]

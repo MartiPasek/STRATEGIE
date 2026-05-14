@@ -548,20 +548,25 @@
       ".erp-gallery-preview-scope label {\n" +
       "  display: flex; align-items: center; gap: 5px;\n" +
       "}\n" +
-      // Drag handle visual — komponenta dostane grab cursor, hover
-      // accent (border highlight). Draggable attribute set v JS.
-      ".erp-gallery-preview-scope > [draggable=\"true\"] {\n" +
+      // Phase 38.4 Krok 14c+3.4 (14.5.2026 odpoledne, Marti's bug "Vetsina
+      // komponent nejde drag. Neukaze se symbol ruky."):
+      //   ROOT CAUSE: CSS selector "> [draggable=true]" je direct-child only.
+      //   Pokud preview_html má wrapper (např. <label><input/></label> pro
+      //   checkbox), querySelector najde deep <input> + nastaví draggable,
+      //   ale CSS rule miss = žádný cursor:grab + možné drag init issues.
+      //
+      //   FIX:
+      //     1. Drop ">" v selectoru — match any descendant draggable
+      //     2. Drop user-select:none (defensive — někdy blokuje drag init)
+      //     3. JS-side inline style.cursor = "grab" jako fallback
+      ".erp-gallery-preview-scope [draggable=\"true\"] {\n" +
       "  cursor: grab; transition: border-color 0.15s, box-shadow 0.15s;\n" +
-      // Phase 38.4 Krok 14c+3.3 — user-select:none prevent text selection
-      // při drag (alternativa k mousedown preventDefault který blokuje
-      // drag na <button>/<div>). Defensive across all browser quirks.
-      "  user-select: none; -webkit-user-select: none;\n" +
       "}\n" +
-      ".erp-gallery-preview-scope > [draggable=\"true\"]:hover {\n" +
+      ".erp-gallery-preview-scope [draggable=\"true\"]:hover {\n" +
       "  border-color: #3a8aa8 !important;\n" +
       "  box-shadow: 0 0 0 1px rgba(58,138,168,0.3);\n" +
       "}\n" +
-      ".erp-gallery-preview-scope > [draggable=\"true\"]:active {\n" +
+      ".erp-gallery-preview-scope [draggable=\"true\"]:active {\n" +
       "  cursor: grabbing;\n" +
       "}\n" +
       // Phase 38.4 Krok 14c+2 part A.3 (14.5.2026, Marti's polish "komponenty
@@ -5855,6 +5860,13 @@
       ) || previewScope.firstElementChild;
       if (dragHandle) {
         dragHandle.setAttribute("draggable", "true");
+        // Phase 38.4 Krok 14c+3.4 (14.5.2026 odpoledne, Marti's bug
+        // "neukaze se symbol ruky"): inline cursor:grab JAKO FALLBACK
+        // — CSS rule `.erp-gallery-preview-scope [draggable=true]` může
+        // miss kvuli specificity / cascade order pro wrapped elements
+        // (preview_html `<label><input/></label>` etc). Inline style
+        // má top priority + cross-browser deterministic.
+        dragHandle.style.cursor = "grab";
         // Pro <input> readonly + disabled keyboard editing (visual only)
         if (dragHandle.tagName === "INPUT" || dragHandle.tagName === "TEXTAREA") {
           dragHandle.setAttribute("readonly", "");
@@ -5883,6 +5895,7 @@
         dragHandle.addEventListener("dragstart", (ev) => {
           ev.stopPropagation();
           dragHandle.style.opacity = "0.5";
+          dragHandle.style.cursor = "grabbing";
           ev.dataTransfer.effectAllowed = "copy";
           ev.dataTransfer.setData(
             "application/x-erp-comp-type",
@@ -5892,6 +5905,7 @@
         });
         dragHandle.addEventListener("dragend", () => {
           dragHandle.style.opacity = "1";
+          dragHandle.style.cursor = "grab";
         });
       }
 

@@ -605,11 +605,22 @@
         document.body.appendChild(ovr);
         function cleanup() {
           try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
-          document.removeEventListener("keydown", onKey);
+          // Krok 14b+15.1: useCapture=true musi byt v remove taky
+          document.removeEventListener("keydown", onKey, true);
         }
+        // Krok 14b+15.1: capture + stopPropagation (viz 2-button mode komentar)
         function onKey(ev) {
-          if (ev.key === "Escape") { cleanup(); resolve("cancel"); }
-          else if (ev.key === "Enter") { cleanup(); resolve("yes"); }
+          if (ev.key === "Escape") {
+            ev.preventDefault();
+            ev.stopPropagation();
+            cleanup();
+            resolve("cancel");
+          } else if (ev.key === "Enter") {
+            ev.preventDefault();
+            ev.stopPropagation();
+            cleanup();
+            resolve("yes");
+          }
         }
         yesBtn.addEventListener("click", () => { cleanup(); resolve("yes"); });
         noBtn.addEventListener("click", () => { cleanup(); resolve("no"); });
@@ -621,7 +632,8 @@
           if (ev.target === ovr) { cleanup(); resolve("cancel"); }
         });
         dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
-        document.addEventListener("keydown", onKey);
+        // Krok 14b+15.1: capture=true (3. arg) priority pred parent shell Esc
+        document.addEventListener("keydown", onKey, true);
         setTimeout(() => yesBtn.focus(), 50);
         return;
       }
@@ -649,15 +661,34 @@
 
       function cleanup() {
         try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
-        document.removeEventListener("keydown", onKey);
+        // Krok 14b+15.1 (14.5.2026 rano, Marti's "reakce na Esc"):
+        // useCapture=true musi byt v removeEventListener taky aby
+        // listener byl spravne unregistered.
+        document.removeEventListener("keydown", onKey, true);
       }
       // A1t safety: Esc / click outside = null (keep modal, "did nothing").
       // Explicit Ano (true) / Ne (false) jsou jediné destruktivni cesty.
       // Caller pak rozlisuje: true = positive action, false = negative
       // action, null = no-op (nepokracuj).
+      //
+      // Krok 14b+15.1 (14.5.2026 rano, Marti's "reakce na ESC"):
+      // Pridana stopPropagation + capture phase. Bez nich Esc dropal
+      // do parent _buildModalShell._onKey listeneru, ktery zavolal
+      // parent close() -> _beforeCloseHandler -> NOVY confirm dialog
+      // (loop). Capture phase + stopPropagation zaruci ze Esc je
+      // zachycen JEN confirm dialogem, parent neuvidí.
       function onKey(ev) {
-        if (ev.key === "Escape") { cleanup(); resolve(null); }
-        else if (ev.key === "Enter") { cleanup(); resolve(true); }
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          cleanup();
+          resolve(null);
+        } else if (ev.key === "Enter") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          cleanup();
+          resolve(true);
+        }
       }
       if (cancelBtn) cancelBtn.addEventListener("click", () => { cleanup(); resolve(false); });
       okBtn.addEventListener("click", () => { cleanup(); resolve(true); });
@@ -668,7 +699,10 @@
         if (ev.target === ovr) { cleanup(); resolve(null); }
       });
       dlg.addEventListener("contextmenu", (ev) => ev.preventDefault());
-      document.addEventListener("keydown", onKey);
+      // Krok 14b+15.1: capture=true (3. arg) aby confirm dialog zachyti
+      // Esc PRED parent _buildModalShell listener (registered earlier,
+      // bubble phase). Plus event.stopPropagation v handleru.
+      document.addEventListener("keydown", onKey, true);
       setTimeout(() => okBtn.focus(), 50);
     });
   }

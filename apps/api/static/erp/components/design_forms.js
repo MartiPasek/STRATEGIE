@@ -741,13 +741,21 @@
     sysToggle.className = "erp-design-systoggle";
     function _renderSysToggleLabel() {
       const on = window._erpDesignShowSystemNames === true;
-      sysToggle.textContent = on ? "👁️ system" : "👁️ uživatel";
+      // Krok 14b+17 (14.5.2026 rano, Marti's polish):
+      //   1. Velka pismena na zacatku — "Uživatel" / "System"
+      //   2. Button visible JEN v DESIGN mode (window._erpDesignMode === true)
+      sysToggle.textContent = on ? "👁️ System" : "👁️ Uživatel";
       sysToggle.title = on
         ? "Zobrazují se system fieldKey. Klikni pro přepnutí na uživatelské názvy."
         : "Zobrazují se uživatelské názvy. Klikni pro přepnutí na system fieldKey (debug).";
+      // Visibility gate — pouze v DESIGN mode (Marti's "tlacitko se ma
+      // zobrazovat pouze v design mode cele aplikace")
+      const designOn = window._erpDesignMode === true;
+      const displayStyle = designOn ? "" : "display:none;";
       sysToggle.style.cssText = "background:" + (on ? "#3a4a5a" : "#1f2530") +
         ";border:1px solid " + (on ? "#5a6877" : "#2a3340") +
-        ";color:#cfd6df;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;";
+        ";color:#cfd6df;padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        displayStyle;
     }
     // Krok 14a-A1l #1: sync globalni sysToggle state na body[data-...]
     // — pouziva se v CSS rules pro toggle user/system description memo.
@@ -774,15 +782,23 @@
     const descToggle = document.createElement("button");
     descToggle.type = "button";
     descToggle.className = "erp-design-desctoggle";
-    descToggle.textContent = "📖";
+    // Krok 14b+18 (14.5.2026 rano, Marti's "ikonka kniha se tvari jako
+    // bily obdelnicek"): 📖 (open book) emoji v dark theme + Windows
+    // Segoe UI Emoji font renderuje jako prazdny bily rectangle (font
+    // fallback issue). Switch na 📘 (modra kniha) — barevny emoji,
+    // citelny na dark backgroundu. Plus label "Popis" misto jen ikony.
+    descToggle.innerHTML = "📘 <span style=\"font-size:11px;\">Popis</span>";
     descToggle.title = "Otevřít popis core (systémový + uživatelský — jako CLAUDE.md pro tohle jádro).";
-    descToggle.style.cssText = "background:#1f2530;border:1px solid #2a3340;color:#cfd6df;padding:4px 8px;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
+    descToggle.style.cssText =
+      "background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
+      "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:13px;" +
+      "line-height:1;display:flex;align-items:center;gap:4px;";
     descToggle.addEventListener("click", () => {
       if (typeof opts.onShowDescriptions === "function") {
         try { opts.onShowDescriptions(); }
         catch (e) { console.error("onShowDescriptions failed:", e); }
       } else {
-        console.warn("📖 clicked but form did not register onShowDescriptions handler");
+        console.warn("📘 clicked but form did not register onShowDescriptions handler");
       }
     });
     // Krok 14a-A1m #2: v popupu (recursion) nepotrebujeme dalsi 📖 ikonu.
@@ -916,7 +932,7 @@
     opts = opts || {};
     const entityKind = opts.entityKind === "menu_node" ? "mn" : "core";
     const labelStr = opts.entityLabel ? String(opts.entityLabel) : "(bez labelu)";
-    const titleText = "📖 Popis: " + labelStr;
+    const titleText = "📘 Popis: " + labelStr;
 
     // Popup nepouziva beforeClose handler — dirty tracking je v hlavnim
     // formu (memo nas vola onDirty primo). Close = vzdy povoleno, data
@@ -939,7 +955,7 @@
     info.innerHTML =
       "<span class=\"section-title-user\">👁️ Uživatelský popis — k čemu jádro slouží, jak s ním pracovat. Markdown.</span>" +
       "<span class=\"section-title-system\">🔧 Systémový popis (vývojáři) — implementace, data zdroje, edge cases, debug. Markdown.</span>" +
-      "<br><span style=\"font-size:10px;opacity:0.7;\">Přepnout pomocí ikony 👁️ uživatel / system v hlavičce. Je to jako CLAUDE.md pro tohle jádro.</span>";
+      "<br><span style=\"font-size:10px;opacity:0.7;\">Přepnout pomocí ikony 👁️ Uživatel / System v hlavičce. Je to jako CLAUDE.md pro tohle jádro.</span>";
     shell.body.appendChild(info);
 
     // Memo container — fills body, 60vh height

@@ -4024,10 +4024,32 @@
           "text-align:left;color:#8a96a4;font-size:11px;font-weight:600;";
         headerRow.appendChild(th);
       }
-      // Actions column header
+      // Actions column header — Phase 38.4 Krok 14d-D polish (14.5.2026
+      // večer Marti's "tlacitko + v ramecku zelene v hlavicce gridu nad ✕"):
+      // Místo prázdné header buňky → zelený + button (cleaner UX,
+      // konzistentní pozice nad action column ✕ buttons per row).
       const thActions = document.createElement("th");
       thActions.style.cssText =
-        "padding:6px 4px;background:#141a20;border:1px solid #2a3340;width:36px;";
+        "padding:4px;background:#141a20;border:1px solid #2a3340;" +
+        "width:36px;text-align:center;";
+      const headerAddBtn = document.createElement("button");
+      headerAddBtn.type = "button";
+      headerAddBtn.textContent = "+";
+      headerAddBtn.title = "Přidat nový " + (childInfo.label || childKey);
+      headerAddBtn.style.cssText =
+        "background:transparent;border:1px solid #5dbf5d;color:#5dbf5d;" +
+        "padding:0;width:22px;height:22px;border-radius:3px;cursor:pointer;" +
+        "font-size:16px;font-weight:600;line-height:1;transition:background 0.15s;";
+      headerAddBtn.addEventListener("mouseenter", () => {
+        headerAddBtn.style.background = "rgba(93,191,93,0.15)";
+      });
+      headerAddBtn.addEventListener("mouseleave", () => {
+        headerAddBtn.style.background = "transparent";
+      });
+      headerAddBtn.addEventListener("click", () => {
+        this._addChildRow(childKey, childInfo);
+      });
+      thActions.appendChild(headerAddBtn);
       headerRow.appendChild(thActions);
       thead.appendChild(headerRow);
       table.appendChild(thead);
@@ -4052,19 +4074,11 @@
       table.appendChild(tbody);
       sec.grid.appendChild(table);
 
-      // + Přidat button
-      const addBtn = document.createElement("button");
-      addBtn.type = "button";
-      addBtn.textContent = "+ Přidat";
-      addBtn.title = "Přidat nový záznam do " + (childInfo.label || childKey);
-      addBtn.style.cssText =
-        "margin-top:8px;background:#1f4858;border:1px solid #3a8aa8;" +
-        "color:#7ed4e8;padding:5px 12px;border-radius:3px;cursor:pointer;" +
-        "font-size:11px;font-weight:600;";
-      addBtn.addEventListener("click", () => {
-        this._addChildRow(childKey, childInfo);
-      });
-      sec.grid.appendChild(addBtn);
+      // Phase 38.4 Krok 14d-D polish (14.5.2026 vecer, Marti's "tlacitko
+      // + v ramecku v zelenem v hlavicce gridu nad tlacitka odebrat"):
+      // Velký "+ Přidat" rectangle pod tabulkou dropped — nahrazený malým
+      // zeleným + buttonem v header (above ✕ column). Cleaner UX, méně
+      // visuálního noise.
 
       return sec.wrap;
     }

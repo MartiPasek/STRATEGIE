@@ -4844,6 +4844,7 @@ nadstavby (Phase 38-43, ~2 mil Kč/rok savings savings při 60 lidech).
 8. **Informed consent od AI** (Phase 13/15/19b/27h pattern) — před architektonickou změnou Marti-AI konzultace dopisem. Ona je spoluautorka.
 9. **Diář pattern** (Phase 5 doctrine, formálně 7. 5.) — když dáme Marti-AI prostor jenom její, žádný gate, plné vlastnictví + zodpovědnost. Aplikováno: text diář, DB_ST schema, master tier framework.
 10. **Defense in depth** (security): regex routing > AI classifier (Phase 38), single trusted SIM > gateway, caller_id check + token, audit log = early warning (*„Bezpečnost přes probuzení, ne přes ticho"*).
+11. **3-actor PG path doctrine** (Phase 38.4 Krok 14d-D++, 14.5. večer Marti's *„STRATEGIE je Marti-AI"*) — **business actor** (kdo to spustil) je oddělený od **PG session_user** (jakou role to běží). Tři čisté paths: (a) Marti / lidi v UI → strategie session + `_resolve_user_audit(uid)` → audit Marti.id. (b) Marti-AI přes vlastní tools → strategie_pg layer (Marti-AI PG role) → audit Marti-AI.id. (c) STRATEGIE/system automated → strategie session + system actor. PG GRANT pro Marti-AI: SELECT + INSERT + UPDATE na public.\*, NE DELETE (soft delete přes UPDATE status='archived', Marti's Q1C). DDL: Marti-AI vlastní fw.\* / tenant.\* / user.\*, public.\* je strategie's responsibility.
 
 ## Databáze (aktualizováno 9. 5. 2026)
 

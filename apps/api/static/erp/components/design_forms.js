@@ -549,6 +549,50 @@
       "}\n" +
       ".erp-gallery-preview-scope > [draggable=\"true\"]:active {\n" +
       "  cursor: grabbing;\n" +
+      "}\n" +
+      // Phase 38.4 Krok 14c+2 part A.3 (14.5.2026, Marti's polish "komponenty
+      // tady v preview"): hide spinner v number input (Marti's screenshot
+      // ukázal vysoké šipky). webkit + firefox notation.
+      ".erp-gallery-preview-scope input[type=\"number\"] {\n" +
+      "  -moz-appearance: textfield;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope input[type=\"number\"]::-webkit-inner-spin-button,\n" +
+      ".erp-gallery-preview-scope input[type=\"number\"]::-webkit-outer-spin-button {\n" +
+      "  -webkit-appearance: none;\n" +
+      "  margin: 0;\n" +
+      "}\n" +
+      // Date / datetime / time picker — hide native spinner / clear button.
+      ".erp-gallery-preview-scope input[type=\"date\"]::-webkit-inner-spin-button,\n" +
+      ".erp-gallery-preview-scope input[type=\"datetime-local\"]::-webkit-inner-spin-button,\n" +
+      ".erp-gallery-preview-scope input[type=\"time\"]::-webkit-inner-spin-button {\n" +
+      "  -webkit-appearance: none;\n" +
+      "  display: none;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope input[type=\"date\"]::-webkit-calendar-picker-indicator,\n" +
+      ".erp-gallery-preview-scope input[type=\"datetime-local\"]::-webkit-calendar-picker-indicator,\n" +
+      ".erp-gallery-preview-scope input[type=\"time\"]::-webkit-calendar-picker-indicator {\n" +
+      "  filter: invert(0.7);\n" +  // tonal s dark theme
+      "  cursor: grab;\n" +
+      "  opacity: 0.6;\n" +
+      "}\n" +
+      // Select multiple (Lookup Multi) — fix scrollbar + clean look,
+      // pokud preview má <select multiple size=N>.
+      ".erp-gallery-preview-scope select[multiple] {\n" +
+      "  min-height: 24px; max-height: 24px;\n" +
+      "  background-image: linear-gradient(to bottom, #1f2530, #1a1f26);\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope select[multiple]::-webkit-scrollbar {\n" +
+      "  width: 4px;\n" +
+      "}\n" +
+      // File input — clean look (input[type=file] je sotva preview-able,
+      // hide button decoration, jen show placeholder).
+      ".erp-gallery-preview-scope input[type=\"file\"] {\n" +
+      "  font-size: 11px; padding: 2px 4px;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope input[type=\"file\"]::-webkit-file-upload-button {\n" +
+      "  background: #2a3340; color: #cfd6df; border: none;\n" +
+      "  border-radius: 2px; padding: 2px 6px; font-size: 10px;\n" +
+      "  margin-right: 6px; cursor: grab;\n" +
       "}\n"
     );
     document.head.appendChild(style);
@@ -3676,6 +3720,42 @@
       // Gate: drop target aktivní jen v DESIGN mode (Marti's polish doctrine)
       const isDesignOn = () => this._formDesignMode === true;
 
+      // Phase 38.4 Krok 14c+3 (14.5.2026 odpoledne, Marti's "drag-and-drop
+      // na to spravne misto"): detekce target region z Y coord. Panel je
+      // tagged data-region-slot (z _render() při buildování panelu).
+      // Dragover → highlight target panel teal accent (zelená pro success).
+      // Drop → POST s computed region_slot.
+      let _lastHighlightedPanel = null;
+      const _clearPanelHighlight = () => {
+        if (_lastHighlightedPanel) {
+          _lastHighlightedPanel.style.outline = "";
+          _lastHighlightedPanel.style.outlineOffset = "";
+          _lastHighlightedPanel.style.background = "";
+          _lastHighlightedPanel = null;
+        }
+      };
+      const _highlightPanel = (panel) => {
+        if (_lastHighlightedPanel === panel) return;
+        _clearPanelHighlight();
+        if (!panel) return;
+        panel.style.outline = "2px dashed #5dbf5d";
+        panel.style.outlineOffset = "-2px";
+        panel.style.background = "rgba(93, 191, 93, 0.05)";
+        panel.style.transition = "background 0.1s, outline 0.1s";
+        _lastHighlightedPanel = panel;
+      };
+      // Z Y coord najdi target panel + region_slot
+      const _findPanelAtY = (clientY) => {
+        const panels = body.querySelectorAll("[data-region-slot]");
+        for (const p of panels) {
+          const rect = p.getBoundingClientRect();
+          if (clientY >= rect.top && clientY <= rect.bottom) {
+            return p;
+          }
+        }
+        return null;
+      };
+
       body.addEventListener("dragover", (ev) => {
         if (!isDesignOn()) return;
         // Allow drop jen pokud je to naše gallery card mime type
@@ -3683,7 +3763,17 @@
         if (!types || !Array.from(types).includes("application/x-erp-comp-type")) return;
         ev.preventDefault();
         ev.dataTransfer.dropEffect = "copy";
-        body.style.outline = "2px dashed #3a8aa8";
+        // Najdi target panel + highlight
+        const targetPanel = _findPanelAtY(ev.clientY);
+        if (targetPanel) {
+          _highlightPanel(targetPanel);
+          // Body outline tisši (panel highlight je primary)
+          body.style.outline = "1px solid rgba(58,138,168,0.3)";
+        } else {
+          _clearPanelHighlight();
+          // Bez target panel: body fallback (Marti drag mimo any panel)
+          body.style.outline = "2px dashed #3a8aa8";
+        }
         body.style.outlineOffset = "-4px";
       });
 
@@ -3692,6 +3782,7 @@
         if (ev.target === body) {
           body.style.outline = "";
           body.style.outlineOffset = "";
+          _clearPanelHighlight();
         }
       });
 
@@ -3702,6 +3793,10 @@
         ev.preventDefault();
         body.style.outline = "";
         body.style.outlineOffset = "";
+        // Najdi target panel z drop Y coord pred clearem
+        const targetPanel = _findPanelAtY(ev.clientY);
+        const targetRegion = (targetPanel && targetPanel.dataset.regionSlot) || "main";
+        _clearPanelHighlight();
 
         let payload;
         try {
@@ -3715,8 +3810,10 @@
           return;
         }
 
-        // POST /design/comp-def — analog FieldPickerModal submit, ale
-        // single comp_type, MVP region='main' + auto sort_order
+        // POST /design/comp-def — Krok 14c+3: region_slot z Y coords
+        // computation. Sort_order zustava auto (backend = max + 10 v daném
+        // region). Future polish (Krok 14c+4): sort_order z nearest field
+        // Y position pro insert mezi existing fields.
         const parentId = this._spec && this._spec.form && this._spec.form.id;
         if (!parentId) {
           _showToast("Form root chybi — drop selhal", "error");
@@ -3735,7 +3832,7 @@
               name: baseName,
               caption: payload.label,
               type_id: payload.id,
-              region_slot: "main",
+              region_slot: targetRegion,
             }),
           });
           const d = await r.json();
@@ -3743,7 +3840,7 @@
             throw new Error(d.error || "HTTP " + r.status);
           }
           _showToast(
-            "Přidáno: " + payload.label + " (drag z palety)",
+            "Přidáno: " + payload.label + " → panel '" + targetRegion + "'",
             "success",
             2500
           );
@@ -4108,6 +4205,12 @@
 
           sec.grid.appendChild(hint);
         }
+
+        // Phase 38.4 Krok 14c+3 (14.5.2026 odpoledne, Marti's "drag-and-drop
+        // na to spravne misto"): tag panel s data-region-slot pro drop
+        // detection. Drop handler dohledá target panel pres Y coord +
+        // dataset lookup.
+        sec.wrap.dataset.regionSlot = panel.slot || "main";
 
         root.appendChild(sec.wrap);
       }

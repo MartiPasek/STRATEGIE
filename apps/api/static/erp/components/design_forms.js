@@ -1476,7 +1476,26 @@
         inp.input.style.fontFamily = "ui-monospace,Consolas,monospace";
         inp.input.style.fontSize = "11px";
       }
-      if (!displayValue && inp.input) {
+      // Phase 38.4 Krok 14f-M (14.5.2026 vecer, Marti's "max_length /
+      // min_length parametrizace"): aply HTML5 maxlength + minlength
+      // attributes na input. Browser native validation pri user typing.
+      if (inp.input) {
+        if (opts.maxLength != null && opts.maxLength > 0) {
+          inp.input.maxLength = parseInt(opts.maxLength, 10);
+        }
+        if (opts.minLength != null && opts.minLength > 0) {
+          inp.input.minLength = parseInt(opts.minLength, 10);
+        }
+        // Phase 38.4 Krok 14f-M: placeholder override z layout
+        if (opts.placeholder) {
+          inp.input.placeholder = opts.placeholder;
+        }
+        // Phase 38.4 Krok 14f-M: required attribute (browser native validation)
+        if (opts.required) {
+          inp.input.required = true;
+        }
+      }
+      if (!displayValue && inp.input && !opts.placeholder) {
         inp.input.placeholder = "—";
       }
       // Phase 38.4 Krok 14a-A1c: readonly visual zvyrazneni
@@ -5449,6 +5468,25 @@
         content.appendChild(detectValsBtn);
       }
 
+      // Phase 38.4 Krok 14f-M (14.5.2026 vecer, Marti's "max_length /
+      // min_length parametrizace"): ⚙ Settings button v action overlay.
+      // Right-most position posunut o 26px doleva (delete zustava na 4).
+      const settingsBtn = _mkActionBtn(
+        "⚙",
+        "Nastavení komponenty — caption, max/min length, readonly, required",
+        "rgba(168, 140, 212, 0.15)",
+        "#7a5fa8",
+        "#a88cd4",
+        30 + (isLookupField ? 26 : 0) + 26  // vlevo od ⬅ (ktery je vedle 🎯)
+      );
+      settingsBtn.className = "erp-field-design-settings erp-field-design-action-hoveronly";
+      settingsBtn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        ev.preventDefault();
+        this._openFieldSettings(field);
+      });
+      content.appendChild(settingsBtn);
+
       // ✕ Delete button — nejvic vpravo (destruktivni action)
       const delBtn = _mkActionBtn(
         "✕",
@@ -5490,6 +5528,18 @@
       } catch (e) {
         console.warn("[DesignFwForm] inline rename attach failed:", e);
       }
+
+      // Phase 38.4 Krok 14f-M (14.5.2026 vecer): right-click → field settings
+      wrap.addEventListener("contextmenu", (ev) => {
+        const tag = ev.target && ev.target.tagName;
+        // Skip pokud na child input/button — necht native context menu
+        if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+          return;
+        }
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._openFieldSettings(field);
+      });
 
       // Drag events
       wrap.addEventListener("dragstart", (ev) => {
@@ -6191,6 +6241,279 @@
       document.addEventListener("keydown", escHandler, true);
 
       // Focus first input
+      setTimeout(() => captionInput.focus(), 50);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-M (14.5.2026 vecer, Marti's "U tech komponent
+    // potrebujeme editovat nejlepe dva parametry... Maximal lenght a
+    // Minimal lenght"): per-field settings modal.
+    //
+    // Editable fields (uloziste = comp_def.caption + comp_def.layout JSONB):
+    //   - caption (input text)
+    //   - layout.max_length (input number, optional)
+    //   - layout.min_length (input number, optional)
+    //   - layout.readonly (checkbox)
+    //   - layout.required (checkbox)
+    //   - layout.placeholder (input text)
+    //
+    // PATCH /api/v1/erp/design/comp-def/update/{id} s caption + layout
+    // (merge with existing). After save → _reloadSpec + re-render.
+    // Re-render automaticky pouzije nove layout.max_length pres _renderField.
+    // ════════════════════════════════════════════════════════════════
+    _openFieldSettings(field) {
+      const currentLayout = field.layout || {};
+
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+        "min-width:440px;max-width:540px;color:#e8eef5;font-size:13px;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+        "display:flex;align-items:center;justify-content:space-between;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;font-size:14px;";
+      title.innerHTML = "⚙ Nastavení komponenty <span style=\"color:#7ed4e8;font-size:11px;font-weight:400;\">" +
+                        (field.comp_type_code || "field") + " · #" + field.id + "</span>";
+      header.appendChild(title);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:transparent;border:none;color:#8a96a4;font-size:18px;" +
+        "cursor:pointer;padding:0;line-height:1;";
+      closeBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Body
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+
+      const _row = (labelText, inputEl) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+        const lbl = document.createElement("label");
+        lbl.textContent = labelText;
+        lbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        wrap.appendChild(lbl);
+        wrap.appendChild(inputEl);
+        return wrap;
+      };
+      const _inputStyle =
+        "padding:6px 10px;background:#0f141a;border:1px solid #2a3340;" +
+        "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;" +
+        "box-sizing:border-box;";
+
+      // Info: DB column name (read-only display)
+      const infoDb = document.createElement("div");
+      infoDb.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px dashed #2a3340;" +
+        "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
+      infoDb.innerHTML = "🔗 DB sloupec: <code style=\"color:#7ed4e8;\">" + field.name +
+                         "</code>" + (field.region_slot ? " · panel: <code style=\"color:#a8b4c2;\">" + field.region_slot + "</code>" : "");
+      body.appendChild(infoDb);
+
+      // Caption
+      const captionInput = document.createElement("input");
+      captionInput.type = "text";
+      captionInput.style.cssText = _inputStyle;
+      captionInput.value = field.caption || "";
+      captionInput.placeholder = field.name;
+      body.appendChild(_row("Caption (label)", captionInput));
+
+      // Placeholder
+      const placeholderInput = document.createElement("input");
+      placeholderInput.type = "text";
+      placeholderInput.style.cssText = _inputStyle;
+      placeholderInput.value = currentLayout.placeholder || "";
+      placeholderInput.placeholder = "např. '—' nebo 'Zadej hodnotu...'";
+      body.appendChild(_row("Placeholder", placeholderInput));
+
+      // Max length
+      const maxLenInput = document.createElement("input");
+      maxLenInput.type = "number";
+      maxLenInput.min = "0";
+      maxLenInput.style.cssText = _inputStyle;
+      maxLenInput.value = currentLayout.max_length != null ? String(currentLayout.max_length) : "";
+      maxLenInput.placeholder = "počet znaků (empty = bez limitu)";
+      body.appendChild(_row("Max length", maxLenInput));
+
+      // Min length
+      const minLenInput = document.createElement("input");
+      minLenInput.type = "number";
+      minLenInput.min = "0";
+      minLenInput.style.cssText = _inputStyle;
+      minLenInput.value = currentLayout.min_length != null ? String(currentLayout.min_length) : "";
+      minLenInput.placeholder = "min počet znaků (validace pri uložení)";
+      body.appendChild(_row("Min length", minLenInput));
+
+      // Readonly checkbox
+      const roCheckWrap = document.createElement("div");
+      roCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+      const roLbl = document.createElement("label");
+      roLbl.textContent = "Read-only";
+      roLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+      roCheckWrap.appendChild(roLbl);
+      const roCheck = document.createElement("input");
+      roCheck.type = "checkbox";
+      roCheck.checked = !!currentLayout.readonly;
+      roCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
+      roCheckWrap.appendChild(roCheck);
+      body.appendChild(roCheckWrap);
+
+      // Required checkbox
+      const reqCheckWrap = document.createElement("div");
+      reqCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+      const reqLbl = document.createElement("label");
+      reqLbl.textContent = "Required";
+      reqLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+      reqCheckWrap.appendChild(reqLbl);
+      const reqCheck = document.createElement("input");
+      reqCheck.type = "checkbox";
+      reqCheck.checked = !!currentLayout.required;
+      reqCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
+      reqCheckWrap.appendChild(reqCheck);
+      body.appendChild(reqCheckWrap);
+
+      modal.appendChild(body);
+
+      // Footer
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;" +
+        "display:flex;align-items:center;gap:8px;";
+
+      // Delete button (left, red)
+      const deleteBtn = document.createElement("button");
+      deleteBtn.type = "button";
+      deleteBtn.innerHTML = '<span style="color:#e57373;font-weight:700;margin-right:6px;">✕</span>Odebrat';
+      deleteBtn.style.cssText =
+        "padding:6px 16px;background:transparent;border:1px solid #5a2828;" +
+        "border-radius:3px;color:#e57373;cursor:pointer;font-size:13px;margin-right:auto;";
+      deleteBtn.title = "Smazat tuto komponentu z formuláře";
+      deleteBtn.addEventListener("mouseenter", () => {
+        deleteBtn.style.background = "#1f1010";
+        deleteBtn.style.borderColor = "#7a3838";
+      });
+      deleteBtn.addEventListener("mouseleave", () => {
+        deleteBtn.style.background = "transparent";
+        deleteBtn.style.borderColor = "#5a2828";
+      });
+      deleteBtn.addEventListener("click", async () => {
+        const decision = await _confirmDarkDialog({
+          title: "Smazat komponentu",
+          message: "Opravdu smazat pole '" + (field.caption || field.name) + "'?\n\n(soft-delete — záznam v audit historii zustava)",
+        });
+        if (decision !== true) return;
+        try { document.body.removeChild(overlay); } catch (e) {}
+        await this._performFieldDelete(field);
+      });
+      footer.appendChild(deleteBtn);
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText =
+        "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
+      cancelBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      footer.appendChild(cancelBtn);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      saveBtn.style.cssText =
+        "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+      saveBtn.addEventListener("click", async () => {
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = "0.6";
+        try {
+          // Build new layout (merge with existing — preserve other keys)
+          const newLayout = Object.assign({}, currentLayout);
+
+          // Max/Min length — int parse, empty = remove key
+          const newMaxLen = maxLenInput.value.trim() ? parseInt(maxLenInput.value, 10) : null;
+          const newMinLen = minLenInput.value.trim() ? parseInt(minLenInput.value, 10) : null;
+          if (newMaxLen == null || isNaN(newMaxLen) || newMaxLen <= 0) delete newLayout.max_length;
+          else newLayout.max_length = newMaxLen;
+          if (newMinLen == null || isNaN(newMinLen) || newMinLen < 0) delete newLayout.min_length;
+          else newLayout.min_length = newMinLen;
+
+          // Validate: min <= max pokud oba set
+          if (newLayout.min_length != null && newLayout.max_length != null &&
+              newLayout.min_length > newLayout.max_length) {
+            _showToast("Min length nesmí být větší než max length", "error", 3000);
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = "1";
+            return;
+          }
+
+          // Placeholder
+          const newPh = placeholderInput.value.trim();
+          if (newPh) newLayout.placeholder = newPh;
+          else delete newLayout.placeholder;
+
+          // Readonly + required boolean flags
+          if (roCheck.checked) newLayout.readonly = true;
+          else delete newLayout.readonly;
+          if (reqCheck.checked) newLayout.required = true;
+          else delete newLayout.required;
+
+          const newCaption = captionInput.value.trim();
+
+          const pr = await fetch(
+            "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                caption: newCaption,
+                layout: newLayout,
+              }),
+            }
+          );
+          if (!pr.ok) {
+            const errBody = await pr.json().catch(() => ({}));
+            throw new Error("HTTP " + pr.status + ": " + (errBody.error || pr.statusText));
+          }
+          _showToast("Nastavení uloženo", "success", 2000);
+          document.body.removeChild(overlay);
+          this._pendingFlashFieldId = field.id;
+          await this._reloadSpec();
+        } catch (e) {
+          console.error("[DesignFwForm] _openFieldSettings save failed:", e);
+          _showToast("Uložení selhalo: " + (e.message || e), "error", 3500);
+          saveBtn.disabled = false;
+          saveBtn.style.opacity = "1";
+        }
+      });
+      footer.appendChild(saveBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      const escHandler = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          try { document.body.removeChild(overlay); } catch (e) {}
+          document.removeEventListener("keydown", escHandler, true);
+        }
+      };
+      document.addEventListener("keydown", escHandler, true);
+
       setTimeout(() => captionInput.focus(), 50);
     }
 
@@ -7176,22 +7499,28 @@
       // signature je (label, value, opts) — fieldKey patri DO opts, nepredavat
       // jako 3rd parameter (predtim bug: opts = string fieldKey, opts.onDirty
       // undefined → dirty tracking nikdy nezavolan).
+      // Phase 38.4 Krok 14f-M (14.5.2026 vecer, Marti's "max_length /
+      // min_length"): forward layout properties do _field opts.
+      // _field aplikuje HTML5 maxLength + minLength + placeholder +
+      // required attributes na inp.input.
+      const _fieldOptsBase = {
+        fieldKey: fieldKey,
+        readonly: readonly || !!fieldLayout.readonly,
+        onDirty: onDirty,
+        maxLength: fieldLayout.max_length,
+        minLength: fieldLayout.min_length,
+        placeholder: fieldLayout.placeholder,
+        required: !!fieldLayout.required,
+      };
       switch (compType) {
         case "edit":
-          return _field(label, value, {
-            fieldKey: fieldKey,
-            readonly: readonly,
+          return _field(label, value, Object.assign({}, _fieldOptsBase, {
             mono: !!fieldLayout.mono,
-            onDirty: onDirty,
-          });
+          }));
 
         case "number": {
           // _field s type=number — ErpInput podporuje type via opts
-          const el = _field(label, value, {
-            fieldKey: fieldKey,
-            readonly: readonly,
-            onDirty: onDirty,
-          });
+          const el = _field(label, value, _fieldOptsBase);
           // Override input type to number (post-render tweak)
           try {
             const input = el.querySelector("input");

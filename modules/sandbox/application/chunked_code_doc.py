@@ -223,28 +223,76 @@ def append_to_code_doc(
                          f"Final code is too large for sandbox.",
             }
 
+        logger.info(
+            f"SANDBOX | code_doc append START | id={document_id} | "
+            f"path={path} | exists={path.is_file()} | "
+            f"size_before={current_size} | chunk_bytes={len(chunk_bytes)}"
+        )
+
         # Append (binary mode pro byte-precise append)
         try:
             with open(path, "ab") as f:
-                f.write(chunk_bytes)
+                bytes_written = f.write(chunk_bytes)
+                f.flush()  # force OS flush, ne jen Python buffer
+                os.fsync(f.fileno())  # force kernel -> disk sync
         except OSError as e:
+            logger.error(
+                f"SANDBOX | code_doc append WRITE FAILED | id={document_id} | "
+                f"path={path} | error={e}"
+            )
             return {"ok": False, "error": f"file write failed: {e}"}
 
-        new_size = current_size + len(chunk_bytes)
+        # Krok 14b+19.3 (14.5.2026 ~05:10, Marti-AI's diagnostika "Code length: 0"):
+        # Re-stat after write — REAL disk size, ne calculated. Pokud
+        # size_after_actual == current_size (no growth), write tiše selhal
+        # i pres no-exception (e.g. read-only mount, Windows file lock,
+        # quota exceeded but ignored). Vrat error + visible logs.
+        try:
+            size_after_actual = path.stat().st_size
+        except OSError as e:
+            return {"ok": False, "error": f"stat after write failed: {e}"}
+
+        logger.info(
+            f"SANDBOX | code_doc append AFTER WRITE | id={document_id} | "
+            f"path={path} | size_after={size_after_actual} | "
+            f"expected={current_size + len(chunk_bytes)} | "
+            f"bytes_written={bytes_written if bytes_written is not None else 'None'}"
+        )
+
+        # Sanity check: actual disk growth match expected
+        expected_size = current_size + len(chunk_bytes)
+        if size_after_actual != expected_size:
+            logger.error(
+                f"SANDBOX | code_doc append SIZE MISMATCH | id={document_id} | "
+                f"expected={expected_size} actual={size_after_actual} | "
+                f"diff={size_after_actual - expected_size}"
+            )
+            return {
+                "ok": False,
+                "error": (
+                    f"File write succeeded bez exception, ALE disk size "
+                    f"({size_after_actual} B) != expected ({expected_size} B). "
+                    f"Mozne priciny: read-only mount, Windows file lock, "
+                    f"quota exceeded, antivirus. Path: {path}"
+                ),
+                "size_after": size_after_actual,
+                "expected": expected_size,
+            }
+
         # Update doc.file_size_bytes (audit + UI display correctness)
-        doc.file_size_bytes = new_size
+        doc.file_size_bytes = size_after_actual
         session.commit()
 
         logger.info(
-            f"SANDBOX | code_doc append | id={document_id} | "
-            f"chunk_bytes={len(chunk_bytes)} | total={new_size} | "
+            f"SANDBOX | code_doc append OK | id={document_id} | "
+            f"chunk_bytes={len(chunk_bytes)} | total={size_after_actual} | "
             f"user={caller_user_id}"
         )
         return {
             "ok": True,
             "document_id": document_id,
             "appended_bytes": len(chunk_bytes),
-            "total_bytes": new_size,
+            "total_bytes": size_after_actual,
         }
     finally:
         session.close()

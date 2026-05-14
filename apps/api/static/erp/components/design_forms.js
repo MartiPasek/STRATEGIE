@@ -3223,19 +3223,15 @@
     _updateDirtyDiscardBtn() {
       if (!this._dirtyDiscardBtn) return;
       const count = this._dirty.size;
-      const parent = this._dirtyDiscardBtn.parentElement;
+      // Krok 14b+16.1: flex spacer v footeru drzi OK+Storno vpravo bez
+      // ohledu na discard visibility. Jen toggle display:
       if (count === 0) {
         this._dirtyDiscardBtn.style.display = "none";
-        // Když discard hidden, parent footer flex by mel byt justify-end
-        // (jinak space-between rozšíří gap mezi OK/Storno do extrému).
-        if (parent) parent.style.justifyContent = "flex-end";
         return;
       }
       const wBadge = count === 1 ? "změna" : (count < 5 ? "změny" : "změn");
       this._dirtyDiscardBtn.textContent = "● " + count + " " + wBadge;
       this._dirtyDiscardBtn.style.display = "";
-      // Visible discard btn -> space-between (vlevo discard, vpravo OK/Storno)
-      if (parent) parent.style.justifyContent = "space-between";
     }
 
     async _revertAllChanges() {
@@ -3548,11 +3544,14 @@
           sec.wrap.style.borderTop = "1px solid #2a3340";
           sec.wrap.style.paddingTop = "10px";
           // Krok 14b+16 (14.5.2026 rano, Marti's polish):
-          // Footer flex row se SPACE-BETWEEN — vlevo dirty discard button,
-          // vpravo OK/Storno buttons. Pri zero dirty: discard btn hidden,
-          // OK/Storno se prirozene posunou doleva (flex justify-end fallback).
+          //   - Discard btn (vlevo) + spacer (flex:1) + OK/Storno (vpravo)
+          // Krok 14b+16.1 (14.5.2026 rano, Marti's catch "OK uteklo doprostred"):
+          //   space-between s 3 children rozhazoval OK do stredu. Fix:
+          //   flex spacer mezi discard a OK/Storno -> spacer absorbuje
+          //   prostor, OK+Storno drzi vpravo. Konzistentni v obou stavech
+          //   (discard visible/hidden).
           sec.grid.style.display = "flex";
-          sec.grid.style.justifyContent = "space-between";
+          sec.grid.style.justifyContent = "flex-start";
           sec.grid.style.alignItems = "center";
           sec.grid.style.gap = "16px";
 
@@ -3585,10 +3584,17 @@
           });
           this._dirtyDiscardBtn = discardBtn;
           sec.grid.appendChild(discardBtn);
+
+          // Krok 14b+16.1: flex spacer aby OK+Storno drzela vpravo. Bez
+          // ohledu na discard visibility (visible -> [discard][spacer]
+          // [OK][Storno]; hidden -> [-][spacer][OK][Storno]).
+          const spacer = document.createElement("div");
+          spacer.className = "erp-form-footer-spacer";
+          spacer.style.cssText = "flex:1 1 auto;";
+          sec.grid.appendChild(spacer);
+
           // Update visibility podle aktualniho dirty count (volane po _render)
           this._updateDirtyDiscardBtn();
-          // PLUS spacer pokud zadne discard btn: vytvori pravou cast space-between
-          // (flex justify-between potrebuje 2 children minimum aby spacing fungoval).
           // OK/Storno buttons (template footer komponenty) append v dalším loop.
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.

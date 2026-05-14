@@ -3925,7 +3925,7 @@
         panel.style.transition = "background 0.1s, outline 0.1s";
         _lastHighlightedPanel = panel;
       };
-      // Z Y coord najdi target panel + region_slot
+      // Z Y coord najdi target panel + region_slot (legacy template panels)
       const _findPanelAtY = (clientY) => {
         const panels = body.querySelectorAll("[data-region-slot]");
         for (const p of panels) {
@@ -3937,6 +3937,37 @@
         return null;
       };
 
+      // Phase 38.4 Krok 14f-J (14.5.2026 vecer, Marti's "drop se neuskutecni
+      // na panel #22"): novy resolver — najit container (panel/groupbox)
+      // pod kurzorem pres elementsFromPoint. Pokud nalezen, drop pujde do
+      // toho kontejneru (parent_comp_def_id = container.id). Fallback na
+      // template panel (region_slot) pokud zadny container nenalezen.
+      //
+      // Vraci: { container: HTMLElement | null, templatePanel: HTMLElement | null }
+      const _findDropTarget = (clientX, clientY) => {
+        let container = null;
+        let templatePanel = null;
+        try {
+          const els = document.elementsFromPoint(clientX, clientY);
+          for (const el of els) {
+            if (!el || !el.dataset) continue;
+            // Container match (panel/groupbox) — most specific
+            if (!container && el.dataset.compDefId && el.dataset.compTypeCode &&
+                (el.dataset.compTypeCode === "panel" || el.dataset.compTypeCode === "groupbox")) {
+              container = el;
+            }
+            // Template panel match (legacy region_slot wrapper) — fallback
+            if (!templatePanel && el.dataset.regionSlot) {
+              templatePanel = el;
+            }
+            if (container && templatePanel) break;
+          }
+        } catch (e) {
+          console.warn("[DesignFwForm] _findDropTarget failed:", e);
+        }
+        return { container, templatePanel };
+      };
+
       body.addEventListener("dragover", (ev) => {
         if (!isDesignOn()) return;
         // Allow drop jen pokud je to naše gallery card mime type
@@ -3944,15 +3975,18 @@
         if (!types || !Array.from(types).includes("application/x-erp-comp-type")) return;
         ev.preventDefault();
         ev.dataTransfer.dropEffect = "copy";
-        // Najdi target panel + highlight
-        const targetPanel = _findPanelAtY(ev.clientY);
-        if (targetPanel) {
-          _highlightPanel(targetPanel);
-          // Body outline tisši (panel highlight je primary)
+        // Phase 38.4 Krok 14f-J: prefer container target (panel/groupbox)
+        // pred legacy template panel. Container highlight = primary,
+        // template panel = sekundarni fallback.
+        const { container, templatePanel } = _findDropTarget(ev.clientX, ev.clientY);
+        if (container) {
+          _highlightPanel(container);
+          body.style.outline = "1px solid rgba(168, 140, 212, 0.3)";  // purple subtle
+        } else if (templatePanel) {
+          _highlightPanel(templatePanel);
           body.style.outline = "1px solid rgba(58,138,168,0.3)";
         } else {
           _clearPanelHighlight();
-          // Bez target panel: body fallback (Marti drag mimo any panel)
           body.style.outline = "2px dashed #3a8aa8";
         }
         body.style.outlineOffset = "-4px";
@@ -3974,9 +4008,11 @@
         ev.preventDefault();
         body.style.outline = "";
         body.style.outlineOffset = "";
-        // Najdi target panel z drop Y coord pred clearem
-        const targetPanel = _findPanelAtY(ev.clientY);
-        const targetRegion = (targetPanel && targetPanel.dataset.regionSlot) || "main";
+        // Phase 38.4 Krok 14f-J: detect container OR template panel target
+        const { container, templatePanel } = _findDropTarget(ev.clientX, ev.clientY);
+        const targetRegion = (templatePanel && templatePanel.dataset.regionSlot) || "main";
+        const targetContainerId = container ? parseInt(container.dataset.compDefId, 10) : null;
+        const targetContainerCode = container ? container.dataset.compTypeCode : null;
         _clearPanelHighlight();
 
         let payload;
@@ -3991,15 +4027,19 @@
           return;
         }
 
-        // POST /design/comp-def — Krok 14c+3: region_slot z Y coords
-        // computation. Sort_order zustava auto (backend = max + 10 v daném
-        // region). Future polish (Krok 14c+4): sort_order z nearest field
-        // Y position pro insert mezi existing fields.
-        const parentId = this._spec && this._spec.form && this._spec.form.id;
-        if (!parentId) {
+        // POST /design/comp-def — Phase 38.4 Krok 14f-J:
+        // Pokud drop na container (panel/groupbox), parent = container.id.
+        // Jinak parent = form root + region_slot z template panel.
+        const formRootId = this._spec && this._spec.form && this._spec.form.id;
+        if (!formRootId) {
           _showToast("Form root chybi — drop selhal", "error");
           return;
         }
+        // Decide parent: container (if found) vs form root (legacy)
+        const parentId = targetContainerId || formRootId;
+        const targetLabel = targetContainerId
+          ? (targetContainerCode + " #" + targetContainerId)
+          : ("panel '" + targetRegion + "'");
 
         try {
           // Auto-generate name z code (uniqueness suffix pokud kolize)
@@ -4029,7 +4069,7 @@
             throw new Error(d.error || "HTTP " + r.status);
           }
           _showToast(
-            "Přidáno: " + payload.label + " → panel '" + targetRegion + "'",
+            "Přidáno: " + payload.label + " → " + targetLabel,
             "success",
             2500
           );

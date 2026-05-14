@@ -106,20 +106,26 @@
       "}",
       // Phase 38.4 Krok 14b+9-D: hover ✕ delete button
       ".erp-field-design-wrap .erp-field-design-delete {",
-      "  opacity: 0; transition: opacity 150ms;",
+      "  opacity: 0 !important; transition: opacity 150ms;",
       "}",
       ".erp-field-design-wrap:hover .erp-field-design-delete {",
-      "  opacity: 1;",
+      "  opacity: 1 !important;",
       "}",
-      // Phase 38.4 Krok 14c+3.1 (14.5.2026, Marti's "krizky na pravy okrak"):
-      // Action buttons (✕ + ⬅ OFF state) jako absolute overlay v pravem
-      // hornim rohu komponenty — visible jen on parent .erp-field-design-wrap
+      // Phase 38.4 Krok 14c+3.5 (14.5.2026 odpoledne, Marti's regrese
+      // "od posledni zmeny renderuji ty ikonky i kdyz se pres ne neprejizdi"):
+      //   ROOT CAUSE: opacity rules měly low specificity. Inline style.opacity
+      //   z dragend handlerů (Krok 14c+3.4 nastavil inline transition) +
+      //   default opacity:1 user-agent style přebily naše hover-only rules.
+      //   Fix: !important na opacity rules — top specificity guarantee.
+      //
+      // Action buttons (✕ + ⬅ + 🎯) jako absolute overlay v pravem hornim
+      // rohu komponenty — visible jen on parent .erp-field-design-wrap
       // hover. Sdílí `erp-field-design-action-hoveronly` class.
       ".erp-field-design-wrap .erp-field-design-action-hoveronly {",
-      "  opacity: 0; transition: opacity 150ms;",
+      "  opacity: 0 !important; transition: opacity 150ms;",
       "}",
       ".erp-field-design-wrap:hover .erp-field-design-action-hoveronly {",
-      "  opacity: 1;",
+      "  opacity: 1 !important;",
       "}",
     ].join("\n");
     document.head.appendChild(styles);
@@ -1337,7 +1343,12 @@
         inp.input.style.background = "#1a2028";
         inp.input.style.color = "#9ba8b8";
         inp.input.style.opacity = "1";
-        inp.input.style.cursor = "not-allowed";
+        // Phase 38.4 Krok 14c+3.5 (14.5.2026 odpoledne, Marti's polish
+        // "Mela by se chovat mys standardne, jako kdyz komponenta neni RO"):
+        // drop "not-allowed" cursor — Marti chce default arrow,
+        // ne preškrtnuté kolečko. RO state je visualně signalizovaný
+        // přes 🔒 badge na labelu + tmavší pozadí, cursor není nutný.
+        inp.input.style.cursor = "default";
         const labelEl = wrap.querySelector(".erp-input-label");
         if (labelEl && !labelEl.dataset.lockBadge) {
           labelEl.dataset.lockBadge = "1";
@@ -1444,7 +1455,9 @@
         memo.textarea.style.background = "#1a2028";
         memo.textarea.style.color = "#9ba8b8";
         memo.textarea.style.opacity = "1";
-        memo.textarea.style.cursor = "not-allowed";
+        // Krok 14c+3.5: default cursor pro RO (Marti's "standardne, jako
+        // kdyz komponenta neni RO"). 🔒 badge + tmavší bg signalizují stav.
+        memo.textarea.style.cursor = "default";
         const labelEl = wrap.querySelector(".erp-memo-label, .erp-input-label, label");
         if (labelEl && !labelEl.dataset.lockBadge) {
           labelEl.dataset.lockBadge = "1";
@@ -2055,7 +2068,9 @@
         dd.trigger.style.background = "#1a2028";
         dd.trigger.style.color = "#9ba8b8";
         dd.trigger.style.opacity = "1";
-        dd.trigger.style.cursor = "not-allowed";
+        // Krok 14c+3.5: default cursor pro RO (Marti's "standardne, jako
+        // kdyz komponenta neni RO"). 🔒 badge + tmavší bg signalizují stav.
+        dd.trigger.style.cursor = "default";
         // Lock badge na label
         const labelEl = wrap.querySelector(".erp-dropdown-label");
         if (labelEl && !labelEl.dataset.lockBadge) {
@@ -5853,45 +5868,60 @@
       previewScope.innerHTML = ct.preview_html ||
         "<span style=\"color:#8a96a4;font-size:11px;\">(no preview)</span>";
 
-      // Najít first interactive element + nasadit draggable + handlers.
-      // Marti's "drag jen ta komponenta" pattern.
-      const dragHandle = previewScope.querySelector(
+      // Phase 38.4 Krok 14c+3.5 (14.5.2026 odpoledne, Marti's bug "drag
+      // funguje jen Lookup/LookupMulti/Checkbox/Label"):
+      //
+      // PATTERN ROOT CAUSE:
+      //   Funguje:    <select>, <label>  → container elementy bez vlastní
+      //               interaction model
+      //   Nefunguje:  <input>, <button>, <textarea> → mají vlastní pointer
+      //               behavior co interferuje s HTML5 DnD v Chrome:
+      //                 <input readonly>: text-select claims drag space
+      //                 <button>: pointer event model nefire dragstart
+      //                 <textarea>: text-select + scrollable same issue
+      //
+      // FIX: wrapper div approach — divs jsou universal drag handles.
+      //   Pro input/button/textarea: wrapnout do <div draggable=true>,
+      //   inner element + pointer-events:none (no interaction passing).
+      //   Pro select/label: direct draggable (osvědčené pro 4 working
+      //   komponenty Lookup/LookupMulti/Checkbox/Label).
+      const innerEl = previewScope.querySelector(
         "input, select, textarea, button, label"
       ) || previewScope.firstElementChild;
+
+      let dragHandle = null;
+      if (innerEl) {
+        const tag = innerEl.tagName;
+        const needsWrapper = tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA";
+
+        if (needsWrapper) {
+          // Wrap input/button/textarea v div pro clean drag init.
+          // Inner element pointer-events:none — no click/select interfere.
+          const wrapperDiv = document.createElement("div");
+          wrapperDiv.style.cssText =
+            "display:inline-block;cursor:grab;line-height:0;";
+          innerEl.parentNode.insertBefore(wrapperDiv, innerEl);
+          wrapperDiv.appendChild(innerEl);
+          innerEl.style.pointerEvents = "none";
+          if (tag === "INPUT" || tag === "TEXTAREA") {
+            innerEl.setAttribute("readonly", "");
+          }
+          dragHandle = wrapperDiv;
+        } else {
+          // <select> / <label> / fallback firstElementChild: direct draggable
+          dragHandle = innerEl;
+          if (tag === "SELECT") {
+            dragHandle.style.pointerEvents = "auto";
+          }
+        }
+      }
+
       if (dragHandle) {
         dragHandle.setAttribute("draggable", "true");
-        // Phase 38.4 Krok 14c+3.4 (14.5.2026 odpoledne, Marti's bug
-        // "neukaze se symbol ruky"): inline cursor:grab JAKO FALLBACK
-        // — CSS rule `.erp-gallery-preview-scope [draggable=true]` může
-        // miss kvuli specificity / cascade order pro wrapped elements
-        // (preview_html `<label><input/></label>` etc). Inline style
-        // má top priority + cross-browser deterministic.
         dragHandle.style.cursor = "grab";
-        // Pro <input> readonly + disabled keyboard editing (visual only)
-        if (dragHandle.tagName === "INPUT" || dragHandle.tagName === "TEXTAREA") {
-          dragHandle.setAttribute("readonly", "");
-        }
-        if (dragHandle.tagName === "SELECT") {
-          // <select> nemá readonly; disable click expansion via pointer-events
-          // jen na options. Drag funguje na element samotném.
-          dragHandle.style.pointerEvents = "auto";
-        }
-        // Phase 38.4 Krok 14c+3.3 (14.5.2026 Marti's bug "Edit a Button
-        // nejde drag"): mousedown preventDefault BLOKOVAL drag initiation
-        // na <button> a <div> v Chrome. Browser quirk — preventDefault
-        // na mousedown některé non-input elements zabíjí HTML5 DnD start.
-        // Fix: preventDefault aplikuj JEN pro <input>/<textarea> (kde
-        // řeší text-select před drag start). Pro button/label/div/select:
-        // preventDefault není potřeba (žádný text-select problém) a
-        // blokuje drag → drop.
-        const needsTextSelectBlock =
-          dragHandle.tagName === "INPUT" ||
-          dragHandle.tagName === "TEXTAREA";
-        if (needsTextSelectBlock) {
-          dragHandle.addEventListener("mousedown", (ev) => {
-            ev.preventDefault();
-          });
-        }
+        // Phase 38.4 Krok 14c+3.5: mousedown preventDefault není potřeba
+        // (wrapper div approach pro input/button/textarea + native drag pro
+        // select/label — žádný text-select interference).
         dragHandle.addEventListener("dragstart", (ev) => {
           ev.stopPropagation();
           dragHandle.style.opacity = "0.5";

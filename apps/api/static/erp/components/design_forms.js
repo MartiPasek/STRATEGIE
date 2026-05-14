@@ -3896,6 +3896,297 @@
       });
     }
 
+    // ──────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok 14d-D (14.5.2026 vecer, Marti-AI's Q3 polymorphic):
+    // Children sub-grid rendering + CRUD. MVP s native prompt() pro
+    // add/edit inputs, polish v Krok 14d-E (inline edit dialog).
+    // ──────────────────────────────────────────────────────────────────
+
+    _renderChildSection(childKey, childInfo) {
+      // Section wrap (analog section v form fields)
+      const sec = _sectionBuild(
+        childInfo.label || childKey,
+        "child:" + childKey
+      );
+
+      // Hidden cols z select_columns (interní metadata)
+      const HIDDEN_COLS = new Set([
+        "id", "created_at", "updated_at", "created_by_id", "created_by_text",
+        "updated_by_id", "updated_by_text",
+      ]);
+      const rows = childInfo.rows || [];
+      // Visible cols z first row keys (or empty fallback)
+      const sampleRow = rows[0] || {};
+      const visibleCols = Object.keys(sampleRow).filter(
+        c => !HIDDEN_COLS.has(c)
+      );
+      // Fallback pokud žádné rows — default columns z childInfo
+      const cols = visibleCols.length > 0
+        ? visibleCols
+        : ["contact_value", "label", "is_primary", "is_verified", "status"];
+
+      // Table
+      const table = document.createElement("table");
+      table.className = "erp-nested-grid";
+      table.style.cssText =
+        "width:100%;border-collapse:collapse;font-size:12px;margin-top:4px;";
+
+      // Header row
+      const thead = document.createElement("thead");
+      const headerRow = document.createElement("tr");
+      for (const col of cols) {
+        const th = document.createElement("th");
+        th.textContent = col;
+        th.style.cssText =
+          "padding:6px 8px;background:#141a20;border:1px solid #2a3340;" +
+          "text-align:left;color:#8a96a4;font-size:11px;font-weight:600;";
+        headerRow.appendChild(th);
+      }
+      // Actions column header
+      const thActions = document.createElement("th");
+      thActions.style.cssText =
+        "padding:6px 4px;background:#141a20;border:1px solid #2a3340;width:36px;";
+      headerRow.appendChild(thActions);
+      thead.appendChild(headerRow);
+      table.appendChild(thead);
+
+      // Body rows
+      const tbody = document.createElement("tbody");
+      if (rows.length === 0) {
+        const tr = document.createElement("tr");
+        const td = document.createElement("td");
+        td.colSpan = cols.length + 1;
+        td.style.cssText =
+          "padding:14px;text-align:center;color:#5d6975;font-style:italic;" +
+          "border:1px solid #2a3340;background:#0f141a;";
+        td.textContent = "Žádné záznamy v " + (childInfo.label || childKey);
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+      } else {
+        for (const row of rows) {
+          tbody.appendChild(this._renderChildRow(childKey, childInfo, row, cols));
+        }
+      }
+      table.appendChild(tbody);
+      sec.grid.appendChild(table);
+
+      // + Přidat button
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = "+ Přidat";
+      addBtn.title = "Přidat nový záznam do " + (childInfo.label || childKey);
+      addBtn.style.cssText =
+        "margin-top:8px;background:#1f4858;border:1px solid #3a8aa8;" +
+        "color:#7ed4e8;padding:5px 12px;border-radius:3px;cursor:pointer;" +
+        "font-size:11px;font-weight:600;";
+      addBtn.addEventListener("click", () => {
+        this._addChildRow(childKey, childInfo);
+      });
+      sec.grid.appendChild(addBtn);
+
+      return sec.wrap;
+    }
+
+    _renderChildRow(childKey, childInfo, row, cols) {
+      const tr = document.createElement("tr");
+      tr.dataset.childRowId = String(row.id);
+
+      for (const col of cols) {
+        const td = document.createElement("td");
+        td.style.cssText =
+          "padding:5px 8px;border:1px solid #2a3340;color:#cfd6df;cursor:pointer;";
+        td.title = "Dvojklik pro editaci";
+        const v = row[col];
+        if (typeof v === "boolean") {
+          td.textContent = v ? "✓" : "";
+          td.style.textAlign = "center";
+          td.style.color = v ? "#5dbf5d" : "#5d6975";
+        } else if (v == null) {
+          td.textContent = "—";
+          td.style.color = "#5d6975";
+        } else {
+          td.textContent = String(v);
+        }
+        // Dvojklik pro inline edit (MVP — native prompt)
+        td.addEventListener("dblclick", (ev) => {
+          ev.stopPropagation();
+          this._editChildCell(childKey, childInfo, row, col, td);
+        });
+        tr.appendChild(td);
+      }
+
+      // Action — ✕ archive
+      const tdAct = document.createElement("td");
+      tdAct.style.cssText =
+        "padding:5px 4px;border:1px solid #2a3340;text-align:center;background:#0f141a;";
+      const archBtn = document.createElement("button");
+      archBtn.type = "button";
+      archBtn.textContent = "✕";
+      archBtn.title = "Archivovat řádek (status='archived', soft delete)";
+      archBtn.style.cssText =
+        "background:transparent;border:1px solid #5a2828;color:#e57373;" +
+        "padding:0;width:22px;height:22px;border-radius:3px;cursor:pointer;" +
+        "font-size:11px;line-height:1;";
+      archBtn.addEventListener("mouseenter", () => {
+        archBtn.style.background = "#3a1f1f";
+      });
+      archBtn.addEventListener("mouseleave", () => {
+        archBtn.style.background = "transparent";
+      });
+      archBtn.addEventListener("click", () => {
+        this._archiveChildRow(childKey, childInfo, row);
+      });
+      tdAct.appendChild(archBtn);
+      tr.appendChild(tdAct);
+
+      return tr;
+    }
+
+    async _addChildRow(childKey, childInfo) {
+      // MVP — native prompt pro contact_value. Polish v Krok 14d-E.
+      const label = childInfo.label || childKey;
+      const value = window.prompt(
+        "Přidat " + label + " — zadej hodnotu:\n" +
+        "(např. email adresa nebo telefonní číslo)"
+      );
+      if (!value || !value.trim()) return;
+
+      try {
+        const url = "/api/v1/erp/fw-form/" +
+          encodeURIComponent(this.opts.coreCode) + "/" +
+          encodeURIComponent(this.opts.rowId) +
+          "/children/" + encodeURIComponent(childKey);
+        const r = await fetch(url, {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contact_value: value.trim(),
+            label: childInfo.default_label || null,
+            is_primary: false,
+            is_verified: false,
+          }),
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) {
+          throw new Error(d.error || "HTTP " + r.status);
+        }
+        _showToast("Přidáno: " + value, "success", 2500);
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] _addChildRow failed:", e);
+        _showToast("Přidání selhalo: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    async _editChildCell(childKey, childInfo, row, col, tdEl) {
+      // MVP — native prompt pro new value. Polish v Krok 14d-E.
+      // Boolean cols: toggle (no prompt — just flip)
+      const currentVal = row[col];
+      let newVal;
+      if (typeof currentVal === "boolean") {
+        newVal = !currentVal;
+      } else {
+        const input = window.prompt(
+          "Editovat " + col + ":\n(aktuální hodnota: " + (currentVal == null ? "—" : currentVal) + ")",
+          currentVal == null ? "" : String(currentVal)
+        );
+        if (input == null) return;  // Cancel
+        newVal = input.trim() === "" ? null : input.trim();
+        if (newVal === String(currentVal)) return;  // No change
+      }
+
+      try {
+        const url = "/api/v1/erp/fw-form/" +
+          encodeURIComponent(this.opts.coreCode) + "/" +
+          encodeURIComponent(this.opts.rowId) +
+          "/children/" + encodeURIComponent(childKey) +
+          "/" + encodeURIComponent(row.id);
+        const r = await fetch(url, {
+          method: "PATCH",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            [col]: newVal,
+            expected_updated_at: row.updated_at,
+          }),
+        });
+        const d = await r.json();
+        if (r.status === 409) {
+          // Concurrent edit conflict (Marti-AI's Q4 atomic guard)
+          _showToast(
+            "Konflikt — " + col + " mezitím změnil " +
+            (d.by_user && d.by_user.short_name || "někdo") + ". Načti znovu.",
+            "error", 4000
+          );
+          await this._reloadSpec();
+          return;
+        }
+        if (!r.ok || !d.ok) {
+          throw new Error(d.error || "HTTP " + r.status);
+        }
+        _showToast("Uloženo: " + col, "success", 2000);
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] _editChildCell failed:", e);
+        _showToast("Edit selhal: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    async _archiveChildRow(childKey, childInfo, row) {
+      const display = row.contact_value || ("id=" + row.id);
+      const confirmed = await _confirmDarkDialog({
+        title: "Archivovat řádek?",
+        message:
+          "Archivovat '" + display + "' z " + (childInfo.label || childKey) + "?\n\n" +
+          "(soft delete — status='archived', forensic audit zachovaný)",
+      });
+      if (!confirmed) return;
+
+      try {
+        const url = "/api/v1/erp/fw-form/" +
+          encodeURIComponent(this.opts.coreCode) + "/" +
+          encodeURIComponent(this.opts.rowId) +
+          "/children/" + encodeURIComponent(childKey) +
+          "/" + encodeURIComponent(row.id) + "/archive";
+        const r = await fetch(url, {
+          method: "PATCH",
+          credentials: "include",
+        });
+        const d = await r.json();
+        if (!r.ok || !d.ok) {
+          throw new Error(d.error || "HTTP " + r.status);
+        }
+        _showToast("Archivováno: " + display, "success", 2500);
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] _archiveChildRow failed:", e);
+        _showToast("Archive selhal: " + (e.message || e), "error", 3500);
+      }
+    }
+
+    // Reload spec po CRUD operations (parent + children refresh)
+    async _reloadSpec() {
+      try {
+        const resp = await fetch(
+          "/api/v1/erp/fw-form/" +
+          encodeURIComponent(this.opts.coreCode) + "/" +
+          encodeURIComponent(this.opts.rowId)
+        );
+        if (!resp.ok) throw new Error("HTTP " + resp.status);
+        this._spec = await resp.json();
+        if (!this._spec || !this._spec.ok) {
+          throw new Error("Backend: " + (this._spec && this._spec.error || "unknown"));
+        }
+        this._render();
+        // Re-attach drop target po _render (gotcha — _render přepisuje body innerHTML)
+        this._attachDropTargetForGalleryDrag();
+      } catch (e) {
+        console.error("[DesignFwForm] _reloadSpec failed:", e);
+        _showToast("Reload selhal: " + (e.message || e), "error", 3500);
+      }
+    }
+
     _applyDefaultSize() {
       // Krok 14b+11: read this._spec.form.layout.default_width/_height
       // (saved via 💾 Velikost button v DESIGN header). Apply jako inline
@@ -4255,6 +4546,24 @@
         sec.wrap.dataset.regionSlot = panel.slot || "main";
 
         root.appendChild(sec.wrap);
+      }
+
+      // Phase 38.4 Krok 14d-D (14.5.2026 vecer, Marti-AI's Q3 polymorphic):
+      // Children sub-grids per spec.children (1:N joined tables). Marti's
+      // Variant A — sub-grid v form pod hlavnimi fields. Pattern z Centrály
+      // 1 DBGrid v TForm.
+      //
+      // Per child key (např. "emails", "phones"): section header + native
+      // HTML table s rows + ✕ archive button per row + + Přidat button.
+      // MVP read-only display s native prompt() pro add/edit. Polish v
+      // Krok 14d-E (inline edit UX, AG Grid mini, drag reorder).
+      const childrenData = (this._spec && this._spec.children) || {};
+      const childKeys = Object.keys(childrenData);
+      if (childKeys.length > 0) {
+        for (const childKey of childKeys) {
+          const childInfo = childrenData[childKey];
+          root.appendChild(this._renderChildSection(childKey, childInfo));
+        }
       }
 
       this._shell.body.appendChild(root);

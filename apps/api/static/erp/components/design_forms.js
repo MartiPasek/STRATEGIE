@@ -551,8 +551,26 @@
       dlg.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:420px;max-width:90vw;color:#cfd6df;font-size:13px;box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
 
       const hdr = document.createElement("div");
-      hdr.style.cssText = "padding:12px 16px;border-bottom:1px solid #2a3340;background:#141a20;font-size:14px;font-weight:600;color:#e8eef5;";
-      hdr.textContent = title;
+      // Krok 14b+15 (14.5.2026 ranni, Marti's "pridej do hlavicky standardni
+      // rusici x"): flex row — title vlevo, × close button vpravo.
+      // Click × ma stejnou semantiku jako Esc: null (2-button) / "cancel"
+      // (3-button) — "did nothing" path.
+      hdr.style.cssText =
+        "padding:12px 16px;border-bottom:1px solid #2a3340;background:#141a20;" +
+        "font-size:14px;font-weight:600;color:#e8eef5;" +
+        "display:flex;align-items:center;justify-content:space-between;gap:12px;";
+      const hdrTitle = document.createElement("span");
+      hdrTitle.style.cssText = "flex:1 1 auto;";
+      hdrTitle.textContent = title;
+      hdr.appendChild(hdrTitle);
+      const hdrClose = document.createElement("button");
+      hdrClose.type = "button";
+      hdrClose.textContent = "×";
+      hdrClose.setAttribute("aria-label", "Zavřít");
+      hdrClose.style.cssText =
+        "background:transparent;border:none;color:#8a96a4;font-size:22px;" +
+        "cursor:pointer;padding:0 6px;line-height:1;flex:0 0 auto;";
+      hdr.appendChild(hdrClose);
       dlg.appendChild(hdr);
 
       const body = document.createElement("div");
@@ -596,6 +614,9 @@
         yesBtn.addEventListener("click", () => { cleanup(); resolve("yes"); });
         noBtn.addEventListener("click", () => { cleanup(); resolve("no"); });
         cancelBtn.addEventListener("click", () => { cleanup(); resolve("cancel"); });
+        // Krok 14b+15: × close = stejna semantika jako Esc / Zrušit / klik
+        // mimo dialog = "cancel" (no-op, keep parent modal otevreny).
+        hdrClose.addEventListener("click", () => { cleanup(); resolve("cancel"); });
         ovr.addEventListener("click", (ev) => {
           if (ev.target === ovr) { cleanup(); resolve("cancel"); }
         });
@@ -640,6 +661,9 @@
       }
       if (cancelBtn) cancelBtn.addEventListener("click", () => { cleanup(); resolve(false); });
       okBtn.addEventListener("click", () => { cleanup(); resolve(true); });
+      // Krok 14b+15: × close = stejna semantika jako Esc / klik mimo
+      // dialog = null (no-op, "did nothing", keep parent modal otevreny).
+      hdrClose.addEventListener("click", () => { cleanup(); resolve(null); });
       ovr.addEventListener("click", (ev) => {
         if (ev.target === ovr) { cleanup(); resolve(null); }
       });

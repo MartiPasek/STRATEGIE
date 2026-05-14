@@ -4554,13 +4554,35 @@
       // Sort panels by order
       panels.sort((a, b) => (a.order || 0) - (b.order || 0));
 
-      // Group fields by region_slot (data komponenty z fw.comp_def, parent=form)
-      const fieldsBySlot = {};
+      // Phase 38.4 Krok 14e-C (14.5.2026 vecer): Build byParent map pro
+      // recursive container rendering. Backend (Krok 14e-B) vraci flat list
+      // ALL descendants of form (recursive CTE), kazdy s parent_comp_def_id.
+      // Tree postaveni client-side groupingem.
+      const byParent = new Map();
       for (const f of fields) {
+        const pid = f.parent_comp_def_id;
+        if (!byParent.has(pid)) byParent.set(pid, []);
+        byParent.get(pid).push(f);
+      }
+      // Sort each parent's children by sort_order (z SQL uz seralene, ale
+      // defensive — pripadny re-sort po DnD)
+      for (const arr of byParent.values()) {
+        arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      }
+
+      // Group ONLY direct children of form root by region_slot (top-level
+      // containers a/nebo leaf fields v legacy formech). Nested children
+      // (groupbox -> fields) jdou pres recursive _renderComponentTree.
+      const formChildren = byParent.get(form.id) || [];
+      const fieldsBySlot = {};
+      for (const f of formChildren) {
         const slot = f.region_slot || "main";
         if (!fieldsBySlot[slot]) fieldsBySlot[slot] = [];
         fieldsBySlot[slot].push(f);
       }
+
+      // Cache byParent + data + D pro recursive helper volane v loop nize
+      this.__renderCtx = { byParent, data, onDirty: D };
 
       // Render každý panel jako sekce
       const D = this._onDirty.bind(this);
@@ -4674,40 +4696,20 @@
           if (compEl) sec.grid.appendChild(compEl);
         }
 
-        // Render data fields (z fw.comp_def) — pokud nějaké patří k tomuto panelu
+        // Phase 38.4 Krok 14e-C (14.5.2026 vecer): Recursive component
+        // rendering. slotFields obsahuje TOP-LEVEL children form rootu pro
+        // dany region_slot. Kazdy z nich muze byt:
+        //   - container (panel/groupbox) → wrapper + recurse na _renderComponentTree
+        //   - leaf field (edit/lookup/etc) → render jako pred Krok 14e
+        //
+        // Legacy forms (fields directly pod form) chodi pres else-branch
+        // _renderLeafField → existing _renderField behavior preserved.
         if (slotFields.length > 0) {
           slotFields.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
           for (let idx = 0; idx < slotFields.length; idx++) {
             const f = slotFields[idx];
-            const value = data[f.name];
-            const fieldEl = this._renderField(f, value, D);
-            if (fieldEl) {
-              // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left"
-              // property): apply grid-column-start:1 pokud
-              // layout.always_new_row === true. CSS grid auto-placement
-              // zaruci push na novy radek pokud col 1 obsazena. Works
-              // napric viewport sirkami + obema modes (PROD + DESIGN).
-              const alwaysNewRow = !!(f.layout && f.layout.always_new_row);
-
-              // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field
-              // do draggable containeru pro reorder. Plus drag handle.
-              //
-              // Phase 38.4 Krok 14c+3.2 (14.5.2026 odpoledne, Marti's bug
-              // report "Lookup v footer nemá ikonky, nejde drag"): drop
-              // `panel.slot === "main"` constraint. DESIGN wrap funguje
-              // napříč VŠEMI panels (header / main / footer). Důvod: Marti
-              // přidal Lookup do footer via gallery drop (Krok 14c+3 region
-              // detection) a očekává action buttons + drag handle stejně
-              // jako v main. Symetrie principle.
-              if (this._formDesignMode === true) {
-                const wrapped = this._wrapFieldForDesign(fieldEl, f, idx, slotFields.length);
-                if (alwaysNewRow) wrapped.style.gridColumnStart = "1";
-                sec.grid.appendChild(wrapped);
-              } else {
-                if (alwaysNewRow) fieldEl.style.gridColumnStart = "1";
-                sec.grid.appendChild(fieldEl);
-              }
-            }
+            const compEl = this._renderComponentTree(f, idx, slotFields.length);
+            if (compEl) sec.grid.appendChild(compEl);
           }
         }
         // Krok 14b+7.2 (13.5.2026 ~20:45, Marti's "to okno na formu pridat
@@ -5718,6 +5720,173 @@
         console.error("[DesignFwForm] reorder failed:", e);
         _showToast("Pořadí selhalo: " + (e.message || e), "error", 3500);
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14e-C (14.5.2026 vecer): Recursive component tree
+    // rendering. Backend (Krok 14e-B) vraci flat list ALL descendants of
+    // form root pres recursive CTE. _render postavi byParent map
+    // (Map<parent_comp_def_id, [children]>) v this.__renderCtx.
+    //
+    // _renderComponentTree(comp, idx, total) → DOM node | null
+    //   Dispatch podle comp_type_code:
+    //     - panel/groupbox → _renderContainerNode (wrapper + recurse)
+    //     - else → _renderLeafField (legacy single field render)
+    // ════════════════════════════════════════════════════════════════
+    _renderComponentTree(comp, idx, total) {
+      const code = comp.comp_type_code;
+      // Container types (Marti's 19yr Delphi compat + new modern UI):
+      //   panel    = invisible structural section
+      //   groupbox = visual border-top + optional label
+      // Future containers (tab_pageless, accordion, etc) lze pridat sem.
+      const CONTAINER_CODES = new Set(["panel", "groupbox"]);
+      if (CONTAINER_CODES.has(code)) {
+        return this._renderContainerNode(comp);
+      }
+      // Leaf field — existing behavior
+      return this._renderLeafField(comp, idx, total);
+    }
+
+    _renderLeafField(comp, idx, total) {
+      const ctx = this.__renderCtx || {};
+      const data = ctx.data || {};
+      const D = ctx.onDirty || (() => {});
+
+      const value = data[comp.name];
+      const fieldEl = this._renderField(comp, value, D);
+      if (!fieldEl) return null;
+
+      // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left" property):
+      // apply grid-column-start:1 pokud layout.always_new_row === true.
+      const alwaysNewRow = !!(comp.layout && comp.layout.always_new_row);
+
+      // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field do
+      // draggable containeru pro reorder. Plus drag handle.
+      // Krok 14c+3.2 (14.5.2026 odp.): DESIGN wrap napric VSEMI panels
+      // (Marti's "Lookup v footer nema ikonky").
+      if (this._formDesignMode === true) {
+        const wrapped = this._wrapFieldForDesign(fieldEl, comp, idx, total);
+        if (alwaysNewRow) wrapped.style.gridColumnStart = "1";
+        return wrapped;
+      } else {
+        if (alwaysNewRow) fieldEl.style.gridColumnStart = "1";
+        return fieldEl;
+      }
+    }
+
+    _renderContainerNode(container) {
+      const ctx = this.__renderCtx || {};
+      const byParent = ctx.byParent || new Map();
+      const code = container.comp_type_code;
+      const layout = container.layout || {};
+      const children = byParent.get(container.id) || [];
+
+      // ─── Panel = invisible structural container ───────────────────
+      // Marti's doctrine (Krok 14e, 14.5.2026 vecer): panel je purely
+      // structural — žádný visual ramecek, žádný label, jen div pro
+      // grouping. Visual styling delegujeme na nested groupbox.
+      if (code === "panel") {
+        const wrap = document.createElement("div");
+        wrap.className = "erp-design-panel";
+        wrap.dataset.compDefId = String(container.id);
+        wrap.dataset.compTypeCode = "panel";
+        // Display: contents = panel se "rozpusti", children prevzimaji
+        // grid placement of parent (sec.grid). Tim padem children leaf
+        // fields chodi do same CSS grid jako pred Krok 14e. Container
+        // groupbox uvnitr panelu prepne layout zpet na block + vlastni
+        // grid pro vnitrek.
+        // ALTERNATIVA: panel jako display:grid s vlastnimi children
+        // (klasicky nested grid). Marti's volba 14.5. vecer: vetsina
+        // pripadu = 1 groupbox per panel, tj. display:contents staci.
+        wrap.style.display = "contents";
+
+        for (let i = 0; i < children.length; i++) {
+          const childEl = this._renderComponentTree(children[i], i, children.length);
+          if (childEl) wrap.appendChild(childEl);
+        }
+        return wrap;
+      }
+
+      // ─── Groupbox = visual border-top + optional label ────────────
+      // Marti's 14.5. vecer doctrine: 2 border_mode varianty
+      //   - 'top'  → linka nahore + optional label uvnitr (modern, default)
+      //   - 'all'  → full ramecek (classic Delphi compat)
+      // layout.label (NULL = bez labelu).
+      if (code === "groupbox") {
+        const wrap = document.createElement("div");
+        wrap.className = "erp-design-groupbox";
+        wrap.dataset.compDefId = String(container.id);
+        wrap.dataset.compTypeCode = "groupbox";
+
+        const borderMode = (layout.border_mode || "top").toLowerCase();
+        const labelText = (layout.label != null && String(layout.label).trim().length > 0)
+          ? String(layout.label).trim()
+          : null;
+
+        // Border styling
+        if (borderMode === "all") {
+          wrap.style.cssText =
+            "border:1px solid #2a3340;border-radius:4px;" +
+            "padding:14px 12px 10px 12px;" +
+            "margin:6px 0;" +
+            "grid-column:1/-1;";
+        } else {
+          // 'top' default — jen linka nahore, padding-top
+          wrap.style.cssText =
+            "border-top:1px solid #2a3340;" +
+            "padding:10px 0 4px 0;" +
+            "margin:6px 0 0 0;" +
+            "grid-column:1/-1;";
+        }
+
+        // Optional label (inline-block s background pro "fieldset legend" feel)
+        if (labelText) {
+          const lbl = document.createElement("div");
+          lbl.className = "erp-design-groupbox-label";
+          lbl.textContent = labelText;
+          lbl.style.cssText =
+            "display:inline-block;" +
+            "background:#0d1117;" +
+            "color:#7a8696;" +
+            "font-size:11px;" +
+            "font-weight:600;" +
+            "text-transform:uppercase;" +
+            "letter-spacing:0.5px;" +
+            "padding:2px 8px;" +
+            "margin-bottom:8px;" +
+            (borderMode === "top"
+              ? "margin-top:-18px;"  // overlap line nahore
+              : "margin-top:-20px;"); // overlap ramecek (fieldset legend feel)
+          wrap.appendChild(lbl);
+        }
+
+        // Inner grid pro children — same layout jako sec.grid (2 cols, auto)
+        const inner = document.createElement("div");
+        inner.className = "erp-design-groupbox-inner";
+        inner.style.cssText =
+          "display:grid;" +
+          "grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));" +
+          "gap:6px 14px;" +
+          "align-items:start;";
+        wrap.appendChild(inner);
+
+        for (let i = 0; i < children.length; i++) {
+          const childEl = this._renderComponentTree(children[i], i, children.length);
+          if (childEl) inner.appendChild(childEl);
+        }
+
+        return wrap;
+      }
+
+      // Unknown container code — defensive: render jako transparent wrapper
+      console.warn("[DesignFwForm] Unknown container code:", code, container);
+      const fallback = document.createElement("div");
+      fallback.style.display = "contents";
+      for (let i = 0; i < children.length; i++) {
+        const childEl = this._renderComponentTree(children[i], i, children.length);
+        if (childEl) fallback.appendChild(childEl);
+      }
+      return fallback;
     }
 
     _renderField(field, value, onDirty) {

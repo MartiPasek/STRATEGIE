@@ -552,6 +552,10 @@
       // accent (border highlight). Draggable attribute set v JS.
       ".erp-gallery-preview-scope > [draggable=\"true\"] {\n" +
       "  cursor: grab; transition: border-color 0.15s, box-shadow 0.15s;\n" +
+      // Phase 38.4 Krok 14c+3.3 — user-select:none prevent text selection
+      // při drag (alternativa k mousedown preventDefault který blokuje
+      // drag na <button>/<div>). Defensive across all browser quirks.
+      "  user-select: none; -webkit-user-select: none;\n" +
       "}\n" +
       ".erp-gallery-preview-scope > [draggable=\"true\"]:hover {\n" +
       "  border-color: #3a8aa8 !important;\n" +
@@ -4630,6 +4634,12 @@
       };
 
       // ⬅ Pinned button (always_new_row toggle)
+      // Phase 38.4 Krok 14c+3.3 (14.5.2026 odpoledne, Marti's polish):
+      // Hover-only pattern napříč VŠEMI action buttons — sjednoceno
+      // i pro ⬅ ON state a 🎯 detect-values. Bez opacity:1 inline override.
+      // State pro ⬅ ON visible přes border + bg accent (modry), Marti uvidí
+      // při hover. Pro long-term state visibility: future polish field-level
+      // left border accent (4px modra pinned indicator).
       const leftBtn = _mkActionBtn(
         "⬅",
         alwaysNewRow
@@ -4640,11 +4650,7 @@
         alwaysNewRow ? "#7ed4e8" : "#5d6975",
         30 + (isLookupField ? 26 : 0)  // pokud 🎯 visible, ⬅ se posune doleva
       );
-      leftBtn.className = "erp-field-design-leftpin";
-      if (!alwaysNewRow) {
-        // OFF state — hover-only (sdílí CSS rule s ✕)
-        leftBtn.classList.add("erp-field-design-action-hoveronly");
-      }
+      leftBtn.className = "erp-field-design-leftpin erp-field-design-action-hoveronly";
       leftBtn.addEventListener("click", async (ev) => {
         ev.stopPropagation();
         ev.preventDefault();
@@ -4652,7 +4658,8 @@
       });
       content.appendChild(leftBtn);
 
-      // 🎯 Detect values button — jen lookup/combobox
+      // 🎯 Detect values button — jen lookup/combobox, hover-only
+      // (Marti's 14c+3.3 polish: sjednocený hover pattern)
       if (isLookupField) {
         const detectValsBtn = _mkActionBtn(
           "🎯",
@@ -4662,16 +4669,12 @@
           "#7ed4e8",
           30  // vedle ⬅
         );
-        detectValsBtn.className = "erp-field-design-detectvals";
-        // 🎯 vždy visible pro lookup (action button, ne destructive)
-        detectValsBtn.style.opacity = "1";
+        detectValsBtn.className = "erp-field-design-detectvals erp-field-design-action-hoveronly";
         detectValsBtn.addEventListener("click", async (ev) => {
           ev.stopPropagation();
           ev.preventDefault();
           await this._detectAndSaveEnumValues(field);
         });
-        // Korekce: posune ⬅ ještě o 26px doleva (right:56) — leftBtn už
-        // má computed right=56 podle isLookupField vyše. 🎯 je v right:30.
         content.appendChild(detectValsBtn);
       }
 
@@ -5861,10 +5864,22 @@
           // jen na options. Drag funguje na element samotném.
           dragHandle.style.pointerEvents = "auto";
         }
-        // Block default text-select v inputu pri drag start
-        dragHandle.addEventListener("mousedown", (ev) => {
-          ev.preventDefault();
-        });
+        // Phase 38.4 Krok 14c+3.3 (14.5.2026 Marti's bug "Edit a Button
+        // nejde drag"): mousedown preventDefault BLOKOVAL drag initiation
+        // na <button> a <div> v Chrome. Browser quirk — preventDefault
+        // na mousedown některé non-input elements zabíjí HTML5 DnD start.
+        // Fix: preventDefault aplikuj JEN pro <input>/<textarea> (kde
+        // řeší text-select před drag start). Pro button/label/div/select:
+        // preventDefault není potřeba (žádný text-select problém) a
+        // blokuje drag → drop.
+        const needsTextSelectBlock =
+          dragHandle.tagName === "INPUT" ||
+          dragHandle.tagName === "TEXTAREA";
+        if (needsTextSelectBlock) {
+          dragHandle.addEventListener("mousedown", (ev) => {
+            ev.preventDefault();
+          });
+        }
         dragHandle.addEventListener("dragstart", (ev) => {
           ev.stopPropagation();
           dragHandle.style.opacity = "0.5";

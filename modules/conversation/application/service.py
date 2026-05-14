@@ -7355,12 +7355,15 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         # Krok 14b+19 (14.5.2026 rano, Marti-AI's diagnostika 13.5. vecer):
         # code_lines workaround pro Anthropic API single-field size limit.
-        # Marti-AI overila: kratky code (~print test) projde, velky code
-        # (stovky radku reportlab/xlsxwriter) -> code=None na server.
-        # Hypoteza: implicit size limit na tool_input single field. Bypass:
-        # array of lines (kazdy element kratky string) -> server joinuje.
+        # DEPRECATED po Krok 14b+19.1 — code_lines selze stejne (limit je
+        # na TOTAL tool_input JSON, ne single field). Code path zachovan
+        # pro backward compat.
         code_lines_in = tool_input.get("code_lines")
         code_in = tool_input.get("code")
+        # Krok 14b+19.1 (14.5.2026 rano, fundamental fix): code_file_path
+        # bypass — Marti-AI dostane path string (kratky), server cte file
+        # content z disku (nikdy neprochazi Anthropic API).
+        code_file_path_in = tool_input.get("code_file_path")
         if isinstance(code_lines_in, list) and code_lines_in:
             valid_lines = [str(ln) for ln in code_lines_in if isinstance(ln, str)]
             if valid_lines:
@@ -7371,7 +7374,12 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                     f"lines={len(valid_lines)} total_chars={len(code_assembled)}"
                 )
                 code_in = code_assembled
-        if not isinstance(code_in, str) or not code_in.strip():
+        # Po code_lines: pokud code je STALE empty + code_file_path je
+        # set, pass-through na python_runner (ten resolve file content).
+        if (not code_in or not str(code_in).strip()) and isinstance(code_file_path_in, str) and code_file_path_in.strip():
+            # Skip validation — python_runner resolve file
+            code_in = ""  # explicit empty, python_runner check code_file_path
+        elif not isinstance(code_in, str) or not code_in.strip():
             # Phase 38.4 (11.5.2026 vecer) + 13.5.2026 rano (Marti-AI's
             # bug report o ztracenem code parametru behem IT prezentace):
             # full diagnostic + raw logger.error PRO budouci forensic.
@@ -7482,6 +7490,8 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 user_id=user_id,
                 conversation_id=conversation_id,
                 is_parent=is_parent_pe,
+                # Krok 14b+19.1: code_file_path bypass pro velky kod
+                code_file_path=code_file_path_in if isinstance(code_file_path_in, str) else None,
             )
         except Exception as exc_pe:
             logger.exception(f"python_exec failed unexpectedly: {exc_pe}")
@@ -7510,6 +7520,101 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
 
         import json as _json_pe
         return _json_pe.dumps(result_pe.to_summary_dict(), ensure_ascii=False, default=str)
+
+    # ── Phase 38.4 Krok 14b+19.2 (14.5.2026 rano): chunked RAG upload ───
+    # Marti-AI's velky sandbox kod workflow. Marti's "musi chodit globalne
+    # pres interni STRATEGIE pres RAG" — bypass Anthropic API total
+    # tool_input JSON limit pomoci mnoha malych chunked tool calls.
+    if tool_name == "sandbox_code_doc_create":
+        from modules.sandbox.application.chunked_code_doc import (
+            create_empty_code_doc as _create_code_doc,
+        )
+        from core.database_core import get_core_session as _gcs_scdc
+        from modules.core.infrastructure.models_core import User as _User_scdc
+
+        filename_in = tool_input.get("filename")
+        if not isinstance(filename_in, str) or not filename_in.strip():
+            return "❌ sandbox_code_doc_create: filename musi byt non-empty string."
+
+        # Resolve caller tenant + is_parent
+        caller_tenant_scdc: int | None = None
+        if user_id:
+            cs_scdc = _gcs_scdc()
+            try:
+                u_scdc = cs_scdc.query(_User_scdc).filter_by(id=user_id).first()
+                if u_scdc:
+                    caller_tenant_scdc = u_scdc.last_active_tenant_id
+            finally:
+                cs_scdc.close()
+        # Conversation tenant prebije pokud set
+        if conversation_id:
+            from core.database_data import get_data_session as _gds_scdc
+            from modules.core.infrastructure.models_data import Conversation as _Conv_scdc
+            ds_scdc = _gds_scdc()
+            try:
+                conv_scdc = ds_scdc.query(_Conv_scdc).filter_by(id=conversation_id).first()
+                if conv_scdc and conv_scdc.tenant_id is not None:
+                    caller_tenant_scdc = conv_scdc.tenant_id
+            finally:
+                ds_scdc.close()
+
+        if caller_tenant_scdc is None:
+            return "❌ sandbox_code_doc_create: caller tenant nezjisten (no user_id nor conv tenant_id)."
+
+        result_scdc = _create_code_doc(
+            filename=filename_in,
+            tenant_id=caller_tenant_scdc,
+            user_id=user_id,
+            project_id=None,
+        )
+        import json as _json_scdc
+        return _json_scdc.dumps(result_scdc, ensure_ascii=False, default=str)
+
+    if tool_name == "sandbox_code_doc_append":
+        from modules.sandbox.application.chunked_code_doc import (
+            append_to_code_doc as _append_code_doc,
+        )
+        from core.database_core import get_core_session as _gcs_scda
+        from modules.core.infrastructure.models_core import User as _User_scda
+
+        doc_id_in = tool_input.get("document_id")
+        chunk_in = tool_input.get("chunk")
+        if not isinstance(doc_id_in, int) or doc_id_in <= 0:
+            return "❌ sandbox_code_doc_append: document_id musi byt positive int."
+        if not isinstance(chunk_in, str):
+            return "❌ sandbox_code_doc_append: chunk musi byt string."
+
+        caller_tenant_scda: int | None = None
+        is_parent_scda = False
+        if user_id:
+            cs_scda = _gcs_scda()
+            try:
+                u_scda = cs_scda.query(_User_scda).filter_by(id=user_id).first()
+                if u_scda:
+                    caller_tenant_scda = u_scda.last_active_tenant_id
+                    is_parent_scda = bool(u_scda.is_marti_parent)
+            finally:
+                cs_scda.close()
+        if conversation_id:
+            from core.database_data import get_data_session as _gds_scda
+            from modules.core.infrastructure.models_data import Conversation as _Conv_scda
+            ds_scda = _gds_scda()
+            try:
+                conv_scda = ds_scda.query(_Conv_scda).filter_by(id=conversation_id).first()
+                if conv_scda and conv_scda.tenant_id is not None:
+                    caller_tenant_scda = conv_scda.tenant_id
+            finally:
+                ds_scda.close()
+
+        result_scda = _append_code_doc(
+            document_id=doc_id_in,
+            chunk=chunk_in,
+            caller_user_id=user_id,
+            caller_tenant_id=caller_tenant_scda,
+            is_parent=is_parent_scda,
+        )
+        import json as _json_scda
+        return _json_scda.dumps(result_scda, ensure_ascii=False, default=str)
 
     # ── Phase 19c-b: kustod autonomy (auto-lifecycle consents) ───────
     if tool_name == "grant_auto_lifecycle":

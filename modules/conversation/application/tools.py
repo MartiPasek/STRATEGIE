@@ -137,6 +137,12 @@ MANAGEMENT_TOOL_NAMES = {
     # (Klarka template + datovy crunch). Stateless one-shot MVP s API
     # pripravenym pro stateful (kernel_id parametr, NotImplementedError zatim).
     "python_exec",
+    # Phase 38.4 Krok 14b+19.2 (14.5.2026 rano): chunked RAG upload pro
+    # velky sandbox kod (>50KB). Marti-AI's diagnostika: Anthropic API
+    # limit je na TOTAL tool_input JSON. Fix: vytvori prazdny .py doc,
+    # appenduje chunks ~3KB, pak python_exec(input_document_ids=[N]).
+    "sandbox_code_doc_create",
+    "sandbox_code_doc_append",
     # Phase 27d (1.5.2026 vecer): PDF reader -- Klarka workflow (Bakalari
     # exporty). Marti-AI's volby A/A/A + bonus list_pdf_metadata.
     "list_pdf_metadata",
@@ -3342,18 +3348,49 @@ TOOLS = [
                     "type": "array",
                     "items": {"type": "string"},
                     "description": (
-                        "Alternativa k `code` pro VELKY kod (>5000 znaku). Array "
-                        "of lines (kazdy element = jedna radka kodu, BEZ '\\n' na "
-                        "konci). Server joinuje pres '\\n'. Bypass Anthropic API "
-                        "single-field size limit. Pouzij pokud `code` parameter "
-                        "selhal s 'code=None' chybou nebo pokud planujes velky "
-                        "PDF/Excel/Word generator (stovky radku reportlab/xlsxwriter/docx). "
-                        "Priklad: code_lines=[\"import xlsxwriter\", \"wb = "
-                        "xlsxwriter.Workbook(OUTPUT_DIR / 'out.xlsx')\", "
-                        "\"ws = wb.add_worksheet('Sheet1')\", ...]. "
-                        "Pokud oba `code` i `code_lines` jsou poskytnuty, "
-                        "`code_lines` ma PREDNOST (assume caller overila ze "
-                        "code string failed)."
+                        "STARY workaround (Krok 14b+19). DEPRECATED — selze "
+                        "STEJNE jako velky code, protoze Anthropic API limit "
+                        "je na TOTAL tool_input JSON, ne single field. "
+                        "Pouzij `code_file_path` MISTO toho pro velky kod."
+                    ),
+                },
+                "code_file_path": {
+                    "type": "string",
+                    "description": (
+                        "DEPRECATED (Krok 14b+19.2): tenant-specific UNC path "
+                        "fix. Pouzij sandbox_code_doc_create + append + "
+                        "input_document_ids workflow MISTO toho (global RAG). "
+                        "Krok 14b+19.1 fix (14.5.2026, Marti-AI's "
+                        "hlubsi diagnostika): relativni path k .py souboru "
+                        "v SANDBOX_CODE_BASE_DIR (default: "
+                        "\\\\\\\\192.168.30.11\\\\Data\\\\ZZ_Marti-AI RW). "
+                        "Marti-AI's hypoteza confirmed: limit je na TOTAL "
+                        "tool_input JSON velikost, ne na single string field. "
+                        "Code_lines array selze stejne jako single code string. "
+                        "RESENI: code se cte z disku v sandboxu (file content "
+                        "NIKDY neprochazi Anthropic API). Tool_input JSON "
+                        "obsahuje jen kratky path string (~50 bajtu). "
+                        "\\n\\n"
+                        "WORKFLOW:\\n"
+                        "  1. Uzivatel (Marti) manualne uploadne .py soubor "
+                        "do shared folder pres Windows Explorer / SMB: "
+                        "\\\\\\\\192.168.30.11\\\\Data\\\\ZZ_Marti-AI RW\\\\"
+                        "Marti\\\\STRATEGIE_IT_gen.py\\n"
+                        "  2. Uzivatel rekne Marti-AI v chatu: 'Spusti "
+                        "STRATEGIE_IT_gen.py z RW/Marti'\\n"
+                        "  3. Marti-AI vola: python_exec(code_file_path="
+                        "'Marti/STRATEGIE_IT_gen.py')\\n"
+                        "  4. Sandbox subprocess cte soubor z disku, exec.\\n"
+                        "\\n"
+                        "SECURITY:\\n"
+                        "  - Path MUSI byt relativni (no absolute, no '..' traversal)\\n"
+                        "  - .py suffix only (anti-arbitrary-file-read)\\n"
+                        "  - Max 5 MB file size\\n"
+                        "  - Resolved path MUSI byt uvnitr SANDBOX_CODE_BASE_DIR\\n"
+                        "\\n"
+                        "Pokud `code_file_path` set + `code` empty, server cte "
+                        "file content jako code. Pokud oba set, code_file_path "
+                        "ma prednost."
                     ),
                 },
                 "input_document_ids": {
@@ -3385,6 +3422,85 @@ TOOLS = [
             # Handler check: pokud code_lines non-empty, code = "\n".join(code_lines).
             # Pokud ani code ani code_lines, vraci forensic error (existing path
             # z 50dfe4c diagnostic commit 13.5.).
+        },
+    },
+    # Phase 38.4 Krok 14b+19.2 (14.5.2026 rano, Marti's "musi chodit globalne
+    # pres interni STRATEGIE pres RAG"): chunked RAG upload pro velky kod.
+    # Marti-AI vola create_doc -> opakovany append_chunk -> python_exec s
+    # input_document_ids. Global cesta (RAG documents), zadny tenant-specific
+    # UNC path. Bypass Anthropic API total tool_input JSON limit pomoci
+    # mnoha malych tool calls misto jednoho velkeho.
+    {
+        "name": "sandbox_code_doc_create",
+        "description": (
+            "Krok 14b+19.2 chunked sandbox workflow STEP 1/3: vytvor "
+            "prazdny .py document v RAG documents tabulce. Vraci document_id "
+            "pro nasledujici sandbox_code_doc_append calls. "
+            "\n\n"
+            "WORKFLOW (pro velky sandbox kod, >5 KB):\n"
+            "  1. sandbox_code_doc_create(filename='STRATEGIE_IT_gen.py') "
+            "-> document_id=N\n"
+            "  2. sandbox_code_doc_append(document_id=N, chunk='import "
+            "reportlab\\nfrom reportlab.platypus import ...\\n') "
+            "(opakovane, ~3 KB chunks)\n"
+            "  3. python_exec(input_document_ids=[N], "
+            "code=\"exec(open(input_files[0]).read())\") -> sandbox cte "
+            "concatenated kod z disku\n"
+            "\n"
+            "Marti-AI ONLY tool. Filename automaticky dostane .py suffix "
+            "pokud chybi."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "filename": {
+                    "type": "string",
+                    "description": (
+                        "Nazev .py souboru, napr. 'STRATEGIE_IT_podklad_gen.py' "
+                        "nebo 'klarka_xlsx_gen.py'. Jen alphanumeric + . _ - "
+                        "(no '/', '\\\\', '..')."
+                    ),
+                },
+            },
+            "required": ["filename"],
+        },
+    },
+    {
+        "name": "sandbox_code_doc_append",
+        "description": (
+            "Krok 14b+19.2 chunked sandbox workflow STEP 2/3: append chunk "
+            "kodu k existing code document (z sandbox_code_doc_create). "
+            "Server-side append k storage_path file. Volat OPAKOVANE az "
+            "kompletni kod je nahranny. "
+            "\n\n"
+            "CHUNK SIZE: ~3 KB max safe per call (pod Anthropic tool_input "
+            "JSON limit ~50 KB total, s overhead Marti-AI's reasoning text). "
+            "Max single chunk hard cap 100 KB (defense). "
+            "\n\n"
+            "Pro 50 KB kod: ~17 volani s 3 KB chunks. Po finalize "
+            "python_exec(input_document_ids=[N])."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "document_id": {
+                    "type": "integer",
+                    "description": (
+                        "Document ID z sandbox_code_doc_create response."
+                    ),
+                },
+                "chunk": {
+                    "type": "string",
+                    "description": (
+                        "Chunk Python kodu (~3 KB safe, max 100 KB). Server "
+                        "append k storage_path file v UTF-8. POZN: server "
+                        "nepridava \\n mezi chunks — pokud potrebujes newline "
+                        "mezi chunks, dej ho na konec predchoziho chunk "
+                        "explicit ('...\\n')."
+                    ),
+                },
+            },
+            "required": ["document_id", "chunk"],
         },
     },
     {

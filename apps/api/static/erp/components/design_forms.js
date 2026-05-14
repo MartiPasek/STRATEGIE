@@ -3569,9 +3569,119 @@
         // sirkou.
         this._applyDefaultSize();
         this._render();
+        // Phase 38.4 Krok 14c+2 part B (14.5.2026 odpoledne): attach
+        // drop target po render. Body je teted drop zone pro gallery
+        // cards z FieldPickerModal Preview tabu. Drop kdekoli na form
+        // → POST /design/comp-def s computed sort_order. MVP: region='main'
+        // vždy, sort_order = max+10 (= konec main panelu). Future polish
+        // (Krok 14c+3): compute region z drop coords (header/main/footer
+        // dle Y pozice).
+        this._attachDropTargetForGalleryDrag();
       } catch (e) {
         this._showError("Načítání selhalo: " + e.message);
       }
+    }
+
+    // Phase 38.4 Krok 14c+2 part B: drop target listener pro gallery
+    // drag from FieldPickerModal. HTML5 DnD API — dragover preventDefault
+    // (allow drop) + drop handler. Visual: tealové hint border na body
+    // během dragover.
+    _attachDropTargetForGalleryDrag() {
+      const body = this._shell && this._shell.body;
+      if (!body) return;
+      if (body.dataset.galleryDropAttached === "1") return;  // idempotent
+      body.dataset.galleryDropAttached = "1";
+
+      // Gate: drop target aktivní jen v DESIGN mode (Marti's polish doctrine)
+      const isDesignOn = () => this._formDesignMode === true;
+
+      body.addEventListener("dragover", (ev) => {
+        if (!isDesignOn()) return;
+        // Allow drop jen pokud je to naše gallery card mime type
+        const types = ev.dataTransfer && ev.dataTransfer.types;
+        if (!types || !Array.from(types).includes("application/x-erp-comp-type")) return;
+        ev.preventDefault();
+        ev.dataTransfer.dropEffect = "copy";
+        body.style.outline = "2px dashed #3a8aa8";
+        body.style.outlineOffset = "-4px";
+      });
+
+      body.addEventListener("dragleave", (ev) => {
+        // Only clear pokud opravdu opustime body (ne sub-element hover)
+        if (ev.target === body) {
+          body.style.outline = "";
+          body.style.outlineOffset = "";
+        }
+      });
+
+      body.addEventListener("drop", async (ev) => {
+        if (!isDesignOn()) return;
+        const raw = ev.dataTransfer.getData("application/x-erp-comp-type");
+        if (!raw) return;
+        ev.preventDefault();
+        body.style.outline = "";
+        body.style.outlineOffset = "";
+
+        let payload;
+        try {
+          payload = JSON.parse(raw);
+        } catch (e) {
+          _showToast("Drop payload corrupt — chyba parsování", "error");
+          return;
+        }
+        if (!payload || !payload.id) {
+          _showToast("Drop bez comp_type id", "error");
+          return;
+        }
+
+        // POST /design/comp-def — analog FieldPickerModal submit, ale
+        // single comp_type, MVP region='main' + auto sort_order
+        const parentId = this._spec && this._spec.form && this._spec.form.id;
+        if (!parentId) {
+          _showToast("Form root chybi — drop selhal", "error");
+          return;
+        }
+
+        try {
+          // Auto-generate name z code (uniqueness suffix pokud kolize)
+          const baseName = payload.code + "_" + Date.now().toString(36);
+          const r = await fetch("/api/v1/erp/design/comp-def", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parent_comp_def_id: parentId,
+              name: baseName,
+              caption: payload.label,
+              type_id: payload.id,
+              region_slot: "main",
+            }),
+          });
+          const d = await r.json();
+          if (!r.ok || !d.ok) {
+            throw new Error(d.error || "HTTP " + r.status);
+          }
+          _showToast(
+            "Přidáno: " + payload.label + " (drag z palety)",
+            "success",
+            2500
+          );
+          // Refresh spec + re-render
+          const refreshResp = await fetch(
+            "/api/v1/erp/fw-form/" +
+            encodeURIComponent(this.opts.coreCode) + "/" +
+            encodeURIComponent(this.opts.rowId)
+          );
+          if (refreshResp.ok) {
+            this._spec = await refreshResp.json();
+            this._render();
+            this._attachDropTargetForGalleryDrag();  // re-attach po _render
+          }
+        } catch (e) {
+          console.error("[DesignFwForm] gallery drop POST failed:", e);
+          _showToast("Drop selhal: " + (e.message || e), "error", 3500);
+        }
+      });
     }
 
     _applyDefaultSize() {
@@ -5234,17 +5344,65 @@
           }
         }
       } else if (this._activeTab === "preview") {
-        const placeholder = document.createElement("div");
-        placeholder.style.cssText =
-          "padding:30px;text-align:center;color:#8a96a4;font-size:13px;line-height:1.7;";
-        placeholder.innerHTML =
-          "<div style=\"font-size:48px;margin-bottom:12px;opacity:0.4;\">📋</div>" +
-          "<b style=\"color:#d4b88a;\">Preview formuláře</b><br>" +
-          "<span style=\"opacity:0.7;\">Tady uvidíš, jak bude formulář vypadat po insertu " +
-          "vybraných polí. Aktuálně vybráno: <b>" + this._selected.size + "</b> polí.</span>" +
-          "<br><br><span style=\"font-size:11px;opacity:0.5;font-style:italic;\">" +
-          "Render preview přijde v Krok 14c+2 (po IT prezentaci).</span>";
-        content.appendChild(placeholder);
+        // Phase 38.4 Krok 14c+2 part A (14.5.2026 odpoledne po IT prezentaci):
+        // Preview gallery — visual paleta dostupných komponent. Marti's "pro
+        // relax" iteration. Per card: preview_html v iframe + label +
+        // comp_type code (mono) + draggable=true (foundation pro Part B
+        // drag-drop na DesignFwForm main panel).
+        //
+        // Filter: form-relevant typy (input, dropdown, memo, button, atd.) —
+        // grid-only typy (grid_modern, grid_column, 7 column types) skip,
+        // protoze nepouzitelne v form fields. Whitelist by renderer_hint
+        // OR code prefix.
+        const FORM_RELEVANT_HINTS = new Set([
+          "input", "input-number", "textarea", "checkbox",
+          "select", "multiselect", "datepicker", "datetimepicker",
+          "timepicker", "button", "speedbutton",
+          "fieldset",     // groupbox container
+          "tabs_outer",   // pagecontrol container
+          "tab_inner",    // tabsheet container
+          "label",        // label / label_readonly
+          "fileupload",   // file
+          "md_render",    // markdown_view
+        ]);
+        const galleryItems = (this._compTypes || []).filter(ct =>
+          FORM_RELEVANT_HINTS.has(ct.renderer_hint) ||
+          ["label", "edit", "checkbox", "combobox", "memo", "number",
+           "checkbox_modern", "date_modern", "datetime", "lookup",
+           "lookup_multi", "file", "label_readonly", "groupbox",
+           "pagecontrol", "tabsheet", "button", "richedit"].includes(ct.code)
+        );
+
+        // Hint
+        const galleryHint = document.createElement("div");
+        galleryHint.style.cssText =
+          "padding:10px 14px;color:#8a96a4;font-size:11px;line-height:1.5;background:#141a20;border-bottom:1px solid #2a3340;";
+        galleryHint.innerHTML =
+          "<b style=\"color:#d4b88a;\">🎨 Paleta komponent</b> — " +
+          galleryItems.length + " typů dostupných pro formuláře. " +
+          "Klikni na kartu pro detail. <span style=\"opacity:0.7;font-style:italic;\">" +
+          "(Drag-and-drop na formulář přijde v části B.)</span>";
+        content.appendChild(galleryHint);
+
+        // Gallery grid (3 columns auto-fit)
+        const gallery = document.createElement("div");
+        gallery.style.cssText =
+          "padding:12px;display:grid;" +
+          "grid-template-columns:repeat(auto-fill, minmax(220px, 1fr));" +
+          "gap:12px;";
+        content.appendChild(gallery);
+
+        if (galleryItems.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "grid-column:1/-1;padding:24px;text-align:center;color:#8a96a4;";
+          empty.innerHTML = "Žádné form-relevant komponenty s preview_html. " +
+                            "UPDATE fw.comp_type SET preview_html=... pro form fields.";
+          gallery.appendChild(empty);
+        } else {
+          for (const ct of galleryItems) {
+            gallery.appendChild(this._renderGalleryCard(ct));
+          }
+        }
       }
 
       // Footer bar — Selected count + actions
@@ -5377,6 +5535,96 @@
       row.appendChild(typeBadge);
       row.appendChild(removeBtn);
       return row;
+    }
+
+    // Phase 38.4 Krok 14c+2 part A (14.5.2026 odpoledne po IT prezentaci):
+    // Gallery card per comp_type — visual paleta v Preview tabu. Card layout:
+    // preview iframe (top) + label + comp_type code (mono) + meta (kind+desc).
+    // draggable=true attribute + dragstart handler nasadí foundation pro
+    // Part B (drop na DesignFwForm main panel → POST /design/comp-def).
+    _renderGalleryCard(ct) {
+      const card = document.createElement("div");
+      card.style.cssText =
+        "background:#141a20;border:1px solid #2a3340;border-radius:5px;" +
+        "padding:10px;cursor:grab;transition:all 0.15s;" +
+        "display:flex;flex-direction:column;gap:8px;";
+      card.draggable = true;
+      card.dataset.compTypeId = String(ct.id);
+      card.dataset.compTypeCode = ct.code;
+
+      // Hover accent (Marti's "field-color" doctrine — accent na to, co
+      // bude interagovat)
+      card.addEventListener("mouseenter", () => {
+        card.style.borderColor = "#3a8aa8";
+        card.style.boxShadow = "0 0 0 1px rgba(58,138,168,0.3)";
+      });
+      card.addEventListener("mouseleave", () => {
+        card.style.borderColor = "#2a3340";
+        card.style.boxShadow = "none";
+      });
+
+      // Drag affordance (foundation pro Part B drop handler)
+      card.addEventListener("dragstart", (ev) => {
+        card.style.opacity = "0.5";
+        ev.dataTransfer.effectAllowed = "copy";
+        // Custom mime type — drop target rozpoznana via getData
+        ev.dataTransfer.setData(
+          "application/x-erp-comp-type",
+          JSON.stringify({ id: ct.id, code: ct.code, label: ct.label })
+        );
+        // Fallback plain text
+        ev.dataTransfer.setData("text/plain", ct.code);
+      });
+      card.addEventListener("dragend", () => {
+        card.style.opacity = "1";
+      });
+
+      // 1. Preview iframe (top)
+      const previewWrap = document.createElement("div");
+      previewWrap.style.cssText =
+        "background:#1f2530;border-radius:3px;padding:6px;" +
+        "min-height:42px;display:flex;align-items:center;justify-content:center;";
+      const iframe = this._buildPreviewIframe(ct);
+      iframe.style.height = "30px";
+      previewWrap.appendChild(iframe);
+      card.appendChild(previewWrap);
+
+      // 2. Label (human-readable)
+      const lbl = document.createElement("div");
+      lbl.style.cssText = "font-size:13px;color:#e8eef5;font-weight:600;";
+      lbl.textContent = ct.label;
+      card.appendChild(lbl);
+
+      // 3. Comp type code + id (mono, subtle)
+      const code = document.createElement("div");
+      code.style.cssText =
+        "font-family:ui-monospace,Consolas,monospace;font-size:10px;" +
+        "color:#7ed4e8;opacity:0.7;";
+      code.textContent = ct.code + " · id=" + ct.id;
+      card.appendChild(code);
+
+      // 4. Footer (kind badge + description short)
+      const meta = document.createElement("div");
+      meta.style.cssText =
+        "font-size:10px;color:#8a96a4;line-height:1.3;" +
+        "border-top:1px solid #1a2028;padding-top:6px;margin-top:auto;";
+      const kindBadge =
+        "<span style=\"background:#1f2530;padding:1px 5px;border-radius:2px;margin-right:4px;\">" +
+        (ct.kind || "leaf") + "</span>";
+      meta.innerHTML = kindBadge + (ct.description || "").slice(0, 60);
+      card.appendChild(meta);
+
+      // Click → toast hint (future: detail modal s full preview source)
+      card.addEventListener("click", (ev) => {
+        if (ev.defaultPrevented) return;
+        _showToast(
+          ct.label + " (" + ct.code + ") — drag na formulář k přidání",
+          "info",
+          2000
+        );
+      });
+
+      return card;
     }
 
     _renderColumnRow(col) {

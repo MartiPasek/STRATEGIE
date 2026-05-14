@@ -4346,7 +4346,10 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
         )
 
     # Whitelist updatable columns
-    ALLOWED = ("caption", "region_slot", "layout")
+    # Phase 38.4 Krok 14f-K (14.5.2026 vecer, Marti's "drop se neuskutecni"
+    # cross-container field move): pridat parent_comp_def_id pro field
+    # presun mezi containery (panel/groupbox).
+    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -4356,6 +4359,37 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
             {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
             status_code=400,
         )
+
+    # parent_comp_def_id validation (Krok 14f-K)
+    if "parent_comp_def_id" in update_vals:
+        new_parent_id = update_vals["parent_comp_def_id"]
+        if not isinstance(new_parent_id, int) or new_parent_id <= 0:
+            return JSONResponse(
+                {"ok": False, "error": "parent_comp_def_id musi byt positive int"},
+                status_code=400,
+            )
+        # Verify new parent existuje + je aktivni
+        from core.database_data import get_data_session as _gds_pp
+        from sqlalchemy import text as _sql_text_pp
+        ds_pp = _gds_pp()
+        try:
+            parent_row = ds_pp.execute(_sql_text_pp("""
+                SELECT id FROM fw.comp_def
+                WHERE id = :pid AND is_active = true
+            """), {"pid": new_parent_id}).mappings().one_or_none()
+            if not parent_row:
+                return JSONResponse(
+                    {"ok": False, "error": f"parent_comp_def_id={new_parent_id} neexistuje nebo neni aktivni"},
+                    status_code=400,
+                )
+            # Anti-cycle: new parent nesmi byt tato komponenta sama
+            if new_parent_id == comp_def_id:
+                return JSONResponse(
+                    {"ok": False, "error": "Komponenta nemuze byt parent sebe sama"},
+                    status_code=400,
+                )
+        finally:
+            ds_pp.close()
 
     # Defensive type check pro caption (string).
     # Phase 38.4 Krok 14f-D (14.5.2026 vecer, Marti's "Optional label"

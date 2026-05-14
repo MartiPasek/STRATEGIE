@@ -6373,41 +6373,97 @@
         this._dragState = null;
       });
       wrap.addEventListener("dragover", (ev) => {
-        if (!this._dragState || !this._dragState.isContainer) return;
-        if (this._dragState.fieldId === container.id) return;
-        ev.preventDefault();
-        try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
-        const rect = wrap.getBoundingClientRect();
-        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
-        wrap.style.outline = isAbove
-          ? "2px solid #7ed4e8"
-          : "2px solid transparent";
-        wrap.style.outlineOffset = isAbove ? "0" : "0";
-        // Visual indicator: thick top/bottom edge
-        wrap.style.borderTop = isAbove
-          ? "2px solid #7ed4e8"
-          : "1px dashed rgba(122, 134, 150, 0.3)";
-        wrap.style.borderBottom = isAbove
-          ? "1px dashed rgba(122, 134, 150, 0.3)"
-          : "2px solid #7ed4e8";
+        if (!this._dragState) return;
+        // Phase 38.4 Krok 14f-K (14.5.2026 vecer, Marti's "drop se
+        // neuskutecni"): support cross-container drag — existing field
+        // (non-isContainer) drop NA container → move (PATCH parent).
+        if (this._dragState.isContainer) {
+          // Container reorder (panel/groupbox swap sort_order)
+          if (this._dragState.fieldId === container.id) return;
+          ev.preventDefault();
+          try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+          const rect = wrap.getBoundingClientRect();
+          const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+          wrap.style.borderTop = isAbove
+            ? "2px solid #7ed4e8"
+            : "1px dashed rgba(122, 134, 150, 0.3)";
+          wrap.style.borderBottom = isAbove
+            ? "1px dashed rgba(122, 134, 150, 0.3)"
+            : "2px solid #7ed4e8";
+        } else {
+          // Existing field drag → highlight container as "move INTO" target
+          // Skip pokud field uz JE direct child tohoto containeru (no-op move)
+          ev.preventDefault();
+          try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+          wrap.style.outline = "2px solid #a88cd4";
+          wrap.style.outlineOffset = "-2px";
+          wrap.style.background = "rgba(168, 140, 212, 0.05)";
+        }
       });
       wrap.addEventListener("dragleave", () => {
         wrap.style.outline = "";
+        wrap.style.background = "";
         wrap.style.borderTop = "1px dashed rgba(122, 134, 150, 0.3)";
         wrap.style.borderBottom = "1px dashed rgba(122, 134, 150, 0.3)";
       });
       wrap.addEventListener("drop", (ev) => {
+        if (!this._dragState) return;
         ev.preventDefault();
-        if (!this._dragState || !this._dragState.isContainer) return;
-        const fromId = this._dragState.fieldId;
-        const toId = container.id;
-        if (fromId === toId) return;
-        const rect = wrap.getBoundingClientRect();
-        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
-        // Reuse generic reorder (Krok 14e-F: pracuje s siblings podle
-        // parent_comp_def_id, ne pouze 'main' fields)
-        this._performFieldReorder(fromId, toId, isAbove);
+        ev.stopPropagation();  // block body.drop dual-fire
+        wrap.style.outline = "";
+        wrap.style.background = "";
+        wrap.style.borderTop = "1px dashed rgba(122, 134, 150, 0.3)";
+        wrap.style.borderBottom = "1px dashed rgba(122, 134, 150, 0.3)";
+
+        if (this._dragState.isContainer) {
+          // Container reorder
+          const fromId = this._dragState.fieldId;
+          const toId = container.id;
+          if (fromId === toId) return;
+          const rect = wrap.getBoundingClientRect();
+          const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+          this._performFieldReorder(fromId, toId, isAbove);
+        } else {
+          // Phase 38.4 Krok 14f-K: existing field MOVE INTO this container
+          const fromId = this._dragState.fieldId;
+          // No-op pokud uz jsme direct child
+          const fields = this._spec.fields || [];
+          const fromComp = fields.find((f) => f.id === fromId);
+          if (fromComp && fromComp.parent_comp_def_id === container.id) {
+            _showToast("Komponenta uz je v tomto kontejneru", "info", 1500);
+            return;
+          }
+          this._performFieldMove(fromId, container.id);
+        }
       });
+    }
+
+    // Phase 38.4 Krok 14f-K (14.5.2026 vecer, Marti's "drop se neuskutecni"):
+    // Move existing field/groupbox do jineho containeru (panel/groupbox).
+    // PATCH /design/comp-def/update/{id} s parent_comp_def_id. Po success
+    // reload + flash on moved field.
+    async _performFieldMove(fieldId, newParentId) {
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(fieldId),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ parent_comp_def_id: newParentId }),
+          }
+        );
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        _showToast("Komponenta presunuta", "success", 2200);
+        this._pendingFlashFieldId = fieldId;
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] _performFieldMove failed:", e);
+        _showToast("Presun selhal: " + (e.message || e), "error", 3500);
+      }
     }
 
     // ════════════════════════════════════════════════════════════════

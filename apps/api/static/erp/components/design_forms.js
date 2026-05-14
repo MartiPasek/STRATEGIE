@@ -4004,17 +4004,25 @@
         try {
           // Auto-generate name z code (uniqueness suffix pokud kolize)
           const baseName = payload.code + "_" + Date.now().toString(36);
+          // Phase 38.4 Krok 14f-C (14.5.2026 vecer): pass-through layout
+          // pro container types (panel/groupbox). Drag payload obsahuje
+          // default layout (panel → {"align":"client"}, groupbox →
+          // {"border_mode":"top","label":null}).
+          const postBody = {
+            parent_comp_def_id: parentId,
+            name: baseName,
+            caption: payload.label,
+            type_id: payload.id,
+            region_slot: targetRegion,
+          };
+          if (payload.layout && typeof payload.layout === "object") {
+            postBody.layout = payload.layout;
+          }
           const r = await fetch("/api/v1/erp/design/comp-def", {
             method: "POST",
             credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              parent_comp_def_id: parentId,
-              name: baseName,
-              caption: payload.label,
-              type_id: payload.id,
-              region_slot: targetRegion,
-            }),
+            body: JSON.stringify(postBody),
           });
           const d = await r.json();
           if (!r.ok || !d.ok) {
@@ -5790,6 +5798,262 @@
       return this._renderLeafField(comp, idx, total);
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-D (14.5.2026 vecer, Marti's "moznost zakladni
+    // parametrizace techto panelu"): right-click → settings popup.
+    //
+    // Editable fields:
+    //   - caption (label panelu, empty = invisible)
+    //   - layout.align (left/right/top/bottom/client/none dropdown)
+    //   - layout.width (pixels | 'auto' — pro left/right)
+    //   - layout.height (pixels | 'auto' — pro top/bottom)
+    //   - layout.min_width (pixels — responsive constraint)
+    //   - layout.min_height (pixels)
+    //   - layout.border_mode (none/top/all — relevantni pro groupbox)
+    //
+    // PATCH /api/v1/erp/design/comp-def/update/{id} s caption + layout
+    // (merge s existing keys). After save → _reloadSpec + re-render.
+    // ════════════════════════════════════════════════════════════════
+    _openContainerSettings(container) {
+      const isPanel = container.comp_type_code === "panel";
+      const isGroupbox = container.comp_type_code === "groupbox";
+      const typeLabel = isPanel ? "Panel" : (isGroupbox ? "Groupbox" : "Container");
+      const currentLayout = container.layout || {};
+
+      // Build modal overlay (analog _confirmDarkDialog ale s form)
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+        "min-width:420px;max-width:520px;color:#e8eef5;font-size:13px;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+        "display:flex;align-items:center;justify-content:space-between;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;font-size:14px;";
+      title.innerHTML = (isPanel ? "📦" : "▦") + " Nastavení: " + typeLabel +
+                        " <span style=\"color:#5d6975;font-weight:400;font-size:11px;\">#" + container.id + "</span>";
+      header.appendChild(title);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:transparent;border:none;color:#8a96a4;font-size:18px;" +
+        "cursor:pointer;padding:0;line-height:1;";
+      closeBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Form body
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+
+      // Helper: build labeled input row
+      const _row = (labelText, inputEl) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+        const lbl = document.createElement("label");
+        lbl.textContent = labelText;
+        lbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        wrap.appendChild(lbl);
+        wrap.appendChild(inputEl);
+        return wrap;
+      };
+      const _inputStyle =
+        "padding:6px 10px;background:#0f141a;border:1px solid #2a3340;" +
+        "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;" +
+        "box-sizing:border-box;";
+
+      // caption
+      const captionInput = document.createElement("input");
+      captionInput.type = "text";
+      captionInput.style.cssText = _inputStyle;
+      captionInput.value = container.caption || "";
+      captionInput.placeholder = "(empty = invisible label)";
+      body.appendChild(_row("Caption", captionInput));
+
+      // layout.align (jen pro panel — groupbox je vždy uvnitř panelu)
+      let alignSelect = null;
+      if (isPanel) {
+        alignSelect = document.createElement("select");
+        alignSelect.style.cssText = _inputStyle;
+        const aligns = [
+          ["client", "alClient — fill remaining (default)"],
+          ["top", "alTop — full width strip nahore"],
+          ["bottom", "alBottom — full width strip dole"],
+          ["left", "alLeft — vertical strip vlevo"],
+          ["right", "alRight — vertical strip vpravo"],
+          ["none", "alNone — absolute (top/left/width/height)"],
+        ];
+        for (const [val, label] of aligns) {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = label;
+          if ((currentLayout.align || "client") === val) opt.selected = true;
+          alignSelect.appendChild(opt);
+        }
+        body.appendChild(_row("Align", alignSelect));
+      }
+
+      // layout.width (pro left/right panely)
+      const widthInput = document.createElement("input");
+      widthInput.type = "text";
+      widthInput.style.cssText = _inputStyle;
+      widthInput.value = currentLayout.width != null ? String(currentLayout.width) : "";
+      widthInput.placeholder = "px (např. 200) | '30%' | 'auto'";
+      body.appendChild(_row("Width", widthInput));
+
+      // layout.height (pro top/bottom panely)
+      const heightInput = document.createElement("input");
+      heightInput.type = "text";
+      heightInput.style.cssText = _inputStyle;
+      heightInput.value = currentLayout.height != null ? String(currentLayout.height) : "";
+      heightInput.placeholder = "px (např. 60) | 'auto'";
+      body.appendChild(_row("Height", heightInput));
+
+      // layout.min_width
+      const minWidthInput = document.createElement("input");
+      minWidthInput.type = "number";
+      minWidthInput.style.cssText = _inputStyle;
+      minWidthInput.value = currentLayout.min_width != null ? String(currentLayout.min_width) : "";
+      minWidthInput.placeholder = "px (responsive constraint)";
+      body.appendChild(_row("Min width", minWidthInput));
+
+      // layout.min_height
+      const minHeightInput = document.createElement("input");
+      minHeightInput.type = "number";
+      minHeightInput.style.cssText = _inputStyle;
+      minHeightInput.value = currentLayout.min_height != null ? String(currentLayout.min_height) : "";
+      minHeightInput.placeholder = "px";
+      body.appendChild(_row("Min height", minHeightInput));
+
+      // layout.border_mode (relevant pro groupbox primarne)
+      const borderSelect = document.createElement("select");
+      borderSelect.style.cssText = _inputStyle;
+      const borderModes = [
+        ["none", "Žádný (default pro panel)"],
+        ["top", "Top — linka nahore (modern groupbox)"],
+        ["all", "All — full rámeček (Delphi compat)"],
+      ];
+      const currentBorder = currentLayout.border_mode || (isGroupbox ? "top" : "none");
+      for (const [val, label] of borderModes) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        if (currentBorder === val) opt.selected = true;
+        borderSelect.appendChild(opt);
+      }
+      body.appendChild(_row("Border mode", borderSelect));
+
+      modal.appendChild(body);
+
+      // Footer
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;" +
+        "display:flex;justify-content:flex-end;gap:8px;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText =
+        "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
+      cancelBtn.addEventListener("click", () => document.body.removeChild(overlay));
+      footer.appendChild(cancelBtn);
+
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      saveBtn.style.cssText =
+        "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+      saveBtn.addEventListener("click", async () => {
+        saveBtn.disabled = true;
+        saveBtn.style.opacity = "0.6";
+        try {
+          // Build new layout (merge with existing)
+          const newLayout = Object.assign({}, currentLayout);
+          if (alignSelect) newLayout.align = alignSelect.value;
+
+          // Parse width/height — pokud cislo, ulozit jako int; pokud string s '%' nebo 'auto', ulozit string
+          const _parseSize = (v) => {
+            const s = String(v || "").trim();
+            if (s === "") return null;
+            if (s === "auto") return "auto";
+            if (/%$/.test(s)) return s;
+            const n = parseInt(s, 10);
+            return isNaN(n) ? null : n;
+          };
+          const newWidth = _parseSize(widthInput.value);
+          const newHeight = _parseSize(heightInput.value);
+          if (newWidth == null) delete newLayout.width; else newLayout.width = newWidth;
+          if (newHeight == null) delete newLayout.height; else newLayout.height = newHeight;
+
+          const newMinW = minWidthInput.value.trim() ? parseInt(minWidthInput.value, 10) : null;
+          const newMinH = minHeightInput.value.trim() ? parseInt(minHeightInput.value, 10) : null;
+          if (newMinW == null || isNaN(newMinW)) delete newLayout.min_width; else newLayout.min_width = newMinW;
+          if (newMinH == null || isNaN(newMinH)) delete newLayout.min_height; else newLayout.min_height = newMinH;
+
+          newLayout.border_mode = borderSelect.value;
+
+          const newCaption = captionInput.value.trim();
+
+          // PATCH /design/comp-def/update/{id}
+          const pr = await fetch(
+            "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(container.id),
+            {
+              method: "PATCH",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({
+                caption: newCaption,
+                layout: newLayout,
+              }),
+            }
+          );
+          if (!pr.ok) {
+            const errBody = await pr.json().catch(() => ({}));
+            throw new Error("HTTP " + pr.status + ": " + (errBody.error || pr.statusText));
+          }
+          _showToast(typeLabel + " nastaveni ulozeno", "success", 2000);
+          document.body.removeChild(overlay);
+          await this._reloadSpec();
+        } catch (e) {
+          console.error("[DesignFwForm] _openContainerSettings save failed:", e);
+          _showToast("Ulozeni selhalo: " + (e.message || e), "error", 3500);
+          saveBtn.disabled = false;
+          saveBtn.style.opacity = "1";
+        }
+      });
+      footer.appendChild(saveBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+
+      // Esc to close
+      const escHandler = (ev) => {
+        if (ev.key === "Escape") {
+          ev.stopPropagation();
+          document.body.removeChild(overlay);
+          document.removeEventListener("keydown", escHandler, true);
+        }
+      };
+      document.addEventListener("keydown", escHandler, true);
+
+      // Focus first input
+      setTimeout(() => captionInput.focus(), 50);
+    }
+
     // Phase 38.4 Krok 14e-E (14.5.2026 vecer, Marti's "Panel musi byt
     // dragabled"): generic drag-and-drop pro containers (panel/groupbox).
     // Analog _wrapFieldForDesign drag events, ale na container wrap.
@@ -6115,17 +6379,43 @@
             "margin:2px;";
           wrap.draggable = true;
 
-          // Label "panel" v levem hornim rohu (subtle)
+          // Label "panel" v levem hornim rohu — clickable pro settings (Krok 14f-D)
           const lbl = document.createElement("div");
           const alignLabel = (container.layout && container.layout.align) || "client";
-          lbl.textContent = "▦ panel #" + container.id + " · " + alignLabel;
+          lbl.textContent = "▦ panel #" + container.id + " · " + alignLabel + " ⚙";
+          lbl.title = "Klikni pro nastaveni panelu (nebo right-click)";
           lbl.style.cssText =
             "position:absolute;top:-8px;left:8px;" +
             "background:#0d1117;color:#5d6975;" +
-            "font-size:10px;padding:1px 6px;" +
+            "font-size:10px;padding:2px 8px;" +
             "border-radius:2px;letter-spacing:0.5px;" +
-            "user-select:none;pointer-events:none;z-index:1;";
+            "user-select:none;cursor:pointer;z-index:2;" +
+            "transition:color 0.15s, background 0.15s;";
+          lbl.addEventListener("mouseenter", () => {
+            lbl.style.color = "#a88cd4";
+            lbl.style.background = "#1a2028";
+          });
+          lbl.addEventListener("mouseleave", () => {
+            lbl.style.color = "#5d6975";
+            lbl.style.background = "#0d1117";
+          });
+          lbl.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            this._openContainerSettings(container);
+          });
           wrap.appendChild(lbl);
+
+          // Right-click handler — open settings popup (Krok 14f-D)
+          wrap.addEventListener("contextmenu", (ev) => {
+            // Skip pokud klik na child interactive element (input/button)
+            const tag = ev.target && ev.target.tagName;
+            if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+              return;  // necht browser default kontextmenu chodi
+            }
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._openContainerSettings(container);
+          });
 
           // Drag listeners (analog _wrapFieldForDesign)
           this._attachContainerDragEvents(wrap, container);
@@ -6185,10 +6475,24 @@
       //   - 'all'  → full ramecek (classic Delphi compat)
       // layout.label (NULL = bez labelu).
       if (code === "groupbox") {
+        const designMode = this._formDesignMode === true;
         const wrap = document.createElement("div");
         wrap.className = "erp-design-groupbox";
         wrap.dataset.compDefId = String(container.id);
         wrap.dataset.compTypeCode = "groupbox";
+
+        // Phase 38.4 Krok 14f-D (14.5.2026 vecer): right-click → settings
+        if (designMode) {
+          wrap.addEventListener("contextmenu", (ev) => {
+            const tag = ev.target && ev.target.tagName;
+            if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+              return;
+            }
+            ev.preventDefault();
+            ev.stopPropagation();
+            this._openContainerSettings(container);
+          });
+        }
 
         const borderMode = (layout.border_mode || "top").toLowerCase();
         const labelText = (layout.label != null && String(layout.label).trim().length > 0)
@@ -6703,6 +7007,10 @@
       strip.style.cssText =
         "display:flex;gap:2px;border-bottom:1px solid #2a3340;margin-bottom:10px;";
 
+      // Phase 38.4 Krok 14f-C (14.5.2026 vecer, Marti's "Layout containers"
+      // tab): paleta panel + groupbox pro drag-drop na formular. Marti's
+      // choice A: rozsireni existing FieldPickerModal o novy tab (vs
+      // samostatny PanelPickerModal).
       const tabs = [
         {
           key: "available",
@@ -6721,6 +7029,12 @@
           label: "Preview",
           count: null,
           accent: "#d4b88a",
+        },
+        {
+          key: "layout",
+          label: "📐 Layout",
+          count: null,
+          accent: "#a88cd4",
         },
       ];
 
@@ -6776,6 +7090,11 @@
         hint.innerHTML =
           "Preview formuláře po insertu vybraných polí. " +
           "<span style=\"opacity:0.7;font-style:italic;\">(Phase 38.4 Krok 14c+2 — TODO)</span>";
+      } else if (this._activeTab === "layout") {
+        hint.innerHTML =
+          "<b style=\"color:#a88cd4;\">📐 Layout containers</b> — strukturální komponenty (panel + groupbox). " +
+          "Drag kartu na formulář → vytvořit novy container. Default panel align='client', " +
+          "groupbox border_mode='top'. Změna parametrů pres right-click na panel/groupbox.";
       }
       this._shell.body.appendChild(hint);
 
@@ -6866,6 +7185,34 @@
         } else {
           for (const ct of galleryItems) {
             gallery.appendChild(this._renderGalleryCard(ct));
+          }
+        }
+      } else if (this._activeTab === "layout") {
+        // Phase 38.4 Krok 14f-C (14.5.2026 vecer, Marti's "Layout containers"
+        // tab): paleta strukturalnich komponent (panel + groupbox).
+        // Filter: kind='container' + status='active'.
+        const layoutItems = (this._compTypes || []).filter(ct =>
+          ct.kind === "container" && ct.status === "active"
+        );
+
+        // Gallery grid (2-3 columns wider cards pro layout types)
+        const gallery = document.createElement("div");
+        gallery.style.cssText =
+          "padding:12px;display:grid;" +
+          "grid-template-columns:repeat(auto-fill, minmax(260px, 1fr));" +
+          "gap:12px;";
+        content.appendChild(gallery);
+
+        if (layoutItems.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "grid-column:1/-1;padding:24px;text-align:center;color:#8a96a4;";
+          empty.innerHTML =
+            "Žádné active container types. UPDATE fw.comp_type SET status='active' " +
+            "pro panel (id=13) + groupbox (id=12).";
+          gallery.appendChild(empty);
+        } else {
+          for (const ct of layoutItems) {
+            gallery.appendChild(this._renderLayoutCard(ct));
           }
         }
       }
@@ -7150,6 +7497,135 @@
         }
         _showToast(
           ct.label + " (" + ct.code + ") — drag tu komponentu nahoře na formulář",
+          "info",
+          2200
+        );
+      });
+
+      return card;
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-C (14.5.2026 vecer, Marti's "Layout containers"
+    // tab): render karta pro container type (panel/groupbox).
+    // Analog _renderGalleryCard ale s container-specific:
+    //   - Visual: large emoji/icon (📦 panel, ▦ groupbox)
+    //   - Description: align (panel) / border (groupbox) hints
+    //   - Draggable=true s payload {id, code, label, layout: default}
+    //   - Drop pipeline → DesignFwForm._attachDropTargetForGalleryDrag
+    //     receives layout in payload, POST /design/comp-def s layout JSONB
+    // ════════════════════════════════════════════════════════════════
+    _renderLayoutCard(ct) {
+      const card = document.createElement("div");
+      card.style.cssText =
+        "background:#0f141a;border:1px solid #2a3340;border-radius:6px;" +
+        "padding:14px;display:flex;flex-direction:column;gap:8px;" +
+        "transition:border-color 0.15s, transform 0.15s;" +
+        "position:relative;";
+      card.addEventListener("mouseenter", () => {
+        card.style.borderColor = "#a88cd4";
+      });
+      card.addEventListener("mouseleave", () => {
+        card.style.borderColor = "#2a3340";
+      });
+
+      // Per-type icon + visual hint
+      const isPanel = ct.code === "panel";
+      const isGroupbox = ct.code === "groupbox";
+      const icon = isPanel ? "📦" : (isGroupbox ? "▦" : "▣");
+      const accentColor = isPanel ? "#a88cd4" : "#d4b88a";
+
+      // Default layout pro drag payload (drop pipeline pouzije pro POST body)
+      let defaultLayout;
+      if (isPanel) {
+        defaultLayout = { align: "client" };
+      } else if (isGroupbox) {
+        defaultLayout = { border_mode: "top", label: null };
+      } else {
+        defaultLayout = {};
+      }
+
+      // 1. Icon + visual hint
+      const visualWrap = document.createElement("div");
+      visualWrap.style.cssText =
+        "padding:12px;background:#141a20;border:1px dashed " + accentColor + ";" +
+        "border-radius:4px;display:flex;align-items:center;justify-content:center;" +
+        "gap:8px;min-height:60px;cursor:grab;";
+      visualWrap.setAttribute("draggable", "true");
+
+      const iconEl = document.createElement("span");
+      iconEl.textContent = icon;
+      iconEl.style.cssText = "font-size:28px;line-height:1;";
+      visualWrap.appendChild(iconEl);
+
+      const iconLabel = document.createElement("span");
+      iconLabel.textContent = ct.label;
+      iconLabel.style.cssText = "font-size:14px;color:" + accentColor + ";font-weight:600;";
+      visualWrap.appendChild(iconLabel);
+
+      visualWrap.addEventListener("dragstart", (ev) => {
+        ev.stopPropagation();
+        visualWrap.style.opacity = "0.5";
+        visualWrap.style.cursor = "grabbing";
+        ev.dataTransfer.effectAllowed = "copy";
+        // Phase 38.4 Krok 14f-C: payload obsahuje layout (default per code)
+        // — DesignFwForm drop handler ho posila do POST body.
+        ev.dataTransfer.setData(
+          "application/x-erp-comp-type",
+          JSON.stringify({
+            id: ct.id,
+            code: ct.code,
+            label: ct.label,
+            layout: defaultLayout,  // novy klic — backend pass-through
+            is_container: true,
+          })
+        );
+        ev.dataTransfer.setData("text/plain", ct.code);
+      });
+      visualWrap.addEventListener("dragend", () => {
+        visualWrap.style.opacity = "1";
+        visualWrap.style.cursor = "grab";
+      });
+
+      card.appendChild(visualWrap);
+
+      // 2. Label (human-readable)
+      const lbl = document.createElement("div");
+      lbl.style.cssText = "font-size:13px;color:#e8eef5;font-weight:600;";
+      lbl.textContent = ct.label;
+      card.appendChild(lbl);
+
+      // 3. Code + id (mono)
+      const code = document.createElement("div");
+      code.style.cssText =
+        "font-family:ui-monospace,Consolas,monospace;font-size:10px;" +
+        "color:" + accentColor + ";opacity:0.7;";
+      code.textContent = ct.code + " · id=" + ct.id;
+      card.appendChild(code);
+
+      // 4. Default behavior hint (per-type)
+      const meta = document.createElement("div");
+      meta.style.cssText =
+        "font-size:10px;color:#8a96a4;line-height:1.4;" +
+        "border-top:1px solid #1a2028;padding-top:6px;margin-top:auto;";
+      let hint;
+      if (isPanel) {
+        hint = "Strukturální container (alClient default). " +
+               "Right-click pro nastavení align/width/height.";
+      } else if (isGroupbox) {
+        hint = "Vizuální wrapper s linkou nahoře (default). " +
+               "Optional label. Drag dovnitř panelu.";
+      } else {
+        hint = ct.description || "Container component.";
+      }
+      meta.innerHTML = '<span style="background:#1f2530;padding:1px 5px;border-radius:2px;margin-right:4px;">container</span>' + hint;
+      card.appendChild(meta);
+
+      // Click na card → toast (discoverability)
+      card.addEventListener("click", (ev) => {
+        if (visualWrap.contains(ev.target)) return;
+        _showToast(
+          ct.label + " (" + ct.code + ") — drag ikonu nahoře na formulář",
           "info",
           2200
         );

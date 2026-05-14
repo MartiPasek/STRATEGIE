@@ -3724,6 +3724,11 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
     type_id = body.get("type_id")
     region_slot = (body.get("region_slot") or "main").strip()
     sort_order_in = body.get("sort_order")
+    # Phase 38.4 Krok 14f-C (14.5.2026 vecer, Marti's Layout containers
+    # tab + B alClient): accept optional layout JSONB. Frontend posila
+    # default layout per comp_type (panel → {"align":"client"}, groupbox
+    # → {"border_mode":"top","label":null}).
+    layout_in = body.get("layout")  # dict | None
 
     # Validation
     if not parent_id or not isinstance(parent_id, int):
@@ -3737,13 +3742,23 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
             {"ok": False, "error": "region_slot musi byt 'header' / 'main' / 'footer'"},
             status_code=400,
         )
+    if layout_in is not None and not isinstance(layout_in, dict):
+        return JSONResponse(
+            {"ok": False, "error": "layout musi byt dict/object pokud poslan"},
+            status_code=400,
+        )
     if not caption:
         # Auto-generate caption z name: "first_name" -> "First name"
         caption = name.replace("_", " ").strip().capitalize()
 
     ds = _gds_cdc()
     try:
-        # Verify parent_comp_def_id existuje + je form root (type=302)
+        # Verify parent_comp_def_id existuje
+        # Phase 38.4 Krok 14f-C (14.5.2026 vecer): relax parent validation.
+        # Drive Krok 14c: parent MUSI byt type=302 (form root). NEW: parent
+        # muze byt form root, panel, nebo groupbox — any active comp_def.
+        # Hierarchy:
+        #   form root (302) > panel (13) > groupbox (12) > leaf field
         parent_row = ds.execute(_sql_text_cdc("""
             SELECT id, type_id, parent_core_id
             FROM fw.comp_def
@@ -3754,21 +3769,12 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
                 {"ok": False, "error": f"parent_comp_def_id={parent_id} neexistuje nebo neni aktivni"},
                 status_code=404,
             )
-        if parent_row["type_id"] != 302:
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": (
-                        f"parent_comp_def_id={parent_id} ma type_id={parent_row['type_id']}, "
-                        f"ocekavano 302 (form root). Field musi byt prilepen k form root."
-                    ),
-                },
-                status_code=400,
-            )
 
-        # Verify type_id existuje + ma preview_html (Marti-AI's doctrine)
+        # Verify type_id existuje + (pro non-container) ma preview_html
+        # Phase 38.4 Krok 14f-C: container types (kind='container') nemusi
+        # mit preview_html (panel je structural, groupbox visual wrapper).
         type_row = ds.execute(_sql_text_cdc("""
-            SELECT id, code, label, preview_html
+            SELECT id, code, label, kind, preview_html
             FROM fw.comp_type
             WHERE id = :tid
         """), {"tid": type_id}).mappings().one_or_none()
@@ -3777,14 +3783,16 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
                 {"ok": False, "error": f"comp_type_id={type_id} neexistuje v fw.comp_type"},
                 status_code=404,
             )
-        if not type_row["preview_html"]:
+        is_container = (type_row.get("kind") or "") == "container"
+        if not is_container and not type_row["preview_html"]:
             return JSONResponse(
                 {
                     "ok": False,
                     "error": (
                         f"comp_type id={type_id} ({type_row['code']}) nema preview_html. "
                         f"Marti-AI's doctrine: pridej UPDATE fw.comp_type SET preview_html=... "
-                        f"pred pouzitim v palette."
+                        f"pred pouzitim v palette. (Container types kind='container' "
+                        f"jsou vyjimka — nepotrebuji preview.)"
                     ),
                 },
                 status_code=400,
@@ -3836,22 +3844,30 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
                 cs_cdc.close()
 
         # INSERT pres strategie_pg.insert_row (Marti-AI's PG role)
+        # Phase 38.4 Krok 14f-C (14.5.2026 vecer): layout JSONB pass-through.
+        # Frontend posila default layout per comp_type (panel → {"align":"client"},
+        # groupbox → {"border_mode":"top","label":null}). Pokud None, INSERT
+        # bez layout (NULL = legacy behavior pro leaf fields).
+        insert_values = {
+            "type_id": type_id,
+            "name": name,
+            "caption": caption,
+            "parent_comp_def_id": parent_id,
+            "region_slot": region_slot,
+            "sort_order": sort_order_resolved,
+            "is_active": True,
+            "created_by_id": uid,
+            "created_by_text": caller_display,
+            "updated_by_id": uid,
+            "updated_by_text": caller_display,
+        }
+        if layout_in is not None:
+            import json as _json_cdc
+            insert_values["layout"] = _json_cdc.dumps(layout_in)
         ins = _spg_insert_cdc(
             schema="fw",
             table="comp_def",
-            values={
-                "type_id": type_id,
-                "name": name,
-                "caption": caption,
-                "parent_comp_def_id": parent_id,
-                "region_slot": region_slot,
-                "sort_order": sort_order_resolved,
-                "is_active": True,
-                "created_by_id": uid,
-                "created_by_text": caller_display,
-                "updated_by_id": uid,
-                "updated_by_text": caller_display,
-            },
+            values=insert_values,
         )
         if not ins.get("ok"):
             return JSONResponse(
@@ -4216,12 +4232,16 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
             status_code=400,
         )
 
-    # Defensive type check pro caption (string non-empty)
+    # Defensive type check pro caption (string).
+    # Phase 38.4 Krok 14f-D (14.5.2026 vecer, Marti's "Optional label"
+    # pro panel/groupbox settings): empty caption == "invisible label"
+    # doctrine. Validation accept empty string. Predtim (Krok 14b+9-B)
+    # vyzadovalo non-empty pro inline rename — to bylo pro leaf fields.
     if "caption" in update_vals:
         val = update_vals["caption"]
-        if not isinstance(val, str) or not val.strip():
+        if not isinstance(val, str):
             return JSONResponse(
-                {"ok": False, "error": "caption musi byt non-empty string"},
+                {"ok": False, "error": "caption musi byt string"},
                 status_code=400,
             )
         update_vals["caption"] = val.strip()

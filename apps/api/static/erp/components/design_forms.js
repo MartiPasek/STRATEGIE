@@ -4581,11 +4581,14 @@
         fieldsBySlot[slot].push(f);
       }
 
-      // Cache byParent + data + D pro recursive helper volane v loop nize
-      this.__renderCtx = { byParent, data, onDirty: D };
-
       // Render každý panel jako sekce
       const D = this._onDirty.bind(this);
+
+      // Cache byParent + data + D pro recursive helper volane v loop nize
+      // (musi byt AZ po `const D` declaraci — TDZ guard, jinak hodi
+      // "Cannot access 'D' before initialization")
+      this.__renderCtx = { byParent, data, onDirty: D };
+
       for (const panel of panels) {
         const slotFields = fieldsBySlot[panel.slot] || [];
         const templateComponents = Array.isArray(panel.components) ? panel.components : [];

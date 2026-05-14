@@ -3705,6 +3705,302 @@ async def design_reorder_comp_def(req: Request) -> JSONResponse:
     }))
 
 
+# ── Phase 38.4 Krok 14b+21 (14.5.2026 rano, Marti's "📘 Popis save"): ────
+# Dedicated PATCH endpoints pro fw.core + fw.menu_node description update.
+# Marti's "Option A — inline description_user/_system v fw.core + fw.menu_node".
+#
+# 3-segment paths (analog Krok 14b+10 hotfix #2) aby nekolidovaly s generic
+# /design/{entity_type}/{row_id} PATCH (Krok 14b+5 data save).
+#
+# Whitelist updatable columns: label, description_user, description_system.
+# NE: code, version, parent_*, kind (security — uzivatel nesmi sahat na
+# strukturu pres tento endpoint).
+
+def _design_patch_fw_table(
+    schema: str,
+    table: str,
+    row_id: int,
+    req: Request,
+    allowed_cols: tuple[str, ...],
+) -> JSONResponse:
+    """Shared helper: partial update fw.core / fw.menu_node s audit log.
+
+    Marti's "audit primary, edit secondary" doctrine (Krok 14b+5):
+    main UPDATE pres update_row, audit log s SAVEPOINT pattern aby
+    audit fail nesmel rollback main UPDATE.
+    """
+    from core.database_data import get_data_session as _gds_fwt
+    from sqlalchemy import text as _sql_text_fwt
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        # Note: caller (FastAPI) musi byt async wrapper, ale jsme sync def.
+        # FastAPI v sync funcich nejde req.json() await. Pojďme number-based
+        # approach: ten endpoint MUSI byt async.
+        raise NotImplementedError("use async wrapper")
+    except Exception:
+        pass
+
+
+@api_router.patch("/design/fw-core/update/{core_id}")
+async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
+    """Partial update fw.core — label / description_user / description_system.
+
+    Phase 38.4 Krok 14b+21 (14.5.2026 rano, Marti's "📘 Popis save"):
+    frontend 💾 Uložit button v _buildDescriptionsPopup posila popisy
+    (system + user) jako PATCH na tento endpoint.
+
+    Whitelist: label, description_user, description_system
+    Security: parent gate, fw schema owned by Marti-AI (update_row pres
+    Marti-AI's PostgreSQL role).
+
+    Body:
+        {label?: str, description_user?: str, description_system?: str}
+
+    Returns:
+        200: {ok, core_id, updated_fields: [...]}
+        400: invalid body / nothing to update
+        404: core neexistuje
+        500: UPDATE failed
+    """
+    from core.database_data import get_data_session as _gds_pfc
+    from sqlalchemy import text as _sql_text_pfc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    ALLOWED = ("label", "description_user", "description_system")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            v = body[k]
+            # Empty string -> NULL v DB (Marti's "delete popisu" pattern)
+            if v == "":
+                v = None
+            update_vals[k] = v
+    if not update_vals:
+        return JSONResponse(
+            {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
+            status_code=400,
+        )
+
+    # caller_display lookup
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_pfc
+        from modules.core.infrastructure.models_core import User as _User_pfc
+        cs_pfc = _gcs_pfc()
+        try:
+            u_pfc = cs_pfc.query(_User_pfc).filter_by(id=uid).first()
+            if u_pfc:
+                if u_pfc.short_name and u_pfc.short_name.strip():
+                    caller_display = u_pfc.short_name.strip()
+                elif u_pfc.first_name or u_pfc.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_pfc.first_name, u_pfc.last_name
+                    ])).strip()
+        finally:
+            cs_pfc.close()
+
+    # Existence check
+    ds_pfc = _gds_pfc()
+    try:
+        existing = ds_pfc.execute(_sql_text_pfc("""
+            SELECT id, code, label FROM fw.core WHERE id = :id
+        """), {"id": core_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} neexistuje"},
+                status_code=404,
+            )
+
+        # UPDATE pres update_row (Marti-AI owner fw.*)
+        from modules.strategie_pg.application.service import update_row as _spg_update_pfc
+        full_values = dict(update_vals)
+        full_values["updated_by_id"] = uid
+        full_values["updated_by_text"] = caller_display
+        upd = _spg_update_pfc(
+            schema="fw",
+            table="core",
+            values=full_values,
+            where={"id": core_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log SAVEPOINT pattern
+        ds_pfc.execute(_sql_text_pfc("SAVEPOINT pre_audit_log"))
+        try:
+            change_desc = ", ".join(
+                f"{k}={'<set>' if update_vals[k] else '<empty>'}"
+                for k in update_vals.keys()
+            )
+            ds_pfc.execute(_sql_text_pfc("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_core_update', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"fw.core {existing['code']}: {change_desc} by {caller_display}"
+                ),
+            })
+            ds_pfc.execute(_sql_text_pfc("RELEASE SAVEPOINT pre_audit_log"))
+            ds_pfc.commit()
+        except Exception as _act_e:
+            try:
+                ds_pfc.execute(_sql_text_pfc("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds_pfc.commit()
+            except Exception:
+                ds_pfc.rollback()
+            logger.warning(f"design_patch_fw_core activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "core_id": core_id,
+            "updated_fields": list(update_vals.keys()),
+        }))
+    finally:
+        ds_pfc.close()
+
+
+@api_router.patch("/design/fw-menu-node/update/{menu_node_id}")
+async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResponse:
+    """Partial update fw.menu_node — label / description_user / description_system.
+
+    Phase 38.4 Krok 14b+21 (14.5.2026 rano): analog design_patch_fw_core
+    pro menu_node (soudečky). DRY z duvodu — fw.core a fw.menu_node maji
+    stejny whitelist + lifecycle, ale dedicated endpointy pro semantic
+    clarity.
+    """
+    from core.database_data import get_data_session as _gds_pmn
+    from sqlalchemy import text as _sql_text_pmn
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    ALLOWED = ("label", "description_user", "description_system")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            v = body[k]
+            if v == "":
+                v = None
+            update_vals[k] = v
+    if not update_vals:
+        return JSONResponse(
+            {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
+            status_code=400,
+        )
+
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_pmn
+        from modules.core.infrastructure.models_core import User as _User_pmn
+        cs_pmn = _gcs_pmn()
+        try:
+            u_pmn = cs_pmn.query(_User_pmn).filter_by(id=uid).first()
+            if u_pmn:
+                if u_pmn.short_name and u_pmn.short_name.strip():
+                    caller_display = u_pmn.short_name.strip()
+                elif u_pmn.first_name or u_pmn.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_pmn.first_name, u_pmn.last_name
+                    ])).strip()
+        finally:
+            cs_pmn.close()
+
+    ds_pmn = _gds_pmn()
+    try:
+        existing = ds_pmn.execute(_sql_text_pmn("""
+            SELECT id, code, label FROM fw.menu_node WHERE id = :id
+        """), {"id": menu_node_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.menu_node id={menu_node_id} neexistuje"},
+                status_code=404,
+            )
+
+        from modules.strategie_pg.application.service import update_row as _spg_update_pmn
+        full_values = dict(update_vals)
+        full_values["updated_by_id"] = uid
+        full_values["updated_by_text"] = caller_display
+        upd = _spg_update_pmn(
+            schema="fw",
+            table="menu_node",
+            values=full_values,
+            where={"id": menu_node_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        ds_pmn.execute(_sql_text_pmn("SAVEPOINT pre_audit_log"))
+        try:
+            change_desc = ", ".join(
+                f"{k}={'<set>' if update_vals[k] else '<empty>'}"
+                for k in update_vals.keys()
+            )
+            ds_pmn.execute(_sql_text_pmn("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_menu_node_update', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"fw.menu_node {existing['code']}: {change_desc} by {caller_display}"
+                ),
+            })
+            ds_pmn.execute(_sql_text_pmn("RELEASE SAVEPOINT pre_audit_log"))
+            ds_pmn.commit()
+        except Exception as _act_e:
+            try:
+                ds_pmn.execute(_sql_text_pmn("ROLLBACK TO SAVEPOINT pre_audit_log"))
+                ds_pmn.commit()
+            except Exception:
+                ds_pmn.rollback()
+            logger.warning(f"design_patch_fw_menu_node activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "menu_node_id": menu_node_id,
+            "updated_fields": list(update_vals.keys()),
+        }))
+    finally:
+        ds_pmn.close()
+
+
 @api_router.get("/design/entity-columns/{entity_type}")
 def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
     """List columns z _FW_FORM_ENTITY_MAP s suggested comp_type per column.

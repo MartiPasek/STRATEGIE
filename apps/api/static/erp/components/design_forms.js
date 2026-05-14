@@ -1005,6 +1005,78 @@
     _stretchMemo(userWrap);
     _stretchMemo(sysWrap);
 
+    // Phase 38.4 Krok 14b+21 (14.5.2026 rano, Marti's "📘 Popis save"):
+    // 💾 Uložit button v popup footer — PATCH backend, save oba popisy
+    // (user + system), update parent spec consistency, toast.
+    //
+    // Backend endpoints:
+    //   - PATCH /api/v1/erp/design/fw-core/update/{id}      (entityKind='core')
+    //   - PATCH /api/v1/erp/design/fw-menu-node/update/{id} (entityKind='menu_node')
+    // Whitelist: label, description_user, description_system
+    const saveBtn = document.createElement("button");
+    saveBtn.type = "button";
+    saveBtn.textContent = "💾 Uložit";
+    saveBtn.style.cssText =
+      "padding:6px 16px;background:#1f4858;border:1px solid #3a8aa8;" +
+      "color:#7ed4e8;cursor:pointer;font-size:12px;font-weight:600;border-radius:3px;";
+    // Visible jen pokud entityId set (volajici musi predat)
+    if (!opts.entityId) {
+      saveBtn.style.display = "none";
+    }
+    saveBtn.addEventListener("click", async () => {
+      const entityId = opts.entityId;
+      if (!entityId) {
+        _showToast("Entity ID chybi — popup nezná koho uložit", "error");
+        return;
+      }
+      // Read current values z memo textareas
+      const userTextarea = userWrap.querySelector("textarea");
+      const sysTextarea = sysWrap.querySelector("textarea");
+      const newUser = userTextarea ? userTextarea.value : "";
+      const newSys = sysTextarea ? sysTextarea.value : "";
+      // 3-segment route podle entityKind
+      const routeSegment = opts.entityKind === "menu_node" ? "fw-menu-node" : "fw-core";
+      const url = "/api/v1/erp/design/" + routeSegment + "/update/" +
+                  encodeURIComponent(entityId);
+      saveBtn.disabled = true;
+      const origHtml = saveBtn.innerHTML;
+      saveBtn.innerHTML = "💾 Ukládám…";
+      try {
+        const r = await fetch(url, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            description_user: newUser,
+            description_system: newSys,
+          }),
+        });
+        if (!r.ok) {
+          const errBody = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+        }
+        _showToast("Popis uložen", "success");
+        // Update parent form's local spec consistency (no reload nutny)
+        if (typeof opts.onSaved === "function") {
+          try {
+            opts.onSaved({
+              description_user: newUser,
+              description_system: newSys,
+            });
+          } catch (e) {
+            console.error("[DescriptionsPopup] onSaved callback failed:", e);
+          }
+        }
+        shell.close();
+      } catch (e) {
+        console.error("[DescriptionsPopup] save failed:", e);
+        _showToast("Uložení popisu selhalo: " + (e.message || e), "error", 3500);
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = origHtml;
+      }
+    });
+    shell.footer.appendChild(saveBtn);
+
     // Footer — Zavrit (Save flow Krok 14b)
     const closeBtn = document.createElement("button");
     closeBtn.type = "button";
@@ -1980,9 +2052,10 @@
       const activeId = this._pc && typeof this._pc.getActiveId === "function"
         ? this._pc.getActiveId() : "soudecek";
       const data = this._data || {};
-      let entityKind, entityLabel, descUser, descSystem;
+      let entityKind, entityLabel, descUser, descSystem, entityId;
       if (activeId === "prehled" && data.core && data.core.id) {
         entityKind = "core";
+        entityId = data.core.id;
         entityLabel = data.core.label || data.core.code || "(bez labelu)";
         descUser = data.core.description_user;
         descSystem = data.core.description_system;
@@ -1990,16 +2063,31 @@
         // Default: Soudecek tab / menu_node
         const mn = data.menu_node || {};
         entityKind = "menu_node";
+        entityId = mn.id;
         entityLabel = mn.label || mn.code || "(bez labelu)";
         descUser = mn.description_user;
         descSystem = mn.description_system;
       }
+      // Krok 14b+21 (14.5.2026 rano): entityId + onSaved -> popup ma 💾
+      // Uložit button + PATCH backend. onSaved updates local spec
+      // consistency (no reload nutny).
+      const self = this;
       _buildDescriptionsPopup({
         entityKind: entityKind,
+        entityId: entityId,
         entityLabel: entityLabel,
         descUser: descUser,
         descSystem: descSystem,
         onDirty: this._onDirty.bind(this),
+        onSaved: function(payload) {
+          if (entityKind === "core" && self._spec && self._spec.data && self._spec.data.core) {
+            self._spec.data.core.description_user = payload.description_user;
+            self._spec.data.core.description_system = payload.description_system;
+          } else if (entityKind === "menu_node" && self._spec && self._spec.data && self._spec.data.menu_node) {
+            self._spec.data.menu_node.description_user = payload.description_user;
+            self._spec.data.menu_node.description_system = payload.description_system;
+          }
+        },
       });
     }
 
@@ -2416,12 +2504,21 @@
         });
         return;
       }
+      // Krok 14b+21 (14.5.2026 rano): entityId + onSaved
+      const self = this;
       _buildDescriptionsPopup({
         entityKind: "core",
+        entityId: core.id,
         entityLabel: core.label || core.code || "(bez labelu)",
         descUser: core.description_user,
         descSystem: core.description_system,
         onDirty: this._onDirty.bind(this),
+        onSaved: function(payload) {
+          if (self._data && self._data.core) {
+            self._data.core.description_user = payload.description_user;
+            self._data.core.description_system = payload.description_system;
+          }
+        },
       });
     }
 
@@ -3307,6 +3404,32 @@
       _showToast("Změny zrušeny", "info");
     }
 
+    // Krok 14b+21 (14.5.2026 rano, Marti's "📘 Popis save"): popup pro
+    // core description (user + system). Volane z header 📘 button
+    // (onShowDescriptions handler v _buildModalShell). PATCH backend
+    // pres /design/fw-core/update/{id} -> toast + update local spec.
+    _openDescriptionsPopup() {
+      if (!this._spec || !this._spec.core) {
+        _showToast("Spec není načtený, nelze otevřít popis", "error");
+        return;
+      }
+      const core = this._spec.core;
+      const self = this;
+      _buildDescriptionsPopup({
+        entityKind: "core",
+        entityId: core.id,
+        entityLabel: core.label || core.code || "(bez labelu)",
+        descUser: core.description_user,
+        descSystem: core.description_system,
+        onDirty: this._onDirty.bind(this),
+        onSaved: function(payload) {
+          // Update local spec consistency (no full reload nutny)
+          self._spec.core.description_user = payload.description_user;
+          self._spec.core.description_system = payload.description_system;
+        },
+      });
+    }
+
     async _beforeCloseHandler() {
       if (!this._dirty || this._dirty.size === 0) return "close";
       const count = this._dirty.size;
@@ -3340,6 +3463,9 @@
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
         onClose: () => _markFormDirty(this, false),
+        // Krok 14b+21 (14.5.2026 rano): 📘 popup pro core description
+        // (user + system). PATCH /design/fw-core/update/{id} po save.
+        onShowDescriptions: () => this._openDescriptionsPopup(),
       });
       document.body.appendChild(this._shell.overlay);
 

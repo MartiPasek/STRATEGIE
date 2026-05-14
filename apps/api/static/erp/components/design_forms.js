@@ -631,6 +631,153 @@
   // Vraci Promise<boolean> — true = OK, false = Zrušit/Esc.
   // ────────────────────────────────────────────────────────────────────
 
+  // Phase 38.4 Krok 14d-D polish (14.5.2026 vecer, Marti's "Popup dialog
+  // zmen na dark theme"): _promptDarkDialog — input variant of
+  // _confirmDarkDialog. Replaces native window.prompt() (white system).
+  //
+  // opts: {
+  //   title: string (header)
+  //   message: string (body — instruction text above input)
+  //   defaultValue: string (input initial value)
+  //   placeholder: string (input placeholder)
+  //   okLabel: string (default 'Uložit')
+  //   cancelLabel: string (default 'Zrušit')
+  // }
+  // Returns: Promise<string | null> — string with user input, or null on cancel/Esc
+  function _promptDarkDialog(opts) {
+    opts = opts || {};
+    const title = opts.title || "Zadej hodnotu";
+    const message = opts.message || "";
+    const defaultValue = opts.defaultValue != null ? String(opts.defaultValue) : "";
+    const placeholder = opts.placeholder || "";
+    const okLabel = opts.okLabel || "Uložit";
+    const cancelLabel = opts.cancelLabel || "Zrušit";
+
+    return new Promise((resolve) => {
+      const ovr = document.createElement("div");
+      ovr.className = "erp-prompt-overlay";
+      ovr.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9500;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const dlg = document.createElement("div");
+      dlg.className = "erp-prompt-dialog erp-design-modal";
+      dlg.style.cssText =
+        "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
+        "width:480px;max-width:90vw;color:#cfd6df;font-size:13px;" +
+        "box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+
+      // Header (analog _confirmDarkDialog s × close)
+      const hdr = document.createElement("div");
+      hdr.style.cssText =
+        "padding:12px 16px;border-bottom:1px solid #2a3340;background:#141a20;" +
+        "font-size:14px;font-weight:600;color:#e8eef5;" +
+        "display:flex;align-items:center;justify-content:space-between;gap:12px;";
+      const hdrTitle = document.createElement("span");
+      hdrTitle.style.cssText = "flex:1 1 auto;";
+      hdrTitle.textContent = title;
+      hdr.appendChild(hdrTitle);
+      const hdrClose = document.createElement("button");
+      hdrClose.type = "button";
+      hdrClose.textContent = "×";
+      hdrClose.setAttribute("aria-label", "Zavřít");
+      hdrClose.style.cssText =
+        "background:transparent;border:none;color:#8a96a4;font-size:22px;" +
+        "cursor:pointer;padding:0 6px;line-height:1;flex:0 0 auto;";
+      hdr.appendChild(hdrClose);
+      dlg.appendChild(hdr);
+
+      // Body — message + input
+      const body = document.createElement("div");
+      body.style.cssText =
+        "padding:16px;color:#cfd6df;font-size:13px;line-height:1.5;" +
+        "display:flex;flex-direction:column;gap:10px;";
+      if (message) {
+        const msgEl = document.createElement("div");
+        msgEl.style.cssText = "white-space:pre-wrap;color:#a8b4c2;";
+        msgEl.textContent = message;
+        body.appendChild(msgEl);
+      }
+      const input = document.createElement("input");
+      input.type = "text";
+      input.value = defaultValue;
+      if (placeholder) input.placeholder = placeholder;
+      input.style.cssText =
+        "background:#0f141a;border:1px solid #3a4754;color:#e8eef5;" +
+        "padding:8px 10px;border-radius:3px;font-size:13px;" +
+        "font-family:inherit;outline:none;width:100%;box-sizing:border-box;";
+      input.addEventListener("focus", () => {
+        input.style.borderColor = "#3a8aa8";
+        input.style.boxShadow = "0 0 0 1px rgba(58,138,168,0.3)";
+      });
+      input.addEventListener("blur", () => {
+        input.style.borderColor = "#3a4754";
+        input.style.boxShadow = "none";
+      });
+      body.appendChild(input);
+      dlg.appendChild(body);
+
+      // Footer — Storno + OK (OK vpravo, Marti's pattern z confirm dialog)
+      const ftr = document.createElement("div");
+      ftr.style.cssText =
+        "padding:10px 16px;border-top:1px solid #2a3340;background:#141a20;" +
+        "display:flex;justify-content:flex-end;gap:8px;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = cancelLabel;
+      cancelBtn.style.cssText =
+        "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      ftr.appendChild(cancelBtn);
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.textContent = okLabel;
+      okBtn.style.cssText =
+        "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;" +
+        "font-weight:600;";
+      ftr.appendChild(okBtn);
+
+      dlg.appendChild(ftr);
+      ovr.appendChild(dlg);
+      document.body.appendChild(ovr);
+
+      function cleanup() {
+        try { ovr.parentNode && ovr.parentNode.removeChild(ovr); } catch (e) {}
+        document.removeEventListener("keydown", onKey, true);
+      }
+      function onKey(ev) {
+        if (ev.key === "Escape") {
+          ev.preventDefault();
+          ev.stopPropagation();
+          cleanup();
+          resolve(null);
+        } else if (ev.key === "Enter") {
+          // Plus check že nemáme multiline input (textarea) — input single-line OK
+          ev.preventDefault();
+          ev.stopPropagation();
+          cleanup();
+          resolve(input.value);
+        }
+      }
+      document.addEventListener("keydown", onKey, true);
+
+      cancelBtn.addEventListener("click", () => { cleanup(); resolve(null); });
+      hdrClose.addEventListener("click", () => { cleanup(); resolve(null); });
+      okBtn.addEventListener("click", () => { cleanup(); resolve(input.value); });
+
+      // Auto-focus input + select all default value
+      setTimeout(() => {
+        try {
+          input.focus();
+          input.select();
+        } catch (e) {}
+      }, 50);
+    });
+  }
+
   function _confirmDarkDialog(opts) {
     opts = opts || {};
     const title = opts.title || "Potvrdit";
@@ -4139,12 +4286,16 @@
     }
 
     async _addChildRow(childKey, childInfo) {
-      // MVP — native prompt pro contact_value. Polish v Krok 14d-E.
+      // Phase 38.4 Krok 14d-D polish (14.5.2026 vecer, Marti's "Popup
+      // dialog zmen na dark theme"): _promptDarkDialog místo window.prompt.
       const label = childInfo.label || childKey;
-      const value = window.prompt(
-        "Přidat " + label + " — zadej hodnotu:\n" +
-        "(např. email adresa nebo telefonní číslo)"
-      );
+      const value = await _promptDarkDialog({
+        title: "Přidat " + label,
+        message: "Zadej hodnotu (např. email adresa nebo telefonní číslo):",
+        placeholder: "...",
+        okLabel: "Přidat",
+        cancelLabel: "Zrušit",
+      });
       if (!value || !value.trim()) return;
 
       try {
@@ -4176,20 +4327,24 @@
     }
 
     async _editChildCell(childKey, childInfo, row, col, tdEl) {
-      // MVP — native prompt pro new value. Polish v Krok 14d-E.
-      // Boolean cols: toggle (no prompt — just flip)
+      // Phase 38.4 Krok 14d-D polish (14.5.2026 vecer, Marti's "Popup
+      // dialog zmen na dark theme"): _promptDarkDialog místo window.prompt.
+      // Boolean cols: toggle (no dialog — instant flip)
       const currentVal = row[col];
       let newVal;
       if (typeof currentVal === "boolean") {
         newVal = !currentVal;
       } else {
-        const input = window.prompt(
-          "Editovat " + col + ":\n(aktuální hodnota: " + (currentVal == null ? "—" : currentVal) + ")",
-          currentVal == null ? "" : String(currentVal)
-        );
-        if (input == null) return;  // Cancel
+        const input = await _promptDarkDialog({
+          title: "Editovat " + col,
+          message: "Aktuální hodnota: " + (currentVal == null ? "—" : currentVal),
+          defaultValue: currentVal == null ? "" : String(currentVal),
+          okLabel: "Uložit",
+          cancelLabel: "Zrušit",
+        });
+        if (input == null) return;  // Cancel (Esc / × / Storno)
         newVal = input.trim() === "" ? null : input.trim();
-        if (newVal === String(currentVal)) return;  // No change
+        if (newVal === (currentVal == null ? null : String(currentVal))) return;  // No change
       }
 
       try {
@@ -4641,7 +4796,43 @@
         // dataset lookup.
         sec.wrap.dataset.regionSlot = panel.slot || "main";
 
+        // Phase 38.4 Krok 14d-D polish 2 (14.5.2026 vecer, Marti's
+        // "Gridy prosim dragabled pro presun nahoru do main"):
+        // Main panel jako drop target pro children sections. Drop nad
+        // main → child se přesune před main panel (this._childPosition).
+        if (panel.slot === "main") {
+          sec.wrap.addEventListener("dragover", (ev) => {
+            const types = ev.dataTransfer && ev.dataTransfer.types;
+            if (!types || !Array.from(types).includes("application/x-erp-child-section")) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = "move";
+            sec.wrap.style.borderTop = "3px solid #5dbf5d";
+          });
+          sec.wrap.addEventListener("dragleave", (ev) => {
+            if (ev.target === sec.wrap || ev.currentTarget === sec.wrap) {
+              sec.wrap.style.borderTop = "";
+            }
+          });
+          sec.wrap.addEventListener("drop", (ev) => {
+            const draggedKey = ev.dataTransfer.getData("application/x-erp-child-section");
+            if (!draggedKey) return;
+            ev.preventDefault();
+            sec.wrap.style.borderTop = "";
+            // Move child to before-main position
+            this._childPosition = this._childPosition || {};
+            this._childPosition[draggedKey] = "before-main";
+            this._render();
+            this._attachDropTargetForGalleryDrag();
+            _showToast("Sekce přesunuta nahoru", "success", 1500);
+          });
+        }
+
         root.appendChild(sec.wrap);
+
+        // Phase 38.4 Krok 14d-D polish 2: insert children with position=
+        // 'before-main' RIGHT AFTER main panel — no, BEFORE main panel...
+        // wait, we already appended main. We need to insert before.
+        // Re-think: pojďme insert children-before-main PRED main append.
       }
 
       // Phase 38.4 Krok 14d-D (14.5.2026 vecer, Marti-AI's Q3 polymorphic):
@@ -4649,14 +4840,11 @@
       // Variant A — sub-grid v form pod hlavnimi fields. Pattern z Centrály
       // 1 DBGrid v TForm.
       //
-      // Per child key (např. "emails", "phones"): section header + native
-      // HTML table s rows + ✕ archive button per row + + Přidat button.
-      // MVP read-only display s native prompt() pro add/edit. Polish v
-      // Krok 14d-E (inline edit UX, AG Grid mini, drag reorder).
-      //
-      // Krok 14d-D+ (14.5.2026 vecer, Marti's "udelej ho dragable"):
-      // Per-section drag handle grip vlevo. Apply preserve order po
-      // re-render přes this._childOrder array (in-memory state).
+      // Krok 14d-D polish 2 (14.5. vecer, Marti's "nahoru do main"):
+      // Per child key má position state ('before-main' | 'after-main' default).
+      // Default = render po panel loop (after-main). Pokud Marti dragoval
+      // section nad main panel, position='before-main' → vložit PRED main
+      // panel v root DOM (po render).
       const childrenData = (this._spec && this._spec.children) || {};
       const allKeys = Object.keys(childrenData);
       if (allKeys.length > 0) {
@@ -4670,7 +4858,33 @@
             if (!this._childOrder.includes(k)) this._childOrder.push(k);
           }
         }
-        for (const childKey of this._childOrder) {
+        this._childPosition = this._childPosition || {};
+
+        // Split per position
+        const beforeMain = this._childOrder.filter(
+          k => this._childPosition[k] === "before-main"
+        );
+        const afterMain = this._childOrder.filter(
+          k => this._childPosition[k] !== "before-main"
+        );
+
+        // Insert before-main children PRED main panel section v root
+        if (beforeMain.length > 0) {
+          const mainPanelEl = root.querySelector('[data-region-slot="main"]');
+          for (const childKey of beforeMain) {
+            const childInfo = childrenData[childKey];
+            if (!childInfo) continue;
+            const childSec = this._renderChildSection(childKey, childInfo);
+            if (mainPanelEl) {
+              root.insertBefore(childSec, mainPanelEl);
+            } else {
+              root.appendChild(childSec);
+            }
+          }
+        }
+
+        // After-main children append na konci root (default)
+        for (const childKey of afterMain) {
           const childInfo = childrenData[childKey];
           if (!childInfo) continue;
           root.appendChild(this._renderChildSection(childKey, childInfo));

@@ -933,6 +933,17 @@
     const labelStr = opts.entityLabel ? String(opts.entityLabel) : "(bez labelu)";
     const titleText = "📘 Popis: " + labelStr;
 
+    // Phase 38.4 Krok 14b+22 (14.5.2026 odpoledne, Marti's "schovej tu
+    // sekci pro vyvojare pokud neni globalni DESIGN mode"):
+    // System (developer) memo viditelne JEN v DESIGN mode. V PROD rezimu
+    // zobrazi se full-width jen user memo — bezny uzivatel nevidi
+    // developer popis (analog Krok 14b+17 sysToggle visibility gate).
+    //
+    // Backend save endpoint chodi pro oboji popisy bez ohledu na UI gate
+    // (description_system zustane preserved at field hidden, ale opts.descSystem
+    // se neulozi pres tento popup v PROD mode — jen description_user).
+    const designModeOn = window._erpDesignMode === true;
+
     // Popup nepouziva beforeClose handler — dirty tracking je v hlavnim
     // formu (memo nas vola onDirty primo). Close = vzdy povoleno, data
     // zustanou v form's state.
@@ -943,18 +954,23 @@
     });
     document.body.appendChild(shell.overlay);
 
-    // Body — vertikalni flex, 2 memos vedle sebe via CSS toggle.
-    // Memo full-width, full-height (60vh).
+    // Body — vertikalni flex, 2 memos vedle sebe via CSS toggle (DESIGN),
+    // nebo jediny user memo full-width (PROD). Full-height (60vh).
     shell.body.style.padding = "0";
     shell.body.style.display = "flex";
     shell.body.style.flexDirection = "column";
 
     const info = document.createElement("div");
     info.style.cssText = "padding:10px 16px;background:#141a20;border-bottom:1px solid #2a3340;color:#8a96a4;font-size:11px;line-height:1.5;";
-    info.innerHTML =
-      "<span class=\"section-title-user\">👁️ Uživatelský popis — k čemu jádro slouží, jak s ním pracovat. Markdown.</span>" +
-      "<span class=\"section-title-system\">🔧 Systémový popis (vývojáři) — implementace, data zdroje, edge cases, debug. Markdown.</span>" +
-      "<br><span style=\"font-size:10px;opacity:0.7;\">Přepnout pomocí ikony 👁️ Uživatel / System v hlavičce. Je to jako CLAUDE.md pro tohle jádro.</span>";
+    if (designModeOn) {
+      info.innerHTML =
+        "<span class=\"section-title-user\">👁️ Uživatelský popis — k čemu jádro slouží, jak s ním pracovat. Markdown.</span>" +
+        "<span class=\"section-title-system\">🔧 Systémový popis (vývojáři) — implementace, data zdroje, edge cases, debug. Markdown.</span>" +
+        "<br><span style=\"font-size:10px;opacity:0.7;\">Přepnout pomocí ikony 👁️ Uživatel / System v hlavičce. Je to jako CLAUDE.md pro tohle jádro.</span>";
+    } else {
+      info.innerHTML =
+        "👁️ Popis — k čemu jádro slouží, jak s ním pracovat. Markdown.";
+    }
     shell.body.appendChild(info);
 
     // Memo container — fills body, 60vh height
@@ -962,14 +978,20 @@
     memoContainer.style.cssText = "padding:12px 16px;flex:1 1 auto;display:flex;flex-direction:column;min-height:0;";
     shell.body.appendChild(memoContainer);
 
-    // User memo
-    const userWrap = _memo("Popis (uživatel)", opts.descUser, {
+    // User memo. V PROD nepridavame `desc-memo-user` class — body's
+    // data-design-system-names="1" leftover by jinak skryl user memo
+    // pres CSS pravidlo (line ~482). V PROD je sysToggle nedostupny, ale
+    // body attribute muze byt persistent leftover z drivejsi DESIGN session.
+    const userMemoLabel = designModeOn ? "Popis (uživatel)" : "Popis";
+    const userWrap = _memo(userMemoLabel, opts.descUser, {
       fieldKey: entityKind + ".description_user",
       onDirty: opts.onDirty,
       rows: 22,
       maxRows: 40,
     });
-    userWrap.classList.add("desc-memo-user");
+    if (designModeOn) {
+      userWrap.classList.add("desc-memo-user");
+    }
     userWrap.classList.add("design-desc-popup-memo");
     userWrap.style.flex = "1 1 auto";
     userWrap.style.minHeight = "0";
@@ -977,23 +999,29 @@
     userWrap.style.flexDirection = "column";
     memoContainer.appendChild(userWrap);
 
-    // System memo
-    const sysWrap = _memo("Popis (systém — vývojáři)", opts.descSystem, {
-      fieldKey: entityKind + ".description_system",
-      onDirty: opts.onDirty,
-      rows: 22,
-      maxRows: 40,
-    });
-    sysWrap.classList.add("desc-memo-system");
-    sysWrap.classList.add("design-desc-popup-memo");
-    sysWrap.style.flex = "1 1 auto";
-    sysWrap.style.minHeight = "0";
-    sysWrap.style.display = "flex";
-    sysWrap.style.flexDirection = "column";
-    memoContainer.appendChild(sysWrap);
+    // System memo — jen v DESIGN mode. V PROD vubec nerendrujem (Marti's
+    // pozadavek "schovej tu sekci pro vyvojare"). sysWrap zustava null
+    // a saveBtn handler to detekuje (description_system se nepošle).
+    let sysWrap = null;
+    if (designModeOn) {
+      sysWrap = _memo("Popis (systém — vývojáři)", opts.descSystem, {
+        fieldKey: entityKind + ".description_system",
+        onDirty: opts.onDirty,
+        rows: 22,
+        maxRows: 40,
+      });
+      sysWrap.classList.add("desc-memo-system");
+      sysWrap.classList.add("design-desc-popup-memo");
+      sysWrap.style.flex = "1 1 auto";
+      sysWrap.style.minHeight = "0";
+      sysWrap.style.display = "flex";
+      sysWrap.style.flexDirection = "column";
+      memoContainer.appendChild(sysWrap);
+    }
 
     // Stretch memo textareas to fill memoContainer
     function _stretchMemo(wrap) {
+      if (!wrap) return;
       const ta = wrap.querySelector("textarea");
       if (ta) {
         ta.style.flex = "1 1 auto";
@@ -1029,11 +1057,14 @@
         _showToast("Entity ID chybi — popup nezná koho uložit", "error");
         return;
       }
-      // Read current values z memo textareas
+      // Read current values z memo textareas. sysTextarea muze byt null
+      // (PROD mode bez DESIGN — system memo se vubec nerendruje, popup
+      // posila jen description_user; system value zustane preserved at
+      // field na backendu).
       const userTextarea = userWrap.querySelector("textarea");
-      const sysTextarea = sysWrap.querySelector("textarea");
+      const sysTextarea = sysWrap ? sysWrap.querySelector("textarea") : null;
       const newUser = userTextarea ? userTextarea.value : "";
-      const newSys = sysTextarea ? sysTextarea.value : "";
+      const newSys = sysTextarea ? sysTextarea.value : null;
       // 3-segment route podle entityKind
       const routeSegment = opts.entityKind === "menu_node" ? "fw-menu-node" : "fw-core";
       const url = "/api/v1/erp/design/" + routeSegment + "/update/" +
@@ -1042,27 +1073,34 @@
       const origHtml = saveBtn.innerHTML;
       saveBtn.innerHTML = "💾 Ukládám…";
       try {
+        // V PROD posilame jen description_user (system se nedotyka).
+        // V DESIGN posilame oboji (backend whitelist akceptuje obojí).
+        const payload = { description_user: newUser };
+        if (sysTextarea) {
+          payload.description_system = newSys;
+        }
         const r = await fetch(url, {
           method: "PATCH",
           headers: { "Content-Type": "application/json" },
           credentials: "include",
-          body: JSON.stringify({
-            description_user: newUser,
-            description_system: newSys,
-          }),
+          body: JSON.stringify(payload),
         });
         if (!r.ok) {
           const errBody = await r.json().catch(() => ({}));
           throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
         }
         _showToast("Popis uložen", "success");
-        // Update parent form's local spec consistency (no reload nutny)
+        // Update parent form's local spec consistency (no reload nutny).
+        // V PROD posilame jen description_user; description_system zustane
+        // pri stare hodnote — opts.onSaved dostane oba klice jen pokud
+        // jsme oboji menili.
         if (typeof opts.onSaved === "function") {
           try {
-            opts.onSaved({
-              description_user: newUser,
-              description_system: newSys,
-            });
+            const savedPayload = { description_user: newUser };
+            if (sysTextarea) {
+              savedPayload.description_system = newSys;
+            }
+            opts.onSaved(savedPayload);
           } catch (e) {
             console.error("[DescriptionsPopup] onSaved callback failed:", e);
           }

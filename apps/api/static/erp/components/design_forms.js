@@ -4125,7 +4125,15 @@
 
               // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field
               // do draggable containeru pro reorder. Plus drag handle.
-              if (this._formDesignMode === true && panel.slot === "main") {
+              //
+              // Phase 38.4 Krok 14c+3.2 (14.5.2026 odpoledne, Marti's bug
+              // report "Lookup v footer nemá ikonky, nejde drag"): drop
+              // `panel.slot === "main"` constraint. DESIGN wrap funguje
+              // napříč VŠEMI panels (header / main / footer). Důvod: Marti
+              // přidal Lookup do footer via gallery drop (Krok 14c+3 region
+              // detection) a očekává action buttons + drag handle stejně
+              // jako v main. Symetrie principle.
+              if (this._formDesignMode === true) {
                 const wrapped = this._wrapFieldForDesign(fieldEl, f, idx, slotFields.length);
                 if (alwaysNewRow) wrapped.style.gridColumnStart = "1";
                 sec.grid.appendChild(wrapped);

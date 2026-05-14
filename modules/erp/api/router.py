@@ -2038,9 +2038,11 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
     ds = _gds_fcfg()
     try:
         # 1. Load list core by code
+        # Phase 38.4 Krok 14b+21.1 hotfix (14.5.2026 rano): description column
+        # bylo RENAMED na description_user + description_system (split).
         list_core = ds.execute(_sql_text_fcfg("""
-            SELECT id, code, label, description, layout_type,
-                   data_entity_type, version, is_active
+            SELECT id, code, label, description_user, description_system,
+                   layout_type, data_entity_type, version, is_active
             FROM fw.core
             WHERE code = :code
               AND is_active = true
@@ -2061,8 +2063,8 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
                 """), {"cislo": cislo}).mappings().one_or_none()
                 if mn_for_cislo and mn_for_cislo.get("core_id"):
                     list_core = ds.execute(_sql_text_fcfg("""
-                        SELECT id, code, label, description, layout_type,
-                               data_entity_type, version, is_active
+                        SELECT id, code, label, description_user, description_system,
+                               layout_type, data_entity_type, version, is_active
                         FROM fw.core
                         WHERE id = :id
                           AND is_active = true
@@ -2100,9 +2102,9 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
         # 3. Hledej form core pro tu entity
         suggested_form_code = f"{entity_type}_edit"
         form_core = ds.execute(_sql_text_fcfg("""
-            SELECT id, code, label, description, layout_type,
-                   data_entity_type, version, layout_template, is_active,
-                   created_at
+            SELECT id, code, label, description_user, description_system,
+                   layout_type, data_entity_type, version, layout_template,
+                   is_active, created_at
             FROM fw.core
             WHERE data_entity_type = :etype
               AND layout_type = 'form'
@@ -12493,3 +12495,4 @@ def _render_error_page(title: str, msg: str) -> str:
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
+

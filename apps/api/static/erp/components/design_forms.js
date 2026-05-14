@@ -4146,100 +4146,110 @@
         "child:" + childKey
       );
 
-      // Phase 38.4 Krok 14d-D+ (14.5.2026 vecer, Marti's "dragable"):
-      // Per-section drag handle + dragover/drop reorder. MVP — in-memory
-      // state přes this._childOrder. Section wrap dostane draggable=true,
-      // grip ⋮⋮ vlevo (visual hint), drop target = jiná section / form.
-      sec.wrap.draggable = true;
-      sec.wrap.dataset.childSectionKey = childKey;
-      sec.wrap.style.cursor = "default";  // default — grab jen na grip
+      // Phase 38.4 Krok 14f-O (14.5.2026 vecer, Marti's "v production mode
+      // jsou gridy dragabled... to ma byt jen v design mode"):
+      // Drag handle + grip + contextmenu jsou DESIGN-only features.
+      // V PROD mode child section je read-only display.
+      const designMode = this._formDesignMode === true;
+      if (!designMode) {
+        // PROD mode: short-circuit — pouze static render bez drag/context.
+        // Pokracuj k table rendering (data display) niz.
+      } else {
+        // Phase 38.4 Krok 14d-D+ (14.5.2026 vecer, Marti's "dragable"):
+        // Per-section drag handle + dragover/drop reorder. MVP — in-memory
+        // state přes this._childOrder. Section wrap dostane draggable=true,
+        // grip ⋮⋮ vlevo (visual hint), drop target = jiná section / form.
+        sec.wrap.draggable = true;
+        sec.wrap.dataset.childSectionKey = childKey;
+        sec.wrap.style.cursor = "default";  // default — grab jen na grip
 
-      // Drag handle grip (visual + cursor:grab on hover)
-      const grip = document.createElement("div");
-      grip.textContent = "⋮⋮";
-      grip.title = "Drag pro přesun sekce nahoru/dolů";
-      grip.style.cssText =
-        "position:absolute;left:4px;top:8px;width:18px;height:24px;" +
-        "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
-        "user-select:none;display:flex;align-items:center;justify-content:center;" +
-        "z-index:2;transition:color 0.15s;";
-      grip.addEventListener("mouseenter", () => grip.style.color = "#7ed4e8");
-      grip.addEventListener("mouseleave", () => grip.style.color = "#5d6975");
-      sec.wrap.style.position = "relative";
-      sec.wrap.style.paddingLeft = "28px";  // make room pro grip
-      sec.wrap.appendChild(grip);
+        // Drag handle grip (visual + cursor:grab on hover)
+        const grip = document.createElement("div");
+        grip.textContent = "⋮⋮";
+        grip.title = "Drag pro přesun sekce nahoru/dolů";
+        grip.style.cssText =
+          "position:absolute;left:4px;top:8px;width:18px;height:24px;" +
+          "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
+          "user-select:none;display:flex;align-items:center;justify-content:center;" +
+          "z-index:2;transition:color 0.15s;";
+        grip.addEventListener("mouseenter", () => grip.style.color = "#7ed4e8");
+        grip.addEventListener("mouseleave", () => grip.style.color = "#5d6975");
+        sec.wrap.style.position = "relative";
+        sec.wrap.style.paddingLeft = "28px";  // make room pro grip
+        sec.wrap.appendChild(grip);
 
-      // Drag handlers — only initiate drag z grip area (mousedown na grip)
-      let _dragArmed = false;
-      grip.addEventListener("mousedown", () => { _dragArmed = true; });
-      // Globální mouseup fallback — pokud user neuvolnil dragstart
-      document.addEventListener("mouseup", () => { _dragArmed = false; }, { once: true });
+        // Drag handlers — only initiate drag z grip area (mousedown na grip)
+        let _dragArmed = false;
+        grip.addEventListener("mousedown", () => { _dragArmed = true; });
+        // Globální mouseup fallback — pokud user neuvolnil dragstart
+        document.addEventListener("mouseup", () => { _dragArmed = false; }, { once: true });
 
-      // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "dodelat
-      // nastaveni gridu, minimalne tlacitko odebrat"): right-click na
-      // child section → settings popup.
-      sec.wrap.addEventListener("contextmenu", (ev) => {
-        const tag = ev.target && ev.target.tagName;
-        if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
-          return;
-        }
-        ev.preventDefault();
-        ev.stopPropagation();
-        this._openChildSectionSettings(childKey, childInfo);
-      });
+        // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "dodelat
+        // nastaveni gridu, minimalne tlacitko odebrat"): right-click na
+        // child section → settings popup.
+        sec.wrap.addEventListener("contextmenu", (ev) => {
+          const tag = ev.target && ev.target.tagName;
+          if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+            return;
+          }
+          ev.preventDefault();
+          ev.stopPropagation();
+          this._openChildSectionSettings(childKey, childInfo);
+        });
 
-      sec.wrap.addEventListener("dragstart", (ev) => {
-        if (!_dragArmed) {
-          ev.preventDefault();  // ignore drag pokud ne z grip
-          return;
-        }
-        sec.wrap.style.opacity = "0.5";
-        ev.dataTransfer.effectAllowed = "move";
-        ev.dataTransfer.setData(
-          "application/x-erp-child-section",
-          childKey
-        );
-      });
-      sec.wrap.addEventListener("dragend", () => {
-        sec.wrap.style.opacity = "1";
-        _dragArmed = false;
-      });
+        sec.wrap.addEventListener("dragstart", (ev) => {
+          if (!_dragArmed) {
+            ev.preventDefault();  // ignore drag pokud ne z grip
+            return;
+          }
+          sec.wrap.style.opacity = "0.5";
+          ev.dataTransfer.effectAllowed = "move";
+          ev.dataTransfer.setData(
+            "application/x-erp-child-section",
+            childKey
+          );
+        });
+        sec.wrap.addEventListener("dragend", () => {
+          sec.wrap.style.opacity = "1";
+          _dragArmed = false;
+        });
 
-      sec.wrap.addEventListener("dragover", (ev) => {
-        const types = ev.dataTransfer && ev.dataTransfer.types;
-        if (!types || !Array.from(types).includes("application/x-erp-child-section")) return;
-        ev.preventDefault();
-        ev.dataTransfer.dropEffect = "move";
-        sec.wrap.style.borderTop = "2px solid #7ed4e8";
-      });
-      sec.wrap.addEventListener("dragleave", (ev) => {
-        if (ev.target === sec.wrap) {
+        sec.wrap.addEventListener("dragover", (ev) => {
+          const types = ev.dataTransfer && ev.dataTransfer.types;
+          if (!types || !Array.from(types).includes("application/x-erp-child-section")) return;
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = "move";
+          sec.wrap.style.borderTop = "2px solid #7ed4e8";
+        });
+        sec.wrap.addEventListener("dragleave", (ev) => {
+          if (ev.target === sec.wrap) {
+            sec.wrap.style.borderTop = "";
+          }
+        });
+        sec.wrap.addEventListener("drop", (ev) => {
+          ev.preventDefault();
           sec.wrap.style.borderTop = "";
-        }
-      });
-      sec.wrap.addEventListener("drop", (ev) => {
-        ev.preventDefault();
-        sec.wrap.style.borderTop = "";
-        const draggedKey = ev.dataTransfer.getData("application/x-erp-child-section");
-        if (!draggedKey || draggedKey === childKey) return;
+          const draggedKey = ev.dataTransfer.getData("application/x-erp-child-section");
+          if (!draggedKey || draggedKey === childKey) return;
 
-        // Reorder this._childOrder — move dragged key before this section
-        const order = this._childOrder || [];
-        const draggedIdx = order.indexOf(draggedKey);
-        const targetIdx = order.indexOf(childKey);
-        if (draggedIdx < 0 || targetIdx < 0) return;
+          // Reorder this._childOrder — move dragged key before this section
+          const order = this._childOrder || [];
+          const draggedIdx = order.indexOf(draggedKey);
+          const targetIdx = order.indexOf(childKey);
+          if (draggedIdx < 0 || targetIdx < 0) return;
 
-        order.splice(draggedIdx, 1);
-        // Insert dragged BEFORE target (Marti's "dat nahoru" pattern)
-        // Recompute targetIdx after splice (may have shifted)
-        const newTargetIdx = order.indexOf(childKey);
-        order.splice(newTargetIdx, 0, draggedKey);
-        this._childOrder = order;
+          order.splice(draggedIdx, 1);
+          // Insert dragged BEFORE target (Marti's "dat nahoru" pattern)
+          // Recompute targetIdx after splice (may have shifted)
+          const newTargetIdx = order.indexOf(childKey);
+          order.splice(newTargetIdx, 0, draggedKey);
+          this._childOrder = order;
 
-        // Re-render (preserve form data via this._spec, fresh DOM)
-        this._render();
-        this._attachDropTargetForGalleryDrag();
-      });
+          // Re-render (preserve form data via this._spec, fresh DOM)
+          this._render();
+          this._attachDropTargetForGalleryDrag();
+        });
+      }  // /designMode
 
       // Hidden cols z select_columns (interní metadata)
       const HIDDEN_COLS = new Set([

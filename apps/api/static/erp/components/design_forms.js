@@ -4041,17 +4041,40 @@
           ? (targetContainerCode + " #" + targetContainerId)
           : ("panel '" + targetRegion + "'");
 
+        // Phase 38.4 Krok 14f-L (14.5.2026 vecer, Marti's "nedodelana
+        // parametrizace ke kteremu DB fieldu to patri"): otevri column
+        // picker pro non-container, non-label types. Container/label
+        // skip — direct create s auto-name.
+        const isContainer = payload.is_container === true ||
+                            payload.code === "panel" ||
+                            payload.code === "groupbox";
+        const isLabel = payload.code === "label" || payload.code === "label_readonly";
+
+        let nameToUse, captionToUse;
+        if (isContainer || isLabel) {
+          // No DB binding needed — direct create
+          nameToUse = payload.code + "_" + Date.now().toString(36);
+          captionToUse = payload.label;
+        } else {
+          // Open column picker dialog
+          const choice = await this._pickColumnForNewField(payload, parentId);
+          if (!choice) {
+            _showToast("Pridani zrušeno", "info", 1500);
+            return;
+          }
+          nameToUse = choice.name;
+          captionToUse = choice.caption;
+        }
+
         try {
-          // Auto-generate name z code (uniqueness suffix pokud kolize)
-          const baseName = payload.code + "_" + Date.now().toString(36);
           // Phase 38.4 Krok 14f-C (14.5.2026 vecer): pass-through layout
           // pro container types (panel/groupbox). Drag payload obsahuje
           // default layout (panel → {"align":"client"}, groupbox →
           // {"border_mode":"top","label":null}).
           const postBody = {
             parent_comp_def_id: parentId,
-            name: baseName,
-            caption: payload.label,
+            name: nameToUse,
+            caption: captionToUse,
             type_id: payload.id,
             region_slot: targetRegion,
           };
@@ -6169,6 +6192,228 @@
 
       // Focus first input
       setTimeout(() => captionInput.focus(), 50);
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-L (14.5.2026 vecer, Marti's "tam mame jeste
+    // nedodelanou parametrizaci ke kteremu DB fieldu to patri"):
+    // Mini column picker dialog pri drag z palette pro data-bound fields.
+    //
+    // Trigger: drag-drop z gallery pro non-container, non-label-only types.
+    // Modal: dropdown s available columns (entity-columns API) + "Bez DB
+    // vazby" option pro pure-visual fields. OK → POST s name=column.name,
+    // caption=column.caption_default. Cancel → no INSERT.
+    //
+    // Returns Promise<{name, caption} | null> — null pri cancel.
+    // ════════════════════════════════════════════════════════════════
+    async _pickColumnForNewField(payload, parentId) {
+      return new Promise(async (resolve) => {
+        // 1. Fetch entity-columns pres backend (same source jako FieldPickerModal)
+        const entityType = this._spec && this._spec.core && this._spec.core.data_entity_type;
+        if (!entityType) {
+          _showToast("Form nema data_entity_type — nelze ziskat columns", "error", 3000);
+          resolve(null);
+          return;
+        }
+
+        let columns = [];
+        try {
+          const formId = this._spec && this._spec.form && this._spec.form.id;
+          const url = "/api/v1/erp/design/entity-columns/" + encodeURIComponent(entityType) +
+                      (formId ? "?parent_comp_def_id=" + encodeURIComponent(formId) : "");
+          const r = await fetch(url, { credentials: "include" });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const d = await r.json();
+          if (!d.ok) throw new Error(d.error || "unknown");
+          columns = d.columns || [];
+        } catch (e) {
+          _showToast("Nepodarilo se nacist sloupce: " + (e.message || e), "error", 3500);
+          resolve(null);
+          return;
+        }
+
+        // Filter: nejdrive available (existing_comp_def_id == null) — Marti
+        // zridka chce duplikovat existujici field. Show all as info (used).
+        const availableCols = columns.filter(c => c.existing_comp_def_id == null);
+        const usedCols = columns.filter(c => c.existing_comp_def_id != null);
+
+        // 2. Build modal
+        const overlay = document.createElement("div");
+        overlay.style.cssText =
+          "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10002;" +
+          "display:flex;align-items:center;justify-content:center;";
+
+        const modal = document.createElement("div");
+        modal.style.cssText =
+          "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+          "min-width:460px;max-width:560px;color:#e8eef5;font-size:13px;" +
+          "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+
+        // Header
+        const header = document.createElement("div");
+        header.style.cssText =
+          "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+          "display:flex;align-items:center;justify-content:space-between;";
+        const title = document.createElement("div");
+        title.style.cssText = "font-weight:600;font-size:14px;";
+        title.innerHTML = "🔗 DB vazba pro " + payload.label +
+                          " <span style=\"color:#7ed4e8;font-size:11px;font-weight:400;\">(" + payload.code + ")</span>";
+        header.appendChild(title);
+        const closeBtn = document.createElement("button");
+        closeBtn.type = "button";
+        closeBtn.textContent = "✕";
+        closeBtn.style.cssText =
+          "background:transparent;border:none;color:#8a96a4;font-size:18px;" +
+          "cursor:pointer;padding:0;line-height:1;";
+        const _close = (result) => {
+          try { document.body.removeChild(overlay); } catch (e) {}
+          document.removeEventListener("keydown", escHandler, true);
+          resolve(result);
+        };
+        closeBtn.addEventListener("click", () => _close(null));
+        header.appendChild(closeBtn);
+        modal.appendChild(header);
+
+        // Body
+        const body = document.createElement("div");
+        body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+
+        const intro = document.createElement("div");
+        intro.style.cssText = "color:#a8b4c2;font-size:12px;line-height:1.5;";
+        intro.innerHTML =
+          "Vyber DB sloupec, který tato komponenta reprezentuje. " +
+          "Nebo zvol <b>Bez DB vazby</b> pro pure-visual element (label, decorativní).";
+        body.appendChild(intro);
+
+        // Column dropdown
+        const colWrap = document.createElement("div");
+        colWrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+        const colLabel = document.createElement("label");
+        colLabel.textContent = "DB sloupec";
+        colLabel.style.cssText = "color:#a8b4c2;font-size:12px;";
+        colWrap.appendChild(colLabel);
+
+        const colSelect = document.createElement("select");
+        colSelect.style.cssText =
+          "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;" +
+          "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;";
+
+        // Available group
+        if (availableCols.length > 0) {
+          const og = document.createElement("optgroup");
+          og.label = "📋 Volné (" + availableCols.length + ")";
+          for (const c of availableCols) {
+            const opt = document.createElement("option");
+            opt.value = c.name;
+            opt.textContent = c.caption_default + "  (" + c.name + ")";
+            opt.dataset.caption = c.caption_default;
+            og.appendChild(opt);
+          }
+          colSelect.appendChild(og);
+        }
+        // Used group (warning, duplicate)
+        if (usedCols.length > 0) {
+          const og2 = document.createElement("optgroup");
+          og2.label = "⚠ Jiz pouzite na forme (" + usedCols.length + ")";
+          for (const c of usedCols) {
+            const opt = document.createElement("option");
+            opt.value = c.name;
+            opt.textContent = c.caption_default + "  (" + c.name + ")";
+            opt.dataset.caption = c.caption_default;
+            og2.appendChild(opt);
+          }
+          colSelect.appendChild(og2);
+        }
+        // No-binding option
+        const opt0 = document.createElement("option");
+        opt0.value = "__NO_BINDING__";
+        opt0.textContent = "── Bez DB vazby (visual only) ──";
+        colSelect.appendChild(opt0);
+
+        // Default: prvni available, jinak no-binding
+        if (availableCols.length === 0) {
+          opt0.selected = true;
+        }
+        colWrap.appendChild(colSelect);
+        body.appendChild(colWrap);
+
+        // Caption override (optional rename)
+        const capWrap = document.createElement("div");
+        capWrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+        const capLabel = document.createElement("label");
+        capLabel.textContent = "Caption (label v UI)";
+        capLabel.style.cssText = "color:#a8b4c2;font-size:12px;";
+        capWrap.appendChild(capLabel);
+        const capInput = document.createElement("input");
+        capInput.type = "text";
+        capInput.style.cssText =
+          "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;" +
+          "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;" +
+          "box-sizing:border-box;";
+        // Auto-fill caption ze selected column
+        const _syncCaption = () => {
+          const sel = colSelect.options[colSelect.selectedIndex];
+          if (sel && sel.dataset && sel.dataset.caption) {
+            capInput.value = sel.dataset.caption;
+          } else if (sel && sel.value === "__NO_BINDING__") {
+            capInput.value = payload.label;  // fallback comp_type label
+          }
+        };
+        _syncCaption();
+        colSelect.addEventListener("change", _syncCaption);
+        capWrap.appendChild(capInput);
+        body.appendChild(capWrap);
+
+        modal.appendChild(body);
+
+        // Footer
+        const footer = document.createElement("div");
+        footer.style.cssText =
+          "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;" +
+          "display:flex;justify-content:flex-end;gap:8px;";
+
+        const cancelBtn = document.createElement("button");
+        cancelBtn.type = "button";
+        cancelBtn.textContent = "Storno";
+        cancelBtn.style.cssText =
+          "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+          "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
+        cancelBtn.addEventListener("click", () => _close(null));
+        footer.appendChild(cancelBtn);
+
+        const okBtn = document.createElement("button");
+        okBtn.type = "button";
+        okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Přidat';
+        okBtn.style.cssText =
+          "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+        okBtn.addEventListener("click", () => {
+          const selValue = colSelect.value;
+          const caption = capInput.value.trim() || payload.label;
+          if (selValue === "__NO_BINDING__") {
+            // Visual-only — auto-name s timestamp
+            const name = payload.code + "_" + Date.now().toString(36);
+            _close({ name, caption, hasBinding: false });
+          } else {
+            _close({ name: selValue, caption, hasBinding: true });
+          }
+        });
+        footer.appendChild(okBtn);
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const escHandler = (ev) => {
+          if (ev.key === "Escape") {
+            ev.stopPropagation();
+            _close(null);
+          }
+        };
+        document.addEventListener("keydown", escHandler, true);
+
+        setTimeout(() => colSelect.focus(), 50);
+      });
     }
 
     // ════════════════════════════════════════════════════════════════

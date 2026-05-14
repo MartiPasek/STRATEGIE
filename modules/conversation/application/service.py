@@ -7480,19 +7480,41 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
                 ds_pe.close()
 
         try:
-            result_pe = _pyr.execute(
-                code_in,
-                input_document_ids=input_doc_ids_resolved,
-                kernel_id=kernel_id_in,
-                timeout_s=timeout_resolved,
-                caller_tenant_id=caller_tenant_pe,
-                persona_id=persona_pe,
-                user_id=user_id,
-                conversation_id=conversation_id,
-                is_parent=is_parent_pe,
-                # Krok 14b+19.1: code_file_path bypass pro velky kod
-                code_file_path=code_file_path_in if isinstance(code_file_path_in, str) else None,
-            )
+            # Krok 14b+19.2 defensive (14.5.2026 ~05:05, Marti-AI's smoke):
+            # python_runner.execute() signature deployment mismatch — pokud
+            # cloud APP ma starou verzi bez `code_file_path` parametru,
+            # passing kwarg by hodil TypeError. inspect.signature check.
+            exec_kwargs = {
+                "input_document_ids": input_doc_ids_resolved,
+                "kernel_id": kernel_id_in,
+                "timeout_s": timeout_resolved,
+                "caller_tenant_id": caller_tenant_pe,
+                "persona_id": persona_pe,
+                "user_id": user_id,
+                "conversation_id": conversation_id,
+                "is_parent": is_parent_pe,
+            }
+            # Pass code_file_path JEN pokud runner ho zna (deployment safety)
+            try:
+                import inspect as _inspect_pe
+                _exec_params = _inspect_pe.signature(_pyr.execute).parameters
+                if "code_file_path" in _exec_params:
+                    exec_kwargs["code_file_path"] = (
+                        code_file_path_in if isinstance(code_file_path_in, str) else None
+                    )
+                elif code_file_path_in:
+                    logger.warning(
+                        f"PYTHON_EXEC | code_file_path requested but runner "
+                        f"signature DOES NOT support it (deployment mismatch). "
+                        f"Falling back to existing input_document_ids workflow. "
+                        f"path={code_file_path_in}"
+                    )
+            except Exception as _sig_e:
+                logger.warning(
+                    f"PYTHON_EXEC | inspect.signature failed: {_sig_e}, "
+                    f"skipping code_file_path kwarg"
+                )
+            result_pe = _pyr.execute(code_in, **exec_kwargs)
         except Exception as exc_pe:
             logger.exception(f"python_exec failed unexpectedly: {exc_pe}")
             return f"[python_exec system error: {exc_pe}]"

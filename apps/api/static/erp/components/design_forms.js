@@ -5070,13 +5070,18 @@
       this._shell.body.appendChild(loading);
 
       try {
-        // Parallel fetch — comp_types + entity_columns
+        // Phase 38.4 Krok 14c+1 (14.5.2026 vecer): pridan parent_comp_def_id
+        // query param. Backend pak vraci `existing_comp_def_id` per column,
+        // ktery rozdeli sloupce do "available" / "already on form" tabs.
+        const ecUrl = "/api/v1/erp/design/entity-columns/" +
+                      encodeURIComponent(this.opts.entityType) +
+                      (this.opts.parentCompDefId
+                        ? "?parent_comp_def_id=" + encodeURIComponent(this.opts.parentCompDefId)
+                        : "");
+        // Parallel fetch — comp_types + entity_columns (s merge)
         const [ctResp, ecResp] = await Promise.all([
           fetch("/api/v1/erp/design/comp-types", { credentials: "include" }),
-          fetch(
-            "/api/v1/erp/design/entity-columns/" + encodeURIComponent(this.opts.entityType),
-            { credentials: "include" }
-          ),
+          fetch(ecUrl, { credentials: "include" }),
         ]);
         if (!ctResp.ok) throw new Error("comp-types HTTP " + ctResp.status);
         if (!ecResp.ok) throw new Error("entity-columns HTTP " + ecResp.status);
@@ -5090,6 +5095,16 @@
         for (const ct of this._compTypes) this._compTypesById[ct.id] = ct;
         this._columns = ecData.columns || [];
 
+        // Phase 38.4 Krok 14c+1: rozdeleni do dvou kolekci podle existing
+        this._columnsAvailable = this._columns.filter(
+          c => c.existing_comp_def_id == null
+        );
+        this._columnsOnForm = this._columns.filter(
+          c => c.existing_comp_def_id != null
+        );
+        // Active tab — default 'available' (kde user akce sedi)
+        this._activeTab = "available";
+
         this._render();
       } catch (e) {
         loading.style.color = "#e88";
@@ -5098,27 +5113,138 @@
       }
     }
 
+    // Phase 38.4 Krok 14c+1: switch tab + re-render body
+    _switchTab(tabKey) {
+      if (this._activeTab === tabKey) return;
+      this._activeTab = tabKey;
+      this._render();
+    }
+
+    // Phase 38.4 Krok 14c+1: tab strip header (button per tab + counter
+    // badge). Pattern z UI Kit ErpPageControl, ale inline pro modal (no
+    // dependency, ne velka komponenta v jenom palette).
+    _renderTabStrip() {
+      const strip = document.createElement("div");
+      strip.style.cssText =
+        "display:flex;gap:2px;border-bottom:1px solid #2a3340;margin-bottom:10px;";
+
+      const tabs = [
+        {
+          key: "available",
+          label: "Schází přidat",
+          count: this._columnsAvailable.length,
+          accent: "#5dbf5d",
+        },
+        {
+          key: "onform",
+          label: "Již na formě",
+          count: this._columnsOnForm.length,
+          accent: "#7ed4e8",
+        },
+        {
+          key: "preview",
+          label: "Preview",
+          count: null,
+          accent: "#d4b88a",
+        },
+      ];
+
+      for (const t of tabs) {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const active = this._activeTab === t.key;
+        const countStr = t.count != null ? " (" + t.count + ")" : "";
+        btn.textContent = t.label + countStr;
+        btn.style.cssText =
+          "padding:6px 14px;background:" + (active ? "#1f2530" : "transparent") +
+          ";border:1px solid " + (active ? "#3a4754" : "transparent") +
+          ";border-bottom:" + (active
+            ? "3px solid " + t.accent
+            : "3px solid transparent") +
+          ";color:" + (active ? t.accent : "#8a96a4") +
+          ";cursor:pointer;font-size:12px;font-weight:" + (active ? "600" : "400") +
+          ";border-radius:3px 3px 0 0;transition:color 0.15s;";
+        btn.addEventListener("click", () => this._switchTab(t.key));
+        btn.addEventListener("mouseenter", () => {
+          if (!active) btn.style.color = "#cfd6df";
+        });
+        btn.addEventListener("mouseleave", () => {
+          if (!active) btn.style.color = "#8a96a4";
+        });
+        strip.appendChild(btn);
+      }
+      return strip;
+    }
+
     _render() {
       this._shell.body.innerHTML = "";
 
-      // Top hint
+      // Phase 38.4 Krok 14c+1 (14.5.2026 vecer, Marti's "tabsheet pro
+      // schazi/na forme/preview"): tab strip + tab content + footer.
+      // Header counter agreguje cisla per tab.
+      this._shell.body.appendChild(this._renderTabStrip());
+
+      // Top hint (per tab)
       const hint = document.createElement("div");
       hint.style.cssText = "color:#8a96a4;font-size:12px;margin-bottom:10px;line-height:1.5;";
-      hint.innerHTML =
-        "Klikni na řádek pro výběr / odznačení. Typ komponenty lze přepsat " +
-        "pres dropdown vpravo. <b>" + this._columns.length + "</b> sloupců dostupných.";
+      if (this._activeTab === "available") {
+        hint.innerHTML =
+          "Klikni na řádek pro výběr / odznačení. Typ komponenty lze přepsat " +
+          "pres dropdown vpravo. <b>" + this._columnsAvailable.length +
+          "</b> sloupců zbývá přidat.";
+      } else if (this._activeTab === "onform") {
+        hint.innerHTML =
+          "<b>" + this._columnsOnForm.length + "</b> polí už je na formě. " +
+          "Klikni na ✕ vpravo pro odebrání (soft delete — komponenta zmizí " +
+          "z formu, ale data v DB zůstanou).";
+      } else if (this._activeTab === "preview") {
+        hint.innerHTML =
+          "Preview formuláře po insertu vybraných polí. " +
+          "<span style=\"opacity:0.7;font-style:italic;\">(Phase 38.4 Krok 14c+2 — TODO)</span>";
+      }
       this._shell.body.appendChild(hint);
 
-      // Palette container — scrollable list of rows
-      const palette = document.createElement("div");
-      palette.style.cssText =
+      // Tab content container — scrollable list of rows
+      const content = document.createElement("div");
+      content.style.cssText =
         "flex:1 1 auto;overflow-y:auto;border:1px solid #2a3340;border-radius:4px;background:#0f141a;";
-      this._shell.body.appendChild(palette);
+      this._shell.body.appendChild(content);
 
-      // Render each column as a row
-      for (const col of this._columns) {
-        const row = this._renderColumnRow(col);
-        palette.appendChild(row);
+      // Render per active tab
+      if (this._activeTab === "available") {
+        if (this._columnsAvailable.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "padding:24px;text-align:center;color:#5dbf5d;font-size:13px;";
+          empty.innerHTML = "✓ Všechny sloupce už jsou na formě. Není co přidat.";
+          content.appendChild(empty);
+        } else {
+          for (const col of this._columnsAvailable) {
+            content.appendChild(this._renderColumnRow(col));
+          }
+        }
+      } else if (this._activeTab === "onform") {
+        if (this._columnsOnForm.length === 0) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "padding:24px;text-align:center;color:#8a96a4;font-size:13px;";
+          empty.innerHTML = "Form je zatím prázdný — žádné pole.";
+          content.appendChild(empty);
+        } else {
+          for (const col of this._columnsOnForm) {
+            content.appendChild(this._renderOnFormRow(col));
+          }
+        }
+      } else if (this._activeTab === "preview") {
+        const placeholder = document.createElement("div");
+        placeholder.style.cssText =
+          "padding:30px;text-align:center;color:#8a96a4;font-size:13px;line-height:1.7;";
+        placeholder.innerHTML =
+          "<div style=\"font-size:48px;margin-bottom:12px;opacity:0.4;\">📋</div>" +
+          "<b style=\"color:#d4b88a;\">Preview formuláře</b><br>" +
+          "<span style=\"opacity:0.7;\">Tady uvidíš, jak bude formulář vypadat po insertu " +
+          "vybraných polí. Aktuálně vybráno: <b>" + this._selected.size + "</b> polí.</span>" +
+          "<br><br><span style=\"font-size:11px;opacity:0.5;font-style:italic;\">" +
+          "Render preview přijde v Krok 14c+2 (po IT prezentaci).</span>";
+        content.appendChild(placeholder);
       }
 
       // Footer bar — Selected count + actions
@@ -5129,28 +5255,128 @@
       const counter = document.createElement("span");
       counter.id = "fpmCounter";
       counter.style.cssText = "color:#a8b4c2;font-size:12px;margin-right:auto;";
-      counter.textContent = "Vybráno: 0";
+      counter.textContent = "Vybráno: " + this._selected.size;
       footer.appendChild(counter);
 
-      const okBtn = document.createElement("button");
-      okBtn.type = "button";
-      okBtn.style.cssText =
-        "min-width:110px;padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
-        "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
-      okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Přidat vybraná';
-      okBtn.addEventListener("click", () => this._handleSubmit(okBtn));
-      footer.appendChild(okBtn);
+      // OK button visible jen na tab 'available' (akcni tab)
+      if (this._activeTab === "available") {
+        const okBtn = document.createElement("button");
+        okBtn.type = "button";
+        okBtn.style.cssText =
+          "min-width:110px;padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
+          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
+        okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Přidat vybraná';
+        okBtn.addEventListener("click", () => this._handleSubmit(okBtn));
+        footer.appendChild(okBtn);
+      }
 
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
       cancelBtn.style.cssText =
         "min-width:90px;padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
         "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;";
-      cancelBtn.innerHTML = '<span style="color:#d4888a;font-weight:700;margin-right:6px;">✗</span>Storno';
+      cancelBtn.innerHTML = this._activeTab === "available"
+        ? '<span style="color:#d4888a;font-weight:700;margin-right:6px;">✗</span>Storno'
+        : 'Zavřít';
       cancelBtn.addEventListener("click", () => this._shell.close());
       footer.appendChild(cancelBtn);
 
       this._shell.body.appendChild(footer);
+    }
+
+    // Phase 38.4 Krok 14c+1: render row v tabu "Již na formě".
+    // Read-only display (name, caption, current type) + ✕ remove button.
+    _renderOnFormRow(col) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:grid;grid-template-columns:200px 1fr 140px 32px;" +
+        "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
+        "background:rgba(126,212,232,0.04);";
+
+      // 1. Column name + caption
+      const labelWrap = document.createElement("div");
+      labelWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+      const labelName = document.createElement("div");
+      labelName.style.cssText = "font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#9bb5d6;";
+      labelName.textContent = col.name;
+      const labelCap = document.createElement("div");
+      labelCap.style.cssText = "font-size:13px;color:#e8eef5;";
+      labelCap.textContent = col.existing_label || col.caption_default;
+      labelWrap.appendChild(labelName);
+      labelWrap.appendChild(labelCap);
+
+      // 2. Region slot badge + comp_def id (info)
+      const meta = document.createElement("div");
+      meta.style.cssText = "color:#8a96a4;font-size:11px;";
+      const ct = this._compTypesById[col.existing_type_id];
+      meta.innerHTML =
+        "<span style=\"background:#1f2530;padding:2px 6px;border-radius:3px;margin-right:6px;\">" +
+        (col.existing_region_slot || "main") + "</span>" +
+        (ct ? ct.label : "type#" + col.existing_type_id);
+
+      // 3. Type label (current)
+      const typeBadge = document.createElement("div");
+      typeBadge.style.cssText = "font-size:11px;color:#7ed4e8;font-family:ui-monospace,Consolas,monospace;";
+      typeBadge.textContent = "id=" + col.existing_comp_def_id;
+
+      // 4. ✕ remove button
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Odebrat pole z formuláře (soft delete — is_active=false)";
+      removeBtn.style.cssText =
+        "width:28px;height:28px;background:transparent;border:1px solid #3a4754;" +
+        "color:#d4888a;cursor:pointer;border-radius:3px;font-size:14px;";
+      removeBtn.addEventListener("mouseenter", () => {
+        removeBtn.style.background = "#3a1f1f";
+        removeBtn.style.borderColor = "#d4888a";
+      });
+      removeBtn.addEventListener("mouseleave", () => {
+        removeBtn.style.background = "transparent";
+        removeBtn.style.borderColor = "#3a4754";
+      });
+      removeBtn.addEventListener("click", async () => {
+        const confirmed = await _confirmDarkDialog({
+          title: "Odebrat pole '" + (col.existing_label || col.name) + "'?",
+          message: "Pole zmizí z formuláře, ale data v DB zůstanou (soft delete is_active=false). Lze později vrátit.",
+        });
+        if (!confirmed) return;
+        removeBtn.disabled = true;
+        try {
+          const r = await fetch("/api/v1/erp/design/comp-def/" + col.existing_comp_def_id, {
+            method: "DELETE",
+            credentials: "include",
+          });
+          if (!r.ok) {
+            const errBody = await r.json().catch(() => ({}));
+            throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+          }
+          _showToast("Pole odebráno", "success");
+          // Move column z onForm → available + re-render
+          col.existing_comp_def_id = null;
+          col.existing_label = null;
+          col.existing_region_slot = null;
+          col.existing_type_id = null;
+          this._columnsAvailable.push(col);
+          this._columnsOnForm = this._columnsOnForm.filter(c => c !== col);
+          this._render();
+          // Parent form refresh — analog onComplete callback
+          if (typeof this.opts.onComplete === "function") {
+            try { this.opts.onComplete({ removed: 1 }); }
+            catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+          }
+        } catch (e) {
+          console.error("[FieldPickerModal] remove failed:", e);
+          _showToast("Odebrání selhalo: " + (e.message || e), "error", 3500);
+          removeBtn.disabled = false;
+        }
+      });
+
+      row.appendChild(labelWrap);
+      row.appendChild(meta);
+      row.appendChild(typeBadge);
+      row.appendChild(removeBtn);
+      return row;
     }
 
     _renderColumnRow(col) {
@@ -5318,16 +5544,55 @@
         return;
       }
 
-      // Success — close + trigger onComplete callback
+      // Phase 38.4 Krok 14c+1: po success NEzavirat modal. Misto toho
+      // refresh state z backendu + switch na "Na forme" tab — Marti
+      // okamzite vidi pridana pole + muze pokracovat (further add /
+      // remove / Preview). Modal je teted live form editor.
       btnEl.style.background = "#3a7a3a";
-      btnEl.innerHTML = "✅ Hotovo (" + (okCount + existingCount) + ")";
-      setTimeout(() => {
-        if (typeof this.opts.onComplete === "function") {
-          try { this.opts.onComplete({ added: okCount, existing: existingCount }); }
-          catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
-        }
-        this._shell.close();
-      }, 600);
+      btnEl.innerHTML = "✅ Přidáno (" + (okCount + existingCount) + ")";
+
+      try {
+        await this._refreshState();
+        this._selected.clear();
+        this._typeOverrides = {};
+        this._activeTab = "onform"; // switch na vysledek
+        // _render pretvori cely modal vc. footeru — toast oznamuje
+        // success pro discoverability
+        _showToast(
+          "Přidáno: " + okCount + (existingCount > 0 ? ", existovalo: " + existingCount : ""),
+          "success"
+        );
+        this._render();
+      } catch (e) {
+        console.error("[FieldPickerModal] refresh after submit failed:", e);
+        // Fallback: stale close
+        btnEl.disabled = false;
+        btnEl.innerHTML = origHtml;
+      }
+
+      // Parent form refresh — analog DELETE flow
+      if (typeof this.opts.onComplete === "function") {
+        try { this.opts.onComplete({ added: okCount, existing: existingCount }); }
+        catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+      }
+    }
+
+    // Phase 38.4 Krok 14c+1: re-fetch entity-columns s mergem existing
+    // comp_def (po POST/DELETE). Updatuje _columns / _columnsAvailable /
+    // _columnsOnForm in-place — caller pak vola _render().
+    async _refreshState() {
+      const ecUrl = "/api/v1/erp/design/entity-columns/" +
+                    encodeURIComponent(this.opts.entityType) +
+                    (this.opts.parentCompDefId
+                      ? "?parent_comp_def_id=" + encodeURIComponent(this.opts.parentCompDefId)
+                      : "");
+      const r = await fetch(ecUrl, { credentials: "include" });
+      if (!r.ok) throw new Error("entity-columns refresh HTTP " + r.status);
+      const d = await r.json();
+      if (!d.ok) throw new Error("entity-columns refresh: " + (d.error || "unknown"));
+      this._columns = d.columns || [];
+      this._columnsAvailable = this._columns.filter(c => c.existing_comp_def_id == null);
+      this._columnsOnForm = this._columns.filter(c => c.existing_comp_def_id != null);
     }
   }
 

@@ -4004,11 +4004,26 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
 
 
 @api_router.get("/design/entity-columns/{entity_type}")
-def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
+def design_list_entity_columns(
+    entity_type: str,
+    req: Request,
+    parent_comp_def_id: int | None = None,
+) -> JSONResponse:
     """List columns z _FW_FORM_ENTITY_MAP s suggested comp_type per column.
 
+    Phase 38.4 Krok 14c+1 (14.5.2026 vecer, Marti's "TabSheet pro
+    Schazi/Na forme/Preview"):
+      Volitelne query param `parent_comp_def_id` = form root id (type=302).
+      Pokud dotazeno, endpoint merguje existing comp_def per column —
+      pridava `existing_comp_def_id` + `existing_label` per row. Bez
+      parametru = backward compat (no merge, vsechny sloupce jako
+      "available").
+
     Returns:
-        200: {ok, entity_type, columns: [{name, suggested_type_id, suggested_type_code}]}
+        200: {ok, entity_type, parent_comp_def_id, columns: [
+              {name, caption_default, suggested_type_id, suggested_type_code,
+               existing_comp_def_id, existing_label}
+            ]}
         404: entity_type nezaregistrovan
     """
     uid = _get_uid(req)
@@ -4037,6 +4052,27 @@ def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
             SELECT id, code FROM fw.comp_type WHERE preview_html IS NOT NULL
         """)).mappings().all()
         ct_by_id = {r["id"]: r["code"] for r in ct_rows}
+
+        # Phase 38.4 Krok 14c+1: existing comp_def merge per name
+        # (case-insensitive defensive — Centrala 1 ma legacy mixed-case
+        # column names, fw.comp_def.name typicky lowercase).
+        existing_by_name: dict[str, dict[str, object]] = {}
+        if parent_comp_def_id is not None:
+            existing_rows = ds_lec.execute(_sql_text_lec("""
+                SELECT id, name, caption, region_slot, type_id
+                FROM fw.comp_def
+                WHERE parent_comp_def_id = :pid
+                  AND is_active = true
+            """), {"pid": parent_comp_def_id}).mappings().all()
+            for ex_row in existing_rows:
+                key = (ex_row["name"] or "").lower().strip()
+                if key:
+                    existing_by_name[key] = {
+                        "id": ex_row["id"],
+                        "caption": ex_row["caption"],
+                        "region_slot": ex_row["region_slot"],
+                        "type_id": ex_row["type_id"],
+                    }
     finally:
         ds_lec.close()
 
@@ -4045,16 +4081,24 @@ def design_list_entity_columns(entity_type: str, req: Request) -> JSONResponse:
         if col == id_col:
             continue  # skip ID column (immutable, no field needed)
         suggested_id = _suggest_comp_type_id(col)
+        ex_match = existing_by_name.get(col.lower().strip())
         columns_out.append({
             "name": col,
             "caption_default": col.replace("_", " ").strip().capitalize(),
             "suggested_type_id": suggested_id,
             "suggested_type_code": ct_by_id.get(suggested_id, "?"),
+            # Phase 38.4 Krok 14c+1: existing comp_def info (None pokud
+            # chybi nebo parent_comp_def_id nedotazen)
+            "existing_comp_def_id": ex_match["id"] if ex_match else None,
+            "existing_label": ex_match["caption"] if ex_match else None,
+            "existing_region_slot": ex_match["region_slot"] if ex_match else None,
+            "existing_type_id": ex_match["type_id"] if ex_match else None,
         })
 
     return JSONResponse(jsonable_encoder({
         "ok": True,
         "entity_type": entity_type,
+        "parent_comp_def_id": parent_comp_def_id,
         "columns": columns_out,
     }))
 

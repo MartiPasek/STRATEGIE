@@ -4701,18 +4701,37 @@
 
         // Phase 38.4 Krok 14e-C (14.5.2026 vecer): Recursive component
         // rendering. slotFields obsahuje TOP-LEVEL children form rootu pro
-        // dany region_slot. Kazdy z nich muze byt:
-        //   - container (panel/groupbox) → wrapper + recurse na _renderComponentTree
-        //   - leaf field (edit/lookup/etc) → render jako pred Krok 14e
+        // dany region_slot.
         //
-        // Legacy forms (fields directly pod form) chodi pres else-branch
-        // _renderLeafField → existing _renderField behavior preserved.
+        // Phase 38.4 Krok 14f-B (14.5.2026 vecer, Marti's B alClient):
+        // Pokud slotFields obsahuje container (panel/groupbox) s layout.align,
+        // pouzij Delphi VCL align layout (flexbox). Jinak fallback na
+        // legacy per-field render.
         if (slotFields.length > 0) {
           slotFields.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
-          for (let idx = 0; idx < slotFields.length; idx++) {
-            const f = slotFields[idx];
-            const compEl = this._renderComponentTree(f, idx, slotFields.length);
-            if (compEl) sec.grid.appendChild(compEl);
+
+          // Detect align system: aspoň jeden top-level container s layout.align
+          const hasContainers = slotFields.some(
+            (f) => f.comp_type_code === "panel" || f.comp_type_code === "groupbox"
+          );
+
+          if (hasContainers && panel.slot === "main") {
+            // NEW Krok 14f-B: Delphi VCL align layout (flexbox)
+            // Sec.grid musi být flex container (drop CSS Grid behavior)
+            sec.grid.style.display = "flex";
+            sec.grid.style.flexDirection = "column";
+            sec.grid.style.minHeight = "0";
+            sec.grid.style.padding = "0";
+            sec.grid.style.gap = "0";
+            const alignLayout = this._buildAlignLayout(slotFields);
+            sec.grid.appendChild(alignLayout);
+          } else {
+            // LEGACY: per-field render (slot=header/footer, nebo flat fields)
+            for (let idx = 0; idx < slotFields.length; idx++) {
+              const f = slotFields[idx];
+              const compEl = this._renderComponentTree(f, idx, slotFields.length);
+              if (compEl) sec.grid.appendChild(compEl);
+            }
           }
         }
         // Krok 14b+7.2 (13.5.2026 ~20:45, Marti's "to okno na formu pridat
@@ -5849,6 +5868,183 @@
       });
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14f-B (14.5.2026 vecer, Marti's "B alClient zbytek
+    // se nehneme dal"): Delphi VCL dynamic align layout pro panels.
+    //
+    // Marti's 19yr Delphi doctrine — alClient reservation pattern:
+    //   alTop    → reserve top horizontal strip (full width, height=panel.height)
+    //   alBottom → reserve bottom strip
+    //   alLeft   → reserve left vertical strip (full height po reservations)
+    //   alRight  → reserve right vertical strip
+    //   alClient → fill REMAINING space (zbytek)
+    //   alNone   → absolute positioning (Phase A+1 pattern)
+    //
+    // Order matters: top → bottom → left → right → client. Client je vzdy
+    // posledni, absorbuje zbytek.
+    //
+    // CSS implementation via nested flexbox:
+    //   <div column>
+    //     [alTop panels rows]
+    //     <div row flex=1>  -- middle
+    //       [alLeft cols]
+    //       [alClient cols (flex=1)]
+    //       [alRight cols]
+    //     </div>
+    //     [alBottom panels rows]
+    //   </div>
+    //
+    // Bez align key: backward compat → treat as 'client'.
+    // ════════════════════════════════════════════════════════════════
+    _buildAlignLayout(comps) {
+      // Group by align (default = 'client' pro backward compat)
+      const byAlign = { top: [], bottom: [], left: [], right: [], client: [], none: [] };
+      for (const c of comps) {
+        const a = String((c.layout && c.layout.align) || "client").toLowerCase();
+        const key = (a in byAlign) ? a : "client";
+        byAlign[key].push(c);
+      }
+      // Sort each align bucket by sort_order
+      for (const k of Object.keys(byAlign)) {
+        byAlign[k].sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      }
+
+      // Helper: apply size + min size constraint pro align panel
+      const _applySize = (el, c, axis) => {
+        const layout = c.layout || {};
+        const sizeKey = axis === "h" ? "height" : "width";
+        const minKey = axis === "h" ? "min_height" : "min_width";
+        const size = layout[sizeKey];
+        const min = layout[minKey];
+        if (size != null && size !== "auto") {
+          const v = (typeof size === "number") ? size + "px" : String(size);
+          el.style.flex = "0 0 " + v;
+        } else {
+          el.style.flex = "0 0 auto";
+        }
+        if (min != null) {
+          const m = (typeof min === "number") ? min + "px" : String(min);
+          el.style[axis === "h" ? "minHeight" : "minWidth"] = m;
+        }
+      };
+
+      // Root: column flex
+      const wrap = document.createElement("div");
+      wrap.className = "erp-design-align-layout";
+      wrap.style.cssText =
+        "display:flex;flex-direction:column;" +
+        "flex:1 1 auto;min-height:0;height:100%;" +
+        "position:relative;";  // pro alNone absolute children
+
+      // alTop panels (full width strips, stacked top)
+      for (const c of byAlign.top) {
+        const el = this._renderComponentTree(c, 0, 1);
+        if (el) {
+          _applySize(el, c, "h");
+          el.style.width = "100%";
+          wrap.appendChild(el);
+        }
+      }
+
+      // Middle row (alLeft + alClient + alRight)
+      const hasMiddle = byAlign.left.length > 0 ||
+                       byAlign.right.length > 0 ||
+                       byAlign.client.length > 0;
+      let middle = null;
+      if (hasMiddle) {
+        middle = document.createElement("div");
+        middle.className = "erp-design-align-middle";
+        middle.style.cssText =
+          "display:flex;flex-direction:row;" +
+          "flex:1 1 auto;min-height:0;min-width:0;";
+        // alLeft panels (full height, fixed width)
+        for (const c of byAlign.left) {
+          const el = this._renderComponentTree(c, 0, 1);
+          if (el) {
+            _applySize(el, c, "w");
+            el.style.height = "100%";
+            middle.appendChild(el);
+          }
+        }
+        // alClient panels (fill remaining)
+        // Multiple alClient — stack vertically inside flex=1 wrapper
+        if (byAlign.client.length > 0) {
+          const clientWrap = document.createElement("div");
+          clientWrap.className = "erp-design-align-client-wrap";
+          clientWrap.style.cssText =
+            "display:flex;flex-direction:column;" +
+            "flex:1 1 auto;min-width:0;min-height:0;";
+          for (const c of byAlign.client) {
+            const el = this._renderComponentTree(c, 0, byAlign.client.length);
+            if (el) {
+              el.style.flex = "1 1 auto";
+              el.style.minHeight = "0";
+              el.style.minWidth = "0";
+              const layout = c.layout || {};
+              if (layout.min_width != null) {
+                el.style.minWidth = (typeof layout.min_width === "number")
+                  ? layout.min_width + "px" : String(layout.min_width);
+              }
+              if (layout.min_height != null) {
+                el.style.minHeight = (typeof layout.min_height === "number")
+                  ? layout.min_height + "px" : String(layout.min_height);
+              }
+              clientWrap.appendChild(el);
+            }
+          }
+          middle.appendChild(clientWrap);
+        }
+        // alRight panels
+        for (const c of byAlign.right) {
+          const el = this._renderComponentTree(c, 0, 1);
+          if (el) {
+            _applySize(el, c, "w");
+            el.style.height = "100%";
+            middle.appendChild(el);
+          }
+        }
+        wrap.appendChild(middle);
+      }
+
+      // alBottom panels (full width strips, stacked bottom)
+      for (const c of byAlign.bottom) {
+        const el = this._renderComponentTree(c, 0, 1);
+        if (el) {
+          _applySize(el, c, "h");
+          el.style.width = "100%";
+          wrap.appendChild(el);
+        }
+      }
+
+      // alNone panels — absolute positioning (Phase A+1 pattern)
+      for (const c of byAlign.none) {
+        const el = this._renderComponentTree(c, 0, 1);
+        if (el) {
+          const layout = c.layout || {};
+          el.style.position = "absolute";
+          if (layout.top != null) {
+            el.style.top = (typeof layout.top === "number")
+              ? layout.top + "px" : String(layout.top);
+          }
+          if (layout.left != null) {
+            el.style.left = (typeof layout.left === "number")
+              ? layout.left + "px" : String(layout.left);
+          }
+          if (layout.width != null && layout.width !== "auto") {
+            el.style.width = (typeof layout.width === "number")
+              ? layout.width + "px" : String(layout.width);
+          }
+          if (layout.height != null && layout.height !== "auto") {
+            el.style.height = (typeof layout.height === "number")
+              ? layout.height + "px" : String(layout.height);
+          }
+          wrap.appendChild(el);
+        }
+      }
+
+      return wrap;
+    }
+
     _renderLeafField(comp, idx, total) {
       const ctx = this.__renderCtx || {};
       const data = ctx.data || {};
@@ -5901,34 +6097,41 @@
         wrap.dataset.compTypeCode = "panel";
         wrap.dataset.parentCompDefId = String(container.parent_comp_def_id || "");
 
+        // Phase 38.4 Krok 14f-B (14.5.2026 vecer): panel ma display:flex
+        // v obou modes — wrapper musi byt flex item kvuli _buildAlignLayout
+        // flex:1 sizing. display:contents (drive Krok 14e-E) ze rusi flex
+        // styling (no box). Switch na display:flex column.
+        const baseStyle =
+          "display:flex;flex-direction:column;" +
+          "min-height:0;min-width:0;" +
+          "position:relative;";
+
         if (designMode) {
           // Visible wrapper s drag affordance
-          wrap.style.cssText =
-            "display:block;" +
+          wrap.style.cssText = baseStyle +
             "border:1px dashed rgba(122, 134, 150, 0.3);" +
             "border-radius:4px;" +
             "padding:8px;" +
-            "margin:4px 0;" +
-            "position:relative;" +
-            "grid-column:1/-1;";
+            "margin:2px;";
           wrap.draggable = true;
 
           // Label "panel" v levem hornim rohu (subtle)
           const lbl = document.createElement("div");
-          lbl.textContent = "▦ panel #" + container.id;
+          const alignLabel = (container.layout && container.layout.align) || "client";
+          lbl.textContent = "▦ panel #" + container.id + " · " + alignLabel;
           lbl.style.cssText =
             "position:absolute;top:-8px;left:8px;" +
             "background:#0d1117;color:#5d6975;" +
             "font-size:10px;padding:1px 6px;" +
             "border-radius:2px;letter-spacing:0.5px;" +
-            "user-select:none;pointer-events:none;";
+            "user-select:none;pointer-events:none;z-index:1;";
           wrap.appendChild(lbl);
 
           // Drag listeners (analog _wrapFieldForDesign)
           this._attachContainerDragEvents(wrap, container);
         } else {
-          // PROD: invisible — children flow do parent grid directly
-          wrap.style.display = "contents";
+          // PROD: invisible wrapper but s flex sizing
+          wrap.style.cssText = baseStyle;
         }
 
         // Phase 38.4 Krok 14e-G (Marti's Q3, volba A memory-only):

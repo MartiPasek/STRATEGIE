@@ -510,6 +510,45 @@
       ".erp-design-modal .desc-memo-system .erp-memo-label,\n" +
       ".erp-design-modal .desc-memo-system label {\n" +
       "  color: #c9943a !important;\n" +
+      "}\n" +
+      // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
+      // "drag jen ta komponenta uvnitr, ne cela karta"):
+      // Scoped CSS pro inline preview komponenty v gallery cards.
+      // Replace iframe sandbox (drag nepřechází přes iframe boundary)
+      // → inline DOM s scoped reset (drag funguje, vizuálně sjednoceno).
+      ".erp-gallery-preview-scope {\n" +
+      "  display: flex; align-items: center; gap: 5px;\n" +
+      "  font-family: system-ui, -apple-system, sans-serif;\n" +
+      "  font-size: 12px; color: #cfd6df;\n" +
+      "  pointer-events: auto;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope input,\n" +
+      ".erp-gallery-preview-scope select,\n" +
+      ".erp-gallery-preview-scope textarea,\n" +
+      ".erp-gallery-preview-scope button {\n" +
+      "  font-family: inherit; font-size: 12px;\n" +
+      "  background: #1f2530; border: 1px solid #2a3340;\n" +
+      "  color: #cfd6df; border-radius: 3px;\n" +
+      "  padding: 3px 6px; max-width: 100%;\n" +
+      "  caret-color: transparent;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope input[type=\"checkbox\"] {\n" +
+      "  width: 14px; height: 14px;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope label {\n" +
+      "  display: flex; align-items: center; gap: 5px;\n" +
+      "}\n" +
+      // Drag handle visual — komponenta dostane grab cursor, hover
+      // accent (border highlight). Draggable attribute set v JS.
+      ".erp-gallery-preview-scope > [draggable=\"true\"] {\n" +
+      "  cursor: grab; transition: border-color 0.15s, box-shadow 0.15s;\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope > [draggable=\"true\"]:hover {\n" +
+      "  border-color: #3a8aa8 !important;\n" +
+      "  box-shadow: 0 0 0 1px rgba(58,138,168,0.3);\n" +
+      "}\n" +
+      ".erp-gallery-preview-scope > [draggable=\"true\"]:active {\n" +
+      "  cursor: grabbing;\n" +
       "}\n"
     );
     document.head.appendChild(style);
@@ -5537,56 +5576,83 @@
       return row;
     }
 
-    // Phase 38.4 Krok 14c+2 part A (14.5.2026 odpoledne po IT prezentaci):
-    // Gallery card per comp_type — visual paleta v Preview tabu. Card layout:
-    // preview iframe (top) + label + comp_type code (mono) + meta (kind+desc).
-    // draggable=true attribute + dragstart handler nasadí foundation pro
-    // Part B (drop na DesignFwForm main panel → POST /design/comp-def).
+    // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
+    // "obdelnicky jsou super, jen drag jen ta komponenta uvnitr, ne cela
+    // karta"):
+    //
+    // Card je teted kontextový rámeček (label + id + meta — NE draggable).
+    // Drag = pouze first interactive element preview_html (input / button /
+    // select / atd.). Drag preview = real DOM komponenta, ne 220px karta —
+    // víc "živé", Marti uvidi přesně co bude na formě.
+    //
+    // Iframe → inline DOM s scoped CSS (drag nepřechází přes iframe
+    // boundary). Scope CSS reset v hlavní stylesheet bloku (řádek ~510).
     _renderGalleryCard(ct) {
       const card = document.createElement("div");
       card.style.cssText =
         "background:#141a20;border:1px solid #2a3340;border-radius:5px;" +
-        "padding:10px;cursor:grab;transition:all 0.15s;" +
+        "padding:10px;cursor:default;transition:border-color 0.15s;" +
         "display:flex;flex-direction:column;gap:8px;";
-      card.draggable = true;
       card.dataset.compTypeId = String(ct.id);
       card.dataset.compTypeCode = ct.code;
+      // Card NEMÁ draggable=true — drag je delegated na vnitřní komponentu.
 
-      // Hover accent (Marti's "field-color" doctrine — accent na to, co
-      // bude interagovat)
+      // Hover accent na CARD (visual feedback že se s tím dá interagovat)
       card.addEventListener("mouseenter", () => {
         card.style.borderColor = "#3a8aa8";
-        card.style.boxShadow = "0 0 0 1px rgba(58,138,168,0.3)";
       });
       card.addEventListener("mouseleave", () => {
         card.style.borderColor = "#2a3340";
-        card.style.boxShadow = "none";
       });
 
-      // Drag affordance (foundation pro Part B drop handler)
-      card.addEventListener("dragstart", (ev) => {
-        card.style.opacity = "0.5";
-        ev.dataTransfer.effectAllowed = "copy";
-        // Custom mime type — drop target rozpoznana via getData
-        ev.dataTransfer.setData(
-          "application/x-erp-comp-type",
-          JSON.stringify({ id: ct.id, code: ct.code, label: ct.label })
-        );
-        // Fallback plain text
-        ev.dataTransfer.setData("text/plain", ct.code);
-      });
-      card.addEventListener("dragend", () => {
-        card.style.opacity = "1";
-      });
-
-      // 1. Preview iframe (top)
+      // 1. Preview INLINE (replace iframe). preview_html injected do
+      // scope wrap, first child se stane draggable handle.
       const previewWrap = document.createElement("div");
       previewWrap.style.cssText =
         "background:#1f2530;border-radius:3px;padding:6px;" +
-        "min-height:42px;display:flex;align-items:center;justify-content:center;";
-      const iframe = this._buildPreviewIframe(ct);
-      iframe.style.height = "30px";
-      previewWrap.appendChild(iframe);
+        "min-height:42px;display:flex;align-items:center;justify-content:center;" +
+        "overflow:hidden;";
+      const previewScope = document.createElement("div");
+      previewScope.className = "erp-gallery-preview-scope";
+      previewScope.innerHTML = ct.preview_html ||
+        "<span style=\"color:#8a96a4;font-size:11px;\">(no preview)</span>";
+
+      // Najít first interactive element + nasadit draggable + handlers.
+      // Marti's "drag jen ta komponenta" pattern.
+      const dragHandle = previewScope.querySelector(
+        "input, select, textarea, button, label"
+      ) || previewScope.firstElementChild;
+      if (dragHandle) {
+        dragHandle.setAttribute("draggable", "true");
+        // Pro <input> readonly + disabled keyboard editing (visual only)
+        if (dragHandle.tagName === "INPUT" || dragHandle.tagName === "TEXTAREA") {
+          dragHandle.setAttribute("readonly", "");
+        }
+        if (dragHandle.tagName === "SELECT") {
+          // <select> nemá readonly; disable click expansion via pointer-events
+          // jen na options. Drag funguje na element samotném.
+          dragHandle.style.pointerEvents = "auto";
+        }
+        // Block default text-select v inputu pri drag start
+        dragHandle.addEventListener("mousedown", (ev) => {
+          ev.preventDefault();
+        });
+        dragHandle.addEventListener("dragstart", (ev) => {
+          ev.stopPropagation();
+          dragHandle.style.opacity = "0.5";
+          ev.dataTransfer.effectAllowed = "copy";
+          ev.dataTransfer.setData(
+            "application/x-erp-comp-type",
+            JSON.stringify({ id: ct.id, code: ct.code, label: ct.label })
+          );
+          ev.dataTransfer.setData("text/plain", ct.code);
+        });
+        dragHandle.addEventListener("dragend", () => {
+          dragHandle.style.opacity = "1";
+        });
+      }
+
+      previewWrap.appendChild(previewScope);
       card.appendChild(previewWrap);
 
       // 2. Label (human-readable)
@@ -5614,13 +5680,16 @@
       meta.innerHTML = kindBadge + (ct.description || "").slice(0, 60);
       card.appendChild(meta);
 
-      // Click → toast hint (future: detail modal s full preview source)
+      // Click na card (mimo dragHandle) → toast hint pro discoverability
       card.addEventListener("click", (ev) => {
-        if (ev.defaultPrevented) return;
+        // Skip pokud klik na drag handle (komponenta uvnitř)
+        if (dragHandle && (ev.target === dragHandle || dragHandle.contains(ev.target))) {
+          return;
+        }
         _showToast(
-          ct.label + " (" + ct.code + ") — drag na formulář k přidání",
+          ct.label + " (" + ct.code + ") — drag tu komponentu nahoře na formulář",
           "info",
-          2000
+          2200
         );
       });
 

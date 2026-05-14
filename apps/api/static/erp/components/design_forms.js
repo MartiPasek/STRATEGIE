@@ -7459,6 +7459,12 @@
       //   - 'top'  → linka nahore + optional label uvnitr (modern, default)
       //   - 'all'  → full ramecek (classic Delphi compat)
       // layout.label (NULL = bez labelu).
+      //
+      // Phase 38.4 Krok 14f-P (14.5.2026 vecer, Marti's "ja jsem si to
+      // ponicil... vlozil jsem tam groupbox, neni nikde videt... muzes
+      // ho zviditelnit a umoznit parametrizaci a smazani"):
+      // V DESIGN mode pridat dashed wrapper + label tag (▦ groupbox #ID ⚙)
+      // + drag handle. Analog panel wrapper pattern.
       if (code === "groupbox") {
         const designMode = this._formDesignMode === true;
         const wrap = document.createElement("div");
@@ -7466,59 +7472,106 @@
         wrap.dataset.compDefId = String(container.id);
         wrap.dataset.compTypeCode = "groupbox";
 
-        // Phase 38.4 Krok 14f-D (14.5.2026 vecer): right-click → settings
+        const borderMode = (layout.border_mode || "top").toLowerCase();
+        const labelText = (layout.label != null && String(layout.label).trim().length > 0)
+          ? String(layout.label).trim()
+          : null;
+
         if (designMode) {
+          // DESIGN: visible wrapper s dashed border + drag + settings affordance.
+          // Drop PROD-only border-top / 'all' ramecek — DESIGN overlay je
+          // dashed gray identifier. Po prepnuti na PROD se zobrazi PROD
+          // styling (border-top nebo full ramecek) podle layout.border_mode.
+          wrap.style.cssText =
+            "display:flex;flex-direction:column;" +
+            "border:1px dashed rgba(212, 184, 138, 0.4);" +  // amber dashed
+            "border-radius:4px;" +
+            "padding:14px 8px 8px 8px;" +
+            "margin:8px 0 2px 0;" +
+            "grid-column:1/-1;" +
+            "min-width:0;position:relative;";
+          wrap.draggable = true;
+
+          // Label tag v levem hornim rohu — clickable settings
+          const tag = document.createElement("div");
+          const labelDisplay = labelText
+            ? labelText
+            : "(no label)";
+          tag.textContent = "▦ groupbox #" + container.id + " · " + labelDisplay + " ⚙";
+          tag.title = "Klikni pro nastaveni groupboxu (nebo right-click)";
+          tag.style.cssText =
+            "position:absolute;top:-8px;left:8px;" +
+            "background:#0d1117;color:#d4b88a;" +
+            "font-size:10px;padding:2px 8px;" +
+            "border-radius:2px;letter-spacing:0.5px;" +
+            "user-select:none;cursor:pointer;z-index:2;" +
+            "transition:color 0.15s, background 0.15s;";
+          tag.addEventListener("mouseenter", () => {
+            tag.style.color = "#a88cd4";
+            tag.style.background = "#1a2028";
+          });
+          tag.addEventListener("mouseleave", () => {
+            tag.style.color = "#d4b88a";
+            tag.style.background = "#0d1117";
+          });
+          tag.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            this._openContainerSettings(container);
+          });
+          wrap.appendChild(tag);
+
+          // Right-click handler — open settings popup (Krok 14f-D)
           wrap.addEventListener("contextmenu", (ev) => {
-            const tag = ev.target && ev.target.tagName;
-            if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" || tag === "SELECT") {
+            const tg = ev.target && ev.target.tagName;
+            if (tg === "INPUT" || tg === "BUTTON" || tg === "TEXTAREA" || tg === "SELECT") {
               return;
             }
             ev.preventDefault();
             ev.stopPropagation();
             this._openContainerSettings(container);
           });
-        }
 
-        const borderMode = (layout.border_mode || "top").toLowerCase();
-        const labelText = (layout.label != null && String(layout.label).trim().length > 0)
-          ? String(layout.label).trim()
-          : null;
-
-        // Border styling
-        if (borderMode === "all") {
-          wrap.style.cssText =
-            "border:1px solid #2a3340;border-radius:4px;" +
-            "padding:14px 12px 10px 12px;" +
-            "margin:6px 0;" +
-            "grid-column:1/-1;";
+          // Drag listeners — analog panel (reorder + cross-container move
+          // pres _attachContainerDragEvents). Marti muze drag groupbox
+          // mezi panely / reorder uvnitr panelu.
+          this._attachContainerDragEvents(wrap, container);
         } else {
-          // 'top' default — jen linka nahore, padding-top
-          wrap.style.cssText =
-            "border-top:1px solid #2a3340;" +
-            "padding:10px 0 4px 0;" +
-            "margin:6px 0 0 0;" +
-            "grid-column:1/-1;";
-        }
+          // PROD mode: existing visual styling (border-top / 'all')
+          if (borderMode === "all") {
+            wrap.style.cssText =
+              "border:1px solid #2a3340;border-radius:4px;" +
+              "padding:14px 12px 10px 12px;" +
+              "margin:6px 0;" +
+              "grid-column:1/-1;";
+          } else {
+            // 'top' default — jen linka nahore, padding-top
+            wrap.style.cssText =
+              "border-top:1px solid #2a3340;" +
+              "padding:10px 0 4px 0;" +
+              "margin:6px 0 0 0;" +
+              "grid-column:1/-1;";
+          }
 
-        // Optional label (inline-block s background pro "fieldset legend" feel)
-        if (labelText) {
-          const lbl = document.createElement("div");
-          lbl.className = "erp-design-groupbox-label";
-          lbl.textContent = labelText;
-          lbl.style.cssText =
-            "display:inline-block;" +
-            "background:#0d1117;" +
-            "color:#7a8696;" +
-            "font-size:11px;" +
-            "font-weight:600;" +
-            "text-transform:uppercase;" +
-            "letter-spacing:0.5px;" +
-            "padding:2px 8px;" +
-            "margin-bottom:8px;" +
-            (borderMode === "top"
-              ? "margin-top:-18px;"  // overlap line nahore
-              : "margin-top:-20px;"); // overlap ramecek (fieldset legend feel)
-          wrap.appendChild(lbl);
+          // Optional label (PROD: subtle uppercase legend)
+          if (labelText) {
+            const lbl = document.createElement("div");
+            lbl.className = "erp-design-groupbox-label";
+            lbl.textContent = labelText;
+            lbl.style.cssText =
+              "display:inline-block;" +
+              "background:#0d1117;" +
+              "color:#7a8696;" +
+              "font-size:11px;" +
+              "font-weight:600;" +
+              "text-transform:uppercase;" +
+              "letter-spacing:0.5px;" +
+              "padding:2px 8px;" +
+              "margin-bottom:8px;" +
+              (borderMode === "top"
+                ? "margin-top:-18px;"
+                : "margin-top:-20px;");
+            wrap.appendChild(lbl);
+          }
         }
 
         // Inner grid pro children — same layout jako sec.grid (2 cols, auto)
@@ -7526,7 +7579,7 @@
         inner.className = "erp-design-groupbox-inner";
         inner.style.cssText =
           "display:grid;" +
-          "grid-template-columns:repeat(auto-fit, minmax(280px, 1fr));" +
+          "grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));" +
           "gap:6px 14px;" +
           "align-items:start;";
         wrap.appendChild(inner);

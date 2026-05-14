@@ -752,13 +752,55 @@
 
   function _buildModalShell(opts) {
     // Returns { overlay, dialog, header, body, footer, close() }
+    //
+    // Phase 38.4 Krok 14c+2 part A.2 (14.5.2026 odpoledne, Marti's
+    // "musi se chovat jako normalni samostatne okno, ne modal"):
+    //   opts.floating = true → drop overlay backdrop (žádné zatemnění),
+    //     dialog je position:fixed jako floating panel. Lze proklikat
+    //     přes ERP form pod tím. Drag-drop přes z-index hraniční vrstvu
+    //     funguje (žádný overlay nezachycuje pointer-events).
+    //   opts.noBackdropClose = true → klik mimo dialog NEZAVŘE (jen × button).
+    //   opts.startPos = { top: '80px', left: '80px' } — initial pozice
+    //     (jinak default = top-left rohu viewport pro floating).
+    //
+    // Drop-fix doctrine: HTML5 drag-drop přes dimming overlay je blokován,
+    // protože overlay (z-index 9000) chytá dragover events a form panel
+    // pod ním nedostane drop target chance. Floating panel bez overlay
+    // řeší.
+    const isFloating = opts.floating === true;
+
     const overlay = document.createElement("div");
-    overlay.className = "erp-modal-overlay";
-    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;display:flex;align-items:center;justify-content:center;";
+    overlay.className = "erp-modal-overlay" + (isFloating ? " erp-modal-overlay--floating" : "");
+    if (isFloating) {
+      // Žádný backdrop, žádný dimming, žádné centrování.
+      // overlay je jen "anchor" pro dialog v document.body — nezachycuje
+      // pointer-events (lze prokliknout ERP form pod gallery).
+      overlay.style.cssText =
+        "position:fixed;inset:0;pointer-events:none;z-index:9000;";
+    } else {
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:9000;" +
+        "display:flex;align-items:center;justify-content:center;";
+    }
 
     const dialog = document.createElement("div");
-    dialog.className = "erp-modal-dialog erp-design-modal";
-    dialog.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:" + (opts.width || "920px") + ";max-width:95vw;max-height:90vh;display:flex;flex-direction:column;color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.5);resize:both;overflow:hidden;";
+    dialog.className = "erp-modal-dialog erp-design-modal" +
+                       (isFloating ? " erp-modal-dialog--floating" : "");
+    // Pro floating mode: position:fixed + explicit top/left + pointer-events:auto
+    // (dialog se re-aktivuje pro interakci, ale overlay zustane proklikateln).
+    // Max-height 85vh (ne 90), aby user videl ze panel ma okraje + lze drag.
+    const floatingStartTop = (opts.startPos && opts.startPos.top) || "80px";
+    const floatingStartLeft = (opts.startPos && opts.startPos.left) || "80px";
+    const positioning = isFloating
+      ? "position:fixed;top:" + floatingStartTop + ";left:" + floatingStartLeft +
+        ";pointer-events:auto;"
+      : "";
+    dialog.style.cssText = positioning +
+      "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
+      "width:" + (opts.width || "920px") + ";max-width:95vw;max-height:" +
+      (isFloating ? "85vh" : "90vh") +
+      ";display:flex;flex-direction:column;color:#cfd6df;font-size:13px;" +
+      "box-shadow:0 12px 40px rgba(0,0,0,0.5);resize:both;overflow:hidden;";
 
     const header = document.createElement("div");
     header.className = "erp-modal-header";
@@ -5194,10 +5236,21 @@
     }
 
     async open() {
+      // Phase 38.4 Krok 14c+2 part A.2 (14.5.2026 odpoledne, Marti's
+      // "musi se chovat jako normalni samostatne okno, ne modal"):
+      //   floating=true → žádný overlay backdrop, lze proklikat přes ERP.
+      //   Drop přes form panel funguje (HTML5 DnD nebyl blokován overlay
+      //   pointer-events).
+      // startPos: pravý horní roh viewport (drop target = DesignFwForm
+      // pod modal, který je default v středu — Marti vidí form + drag
+      // ze strany).
       this._shell = _buildModalShell({
-        title: "Vyberte pole z databáze",
+        title: "🎨 Paleta komponent",
         width: "780px",
         hideDescToggle: true,
+        floating: true,
+        noBackdropClose: true,
+        startPos: { top: "80px", left: "calc(100vw - 820px)" },
       });
       document.body.appendChild(this._shell.overlay);
 

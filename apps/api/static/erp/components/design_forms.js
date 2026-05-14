@@ -6339,23 +6339,44 @@
       placeholderInput.placeholder = "např. '—' nebo 'Zadej hodnotu...'";
       body.appendChild(_row("Placeholder", placeholderInput));
 
-      // Max length
+      // Phase 38.4 Krok 14f-N (14.5.2026 vecer, Marti's correction):
+      // šířka komponenty na displeji — Min width / Max width (px).
+      // Aplikuje se na field wrap div jako inline CSS min/max-width.
+      // Marti's use case: "3 komponenty vedle sebe" pres min_width
+      // nizsi (default ~280px) + max_width upper cap.
+      const minWidthInput = document.createElement("input");
+      minWidthInput.type = "number";
+      minWidthInput.min = "0";
+      minWidthInput.style.cssText = _inputStyle;
+      minWidthInput.value = currentLayout.min_width != null ? String(currentLayout.min_width) : "";
+      minWidthInput.placeholder = "px (např. 150 — minimum sirka pred reflow)";
+      body.appendChild(_row("Min width", minWidthInput));
+
+      const maxWidthInput = document.createElement("input");
+      maxWidthInput.type = "number";
+      maxWidthInput.min = "0";
+      maxWidthInput.style.cssText = _inputStyle;
+      maxWidthInput.value = currentLayout.max_width != null ? String(currentLayout.max_width) : "";
+      maxWidthInput.placeholder = "px (např. 300 — empty = bez limitu)";
+      body.appendChild(_row("Max width", maxWidthInput));
+
+      // Phase 38.4 Krok 14f-M (text length validation, advanced):
+      // Max/Min length textu (HTML5 maxlength/minlength). Optional.
       const maxLenInput = document.createElement("input");
       maxLenInput.type = "number";
       maxLenInput.min = "0";
       maxLenInput.style.cssText = _inputStyle;
       maxLenInput.value = currentLayout.max_length != null ? String(currentLayout.max_length) : "";
-      maxLenInput.placeholder = "počet znaků (empty = bez limitu)";
-      body.appendChild(_row("Max length", maxLenInput));
+      maxLenInput.placeholder = "max počet znaků (HTML5 maxlength, empty = bez limitu)";
+      body.appendChild(_row("Max length (text)", maxLenInput));
 
-      // Min length
       const minLenInput = document.createElement("input");
       minLenInput.type = "number";
       minLenInput.min = "0";
       minLenInput.style.cssText = _inputStyle;
       minLenInput.value = currentLayout.min_length != null ? String(currentLayout.min_length) : "";
-      minLenInput.placeholder = "min počet znaků (validace pri uložení)";
-      body.appendChild(_row("Min length", minLenInput));
+      minLenInput.placeholder = "min počet znaků (validace pri submit, empty = bez minima)";
+      body.appendChild(_row("Min length (text)", minLenInput));
 
       // Readonly checkbox
       const roCheckWrap = document.createElement("div");
@@ -6442,15 +6463,28 @@
           // Build new layout (merge with existing — preserve other keys)
           const newLayout = Object.assign({}, currentLayout);
 
-          // Max/Min length — int parse, empty = remove key
+          // Phase 38.4 Krok 14f-N: Min/Max width (px) — display layout
+          const newMinW = minWidthInput.value.trim() ? parseInt(minWidthInput.value, 10) : null;
+          const newMaxW = maxWidthInput.value.trim() ? parseInt(maxWidthInput.value, 10) : null;
+          if (newMinW == null || isNaN(newMinW) || newMinW <= 0) delete newLayout.min_width;
+          else newLayout.min_width = newMinW;
+          if (newMaxW == null || isNaN(newMaxW) || newMaxW <= 0) delete newLayout.max_width;
+          else newLayout.max_width = newMaxW;
+          if (newLayout.min_width != null && newLayout.max_width != null &&
+              newLayout.min_width > newLayout.max_width) {
+            _showToast("Min width nesmí být větší než max width", "error", 3000);
+            saveBtn.disabled = false;
+            saveBtn.style.opacity = "1";
+            return;
+          }
+
+          // Max/Min length — text content (HTML5 maxlength/minlength)
           const newMaxLen = maxLenInput.value.trim() ? parseInt(maxLenInput.value, 10) : null;
           const newMinLen = minLenInput.value.trim() ? parseInt(minLenInput.value, 10) : null;
           if (newMaxLen == null || isNaN(newMaxLen) || newMaxLen <= 0) delete newLayout.max_length;
           else newLayout.max_length = newMaxLen;
           if (newMinLen == null || isNaN(newMinLen) || newMinLen < 0) delete newLayout.min_length;
           else newLayout.min_length = newMinLen;
-
-          // Validate: min <= max pokud oba set
           if (newLayout.min_length != null && newLayout.max_length != null &&
               newLayout.min_length > newLayout.max_length) {
             _showToast("Min length nesmí být větší než max length", "error", 3000);
@@ -7224,6 +7258,19 @@
       // apply grid-column-start:1 pokud layout.always_new_row === true.
       const alwaysNewRow = !!(comp.layout && comp.layout.always_new_row);
 
+      // Phase 38.4 Krok 14f-N (14.5.2026 vecer, Marti's "sirka komponenty
+      // na displeji"): aply layout.min_width / max_width na field wrap.
+      // Pozor: drz se v rozumnem range (CSS grid auto-fit reaguje).
+      const _applyWidthConstraints = (el) => {
+        if (!comp.layout) return;
+        if (comp.layout.min_width != null && comp.layout.min_width > 0) {
+          el.style.minWidth = comp.layout.min_width + "px";
+        }
+        if (comp.layout.max_width != null && comp.layout.max_width > 0) {
+          el.style.maxWidth = comp.layout.max_width + "px";
+        }
+      };
+
       // Krok 14b+8 (13.5.2026 ~20:45): v DESIGN mode wrap field do
       // draggable containeru pro reorder. Plus drag handle.
       // Krok 14c+3.2 (14.5.2026 odp.): DESIGN wrap napric VSEMI panels
@@ -7231,9 +7278,11 @@
       if (this._formDesignMode === true) {
         const wrapped = this._wrapFieldForDesign(fieldEl, comp, idx, total);
         if (alwaysNewRow) wrapped.style.gridColumnStart = "1";
+        _applyWidthConstraints(wrapped);
         return wrapped;
       } else {
         if (alwaysNewRow) fieldEl.style.gridColumnStart = "1";
+        _applyWidthConstraints(fieldEl);
         return fieldEl;
       }
     }
@@ -7267,10 +7316,23 @@
         // v obou modes — wrapper musi byt flex item kvuli _buildAlignLayout
         // flex:1 sizing. display:contents (drive Krok 14e-E) ze rusi flex
         // styling (no box). Switch na display:flex column.
-        const baseStyle =
-          "display:flex;flex-direction:column;" +
-          "min-height:0;min-width:0;" +
-          "position:relative;";
+        //
+        // Phase 38.4 Krok 14f-N (14.5.2026 vecer, Marti's "3 komponenty
+        // vedle sebe"): pokud panel ma direct leaf fields (no groupbox/
+        // panel children), apply CSS grid auto-fit pro side-by-side layout.
+        // Pokud panel ma container children (groupbox), zustane flex column
+        // (groupbox samotny dela inner grid).
+        const hasContainerChild = children.some(c =>
+          c.comp_type_code === "panel" || c.comp_type_code === "groupbox"
+        );
+        const hasLeafChild = children.some(c =>
+          c.comp_type_code !== "panel" && c.comp_type_code !== "groupbox"
+        );
+        const useImplicitGrid = !hasContainerChild && hasLeafChild;
+        const baseStyle = useImplicitGrid
+          ? "display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));" +
+            "gap:6px 14px;align-items:start;min-width:0;position:relative;"
+          : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;";
 
         if (designMode) {
           // Visible wrapper s drag affordance

@@ -529,12 +529,51 @@
     // ════════════════════════════════════════════════════════════════
 
     /**
+     * Extends base _attachHandlers (treeview.js) — pridava dblclick listener
+     * pro otevreni Design popup na nodes s menuPk. Single click vede pres
+     * onActivate hook (router.py openTab). Phase 38.4 Krok 14g-H+17.
+     */
+    _attachHandlers() {
+      super._attachHandlers();
+      this.rootEl.addEventListener("dblclick", (e) => this._onRowDblClick(e));
+    }
+
+    /**
+     * Dblclick — gate na DESIGN mode + menuPk. Otevre DesignSoudecekCoreForm
+     * (alternative k pravy-klik 🎨 Design contextmenu z router.py H+11).
+     * Discovery shortcut pro nodes bez core prehledu (single klik je no-op
+     * pro synthetic range, dvojklik dava actionable next step).
+     */
+    _onRowDblClick(e) {
+      if (typeof window === "undefined" || window._erpDesignMode !== true) return;
+      const cls = this.options.cssClassPrefix;
+      const row = e.target.closest("." + cls + "-row");
+      if (!row) return;
+      const li = row.parentElement;
+      if (!li || !li.classList.contains(cls + "-item")) return;
+      const menuPk = li.dataset.menuNodePk;
+      if (!menuPk) return;
+      if (typeof window.DesignSoudecekCoreForm !== "function") return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        new window.DesignSoudecekCoreForm({
+          initialTab: "soudecek",
+          menuNodeId: parseInt(menuPk, 10),
+        }).open();
+      } catch (err) {
+        console.error("[ErpLeftPanelTree] dblclick Design open failed:", err);
+      }
+    }
+
+    /**
      * Click semantics:
      *   • Klik na ★ ikonu          → onPinToggle hook (quick unpin)
      *   • Klik na ▶/▼ toggle       → expand/collapse only (žádný activate)
      *   • Ctrl/Cmd+klik             → multi-select toggle
      *   • Plain klik (folder)       → expand + activate (pokud má cislo_def)
      *   • Plain klik (leaf)         → activate via onActivate hook
+     *   • Dvojklik (DESIGN mode)    → Design popup pro nodes s menuPk
      */
     _onRowClick(e) {
       const cls = this.options.cssClassPrefix;
@@ -600,16 +639,16 @@
       const cisloDefStr = li.dataset.cisloDef;
       if (cisloDefStr) {
         const cisloN = parseInt(cisloDefStr, 10);
-        // Phase 38.4 Krok 14g-H+14 (15.5.2026 vecer, Marti's "chovat se jako
-        // kdyby nic"): synthetic cislo_def range (cisloN <= -100000) = fw.menu_node
-        // bez core prehledu. Skip setActive + onActivate. Klik je no-op
-        // (expand/collapse fired separately, vyse). Pin/MRU/tabs tracking
-        // dale funguje pres contextmenu (H+12 synthetic IDs).
-        if (cisloN && cisloN > -100000) {
-          // Visual active class (base setActive čistí jiné active rows)
+        if (cisloN) {
+          // Phase 38.4 Krok 14g-H+17 (15.5.2026 ~14:41, Marti's "strom
+          // neprepina na CORE, dela jako by nic"): visual active vzdy.
+          // setActive highlightuje row, takze Marti vidi vizualni feedback
+          // ze klik byl detekovan. H+14 over-the-top no-op skipoval i visual.
           this.setActive(id);
-          // Activate hook → router.py openTab
-          if (typeof this.options.onActivate === "function") {
+          // openTab skip pro synthetic range (cisloN <= -100000 = node bez
+          // core prehledu). Bez tab open, bez placeholder (H+14 router.py
+          // empty render zustava jako defensive net).
+          if (cisloN > -100000 && typeof this.options.onActivate === "function") {
             try { this.options.onActivate(node, e, cisloN); }
             catch (err) { console.error("[ErpLeftPanelTree] onActivate failed:", err); }
           }

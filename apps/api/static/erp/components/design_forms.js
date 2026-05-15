@@ -3193,11 +3193,13 @@
     }
 
     _buildPrehledTab() {
-      // Phase 38.4 Krok 14g-H+25 (15.5.2026 ~19:00, Marti's "tento prvni
-      // jiz nepotrebujeme, misto nej potrebujeme jen ten druhy. Tlacitko
-      // vybrat existing core prenes na druhy screen jako malou ikonku"):
-      // unified render. Drop empty state branch (vysvetleni + 2 velke
-      // buttons). Vždy ukáže Číslo + Název. Akce inline jako 🔗/🚫 ikony.
+      // Phase 38.4 Krok 14g-H+26 (15.5.2026 ~19:30, Marti's "vsechny 4
+      // prvky do jedne radky, provizorne do jednoho groupboxu, podobne
+      // jako na Centrale. Pozdeji udelame plnohodnotnou jednu FW komponentu"):
+      // inline horizontal row uvnitř Přehled groupbox. 4 prvky:
+      //   [🔗] [🚫] [Číslo:80px] [Název:flex]
+      // Drop separate action row above. Vše v jedné řádce, label fields
+      // wrap zachovany. Future: dedicated CorePickerInline FW komponenta.
       const root = document.createElement("div");
       root.className = "erp-design-tab-prehled";
       const core = (this._data && this._data.core) || null;
@@ -3207,69 +3209,82 @@
       const D = this._onDirty.bind(this);
       const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
 
-      // Action row — small icon buttons top-right
-      const actionRow = document.createElement("div");
-      actionRow.style.cssText =
-        "display:flex;justify-content:flex-end;align-items:center;gap:6px;" +
-        "margin-bottom:8px;padding:4px 4px 0 4px;";
+      // Section Přehled (groupbox wrapper)
+      const idSec = _sectionBuild("Přehled", "fw.core — vazba na core_id");
+      // Override default grid → flex row pro inline 4-prvkove layout
+      idSec.grid.style.display = "flex";
+      idSec.grid.style.flexDirection = "row";
+      idSec.grid.style.alignItems = "flex-end";
+      idSec.grid.style.gap = "8px";
+      idSec.grid.style.flexWrap = "wrap";
 
+      // Helper: icon button v column wrap (zarovnano s input bottom edge)
       const _mkIconBtn = (icon, title, accentColor, handler) => {
+        const colWrap = document.createElement("div");
+        colWrap.style.cssText =
+          "display:flex;flex-direction:column;justify-content:flex-end;flex:0 0 auto;";
         const b = document.createElement("button");
         b.type = "button";
         b.style.cssText =
-          "padding:5px 9px;background:#1f262f;border:1px solid " + accentColor + ";" +
-          "color:" + accentColor + ";border-radius:4px;cursor:pointer;font-size:13px;" +
-          "line-height:1;min-width:30px;";
+          "padding:7px 10px;background:#1f262f;border:1px solid " + accentColor + ";" +
+          "color:" + accentColor + ";border-radius:4px;cursor:pointer;font-size:14px;" +
+          "line-height:1;min-width:34px;height:32px;";
         b.textContent = icon;
         b.title = title;
         b.onmouseover = () => { b.style.background = "#252d37"; };
         b.onmouseout = () => { b.style.background = "#1f262f"; };
         b.onclick = handler;
-        return b;
+        colWrap.appendChild(b);
+        return colWrap;
       };
 
-      // 🔗 Vybrat / Změnit — vždy visible
-      const pickBtn = _mkIconBtn(
+      // 1. 🔗 Vybrat / Změnit
+      idSec.grid.appendChild(_mkIconBtn(
         "🔗",
         hasCore ? "Změnit asociovaný core přehled" : "Vybrat existing core přehled",
         "#4a7ba8",
         () => this._openCorePickerModal()
-      );
-      actionRow.appendChild(pickBtn);
+      ));
 
-      // 🚫 Odpojit — visible jen pokud core asociované
+      // 2. 🚫 Odpojit (jen pokud hasCore)
       if (hasCore) {
-        const unassocBtn = _mkIconBtn(
+        idSec.grid.appendChild(_mkIconBtn(
           "🚫",
-          "Zrušit asociaci core přehledu (menu_node.core_id → NULL).\nCore sám zůstane v fw.core.",
+          "Zrušit asociaci core přehledu.\nCore sám zůstane v fw.core.",
           "#8a3a3a",
           () => this._unassociateCore()
-        );
-        actionRow.appendChild(unassocBtn);
+        ));
       }
 
-      root.appendChild(actionRow);
-
-      // Section Přehled — vždy 2 fields (Centrála 1 parita)
-      // Pokud no core asociované: fields readonly + empty placeholder.
-      const idSec = _sectionBuild("Přehled", "fw.core — vazba na core_id");
-      idSec.grid.appendChild(_f(
+      // 3. Číslo (compact, fixed width)
+      const cisloWrap = _f(
         "Číslo",
         hasCore ? core.id : "",
         "core.id",
         { mono: true, readonly: true }
-      ));
-      idSec.grid.appendChild(_f(
+      );
+      cisloWrap.style.flex = "0 0 100px";
+      idSec.grid.appendChild(cisloWrap);
+
+      // 4. Název definice přehledu (flex:1, vyplní zbytek)
+      const labelWrap = _f(
         "Název definice přehledu",
         hasCore ? core.label : "",
         "core.label",
-        { readonly: !hasCore, placeholder: hasCore ? "" : "(žádný core asociovaný — klik 🔗)" }
-      ));
+        {
+          readonly: !hasCore,
+          placeholder: hasCore ? "" : "(žádný core — klik 🔗)",
+        }
+      );
+      labelWrap.style.flex = "1 1 200px";
+      labelWrap.style.minWidth = "200px";
+      idSec.grid.appendChild(labelWrap);
+
       root.appendChild(idSec.wrap);
 
       // Note: popis (📖 popup) zustava v header (separate flow).
       // Sloupce / DataSource binding / DataSet config = separate komponenty
-      // v dalsich iteracich (Marti's "vsechno postupne, neztratit se").
+      // (Marti's "pozdeji udelame plnohodnotnou jednu FW komponentu").
 
       return root;
     }

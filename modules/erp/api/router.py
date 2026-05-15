@@ -5592,6 +5592,337 @@ async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JS
         ds_pads.close()
 
 
+# ════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g-H+33 Etapa 1 (15.5.2026 vecer, Marti's "system pro
+# pridavani fw polozek do menu"): fw.context_menu_item CRUD endpoints.
+#
+# Volby Marti: A (action_kind=open_fw_form), A (applies_to_kind filter),
+# A (order: schema→frontend→design UI), Plus design_only field.
+#
+# DDL (CREATE TABLE) — separate SQL file, run v DBeaveru jako Marti-AI:
+#   scripts/_phase14g_h33_etapa1_ddl.sql
+# ════════════════════════════════════════════════════════════════════
+
+
+@api_router.get("/design/context-menu-items")
+def design_list_context_menu_items(req: Request) -> JSONResponse:
+    """List active context_menu_item rows pro frontend.
+
+    Query params:
+      scope: 'tree_node' | 'grid_row' | 'global' (required)
+      applies_to_kind: 'folder' | 'list' | 'form' (optional filter)
+      design_mode: 'true' | 'false' (optional; default 'false')
+
+    Pokud design_mode='false', design_only=true rows jsou filtered out.
+    Pokud design_mode='true', vsechno (vc. design_only) je vraceno.
+
+    Returns:
+      {ok: True, items: [{id, code, label, icon, scope, applies_to_kind,
+                          action_kind, action_params, sort_order,
+                          is_system, design_only, status, ...}]}
+    """
+    from core.database_data import get_data_session as _gds_cml
+    from sqlalchemy import text as _sql_cml
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    scope = req.query_params.get("scope")
+    applies_to_kind = req.query_params.get("applies_to_kind")
+    design_mode = req.query_params.get("design_mode", "false").lower() == "true"
+
+    if not scope:
+        return JSONResponse(
+            {"ok": False, "error": "scope query param povinny"},
+            status_code=400,
+        )
+
+    ds = _gds_cml()
+    try:
+        # Build WHERE conditions
+        where_parts = ["status = 'active'", "is_active = true", "scope = :scope"]
+        params = {"scope": scope}
+        if applies_to_kind:
+            # NULL applies_to_kind = any (matches always)
+            where_parts.append("(applies_to_kind IS NULL OR applies_to_kind = :kind)")
+            params["kind"] = applies_to_kind
+        if not design_mode:
+            where_parts.append("design_only = false")
+
+        sql = _sql_cml(f"""
+            SELECT *
+            FROM fw.context_menu_item
+            WHERE {' AND '.join(where_parts)}
+            ORDER BY sort_order ASC, id ASC
+        """)
+        rows = ds.execute(sql, params).mappings().all()
+
+        items = []
+        for r in rows:
+            rd = dict(r)
+            items.append({
+                "id": rd.get("id"),
+                "code": rd.get("code"),
+                "label": rd.get("label"),
+                "icon": rd.get("icon"),
+                "scope": rd.get("scope"),
+                "applies_to_kind": rd.get("applies_to_kind"),
+                "action_kind": rd.get("action_kind"),
+                "action_params": rd.get("action_params"),
+                "sort_order": rd.get("sort_order"),
+                "is_system": bool(rd.get("is_system")) if rd.get("is_system") is not None else False,
+                "design_only": bool(rd.get("design_only")) if rd.get("design_only") is not None else False,
+                "status": rd.get("status"),
+            })
+        return JSONResponse({"ok": True, "items": items})
+    except Exception as exc:
+        logger.exception(f"design_list_context_menu_items failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"List failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.post("/design/context-menu-item")
+async def design_create_context_menu_item(req: Request) -> JSONResponse:
+    """Create new fw.context_menu_item row.
+
+    Body: {
+      code: str (required, unique),
+      label: str (required),
+      icon: str | None (emoji),
+      scope: 'tree_node' | 'grid_row' | 'global' (required),
+      applies_to_kind: 'folder' | 'list' | 'form' | None,
+      action_kind: 'open_fw_form' (default; Marti's volba A),
+      action_params: dict | None (např. {form_core_code: 'user_edit'}),
+      sort_order: int (default 100),
+      design_only: bool (default false)
+    }
+
+    Returns:
+      200: {ok, item_id, item: {...}}
+      400: validation error
+      500: INSERT failed
+    """
+    from core.database_data import get_data_session as _gds_cmc
+    from sqlalchemy import text as _sql_cmc
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cmc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    code = (body.get("code") or "").strip()
+    label = (body.get("label") or "").strip()
+    icon = body.get("icon")
+    if icon is not None:
+        icon = icon.strip() or None
+    scope = (body.get("scope") or "").strip()
+    applies_to_kind = body.get("applies_to_kind")
+    if applies_to_kind:
+        applies_to_kind = applies_to_kind.strip() or None
+    action_kind = (body.get("action_kind") or "open_fw_form").strip()
+    action_params = body.get("action_params")
+    sort_order = body.get("sort_order", 100)
+    design_only = bool(body.get("design_only", False))
+
+    # Validation
+    if not code:
+        return JSONResponse({"ok": False, "error": "code povinne"}, status_code=400)
+    if not label:
+        return JSONResponse({"ok": False, "error": "label povinne"}, status_code=400)
+    if scope not in ("tree_node", "grid_row", "global"):
+        return JSONResponse(
+            {"ok": False, "error": "scope must be: tree_node | grid_row | global"},
+            status_code=400,
+        )
+    if action_kind not in ("open_fw_form",):
+        return JSONResponse(
+            {"ok": False, "error": "action_kind must be: open_fw_form (Marti's volba A)"},
+            status_code=400,
+        )
+
+    # caller_display
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cmc
+        from modules.core.infrastructure.models_core import User as _User_cmc
+        cs = _gcs_cmc()
+        try:
+            u = cs.query(_User_cmc).filter_by(id=uid).first()
+            if u:
+                if u.short_name and u.short_name.strip():
+                    caller_display = u.short_name.strip()
+                elif u.first_name or u.last_name:
+                    caller_display = " ".join(filter(None, [u.first_name, u.last_name])).strip()
+        finally:
+            cs.close()
+
+    ds = _gds_cmc()
+    try:
+        # Uniqueness check
+        existing = ds.execute(_sql_cmc("""
+            SELECT id FROM fw.context_menu_item
+            WHERE code = :code AND status = 'active'
+        """), {"code": code}).mappings().one_or_none()
+        if existing:
+            return JSONResponse(
+                {"ok": False, "error": f"context_menu_item s code='{code}' uz existuje (id={existing['id']})"},
+                status_code=400,
+            )
+
+        # INSERT pres strategie_pg (Marti-AI's fw schema)
+        values = {
+            "code": code,
+            "label": label,
+            "icon": icon,
+            "scope": scope,
+            "applies_to_kind": applies_to_kind,
+            "action_kind": action_kind,
+            "action_params": action_params,
+            "sort_order": sort_order,
+            "is_system": False,  # user items
+            "is_active": True,
+            "design_only": design_only,
+            "status": "active",
+            "created_by_id": uid,
+            "created_by_text": caller_display,
+        }
+        ins = _spg_insert_cmc(
+            schema="fw",
+            table="context_menu_item",
+            values=values,
+        )
+        if not ins.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                status_code=500,
+            )
+        new_row = ins.get("inserted") or {}
+
+        # Activity log
+        ds.execute(_sql_cmc("SAVEPOINT pre_audit_cmc"))
+        try:
+            ds.execute(_sql_cmc("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_context_menu_item_add', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"+ context_menu_item code='{code}' label='{label}' "
+                    f"scope={scope} action={action_kind} by {caller_display}"
+                ),
+            })
+            ds.execute(_sql_cmc("RELEASE SAVEPOINT pre_audit_cmc"))
+            ds.commit()
+        except Exception as _ae:
+            try:
+                ds.execute(_sql_cmc("ROLLBACK TO SAVEPOINT pre_audit_cmc"))
+                ds.commit()
+            except Exception:
+                ds.rollback()
+            logger.warning(f"design_create_context_menu_item activity_log failed: {_ae}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "item_id": new_row.get("id"),
+            "item": new_row,
+        }))
+    except Exception as exc:
+        try: ds.rollback()
+        except Exception: pass
+        logger.exception(f"design_create_context_menu_item failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"POST failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.patch("/design/context-menu-item/{item_id}/archive")
+async def design_archive_context_menu_item(item_id: int, req: Request) -> JSONResponse:
+    """Archive fw.context_menu_item row (soft delete, status='archived')."""
+    from core.database_data import get_data_session as _gds_cma
+    from sqlalchemy import text as _sql_cma
+    from modules.strategie_pg.application.service import update_row as _spg_update_cma
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_cma()
+    try:
+        existing = ds.execute(_sql_cma("""
+            SELECT id, code, label, status FROM fw.context_menu_item WHERE id = :id
+        """), {"id": item_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"context_menu_item id={item_id} neexistuje"},
+                status_code=404,
+            )
+        if existing.get("status") == "archived":
+            return JSONResponse({
+                "ok": True, "item_id": item_id, "note": "already archived (idempotent)",
+            })
+
+        upd = _spg_update_cma(
+            schema="fw",
+            table="context_menu_item",
+            values={"status": "archived", "updated_by_id": uid},
+            where={"id": item_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log
+        ds.execute(_sql_cma("SAVEPOINT pre_audit_cma"))
+        try:
+            ds.execute(_sql_cma("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_context_menu_item_archive', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"context_menu_item archived: id={item_id} "
+                    f"code='{existing.get('code')}' label='{existing.get('label')}'"
+                ),
+            })
+            ds.execute(_sql_cma("RELEASE SAVEPOINT pre_audit_cma"))
+            ds.commit()
+        except Exception as _ae:
+            try:
+                ds.execute(_sql_cma("ROLLBACK TO SAVEPOINT pre_audit_cma"))
+                ds.commit()
+            except Exception:
+                ds.rollback()
+            logger.warning(f"design_archive_context_menu_item activity_log failed: {_ae}")
+
+        return JSONResponse({
+            "ok": True,
+            "item_id": item_id,
+            "code": existing.get("code"),
+            "label": existing.get("label"),
+        })
+    finally:
+        ds.close()
+
+
 @api_router.get("/design/fw-data-source/list")
 def design_list_fw_data_source(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+30 Etapa 1 (15.5.2026 vecer, Marti's "B varianta
@@ -12805,11 +13136,17 @@ def _render_workspace_page(user_id: int) -> str:
         }
       }
 
-      async function _erpOpenNewSoudecekDialog() {
+      async function _erpOpenNewSoudecekDialog(opts) {
+        opts = opts || {};
         const selected = _erpFindSelectedTreeNode();
         // Krok 14g-G3: pre-fill parent z selected, but Marti sees + can change.
+        // Krok 14g-H+31 step 6 (15.5.2026 vecer, Marti's "jedna komponenta"):
+        // opts.defaultParentId override (volaci pres soudecekPicker.onCreate
+        // muze pass current menuNode.parent_id misto tree-selected).
         let parentId = null;
-        if (selected && selected.menuNodePk) {
+        if (opts.defaultParentId != null) {
+          parentId = opts.defaultParentId;
+        } else if (selected && selected.menuNodePk) {
           parentId = selected.menuNodePk;
         }
         // Fetch all available menu_nodes for parent picker dropdown
@@ -12983,6 +13320,13 @@ def _render_workspace_page(user_id: int) -> str:
             const d = await r.json();
             if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
             close();
+            // Krok 14g-H+31 step 6: optional opts.onSuccess callback
+            // (volaci pres soudecekPicker chce switch Form 1 na new id).
+            const newMenuNodeId = d.menu_node_id;
+            if (newMenuNodeId && typeof opts.onSuccess === 'function') {
+              try { opts.onSuccess(newMenuNodeId); }
+              catch (eCb) { console.warn('[NewSoudecek] onSuccess failed:', eCb); }
+            }
             // Tree reload (existing function expected)
             if (typeof window.reloadErpTree === 'function') {
               await window.reloadErpTree();
@@ -13012,12 +13356,17 @@ def _render_workspace_page(user_id: int) -> str:
         document.addEventListener('keydown', escHandler, true);
         setTimeout(() => labelInp.focus(), 50);
       }
+      // Krok 14g-H+31 step 6: expose wizard na window pro soudecekPicker.onCreate
+      // (sjednoceni — jedna komponenta pro 3 pripady — Marti's request).
+      try { window._erpOpenNewSoudecekDialog = _erpOpenNewSoudecekDialog; }
+      catch (eExp) {}
+
       // Attach button click handler (idempotent)
       try {
         const nsBtn = document.getElementById('erpNewSoudecekBtn');
         if (nsBtn && !nsBtn.dataset.attached) {
           nsBtn.dataset.attached = '1';
-          nsBtn.addEventListener('click', _erpOpenNewSoudecekDialog);
+          nsBtn.addEventListener('click', () => _erpOpenNewSoudecekDialog());
         }
       } catch (e) {}
 

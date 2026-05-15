@@ -14151,7 +14151,7 @@ def _render_workspace_page(user_id: int) -> str:
 
       function _attachTreePinHandlers() {
         if (!treeRoot) return;
-        treeRoot.addEventListener("contextmenu", (ev) => {
+        treeRoot.addEventListener("contextmenu", async (ev) => {
           const row = ev.target.closest(".erp-tree-row");
           if (!row) return;
           const item = row.closest(".erp-tree-item");
@@ -14295,6 +14295,89 @@ def _render_workspace_page(user_id: int) -> str:
                 }
               },
             });
+          }
+
+          // ═════════════════════════════════════════════════════════════
+          // Phase 38.4 Krok 14g-H+33 Etapa 2 (15.5.2026 vecer, Marti's
+          // "system pro pridavani fw polozek do menu"): fetch DB items
+          // z fw.context_menu_item + append na konec menu. Dispatcher pro
+          // action_kind='open_fw_form' otevre DesignSoudecekCoreForm.
+          // ═════════════════════════════════════════════════════════════
+          if (!multi) {
+            try {
+              const isLeaf = item.classList.contains("erp-tree-leaf");
+              const nodeKind = isLeaf ? "list" : "folder";
+              const isDesignMode = window._erpDesignMode === true;
+              // Capture node identifiers at menu-open time (closures over `item`
+              // unsafe if menu reopens for jine node mezi tim)
+              const mnPk = item.getAttribute("data-menu-node-pk") || "";
+              const mnCode = item.getAttribute("data-id") || "";
+              const mnLabelEl = item.querySelector(".erp-tree-label");
+              const mnLabel = mnLabelEl
+                ? (mnLabelEl.dataset.erpOrigText || mnLabelEl.textContent || "")
+                : "";
+
+              const url = "/api/v1/erp/design/context-menu-items?" +
+                new URLSearchParams({
+                  scope: "tree_node",
+                  design_mode: isDesignMode ? "true" : "false",
+                  applies_to_kind: nodeKind,
+                }).toString();
+              const r = await fetch(url, { credentials: "include" });
+              if (r.ok) {
+                const data = await r.json();
+                if (data && data.ok && Array.isArray(data.items)) {
+                  // Append divider (visual hint kde zacinaji DB items)
+                  // _showTreeContextMenu helper kontroluje it.divider (line 14093)
+                  if (data.items.length > 0 && menuItems.length > 0) {
+                    menuItems.push({ divider: true });
+                  }
+                  for (const cmi of data.items) {
+                    menuItems.push({
+                      icon: cmi.icon || "⚙",
+                      label: cmi.label,
+                      handler: (function (cmiSnap) {
+                        return function () {
+                          // Dispatch by action_kind (Marti's volba A: jen open_fw_form)
+                          if (cmiSnap.action_kind === "open_fw_form") {
+                            const ap = cmiSnap.action_params || {};
+                            const formCoreCode = ap.form_core_code;
+                            if (!formCoreCode) {
+                              alert(
+                                "Custom menu item '" + cmiSnap.code +
+                                "' nema form_core_code v action_params."
+                              );
+                              return;
+                            }
+                            if (typeof window.DesignSoudecekCoreForm !== "function") {
+                              alert("DesignSoudecekCoreForm not loaded.");
+                              return;
+                            }
+                            try {
+                              new window.DesignSoudecekCoreForm({
+                                coreCode: formCoreCode,
+                                initialTab: "prehled",
+                              }).open();
+                            } catch (e) {
+                              console.error("[contextmenu] open_fw_form failed:", e);
+                              alert("Otevreni formu selhalo: " + (e.message || e));
+                            }
+                          } else {
+                            alert(
+                              "Custom menu item '" + cmiSnap.code +
+                              "' ma action_kind='" + cmiSnap.action_kind +
+                              "' — neimplementovany dispatcher."
+                            );
+                          }
+                        };
+                      })(cmi),
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("[contextmenu] DB items fetch failed:", e);
+            }
           }
 
           _showTreeContextMenu(ev.clientX, ev.clientY, menuItems);

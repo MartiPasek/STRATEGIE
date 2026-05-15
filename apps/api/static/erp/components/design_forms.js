@@ -3578,180 +3578,154 @@
     }
 
     _buildPrehledTab() {
-      // Phase 38.4 Krok 14g-H+31 (15.5.2026 vecer, Marti's "vyrobit
-      // plnohodnotnou FW komponentu z provizornich inline groupboxu"):
-      // Krok 1 — entity_picker.js komponenta vytvorena + loaded.
-      // Krok 2 (dale): refactor _buildPrehledTab body na 2x ErpEntityPicker.
-      // Zatim ponechano inline kód, ale loader pripraven. Marti otestuje
-      // ze entity_picker.js se nacita bez chyb (Console: ErpEntityPicker function).
+      // Phase 38.4 Krok 14g-H+31 step 2 (15.5.2026 vecer, Marti's
+      // "vyrobit plnohodnotne FW componenty z provizornich inline
+      // groupboxu"): full refactor — drop ~178 LOC inline kódu,
+      // instantiate 2x ErpEntityPicker (corePicker + dsPicker).
+      // Reusable pattern pripraven pro DataSource Operation editor
+      // (Krok 14g-H+32: dalsi ErpEntityPicker pro DataSet picker).
       const root = document.createElement("div");
       root.className = "erp-design-tab-prehled";
+
+      // Defensive: pokud entity_picker.js nenacten, ukaz error
+      if (typeof window.ErpEntityPicker !== "function") {
+        const err = document.createElement("div");
+        err.style.cssText =
+          "padding:20px;color:#e88;background:#3a1818;border:1px solid #5a2828;" +
+          "border-radius:4px;font-size:13px;";
+        err.textContent =
+          "ErpEntityPicker komponenta nenactena (entity_picker.js missing). " +
+          "Zkus hard reload prohlížeč (Ctrl+Shift+R).";
+        root.appendChild(err);
+        return root;
+      }
+
       const core = (this._data && this._data.core) || null;
       const hasCore = !!(core && core.id);
+      const dataSource = (this._data && this._data.data_source) || null;
+      const coreCode = hasCore ? (core.code || "") : "";
+      const self = this;
 
-      // Dirty tracking closures
-      const D = this._onDirty.bind(this);
-      const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
-
-      // Section Přehled (groupbox wrapper)
-      const idSec = _sectionBuild("Přehled", "fw.core — vazba na core_id");
-      // Override default grid → flex row pro inline 4-prvkove layout
-      idSec.grid.style.display = "flex";
-      idSec.grid.style.flexDirection = "row";
-      idSec.grid.style.alignItems = "flex-end";
-      idSec.grid.style.gap = "8px";
-      idSec.grid.style.flexWrap = "wrap";
-
-      // Helper: icon button v column wrap (zarovnano s input bottom edge)
-      const _mkIconBtn = (icon, title, accentColor, handler) => {
-        const colWrap = document.createElement("div");
-        colWrap.style.cssText =
-          "display:flex;flex-direction:column;justify-content:flex-end;flex:0 0 auto;";
-        const b = document.createElement("button");
-        b.type = "button";
-        b.style.cssText =
-          "padding:7px 10px;background:#1f262f;border:1px solid " + accentColor + ";" +
-          "color:" + accentColor + ";border-radius:4px;cursor:pointer;font-size:14px;" +
-          "line-height:1;min-width:34px;height:32px;";
-        b.textContent = icon;
-        b.title = title;
-        b.onmouseover = () => { b.style.background = "#252d37"; };
-        b.onmouseout = () => { b.style.background = "#1f262f"; };
-        b.onclick = handler;
-        colWrap.appendChild(b);
-        return colWrap;
+      // Cell renderery sdilene mezi pickery
+      const usedRenderer = function (params) {
+        const v = params && params.value;
+        if (v && v > 0) {
+          return '<span title="Pouzit v ' + v + ' core(s)" ' +
+                 'style="color:#7a8696;">🔗 ' + v + '×</span>';
+        }
+        return '';
+      };
+      const opsRenderer = function (params) {
+        const v = params && params.value;
+        if (!v) return '<span style="color:#5a6573;">—</span>';
+        return '<span style="color:#a8b4c2;font-size:11px;">' + v + '</span>';
       };
 
-      // 1. 🔗 Vybrat / Změnit
-      idSec.grid.appendChild(_mkIconBtn(
-        "🔗",
-        hasCore ? "Změnit asociovaný core přehled" : "Vybrat existing core přehled",
-        "#4a7ba8",
-        () => this._openCorePickerModal()
-      ));
+      // ─── 1. CorePicker (Přehled) ──────────────────────────────────
+      this._corePicker = new window.ErpEntityPicker({
+        label: "Přehled",
+        subtitle: "fw.core — vazba na core_id",
+        idLabel: "Číslo",
+        nameLabel: "Název definice přehledu",
+        entity: core ? {
+          id: core.id,
+          name: core.label || core.code,
+          code: core.code,
+        } : null,
+        placeholderText: "(žádný core — klik 🔗)",
+        pickerConfig: {
+          title: "🔗 Vybrat existing core přehled",
+          endpoint: "/api/v1/erp/design/fw-core/list",
+          listKey: "cores",
+          labelField: "label",
+          columns: [
+            { headerName: "Code", field: "code", width: 220,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 200,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Layout", field: "layout_type", width: 130,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Data entity", field: "data_entity_type", width: 130,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "v", field: "version", width: 60,
+              type: "numericColumn", sortable: true },
+            { headerName: "Použit ×", field: "is_used_count", width: 110,
+              type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
+          ],
+        },
+        onPick: (row) => self._associateCoreWithMenuNode(row.id, row.label, null),
+        onUnassociate: () => self._unassociateCore(),
+        onCreate: (picker) => self._openCoreCreateForm(picker),
+        showCreate: true,
+      });
+      this._corePicker.mount(root);
 
-      // 2. 🚫 Odpojit (jen pokud hasCore)
-      if (hasCore) {
-        idSec.grid.appendChild(_mkIconBtn(
-          "🚫",
-          "Zrušit asociaci core přehledu.\nCore sám zůstane v fw.core.",
-          "#8a3a3a",
-          () => this._unassociateCore()
-        ));
-      }
-
-      // 3. Číslo (compact, fixed width)
-      const cisloWrap = _f(
-        "Číslo",
-        hasCore ? core.id : "",
-        "core.id",
-        { mono: true, readonly: true }
-      );
-      cisloWrap.style.flex = "0 0 100px";
-      idSec.grid.appendChild(cisloWrap);
-
-      // 4. Název definice přehledu (flex:1, vyplní zbytek)
-      const labelWrap = _f(
-        "Název definice přehledu",
-        hasCore ? core.label : "",
-        "core.label",
-        {
-          readonly: !hasCore,
-          placeholder: hasCore ? "" : "(žádný core — klik 🔗)",
-        }
-      );
-      labelWrap.style.flex = "1 1 200px";
-      labelWrap.style.minWidth = "200px";
-      idSec.grid.appendChild(labelWrap);
-
-      root.appendChild(idSec.wrap);
-
-      // ───────────────────────────────────────────────────────────────
-      // Phase 38.4 Krok 14g-H+30 Etapa 3 (15.5.2026 vecer, Marti's
-      // "B varianta dotahnout do finale"): 2. groupbox — Datovy zdroj
-      // (vazba na fw.data_source via core.code, Marti's "vazba via code"
-      // pattern). Stejna struktura jako 1. groupbox: 4 prvky inline.
-      // ───────────────────────────────────────────────────────────────
-      const dataSource = (this._data && this._data.data_source) || null;
-      const hasDataSource = !!(dataSource && dataSource.id);
-
-      const dsSec = _sectionBuild(
-        "Datovy zdroj",
-        "fw.data_source — vazba pres code (s.code = c.code)"
-      );
-      dsSec.grid.style.display = "flex";
-      dsSec.grid.style.flexDirection = "row";
-      dsSec.grid.style.alignItems = "flex-end";
-      dsSec.grid.style.gap = "8px";
-      dsSec.grid.style.flexWrap = "wrap";
-
-      // 1. 🔗 Vybrat / Zmenit data_source
-      dsSec.grid.appendChild(_mkIconBtn(
-        "🔗",
-        hasDataSource
-          ? "Zmenit asociovany datovy zdroj"
-          : (hasCore
-              ? "Vybrat existing data_source (nebo ➕ Novy)"
-              : "Nejdriv vyber/vytvor core (👆 vyse)"),
-        hasCore ? "#4a7ba8" : "#4a4a4a",
-        () => {
-          if (!hasCore) {
-            _confirmDarkDialog({
-              title: "Nejdriv core",
-              message: "Datovy zdroj se vaze na core (pres code).\n" +
-                       "Nejdriv vyber/vytvor core prehled v 1. radku.",
-              ok: "OK",
-              cancel: null,
-            });
-            return;
-          }
-          this._openDataSourcePickerModal();
-        }
-      ));
-
-      // 2. 🚫 Odpojit (jen pokud hasDataSource)
-      if (hasDataSource) {
-        dsSec.grid.appendChild(_mkIconBtn(
-          "🚫",
-          "Zrusit asociaci datoveho zdroje.\nData_source sam zustane v fw.data_source.",
-          "#8a3a3a",
-          () => this._unassociateDataSource()
-        ));
-      }
-
-      // 3. Cislo (compact, fixed width)
-      const dsCisloWrap = _f(
-        "Cislo",
-        hasDataSource ? dataSource.id : "",
-        "data_source.id",
-        { mono: true, readonly: true }
-      );
-      dsCisloWrap.style.flex = "0 0 100px";
-      dsSec.grid.appendChild(dsCisloWrap);
-
-      // 4. Nazev datoveho zdroje (flex:1, vyplni zbytek)
-      const dsNazevWrap = _f(
-        "Nazev datoveho zdroje",
-        hasDataSource ? (dataSource.name || dataSource.code || "") : "",
-        "data_source.name",
-        {
-          readonly: true,
-          placeholder: hasDataSource
-            ? ""
-            : (hasCore
-                ? "(zadny data_source — klik 🔗)"
-                : "(nejdriv vyber core 👆)"),
-        }
-      );
-      dsNazevWrap.style.flex = "1 1 200px";
-      dsNazevWrap.style.minWidth = "200px";
-      dsSec.grid.appendChild(dsNazevWrap);
-
-      root.appendChild(dsSec.wrap);
+      // ─── 2. DsPicker (Datový zdroj) — gated na hasCore ────────────
+      this._dsPicker = new window.ErpEntityPicker({
+        label: "Datový zdroj",
+        subtitle: "fw.data_source — vazba pres code (s.code = c.code)",
+        idLabel: "Číslo",
+        nameLabel: "Název datového zdroje",
+        entity: dataSource ? {
+          id: dataSource.id,
+          name: dataSource.name || dataSource.code,
+          code: dataSource.code,
+        } : null,
+        placeholderText: hasCore
+          ? "(žádný data_source — klik 🔗)"
+          : "(nejdřív vyber core 👆)",
+        disabled: !hasCore,
+        disabledReason:
+          "Datový zdroj se váže na core (přes code).\n" +
+          "Nejdřív vyber/vytvoř core přehled v 1. řádku.",
+        prefillCode: coreCode,
+        pickerConfig: {
+          title: "🔗 Vybrat existing data_source (vazba pres core.code = '" +
+                 coreCode + "')",
+          endpoint: "/api/v1/erp/design/fw-data-source/list",
+          listKey: "data_sources",
+          labelField: "name",
+          columns: [
+            { headerName: "Code", field: "code", width: 220,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Nazev", field: "name", flex: 1, minWidth: 200,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Refresh", field: "refresh_type", width: 110,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Status", field: "status", width: 100,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Operations", field: "operation_kinds", flex: 1,
+              minWidth: 160, sortable: false, cellRenderer: opsRenderer },
+            { headerName: "Ops #", field: "operation_count", width: 80,
+              type: "numericColumn", sortable: true },
+            { headerName: "v", field: "version", width: 60,
+              type: "numericColumn", sortable: true },
+            { headerName: "Pouzit ×", field: "is_used_count", width: 100,
+              type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
+          ],
+          onSelect: (row) => {
+            // Marti's Varianta C — view-only browse
+            alert(
+              "📖 View-only browse\n\n" +
+              "Vybrane: '" + (row.name || row.code) + "' (id=" + row.id + ")\n\n" +
+              "Marti's doctrine 1:1 vazba pres code: kazdy core ma vlastni\n" +
+              "data_source s code = core.code. Stavajici data_sources se\n" +
+              "nemichaji.\n\n" +
+              "Pro vytvoreni noveho data_source pro core '" + coreCode + "'\n" +
+              "klikni ➕ Novy vlevo nahore."
+            );
+          },
+        },
+        onUnassociate: () => self._unassociateDataSource(),
+        onCreate: (picker) => self._openDataSourceCreateForm(picker, coreCode),
+        showCreate: true,
+      });
+      this._dsPicker.mount(root);
 
       // Note: popis (📖 popup) zustava v header (separate flow).
-      // Sloupce / DataSet config = separate komponenty
-      // (Marti's "pozdeji udelame plnohodnotnou jednu FW komponentu").
+      // _openCorePickerModal + _openDataSourcePickerModal jsou nyni
+      // dead code (logic moved into ErpEntityPicker.pickerConfig).
+      // Cleanup v separate commitu po smoke test.
 
       return root;
     }

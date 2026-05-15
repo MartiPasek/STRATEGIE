@@ -414,6 +414,25 @@
                 console.warn("[LeftTree] reloadErpTree NOT available, full page reload");
                 window.location.reload();
               }
+              // Phase 38.4 Krok 14g-H+15 (15.5.2026 vecer, Marti's "podle
+              // toho, kam dam drop, tak prepsal parent id i toho sloupecku"):
+              // refresh aktivni system grid pokud je menu_nodes (Definice
+              // leveho stromu). Bez toho grid drzi stale parent_id, sidebar
+              // tree zobrazuje novou hierarchy. Pattern z fw-form save
+              // (Krok 14b+6 router.py line 11442).
+              try {
+                if (window._sysHelpers
+                    && typeof window._sysHelpers.renderSystemGrid === "function"
+                    && window._sysCurrentMode === "menu_nodes") {
+                  console.info("[LeftTree] refresh active menu_nodes grid");
+                  await window._sysHelpers.renderSystemGrid(
+                    "menu_nodes",
+                    window._sysCurrentLabel || ""
+                  );
+                }
+              } catch (eGrid) {
+                console.warn("[LeftTree] menu_nodes grid refresh failed:", eGrid);
+              }
             } catch (e) {
               console.error("[LeftTree] menu_node drop fetch failed:", e);
               // Phase 38.4 Krok 14g-H+2: nice toast misto alert

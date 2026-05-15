@@ -14341,15 +14341,14 @@ def _render_workspace_page(user_id: int) -> str:
                           // Dispatch by action_kind (Marti's volba A: jen open_fw_form)
                           if (cmiSnap.action_kind === "open_fw_form") {
                             // ═══════════════════════════════════════════════
-                            // Phase 38.4 Krok 14g-H+33 Etapa 2.2 (15.5.2026
-                            // vecer, Marti's "potrebuju FW, ne hardcoded, tj
-                            // zacit stavet od nuly"): dispatcher nyni voli
-                            // DesignFwForm (data-driven render z fw.core +
-                            // fw.comp_def) misto DesignSoudecekCoreForm
-                            // (hardcoded JS class).
+                            // Phase 38.4 Krok 14g-H+33 Etapa 2.1 (15.5.2026
+                            // vecer, Marti's "system pro prenos source ID do
+                            // destination ID dynamicky bez hardcodovani"):
+                            // dynamic resolver pro action_params s $sourceX
+                            // placeholdery + auto-context defaults.
                             // ═══════════════════════════════════════════════
-                            if (typeof window.DesignFwForm !== "function") {
-                              alert("DesignFwForm not loaded (design_forms.js missing).");
+                            if (typeof window.DesignSoudecekCoreForm !== "function") {
+                              alert("DesignSoudecekCoreForm not loaded.");
                               return;
                             }
                             // Source resolvery — z DOM kontextu (item dataset)
@@ -14362,13 +14361,14 @@ def _render_workspace_page(user_id: int) -> str:
                               })(),
                               core_code: item.getAttribute("data-core-code") || null,
                             };
-                            // Auto-context defaults pro DesignFwForm
-                            // DesignFwForm requires {coreCode, rowId}
-                            //   coreCode — z action_params (typically) nebo ctx.core_code
-                            //   rowId    — default 1, override via action_params nebo $resolver
+                            // Auto-context defaults pro DesignSoudecekCoreForm
+                            // (action_params overrides win)
                             const formArgs = {
+                              menuNodeId: ctx.menu_node_pk || undefined,
+                              menuNodeCode: ctx.menu_node_code || undefined,
+                              coreId: ctx.core_id || undefined,
                               coreCode: ctx.core_code || undefined,
-                              rowId: 1,  // default — DesignFwForm requires non-null
+                              initialTab: "prehled",
                             };
                             // Apply action_params s $resolvers
                             const ap = cmiSnap.action_params || {};
@@ -14377,6 +14377,7 @@ def _render_workspace_page(user_id: int) -> str:
                               const targetKey = (key === "form_core_code")
                                 ? "coreCode" : key;
                               if (typeof val === "string" && val.startsWith("$")) {
+                                // Dynamic: resolve $sourceField → ctx[sourceField]
                                 const sourceKey = val.substring(1);
                                 if (ctx.hasOwnProperty(sourceKey)) {
                                   formArgs[targetKey] = ctx[sourceKey];
@@ -14392,46 +14393,19 @@ def _render_workspace_page(user_id: int) -> str:
                                 formArgs[targetKey] = val;
                               }
                             }
-                            // Diag log v DESIGN mode
+                            // Diag log (Marti's "design view" — co bude open)
                             if (window._erpDesignMode === true) {
                               console.info(
-                                "[contextmenu dispatch FW] action_params:", ap,
+                                "[contextmenu dispatch] action_params:", ap,
                                 "ctx:", ctx,
                                 "resolved formArgs:", formArgs
                               );
                             }
-                            // Validate required props
-                            if (!formArgs.coreCode) {
-                              alert(
-                                "Custom item '" + cmiSnap.code +
-                                "': chybi coreCode.\n\n" +
-                                "Pridejte 'coreCode' do action_params, napr:\n" +
-                                '{"coreCode": "user_edit", "rowId": 1}\n\n' +
-                                "(nebo nechte coreCode prazdny — pak se pouzije " +
-                                "core asociovany s timto soudeckem.)"
-                              );
-                              return;
-                            }
-                            // Otevri FW form (data-driven render)
-                            const modal = new window.DesignFwForm({
-                              coreCode: formArgs.coreCode,
-                              rowId: formArgs.rowId,
-                            });
-                            const _openPromise = modal.open();
-                            if (_openPromise && typeof _openPromise.catch === "function") {
-                              _openPromise.catch(function (e) {
-                                console.error("[contextmenu] DesignFwForm.open failed:", e);
-                                alert(
-                                  "Otevreni FW formu '" + formArgs.coreCode +
-                                  "' selhalo:\n" + (e.message || e) +
-                                  "\n\nMozne priciny:\n" +
-                                  "1. fw.core ma layout_type != 'form' (potreba " +
-                                  "ALTER nebo scaffold form template)\n" +
-                                  "2. Endpoint /api/v1/erp/fw-form/{code}/{rowId} " +
-                                  "vratil 404 (form_core nenalezen)\n\n" +
-                                  "Pouzij Design akci pro scaffold form template."
-                                );
-                              });
+                            try {
+                              new window.DesignSoudecekCoreForm(formArgs).open();
+                            } catch (e) {
+                              console.error("[contextmenu] open_fw_form failed:", e);
+                              alert("Otevreni formu selhalo: " + (e.message || e));
                             }
                           } else {
                             alert(

@@ -5009,28 +5009,41 @@ def design_list_fw_core(req: Request) -> JSONResponse:
 
     ds = _gds_clst()
     try:
-        sql = _sql_clst("""
-            SELECT
-              c.id, c.code, c.label, c.layout_type, c.data_entity_type,
-              c.version, c.shadow_mode,
-              (SELECT COUNT(*) FROM fw.menu_node mn WHERE mn.core_id = c.id) AS is_used_count
-            FROM fw.core c
-            ORDER BY c.label ASC, c.code ASC
+        # Phase 38.4 Krok 14g-H+20.1 (15.5.2026 ~15:35, Marti's "500"):
+        # Defensive SELECT * + row_dict.get() pattern (mirror _serialize_core
+        # line 2066). fw.core schema drift — version/shadow_mode/
+        # parent_framework_id mohou neexistovat v older schema (pre-master
+        # tier 8.5. večer). Fetch is_used_count separately to avoid SQL fail.
+        sql_cores = _sql_clst(
+            "SELECT * FROM fw.core ORDER BY label ASC NULLS LAST, code ASC"
+        )
+        rows = ds.execute(sql_cores).mappings().all()
+
+        # Fetch usage counts in single subquery (NULL-safe pokud menu_node
+        # nema core_id reference)
+        sql_usage = _sql_clst("""
+            SELECT core_id, COUNT(*) AS cnt
+            FROM fw.menu_node
+            WHERE core_id IS NOT NULL
+            GROUP BY core_id
         """)
-        rows = ds.execute(sql).mappings().all()
-        cores = [
-            {
-                "id": r["id"],
-                "code": r["code"],
-                "label": r["label"],
-                "layout_type": r["layout_type"],
-                "data_entity_type": r["data_entity_type"],
-                "version": r["version"],
-                "shadow_mode": r["shadow_mode"],
-                "is_used_count": int(r["is_used_count"] or 0),
-            }
-            for r in rows
-        ]
+        usage_rows = ds.execute(sql_usage).mappings().all()
+        usage_map = {r["core_id"]: int(r["cnt"]) for r in usage_rows}
+
+        cores = []
+        for r in rows:
+            rd = dict(r)
+            core_id = rd.get("id")
+            cores.append({
+                "id": core_id,
+                "code": rd.get("code"),
+                "label": rd.get("label"),
+                "layout_type": rd.get("layout_type"),
+                "data_entity_type": rd.get("data_entity_type"),
+                "version": rd.get("version"),
+                "shadow_mode": rd.get("shadow_mode"),
+                "is_used_count": usage_map.get(core_id, 0),
+            })
         return JSONResponse({"ok": True, "cores": cores})
     except Exception as exc:
         logger.exception(f"design_list_fw_core failed: {exc}")

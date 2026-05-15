@@ -4989,6 +4989,149 @@ def _design_patch_fw_table(
         pass
 
 
+@api_router.post("/design/fw-core")
+async def design_create_fw_core(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-H+23 (15.5.2026 ~18:00, Marti's "tlacitko + bez
+    nej se systemove nepohneme"): vytvořit novou fw.core row.
+
+    Body: {
+        "code": "users_grid",          # required, unique
+        "label": "Uživatelé",          # required
+        "layout_type": "list",         # optional, default 'list'
+        "data_entity_type": "user",    # optional
+        "description_user": "...",     # optional
+    }
+
+    Returns:
+        200: {ok, core: {id, code, label, ...}}
+        400: validation error (missing code/label, duplicate code)
+        500: DB error
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    code = (body.get("code") or "").strip()
+    label = (body.get("label") or "").strip()
+    layout_type = (body.get("layout_type") or "list").strip() or "list"
+    data_entity_type = (body.get("data_entity_type") or "").strip() or None
+    description_user = body.get("description_user") or None
+
+    # Validation
+    if not code:
+        return JSONResponse(
+            {"ok": False, "error": "Pole 'code' je povinné"},
+            status_code=400,
+        )
+    if not label:
+        return JSONResponse(
+            {"ok": False, "error": "Pole 'label' je povinné"},
+            status_code=400,
+        )
+    # Code naming convention — lowercase snake_case (Marti-AI doctrine)
+    import re as _re_code
+    if not _re_code.match(r'^[a-z][a-z0-9_]*$', code):
+        return JSONResponse(
+            {"ok": False, "error": "code musi byt lowercase snake_case (a-z, 0-9, _), zacit pismenem"},
+            status_code=400,
+        )
+
+    # Caller display name
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cr
+        from modules.core.infrastructure.models_core import User as _User_cr
+        cs_cr = _gcs_cr()
+        try:
+            u_cr = cs_cr.query(_User_cr).filter_by(id=uid).first()
+            if u_cr:
+                if u_cr.short_name and u_cr.short_name.strip():
+                    caller_display = u_cr.short_name.strip()
+                elif u_cr.first_name or u_cr.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_cr.first_name, u_cr.last_name
+                    ])).strip()
+        finally:
+            cs_cr.close()
+
+    # INSERT pres strategie_pg layer (Marti-AI's PG role, db_owner na fw.*)
+    from modules.strategie_pg.application.service import insert_row as _spg_insert
+    values = {
+        "code": code,
+        "label": label,
+        "layout_type": layout_type,
+    }
+    if data_entity_type:
+        values["data_entity_type"] = data_entity_type
+    if description_user:
+        values["description_user"] = description_user
+    # Audit fields — pokud columns existuji v fw.core (defensive vs schema drift)
+    values["created_by_id"] = uid
+    values["created_by_text"] = caller_display
+    values["updated_by_id"] = uid
+    values["updated_by_text"] = caller_display
+
+    upd = _spg_insert(schema="fw", table="core", values=values)
+
+    if not upd.get("ok"):
+        err_raw = str(upd.get("error") or "")
+        # Friendly error extraction
+        if "duplicate key" in err_raw.lower() or "unique" in err_raw.lower():
+            err_msg = f"Core s code '{code}' už existuje. Použij jiný code."
+        elif "column" in err_raw.lower() and "does not exist" in err_raw.lower():
+            # Audit columns may not exist in older schema — retry without them
+            err_msg = f"CREATE failed (schema): {err_raw}"
+        else:
+            err_msg = f"CREATE failed: {err_raw}"
+        return JSONResponse(
+            {"ok": False, "error": err_msg},
+            status_code=400,
+        )
+
+    inserted_row = upd.get("inserted")
+    if isinstance(inserted_row, list):
+        inserted_row = inserted_row[0] if inserted_row else {}
+    new_id = (inserted_row or {}).get("id")
+
+    # Activity log audit (defensive — public.activity_log via strategie session)
+    from core.database_data import get_data_session as _gds_cr
+    from sqlalchemy import text as _sql_cr
+    ds_cr = _gds_cr()
+    try:
+        ds_cr.execute(_sql_cr("""
+            INSERT INTO public.activity_log
+              (user_id, persona_id, category, actor,
+               summary, change_source, ts)
+            VALUES
+              (:uid, NULL, 'design_fw_core_create', 'user',
+               :summary, 'ui', NOW())
+        """), {
+            "uid": uid,
+            "summary": (
+                f"CREATE fw.core code={code} label={label} layout={layout_type} "
+                f"by {caller_display} (new id={new_id})"
+            ),
+        })
+        ds_cr.commit()
+    except Exception as _act_e:
+        ds_cr.rollback()
+        logger.warning(f"design_create_fw_core activity_log failed: {_act_e}")
+    finally:
+        ds_cr.close()
+
+    return JSONResponse({
+        "ok": True,
+        "core": jsonable_encoder(dict(inserted_row) if inserted_row else {}),
+    })
+
+
 @api_router.get("/design/fw-core/list")
 def design_list_fw_core(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vybrat stavajici

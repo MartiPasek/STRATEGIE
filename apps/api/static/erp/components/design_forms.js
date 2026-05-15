@@ -2533,7 +2533,8 @@
         return '';
       };
 
-      new window.ErpCatalogPicker({
+      const self = this;
+      const picker = new window.ErpCatalogPicker({
         title: "🔗 Vybrat existing core přehled",
         endpoint: "/api/v1/erp/design/fw-core/list",
         listKey: "cores",
@@ -2549,11 +2550,198 @@
         onSelect: (row) => {
           this._associateCoreWithMenuNode(row.id, row.label, null);
         },
-        // Day 2: enable CRUD buttons
-        enableNew: false,
+        // Phase 38.4 Krok 14g-H+23 (15.5.2026 ~18:00, Marti's "tlacitko +"):
+        // Day 2 first task — enable CRUD ➕ Nový. Edit / Delete stay disabled.
+        enableNew: true,
         enableEdit: false,
         enableDelete: false,
-      }).open();
+        onNew: () => self._openCoreCreateForm(picker),
+      });
+      picker.open();
+    }
+
+    /**
+     * Phase 38.4 Krok 14g-H+23 (15.5.2026 ~18:00, Marti's "tlacitko +
+     * bez nej se systemove nepohneme"): mini form modal pro CREATE
+     * fw.core. Po success refresh picker grid + auto-associate s
+     * current menu_node.
+     */
+    _openCoreCreateForm(picker) {
+      // Mini overlay
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10020;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "width:480px;max-width:95vw;background:#1a1f26;border:1px solid #2a3340;" +
+        "border-radius:6px;display:flex;flex-direction:column;color:#cfd6df;" +
+        "font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.5);";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:14px 18px;border-bottom:1px solid #2a3340;display:flex;" +
+        "align-items:center;justify-content:space-between;";
+      header.innerHTML = '<div style="font-size:14px;font-weight:600;color:#e8eef5;">' +
+        '➕ Vytvořit nový core přehled</div>';
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:none;border:none;color:#7a8696;font-size:18px;cursor:pointer;padding:0 4px;";
+      closeBtn.onclick = () => overlay.remove();
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Body — form fields
+      const body = document.createElement("div");
+      body.style.cssText = "padding:18px;display:flex;flex-direction:column;gap:14px;";
+
+      const _mkField = (label, hint, isRequired) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+        const lbl = document.createElement("label");
+        lbl.style.cssText = "color:#a8b4c2;font-size:11px;font-weight:500;";
+        lbl.innerHTML = label + (isRequired ? ' <span style="color:#d4a8a8;">*</span>' : '');
+        wrap.appendChild(lbl);
+        if (hint) {
+          const h = document.createElement("div");
+          h.style.cssText = "color:#7a8696;font-size:10px;font-style:italic;";
+          h.textContent = hint;
+          wrap.appendChild(h);
+        }
+        return wrap;
+      };
+
+      // code
+      const codeWrap = _mkField("Code", "Lowercase snake_case (a-z, 0-9, _). Unikátní v fw.core. Např. 'users_grid', 'audit_dashboard'.", true);
+      const codeInput = document.createElement("input");
+      codeInput.type = "text";
+      codeInput.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;font-family:monospace;outline:none;";
+      codeInput.placeholder = "users_grid";
+      codeWrap.appendChild(codeInput);
+      body.appendChild(codeWrap);
+
+      // label
+      const labelWrap = _mkField("Label", "Human-readable jméno (UI label). Např. 'Uživatelé', 'Audit dashboard'.", true);
+      const labelInput = document.createElement("input");
+      labelInput.type = "text";
+      labelInput.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;outline:none;";
+      labelInput.placeholder = "Uživatelé";
+      labelWrap.appendChild(labelInput);
+      body.appendChild(labelWrap);
+
+      // layout_type (dropdown)
+      const layoutWrap = _mkField("Layout type", "Jak se přehled zobrazuje. 'list' = AG Grid table. 'form' = single-row editor. Default 'list'.", false);
+      const layoutSelect = document.createElement("select");
+      layoutSelect.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;outline:none;";
+      ["list", "form", "dashboard", "kanban"].forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        layoutSelect.appendChild(opt);
+      });
+      layoutWrap.appendChild(layoutSelect);
+      body.appendChild(layoutWrap);
+
+      // data_entity_type
+      const entityWrap = _mkField("Data entity (table)", "Volitelně. fw.menu_node entity ref. Např. 'user', 'menu_node', 'security_device'.", false);
+      const entityInput = document.createElement("input");
+      entityInput.type = "text";
+      entityInput.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;font-family:monospace;outline:none;";
+      entityInput.placeholder = "user";
+      entityWrap.appendChild(entityInput);
+      body.appendChild(entityWrap);
+
+      modal.appendChild(body);
+
+      // Footer
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "padding:12px 18px;border-top:1px solid #2a3340;display:flex;" +
+        "gap:10px;justify-content:flex-end;align-items:center;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText =
+        "padding:8px 18px;background:#2a3340;border:1px solid #3a4754;color:#cfd6df;" +
+        "border-radius:4px;cursor:pointer;font-size:12px;";
+      cancelBtn.onclick = () => overlay.remove();
+      footer.appendChild(cancelBtn);
+
+      const createBtn = document.createElement("button");
+      createBtn.type = "button";
+      createBtn.textContent = "➕ Vytvořit";
+      createBtn.style.cssText =
+        "padding:8px 18px;background:#2a4760;border:1px solid #4a7ba8;color:#a8c4dc;" +
+        "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
+      createBtn.onclick = async () => {
+        const code = codeInput.value.trim();
+        const label = labelInput.value.trim();
+        const layoutType = layoutSelect.value;
+        const dataEntity = entityInput.value.trim() || null;
+
+        if (!code) { alert("Code je povinný."); codeInput.focus(); return; }
+        if (!/^[a-z][a-z0-9_]*$/.test(code)) {
+          alert("Code musí být lowercase snake_case (a-z, 0-9, _), začínat písmenem.");
+          codeInput.focus();
+          return;
+        }
+        if (!label) { alert("Label je povinný."); labelInput.focus(); return; }
+
+        createBtn.disabled = true;
+        createBtn.textContent = "⏳ Vytvářím…";
+        try {
+          const r = await fetch("/api/v1/erp/design/fw-core", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: code,
+              label: label,
+              layout_type: layoutType,
+              data_entity_type: dataEntity,
+            }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.ok) {
+            alert("Vytvoření selhalo: " + (data.error || ("HTTP " + r.status)));
+            createBtn.disabled = false;
+            createBtn.textContent = "➕ Vytvořit";
+            return;
+          }
+          // Success — toast + close create modal
+          if (typeof _showToast === "function") {
+            _showToast("Core '" + label + "' vytvořen", "success");
+          }
+          overlay.remove();
+          // Refresh picker grid (new row visible)
+          if (picker && typeof picker.refresh === "function") {
+            await picker.refresh();
+          }
+        } catch (e) {
+          alert("Vytvoření selhalo: " + (e.message || e));
+          createBtn.disabled = false;
+          createBtn.textContent = "➕ Vytvořit";
+        }
+      };
+      footer.appendChild(createBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      setTimeout(() => codeInput.focus(), 50);
     }
 
     async _associateCoreWithMenuNode(coreId, coreLabel, overlay) {

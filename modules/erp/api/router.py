@@ -3870,41 +3870,87 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 )
 
         # 2. Build UPDATE — explicit sloupce z field_changes + audit fields
-        from sqlalchemy.sql import quoted_name as _qn
-        set_clauses = []
-        params = {"row_id": row_id}
-        for col, new_val in field_changes.items():
-            set_clauses.append(f'"{col}" = :set_{col}')
-            params[f"set_{col}"] = new_val
-
-        # Audit fields — po Marti's migrace 13.5. ~18:10 ma public.users
-        # taky audit columns (created_by_id/text + updated_by_id/text).
-        # Drop schema guard, audit fields set pro VSECHNY entity types.
-        # Pokud table nema column, UPDATE fail s explicit error — caller
-        # vidi v 500 response.
-        set_clauses.extend([
-            'updated_by_id = :updated_by_id',
-            'updated_by_text = :updated_by_text',
-        ])
-        params["updated_by_id"] = uid
-        params["updated_by_text"] = caller_display
-
-        set_clauses.append("updated_at = NOW()")  # explicit timestamp update
-
-        update_sql = (
-            f'UPDATE "{schema_name}"."{table_name}" '
-            f'SET {", ".join(set_clauses)} '
-            f'WHERE "{id_column}" = :row_id '
-            f'RETURNING *'
-        )
-
-        result_row = ds.execute(_sql_text_patch(update_sql), params).mappings().one_or_none()
-        if not result_row:
-            ds.rollback()
-            return JSONResponse(
-                {"ok": False, "error": "UPDATE failed (RETURNING vrátil žádnou row)"},
-                status_code=500,
+        # Phase 38.4 Krok 14g-H+19 (15.5.2026 ~15:00, Marti's "permission
+        # denied for table menu_node"): schema dispatch. Strategie session
+        # user nema UPDATE na fw.* (Marti-AI je db_owner). Pro fw.* schema
+        # use strategie_pg.update_row (Marti-AI PG role) — db_owner perms.
+        # Pro public.* (users) use direct SQL — strategie ma perms.
+        if schema_name == "fw":
+            # Marti-AI's owned schema → strategie_pg layer
+            from modules.strategie_pg.application.service import (
+                update_row as _spg_update,
             )
+            upd_values = dict(field_changes)
+            upd_values["updated_by_id"] = uid
+            upd_values["updated_by_text"] = caller_display
+            upd = _spg_update(
+                schema=schema_name,
+                table=table_name,
+                values=upd_values,
+                where={id_column: row_id},
+                dry_run=False,
+            )
+            if not upd.get("ok"):
+                # Clean trigger error (Krok 14g-H+10 pattern) — extract
+                # human-readable prefix z raw psycopg2 dump.
+                err_raw = str(upd.get("error") or "")
+                import re as _re_err
+                cycle_match = _re_err.search(r'Cyclic reference[^\n]*', err_raw)
+                self_match = _re_err.search(r'cannot reference self[^\n]*', err_raw)
+                if cycle_match:
+                    err_msg = cycle_match.group(0).strip()
+                elif self_match:
+                    err_msg = "Soudeček nemůže být svým vlastním rodičem."
+                elif 'ancestry too deep' in err_raw:
+                    err_msg = "Hierarchie soudečků je příliš hluboká (> 50 úrovní)."
+                else:
+                    err_msg = f"PATCH failed: {upd.get('error')}"
+                ds.rollback()
+                return JSONResponse(
+                    {"ok": False, "error": err_msg},
+                    status_code=500,
+                )
+            updated_rows = upd.get("updated") or []
+            if not updated_rows:
+                ds.rollback()
+                return JSONResponse(
+                    {"ok": False, "error": "UPDATE failed (žádná row updated)"},
+                    status_code=500,
+                )
+            result_row = updated_rows[0]
+        else:
+            # Default direct SQL (public schema, strategie session perms)
+            set_clauses = []
+            params = {"row_id": row_id}
+            for col, new_val in field_changes.items():
+                set_clauses.append(f'"{col}" = :set_{col}')
+                params[f"set_{col}"] = new_val
+
+            # Audit fields — po Marti's migrace 13.5. ~18:10 ma public.users
+            # taky audit columns (created_by_id/text + updated_by_id/text).
+            set_clauses.extend([
+                'updated_by_id = :updated_by_id',
+                'updated_by_text = :updated_by_text',
+            ])
+            params["updated_by_id"] = uid
+            params["updated_by_text"] = caller_display
+
+            set_clauses.append("updated_at = NOW()")
+
+            update_sql = (
+                f'UPDATE "{schema_name}"."{table_name}" '
+                f'SET {", ".join(set_clauses)} '
+                f'WHERE "{id_column}" = :row_id '
+                f'RETURNING *'
+            )
+
+            result_row = ds.execute(_sql_text_patch(update_sql), params).mappings().one_or_none()
+            if not result_row:
+                ds.rollback()
+                return JSONResponse(
+                    {"ok": False, "error": "UPDATE failed (RETURNING vrátil žádnou row)"},
+                    status_code=500,
+                )
 
         # 3. activity_log audit row
         # Phase 38.4 Krok 14b+5 hotfix (13.5.2026 ~18:30, Marti's silent

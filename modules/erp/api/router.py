@@ -13235,9 +13235,26 @@ def _render_workspace_page(user_id: int) -> str:
         // ani u jedny, abych je mezi sebou prohodil". HTML5 drag a click jsou
         // separate eventy — folder click (mousedown+up bez move) = expand,
         // folder drag (mousedown+move+drop) = reorder. Žádný konflikt.
+        //
+        // Phase 38.4 Krok 14g-H+3 (15.5.2026 dopo, Marti's "immutable
+        // by se melo v design mode ignorovat"): defense in depth — gate
+        // na 3 indicators (data-is-immutable / kind=special / code=system).
+        // Bez toho by SYSTEM byl draggable i kdyz lefttree.js gate
+        // skipl li-level setup, protoze _attachTreeDragHandlers stale
+        // nastavil row.draggable=true.
         treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
           const row = item.querySelector(":scope > .erp-tree-row");
           if (!row) return;
+          // Skip immutable nodes (SYSTEM + budouci system uzly).
+          // Multi-signal detection — backend may not yet propagate
+          // is_immutable, fallback na code='system' a kind='special'.
+          const isImmutable = item.dataset.isImmutable === "1"
+            || item.getAttribute("data-id") === "system"
+            || item.getAttribute("data-kind") === "special";
+          if (isImmutable) {
+            row.removeAttribute("draggable");
+            return;
+          }
           row.setAttribute("draggable", "true");
         });
 
@@ -13255,6 +13272,15 @@ def _render_workspace_page(user_id: int) -> str:
           if (!row) { ev.preventDefault(); return; }
           const item = row.closest(".erp-tree-item");
           if (!item) { ev.preventDefault(); return; }
+          // Phase 38.4 Krok 14g-H+3 defense in depth — early return
+          // pri immutable. Stejny multi-signal jako _attachTreeDragHandlers.
+          const isImmutable = item.dataset.isImmutable === "1"
+            || item.getAttribute("data-id") === "system"
+            || item.getAttribute("data-kind") === "special";
+          if (isImmutable) {
+            ev.preventDefault();
+            return;
+          }
           _dragSourceItem = item;
           item.classList.add("erp-tree-dragging");
           try {

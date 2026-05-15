@@ -3240,6 +3240,77 @@
         "font-weight:" + (on ? "600" : "400") + ";";
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14g-D (15.5.2026 rano, Marti's volba A "simple
+    // undo, jeden dva kroky zpet a je happy"): memory-only operation
+    // history. Per-session, no DB persist.
+    //
+    // _undoStack = array of { label, inverse } entries (max 15)
+    // _pushUndoOp called BEFORE destructive action, snapshots state.
+    // _performUndo pops last + executes inverse, reload spec.
+    //
+    // Coverage:
+    //   - Delete → inverse: PATCH is_active=true
+    //   - Move (cross-parent) → inverse: PATCH parent + sort_order back
+    //   - Reorder (same-parent) → inverse: PUT field_orders s old order
+    //   - Settings save → inverse: PATCH caption + layout back
+    //   - Create from gallery → inverse: DELETE new id
+    // ════════════════════════════════════════════════════════════════
+    _ensureUndoStack() {
+      if (!Array.isArray(this._undoStack)) this._undoStack = [];
+    }
+
+    _pushUndoOp(label, inverse) {
+      this._ensureUndoStack();
+      this._undoStack.push({ label, inverse });
+      // Keep max 15 (drop oldest)
+      if (this._undoStack.length > 15) {
+        this._undoStack.shift();
+      }
+      this._updateUndoButton();
+    }
+
+    _updateUndoButton() {
+      const btn = this._formUndoBtn;
+      if (!btn) return;
+      this._ensureUndoStack();
+      const n = this._undoStack.length;
+      if (n === 0) {
+        btn.style.opacity = "0.4";
+        btn.disabled = true;
+        btn.textContent = "↶ Zpět";
+        btn.title = "Žádná akce k vrácení";
+      } else {
+        btn.style.opacity = "1";
+        btn.disabled = false;
+        btn.textContent = "↶ Zpět (" + n + ")";
+        const last = this._undoStack[n - 1];
+        btn.title = "Vrátit: " + last.label + " (Ctrl+Z)";
+      }
+    }
+
+    async _performUndo() {
+      this._ensureUndoStack();
+      if (this._undoStack.length === 0) {
+        _showToast("Nic k vrácení", "info", 1500);
+        return;
+      }
+      const op = this._undoStack.pop();
+      this._updateUndoButton();
+      try {
+        _showToast("Vracím: " + op.label, "info", 1500);
+        await op.inverse();
+        _showToast("✓ Vráceno: " + op.label, "success", 2000);
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] undo failed:", e);
+        _showToast("Vrácení selhalo: " + (e.message || e), "error", 3500);
+        // Push back na stack (preserve order pokud user chce retry)
+        this._undoStack.push(op);
+        this._updateUndoButton();
+      }
+    }
+
     _attachFormDesignToggle() {
       // Krok 14b+7: toggle button visible jen pokud global ERP DESIGN
       // je ON. Bez global flagu form je vzdy PRODUCTION (zadny toggle
@@ -3307,14 +3378,42 @@
         this._detectAndSaveMinSize();
       });
 
+      // Phase 38.4 Krok 14g-D (15.5.2026 rano, Marti's volba A simple
+      // undo): ↶ Zpět button. Visible jen v DESIGN mode. Click → pop
+      // last undoStack entry + execute inverse.
+      const undoBtn = document.createElement("button");
+      undoBtn.type = "button";
+      undoBtn.className = "erp-form-design-undo";
+      undoBtn.textContent = "↶ Zpět";
+      this._formUndoBtn = undoBtn;
+      this._updateUndoButton();  // initial: opacity 0.4 / disabled
+      undoBtn.addEventListener("click", () => {
+        this._performUndo();
+      });
+      // Ctrl+Z keyboard shortcut — capture phase aby browser default
+      // (undo v inputu) nepřebijel (jen pokud focus mimo input).
+      this._undoKeyHandler = (ev) => {
+        if ((ev.ctrlKey || ev.metaKey) && ev.key === "z" && !ev.shiftKey) {
+          const t = ev.target;
+          const tag = t && t.tagName;
+          if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+          if (this._formDesignMode !== true) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          this._performUndo();
+        }
+      };
+      document.addEventListener("keydown", this._undoKeyHandler, true);
+
       // Insert PRED sysToggle (= prvni button v rightActions) — toggle
       // je hlavni mode switch, ostatni jsou pomocna nastaveni.
       // Order v rightActions po insertBefore (kazdy pred sysToggle):
-      //   toggle -> addBtn -> saveSizeBtn -> detectMinBtn -> sysToggle
+      //   toggle -> undoBtn -> addBtn -> saveSizeBtn -> detectMinBtn -> sysToggle
       //   (leftmost to rightmost)
       const sysToggle = rightActions.querySelector(".erp-design-systoggle");
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
+        rightActions.insertBefore(undoBtn, sysToggle);
         rightActions.insertBefore(addBtn, sysToggle);
         rightActions.insertBefore(saveSizeBtn, sysToggle);
         rightActions.insertBefore(detectMinBtn, sysToggle);
@@ -3323,6 +3422,7 @@
         rightActions.insertBefore(detectMinBtn, rightActions.firstChild);
         rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
+        rightActions.insertBefore(undoBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
     }
@@ -3831,6 +3931,14 @@
           try {
             const panel = document.body.querySelector(".erp-schema-tree-panel");
             if (panel) document.body.removeChild(panel);
+          } catch (e) {}
+          // Phase 38.4 Krok 14g-D: cleanup undo state + keyboard listener
+          try {
+            if (this._undoKeyHandler) {
+              document.removeEventListener("keydown", this._undoKeyHandler, true);
+              this._undoKeyHandler = null;
+            }
+            this._undoStack = [];
           } catch (e) {}
         },
         // Krok 14b+21 (14.5.2026 rano): 📘 popup pro core description
@@ -5930,6 +6038,24 @@
       // not found), reload spec stejne — UI mozno stale ho zobrazuje
       // z cache. Backend 200 was_already_deactivated → success toast +
       // reload (cleanup stale UI).
+      //
+      // Phase 38.4 Krok 14g-D (15.5.2026 rano): undo support — push
+      // inverse PATCH is_active=true PRED delete. Po success undo
+      // restoruje row.
+      const undoLabel = "Smaz " + (field.comp_type_code || "comp") +
+                        " '" + (field.caption || field.name) + "' (#" + field.id + ")";
+      const undoInverse = async () => {
+        await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ is_active: true }),
+          }
+        );
+      };
+
       try {
         const r = await fetch(
           "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
@@ -5963,6 +6089,8 @@
             "Pole '" + (field.caption || field.name) + "' smazáno",
             "success"
           );
+          // Krok 14g-D: push undo only on actual delete (ne na already-deactivated)
+          this._pushUndoOp(undoLabel, undoInverse);
         }
         await this._reloadSpec();
       } catch (e) {
@@ -6215,6 +6343,11 @@
       const siblings = fields
         .filter((f) => f.parent_comp_def_id === parentId)
         .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      // Krok 14g-D undo: snapshot original sort_orders PRED reorder
+      const originalOrders = siblings.map((f) => ({
+        id: f.id,
+        sort_order: f.sort_order != null ? f.sort_order : 0,
+      }));
       const fromIdx = siblings.findIndex((f) => f.id === fromId);
       const toIdx = siblings.findIndex((f) => f.id === toId);
       if (fromIdx < 0 || toIdx < 0) {
@@ -6246,6 +6379,18 @@
         }
         console.info("[DesignFwForm] reorder OK:", payload);
         _showToast("Pořadí uloženo", "success");
+        // Krok 14g-D undo: push inverse (restore originalOrders)
+        this._pushUndoOp(
+          "Zmena poradi v parent #" + parentId,
+          async () => {
+            await fetch("/api/v1/erp/design/comp-def/reorder", {
+              method: "PUT",
+              headers: { "Content-Type": "application/json" },
+              credentials: "include",
+              body: JSON.stringify({ field_orders: originalOrders }),
+            });
+          }
+        );
         // Krok 14b+9-C: flash na moved field po reload (pendingFlashFieldId
         // se cte v _wrapFieldForDesign pri render).
         this._pendingFlashFieldId = fromId;
@@ -7411,6 +7556,13 @@
     // ════════════════════════════════════════════════════════════════
     async _performCrossParentMove(fromId, toComp, dropAbove) {
       const fields = this._spec.fields || [];
+      // Krok 14g-D undo: snapshot original parent + sort_order PRED move
+      const fromCompPre = fields.find((f) => f.id === fromId);
+      const originalParentId = fromCompPre && fromCompPre.parent_comp_def_id;
+      const originalSortOrder = fromCompPre && fromCompPre.sort_order;
+      const originalLabel = fromCompPre &&
+        (fromCompPre.caption || fromCompPre.name || ("#" + fromId));
+
       const targetParentId = toComp.parent_comp_def_id;
       // Build new sibling list v target parent (excluding fromId pro pripad
       // ze tam uz neni)
@@ -7464,6 +7616,26 @@
           throw new Error("reorder HTTP " + rr.status + ": " + (eb.error || rr.statusText));
         }
         _showToast("Komponenta presunuta + serazena", "success", 2200);
+        // Krok 14g-D undo: push inverse (PATCH parent + sort_order back)
+        if (originalParentId != null) {
+          this._pushUndoOp(
+            "Presun '" + originalLabel + "' zpet do parent #" + originalParentId,
+            async () => {
+              await fetch(
+                "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(fromId),
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    parent_comp_def_id: originalParentId,
+                    sort_order: originalSortOrder || 10,
+                  }),
+                }
+              );
+            }
+          );
+        }
         this._pendingFlashFieldId = fromId;
         await this._reloadSpec();
       } catch (e) {
@@ -7479,6 +7651,14 @@
     // konec siblings (auto sort_order). Pro position-aware drop → pouzij
     // _performCrossParentMove (14g-A).
     async _performFieldMove(fieldId, newParentId) {
+      // Krok 14g-D undo: snapshot original parent + sort_order PRED move
+      const fields = this._spec.fields || [];
+      const preComp = fields.find((f) => f.id === fieldId);
+      const origParent = preComp && preComp.parent_comp_def_id;
+      const origSort = preComp && preComp.sort_order;
+      const origLabel = preComp &&
+        (preComp.caption || preComp.name || ("#" + fieldId));
+
       try {
         const r = await fetch(
           "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(fieldId),
@@ -7494,6 +7674,26 @@
           throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
         }
         _showToast("Komponenta presunuta", "success", 2200);
+        // Krok 14g-D undo: push inverse
+        if (origParent != null) {
+          this._pushUndoOp(
+            "Presun '" + origLabel + "' zpet do parent #" + origParent,
+            async () => {
+              await fetch(
+                "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(fieldId),
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    parent_comp_def_id: origParent,
+                    sort_order: origSort || 10,
+                  }),
+                }
+              );
+            }
+          );
+        }
         this._pendingFlashFieldId = fieldId;
         await this._reloadSpec();
       } catch (e) {

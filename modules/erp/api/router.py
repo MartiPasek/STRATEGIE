@@ -4367,7 +4367,9 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     # Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop na field v jinem
     # panelu"): pridat sort_order pro position-aware cross-parent drop —
     # atomic move + place at target position.
-    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id", "sort_order")
+    # Phase 38.4 Krok 14g-D (15.5.2026 rano, Marti's "simple undo"):
+    # pridat is_active pro undo-of-delete (restore soft-deleted komponentu).
+    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id", "sort_order", "is_active")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -4384,6 +4386,15 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
         if not isinstance(new_sort, int) or new_sort < 0:
             return JSONResponse(
                 {"ok": False, "error": "sort_order musi byt non-negative int"},
+                status_code=400,
+            )
+
+    # is_active validation (Krok 14g-D undo restore)
+    if "is_active" in update_vals:
+        new_active = update_vals["is_active"]
+        if not isinstance(new_active, bool):
+            return JSONResponse(
+                {"ok": False, "error": "is_active musi byt bool"},
                 status_code=400,
             )
 

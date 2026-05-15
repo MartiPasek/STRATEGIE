@@ -10823,7 +10823,16 @@ def _render_workspace_page(user_id: int) -> str:
           });
         }
         try {
-          await tree.init();
+          // Phase 38.4 Krok 14g-H+9 (15.5.2026 dopo): subsequent loadTree
+          // calls (= view mode toggle) use refresh() to preserve expanded
+          // state + active ID + filter text. Initial call uses init() which
+          // also wires base event handlers. tree._initedOnce flag tracks.
+          if (tree._initedOnce && typeof tree.refresh === "function") {
+            await tree.refresh();
+          } else {
+            await tree.init();
+            tree._initedOnce = true;
+          }
           if (!tree._data || tree._data.length === 0) {
             // Empty state už base class ukáže
             return;
@@ -12765,7 +12774,13 @@ def _render_workspace_page(user_id: int) -> str:
             b.classList.toggle("active", b.getAttribute("data-tree-view") === mode);
           });
         }
-        applyTreeViewFilter();
+        // Phase 38.4 Krok 14g-H+9 (15.5.2026 dopo, Marti's "prenacteni
+        // stromu z DB pri prekliknuti Vše/Oblibene/MRU"): re-fetch + full
+        // re-render. Bez toho jen CSS visibility filter — tree DOM zustane
+        // stale, post-mode-flip drag handlers nepripoji. loadTree() volá
+        // tree.init() (fresh dataSource) + post-render setup (drag handlers
+        // wire pro current DESIGN flag) + applyTreeViewFilter().
+        loadTree().catch(() => {});
       }
 
       // Wire footer toggle

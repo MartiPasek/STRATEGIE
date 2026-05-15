@@ -3578,13 +3578,12 @@
     }
 
     _buildPrehledTab() {
-      // Phase 38.4 Krok 14g-H+26 (15.5.2026 ~19:30, Marti's "vsechny 4
-      // prvky do jedne radky, provizorne do jednoho groupboxu, podobne
-      // jako na Centrale. Pozdeji udelame plnohodnotnou jednu FW komponentu"):
-      // inline horizontal row uvnitř Přehled groupbox. 4 prvky:
-      //   [🔗] [🚫] [Číslo:80px] [Název:flex]
-      // Drop separate action row above. Vše v jedné řádce, label fields
-      // wrap zachovany. Future: dedicated CorePickerInline FW komponenta.
+      // Phase 38.4 Krok 14g-H+31 (15.5.2026 vecer, Marti's "vyrobit
+      // plnohodnotnou FW komponentu z provizornich inline groupboxu"):
+      // Krok 1 — entity_picker.js komponenta vytvorena + loaded.
+      // Krok 2 (dale): refactor _buildPrehledTab body na 2x ErpEntityPicker.
+      // Zatim ponechano inline kód, ale loader pripraven. Marti otestuje
+      // ze entity_picker.js se nacita bez chyb (Console: ErpEntityPicker function).
       const root = document.createElement("div");
       root.className = "erp-design-tab-prehled";
       const core = (this._data && this._data.core) || null;

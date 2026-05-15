@@ -10524,6 +10524,11 @@ def _render_workspace_page(user_id: int) -> str:
          napriС form fields (fw.core, fw.menu_node parent, fw.data_source,
          user assignment, atd.). Day 1: select-only. Day 2: full CRUD. -->
     <script src="/static/erp/components/catalog_picker.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 14g-H+31 (15.5.2026 vecer, Marti's "vyrobit plnohodnotnou
+         FW komponentu z provizornich inline groupboxu"): ErpEntityPicker reusable
+         widget pro 1:1 FK vazbu. Renderuje 1 groupbox se 4 prvky (🔗/🚫/ID/Nazev).
+         Pouziva ErpCatalogPicker pro modal grid. -->
+    <script src="/static/erp/components/entity_picker.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14a (12.5.2026 rano): Design forms — Form 1+2 konsolidace
          (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
          3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->

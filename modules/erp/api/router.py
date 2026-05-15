@@ -5491,7 +5491,12 @@ def _build_system_root_from_db():
                 "core_id": row.get("core_id"),
                 "core_code": row.get("core_code"),
                 "is_system": True,
-                "is_folder": (row.get("kind") == "folder"),
+                # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo, Marti's "bez toho
+                # abys musel pouzit field Kind"): is_folder = bool(children).
+                # Uniform components doctrine (Marti-AI 11.5.) — folder vs
+                # list je faktum strukturalni (ma children?), ne typ field.
+                # Soudecek muze SOUCASNE nest jadro (core_id) a mit children.
+                "is_folder": bool(children),
                 # Phase 38.4 Krok 14g-H+2 (15.5.2026): propagate is_immutable
                 # pro frontend drag gate. Immutable nodes (SYSTEM, atd.) nelze
                 # drag-drop (drag setup je skipne).
@@ -5499,20 +5504,12 @@ def _build_system_root_from_db():
                 "label": row["label"],
                 "nazev": row["label"],
             }
-            # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind compute pro
-            # sidebar marker. Folders vrátí None (žádný marker), leafs
-            # mapují přes hw_shadow_mode → a3_primary/hw_off/hw_audit/
-            # hw_compare. Pokud node má core_id ale žádný hw match (nebo
-            # core_id IS NULL u leaf nodu), vrátí 'orphan' = ⚠️.
-            #
-            # Mapování:
-            #   folder                      → None (no marker)
-            #   hw_shadow_mode='primary'    → 'a3_primary' (✅)
-            #   hw_shadow_mode='off'        → 'hw_off' (🛠️)
-            #   hw_shadow_mode='audit'      → 'hw_audit' (🔄)
-            #   hw_shadow_mode='compare'    → 'hw_compare' (🔄)
-            #   leaf bez hw match           → 'orphan' (⚠️)
-            if row.get("kind") != "folder":
+            # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo): dispatch_kind compute
+            # uniformne pro KAZDY node s core_id. Drop "kind != folder" gate.
+            # Pokud node ma core_id, vypoctime marker; jinak ho vynechame (folder
+            # bez jadra = pure namespace). Soudecek s children + core_id dostane
+            # marker pro core, plus expand toggle pro children.
+            if row.get("core_id"):
                 hw_mode = row.get("hw_shadow_mode")
                 if hw_mode == "primary":
                     node["dispatch_kind"] = "a3_primary"

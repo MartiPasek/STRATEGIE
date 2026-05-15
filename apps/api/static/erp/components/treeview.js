@@ -594,7 +594,11 @@
 
         const childrenNodes = this._getChildren(n.id);
         const hasChildren = childrenNodes.length > 0;
-        const isFolder = (n.kind === "folder") || hasChildren;
+        // Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo, Marti's "bez kind"):
+        // isFolder = ma children. Uniform components — folder vs leaf je
+        // strukturalni fakt, ne typ field. Soudecek s core_id + children =
+        // expandable AND clickable.
+        const isFolder = hasChildren;
 
         if (isFolder) li.classList.add(cls + "-folder");
         else li.classList.add(cls + "-leaf");
@@ -1083,7 +1087,9 @@
         if (iconEl) {
           const node = this._nodeIndex.get(sid);
           if (node) {
-            const isFolder = (node.kind === "folder") || this._getChildren(sid).length > 0;
+            // Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo): drop kind check,
+            // jen hasChildren rozhoduje. Uniform components doctrine.
+            const isFolder = this._getChildren(sid).length > 0;
             const newIcon = this._resolveIcon(node, !wasExpanded, isFolder);
             if (newIcon != null) iconEl.textContent = newIcon;
           }

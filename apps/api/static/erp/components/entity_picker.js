@@ -289,6 +289,14 @@
       }
 
       const cfg = Object.assign({}, this.opts.pickerConfig || {});
+      // Phase 38.4 Krok 14g-H+31 step 5 (15.5.2026 vecer, Marti's
+      // "videt ktera veta je vybrana"): auto-pass aktualni entity.id
+      // do pickerConfig.initialSelectedId (no need wire each instance).
+      // Pokud uzivatel pickerConfig.initialSelectedId explicit set,
+      // respect user value.
+      if (cfg.initialSelectedId == null && this._entity && this._entity.id != null) {
+        cfg.initialSelectedId = this._entity.id;
+      }
       // Wire onSelect to internal handler that calls onPick callback.
       const userOnSelect = cfg.onSelect;
       cfg.onSelect = (row) => {

@@ -381,6 +381,31 @@
             this._syncOkButtonState();
           },
         });
+
+        // Phase 38.4 Krok 14g-H+31 step 5 (15.5.2026 vecer, Marti's
+        // "je treba videt, ktera veta je vybrana"): post-render highlight
+        // matching aktualne vybrana entita. Use setTimeout(0) — AG Grid
+        // renders synchronously when rowData passed v opts, ale necham
+        // event loop tick aby grid byl plne ready.
+        const initId = this.opts.initialSelectedId;
+        if (initId != null) {
+          setTimeout(() => {
+            try {
+              const api = this._grid && this._grid.gridApi;
+              if (!api || typeof api.forEachNode !== "function") return;
+              api.forEachNode((node) => {
+                if (node && node.data && node.data.id === initId) {
+                  node.setSelected(true, true);  // selected, clearSelection
+                  if (typeof api.ensureNodeVisible === "function") {
+                    api.ensureNodeVisible(node, "middle");
+                  }
+                }
+              });
+            } catch (e) {
+              console.warn("[ErpCatalogPicker] initial select failed:", e);
+            }
+          }, 0);
+        }
       } catch (e) {
         console.error("[ErpCatalogPicker] fetch failed:", e);
         this._gridContainer.innerHTML =

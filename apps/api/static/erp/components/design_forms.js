@@ -3739,18 +3739,14 @@
           endpoint: "/api/v1/erp/design/menu-nodes",
           listKey: "items",
           labelField: "label",
+          // Phase 38.4 Krok 14g-H+31 step 5 (15.5.2026 vecer, Marti's
+          // "pro zacatek jen ID + Label fixne, pozdeji ulozeni sestavy"):
+          // minimal columns. TODO: persist user sestava (analog grid).
           columns: [
-            { headerName: "Code", field: "code", width: 250,
-              filter: "agTextColumnFilter", sortable: true },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 220,
-              filter: "agTextColumnFilter", sortable: true },
-            { headerName: "Kind", field: "kind", width: 110,
-              filter: "agTextColumnFilter", sortable: true },
-            { headerName: "Parent", field: "parent_id", width: 90,
-              type: "numericColumn", sortable: true },
-            { headerName: "Sort", field: "sort_order", width: 80,
-              type: "numericColumn", sortable: true },
-            { headerName: "Status", field: "status", width: 100,
+            { headerName: "ID", field: "id", width: 90,
+              type: "numericColumn", sortable: true,
+              filter: "agNumberColumnFilter" },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 240,
               filter: "agTextColumnFilter", sortable: true },
           ],
         },

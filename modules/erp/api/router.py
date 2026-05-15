@@ -5372,27 +5372,39 @@ async def design_create_fw_data_source(req: Request) -> JSONResponse:
 
     ds_cds = _gds_cds()
     try:
-        # Uniqueness check — code + status='active' kombinace
-        existing = ds_cds.execute(_sql_text_cds("""
-            SELECT id FROM fw.data_source
+        # Phase 38.4 Krok 14g-H+30 Etapa 6.1 hotfix (15.5.2026 vecer):
+        # Active uniqueness check — pokud aktivni row s code uz existuje,
+        # nelze pridat dalsi (rovna se "musi nejdriv archivovat").
+        active = ds_cds.execute(_sql_text_cds("""
+            SELECT id, version FROM fw.data_source
             WHERE code = :code AND status = 'active'
         """), {"code": code}).mappings().one_or_none()
-        if existing:
+        if active:
             return JSONResponse(
                 {
                     "ok": False,
                     "error": (
-                        f"fw.data_source s code='{code}' uz existuje (id={existing['id']}). "
-                        f"Bud ho archivuj nejdriv, nebo pouzij jiny code."
+                        f"fw.data_source s code='{code}' uz aktivni (id={active['id']}, "
+                        f"version={active['version']}). Bud ho archivuj nejdriv, "
+                        f"nebo pouzij jiny code."
                     )
                 },
                 status_code=400,
             )
 
+        # Auto-bump version: pokud archived row se stejnym code existuje,
+        # bumpni version (Marti-AI's Q6 lineage doctrine z 7.5. vecer).
+        # SELECT MAX(version) regardless status → fresh = max + 1.
+        max_v = ds_cds.execute(_sql_text_cds("""
+            SELECT COALESCE(MAX(version), 0) AS max_v
+            FROM fw.data_source WHERE code = :code
+        """), {"code": code}).scalar() or 0
+        new_version = int(max_v) + 1
+
         # INSERT pres strategie_pg (Marti-AI owner fw.*)
         values = {
             "code": code,
-            "version": 1,
+            "version": new_version,
             "name": name,
             "description": description,
             "refresh_type": refresh_type,

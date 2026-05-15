@@ -2370,7 +2370,7 @@
     constructor(opts) {
       this.opts = opts || {};
       // opts.menuNodeId (preferred) | opts.menuNodeCode | opts.coreId
-      // opts.initialTab = 'soudecek' (default) | 'prehled'
+      // opts.initialTab = 'prehled' (default po Krok 14g-H+31 step 8) | 'soudecek'
       this._shell = null;
       this._pc = null;
       this._data = null;
@@ -3517,7 +3517,10 @@
     }
 
     open() {
-      const initialTab = this.opts.initialTab === "prehled" ? "prehled" : "soudecek";
+      // Phase 38.4 Krok 14g-H+31 step 8 (15.5.2026 vecer, Marti's "Prehled
+      // je 1. tab"): default na "prehled", "soudecek" jen pokud explicit
+      // requested. Zachovava back-compat pro existing callers s initialTab.
+      const initialTab = this.opts.initialTab === "soudecek" ? "soudecek" : "prehled";
       // Sjednoceny title napric obema akcemi (tree akce 1 + grid akce 2) —
       // form je stejny, jen jiny default tab. Uzivatel vidi scope (soudecek + core).
       const title = "Design: Soudeček + Core přehledu";
@@ -3617,8 +3620,13 @@
       // ErpPageControl
       this._pc = new global.ErpPageControl(this._shell.body, {
         tabs: [
-          { id: "soudecek", label: "Soudeček", content: soudecekDiv },
-          { id: "prehled", label: "Přehled (Core)", content: prehledDiv },
+          // Phase 38.4 Krok 14g-H+31 step 8 (15.5.2026 vecer, Marti's
+          // "Prohod ty dve zalozky"): Prehled je teď 1. tab (primary),
+          // Soudecek se stava 2. tabem s názvem "Smazat později" —
+          // predprava pro uplne smazani po prenesem parametrizace do
+          // Prehled tabu (Marti's dlouhodoba vize).
+          { id: "prehled", label: "Přehled", content: prehledDiv },
+          { id: "soudecek", label: "Smazat později", content: soudecekDiv },
         ],
         activeId: initialTab,
       });

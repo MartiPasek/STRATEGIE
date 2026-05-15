@@ -273,6 +273,104 @@
           }
         }
       }
+
+      // Phase 38.4 Krok 14g-H (15.5.2026 rano, Marti's "dragable napric
+      // celym stromem v design mode only"): cross-parent move pro
+      // menu_node nodes. Drag source → drop target → PATCH parent_id.
+      //
+      // Gate: jen v DESIGN mode + node ma menu_node_pk (skip leaves bez fw mappingu).
+      try {
+        const designOn = (typeof window !== "undefined" && window._erpDesignMode === true);
+        const menuPk = li.dataset.menuNodePk ? parseInt(li.dataset.menuNodePk, 10) : null;
+        if (designOn && menuPk && !li.dataset.dragAttached) {
+          li.dataset.dragAttached = "1";
+          li.draggable = true;
+          const row = li.querySelector(":scope > ." + cls + "-row");
+
+          li.addEventListener("dragstart", (ev) => {
+            ev.stopPropagation();
+            if (row) row.style.opacity = "0.5";
+            try {
+              ev.dataTransfer.effectAllowed = "move";
+              ev.dataTransfer.setData("application/x-erp-menu-node-move", JSON.stringify({
+                menuPk: menuPk,
+                label: (li.querySelector("." + cls + "-label") || {}).textContent || ""
+              }));
+              ev.dataTransfer.setData("text/plain", "menunode:" + menuPk);
+            } catch (e) {}
+          });
+          li.addEventListener("dragend", () => {
+            if (row) row.style.opacity = "";
+            // Clean all drop highlights v tree
+            const treeRoot = li.closest("#erpTreeRoot") || document;
+            treeRoot.querySelectorAll("." + cls + "-row").forEach((r) => {
+              r.style.outline = "";
+              r.style.background = "";
+            });
+          });
+          li.addEventListener("dragover", (ev) => {
+            const types = ev.dataTransfer && ev.dataTransfer.types;
+            if (!types || !Array.from(types).includes("application/x-erp-menu-node-move")) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+            if (row) {
+              row.style.outline = "2px solid #a88cd4";
+              row.style.outlineOffset = "-2px";
+              row.style.background = "rgba(168, 140, 212, 0.1)";
+            }
+          });
+          li.addEventListener("dragleave", () => {
+            if (row) {
+              row.style.outline = "";
+              row.style.background = "";
+            }
+          });
+          li.addEventListener("drop", async (ev) => {
+            const raw = ev.dataTransfer.getData("application/x-erp-menu-node-move");
+            if (!raw) return;
+            ev.preventDefault();
+            ev.stopPropagation();
+            if (row) {
+              row.style.outline = "";
+              row.style.background = "";
+            }
+            let payload;
+            try { payload = JSON.parse(raw); } catch (e) { return; }
+            if (!payload || !payload.menuPk) return;
+            const sourceId = payload.menuPk;
+            const targetId = menuPk;
+            if (sourceId === targetId) return;
+            // PATCH source's parent_id = target.id (move INTO target)
+            try {
+              const r = await fetch(
+                "/api/v1/erp/design/fw-menu-node/update/" + encodeURIComponent(sourceId),
+                {
+                  method: "PATCH",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({ parent_id: targetId }),
+                }
+              );
+              const d = await r.json();
+              if (!r.ok || !d.ok) {
+                throw new Error(d.error || ("HTTP " + r.status));
+              }
+              // Tree reload
+              if (typeof window.reloadErpTree === "function") {
+                await window.reloadErpTree();
+              } else {
+                window.location.reload();
+              }
+            } catch (e) {
+              console.error("[LeftTree] menu_node drop failed:", e);
+              alert("Přesun selhal: " + (e.message || e));
+            }
+          });
+        }
+      } catch (e) {
+        console.warn("[LeftTree] drag-drop setup failed:", e);
+      }
     }
 
     _injectStarOn(li, cls) {

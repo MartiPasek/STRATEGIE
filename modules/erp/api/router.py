@@ -2201,6 +2201,40 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.get("/design/menu-nodes")
+def design_list_menu_nodes(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-G3 (15.5.2026 rano, Marti's parent picker):
+    List all active menu_node rows for parent picker dropdown.
+
+    Returns flat list sorted by parent_id + sort_order + code.
+    Each row: { id, code, label, parent_id, kind, depth_hint }
+
+    Frontend pak postavi nested dropdown nebo simple "indented" list.
+    """
+    from core.database_data import get_data_session as _gds_lmn
+    from sqlalchemy import text as _sql_text_lmn
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_lmn()
+    try:
+        rows = ds.execute(_sql_text_lmn("""
+            SELECT id, code, label, parent_id, sort_order, kind, status
+            FROM fw.menu_node
+            WHERE status = 'active'
+            ORDER BY parent_id NULLS FIRST, sort_order, code
+        """)).mappings().all()
+        items = [dict(r) for r in rows]
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "items": items,
+            "count": len(items),
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.post("/design/menu-node")
 async def design_create_menu_node(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-G (15.5.2026 rano, Marti's "Novy soudecek button
@@ -5039,7 +5073,9 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             status_code=400,
         )
 
-    ALLOWED = ("label", "description_user", "description_system")
+    # Phase 38.4 Krok 14g-H (15.5.2026 rano, Marti's "dragable napric
+    # celym stromem"): pridat parent_id + sort_order pro tree drag-drop move.
+    ALLOWED = ("label", "description_user", "description_system", "parent_id", "sort_order")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -5052,6 +5088,53 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
             status_code=400,
         )
+
+    # parent_id validation (Krok 14g-H)
+    if "parent_id" in update_vals:
+        new_parent_id = update_vals["parent_id"]
+        if new_parent_id is not None:
+            if not isinstance(new_parent_id, int) or new_parent_id <= 0:
+                return JSONResponse(
+                    {"ok": False, "error": "parent_id musi byt positive int nebo null"},
+                    status_code=400,
+                )
+            # Anti-cycle: self-parent + descendant-parent check
+            if new_parent_id == menu_node_id:
+                return JSONResponse(
+                    {"ok": False, "error": "Soudecek nemuze byt parent sebe sama"},
+                    status_code=400,
+                )
+            # Quick descendant check — walk up from new_parent_id, verify
+            # menu_node_id NOT in ancestry chain
+            from sqlalchemy import text as _sql_anti_cycle
+            from core.database_data import get_data_session as _gds_anti
+            ds_anti = _gds_anti()
+            try:
+                anc_rows = ds_anti.execute(_sql_anti_cycle("""
+                    WITH RECURSIVE ancestors AS (
+                      SELECT id, parent_id FROM fw.menu_node WHERE id = :pid
+                      UNION ALL
+                      SELECT mn.id, mn.parent_id FROM fw.menu_node mn
+                      JOIN ancestors a ON mn.id = a.parent_id
+                    )
+                    SELECT id FROM ancestors WHERE id = :self_id
+                """), {"pid": new_parent_id, "self_id": menu_node_id}).mappings().all()
+                if anc_rows:
+                    return JSONResponse(
+                        {"ok": False, "error": "Cyklicka reference — nova parent je descendant tohoto soudecku"},
+                        status_code=400,
+                    )
+            finally:
+                ds_anti.close()
+
+    # sort_order validation
+    if "sort_order" in update_vals:
+        new_sort = update_vals["sort_order"]
+        if not isinstance(new_sort, int) or new_sort < 0:
+            return JSONResponse(
+                {"ok": False, "error": "sort_order musi byt non-negative int"},
+                status_code=400,
+            )
 
     caller_display = "Unknown"
     if uid:
@@ -11870,16 +11953,32 @@ def _render_workspace_page(user_id: int) -> str:
 
       async function _erpOpenNewSoudecekDialog() {
         const selected = _erpFindSelectedTreeNode();
-        // Pokud vybrany leaf, parent = jeho parent (najit menuNodePk z tree API);
-        // pokud folder, parent = ten folder; pokud nic, parent = null (top-level)
+        // Krok 14g-G3: pre-fill parent z selected, but Marti sees + can change.
         let parentId = null;
-        let parentLabel = '— Root (top-level) —';
         if (selected && selected.menuNodePk) {
-          // Pro folder = parent = self; pro leaf = parent = self too (Marti's
-          // "na misto odkud byla volana" = sibling next to selected)
           parentId = selected.menuNodePk;
-          parentLabel = (selected.kind === 'folder' ? '📁 ' : '📄 ') + selected.label;
         }
+        // Fetch all available menu_nodes for parent picker dropdown
+        let allNodes = [];
+        try {
+          const r = await fetch('/api/v1/erp/design/menu-nodes', { credentials: 'include' });
+          if (r.ok) {
+            const d = await r.json();
+            if (d.ok) allNodes = d.items || [];
+          }
+        } catch (e) { console.warn('[NewSoudecek] menu-nodes fetch failed:', e); }
+        // Build indented label per node (depth approximate from parent chain)
+        const byId = new Map();
+        allNodes.forEach(n => byId.set(n.id, n));
+        const _depth = (n) => {
+          let d = 0; let p = n.parent_id;
+          while (p && d < 10) {
+            const parent = byId.get(p);
+            if (!parent) break;
+            d++; p = parent.parent_id;
+          }
+          return d;
+        };
         // Build modal dialog (inline, no extra deps)
         const overlay = document.createElement('div');
         overlay.style.cssText =
@@ -11917,14 +12016,50 @@ def _render_workspace_page(user_id: int) -> str:
           wrap.appendChild(lbl); wrap.appendChild(el);
           return wrap;
         };
-        // Parent info (read-only)
-        const parentInfo = document.createElement('div');
-        parentInfo.style.cssText =
-          'padding:8px 10px;background:#0f141a;border:1px dashed #2a3340;' +
-          'border-radius:3px;color:#7a8696;font-size:11px;';
-        parentInfo.innerHTML = '<b style="color:#a8b4c2;">Parent:</b> ' + parentLabel +
-                               (parentId ? ' <code style="color:#7ed4e8;">#' + parentId + '</code>' : '');
-        body.appendChild(parentInfo);
+        // Krok 14g-G3: Parent picker dropdown (Marti vidi + zmeni).
+        const parentSel = document.createElement('select');
+        parentSel.style.cssText = _inpStyle;
+        // First option: Root (no parent)
+        const rootOpt = document.createElement('option');
+        rootOpt.value = '';
+        rootOpt.textContent = '🌳 — Root (top-level, sibling SYSTEM) —';
+        parentSel.appendChild(rootOpt);
+        // Folders + lists with indent prefix
+        const _sortedNodes = allNodes.slice().sort((a, b) => {
+          // Sort by depth, then sort_order
+          const da = _depth(a), db = _depth(b);
+          if (da !== db) return da - db;
+          return (a.sort_order || 0) - (b.sort_order || 0);
+        });
+        // Re-sort: indented tree-like — recurse top-down
+        const _treeOrder = [];
+        const _walk = (parentId) => {
+          const children = _sortedNodes.filter(n => n.parent_id === parentId)
+            .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+          for (const c of children) {
+            _treeOrder.push(c);
+            _walk(c.id);
+          }
+        };
+        _walk(null);
+        for (const n of _treeOrder) {
+          const depth = _depth(n);
+          const prefix = '  '.repeat(depth) + (n.kind === 'folder' ? '📁 ' : '📄 ');
+          const opt = document.createElement('option');
+          opt.value = String(n.id);
+          opt.textContent = prefix + n.label + ' (' + n.code + ')';
+          if (parentId && n.id === parentId) opt.selected = true;
+          parentSel.appendChild(opt);
+        }
+        body.appendChild(_row('Parent', parentSel));
+
+        // Hint pod parent picker
+        const parentHint = document.createElement('div');
+        parentHint.style.cssText = 'color:#7a8696;font-size:10px;padding:0 2px;font-style:italic;';
+        parentHint.textContent = (parentId
+          ? '↑ Prefilled z vybraného uzlu v levém stromě. Změň pokud chceš jinou pozici.'
+          : '↑ Nový soudeček bude top-level (sibling SYSTEM v sidebar).');
+        body.appendChild(parentHint);
         // Label
         const labelInp = document.createElement('input');
         labelInp.type = 'text'; labelInp.style.cssText = _inpStyle;
@@ -11978,6 +12113,9 @@ def _render_workspace_page(user_id: int) -> str:
           if (!labelV || !codeV) {
             alert('Label + code povinné.'); return;
           }
+          // Krok 14g-G3: read parent_id z dropdown (Marti's actual choice)
+          const parentSelVal = parentSel.value;
+          const finalParentId = parentSelVal ? parseInt(parentSelVal, 10) : null;
           okBtn.disabled = true; okBtn.style.opacity = '0.6';
           try {
             const r = await fetch('/api/v1/erp/design/menu-node', {
@@ -11985,7 +12123,7 @@ def _render_workspace_page(user_id: int) -> str:
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
                 code: codeV, label: labelV,
-                parent_id: parentId, kind: kindSel.value,
+                parent_id: finalParentId, kind: kindSel.value,
               }),
             });
             const d = await r.json();

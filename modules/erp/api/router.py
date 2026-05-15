@@ -11940,10 +11940,11 @@ def _render_workspace_page(user_id: int) -> str:
       function setErpDesignMode(on) {
         try { localStorage.setItem(ERP_DESIGN_MODE_KEY, on ? '1' : '0'); }
         catch (e) {}
-        renderErpDesignBadge();
-        // Expose state na window pro budoucí ERP feature gates (Phase 30+
-        // framework builder, Object Inspector, atd.).
+        // Phase 38.4 Krok 14g-H+4 (15.5.2026): expose state PRED render
+        // tak aby _attachTreeDragHandlers (zavolan z renderErpDesignBadge)
+        // cetl aktualni hodnotu, ne pre-flip.
         try { window._erpDesignMode = !!on; } catch (e) {}
+        renderErpDesignBadge();
       }
       function renderErpDesignBadge() {
         const on = getErpDesignMode();
@@ -11976,10 +11977,17 @@ def _render_workspace_page(user_id: int) -> str:
             rootDz.style.display = on ? 'flex' : 'none';
           }
         } catch (e) {}
+        // Phase 38.4 Krok 14g-H+4 (15.5.2026 dopo): re-attach row.draggable
+        // po mode flip. DESIGN → row.draggable=false (lefttree.js li vede),
+        // PROD → row.draggable=true (same-group reorder pro Oblibene).
+        // window._erpDesignMode je uz updated above pres getErpDesignMode().
+        try { _attachTreeDragHandlers(); } catch (e) {}
       }
       // Init při page load
-      renderErpDesignBadge();
+      // Phase 38.4 Krok 14g-H+4 (15.5.2026): expose state PRED render
+      // pro _attachTreeDragHandlers (zavolan z renderErpDesignBadge).
       try { window._erpDesignMode = getErpDesignMode(); } catch (e) {}
+      renderErpDesignBadge();
 
       // Phase 38.4 Krok 14g-G: Novy soudecek button click handler.
       // Dialog s 3 fields (label / code / kind). Parent_id prefilled z
@@ -13236,25 +13244,24 @@ def _render_workspace_page(user_id: int) -> str:
         // separate eventy — folder click (mousedown+up bez move) = expand,
         // folder drag (mousedown+move+drop) = reorder. Žádný konflikt.
         //
-        // Phase 38.4 Krok 14g-H+3 (15.5.2026 dopo, Marti's "immutable
-        // by se melo v design mode ignorovat"): defense in depth — gate
-        // na 3 indicators (data-is-immutable / kind=special / code=system).
-        // Bez toho by SYSTEM byl draggable i kdyz lefttree.js gate
-        // skipl li-level setup, protoze _attachTreeDragHandlers stale
-        // nastavil row.draggable=true.
+        // Phase 38.4 Krok 14g-H+4 (15.5.2026 dopo, Marti's "v design mode
+        // zcela ignorovat immutable"): gate WHOLE row-level drag setup na
+        // PROD mode only. V DESIGN mode lefttree.js li-level cross-parent
+        // drag je primary (parent_id PATCH na libovolne misto, vc. Root).
+        // V PROD mode row-level drag drzi same-group reorder pro Oblibene.
+        // Bez gate: nested draggable konflikt (row > li) — browser preferuje
+        // innermost = row, ktery same-group check blokoval cross-tree drop.
+        const designMode = (typeof window !== "undefined" && window._erpDesignMode === true);
         treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
           const row = item.querySelector(":scope > .erp-tree-row");
           if (!row) return;
-          // Skip immutable nodes (SYSTEM + budouci system uzly).
-          // Multi-signal detection — backend may not yet propagate
-          // is_immutable, fallback na code='system' a kind='special'.
-          const isImmutable = item.dataset.isImmutable === "1"
-            || item.getAttribute("data-id") === "system"
-            || item.getAttribute("data-kind") === "special";
-          if (isImmutable) {
+          if (designMode) {
+            // DESIGN: nech lefttree.js li-level drag vest. Remove existing
+            // row.draggable (idempotent — re-attach after mode flip).
             row.removeAttribute("draggable");
             return;
           }
+          // PROD: same-group reorder pro Oblibene.
           row.setAttribute("draggable", "true");
         });
 
@@ -13263,6 +13270,13 @@ def _render_workspace_page(user_id: int) -> str:
         treeRoot._dragWired = true;
 
         treeRoot.addEventListener("dragstart", (ev) => {
+          // Phase 38.4 Krok 14g-H+4 (15.5.2026): DESIGN mode → skip.
+          // Lefttree.js capture-phase li.dragstart handler je primary
+          // (cross-parent move pres parent_id PATCH). Tento bubble-phase
+          // delegate je jen pro PROD same-group reorder.
+          if (typeof window !== "undefined" && window._erpDesignMode === true) {
+            return;
+          }
           // MRU view — drag disabled (auto-sort by timestamp)
           if (treeViewMode === "recent") {
             ev.preventDefault();
@@ -13272,15 +13286,6 @@ def _render_workspace_page(user_id: int) -> str:
           if (!row) { ev.preventDefault(); return; }
           const item = row.closest(".erp-tree-item");
           if (!item) { ev.preventDefault(); return; }
-          // Phase 38.4 Krok 14g-H+3 defense in depth — early return
-          // pri immutable. Stejny multi-signal jako _attachTreeDragHandlers.
-          const isImmutable = item.dataset.isImmutable === "1"
-            || item.getAttribute("data-id") === "system"
-            || item.getAttribute("data-kind") === "special";
-          if (isImmutable) {
-            ev.preventDefault();
-            return;
-          }
           _dragSourceItem = item;
           item.classList.add("erp-tree-dragging");
           try {

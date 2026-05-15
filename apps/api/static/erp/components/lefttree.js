@@ -295,22 +295,14 @@
       // anywhere. Skip drag setup pro is_immutable nodes. Plus set
       // data-is-immutable attribute pro CSS hint.
       try {
-        // Phase 38.4 Krok 14g-H+3 (15.5.2026 dopo): multi-signal immutable
-        // detection — backend may not yet propagate is_immutable (pre-restart).
-        // Fallback na node.id === 'system' a node.kind === 'special'.
-        const _isImmutableNode = (
-          node.is_immutable === true
-          || node.id === "system"
-          || node.kind === "special"
-          || (node.metadata && node.metadata.is_immutable === true)
-        );
-        if (_isImmutableNode) {
-          li.dataset.isImmutable = "1";
-        }
+        // Phase 38.4 Krok 14g-H+4 (15.5.2026 dopo, Marti's "v design mode
+        // immutable zcela ignorovat"): drop multi-signal gate. DESIGN mode
+        // = drag-drop libovolneho soudecku kamkoli, jen parent_id update.
+        // Immutable flag je informativni (badge/CSS hint), ne gate. Backend
+        // safeguards (anti-cycle, anti-self-reference) zustavaji.
         const designOn = (typeof window !== "undefined" && window._erpDesignMode === true);
         const menuPk = li.dataset.menuNodePk ? parseInt(li.dataset.menuNodePk, 10) : null;
-        const isImmutable = _isImmutableNode;
-        if (designOn && menuPk && !isImmutable && !li.dataset.dragAttached) {
+        if (designOn && menuPk && !li.dataset.dragAttached) {
           li.dataset.dragAttached = "1";
           li.draggable = true;
           const row = li.querySelector(":scope > ." + cls + "-row");

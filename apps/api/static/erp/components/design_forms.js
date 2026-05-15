@@ -2934,21 +2934,18 @@
             type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
         ],
         onSelect: (row) => {
-          // Etapa 5 placeholder — associate semantics TBD
+          // Phase 38.4 Krok 14g-H+30 Etapa 5 (15.5.2026 vecer, Marti's
+          // Varianta C "nechat stavajici jak jsou, zacit 1:1 k novemu
+          // jadru"): picker je view-only. Pro vytvoreni noveho data_source
+          // pro tento core klikni "➕ Novy" v toolbar pickeru.
           alert(
-            "🔗 Asociace: '" + (row.name || row.code) + "' -> core '" +
-            coreCode + "'\n\n" +
-            "Etapa 5 (prijde za chvili): backend PATCH endpoint.\n\n" +
-            "Vybrany data_source:\n" +
-            "  id=" + row.id + "\n" +
-            "  code='" + (row.code || "") + "'\n" +
-            "  refresh=" + (row.refresh_type || "?") + "\n\n" +
-            "Otazka: pokud row.code != core.code, pak vazba pres code " +
-            "vyzaduje rename data_source.code na '" + coreCode + "'.\n" +
-            "  Volba A: rename in place (single source)\n" +
-            "  Volba B: clone + parent_data_source_id lineage (versioning)\n" +
-            "  Volba C: enforce CHECK constraint (refuze pick if code mismatch)\n\n" +
-            "Marti rozhodne v Etape 5."
+            "📖 View-only browse\n\n" +
+            "Vybrane: '" + (row.name || row.code) + "' (id=" + row.id + ")\n\n" +
+            "Marti's doctrine 1:1 vazba pres code: kazdy core ma vlastni\n" +
+            "data_source s code = core.code. Stavajici data_sources se\n" +
+            "nemichaji.\n\n" +
+            "Pro vytvoreni noveho data_source pro core '" + coreCode + "'\n" +
+            "klikni ➕ Novy vlevo nahore."
           );
         },
         // Etapa 6 placeholder — ➕ Novy data_source button
@@ -2973,15 +2970,70 @@
     }
 
     async _unassociateDataSource() {
-      // Etapa 5 placeholder — bude rewritten po backend PATCH endpoint
-      // pro data_source <-> core associace hotov.
-      alert(
-        "🚫 Zrusit asociaci datoveho zdroje\n\n" +
-        "Etapa 5 (prijde za chvili): PATCH backend pro vazba pres code.\n\n" +
-        "Pattern: fw.data_source.code = NULL nebo update na rodicovsky data_source.\n" +
-        "TBD design rozhodnuti: drop code? Maintain orphan?\n" +
-        "(decidneme po Etape 2 + 3 smoke test)"
-      );
+      // Phase 38.4 Krok 14g-H+30 Etapa 5 (15.5.2026 vecer, Marti's
+      // Varianta C "1:1 vazba pres code"): archive data_source where
+      // code=core.code. Soft delete (status='archived'), defense in
+      // depth — Marti muze kdykoli un-archive pres SQL.
+      const dataSource = (this._data && this._data.data_source) || null;
+      const core = (this._data && this._data.core) || null;
+      if (!dataSource || !dataSource.id) {
+        alert("Nelze archivovat: chybi data_source.");
+        return;
+      }
+      const dsLabel = (dataSource.name || dataSource.code || "?");
+      const coreLabel = core ? (core.label || core.code || "?") : "?";
+
+      const decision = await _confirmDarkDialog({
+        title: "Archivovat datovy zdroj",
+        message:
+          "Chces archivovat datovy zdroj?\n\n" +
+          "  '" + dsLabel + "' (id=" + dataSource.id + ", code='" +
+          (dataSource.code || "") + "')\n" +
+          "  asociovany s core '" + coreLabel + "'\n\n" +
+          "Soft delete: status -> 'archived'. Data zustavaji v DB.\n" +
+          "Marti muze un-archivovat pres SQL nebo budouci 🗄️ Archiv tab.",
+        ok: "Archivovat",
+        cancel: "Zrusit",
+      });
+      if (decision !== true) return;
+
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/fw-data-source/" +
+          encodeURIComponent(dataSource.id) + "/archive",
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+          }
+        );
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          alert("Archivace selhala: " + (errData.error || ("HTTP " + r.status)));
+          return;
+        }
+        if (typeof _showToast === "function") {
+          _showToast("Datovy zdroj archivovan", "success");
+        }
+        // Re-open Form 1 s tab='prehled' — vidime updated state (data_source=null)
+        const menuNode = (this._data && this._data.menu_node) || null;
+        this._dirty.clear();
+        _markFormDirty(this, false);
+        this._shell.close();
+        setTimeout(() => {
+          try {
+            new window.DesignSoudecekCoreForm({
+              menuNodeId: menuNode ? menuNode.id : (core ? null : null),
+              coreId: !menuNode && core ? core.id : null,
+              initialTab: "prehled",
+            }).open();
+          } catch (e) {
+            console.error("[Unassociate DS] re-open failed:", e);
+          }
+        }, 150);
+      } catch (e) {
+        alert("Archivace selhala: " + (e.message || e));
+      }
     }
 
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro

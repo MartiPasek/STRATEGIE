@@ -5294,6 +5294,123 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.patch("/design/fw-data-source/{data_source_id}/archive")
+async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-H+30 Etapa 5 (15.5.2026 vecer, Marti's Varianta C
+    "nechat stavajici jak jsou, zacit 1:1 k novemu jadru"): archive
+    fw.data_source row.
+
+    Soft delete pres status='archived' (mirror Phase 38.4 doctrine z
+    11.5. Krok 13: "INSERT row, ne schema migrace" — status enum drives
+    lifecycle, ne DELETE).
+
+    Security: parent gate, fw schema owned by Marti-AI (update_row pres
+    Marti-AI's PostgreSQL role).
+
+    Returns:
+        200: {ok, data_source_id, code, name}
+        404: data_source neexistuje
+        500: UPDATE failed
+    """
+    from core.database_data import get_data_session as _gds_pads
+    from sqlalchemy import text as _sql_text_pads
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # caller_display lookup
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_pads
+        from modules.core.infrastructure.models_core import User as _User_pads
+        cs_pads = _gcs_pads()
+        try:
+            u_pads = cs_pads.query(_User_pads).filter_by(id=uid).first()
+            if u_pads:
+                if u_pads.short_name and u_pads.short_name.strip():
+                    caller_display = u_pads.short_name.strip()
+                elif u_pads.first_name or u_pads.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_pads.first_name, u_pads.last_name
+                    ])).strip()
+        finally:
+            cs_pads.close()
+
+    ds_pads = _gds_pads()
+    try:
+        existing = ds_pads.execute(_sql_text_pads("""
+            SELECT id, code, name, status FROM fw.data_source WHERE id = :id
+        """), {"id": data_source_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.data_source id={data_source_id} neexistuje"},
+                status_code=404,
+            )
+
+        if existing.get("status") == "archived":
+            return JSONResponse({
+                "ok": True,
+                "data_source_id": data_source_id,
+                "code": existing.get("code"),
+                "name": existing.get("name"),
+                "note": "already archived (idempotent)",
+            })
+
+        from modules.strategie_pg.application.service import update_row as _spg_update_pads
+        upd = _spg_update_pads(
+            schema="fw",
+            table="data_source",
+            values={
+                "status": "archived",
+                "updated_by": uid,
+            },
+            where={"id": data_source_id},
+            dry_run=False,
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log SAVEPOINT pattern
+        ds_pads.execute(_sql_text_pads("SAVEPOINT pre_audit_pads"))
+        try:
+            ds_pads.execute(_sql_text_pads("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_data_source_archive', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"fw.data_source archived: id={data_source_id} "
+                    f"code='{existing.get('code')}' name='{existing.get('name')}' "
+                    f"by {caller_display}"
+                ),
+            })
+            ds_pads.execute(_sql_text_pads("RELEASE SAVEPOINT pre_audit_pads"))
+            ds_pads.commit()
+        except Exception as _act_e:
+            try:
+                ds_pads.execute(_sql_text_pads("ROLLBACK TO SAVEPOINT pre_audit_pads"))
+                ds_pads.commit()
+            except Exception:
+                ds_pads.rollback()
+            logger.warning(f"design_archive_fw_data_source activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_source_id": data_source_id,
+            "code": existing.get("code"),
+            "name": existing.get("name"),
+        }))
+    finally:
+        ds_pads.close()
+
+
 @api_router.get("/design/fw-data-source/list")
 def design_list_fw_data_source(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+30 Etapa 1 (15.5.2026 vecer, Marti's "B varianta

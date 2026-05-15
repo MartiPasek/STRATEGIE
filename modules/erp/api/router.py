@@ -4989,6 +4989,59 @@ def _design_patch_fw_table(
         pass
 
 
+@api_router.get("/design/fw-core/list")
+def design_list_fw_core(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vybrat stavajici
+    CORE"): list active fw.core rows pro picker v Form 1 Přehled tab.
+
+    Returns:
+        {"ok": True, "cores": [{id, code, label, layout_type, data_entity_type,
+          is_used_count: N (count menu_nodes referencing this core)}, ...]}
+
+    Sorted by label ASC. Sloupec is_used_count Martimu rikne kolik nodes
+    use this core (pomoc visual hint pri picker — 0 = unused, N = shared).
+    """
+    from core.database_data import get_data_session as _gds_clst
+    from sqlalchemy import text as _sql_clst
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_clst()
+    try:
+        sql = _sql_clst("""
+            SELECT
+              c.id, c.code, c.label, c.layout_type, c.data_entity_type,
+              c.version, c.shadow_mode,
+              (SELECT COUNT(*) FROM fw.menu_node mn WHERE mn.core_id = c.id) AS is_used_count
+            FROM fw.core c
+            ORDER BY c.label ASC, c.code ASC
+        """)
+        rows = ds.execute(sql).mappings().all()
+        cores = [
+            {
+                "id": r["id"],
+                "code": r["code"],
+                "label": r["label"],
+                "layout_type": r["layout_type"],
+                "data_entity_type": r["data_entity_type"],
+                "version": r["version"],
+                "shadow_mode": r["shadow_mode"],
+                "is_used_count": int(r["is_used_count"] or 0),
+            }
+            for r in rows
+        ]
+        return JSONResponse({"ok": True, "cores": cores})
+    except Exception as exc:
+        logger.exception(f"design_list_fw_core failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"List failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/fw-core/update/{core_id}")
 async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
     """Partial update fw.core — label / description_user / description_system.

@@ -2509,6 +2509,190 @@
       }
     }
 
+    /**
+     * Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30): core picker modal.
+     * Vyfetchne fw.core list, render scrollable list s search filter,
+     * on select → PATCH menu_node.core_id pres generic /design/menu_node
+     * endpoint. Po success → reload spec (re-render Prehled tab).
+     */
+    async _openCorePickerModal() {
+      const menuNode = (this._data && this._data.menu_node) || null;
+      if (!menuNode || !menuNode.id) {
+        alert("Picker chyba: chybi menu_node ID.");
+        return;
+      }
+
+      // Fetch core list
+      let cores = [];
+      try {
+        const r = await fetch("/api/v1/erp/design/fw-core/list", {
+          credentials: "include",
+        });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        cores = data.cores || [];
+      } catch (e) {
+        alert("Nepodařilo se načíst seznam core přehledů: " + (e.message || e));
+        return;
+      }
+
+      // Modal overlay
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;top:0;left:0;right:0;bottom:0;z-index:10010;" +
+        "background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "width:600px;max-width:90vw;max-height:80vh;background:#1a1f26;" +
+        "border:1px solid #3a4754;border-radius:6px;display:flex;flex-direction:column;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.5);";
+
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:14px 18px;border-bottom:1px solid #2a3340;display:flex;" +
+        "align-items:center;justify-content:space-between;";
+      header.innerHTML =
+        '<div style="font-size:14px;font-weight:600;color:#e8eef5;">' +
+        '🔗 Vybrat existing core přehled</div>';
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:none;border:none;color:#7a8696;font-size:18px;cursor:pointer;padding:0 4px;";
+      closeBtn.onclick = () => overlay.remove();
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Search box
+      const searchBox = document.createElement("input");
+      searchBox.type = "text";
+      searchBox.placeholder = "Filtrovat (code / label / layout_type)…";
+      searchBox.style.cssText =
+        "margin:12px 18px;padding:8px 12px;background:#0f141a;border:1px solid #3a4754;" +
+        "border-radius:4px;color:#e8eef5;font-size:12px;outline:none;";
+      modal.appendChild(searchBox);
+
+      // List
+      const listEl = document.createElement("div");
+      listEl.style.cssText =
+        "flex:1;overflow-y:auto;padding:4px 12px 12px;";
+      modal.appendChild(listEl);
+
+      const renderList = (filterText) => {
+        listEl.innerHTML = "";
+        const ft = (filterText || "").toLowerCase().trim();
+        const filtered = cores.filter(c => !ft
+          || (c.code || "").toLowerCase().includes(ft)
+          || (c.label || "").toLowerCase().includes(ft)
+          || (c.layout_type || "").toLowerCase().includes(ft));
+        if (!filtered.length) {
+          const empty = document.createElement("div");
+          empty.style.cssText = "color:#7a8696;text-align:center;padding:24px;font-size:12px;";
+          empty.textContent = cores.length
+            ? "Žádný core neodpovídá filtru."
+            : "V fw.core nejsou žádné záznamy. Použij \"Vytvořit nový core\" (až bude wizard).";
+          listEl.appendChild(empty);
+          return;
+        }
+        filtered.forEach(c => {
+          const row = document.createElement("div");
+          row.style.cssText =
+            "padding:10px 12px;background:#1f262f;border:1px solid #2a3340;" +
+            "border-radius:4px;margin-bottom:6px;cursor:pointer;display:flex;" +
+            "justify-content:space-between;align-items:center;transition:background 120ms;";
+          row.onmouseover = () => { row.style.background = "#252d37"; };
+          row.onmouseout = () => { row.style.background = "#1f262f"; };
+
+          const left = document.createElement("div");
+          left.innerHTML =
+            '<div style="color:#e8eef5;font-size:13px;font-weight:500;">' +
+            _esc(c.label || "(no label)") +
+            '</div>' +
+            '<div style="color:#7a8696;font-size:11px;margin-top:2px;font-family:monospace;">' +
+            _esc(c.code || "") +
+            ' · ' + _esc(c.layout_type || "?") +
+            ' · v' + (c.version || 1) +
+            '</div>';
+          row.appendChild(left);
+
+          const right = document.createElement("div");
+          right.style.cssText = "color:#7a8696;font-size:11px;";
+          if (c.is_used_count > 0) {
+            right.textContent = "🔗 " + c.is_used_count + "×";
+            right.title = "Tento core je již použit v " + c.is_used_count + " menu_node(s)";
+          }
+          row.appendChild(right);
+
+          row.onclick = () => this._associateCoreWithMenuNode(c.id, c.label, overlay);
+          listEl.appendChild(row);
+        });
+      };
+
+      searchBox.oninput = () => renderList(searchBox.value);
+      renderList("");
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      setTimeout(() => searchBox.focus(), 50);
+    }
+
+    async _associateCoreWithMenuNode(coreId, coreLabel, overlay) {
+      const menuNode = (this._data && this._data.menu_node) || null;
+      if (!menuNode || !menuNode.id) {
+        alert("Asociace chyba: chybi menu_node ID.");
+        return;
+      }
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/menu_node/" + encodeURIComponent(menuNode.id),
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              field_changes: { core_id: coreId },
+              expected_updated_at: menuNode.updated_at,
+            }),
+          }
+        );
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          alert("Asociace selhala: " + (errData.error || ("HTTP " + r.status)));
+          return;
+        }
+        if (typeof _showToast === "function") {
+          _showToast("Core " + coreLabel + " asociovan", "success");
+        }
+        if (overlay) overlay.remove();
+        // Reload spec — re-render Prehled tab s new core data
+        this._dirty.clear();
+        _markFormDirty(this, false);
+        this._shell.close();
+        // Otevri popup znovu (refresh data)
+        setTimeout(() => {
+          try {
+            new window.DesignSoudecekCoreForm({
+              menuNodeId: menuNode.id,
+              initialTab: "prehled",
+            }).open();
+          } catch (e) {
+            console.error("[CorePicker] re-open failed:", e);
+          }
+        }, 150);
+        // Tree + grid refresh (H+9/H+15 pattern)
+        try {
+          if (typeof window.reloadErpTree === "function") {
+            await window.reloadErpTree();
+          }
+        } catch (eRefresh) {
+          console.warn("[CorePicker] tree refresh failed:", eRefresh);
+        }
+      } catch (e) {
+        alert("Asociace selhala: " + (e.message || e));
+      }
+    }
+
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
     // description memo. Vybere entitu podle aktivniho tabu —
     // Soudecek tab → menu_node, Prehled tab → core.
@@ -2865,19 +3049,41 @@
           "například <b>dashboard</b>, který se zobrazí když user klikne na folder.";
         wrap.appendChild(explain);
 
-        const futureSection = document.createElement("div");
-        futureSection.style.cssText =
-          "padding:14px;background:#0f141a;border:1px dashed #3a4754;border-radius:4px;" +
-          "color:#7a8696;font-size:11px;line-height:1.5;";
-        futureSection.innerHTML =
-          "<b style=\"color:#a8b4c2;\">🔧 Připravujeme:</b><br>" +
-          "• <b>Vybrat existing core</b> — picker pro association existing fw.core (dashboard, kanban, atd.)<br>" +
-          "• <b>Vytvořit nový dashboard</b> — wizard pro založení dashboard jádra<br>" +
-          "• <b>Folder action handlers</b> — co se stane když user klikne na folder " +
-          "(default expand vs render dashboard).<br><br>" +
-          "<span style=\"color:#5d6975;\">Aktuálně master soudečky pouze obsahují pod-soudečky " +
-          "(menu_node.parent_id reference). Asociace core přijde v dalším Kroku.</span>";
-        wrap.appendChild(futureSection);
+        // Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vygenerovat
+        // nove nebo vybrat stavajici CORE"): 2 actionable buttons.
+        const actionRow = document.createElement("div");
+        actionRow.style.cssText = "display:flex;gap:10px;margin-top:6px;";
+
+        const pickBtn = document.createElement("button");
+        pickBtn.type = "button";
+        pickBtn.style.cssText =
+          "padding:8px 14px;background:#2a3340;border:1px solid #4a7ba8;color:#a8c4dc;" +
+          "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
+        pickBtn.textContent = "🔗 Vybrat existing core";
+        pickBtn.onmouseover = () => { pickBtn.style.background = "#34404f"; };
+        pickBtn.onmouseout = () => { pickBtn.style.background = "#2a3340"; };
+        pickBtn.onclick = () => this._openCorePickerModal();
+        actionRow.appendChild(pickBtn);
+
+        const createBtn = document.createElement("button");
+        createBtn.type = "button";
+        createBtn.style.cssText =
+          "padding:8px 14px;background:#2a3340;border:1px solid #d4b88a;color:#d4b88a;" +
+          "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
+        createBtn.textContent = "➕ Vytvořit nový core";
+        createBtn.onmouseover = () => { createBtn.style.background = "#34404f"; };
+        createBtn.onmouseout = () => { createBtn.style.background = "#2a3340"; };
+        createBtn.onclick = () => {
+          alert(
+            "Wizard pro vytvoření nového core přijde v dalším Kroku.\n\n" +
+            "Aktuálně použij \"Vybrat existing core\" + následně asociaci, " +
+            "nebo vytvoř core ručně přes Marti-AI (strategie_pg_insert_row " +
+            "do fw.core)."
+          );
+        };
+        actionRow.appendChild(createBtn);
+
+        wrap.appendChild(actionRow);
 
         root.appendChild(wrap);
         return root;

@@ -3600,6 +3600,7 @@
         return root;
       }
 
+      const menuNode = (this._data && this._data.menu_node) || null;
       const core = (this._data && this._data.core) || null;
       const hasCore = !!(core && core.id);
       const dataSource = (this._data && this._data.data_source) || null;
@@ -3620,6 +3621,25 @@
         if (!v) return '<span style="color:#5a6573;">—</span>';
         return '<span style="color:#a8b4c2;font-size:11px;">' + v + '</span>';
       };
+
+      // ─── 0. SoudecekPicker (read-only display aktualne editovaneho menu_node) ───
+      // Phase 38.4 Krok 14g-H+31 step 3 (15.5.2026 vecer, Marti's "pridat
+      // Soudecek nad Prehled+Datovy zdroj"): readOnly picker — ukazuje
+      // current menu_node bez akci. Hierarchie: menu_node → core → data_source.
+      this._soudecekPicker = new window.ErpEntityPicker({
+        label: "Soudeček",
+        subtitle: "fw.menu_node — aktualne editovany soudecek",
+        idLabel: "Číslo",
+        nameLabel: "Název soudečku",
+        entity: menuNode ? {
+          id: menuNode.id,
+          name: menuNode.label || menuNode.code,
+          code: menuNode.code,
+        } : null,
+        placeholderText: "(žádný soudeček — Form 3 mode)",
+        readOnly: true,
+      });
+      this._soudecekPicker.mount(root);
 
       // ─── 1. CorePicker (Přehled) ──────────────────────────────────
       this._corePicker = new window.ErpEntityPicker({

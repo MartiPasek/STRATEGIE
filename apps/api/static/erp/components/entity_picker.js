@@ -209,30 +209,37 @@
     _renderInto(grid) {
       const hasEntity = !!(this._entity && this._entity.id);
       const disabled = !!this.opts.disabled;
+      const readOnly = !!this.opts.readOnly;
       const self = this;
 
-      // 1. 🔗 Picker
-      const pickTitle = disabled
-        ? (this.opts.disabledReason || "Nelze otevřít picker")
-        : (hasEntity
-            ? "Změnit asociovanou entitu"
-            : "Vybrat existing entitu (nebo ➕ Nová)");
-      grid.appendChild(_mkIconBtn(
-        "🔗",
-        pickTitle,
-        "#4a7ba8",
-        () => self._handlePickerClick(),
-        disabled
-      ));
-
-      // 2. 🚫 Unassociate (only if hasEntity AND showUnassociate)
-      if (hasEntity && this.opts.showUnassociate) {
+      // Phase 38.4 Krok 14g-H+31 step 3 (15.5.2026 vecer, Marti's
+      // "pridat Soudecek nad Prehled+Datovy zdroj"): readOnly option
+      // — skip 🔗 + 🚫 buttons, just display ID + Name (Soudecek picker
+      // ukazuje aktualne editovany menu_node, ne picker akce).
+      if (!readOnly) {
+        // 1. 🔗 Picker
+        const pickTitle = disabled
+          ? (this.opts.disabledReason || "Nelze otevřít picker")
+          : (hasEntity
+              ? "Změnit asociovanou entitu"
+              : "Vybrat existing entitu (nebo ➕ Nová)");
         grid.appendChild(_mkIconBtn(
-          "🚫",
-          "Zrušit asociaci.\nEntita sama zůstane v DB.",
-          "#8a3a3a",
-          () => self._handleUnassociateClick()
+          "🔗",
+          pickTitle,
+          "#4a7ba8",
+          () => self._handlePickerClick(),
+          disabled
         ));
+
+        // 2. 🚫 Unassociate (only if hasEntity AND showUnassociate)
+        if (hasEntity && this.opts.showUnassociate) {
+          grid.appendChild(_mkIconBtn(
+            "🚫",
+            "Zrušit asociaci.\nEntita sama zůstane v DB.",
+            "#8a3a3a",
+            () => self._handleUnassociateClick()
+          ));
+        }
       }
 
       // 3. Číslo (compact)

@@ -3251,6 +3251,99 @@
       }
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok 14g-H+31 step 4 (15.5.2026 vecer, Marti's "stejne
+    // ikonky pro Soudecek"): navigation + archive pro soudecekPicker.
+    // ────────────────────────────────────────────────────────────────────
+
+    /**
+     * Switch na jiny menu_node (z soudecekPicker 🔗 picker). Close current
+     * Form 1 + reopen with new menuNodeId. Standard navigation pattern.
+     */
+    _switchToMenuNode(newMenuNodeId) {
+      if (!newMenuNodeId) return;
+      const currentMenuNode = (this._data && this._data.menu_node) || null;
+      if (currentMenuNode && currentMenuNode.id === newMenuNodeId) {
+        // No-op — same menu_node
+        return;
+      }
+      this._dirty.clear();
+      _markFormDirty(this, false);
+      this._shell.close();
+      setTimeout(() => {
+        try {
+          new window.DesignSoudecekCoreForm({
+            menuNodeId: newMenuNodeId,
+            initialTab: "prehled",
+          }).open();
+        } catch (e) {
+          console.error("[SoudecekPicker switch] re-open failed:", e);
+        }
+      }, 150);
+    }
+
+    /**
+     * Archive aktualni soudecek (menu_node status='archived'). Soft delete
+     * pres existing PATCH /design/menu_node/{id} s field_changes.
+     * Po success: close Form 1 + reload tree (gone from sidebar).
+     */
+    async _archiveSoudecek() {
+      const menuNode = (this._data && this._data.menu_node) || null;
+      if (!menuNode || !menuNode.id) {
+        alert("Nelze archivovat: chybi menu_node.");
+        return;
+      }
+      const decision = await _confirmDarkDialog({
+        title: "Archivovat soudeček",
+        message:
+          "Chceš archivovat soudeček?\n\n" +
+          "  '" + (menuNode.label || menuNode.code || "?") + "' " +
+          "(id=" + menuNode.id + ", code='" + (menuNode.code || "") + "')\n\n" +
+          "Soft delete: status -> 'archived'. Data zustavaji v DB.\n" +
+          "Soudeček zmizí ze stromu. Marti muze un-archivovat pres SQL nebo\n" +
+          "budouci 🗄️ Archiv tab.",
+        ok: "Archivovat",
+        cancel: "Zrušit",
+      });
+      if (decision !== true) return;
+
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/menu_node/" + encodeURIComponent(menuNode.id),
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              field_changes: { status: "archived" },
+              expected_updated_at: menuNode.updated_at,
+            }),
+          }
+        );
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          alert("Archivace selhala: " + (errData.error || ("HTTP " + r.status)));
+          return;
+        }
+        if (typeof _showToast === "function") {
+          _showToast("Soudeček archivován", "success");
+        }
+        this._dirty.clear();
+        _markFormDirty(this, false);
+        this._shell.close();
+        // Reload tree — archived soudeček zmizí
+        try {
+          if (typeof window.reloadErpTree === "function") {
+            await window.reloadErpTree();
+          }
+        } catch (eRefresh) {
+          console.warn("[ArchiveSoudecek] tree refresh failed:", eRefresh);
+        }
+      } catch (e) {
+        alert("Archivace selhala: " + (e.message || e));
+      }
+    }
+
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
     // description memo. Vybere entitu podle aktivniho tabu —
     // Soudecek tab → menu_node, Prehled tab → core.
@@ -3622,10 +3715,14 @@
         return '<span style="color:#a8b4c2;font-size:11px;">' + v + '</span>';
       };
 
-      // ─── 0. SoudecekPicker (read-only display aktualne editovaneho menu_node) ───
-      // Phase 38.4 Krok 14g-H+31 step 3 (15.5.2026 vecer, Marti's "pridat
-      // Soudecek nad Prehled+Datovy zdroj"): readOnly picker — ukazuje
-      // current menu_node bez akci. Hierarchie: menu_node → core → data_source.
+      // ─── 0. SoudecekPicker (Soudeček — vazba na menu_node) ─────────────
+      // Phase 38.4 Krok 14g-H+31 step 4 (15.5.2026 vecer, Marti's "drop
+      // readOnly, dat soudecku stejne ikonky jako Prehled+Datovy zdroj —
+      // vzhled sjednoceny, cilem do budoucna je smazat 1. tab Soudecek
+      // a mit jen Prehled tab s parametrizaci"): full ErpEntityPicker.
+      // - 🔗 Vybrat: switch na jiny menu_node (navigation)
+      // - 🚫 Archivovat: soft delete menu_node (status='archived')
+      // - ➕ Novy: disabled — pouzij "+ Novy soudecek" v tree footer
       this._soudecekPicker = new window.ErpEntityPicker({
         label: "Soudeček",
         subtitle: "fw.menu_node — aktualne editovany soudecek",
@@ -3637,7 +3734,29 @@
           code: menuNode.code,
         } : null,
         placeholderText: "(žádný soudeček — Form 3 mode)",
-        readOnly: true,
+        pickerConfig: {
+          title: "🔗 Vybrat jiný soudeček (switch na jiný menu_node)",
+          endpoint: "/api/v1/erp/design/menu-nodes",
+          listKey: "items",
+          labelField: "label",
+          columns: [
+            { headerName: "Code", field: "code", width: 250,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 220,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Kind", field: "kind", width: 110,
+              filter: "agTextColumnFilter", sortable: true },
+            { headerName: "Parent", field: "parent_id", width: 90,
+              type: "numericColumn", sortable: true },
+            { headerName: "Sort", field: "sort_order", width: 80,
+              type: "numericColumn", sortable: true },
+            { headerName: "Status", field: "status", width: 100,
+              filter: "agTextColumnFilter", sortable: true },
+          ],
+        },
+        onPick: (row) => self._switchToMenuNode(row.id),
+        onUnassociate: () => self._archiveSoudecek(),
+        showCreate: false,
       });
       this._soudecekPicker.mount(root);
 

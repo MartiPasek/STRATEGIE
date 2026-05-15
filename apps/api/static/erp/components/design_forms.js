@@ -3344,6 +3344,45 @@
       }
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok 14g-H+31 step 7 (15.5.2026 vecer, Marti's "pridat
+    // tlacitko pro edit"): edit handlery pro 3 pickery. Zatim placeholdery
+    // — real edit modal prijde v Krok 14g-H+31 step 8 (po Marti's
+    // rozhodnuti jaky scope: full detail vs jen label/description).
+    // ────────────────────────────────────────────────────────────────────
+
+    _openCoreEditForm(row) {
+      if (!row || !row.id) { alert("Vyber radek pro editaci."); return; }
+      alert(
+        "✏️ Editovat fw.core\n\n" +
+        "Vybrano: '" + (row.label || row.code || "?") + "' (id=" + row.id + ")\n\n" +
+        "Edit modal prijde v Krok 14g-H+31 step 8 (TBD scope: label +\n" +
+        "description_user + description_system + layout_type? — Marti rozhodne)."
+      );
+    }
+
+    _openDataSourceEditForm(row) {
+      if (!row || !row.id) { alert("Vyber radek pro editaci."); return; }
+      alert(
+        "✏️ Editovat fw.data_source\n\n" +
+        "Vybrano: '" + (row.name || row.code || "?") + "' (id=" + row.id + ")\n\n" +
+        "Edit modal prijde v Krok 14g-H+31 step 8.\n" +
+        "Pole: name, refresh_type, description, row_memory, filter_delay_ms,\n" +
+        "default_record_limit (krome immutable: code, version, status)."
+      );
+    }
+
+    _openSoudecekEditForm(row) {
+      if (!row || !row.id) { alert("Vyber radek pro editaci."); return; }
+      alert(
+        "✏️ Editovat fw.menu_node\n\n" +
+        "Vybrano: '" + (row.label || row.code || "?") + "' (id=" + row.id + ")\n\n" +
+        "Edit modal prijde v Krok 14g-H+31 step 8.\n" +
+        "Pole: label, parent_id, sort_order, kind, visibility_scope,\n" +
+        "description (krome immutable: code, id)."
+      );
+    }
+
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
     // description memo. Vybere entitu podle aktivniho tabu —
     // Soudecek tab → menu_node, Prehled tab → core.
@@ -3752,7 +3791,41 @@
         },
         onPick: (row) => self._switchToMenuNode(row.id),
         onUnassociate: () => self._archiveSoudecek(),
-        showCreate: false,
+        // Phase 38.4 Krok 14g-H+31 step 6 (15.5.2026 vecer, Marti's "jedna
+        // komponenta pro vsechny 3 pripady"): showCreate=true, onCreate
+        // volá existing wizard window._erpOpenNewSoudecekDialog (sjednoceni
+        // s "+ Novy soudecek" v tree footer).
+        showCreate: true,
+        onEdit: (row) => self._openSoudecekEditForm(row),
+        onCreate: (picker) => {
+          if (typeof window._erpOpenNewSoudecekDialog !== "function") {
+            alert(
+              "Wizard pro novy soudecek neni nacten.\n\n" +
+              "(window._erpOpenNewSoudecekDialog missing — pravdepodobne " +
+              "STRATEGIE-API nebyl restartovan po deploy router.py changes.)"
+            );
+            return;
+          }
+          // Close picker pred wizard (avoid nesting modals confusion)
+          if (picker && typeof picker.close === "function") {
+            picker.close();
+          } else if (picker && picker._overlay) {
+            picker._overlay.remove();
+          }
+          // Wizard params: defaultParentId = current menuNode parent_id
+          // (pokud existuje), onSuccess switch na new menu_node.
+          const currentMenuNode = (self._data && self._data.menu_node) || null;
+          window._erpOpenNewSoudecekDialog({
+            defaultParentId: currentMenuNode
+              ? (currentMenuNode.parent_id != null
+                  ? currentMenuNode.parent_id
+                  : null)
+              : null,
+            onSuccess: (newId) => {
+              if (newId) self._switchToMenuNode(newId);
+            },
+          });
+        },
       });
       this._soudecekPicker.mount(root);
 
@@ -3791,6 +3864,7 @@
         onPick: (row) => self._associateCoreWithMenuNode(row.id, row.label, null),
         onUnassociate: () => self._unassociateCore(),
         onCreate: (picker) => self._openCoreCreateForm(picker),
+        onEdit: (row) => self._openCoreEditForm(row),
         showCreate: true,
       });
       this._corePicker.mount(root);
@@ -3853,6 +3927,7 @@
         },
         onUnassociate: () => self._unassociateDataSource(),
         onCreate: (picker) => self._openDataSourceCreateForm(picker, coreCode),
+        onEdit: (row) => self._openDataSourceEditForm(row),
         showCreate: true,
       });
       this._dsPicker.mount(root);

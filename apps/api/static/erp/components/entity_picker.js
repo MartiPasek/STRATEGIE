@@ -151,6 +151,7 @@
       this.opts.idLabel = this.opts.idLabel || "Číslo";
       this.opts.nameLabel = this.opts.nameLabel || "Název";
       this.opts.showCreate = this.opts.showCreate !== false; // default true
+      this.opts.showEdit = this.opts.showEdit !== false; // default true
       this.opts.showUnassociate = this.opts.showUnassociate !== false; // default true
 
       this._entity = this.opts.entity || null;
@@ -311,6 +312,19 @@
           if (typeof userOnNew === "function") userOnNew(picker);
           if (typeof self.opts.onCreate === "function") {
             self.opts.onCreate(picker, self.opts.prefillCode || null);
+          }
+        };
+      }
+      // Phase 38.4 Krok 14g-H+31 step 7 (15.5.2026 vecer, Marti's
+      // "pridat tlacitko pro edit vety mezi novy a refresh"): wire
+      // enableEdit + onEdit if showEdit (default true).
+      if (self.opts.showEdit) {
+        cfg.enableEdit = true;
+        const userOnEdit = cfg.onEdit;
+        cfg.onEdit = (row) => {
+          if (typeof userOnEdit === "function") userOnEdit(row);
+          if (typeof self.opts.onEdit === "function") {
+            self.opts.onEdit(row);
           }
         };
       }

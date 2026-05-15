@@ -2693,6 +2693,72 @@
       }
     }
 
+    /**
+     * Phase 38.4 Krok 14g-H+21 (15.5.2026 ~17:00, Marti's "musi byt tlacitko
+     * zrusit"): unassociate core přehled od menu_node. PATCH core_id = NULL.
+     * Po success → re-open popup s tab='prehled' = empty state placeholder.
+     */
+    async _unassociateCore() {
+      const menuNode = (this._data && this._data.menu_node) || null;
+      const core = (this._data && this._data.core) || null;
+      if (!menuNode || !menuNode.id) {
+        alert("Chybi menu_node ID.");
+        return;
+      }
+      const ok = confirm(
+        "Zrušit asociaci core přehledu '" + (core && core.label || "?") + "' " +
+        "od soudečku '" + (menuNode.label || "?") + "'?\n\n" +
+        "menu_node.core_id bude NULL. Core sám zůstane v fw.core (může být " +
+        "znovu vybrán nebo asociovaný s jiným soudečkem)."
+      );
+      if (!ok) return;
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/menu_node/" + encodeURIComponent(menuNode.id),
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              field_changes: { core_id: null },
+              expected_updated_at: menuNode.updated_at,
+            }),
+          }
+        );
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          alert("Zrušení selhalo: " + (errData.error || ("HTTP " + r.status)));
+          return;
+        }
+        if (typeof _showToast === "function") {
+          _showToast("Asociace zrušena", "success");
+        }
+        // Re-open popup s tab='prehled' → empty state placeholder
+        this._dirty.clear();
+        _markFormDirty(this, false);
+        this._shell.close();
+        setTimeout(() => {
+          try {
+            new window.DesignSoudecekCoreForm({
+              menuNodeId: menuNode.id,
+              initialTab: "prehled",
+            }).open();
+          } catch (e) {
+            console.error("[Unassociate] re-open failed:", e);
+          }
+        }, 150);
+        try {
+          if (typeof window.reloadErpTree === "function") {
+            await window.reloadErpTree();
+          }
+        } catch (eRefresh) {
+          console.warn("[Unassociate] tree refresh failed:", eRefresh);
+        }
+      } catch (e) {
+        alert("Zrušení selhalo: " + (e.message || e));
+      }
+    }
+
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
     // description memo. Vybere entitu podle aktivniho tabu —
     // Soudecek tab → menu_node, Prehled tab → core.
@@ -3093,6 +3159,33 @@
       const D = this._onDirty.bind(this);
       const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
       const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
+
+      // Phase 38.4 Krok 14g-H+21 (15.5.2026 ~17:00, Marti's "musi byt
+      // tlacitko zrusit, je to falesne jadro"): unassociate row pred
+      // Identifikace Core sekci. Klik → confirm → PATCH menu_node.core_id
+      // = null → re-open popup s empty state placeholder.
+      const unassocRow = document.createElement("div");
+      unassocRow.style.cssText =
+        "display:flex;justify-content:flex-end;align-items:center;gap:8px;" +
+        "margin-bottom:12px;padding:8px 4px;";
+      const unassocHint = document.createElement("span");
+      unassocHint.style.cssText = "color:#7a8696;font-size:11px;font-style:italic;";
+      unassocHint.textContent = "Špatný core? Odpoj a vyber jiný:";
+      unassocRow.appendChild(unassocHint);
+      const unassocBtn = document.createElement("button");
+      unassocBtn.type = "button";
+      unassocBtn.style.cssText =
+        "padding:6px 12px;background:#2a2a30;border:1px solid #8a3a3a;color:#d4a8a8;" +
+        "border-radius:4px;cursor:pointer;font-size:11px;font-weight:500;";
+      unassocBtn.textContent = "🚫 Zrušit asociaci";
+      unassocBtn.title =
+        "Odpojit core přehledu od soudečku (menu_node.core_id → NULL).\n" +
+        "Core sám zůstane v fw.core (může být znovu vybrán nebo asociovaný jinde).";
+      unassocBtn.onmouseover = () => { unassocBtn.style.background = "#3a2828"; };
+      unassocBtn.onmouseout = () => { unassocBtn.style.background = "#2a2a30"; };
+      unassocBtn.onclick = () => this._unassociateCore();
+      unassocRow.appendChild(unassocBtn);
+      root.appendChild(unassocRow);
 
       // Section: Core identita — ID/version/parent_framework_id readonly,
       // layout_type je enum dropdown, ostatni editable.

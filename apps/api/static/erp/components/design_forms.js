@@ -5617,20 +5617,45 @@
 
     async _performFieldDelete(field) {
       // Krok 14b+9-D: DELETE /design/comp-def/{id} -> reload + toast.
+      // Phase 38.4 Krok 14g-B (15.5.2026 rano, Marti's "404 ale stale
+      // visible"): graceful 404 handling. Pokud row nenalezen (true
+      // not found), reload spec stejne — UI mozno stale ho zobrazuje
+      // z cache. Backend 200 was_already_deactivated → success toast +
+      // reload (cleanup stale UI).
       try {
         const r = await fetch(
           "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id),
           { method: "DELETE", credentials: "include" }
         );
+        if (r.status === 404) {
+          // True not found — row neexistuje v DB. UI cache stale, force reload.
+          console.warn("[DesignFwForm] delete 404 — force reload pro stale UI cleanup");
+          _showToast(
+            "Komponenta byla mezitim smazana — obnovuji formular",
+            "info",
+            2500
+          );
+          await this._reloadSpec();
+          return;
+        }
         if (!r.ok) {
           const errBody = await r.json().catch(() => ({}));
           throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
         }
-        _showToast(
-          "Pole '" + (field.caption || field.name) + "' smazáno",
-          "success"
-        );
-        // Reload spec + re-render
+        const data = await r.json().catch(() => ({}));
+        if (data.was_already_deactivated) {
+          // Idempotent backend response — info toast pro UX clarity
+          _showToast(
+            "Komponenta uz byla drive smazana — obnovuji formular",
+            "info",
+            2500
+          );
+        } else {
+          _showToast(
+            "Pole '" + (field.caption || field.name) + "' smazáno",
+            "success"
+          );
+        }
         await this._reloadSpec();
       } catch (e) {
         console.error("[DesignFwForm] delete failed:", e);

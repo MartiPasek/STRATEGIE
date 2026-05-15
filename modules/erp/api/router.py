@@ -4083,15 +4083,30 @@ async def design_delete_comp_def(comp_def_id: int, req: Request) -> JSONResponse
 
     ds = _gds_cdd()
     try:
+        # Phase 38.4 Krok 14g-B (15.5.2026 rano, Marti's "smazani groupbox
+        # 404 ale stale visible v UI"): idempotent DELETE. Pokud row
+        # neexistuje, vratit 404 (true not found). Pokud existuje ale
+        # is_active=false (already deactivated), vratit 200 s flag
+        # `was_already_deactivated=true` — frontend pak force reload pro
+        # cleanup stale UI cache.
         existing = ds.execute(_sql_text_cdd("""
-            SELECT id, name, type_id, region_slot
-            FROM fw.comp_def WHERE id = :id AND is_active = true
+            SELECT id, name, type_id, region_slot, is_active
+            FROM fw.comp_def WHERE id = :id
         """), {"id": comp_def_id}).mappings().one_or_none()
         if not existing:
             return JSONResponse(
-                {"ok": False, "error": f"comp_def id={comp_def_id} neexistuje nebo uz deactivated"},
+                {"ok": False, "error": f"comp_def id={comp_def_id} neexistuje v DB"},
                 status_code=404,
             )
+        if not existing["is_active"]:
+            # Idempotent — already deactivated. Frontend trigger reload.
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "comp_def_id": comp_def_id,
+                "deactivated": True,
+                "was_already_deactivated": True,
+                "message": f"comp_def id={comp_def_id} byl uz drive deactivated — frontend reload doporucen",
+            }))
 
         # UPDATE is_active=false + audit (strategie role nemoze ALTER fw.*,
         # pojďme přes strategie_pg.update_row)

@@ -3294,59 +3294,23 @@
       unassocRow.appendChild(unassocBtn);
       root.appendChild(unassocRow);
 
-      // Section: Core identita — ID/version/parent_framework_id readonly,
-      // layout_type je enum dropdown, ostatni editable.
-      // Krok 14a-A1m #1: section title pair.
-      const idSec = _sectionBuild("Identifikace Core", "fw.core — identita + layout + version");
-      idSec.grid.appendChild(_f("ID (core.id)", core.id, "core.id", { mono: true, readonly: true }));
-      idSec.grid.appendChild(_f("Code", core.code, "core.code", { mono: true }));
-      idSec.grid.appendChild(_f("Label", core.label, "core.label"));
-      idSec.grid.appendChild(_d("Layout type", core.layout_type, "layout_type", "core.layout_type"));
-      idSec.grid.appendChild(_f("Data entity type", core.data_entity_type, "core.data_entity_type", { mono: true }));
-      idSec.grid.appendChild(_f("Layout template", core.layout_template, "core.layout_template", { mono: true }));
-      idSec.grid.appendChild(_f("Version", core.version, "core.version", { mono: true, readonly: true }));
-      idSec.grid.appendChild(_f("Parent framework ID", core.parent_framework_id, "core.parent_framework_id", { mono: true, readonly: true }));
+      // Phase 38.4 Krok 14g-H+24 (15.5.2026 ~18:30, Marti's "opticky
+      // zjednodusit, vsechny fieldy ohledne core smaz az na ID a LABEL"):
+      // Centrála 1 parita — Číslo + Název definice přehledu, nic víc.
+      // Drop: code, layout_type, data_entity_type, layout_template, version,
+      // parent_framework_id, shadow_mode (= overload v Form 1, Marti's
+      // "v tom se ztratime"). Drop Sloupce sekce (DataSet builder bude
+      // separate komponenta — Marti's "v druhe komponente").
+      // Plus drop Identifikace Core sekce nad — tehle 2-field row je
+      // primary identita. Vsechno ostatni dotahneme dedicated komponenty.
+      const idSec = _sectionBuild("Přehled", "fw.core — vazba na core_id");
+      idSec.grid.appendChild(_f("Číslo", core.id, "core.id", { mono: true, readonly: true }));
+      idSec.grid.appendChild(_f("Název definice přehledu", core.label, "core.label"));
       root.appendChild(idSec.wrap);
 
-      // Phase 38.4 Krok 14a-A1m #2 (12.5.2026): popis v separatnim popupu
-      // (📖 ikona v header). Zadna inline Popis sekce v form.
-
-      // Section: Sloupce (preview, Krok 14b doplni inline editor)
-      const colsSec = _sectionBuild("Sloupce", "fw.comp_def WHERE parent_core_id = " + core.id);
-      const cols = (this._data && this._data.columns) || [];
-      if (cols.length === 0) {
-        const empty = document.createElement("div");
-        empty.style.cssText = "padding:8px 12px;color:#5d6975;font-style:italic;grid-column:1/-1;";
-        empty.textContent = "Žádné sloupce (comp_def WHERE core_id=" + core.id + " is empty).";
-        colsSec.grid.appendChild(empty);
-      } else {
-        const table = document.createElement("table");
-        table.style.cssText = "grid-column:1/-1;width:100%;font-size:12px;border-collapse:collapse;";
-        const thead = document.createElement("thead");
-        thead.innerHTML = "<tr style=\"background:#141a20;color:#a8b4c2;text-align:left;\">" +
-          "<th style=\"padding:5px 8px;border-bottom:1px solid #2a3340;\">ID</th>" +
-          "<th style=\"padding:5px 8px;border-bottom:1px solid #2a3340;\">Field name</th>" +
-          "<th style=\"padding:5px 8px;border-bottom:1px solid #2a3340;\">Label</th>" +
-          "<th style=\"padding:5px 8px;border-bottom:1px solid #2a3340;\">Type</th>" +
-          "<th style=\"padding:5px 8px;border-bottom:1px solid #2a3340;\">Sort</th>" +
-          "</tr>";
-        table.appendChild(thead);
-        const tbody = document.createElement("tbody");
-        cols.forEach(c => {
-          const tr = document.createElement("tr");
-          tr.style.cssText = "border-bottom:1px solid #1a2026;";
-          tr.innerHTML =
-            "<td style=\"padding:4px 8px;color:#5d6975;font-family:monospace;\">" + _esc(c.id) + "</td>" +
-            "<td style=\"padding:4px 8px;font-family:monospace;\">" + _esc(c.field_name || c.code) + "</td>" +
-            "<td style=\"padding:4px 8px;\">" + _esc(c.label) + "</td>" +
-            "<td style=\"padding:4px 8px;color:#8a96a4;\">" + _esc(c.comp_type_id || c.type) + "</td>" +
-            "<td style=\"padding:4px 8px;color:#5d6975;font-family:monospace;\">" + _esc(c.sort_order) + "</td>";
-          tbody.appendChild(tr);
-        });
-        table.appendChild(tbody);
-        colsSec.grid.appendChild(table);
-      }
-      root.appendChild(colsSec.wrap);
+      // Note: popis (📖 popup) zustava v header (separate flow).
+      // Sloupce / DataSource binding / DataSet config = separate komponenty
+      // v dalsich iteracich (Marti's "vsechno postupne, neztratit se").
 
       return root;
     }

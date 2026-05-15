@@ -315,6 +315,16 @@
           }
 
           li.addEventListener("dragstart", (ev) => {
+            // Phase 38.4 Krok 14g-H+16 (15.5.2026 vecer, Marti's "dragl
+            // jsem CORE ale PATCH SYSTEM"): nested li.draggable + capture-
+            // phase race fix. Capture fires top-down (outermost ancestor
+            // first). Bez gate SYSTEM's handler fires + setData + stopProp
+            // wins. Inner CORE never runs. Gate: handle jen pokud this li
+            // je innermost menu_node ancestor of ev.target.
+            const innermost = (ev.target && ev.target.closest)
+              ? ev.target.closest("li[data-menu-node-pk]")
+              : null;
+            if (innermost !== li) return;  // outer ancestor — skip
             // Capture-phase stopPropagation — block existing treeRoot
             // delegated dragstart (line 13089). Pres delegaci by se nastavil
             // _dragSourceItem + delegated dragover by mohl interfere.

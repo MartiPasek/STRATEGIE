@@ -4349,7 +4349,10 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     # Phase 38.4 Krok 14f-K (14.5.2026 vecer, Marti's "drop se neuskutecni"
     # cross-container field move): pridat parent_comp_def_id pro field
     # presun mezi containery (panel/groupbox).
-    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id")
+    # Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop na field v jinem
+    # panelu"): pridat sort_order pro position-aware cross-parent drop —
+    # atomic move + place at target position.
+    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id", "sort_order")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -4359,6 +4362,15 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
             {"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"},
             status_code=400,
         )
+
+    # sort_order validation (Krok 14g-A)
+    if "sort_order" in update_vals:
+        new_sort = update_vals["sort_order"]
+        if not isinstance(new_sort, int) or new_sort < 0:
+            return JSONResponse(
+                {"ok": False, "error": "sort_order musi byt non-negative int"},
+                status_code=400,
+            )
 
     # parent_comp_def_id validation (Krok 14f-K)
     if "parent_comp_def_id" in update_vals:

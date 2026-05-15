@@ -5595,13 +5595,20 @@
       });
       wrap.addEventListener("drop", (ev) => {
         ev.preventDefault();
+        // Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop se
+        // neuskutecni"): stopPropagation — bez nej event bubble do
+        // container.drop (panel/groupbox), ktery dual-fire _performFieldMove
+        // bez position. Field.drop ma authoritative position info (Y coord
+        // relative k field rect), takze drop ZASTAVIT zde.
+        ev.stopPropagation();
         if (!this._dragState) return;
         const fromId = this._dragState.fieldId;
         const toId = field.id;
         if (fromId === toId) return;
         const rect = wrap.getBoundingClientRect();
         const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
-        // Compute new order array
+        // _performFieldReorder detekuje cross-parent automaticky (Krok 14g-A)
+        // → delegate na _performCrossParentMove. Same-parent → existing flow.
         this._performFieldReorder(fromId, toId, isAbove);
       });
 
@@ -5854,6 +5861,10 @@
       //   - leaf fields uvnitr groupbox (parent_comp_def_id=groupbox.id)
       //   - panels uvnitr formu (parent_comp_def_id=form.id)
       //   - groupboxes uvnitr panelu (parent_comp_def_id=panel.id)
+      //
+      // Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop se neuskutecni"
+      // diagnoza): cross-parent drag teted PODPOROVAN. Detect cross-parent
+      // → delegate na _performCrossParentMove (atomic move + position).
       const fields = this._spec.fields || [];
       const fromComp = fields.find((f) => f.id === fromId);
       const toComp = fields.find((f) => f.id === toId);
@@ -5861,15 +5872,11 @@
         console.warn("[DesignFwForm] reorder: from/to not found", fromId, toId);
         return;
       }
+      if (fromId === toId) return;
       const parentId = fromComp.parent_comp_def_id;
       if (toComp.parent_comp_def_id !== parentId) {
-        console.warn(
-          "[DesignFwForm] reorder: cross-parent drag not supported yet",
-          "fromParent=" + parentId,
-          "toParent=" + toComp.parent_comp_def_id
-        );
-        _showToast("Drag mezi různými kontejnery zatím nepodporujeme", "error", 2500);
-        return;
+        // Cross-parent: move + position v target parent
+        return this._performCrossParentMove(fromId, toComp, dropAbove);
       }
       // Sibling filter — vsech comp_def se stejnym parent_comp_def_id
       const siblings = fields
@@ -7050,10 +7057,94 @@
       });
     }
 
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop na field
+    // v jinem panelu se neuskutecni"): atomic cross-parent move + position.
+    //
+    // Drive (14f-K): _performFieldMove appendl field na konec target
+    // containeru bez position control. Plus _performFieldReorder cross-
+    // parent → error toast.
+    //
+    // NEW: cross-parent drag z field A (panel #20) na field B (panel #22):
+    //   1. Compute target position v panel #22 siblings (dropAbove = isAbove)
+    //   2. PATCH /design/comp-def/update/{A.id} s {parent_comp_def_id:
+    //      panel22.id} — move to new parent
+    //   3. PUT /design/comp-def/reorder s field_orders array (siblings v
+    //      novem parent + moved field na target position) — set sort_order
+    //   4. _reloadSpec + flash
+    //
+    // 2-step (PATCH + reorder) zachovava idempotency. Sort_order multiples
+    // of 10 — pripadne re-pad.
+    // ════════════════════════════════════════════════════════════════
+    async _performCrossParentMove(fromId, toComp, dropAbove) {
+      const fields = this._spec.fields || [];
+      const targetParentId = toComp.parent_comp_def_id;
+      // Build new sibling list v target parent (excluding fromId pro pripad
+      // ze tam uz neni)
+      const targetSiblings = fields
+        .filter((f) => f.parent_comp_def_id === targetParentId && f.id !== fromId)
+        .sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      // Compute insert position
+      let insertAt = targetSiblings.findIndex((f) => f.id === toComp.id);
+      if (insertAt < 0) insertAt = targetSiblings.length;
+      if (!dropAbove) insertAt += 1;
+      // Insert moved field reference
+      targetSiblings.splice(insertAt, 0, { id: fromId });
+      // Compute new sort_order array (multiples of 10)
+      const reorderPayload = targetSiblings.map((f, i) => ({
+        id: f.id,
+        sort_order: (i + 1) * 10,
+      }));
+
+      console.info(
+        "[DesignFwForm] crossParentMove",
+        "fromId=" + fromId,
+        "→ targetParentId=" + targetParentId,
+        "@insertAt=" + insertAt,
+        "(dropAbove=" + dropAbove + ")"
+      );
+
+      try {
+        // Step 1: PATCH parent_comp_def_id
+        const pr = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(fromId),
+          {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            credentials: "include",
+            body: JSON.stringify({ parent_comp_def_id: targetParentId }),
+          }
+        );
+        if (!pr.ok) {
+          const eb = await pr.json().catch(() => ({}));
+          throw new Error("PATCH HTTP " + pr.status + ": " + (eb.error || pr.statusText));
+        }
+        // Step 2: Reorder v target parent (set sort_order vsech siblings)
+        const rr = await fetch("/api/v1/erp/design/comp-def/reorder", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ field_orders: reorderPayload }),
+        });
+        if (!rr.ok) {
+          const eb = await rr.json().catch(() => ({}));
+          throw new Error("reorder HTTP " + rr.status + ": " + (eb.error || rr.statusText));
+        }
+        _showToast("Komponenta presunuta + serazena", "success", 2200);
+        this._pendingFlashFieldId = fromId;
+        await this._reloadSpec();
+      } catch (e) {
+        console.error("[DesignFwForm] _performCrossParentMove failed:", e);
+        _showToast("Cross-parent presun selhal: " + (e.message || e), "error", 3500);
+      }
+    }
+
     // Phase 38.4 Krok 14f-K (14.5.2026 vecer, Marti's "drop se neuskutecni"):
     // Move existing field/groupbox do jineho containeru (panel/groupbox).
     // PATCH /design/comp-def/update/{id} s parent_comp_def_id. Po success
-    // reload + flash on moved field.
+    // reload + flash on moved field. Bez position control — appenduje na
+    // konec siblings (auto sort_order). Pro position-aware drop → pouzij
+    // _performCrossParentMove (14g-A).
     async _performFieldMove(fieldId, newParentId) {
       try {
         const r = await fetch(

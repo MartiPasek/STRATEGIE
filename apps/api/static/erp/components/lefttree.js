@@ -529,51 +529,22 @@
     // ════════════════════════════════════════════════════════════════
 
     /**
-     * Extends base _attachHandlers (treeview.js) — pridava dblclick listener
-     * pro otevreni Design popup na nodes s menuPk. Single click vede pres
-     * onActivate hook (router.py openTab). Phase 38.4 Krok 14g-H+17.
+     * Phase 38.4 Krok 14g-H+28 (15.5.2026 ~20:30, Marti's "double click
+     * zcela deaktivovat ve vsech pripadech"): dvojklik handler odstranen.
+     * Design popup pristup zustava jen pres pravy-klik 🎨 contextmenu
+     * (router.py Krok 14g-H+11). Single klik aktivuje prehled (H+27).
+     * Cleaner separation: klik = activate, pravy-klik = design.
      */
-    _attachHandlers() {
-      super._attachHandlers();
-      this.rootEl.addEventListener("dblclick", (e) => this._onRowDblClick(e));
-    }
-
-    /**
-     * Dblclick — gate na DESIGN mode + menuPk. Otevre DesignSoudecekCoreForm
-     * (alternative k pravy-klik 🎨 Design contextmenu z router.py H+11).
-     * Discovery shortcut pro nodes bez core prehledu (single klik je no-op
-     * pro synthetic range, dvojklik dava actionable next step).
-     */
-    _onRowDblClick(e) {
-      if (typeof window === "undefined" || window._erpDesignMode !== true) return;
-      const cls = this.options.cssClassPrefix;
-      const row = e.target.closest("." + cls + "-row");
-      if (!row) return;
-      const li = row.parentElement;
-      if (!li || !li.classList.contains(cls + "-item")) return;
-      const menuPk = li.dataset.menuNodePk;
-      if (!menuPk) return;
-      if (typeof window.DesignSoudecekCoreForm !== "function") return;
-      e.preventDefault();
-      e.stopPropagation();
-      try {
-        new window.DesignSoudecekCoreForm({
-          initialTab: "soudecek",
-          menuNodeId: parseInt(menuPk, 10),
-        }).open();
-      } catch (err) {
-        console.error("[ErpLeftPanelTree] dblclick Design open failed:", err);
-      }
-    }
 
     /**
      * Click semantics:
      *   • Klik na ★ ikonu          → onPinToggle hook (quick unpin)
      *   • Klik na ▶/▼ toggle       → expand/collapse only (žádný activate)
      *   • Ctrl/Cmd+klik             → multi-select toggle
-     *   • Plain klik (folder)       → expand + activate (pokud má cislo_def)
+     *   • Plain klik (folder)       → expand + activate (pokud má cislo_def
+     *                                  nebo core_id asociovany, H+27)
      *   • Plain klik (leaf)         → activate via onActivate hook
-     *   • Dvojklik (DESIGN mode)    → Design popup pro nodes s menuPk
+     *   • Pravý-klik (DESIGN)       → contextmenu s 🎨 Design item (H+11)
      */
     _onRowClick(e) {
       const cls = this.options.cssClassPrefix;

@@ -2738,10 +2738,46 @@
       root.className = "erp-design-tab-prehled";
       const core = (this._data && this._data.core) || null;
       if (!core || !core.id) {
-        const empty = document.createElement("div");
-        empty.style.cssText = "padding:20px;color:#8a96a4;font-style:italic;";
-        empty.textContent = "Tento soudeček nemá Core přehledu (menu_node.core_id IS NULL). Folder / iframe / special — nezná list view.";
-        root.appendChild(empty);
+        // Phase 38.4 Krok 14g-F (15.5.2026 rano, Marti's "master soudecky
+        // potrebuji moznost asociovaneho jadra pro dashboardy"): improved
+        // empty state s vysvetlenim + future hint. MVP: explanation,
+        // dropdown picker + create new přijde v dalším kroku.
+        const menuNode = (this._data && this._data.menu_node) || null;
+        const menuLabel = menuNode && (menuNode.label || menuNode.code) || "tento soudeček";
+
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "padding:24px;display:flex;flex-direction:column;gap:14px;max-width:640px;";
+
+        const heading = document.createElement("div");
+        heading.style.cssText = "font-size:14px;font-weight:600;color:#d4b88a;";
+        heading.innerHTML = "📁 Master soudeček bez Core přehledu";
+        wrap.appendChild(heading);
+
+        const explain = document.createElement("div");
+        explain.style.cssText = "color:#a8b4c2;line-height:1.6;font-size:12px;";
+        explain.innerHTML =
+          "<b>" + _esc(menuLabel) + "</b> je folder/adresář — nemá vlastní Core přehledu " +
+          "(<code style=\"background:#1a2028;padding:1px 5px;border-radius:2px;\">menu_node.core_id IS NULL</code>).<br><br>" +
+          "Master soudečky obvykle slouží jako kontejnery pro pod-soudečky. " +
+          "Centrála 1 ale dovoluje master folderům mít <b>přidružené jádro</b> — " +
+          "například <b>dashboard</b>, který se zobrazí když user klikne na folder.";
+        wrap.appendChild(explain);
+
+        const futureSection = document.createElement("div");
+        futureSection.style.cssText =
+          "padding:14px;background:#0f141a;border:1px dashed #3a4754;border-radius:4px;" +
+          "color:#7a8696;font-size:11px;line-height:1.5;";
+        futureSection.innerHTML =
+          "<b style=\"color:#a8b4c2;\">🔧 Připravujeme:</b><br>" +
+          "• <b>Vybrat existing core</b> — picker pro association existing fw.core (dashboard, kanban, atd.)<br>" +
+          "• <b>Vytvořit nový dashboard</b> — wizard pro založení dashboard jádra<br>" +
+          "• <b>Folder action handlers</b> — co se stane když user klikne na folder " +
+          "(default expand vs render dashboard).<br><br>" +
+          "<span style=\"color:#5d6975;\">Aktuálně master soudečky pouze obsahují pod-soudečky " +
+          "(menu_node.parent_id reference). Asociace core přijde v dalším Kroku.</span>";
+        wrap.appendChild(futureSection);
+
+        root.appendChild(wrap);
         return root;
       }
 
@@ -5335,19 +5371,117 @@
       const node = document.createElement("div");
       node.className = "erp-schema-tree-node";
       node.dataset.compDefId = String(comp.id);
+      node.dataset.compTypeCode = code;
       node.style.cssText =
         "display:flex;align-items:center;gap:6px;" +
         "padding:3px 8px 3px " + (8 + depth * 14) + "px;" +
         "cursor:pointer;border-left:2px solid transparent;" +
         "transition:background 0.1s, border-left-color 0.1s;";
       node.addEventListener("mouseenter", () => {
-        node.style.background = "#141a20";
-        node.style.borderLeftColor = color;
+        // Highlight jen pokud ne v drag mode (dragover override)
+        if (!this._schemaTreeDragging) {
+          node.style.background = "#141a20";
+          node.style.borderLeftColor = color;
+        }
       });
       node.addEventListener("mouseleave", () => {
-        node.style.background = "";
-        node.style.borderLeftColor = "transparent";
+        if (!this._schemaTreeDragging) {
+          node.style.background = "";
+          node.style.borderLeftColor = "transparent";
+        }
       });
+
+      // Phase 38.4 Krok 14g-E (15.5.2026 rano, Marti's "drop ve strome"):
+      // Drag-and-drop reorder/move pres schema tree. Non-root, non-form
+      // nodes draggable. Pres _dragState pipeline.
+      if (!isRoot && !isForm) {
+        node.draggable = true;
+        node.addEventListener("dragstart", (ev) => {
+          ev.stopPropagation();
+          this._schemaTreeDragging = true;
+          node.style.opacity = "0.5";
+          this._dragState = {
+            fieldId: comp.id,
+            fromIndex: 0,
+            el: node,
+            isContainer: isContainer,
+            fromSchemaTree: true,
+          };
+          try {
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", "schema:" + comp.id);
+          } catch (e) {}
+        });
+        node.addEventListener("dragend", () => {
+          this._schemaTreeDragging = false;
+          node.style.opacity = "";
+          // Clean all node highlights
+          const panel = document.body.querySelector(".erp-schema-tree-panel");
+          if (panel) {
+            panel.querySelectorAll(".erp-schema-tree-node").forEach((n) => {
+              n.style.background = "";
+              n.style.borderLeftColor = "transparent";
+              n.style.outline = "";
+            });
+          }
+          this._dragState = null;
+        });
+        node.addEventListener("dragover", (ev) => {
+          if (!this._dragState || !this._dragState.fromSchemaTree) return;
+          if (this._dragState.fieldId === comp.id) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
+          // Visual: container target = outline INSIDE (move INTO)
+          //         non-container = top/bottom edge (reorder)
+          if (isContainer) {
+            node.style.background = "rgba(168, 140, 212, 0.15)";
+            node.style.outline = "2px solid #a88cd4";
+            node.style.outlineOffset = "-2px";
+          } else {
+            const rect = node.getBoundingClientRect();
+            const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+            node.style.borderTop = isAbove ? "3px solid #7ed4e8" : "2px solid transparent";
+            node.style.borderBottom = isAbove ? "2px solid transparent" : "3px solid #7ed4e8";
+            node.style.background = "rgba(126, 212, 232, 0.08)";
+          }
+        });
+        node.addEventListener("dragleave", () => {
+          node.style.background = "";
+          node.style.outline = "";
+          node.style.borderTop = "";
+          node.style.borderBottom = "";
+        });
+        node.addEventListener("drop", (ev) => {
+          if (!this._dragState || !this._dragState.fromSchemaTree) return;
+          ev.preventDefault();
+          ev.stopPropagation();
+          const fromId = this._dragState.fieldId;
+          const toId = comp.id;
+          if (fromId === toId) return;
+          // Clear visual
+          node.style.background = "";
+          node.style.outline = "";
+          node.style.borderTop = "";
+          node.style.borderBottom = "";
+
+          if (isContainer) {
+            // Drop ON container → move INTO (parent_comp_def_id = container.id)
+            const fields = this._spec.fields || [];
+            const fromComp = fields.find((f) => f.id === fromId);
+            if (fromComp && fromComp.parent_comp_def_id === comp.id) {
+              _showToast("Komponenta uz je v tomto kontejneru", "info", 1500);
+              return;
+            }
+            this._performFieldMove(fromId, comp.id);
+          } else {
+            // Drop on sibling (leaf field) → reorder OR cross-parent
+            const rect = node.getBoundingClientRect();
+            const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
+            this._performFieldReorder(fromId, toId, isAbove);
+          }
+        });
+      }
 
       // Icon
       const iconEl = document.createElement("span");

@@ -5376,9 +5376,13 @@ def _build_system_root_from_db():
         by_parent.setdefault(pid, []).append(r)
 
     # Find system root (parent_id IS NULL, code='system')
+    # Phase 38.4 Krok 14g-G2 (15.5.2026 rano, Marti's "novy soudecek
+    # mel byt sibling SYSTEM v sidebar"): get ALL top-level roots, ne
+    # jen system. Return list — strom_json appende vsechny do tree.
     roots = by_parent.get(None, [])
     system_db = next((r for r in roots if r.get("code") == "system"), None)
-    if not system_db:
+    other_roots = [r for r in roots if r.get("code") != "system"]
+    if not system_db and not other_roots:
         return None
 
     def _build_node(row):
@@ -5480,7 +5484,28 @@ def _build_system_root_from_db():
                 "metadata": {"error": True, "hardcoded": False},
             }
 
-    return _build_node(system_db)
+    # Phase 38.4 Krok 14g-G2: return LIST of all top-level roots
+    # (system first if exists, ostatni v sort_order). Caller (strom_json)
+    # appende vsechny do tree.
+    result_roots = []
+    if system_db:
+        sys_root = _build_node(system_db)
+        if sys_root:
+            result_roots.append(sys_root)
+    # Sort other roots by sort_order + code
+    other_roots.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+    for r in other_roots:
+        try:
+            n = _build_node(r)
+            if n:
+                result_roots.append(n)
+        except Exception:
+            import logging as _logging_other
+            _logging_other.exception(
+                "system tree top-level root build failed for code=%s",
+                r.get("code"),
+            )
+    return result_roots
 
 
 @api_router.get("/strom")
@@ -5528,7 +5553,24 @@ def strom_json(req: Request) -> JSONResponse:
         #     nebo nové uzly přidané pre-DB-INSERT)
         # Až bude DB kompletně zaplněná + provoz stable, hardcoded
         # smaže Phase 38.4 Krok 7 cleanup.
-        system_root = _build_system_root_from_db()
+        #
+        # Phase 38.4 Krok 14g-G2 (15.5.2026 rano): _build_system_root_from_db
+        # vrací LIST of roots (system + user-created top-level), ne jen
+        # system. Marti's "Novy soudecek" button vytvori top-level row
+        # → sibling SYSTEM v sidebar.
+        db_roots = _build_system_root_from_db()
+        system_root = None
+        extra_top_roots = []
+        if isinstance(db_roots, list):
+            # New multi-root format
+            for r in db_roots:
+                if r.get("id") == "system":
+                    system_root = r
+                else:
+                    extra_top_roots.append(r)
+        elif isinstance(db_roots, dict):
+            # Backward compat (single root return)
+            system_root = db_roots
         if system_root is None:
             # ── FALLBACK: hardcoded System tree (původní MVP) ──────────
             # Schema kompatibilní s Centrála tree (id, label, icon, children…)
@@ -5724,8 +5766,12 @@ def strom_json(req: Request) -> JSONResponse:
                 _mark_hc(ch)
         _mark_hc(system_root)
 
-        # Prepend — System soudeček je vždy na top
-        tree = [system_root] + (tree or [])
+        # Prepend — System soudeček je vždy na top.
+        # Phase 38.4 Krok 14g-G2 (15.5.2026 rano): plus extra top-level
+        # user-created roots z fw.menu_node (sibling SYSTEM v sidebar).
+        # Order: [SYSTEM, ...extra_top_roots, ...EUROSOFT_tree_from_DB_EC]
+        prepend = [system_root] + (extra_top_roots or [])
+        tree = prepend + (tree or [])
 
     return JSONResponse({
         "ok": True,

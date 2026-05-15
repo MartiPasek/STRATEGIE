@@ -1680,7 +1680,7 @@ def system_framework(
                         data_source_id,
                         COUNT(*) AS cnt,
                         STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
-                    FROM fw.data_source_operation
+                    FROM fw.data_source_op
                     GROUP BY data_source_id
                 ) op ON op.data_source_id = s.id
                 ORDER BY s.id
@@ -2226,7 +2226,7 @@ def _fetch_data_source_for_core(ds, core_code: str) -> dict | None:
                     data_source_id,
                     COUNT(*) AS cnt,
                     STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
-                FROM fw.data_source_operation
+                FROM fw.data_source_op
                 GROUP BY data_source_id
             ) op ON op.data_source_id = s.id
             WHERE s.code = :code
@@ -5305,7 +5305,7 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
           operation_count, is_used_count, ...}, ...]}
 
     Sorted by name ASC NULLS LAST, code ASC.
-    - operation_count: pocet rows v fw.data_source_operation (LEFT JOIN COUNT)
+    - operation_count: pocet rows v fw.data_source_op (LEFT JOIN COUNT)
     - is_used_count: pocet fw.core rows s matching code (vazba pres code,
       ne pres FK — viz Marti's pattern "vazba via code" 15.5. vecer)
 
@@ -5332,7 +5332,7 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
                     data_source_id,
                     COUNT(*) AS cnt,
                     STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
-                FROM fw.data_source_operation
+                FROM fw.data_source_op
                 GROUP BY data_source_id
             ) op ON op.data_source_id = s.id
             ORDER BY s.name ASC NULLS LAST, s.code ASC
@@ -10546,7 +10546,7 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Název", field: "name", flex: 1, minWidth: 200, sortable: true },
             { headerName: "Operations", field: "operation_count", width: 100, sortable: true, type: "numericColumn",
               cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" }; },
-              headerTooltip: "Počet rows v fw.data_source_operation (LEFT JOIN COUNT)" },
+              headerTooltip: "Počet rows v fw.data_source_op (LEFT JOIN COUNT)" },
             { headerName: "Kinds", field: "operation_kinds", width: 220,
               cellStyle: { fontFamily: "monospace", color: "#aaa" },
               headerTooltip: "Comma-separated operation_kind list (select, insert, update, delete, ...)" },

@@ -2230,6 +2230,7 @@ def _fetch_data_source_for_core(ds, core_code: str) -> dict | None:
                 GROUP BY data_source_id
             ) op ON op.data_source_id = s.id
             WHERE s.code = :code
+              AND s.status = 'active'
             ORDER BY s.id ASC
             LIMIT 1
         """)
@@ -5452,6 +5453,7 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
                 FROM fw.data_source_op
                 GROUP BY data_source_id
             ) op ON op.data_source_id = s.id
+            WHERE s.status = 'active'
             ORDER BY s.name ASC NULLS LAST, s.code ASC
         """)
         rows = ds.execute(sql_ds).mappings().all()

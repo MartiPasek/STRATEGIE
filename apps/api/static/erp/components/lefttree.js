@@ -386,10 +386,10 @@
             }
             const sourceId = payload.menuPk;
             const targetId = menuPk;
-            if (sourceId === targetId) {
-              console.info("[LeftTree] drop: self-drop ignored");
-              return;
-            }
+            // Phase 38.4 Krok 14g-H+5 (15.5.2026 dopo, Marti's "naprosto
+            // vsechny pojistky vypnout"): drop self-drop ignore. Pojde do
+            // backendu, parent_id=self. Bez backend safeguard se provede.
+            // Render-side cycle protection (per-child try/except) si poradi.
             console.info("[LeftTree] PATCH move", sourceId, "→ parent", targetId);
             try {
               const r = await fetch(

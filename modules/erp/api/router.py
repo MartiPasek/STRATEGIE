@@ -5089,7 +5089,14 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             status_code=400,
         )
 
-    # parent_id validation (Krok 14g-H)
+    # parent_id type validation (Krok 14g-H+5, 15.5.2026 dopo, Marti's
+    # "naprosto vsechny pojistky v design mode vypnout"): drop business
+    # safeguards — anti-self-reference + anti-cycle (recursive CTE walks
+    # ancestors). Backend stale validuje typ + null-ability, ale Marti's
+    # cil je raw parent_id update. Defensive na render side: _build_node
+    # per-child try/except zachyti pripadny cycle RecursionError + vrati
+    # error node misto crash. Marti's "worst case" = error node v sidebar,
+    # Marti to manualne opravi v DB nebo dragnutim zpet.
     if "parent_id" in update_vals:
         new_parent_id = update_vals["parent_id"]
         if new_parent_id is not None:
@@ -5098,34 +5105,6 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
                     {"ok": False, "error": "parent_id musi byt positive int nebo null"},
                     status_code=400,
                 )
-            # Anti-cycle: self-parent + descendant-parent check
-            if new_parent_id == menu_node_id:
-                return JSONResponse(
-                    {"ok": False, "error": "Soudecek nemuze byt parent sebe sama"},
-                    status_code=400,
-                )
-            # Quick descendant check — walk up from new_parent_id, verify
-            # menu_node_id NOT in ancestry chain
-            from sqlalchemy import text as _sql_anti_cycle
-            from core.database_data import get_data_session as _gds_anti
-            ds_anti = _gds_anti()
-            try:
-                anc_rows = ds_anti.execute(_sql_anti_cycle("""
-                    WITH RECURSIVE ancestors AS (
-                      SELECT id, parent_id FROM fw.menu_node WHERE id = :pid
-                      UNION ALL
-                      SELECT mn.id, mn.parent_id FROM fw.menu_node mn
-                      JOIN ancestors a ON mn.id = a.parent_id
-                    )
-                    SELECT id FROM ancestors WHERE id = :self_id
-                """), {"pid": new_parent_id, "self_id": menu_node_id}).mappings().all()
-                if anc_rows:
-                    return JSONResponse(
-                        {"ok": False, "error": "Cyklicka reference — nova parent je descendant tohoto soudecku"},
-                        status_code=400,
-                    )
-            finally:
-                ds_anti.close()
 
     # sort_order validation
     if "sort_order" in update_vals:

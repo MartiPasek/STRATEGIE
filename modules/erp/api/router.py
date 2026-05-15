@@ -13015,27 +13015,32 @@ def _render_workspace_page(user_id: int) -> str:
           if (!row) return;
           const item = row.closest(".erp-tree-item");
           if (!item) return;
+          // Phase 38.4 Krok 14g-H+11 (15.5.2026 odpo, Marti's "CORE pri
+          // pravym kliku otevira browser default menu"): rozsireny gate.
+          // CORE (a vsechny nove soudecky pres + Novy soudecek button) nemaji
+          // cislo_def (legacy Centrala 1 field). Accept menu_node_pk taky.
           const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
-          if (!cislo) return;  // jen leaves with cislo_def
+          const menuNodePk = parseInt(item.getAttribute("data-menu-node-pk") || "0", 10);
+          if (!cislo && !menuNodePk) return;  // node bez fw mappingu
 
           ev.preventDefault();
 
           // Compute target cislos — pokud row je v selection a multi-select
           // active, akce platí pro celou selection. Jinak jen tento řádek.
           let targetCislos;
-          if (_selectedTreeCislos.has(cislo) && _selectedTreeCislos.size > 1) {
+          if (cislo && _selectedTreeCislos.has(cislo) && _selectedTreeCislos.size > 1) {
             targetCislos = Array.from(_selectedTreeCislos);
-          } else {
+          } else if (cislo) {
             targetCislos = [cislo];
             // Single right-click — vyber pro visual feedback (pokud není v selection)
             if (!_selectedTreeCislos.has(cislo)) {
               _selectTreeRow(item);
             }
+          } else {
+            // Krok 14g-H+11: node bez cislo_def (CORE + novy soudecek) — no pin tracking
+            targetCislos = [];
           }
 
-          // Determine pin status
-          const allPinned = targetCislos.every(c => isTreeFavorite(c));
-          const nonePinned = targetCislos.every(c => !isTreeFavorite(c));
           const multi = targetCislos.length > 1;
 
           const menuItems = [];
@@ -13046,52 +13051,58 @@ def _render_workspace_page(user_id: int) -> str:
             });
           }
 
-          if (nonePinned) {
-            menuItems.push({
-              icon: "★",
-              label: multi
-                ? ("Přidat všechny (" + targetCislos.length + ") k oblíbeným")
-                : "Přidat k oblíbeným",
-              handler: () => {
-                targetCislos.forEach(c => {
-                  if (!isTreeFavorite(c)) toggleTreeFavorite(c);
-                });
-              },
-            });
-          } else if (allPinned) {
-            menuItems.push({
-              icon: "✕",
-              label: multi
-                ? ("Odebrat všechny (" + targetCislos.length + ") z oblíbených")
-                : "Odebrat z oblíbených",
-              handler: () => {
-                targetCislos.forEach(c => {
-                  if (isTreeFavorite(c)) toggleTreeFavorite(c);
-                });
-              },
-            });
-          } else {
-            // Mixed — nabídni obě
-            const pinnedCount = targetCislos.filter(c => isTreeFavorite(c)).length;
-            const notPinnedCount = targetCislos.length - pinnedCount;
-            menuItems.push({
-              icon: "★",
-              label: "Přidat zbývajících (" + notPinnedCount + ") k oblíbeným",
-              handler: () => {
-                targetCislos.forEach(c => {
-                  if (!isTreeFavorite(c)) toggleTreeFavorite(c);
-                });
-              },
-            });
-            menuItems.push({
-              icon: "✕",
-              label: "Odebrat aktuálních (" + pinnedCount + ") z oblíbených",
-              handler: () => {
-                targetCislos.forEach(c => {
-                  if (isTreeFavorite(c)) toggleTreeFavorite(c);
-                });
-              },
-            });
+          // Krok 14g-H+11: pin/favorites jen pokud cislo_def existuje
+          if (targetCislos.length > 0) {
+            const allPinned = targetCislos.every(c => isTreeFavorite(c));
+            const nonePinned = targetCislos.every(c => !isTreeFavorite(c));
+
+            if (nonePinned) {
+              menuItems.push({
+                icon: "★",
+                label: multi
+                  ? ("Přidat všechny (" + targetCislos.length + ") k oblíbeným")
+                  : "Přidat k oblíbeným",
+                handler: () => {
+                  targetCislos.forEach(c => {
+                    if (!isTreeFavorite(c)) toggleTreeFavorite(c);
+                  });
+                },
+              });
+            } else if (allPinned) {
+              menuItems.push({
+                icon: "✕",
+                label: multi
+                  ? ("Odebrat všechny (" + targetCislos.length + ") z oblíbených")
+                  : "Odebrat z oblíbených",
+                handler: () => {
+                  targetCislos.forEach(c => {
+                    if (isTreeFavorite(c)) toggleTreeFavorite(c);
+                  });
+                },
+              });
+            } else {
+              // Mixed — nabídni obě
+              const pinnedCount = targetCislos.filter(c => isTreeFavorite(c)).length;
+              const notPinnedCount = targetCislos.length - pinnedCount;
+              menuItems.push({
+                icon: "★",
+                label: "Přidat zbývajících (" + notPinnedCount + ") k oblíbeným",
+                handler: () => {
+                  targetCislos.forEach(c => {
+                    if (!isTreeFavorite(c)) toggleTreeFavorite(c);
+                  });
+                },
+              });
+              menuItems.push({
+                icon: "✕",
+                label: "Odebrat aktuálních (" + pinnedCount + ") z oblíbených",
+                handler: () => {
+                  targetCislos.forEach(c => {
+                    if (isTreeFavorite(c)) toggleTreeFavorite(c);
+                  });
+                },
+              });
+            }
           }
 
           // Phase 38.4 (11.5.2026 vecer): DESIGN položka — jen když design

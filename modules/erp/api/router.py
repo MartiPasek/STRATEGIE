@@ -5471,6 +5471,17 @@ def _build_system_root_from_db():
         # + error_detail string pro frontend right-panel render.
         try:
             cislo = row.get("cislo_def")
+            # Phase 38.4 Krok 14g-H+12 (15.5.2026 vecer, Marti's "CORE chybi
+            # v oblibených"): synthetic cislo_def pro nodes bez Centrala 1
+            # legacy ID. Pin/MRU/tabs tracking (erp_user_favorites/recent/
+            # tabs) drzi cislo_def jako stable INT key (B+8.1 schema).
+            # Synthetic range -100000 - menu_node_pk:
+            #   - mimo Centrala 1 positive (1-10000)
+            #   - mimo system negative (-100 to -200)
+            # Predictable per menu_node.id → favorites tracking konzistentni
+            # napriс session. Po cislo_def schema refactor (Stage 3) drop.
+            if cislo is None and row.get("id"):
+                cislo = -100000 - int(row["id"])
             sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
             children_db = by_parent.get(row["id"], [])
             children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))

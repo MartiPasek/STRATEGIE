@@ -5155,8 +5155,24 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             dry_run=False,
         )
         if not upd.get("ok"):
+            # Phase 38.4 Krok 14g-H+10 (15.5.2026 dopo, Marti's "uz to skoro
+            # je"): clean trigger error pro frontend toast. PostgreSQL RAISE
+            # EXCEPTION propaguje raw psycopg2 detail (CONTEXT + SQL + params
+            # = obří dump). Extract jen human-readable prefix.
+            err_raw = str(upd.get('error') or '')
+            import re as _re_err
+            cycle_match = _re_err.search(r'Cyclic reference[^\n]*', err_raw)
+            self_match = _re_err.search(r'cannot reference self[^\n]*', err_raw)
+            if cycle_match:
+                err_msg = cycle_match.group(0).strip()
+            elif self_match:
+                err_msg = "Soudeček nemůže být svým vlastním rodičem."
+            elif 'ancestry too deep' in err_raw:
+                err_msg = "Hierarchie soudečků je příliš hluboká (> 50 úrovní)."
+            else:
+                err_msg = f"UPDATE failed: {upd.get('error')}"
             return JSONResponse(
-                {"ok": False, "error": f"UPDATE failed: {upd.get('error')}"},
+                {"ok": False, "error": err_msg},
                 status_code=500,
             )
 

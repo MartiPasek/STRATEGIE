@@ -642,13 +642,18 @@
         if (cisloN) {
           // Phase 38.4 Krok 14g-H+17 (15.5.2026 ~14:41, Marti's "strom
           // neprepina na CORE, dela jako by nic"): visual active vzdy.
-          // setActive highlightuje row, takze Marti vidi vizualni feedback
-          // ze klik byl detekovan. H+14 over-the-top no-op skipoval i visual.
           this.setActive(id);
-          // openTab skip pro synthetic range (cisloN <= -100000 = node bez
-          // core prehledu). Bez tab open, bez placeholder (H+14 router.py
-          // empty render zustava jako defensive net).
-          if (cisloN > -100000 && typeof this.options.onActivate === "function") {
+          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pri vyberu
+          // soudecku check core_id, pokud asociovany, rovnou aktivovat
+          // prehled"): drop synthetic range gate pokud node.core_id set.
+          //
+          // Logic:
+          //   - Real cislo_def (cisloN > -100000)         → openTab (existing)
+          //   - Synthetic + core_id set (asociace)        → openTab → dispatch core
+          //   - Synthetic bez core_id (no association)    → no-op (H+14)
+          const hasCoreAssociated = !!(node && node.core_id);
+          if ((cisloN > -100000 || hasCoreAssociated)
+              && typeof this.options.onActivate === "function") {
             try { this.options.onActivate(node, e, cisloN); }
             catch (err) { console.error("[ErpLeftPanelTree] onActivate failed:", err); }
           }

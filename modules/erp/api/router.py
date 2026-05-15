@@ -14338,13 +14338,41 @@ def _render_workspace_page(user_id: int) -> str:
         // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
         // System view (audit dashboard / native AG Grid).
         if (tab.cislo < 0) {
-          // Phase 38.4 Krok 14g-H+14 (15.5.2026 vecer, Marti's "chovat se
-          // jako kdyby nic"): drop H+13 placeholder. Frontend click handler
-          // (lefttree.js Krok 14g-H+14) skip openTab pro synthetic range
-          // (-100000+), takze sem v normalnim flow nedojde. Pokud presto
-          // tab.cislo <= -100000 dorazi (napr. restore z localStorage),
-          // tichy no-op — render nothing.
+          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pokud
+          // soudecek ma core_id, rovnou aktivovat prehled"): synthetic
+          // range + core_id check. Pokud node v tree cache má asociovany
+          // core, re-dispatch via core_code (jako bychom kliknuli na real
+          // prehled). Fallback: info placeholder s identifikatorem core.
           if (tab.cislo <= -100000) {
+            const node = (typeof _findSystemNodeById === "function")
+              ? _findSystemNodeById(tab.itemId) : null;
+            if (node && node.core_id) {
+              // Re-dispatch via core_code — pokud core matches known
+              // system mode, render system view. Jinak info placeholder.
+              const coreCode = node.core_code || "";
+              const coreMode = coreCode
+                ? _systemModeFromItemId(coreCode)
+                : null;
+              if (coreMode) {
+                _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
+                return;
+              }
+              // Generic placeholder s core info (TODO future: fw-form
+              // dispatch pro form layout_type, generic grid render pro list)
+              mainContent.innerHTML =
+                '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+                '<h2 style="margin:0 0 12px;font-weight:500;">📊 ' +
+                escapeHtml(tab.label || "Přehled") + '</h2>' +
+                '<p style="color:var(--text-muted);margin:0 0 8px;">' +
+                'Asociovaný core: <strong>' + escapeHtml(coreCode || "?") +
+                '</strong> (id=' + node.core_id + ')</p>' +
+                '<p style="color:var(--text-muted);font-size:13px;margin:0;">' +
+                'Renderování pro tento core layout type přijde v dalším Kroku. ' +
+                'Pravý-klik → 🎨 Design pro úpravu asociace.' +
+                '</p></div>';
+              return;
+            }
+            // No core associated — silent no-op (H+14 doctrine)
             mainContent.innerHTML = '';
             return;
           }

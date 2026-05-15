@@ -5295,6 +5295,174 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/design/fw-data-source")
+async def design_create_fw_data_source(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-H+30 Etapa 6 (15.5.2026 vecer, Marti's Varianta C
+    "1:1 vazba pres code"): create fresh fw.data_source row.
+
+    Body: {
+        code: str (required, lowercase snake_case),
+        name: str (required, human-readable),
+        refresh_type: str (default 'manual'; 'manual'/'on_open'/'interval'/'on_event'),
+        description: str | None (optional)
+    }
+
+    Defaults:
+        version = 1
+        status = 'active'
+        is_system = False
+        is_immutable = False
+        row_memory = False
+        filter_delay_ms = 0
+        default_record_limit = 1000
+
+    Security: parent gate, fw schema owned by Marti-AI (insert_row pres
+    Marti-AI's PostgreSQL role).
+
+    Returns:
+        200: {ok, data_source_id, data_source: {...}}
+        400: invalid body / kolize code (uniqueness)
+        500: INSERT failed
+    """
+    from core.database_data import get_data_session as _gds_cds
+    from sqlalchemy import text as _sql_text_cds
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cds
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    code = (body.get("code") or "").strip()
+    name = (body.get("name") or "").strip()
+    refresh_type = (body.get("refresh_type") or "manual").strip()
+    description = body.get("description")
+    if description is not None:
+        description = description.strip() or None
+
+    # Validation
+    if not code:
+        return JSONResponse({"ok": False, "error": "code povinne"}, status_code=400)
+    if not name:
+        return JSONResponse({"ok": False, "error": "name povinne"}, status_code=400)
+
+    # caller_display lookup
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cds
+        from modules.core.infrastructure.models_core import User as _User_cds
+        cs_cds = _gcs_cds()
+        try:
+            u_cds = cs_cds.query(_User_cds).filter_by(id=uid).first()
+            if u_cds:
+                if u_cds.short_name and u_cds.short_name.strip():
+                    caller_display = u_cds.short_name.strip()
+                elif u_cds.first_name or u_cds.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_cds.first_name, u_cds.last_name
+                    ])).strip()
+        finally:
+            cs_cds.close()
+
+    ds_cds = _gds_cds()
+    try:
+        # Uniqueness check — code + status='active' kombinace
+        existing = ds_cds.execute(_sql_text_cds("""
+            SELECT id FROM fw.data_source
+            WHERE code = :code AND status = 'active'
+        """), {"code": code}).mappings().one_or_none()
+        if existing:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"fw.data_source s code='{code}' uz existuje (id={existing['id']}). "
+                        f"Bud ho archivuj nejdriv, nebo pouzij jiny code."
+                    )
+                },
+                status_code=400,
+            )
+
+        # INSERT pres strategie_pg (Marti-AI owner fw.*)
+        values = {
+            "code": code,
+            "version": 1,
+            "name": name,
+            "description": description,
+            "refresh_type": refresh_type,
+            "row_memory": False,
+            "filter_delay_ms": 0,
+            "default_record_limit": 1000,
+            "is_system": False,
+            "is_immutable": False,
+            "status": "active",
+            "created_by": uid,
+        }
+        ins = _spg_insert_cds(
+            schema="fw",
+            table="data_source",
+            values=values,
+        )
+        if not ins.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                status_code=500,
+            )
+
+        new_row = ins.get("inserted") or {}
+
+        # Activity log SAVEPOINT pattern
+        ds_cds.execute(_sql_text_cds("SAVEPOINT pre_audit_cds"))
+        try:
+            ds_cds.execute(_sql_text_cds("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_data_source_add', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"+ fw.data_source code='{code}' name='{name}' "
+                    f"refresh={refresh_type} by {caller_display}"
+                ),
+            })
+            ds_cds.execute(_sql_text_cds("RELEASE SAVEPOINT pre_audit_cds"))
+            ds_cds.commit()
+        except Exception as _act_e:
+            try:
+                ds_cds.execute(_sql_text_cds("ROLLBACK TO SAVEPOINT pre_audit_cds"))
+                ds_cds.commit()
+            except Exception:
+                ds_cds.rollback()
+            logger.warning(f"design_create_fw_data_source activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_source_id": new_row.get("id"),
+            "data_source": new_row,
+        }))
+    except Exception as exc:
+        try:
+            ds_cds.rollback()
+        except Exception:
+            pass
+        logger.exception(f"design_create_fw_data_source failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"POST /fw-data-source failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds_cds.close()
+
+
 @api_router.patch("/design/fw-data-source/{data_source_id}/archive")
 async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+30 Etapa 5 (15.5.2026 vecer, Marti's Varianta C

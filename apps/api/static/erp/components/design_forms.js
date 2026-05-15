@@ -2948,25 +2948,240 @@
             "klikni ➕ Novy vlevo nahore."
           );
         },
-        // Etapa 6 placeholder — ➕ Novy data_source button
+        // Phase 38.4 Krok 14g-H+30 Etapa 6 (FINALE): real wizard
         enableNew: true,
         enableEdit: false,
         enableDelete: false,
-        onNew: () => {
-          alert(
-            "➕ Novy datovy zdroj\n\n" +
-            "Etapa 6 (prijde za chvili): mini-form wizard.\n" +
-            "Pre-filled code='" + coreCode + "' (auto-link via code-based vazba).\n\n" +
-            "Body wizard:\n" +
-            "  code=" + coreCode + " (auto-fill, readonly)\n" +
-            "  name (required)\n" +
-            "  refresh_type (dropdown: manual / on_open / interval / ...)\n" +
-            "  description (optional)\n\n" +
-            "Vytvori fw.data_source row + automatically asocuje s aktualnim core."
-          );
-        },
+        onNew: () => self._openDataSourceCreateForm(picker, coreCode),
       });
       picker.open();
+    }
+
+    /**
+     * Phase 38.4 Krok 14g-H+30 Etapa 6 (15.5.2026 vecer, Marti's Varianta C
+     * "1:1 vazba pres code"): mini-form modal pro CREATE fw.data_source.
+     * Pre-filled code = core.code (readonly auto-link). Po success refresh
+     * picker grid + close picker + reopen Form 1 s tab='prehled'.
+     */
+    _openDataSourceCreateForm(picker, coreCode) {
+      const self = this;
+      const menuNode = (this._data && this._data.menu_node) || null;
+      const core = (this._data && this._data.core) || null;
+
+      // Mini overlay
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10020;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "width:520px;max-width:95vw;background:#1a1f26;border:1px solid #2a3340;" +
+        "border-radius:6px;display:flex;flex-direction:column;color:#cfd6df;" +
+        "font-size:13px;box-shadow:0 8px 32px rgba(0,0,0,0.5);";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:14px 18px;border-bottom:1px solid #2a3340;display:flex;" +
+        "align-items:center;justify-content:space-between;";
+      header.innerHTML =
+        '<div style="font-size:14px;font-weight:600;color:#e8eef5;">' +
+        '➕ Vytvorit novy datovy zdroj pro core ' +
+        '<code style="background:#0f141a;padding:1px 6px;border-radius:3px;' +
+        'color:#a8c4dc;font-size:12px;">' + coreCode + '</code></div>';
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText =
+        "background:none;border:none;color:#7a8696;font-size:18px;cursor:pointer;padding:0 4px;";
+      closeBtn.onclick = () => overlay.remove();
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      // Body — form fields
+      const body = document.createElement("div");
+      body.style.cssText = "padding:18px;display:flex;flex-direction:column;gap:14px;";
+
+      const _mkField = (label, hint, isRequired) => {
+        const wrap = document.createElement("div");
+        wrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+        const lbl = document.createElement("label");
+        lbl.style.cssText = "color:#a8b4c2;font-size:11px;font-weight:500;";
+        lbl.innerHTML = label + (isRequired
+          ? ' <span style="color:#d4a8a8;">*</span>' : '');
+        wrap.appendChild(lbl);
+        if (hint) {
+          const h = document.createElement("div");
+          h.style.cssText = "color:#7a8696;font-size:10px;font-style:italic;";
+          h.textContent = hint;
+          wrap.appendChild(h);
+        }
+        return wrap;
+      };
+
+      // code (readonly — Marti's 1:1 doctrine, auto-link via code)
+      const codeWrap = _mkField(
+        "Code (auto-link na core)",
+        "Marti's Varianta C: 1:1 vazba pres code. Hodnota = core.code, readonly.",
+        true
+      );
+      const codeInput = document.createElement("input");
+      codeInput.type = "text";
+      codeInput.value = coreCode;
+      codeInput.readOnly = true;
+      codeInput.style.cssText =
+        "padding:8px 10px;background:#1a2028;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#7a8696;font-size:12px;font-family:monospace;outline:none;cursor:not-allowed;";
+      codeWrap.appendChild(codeInput);
+      body.appendChild(codeWrap);
+
+      // name (required)
+      const nameWrap = _mkField(
+        "Nazev",
+        "Human-readable jmeno datoveho zdroje (UI label). Napr. 'IP whitelists data source'.",
+        true
+      );
+      const nameInput = document.createElement("input");
+      nameInput.type = "text";
+      nameInput.placeholder = "Nazev datoveho zdroje";
+      nameInput.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;outline:none;";
+      nameWrap.appendChild(nameInput);
+      body.appendChild(nameWrap);
+
+      // refresh_type (dropdown)
+      const refreshWrap = _mkField(
+        "Refresh type",
+        "Kdy data_source obnovuje data. 'manual' = vyzaduje user akci. " +
+        "'on_open' = pri otevreni gridu. 'interval' = periodicky. " +
+        "'on_event' = trigger jinou udalosti. Default 'manual'.",
+        false
+      );
+      const refreshSelect = document.createElement("select");
+      refreshSelect.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;outline:none;";
+      ["manual", "on_open", "interval", "on_event"].forEach(v => {
+        const opt = document.createElement("option");
+        opt.value = v;
+        opt.textContent = v;
+        refreshSelect.appendChild(opt);
+      });
+      refreshSelect.value = "manual";
+      refreshWrap.appendChild(refreshSelect);
+      body.appendChild(refreshWrap);
+
+      // description (optional textarea)
+      const descWrap = _mkField(
+        "Popis (optional)",
+        "Kratky popis k cemu data_source slouzi. Pro budouci developery / kolegyni.",
+        false
+      );
+      const descInput = document.createElement("textarea");
+      descInput.placeholder = "Volitelny popis...";
+      descInput.rows = 3;
+      descInput.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
+        "color:#e8eef5;font-size:12px;outline:none;resize:vertical;font-family:inherit;";
+      descWrap.appendChild(descInput);
+      body.appendChild(descWrap);
+
+      modal.appendChild(body);
+
+      // Footer
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "padding:12px 18px;border-top:1px solid #2a3340;display:flex;" +
+        "gap:10px;justify-content:flex-end;align-items:center;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText =
+        "padding:8px 18px;background:#2a3340;border:1px solid #3a4754;color:#cfd6df;" +
+        "border-radius:4px;cursor:pointer;font-size:12px;";
+      cancelBtn.onclick = () => overlay.remove();
+      footer.appendChild(cancelBtn);
+
+      const createBtn = document.createElement("button");
+      createBtn.type = "button";
+      createBtn.textContent = "➕ Vytvorit";
+      createBtn.style.cssText =
+        "padding:8px 18px;background:#2a4760;border:1px solid #4a7ba8;color:#a8c4dc;" +
+        "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
+      createBtn.onclick = async () => {
+        const code = codeInput.value.trim();
+        const name = nameInput.value.trim();
+        const refreshType = refreshSelect.value;
+        const description = descInput.value.trim() || null;
+
+        if (!name) { alert("Nazev je povinny."); nameInput.focus(); return; }
+
+        createBtn.disabled = true;
+        createBtn.textContent = "⏳ Vytvarim…";
+        try {
+          const r = await fetch("/api/v1/erp/design/fw-data-source", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: code,
+              name: name,
+              refresh_type: refreshType,
+              description: description,
+            }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.ok) {
+            alert("Vytvoreni selhalo: " + (data.error || ("HTTP " + r.status)));
+            createBtn.disabled = false;
+            createBtn.textContent = "➕ Vytvorit";
+            return;
+          }
+          // Success
+          if (typeof _showToast === "function") {
+            _showToast("Data_source '" + name + "' vytvoren", "success");
+          }
+          overlay.remove();
+          // Close picker (auto-link via code-based vazba — uz je linknuto)
+          if (picker && typeof picker.close === "function") {
+            picker.close();
+          } else if (picker && picker._overlay) {
+            picker._overlay.remove();
+          }
+          // Reload Form 1 — vidime new data_source v 2. groupboxu
+          self._dirty.clear();
+          _markFormDirty(self, false);
+          self._shell.close();
+          setTimeout(() => {
+            try {
+              const reopenOpts = {
+                initialTab: "prehled",
+              };
+              if (menuNode && menuNode.id) {
+                reopenOpts.menuNodeId = menuNode.id;
+              } else if (core && core.id) {
+                reopenOpts.coreId = core.id;
+              }
+              new window.DesignSoudecekCoreForm(reopenOpts).open();
+            } catch (e) {
+              console.error("[DataSourceCreate] re-open failed:", e);
+            }
+          }, 150);
+        } catch (e) {
+          alert("Vytvoreni selhalo: " + (e.message || e));
+          createBtn.disabled = false;
+          createBtn.textContent = "➕ Vytvorit";
+        }
+      };
+      footer.appendChild(createBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      document.body.appendChild(overlay);
+      setTimeout(() => nameInput.focus(), 50);
     }
 
     async _unassociateDataSource() {

@@ -2398,13 +2398,115 @@
       _markFormDirty(this, count > 0);
     }
 
-    _onSaveClick() {
-      // Krok 14b backend save flow chybi — placeholder alert
-      const fields = Array.from(this._dirty).join(", ");
-      alert(
-        "Save flow přijde v Kroku 14b (backend POST endpointy).\n\n" +
-        "Změněná pole (zatím nejsou ukládána):\n" + fields
-      );
+    async _onSaveClick() {
+      // Phase 38.4 Krok 14g-H+18 (15.5.2026 ~14:49, Marti's "Nejde mi
+      // ulozit nastaveni soudecku v HC formu"): reuse Form 3 PATCH pattern
+      // pres generic /design/{entity}/{id} endpoint. Form 1 ma 2 entity
+      // (menu_node + core), takze split dirty fields by prefix.
+      if (this._dirty.size === 0) {
+        this._shell.close();
+        return;
+      }
+
+      const mn = (this._data && this._data.menu_node) || null;
+      const core = (this._data && this._data.core) || null;
+
+      // Collect dirty changes z DOM. Wraps drzi _fieldKey (mn.label, core.code)
+      // + _inst (UI Kit instance pro .value() read).
+      const mnChanges = {};
+      const coreChanges = {};
+      const allWraps = this._shell.body.querySelectorAll(".erp-field, .erp-dropdown, .erp-memo");
+      for (const wrap of allWraps) {
+        const fk = wrap._fieldKey;
+        if (!fk || !this._dirty.has(fk)) continue;
+        const parts = fk.split(".");
+        if (parts.length < 2) continue;
+        const prefix = parts[0];  // "mn" | "core"
+        const fieldName = parts.slice(1).join(".");
+        let val = null;
+        if (wrap._inst && typeof wrap._inst.value === "function") {
+          val = wrap._inst.value();
+        } else if (wrap._inst && wrap._inst.input) {
+          val = wrap._inst.input.value;
+        } else {
+          const inp = wrap.querySelector("input, textarea, select");
+          if (inp) val = inp.value;
+        }
+        if (prefix === "mn") mnChanges[fieldName] = val;
+        else if (prefix === "core") coreChanges[fieldName] = val;
+      }
+
+      // Save menu_node + core sekvenčně (oba entity = oba PATCH calls)
+      const errors = [];
+      let savedCount = 0;
+
+      const _doPatch = async (entityType, rowId, changes, expectedUpdatedAt) => {
+        if (!Object.keys(changes).length) return;
+        if (rowId == null) {
+          errors.push(entityType + ": missing row id");
+          return;
+        }
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/" + encodeURIComponent(entityType) + "/" + encodeURIComponent(rowId),
+            {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                field_changes: changes,
+                expected_updated_at: expectedUpdatedAt,
+              }),
+            }
+          );
+          if (r.status === 409) {
+            errors.push(entityType + ": konflikt (někdo jiný editoval)");
+            return;
+          }
+          if (!r.ok) {
+            const errData = await r.json().catch(() => ({}));
+            errors.push(entityType + ": " + (errData.error || ("HTTP " + r.status)));
+            return;
+          }
+          savedCount += Object.keys(changes).length;
+        } catch (e) {
+          errors.push(entityType + ": " + (e.message || e));
+        }
+      };
+
+      if (mn && Object.keys(mnChanges).length) {
+        await _doPatch("menu_node", mn.id, mnChanges, mn.updated_at);
+      }
+      if (core && Object.keys(coreChanges).length) {
+        await _doPatch("core", core.id, coreChanges, core.updated_at);
+      }
+
+      if (errors.length) {
+        alert("Uložení selhalo:\n" + errors.join("\n"));
+        return;
+      }
+
+      // Success — toast + close
+      this._dirty.clear();
+      _markFormDirty(this, false);
+      const _wToast = savedCount === 1 ? "změna" : (savedCount < 5 ? "změny" : "změn");
+      if (typeof _showToast === "function") {
+        _showToast("Uloženo — " + savedCount + " " + _wToast, "success");
+      }
+      this._shell.close();
+      // Refresh tree + grid (drag-drop H+9/H+15 pattern)
+      try {
+        if (typeof window.reloadErpTree === "function") {
+          await window.reloadErpTree();
+        }
+        if (window._sysHelpers
+            && typeof window._sysHelpers.renderSystemGrid === "function"
+            && window._sysCurrentMode === "menu_nodes") {
+          await window._sysHelpers.renderSystemGrid("menu_nodes", window._sysCurrentLabel || "");
+        }
+      } catch (eRefresh) {
+        console.warn("[DesignSoudecekCoreForm] post-save refresh failed:", eRefresh);
+      }
     }
 
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro

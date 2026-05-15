@@ -2987,6 +2987,36 @@ _FW_FORM_ENTITY_MAP: dict = {
             },
         },
     },
+    # Phase 38.4 Krok 14g-H+18 (15.5.2026 ~14:49, Marti's "Nejde mi ulozit
+    # nastaveni soudecku v HC formu"): menu_node entity pro Form 1
+    # (DesignSoudecekCoreForm) save flow. Reuse generic PATCH endpoint.
+    "menu_node": {
+        "schema": "fw",
+        "table": "menu_node",
+        "id_column": "id",
+        "select_columns": [
+            "id", "code", "label", "kind", "parent_id", "sort_order",
+            "status", "visibility_scope", "core_id", "cislo_def",
+            "framework_jadro_id", "special_handler", "is_immutable",
+            "description_user", "description_system",
+            "created_at", "updated_at",
+        ],
+    },
+    "core": {
+        "schema": "fw",
+        "table": "core",
+        "id_column": "id",
+        # Verified columns from _serialize_core (router.py line 2066). NE
+        # 'kind' (existuje jen v menu_node), NE 'is_active' (zatim chybi).
+        "select_columns": [
+            "id", "code", "label",
+            "layout_type", "data_entity_type",
+            "version", "parent_framework_id",
+            "layout_template", "shadow_mode",
+            "description_user", "description_system",
+            "created_at", "updated_at",
+        ],
+    },
 }
 
 

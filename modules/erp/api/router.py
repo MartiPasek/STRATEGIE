@@ -2303,6 +2303,12 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
             sort_order_resolved = sort_order_in
 
         # INSERT pres strategie_pg (Marti-AI PG role ownership fw.*)
+        # Phase 38.4 Krok 14g-G hotfix (15.5.2026 rano, Marti's "novy
+        # soudecek v gridu vidim, ale v levem strome ne"): tree query
+        # filtruje `visibility_scope = 'parent_only'`. Bez explicit
+        # set INSERT necha NULL → filtered out. Default = 'parent_only'
+        # (visible pro rodice + admins, standard pro tenant-bound
+        # soudecky). Marti muze pozdeji zmenit pres Design popup.
         ins = _spg_insert_cmn(
             schema="fw",
             table="menu_node",
@@ -2314,6 +2320,7 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
                 "status": "active",
                 "kind": kind,
                 "is_immutable": False,
+                "visibility_scope": "parent_only",
                 "created_by_id": uid,
                 "created_by_text": caller_display,
                 "updated_by_id": uid,

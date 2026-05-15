@@ -5816,19 +5816,20 @@ def _build_system_root_from_db():
                 "label": row["label"],
                 "nazev": row["label"],
             }
-            # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo): dispatch_kind compute
-            # uniformne pro KAZDY node s core_id. Drop "kind != folder" gate.
-            # Pokud node ma core_id, vypoctime marker; jinak ho vynechame (folder
-            # bez jadra = pure namespace). Soudecek s children + core_id dostane
-            # marker pro core, plus expand toggle pro children.
+            # Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "sviti zluty
+            # trojuhlenik, coz je divny"): orphan marker (⚠) jen pro real
+            # orphans (Centrala 1 leafs bez core_id + bez hw_registry).
+            # Marti's NEW asociace (core_id set pres picker) ale bez hw_registry
+            # entry = legitimate state, NE orphan. Drop default orphan branch
+            # pokud core_id set + hw_mode neexistuje — žádný marker (clean).
             if row.get("core_id"):
                 hw_mode = row.get("hw_shadow_mode")
                 if hw_mode == "primary":
                     node["dispatch_kind"] = "a3_primary"
                 elif hw_mode in ("off", "audit", "compare"):
                     node["dispatch_kind"] = "hw_" + hw_mode
-                else:
-                    node["dispatch_kind"] = "orphan"
+                # Else: no marker (asociace bez hw_registry = expected pro
+                # nove fw.core asociace pres picker, Marti's "vsechno postupne")
             # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
             # v fw.menu_node, vrátí None — bezpečné).
             meta = row.get("metadata")
@@ -14344,15 +14345,39 @@ def _render_workspace_page(user_id: int) -> str:
           // core, re-dispatch via core_code (jako bychom kliknuli na real
           // prehled). Fallback: info placeholder s identifikatorem core.
           if (tab.cislo <= -100000) {
-            const node = (typeof _findSystemNodeById === "function")
+            // Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "nedeje
+            // se aktivace prehledu ani po hard reset"): add diagnostics +
+            // li.dataset fallback pokud tree cache lookup fails.
+            let node = (typeof _findSystemNodeById === "function")
               ? _findSystemNodeById(tab.itemId) : null;
-            if (node && node.core_id) {
+
+            // Fallback: pokud cache lookup selhal, pokus li.dataset (set v
+            // _decorateLeftPanelLi). Tj. real DOM stejne ma core_id v dataset.
+            let coreId = node && node.core_id;
+            let coreCode = node && node.core_code;
+            if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
+              const li = tree.findLiByCislo(tab.cislo);
+              if (li) {
+                coreId = parseInt(li.dataset.coreId || "0", 10) || null;
+                coreCode = li.dataset.coreCode || null;
+              }
+            }
+
+            console.info("[H+29 dispatch] synthetic+core lookup:", {
+              cislo: tab.cislo,
+              itemId: tab.itemId,
+              node_found_in_cache: !!node,
+              core_id: coreId,
+              core_code: coreCode,
+            });
+
+            if (coreId) {
               // Re-dispatch via core_code — pokud core matches known
               // system mode, render system view. Jinak info placeholder.
-              const coreCode = node.core_code || "";
               const coreMode = coreCode
                 ? _systemModeFromItemId(coreCode)
                 : null;
+              console.info("[H+29 dispatch] coreMode lookup:", coreMode);
               if (coreMode) {
                 _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
                 return;
@@ -14361,19 +14386,27 @@ def _render_workspace_page(user_id: int) -> str:
               // dispatch pro form layout_type, generic grid render pro list)
               mainContent.innerHTML =
                 '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-                '<h2 style="margin:0 0 12px;font-weight:500;">📊 ' +
+                '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +
                 escapeHtml(tab.label || "Přehled") + '</h2>' +
-                '<p style="color:var(--text-muted);margin:0 0 8px;">' +
+                '<p style="color:#a8b4c2;margin:0 0 8px;">' +
                 'Asociovaný core: <strong>' + escapeHtml(coreCode || "?") +
-                '</strong> (id=' + node.core_id + ')</p>' +
-                '<p style="color:var(--text-muted);font-size:13px;margin:0;">' +
+                '</strong> (id=' + coreId + ')</p>' +
+                '<p style="color:#7a8696;font-size:13px;margin:0;">' +
                 'Renderování pro tento core layout type přijde v dalším Kroku. ' +
                 'Pravý-klik → 🎨 Design pro úpravu asociace.' +
                 '</p></div>';
               return;
             }
-            // No core associated — silent no-op (H+14 doctrine)
-            mainContent.innerHTML = '';
+            // No core associated — info placeholder (drop H+14 silent doctrine
+            // pre nove asociace flow — Marti chce vidět něco, ne nic)
+            mainContent.innerHTML =
+              '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+              '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
+              escapeHtml(tab.label || "Soudeček") + '</h2>' +
+              '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+              'Soudeček bez asociovaného core přehledu. ' +
+              'Pravý-klik → 🎨 Design pro vybrání core.' +
+              '</p></div>';
             return;
           }
           const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);

@@ -3193,119 +3193,78 @@
     }
 
     _buildPrehledTab() {
+      // Phase 38.4 Krok 14g-H+25 (15.5.2026 ~19:00, Marti's "tento prvni
+      // jiz nepotrebujeme, misto nej potrebujeme jen ten druhy. Tlacitko
+      // vybrat existing core prenes na druhy screen jako malou ikonku"):
+      // unified render. Drop empty state branch (vysvetleni + 2 velke
+      // buttons). Vždy ukáže Číslo + Název. Akce inline jako 🔗/🚫 ikony.
       const root = document.createElement("div");
       root.className = "erp-design-tab-prehled";
       const core = (this._data && this._data.core) || null;
-      if (!core || !core.id) {
-        // Phase 38.4 Krok 14g-F (15.5.2026 rano, Marti's "master soudecky
-        // potrebuji moznost asociovaneho jadra pro dashboardy"): improved
-        // empty state s vysvetlenim + future hint. MVP: explanation,
-        // dropdown picker + create new přijde v dalším kroku.
-        const menuNode = (this._data && this._data.menu_node) || null;
-        const menuLabel = menuNode && (menuNode.label || menuNode.code) || "tento soudeček";
+      const hasCore = !!(core && core.id);
 
-        const wrap = document.createElement("div");
-        wrap.style.cssText = "padding:24px;display:flex;flex-direction:column;gap:14px;max-width:640px;";
-
-        const heading = document.createElement("div");
-        heading.style.cssText = "font-size:14px;font-weight:600;color:#d4b88a;";
-        heading.innerHTML = "📁 Master soudeček bez Core přehledu";
-        wrap.appendChild(heading);
-
-        const explain = document.createElement("div");
-        explain.style.cssText = "color:#a8b4c2;line-height:1.6;font-size:12px;";
-        explain.innerHTML =
-          "<b>" + _esc(menuLabel) + "</b> je folder/adresář — nemá vlastní Core přehledu " +
-          "(<code style=\"background:#1a2028;padding:1px 5px;border-radius:2px;\">menu_node.core_id IS NULL</code>).<br><br>" +
-          "Master soudečky obvykle slouží jako kontejnery pro pod-soudečky. " +
-          "Centrála 1 ale dovoluje master folderům mít <b>přidružené jádro</b> — " +
-          "například <b>dashboard</b>, který se zobrazí když user klikne na folder.";
-        wrap.appendChild(explain);
-
-        // Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vygenerovat
-        // nove nebo vybrat stavajici CORE"): 2 actionable buttons.
-        const actionRow = document.createElement("div");
-        actionRow.style.cssText = "display:flex;gap:10px;margin-top:6px;";
-
-        const pickBtn = document.createElement("button");
-        pickBtn.type = "button";
-        pickBtn.style.cssText =
-          "padding:8px 14px;background:#2a3340;border:1px solid #4a7ba8;color:#a8c4dc;" +
-          "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
-        pickBtn.textContent = "🔗 Vybrat existing core";
-        pickBtn.onmouseover = () => { pickBtn.style.background = "#34404f"; };
-        pickBtn.onmouseout = () => { pickBtn.style.background = "#2a3340"; };
-        pickBtn.onclick = () => this._openCorePickerModal();
-        actionRow.appendChild(pickBtn);
-
-        const createBtn = document.createElement("button");
-        createBtn.type = "button";
-        createBtn.style.cssText =
-          "padding:8px 14px;background:#2a3340;border:1px solid #d4b88a;color:#d4b88a;" +
-          "border-radius:4px;cursor:pointer;font-size:12px;font-weight:500;";
-        createBtn.textContent = "➕ Vytvořit nový core";
-        createBtn.onmouseover = () => { createBtn.style.background = "#34404f"; };
-        createBtn.onmouseout = () => { createBtn.style.background = "#2a3340"; };
-        createBtn.onclick = () => {
-          alert(
-            "Wizard pro vytvoření nového core přijde v dalším Kroku.\n\n" +
-            "Aktuálně použij \"Vybrat existing core\" + následně asociaci, " +
-            "nebo vytvoř core ručně přes Marti-AI (strategie_pg_insert_row " +
-            "do fw.core)."
-          );
-        };
-        actionRow.appendChild(createBtn);
-
-        wrap.appendChild(actionRow);
-
-        root.appendChild(wrap);
-        return root;
-      }
-
-      // Dirty tracking closures (sdilene s _buildSoudecekTab — modal-level)
+      // Dirty tracking closures
       const D = this._onDirty.bind(this);
       const _f = (l, v, key, o) => _field(l, v, Object.assign({fieldKey: key, onDirty: D}, o || {}));
-      const _d = (l, v, items, key, o) => _dropdown(l, v, items, Object.assign({fieldKey: key, onDirty: D}, o || {}));
 
-      // Phase 38.4 Krok 14g-H+21 (15.5.2026 ~17:00, Marti's "musi byt
-      // tlacitko zrusit, je to falesne jadro"): unassociate row pred
-      // Identifikace Core sekci. Klik → confirm → PATCH menu_node.core_id
-      // = null → re-open popup s empty state placeholder.
-      const unassocRow = document.createElement("div");
-      unassocRow.style.cssText =
-        "display:flex;justify-content:flex-end;align-items:center;gap:8px;" +
-        "margin-bottom:12px;padding:8px 4px;";
-      const unassocHint = document.createElement("span");
-      unassocHint.style.cssText = "color:#7a8696;font-size:11px;font-style:italic;";
-      unassocHint.textContent = "Špatný core? Odpoj a vyber jiný:";
-      unassocRow.appendChild(unassocHint);
-      const unassocBtn = document.createElement("button");
-      unassocBtn.type = "button";
-      unassocBtn.style.cssText =
-        "padding:6px 12px;background:#2a2a30;border:1px solid #8a3a3a;color:#d4a8a8;" +
-        "border-radius:4px;cursor:pointer;font-size:11px;font-weight:500;";
-      unassocBtn.textContent = "🚫 Zrušit asociaci";
-      unassocBtn.title =
-        "Odpojit core přehledu od soudečku (menu_node.core_id → NULL).\n" +
-        "Core sám zůstane v fw.core (může být znovu vybrán nebo asociovaný jinde).";
-      unassocBtn.onmouseover = () => { unassocBtn.style.background = "#3a2828"; };
-      unassocBtn.onmouseout = () => { unassocBtn.style.background = "#2a2a30"; };
-      unassocBtn.onclick = () => this._unassociateCore();
-      unassocRow.appendChild(unassocBtn);
-      root.appendChild(unassocRow);
+      // Action row — small icon buttons top-right
+      const actionRow = document.createElement("div");
+      actionRow.style.cssText =
+        "display:flex;justify-content:flex-end;align-items:center;gap:6px;" +
+        "margin-bottom:8px;padding:4px 4px 0 4px;";
 
-      // Phase 38.4 Krok 14g-H+24 (15.5.2026 ~18:30, Marti's "opticky
-      // zjednodusit, vsechny fieldy ohledne core smaz az na ID a LABEL"):
-      // Centrála 1 parita — Číslo + Název definice přehledu, nic víc.
-      // Drop: code, layout_type, data_entity_type, layout_template, version,
-      // parent_framework_id, shadow_mode (= overload v Form 1, Marti's
-      // "v tom se ztratime"). Drop Sloupce sekce (DataSet builder bude
-      // separate komponenta — Marti's "v druhe komponente").
-      // Plus drop Identifikace Core sekce nad — tehle 2-field row je
-      // primary identita. Vsechno ostatni dotahneme dedicated komponenty.
+      const _mkIconBtn = (icon, title, accentColor, handler) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.style.cssText =
+          "padding:5px 9px;background:#1f262f;border:1px solid " + accentColor + ";" +
+          "color:" + accentColor + ";border-radius:4px;cursor:pointer;font-size:13px;" +
+          "line-height:1;min-width:30px;";
+        b.textContent = icon;
+        b.title = title;
+        b.onmouseover = () => { b.style.background = "#252d37"; };
+        b.onmouseout = () => { b.style.background = "#1f262f"; };
+        b.onclick = handler;
+        return b;
+      };
+
+      // 🔗 Vybrat / Změnit — vždy visible
+      const pickBtn = _mkIconBtn(
+        "🔗",
+        hasCore ? "Změnit asociovaný core přehled" : "Vybrat existing core přehled",
+        "#4a7ba8",
+        () => this._openCorePickerModal()
+      );
+      actionRow.appendChild(pickBtn);
+
+      // 🚫 Odpojit — visible jen pokud core asociované
+      if (hasCore) {
+        const unassocBtn = _mkIconBtn(
+          "🚫",
+          "Zrušit asociaci core přehledu (menu_node.core_id → NULL).\nCore sám zůstane v fw.core.",
+          "#8a3a3a",
+          () => this._unassociateCore()
+        );
+        actionRow.appendChild(unassocBtn);
+      }
+
+      root.appendChild(actionRow);
+
+      // Section Přehled — vždy 2 fields (Centrála 1 parita)
+      // Pokud no core asociované: fields readonly + empty placeholder.
       const idSec = _sectionBuild("Přehled", "fw.core — vazba na core_id");
-      idSec.grid.appendChild(_f("Číslo", core.id, "core.id", { mono: true, readonly: true }));
-      idSec.grid.appendChild(_f("Název definice přehledu", core.label, "core.label"));
+      idSec.grid.appendChild(_f(
+        "Číslo",
+        hasCore ? core.id : "",
+        "core.id",
+        { mono: true, readonly: true }
+      ));
+      idSec.grid.appendChild(_f(
+        "Název definice přehledu",
+        hasCore ? core.label : "",
+        "core.label",
+        { readonly: !hasCore, placeholder: hasCore ? "" : "(žádný core asociovaný — klik 🔗)" }
+      ));
       root.appendChild(idSec.wrap);
 
       // Note: popis (📖 popup) zustava v header (separate flow).

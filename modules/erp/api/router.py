@@ -2201,6 +2201,176 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.post("/design/menu-node")
+async def design_create_menu_node(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-G (15.5.2026 rano, Marti's "Novy soudecek button
+    v paticce leveho stromu"): create new menu_node row.
+
+    Body: {
+        "code": str (required, unique-ish),
+        "label": str (required, display name),
+        "parent_id": int|None (NULL = top-level, optional),
+        "sort_order": int (optional, default = max + 10 v scope parent),
+        "kind": str (optional, default 'folder'; 'list' = leaf s core)
+    }
+
+    Returns:
+        200: {ok, menu_node_id, menu_node: {...}}
+        400: invalid body / kolize code
+        500: INSERT failed
+    """
+    from core.database_data import get_data_session as _gds_cmn
+    from sqlalchemy import text as _sql_text_cmn
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cmn
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    code = (body.get("code") or "").strip()
+    label = (body.get("label") or "").strip()
+    parent_id = body.get("parent_id")
+    sort_order_in = body.get("sort_order")
+    kind = (body.get("kind") or "folder").strip()
+
+    # Validation
+    if not code:
+        return JSONResponse({"ok": False, "error": "code povinne"}, status_code=400)
+    if not label:
+        return JSONResponse({"ok": False, "error": "label povinne"}, status_code=400)
+    if parent_id is not None and (not isinstance(parent_id, int) or parent_id <= 0):
+        return JSONResponse(
+            {"ok": False, "error": "parent_id musi byt positive int nebo null"},
+            status_code=400,
+        )
+
+    # caller_display lookup
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cmn
+        from modules.core.infrastructure.models_core import User as _User_cmn
+        cs_cmn = _gcs_cmn()
+        try:
+            u_cmn = cs_cmn.query(_User_cmn).filter_by(id=uid).first()
+            if u_cmn:
+                if u_cmn.short_name and u_cmn.short_name.strip():
+                    caller_display = u_cmn.short_name.strip()
+                elif u_cmn.first_name or u_cmn.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_cmn.first_name, u_cmn.last_name
+                    ])).strip()
+        finally:
+            cs_cmn.close()
+
+    ds = _gds_cmn()
+    try:
+        # Verify parent existuje (pokud zadan)
+        if parent_id is not None:
+            parent_row = ds.execute(_sql_text_cmn("""
+                SELECT id FROM fw.menu_node
+                WHERE id = :pid AND status = 'active'
+            """), {"pid": parent_id}).mappings().one_or_none()
+            if not parent_row:
+                return JSONResponse(
+                    {"ok": False, "error": f"parent_id={parent_id} neexistuje nebo neni aktivni"},
+                    status_code=400,
+                )
+
+        # Idempotency: code uniqueness check (best-effort, DB ma soft unique)
+        existing = ds.execute(_sql_text_cmn("""
+            SELECT id FROM fw.menu_node WHERE code = :code AND status = 'active'
+        """), {"code": code}).mappings().one_or_none()
+        if existing:
+            return JSONResponse(
+                {"ok": False, "error": f"menu_node s code='{code}' uz existuje (id={existing['id']})"},
+                status_code=400,
+            )
+
+        # Auto sort_order — max + 10 v parent scope
+        if sort_order_in is None or not isinstance(sort_order_in, int):
+            if parent_id is not None:
+                max_sort = ds.execute(_sql_text_cmn("""
+                    SELECT COALESCE(MAX(sort_order), 0) AS max_so
+                    FROM fw.menu_node WHERE parent_id = :pid AND status = 'active'
+                """), {"pid": parent_id}).scalar()
+            else:
+                max_sort = ds.execute(_sql_text_cmn("""
+                    SELECT COALESCE(MAX(sort_order), 0) AS max_so
+                    FROM fw.menu_node WHERE parent_id IS NULL AND status = 'active'
+                """)).scalar()
+            sort_order_resolved = int(max_sort or 0) + 10
+        else:
+            sort_order_resolved = sort_order_in
+
+        # INSERT pres strategie_pg (Marti-AI PG role ownership fw.*)
+        ins = _spg_insert_cmn(
+            schema="fw",
+            table="menu_node",
+            values={
+                "code": code,
+                "label": label,
+                "parent_id": parent_id,
+                "sort_order": sort_order_resolved,
+                "status": "active",
+                "kind": kind,
+                "is_immutable": False,
+                "created_by_id": uid,
+                "created_by_text": caller_display,
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+            },
+        )
+        if not ins.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {ins.get('error')}"},
+                status_code=500,
+            )
+
+        new_node = ins.get("inserted") or {}
+
+        # Audit log
+        ds.execute(_sql_text_cmn("SAVEPOINT pre_audit"))
+        try:
+            ds.execute(_sql_text_cmn("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_menu_node_add', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"+ menu_node '{code}' (label='{label}', parent_id={parent_id}, "
+                    f"kind={kind}) by {caller_display}"
+                ),
+            })
+            ds.execute(_sql_text_cmn("RELEASE SAVEPOINT pre_audit"))
+            ds.commit()
+        except Exception as _act_e:
+            try:
+                ds.execute(_sql_text_cmn("ROLLBACK TO SAVEPOINT pre_audit"))
+                ds.commit()
+            except Exception:
+                ds.rollback()
+            logger.warning(f"design_create_menu_node activity_log failed: {_act_e}")
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "menu_node_id": new_node.get("id"),
+            "menu_node": new_node,
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"design_create_menu_node failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"POST /menu-node failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
 @api_router.get("/design/menu-node-by-code/{menu_node_code}")
 def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier)."""
@@ -7519,6 +7689,34 @@ def _render_full_page(
       color: white !important;
       box-shadow: inset 0 0 0 2px rgba(248, 113, 113, 0.6);
     }}
+    /* Phase 38.4 Krok 14g-G (15.5.2026 rano): Novy soudecek button */
+    .erp-tree-new-btn {{
+      margin-top: 6px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 8px;
+      background: transparent;
+      border: 1px dashed #a88cd4;
+      border-radius: 5px;
+      color: #a88cd4;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.12s;
+    }}
+    .erp-tree-new-btn:hover {{
+      background: rgba(168, 140, 212, 0.1);
+      border-style: solid;
+    }}
+    .erp-tree-new-icon {{
+      font-size: 14px;
+      line-height: 1;
+      font-weight: 700;
+    }}
     .erp-tree-view-icon {{
       font-size: 12px;
       line-height: 1;
@@ -9432,6 +9630,16 @@ def _render_workspace_page(user_id: int) -> str:
               <span class="erp-tree-view-label">MRU</span>
             </button>
           </div>
+          <!-- Phase 38.4 Krok 14g-G (15.5.2026 rano, Marti's "tlacitko
+               Novy soudecek v paticce"): visible jen v DESIGN mode. Click
+               otevre _openNewSoudecekDialog s prefilled parent z selected
+               tree node. -->
+          <button type="button" id="erpNewSoudecekBtn" class="erp-tree-new-btn"
+                  title="Nový soudeček (folder / přehled) — visible v DESIGN mode"
+                  style="display:none;">
+            <span class="erp-tree-new-icon">+</span>
+            <span class="erp-tree-new-label">Nový soudeček</span>
+          </button>
         </div>
       </aside>
       <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
@@ -11571,10 +11779,202 @@ def _render_workspace_page(user_id: int) -> str:
         } else if (badge) {
           badge.remove();
         }
+        // Phase 38.4 Krok 14g-G (15.5.2026 rano, Marti's "tlacitko Novy
+        // soudecek v paticce"): sync visibility z DESIGN flag.
+        try {
+          const newBtn = document.getElementById('erpNewSoudecekBtn');
+          if (newBtn) {
+            newBtn.style.display = on ? 'flex' : 'none';
+          }
+        } catch (e) {}
       }
       // Init při page load
       renderErpDesignBadge();
       try { window._erpDesignMode = getErpDesignMode(); } catch (e) {}
+
+      // Phase 38.4 Krok 14g-G: Novy soudecek button click handler.
+      // Dialog s 3 fields (label / code / kind). Parent_id prefilled z
+      // selected tree node (folder = parent, list = parent.parent).
+      function _erpFindSelectedTreeNode() {
+        // Hledame highlighted node v tree — .erp-tree-row.erp-tree-selected
+        // nebo .erp-tree-row.active
+        try {
+          const root = document.getElementById('erpTreeRoot');
+          if (!root) return null;
+          const active = root.querySelector('.erp-tree-row.erp-tree-selected, .erp-tree-row.active');
+          if (!active) return null;
+          const li = active.closest('.erp-tree-item');
+          if (!li) return null;
+          return {
+            menuNodePk: li.dataset.menuNodePk ? parseInt(li.dataset.menuNodePk, 10) : null,
+            label: (li.querySelector('.erp-tree-label') || {}).textContent || '',
+            kind: li.classList.contains('erp-tree-leaf') ? 'list' : 'folder',
+          };
+        } catch (e) {
+          return null;
+        }
+      }
+
+      async function _erpOpenNewSoudecekDialog() {
+        const selected = _erpFindSelectedTreeNode();
+        // Pokud vybrany leaf, parent = jeho parent (najit menuNodePk z tree API);
+        // pokud folder, parent = ten folder; pokud nic, parent = null (top-level)
+        let parentId = null;
+        let parentLabel = '— Root (top-level) —';
+        if (selected && selected.menuNodePk) {
+          // Pro folder = parent = self; pro leaf = parent = self too (Marti's
+          // "na misto odkud byla volana" = sibling next to selected)
+          parentId = selected.menuNodePk;
+          parentLabel = (selected.kind === 'folder' ? '📁 ' : '📄 ') + selected.label;
+        }
+        // Build modal dialog (inline, no extra deps)
+        const overlay = document.createElement('div');
+        overlay.style.cssText =
+          'position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10000;' +
+          'display:flex;align-items:center;justify-content:center;';
+        const modal = document.createElement('div');
+        modal.style.cssText =
+          'background:#141a20;border:1px solid #2a3340;border-radius:6px;' +
+          'min-width:460px;max-width:560px;color:#e8eef5;font-size:13px;' +
+          'box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;';
+        const close = () => { try { document.body.removeChild(overlay); } catch (e) {} };
+
+        const header = document.createElement('div');
+        header.style.cssText =
+          'padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;' +
+          'display:flex;justify-content:space-between;align-items:center;';
+        header.innerHTML =
+          '<div style="font-weight:600;font-size:14px;color:#a88cd4;">📁 Nový soudeček</div>' +
+          '<button type="button" style="background:transparent;border:none;color:#8a96a4;' +
+          'font-size:18px;cursor:pointer;line-height:1;" id="_nsClose">✕</button>';
+        modal.appendChild(header);
+
+        const body = document.createElement('div');
+        body.style.cssText = 'padding:16px;display:flex;flex-direction:column;gap:10px;';
+
+        const _inpStyle = 'padding:6px 10px;background:#0f141a;border:1px solid #2a3340;' +
+                         'color:#e8eef5;border-radius:3px;font-size:13px;width:100%;' +
+                         'box-sizing:border-box;';
+        const _row = (label, el) => {
+          const wrap = document.createElement('div');
+          wrap.style.cssText = 'display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;';
+          const lbl = document.createElement('label');
+          lbl.textContent = label;
+          lbl.style.cssText = 'color:#a8b4c2;font-size:12px;';
+          wrap.appendChild(lbl); wrap.appendChild(el);
+          return wrap;
+        };
+        // Parent info (read-only)
+        const parentInfo = document.createElement('div');
+        parentInfo.style.cssText =
+          'padding:8px 10px;background:#0f141a;border:1px dashed #2a3340;' +
+          'border-radius:3px;color:#7a8696;font-size:11px;';
+        parentInfo.innerHTML = '<b style="color:#a8b4c2;">Parent:</b> ' + parentLabel +
+                               (parentId ? ' <code style="color:#7ed4e8;">#' + parentId + '</code>' : '');
+        body.appendChild(parentInfo);
+        // Label
+        const labelInp = document.createElement('input');
+        labelInp.type = 'text'; labelInp.style.cssText = _inpStyle;
+        labelInp.placeholder = 'Display name (např. "Zákazníci")';
+        body.appendChild(_row('Label', labelInp));
+        // Code
+        const codeInp = document.createElement('input');
+        codeInp.type = 'text'; codeInp.style.cssText = _inpStyle;
+        codeInp.placeholder = 'Unique code (např. "zakaznici" — auto z label)';
+        // Auto-suggest code z label
+        labelInp.addEventListener('input', () => {
+          if (codeInp.dataset.userEdit !== '1') {
+            codeInp.value = labelInp.value
+              .toLowerCase()
+              .normalize('NFD').replace(/[̀-ͯ]/g, '')
+              .replace(/[^a-z0-9]+/g, '_')
+              .replace(/^_+|_+$/g, '');
+          }
+        });
+        codeInp.addEventListener('input', () => { codeInp.dataset.userEdit = '1'; });
+        body.appendChild(_row('Code', codeInp));
+        // Kind dropdown
+        const kindSel = document.createElement('select');
+        kindSel.style.cssText = _inpStyle;
+        [['folder', '📁 Folder (kontejner pro sub-soudečky)'],
+         ['list', '📄 List (přehled s daty)']].forEach(([v, l]) => {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = l;
+          kindSel.appendChild(o);
+        });
+        body.appendChild(_row('Kind', kindSel));
+
+        modal.appendChild(body);
+
+        const footer = document.createElement('div');
+        footer.style.cssText = 'padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;' +
+                              'display:flex;justify-content:flex-end;gap:8px;';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.textContent = 'Storno';
+        cancelBtn.style.cssText = 'padding:6px 16px;background:#2a3340;border:1px solid #3a4754;' +
+                                  'border-radius:3px;color:#cfd6df;cursor:pointer;font-size:13px;';
+        cancelBtn.addEventListener('click', close);
+        footer.appendChild(cancelBtn);
+        const okBtn = document.createElement('button');
+        okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Vytvořit';
+        okBtn.style.cssText = 'padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;' +
+                              'border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;';
+        okBtn.addEventListener('click', async () => {
+          const labelV = labelInp.value.trim();
+          const codeV = codeInp.value.trim();
+          if (!labelV || !codeV) {
+            alert('Label + code povinné.'); return;
+          }
+          okBtn.disabled = true; okBtn.style.opacity = '0.6';
+          try {
+            const r = await fetch('/api/v1/erp/design/menu-node', {
+              method: 'POST', credentials: 'include',
+              headers: {'Content-Type': 'application/json'},
+              body: JSON.stringify({
+                code: codeV, label: labelV,
+                parent_id: parentId, kind: kindSel.value,
+              }),
+            });
+            const d = await r.json();
+            if (!r.ok || !d.ok) throw new Error(d.error || ('HTTP ' + r.status));
+            close();
+            // Tree reload (existing function expected)
+            if (typeof window.reloadErpTree === 'function') {
+              await window.reloadErpTree();
+            } else if (typeof window.location !== 'undefined') {
+              // Fallback: full reload
+              window.location.reload();
+            }
+          } catch (e) {
+            console.error('[NewSoudecek] create failed:', e);
+            alert('Vytvoreni selhalo: ' + (e.message || e));
+            okBtn.disabled = false; okBtn.style.opacity = '1';
+          }
+        });
+        footer.appendChild(okBtn);
+        modal.appendChild(footer);
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+        document.getElementById('_nsClose').addEventListener('click', close);
+        const escHandler = (ev) => {
+          if (ev.key === 'Escape') {
+            ev.stopPropagation();
+            close();
+            document.removeEventListener('keydown', escHandler, true);
+          }
+        };
+        document.addEventListener('keydown', escHandler, true);
+        setTimeout(() => labelInp.focus(), 50);
+      }
+      // Attach button click handler (idempotent)
+      try {
+        const nsBtn = document.getElementById('erpNewSoudecekBtn');
+        if (nsBtn && !nsBtn.dataset.attached) {
+          nsBtn.dataset.attached = '1';
+          nsBtn.addEventListener('click', _erpOpenNewSoudecekDialog);
+        }
+      } catch (e) {}
 
       function _erpRenderUserPopover() {
         const pop = document.getElementById('erpFooterUserPopover');

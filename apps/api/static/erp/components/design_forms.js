@@ -3825,7 +3825,14 @@
         title: "Načítám…",
         width: "920px",
         beforeClose: () => this._beforeCloseHandler(),
-        onClose: () => _markFormDirty(this, false),
+        onClose: () => {
+          _markFormDirty(this, false);
+          // Phase 38.4 Krok 14g-C: cleanup schema tree panel po modal close
+          try {
+            const panel = document.body.querySelector(".erp-schema-tree-panel");
+            if (panel) document.body.removeChild(panel);
+          } catch (e) {}
+        },
         // Krok 14b+21 (14.5.2026 rano): 📘 popup pro core description
         // (user + system). PATCH /design/fw-core/update/{id} po save.
         onShowDescriptions: () => this._openDescriptionsPopup(),
@@ -5039,6 +5046,15 @@
 
       this._shell.body.appendChild(root);
 
+      // Phase 38.4 Krok 14g-C (15.5.2026 rano, Marti's "videt v separatnim
+      // liste graficky schema toho layoutu"): floating right-side schema
+      // tree panel. DESIGN mode only. Persistent state v localStorage
+      // (Marti's "videt co se stalo" debugging when form je v broken
+      // state).
+      if (this._formDesignMode === true) {
+        this._renderSchemaTreePanel();
+      }
+
       // Phase 38.4 Krok 14b+5 polish (13.5.2026 dopoledne, Marti's
       // request): footer template's OK/Storno tlacitka jsou jedine
       // close actions — modal shell footer (Zavřít) ZRUSENO. Konsolidace
@@ -5048,6 +5064,298 @@
       if (this._shell && this._shell.footer) {
         this._shell.footer.style.display = "none";
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14g-C (15.5.2026 rano, Marti's "schema layoutu
+    // v separatnim liste"): read-only schema tree side panel.
+    //
+    // Floating fixed-position container vpravo (z-index nad form modal).
+    // Toggle pres button v DESIGN header. Persistent open/closed state
+    // v localStorage ("erp_design_schema_tree_open").
+    //
+    // Tree displays form.id root + all descendants z this._spec.fields
+    // (recursive CTE response z Krok 14e-B). Per node:
+    //   - Indentace podle depth (level * 16px)
+    //   - Icon emoji per code (▦ panel, ▣ groupbox, ○ leaf)
+    //   - Color: panel purple, groupbox amber, leaf gray
+    //   - Display: code · #id · caption
+    //
+    // Click na node → scroll do view + flash. Plus ✕ per row =
+    // emergency delete (calls _performFieldDelete).
+    // ════════════════════════════════════════════════════════════════
+    _renderSchemaTreePanel() {
+      // Cleanup existing panel (re-render scenario)
+      const existing = document.body.querySelector(".erp-schema-tree-panel");
+      if (existing) {
+        try { document.body.removeChild(existing); } catch (e) {}
+      }
+
+      // Read persistent open state
+      const STORAGE_KEY = "erp_design_schema_tree_open";
+      let isOpen;
+      try {
+        isOpen = localStorage.getItem(STORAGE_KEY) === "1";
+      } catch (e) {
+        isOpen = false;
+      }
+
+      // Container — fixed position vpravo, collapsible
+      const panel = document.createElement("div");
+      panel.className = "erp-schema-tree-panel";
+      panel.style.cssText =
+        "position:fixed;top:80px;right:" + (isOpen ? "16px" : "-340px") + ";" +
+        "width:360px;max-height:calc(100vh - 120px);" +
+        "background:#0d1117;border:1px solid #2a3340;border-radius:6px;" +
+        "color:#cfd6df;font-size:12px;font-family:inherit;" +
+        "box-shadow:-4px 0 16px rgba(0,0,0,0.5);" +
+        "display:flex;flex-direction:column;z-index:10001;" +
+        "transition:right 0.25s ease;";
+
+      // Toggle handle button (always visible, attached to panel right edge)
+      const handle = document.createElement("button");
+      handle.type = "button";
+      handle.title = isOpen ? "Skryj schema (Esc)" : "Ukaz schema layoutu";
+      handle.style.cssText =
+        "position:absolute;top:50%;left:-32px;transform:translateY(-50%);" +
+        "width:32px;height:64px;background:#1a2028;border:1px solid #2a3340;" +
+        "border-right:none;border-radius:6px 0 0 6px;color:#a88cd4;" +
+        "cursor:pointer;font-size:14px;line-height:1;" +
+        "display:flex;align-items:center;justify-content:center;" +
+        "writing-mode:vertical-rl;letter-spacing:1px;";
+      handle.innerHTML = "🌳 " + (isOpen ? "▶" : "◀");
+      handle.addEventListener("click", () => {
+        const opening = panel.style.right === "-340px" || panel.style.right === "";
+        panel.style.right = opening ? "16px" : "-340px";
+        handle.innerHTML = "🌳 " + (opening ? "▶" : "◀");
+        handle.title = opening ? "Skryj schema (Esc)" : "Ukaz schema layoutu";
+        try {
+          localStorage.setItem(STORAGE_KEY, opening ? "1" : "0");
+        } catch (e) {}
+      });
+      panel.appendChild(handle);
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:10px 14px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+        "display:flex;align-items:center;justify-content:space-between;" +
+        "border-radius:6px 6px 0 0;flex-shrink:0;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-weight:600;font-size:13px;";
+      const fields = this._spec.fields || [];
+      const counts = {
+        panel: fields.filter(f => f.comp_type_code === "panel").length,
+        groupbox: fields.filter(f => f.comp_type_code === "groupbox").length,
+        leaf: fields.filter(f =>
+          f.comp_type_code !== "panel" && f.comp_type_code !== "groupbox"
+        ).length,
+      };
+      title.innerHTML = "🌳 Schema · <span style=\"color:#7a8696;font-weight:400;\">" +
+                        counts.panel + " panely · " + counts.groupbox + " groupboxy · " +
+                        counts.leaf + " fields</span>";
+      header.appendChild(title);
+      panel.appendChild(header);
+
+      // Body — scrollable tree
+      const body = document.createElement("div");
+      body.style.cssText =
+        "padding:8px 4px;overflow-y:auto;flex:1 1 auto;min-height:0;" +
+        "font-family:ui-monospace,Consolas,monospace;";
+      panel.appendChild(body);
+
+      // Build tree z byParent map (same algorithm as _render but for display)
+      const byParent = new Map();
+      for (const f of fields) {
+        const pid = f.parent_comp_def_id;
+        if (!byParent.has(pid)) byParent.set(pid, []);
+        byParent.get(pid).push(f);
+      }
+      for (const arr of byParent.values()) {
+        arr.sort((a, b) => (a.sort_order || 0) - (b.sort_order || 0));
+      }
+
+      // Root marker — form root
+      const form = this._spec.form;
+      if (form) {
+        const rootNode = this._buildSchemaTreeNode(
+          { id: form.id, comp_type_code: "form", caption: this._spec.core.label || form.caption || form.name },
+          0,
+          /*isRoot*/ true
+        );
+        body.appendChild(rootNode);
+      }
+
+      // Walk byParent recursively start from form.id
+      const _walk = (parentId, depth) => {
+        const children = byParent.get(parentId) || [];
+        for (const child of children) {
+          const node = this._buildSchemaTreeNode(child, depth, false);
+          body.appendChild(node);
+          // Recurse only for containers
+          if (child.comp_type_code === "panel" || child.comp_type_code === "groupbox") {
+            _walk(child.id, depth + 1);
+          }
+        }
+      };
+      if (form) _walk(form.id, 1);
+
+      // Empty state
+      if (fields.length === 0) {
+        const empty = document.createElement("div");
+        empty.style.cssText = "padding:20px;text-align:center;color:#5d6975;font-style:italic;";
+        empty.textContent = "Žádné komponenty v formuláři.";
+        body.appendChild(empty);
+      }
+
+      document.body.appendChild(panel);
+      this._schemaTreePanel = panel;
+    }
+
+    _buildSchemaTreeNode(comp, depth, isRoot) {
+      const code = comp.comp_type_code;
+      const isContainer = code === "panel" || code === "groupbox";
+      const isForm = code === "form";
+
+      // Color + icon per type
+      let icon, color;
+      if (isForm) { icon = "▣"; color = "#7ed4e8"; }
+      else if (code === "panel") { icon = "▦"; color = "#a88cd4"; }
+      else if (code === "groupbox") { icon = "▤"; color = "#d4b88a"; }
+      else { icon = "○"; color = "#9ba8b8"; }
+
+      const node = document.createElement("div");
+      node.className = "erp-schema-tree-node";
+      node.dataset.compDefId = String(comp.id);
+      node.style.cssText =
+        "display:flex;align-items:center;gap:6px;" +
+        "padding:3px 8px 3px " + (8 + depth * 14) + "px;" +
+        "cursor:pointer;border-left:2px solid transparent;" +
+        "transition:background 0.1s, border-left-color 0.1s;";
+      node.addEventListener("mouseenter", () => {
+        node.style.background = "#141a20";
+        node.style.borderLeftColor = color;
+      });
+      node.addEventListener("mouseleave", () => {
+        node.style.background = "";
+        node.style.borderLeftColor = "transparent";
+      });
+
+      // Icon
+      const iconEl = document.createElement("span");
+      iconEl.textContent = icon;
+      iconEl.style.cssText = "color:" + color + ";font-size:13px;line-height:1;flex-shrink:0;";
+      node.appendChild(iconEl);
+
+      // Code
+      const codeEl = document.createElement("span");
+      codeEl.textContent = code;
+      codeEl.style.cssText = "color:" + color + ";font-weight:600;flex-shrink:0;";
+      node.appendChild(codeEl);
+
+      // #id
+      const idEl = document.createElement("span");
+      idEl.textContent = "#" + comp.id;
+      idEl.style.cssText = "color:#5d6975;font-size:10px;flex-shrink:0;";
+      node.appendChild(idEl);
+
+      // Caption + align/border info
+      let captionText = comp.caption || comp.name || "";
+      if (comp.layout) {
+        if (code === "panel" && comp.layout.align) {
+          captionText += " · " + comp.layout.align;
+        } else if (code === "groupbox" && comp.layout.border_mode) {
+          captionText += " · " + comp.layout.border_mode;
+        }
+      }
+      if (captionText) {
+        const capEl = document.createElement("span");
+        capEl.textContent = captionText;
+        capEl.style.cssText = "color:#cfd6df;font-size:11px;flex:1 1 auto;" +
+                              "overflow:hidden;text-overflow:ellipsis;white-space:nowrap;";
+        node.appendChild(capEl);
+      } else {
+        const spacer = document.createElement("span");
+        spacer.style.cssText = "flex:1 1 auto;";
+        node.appendChild(spacer);
+      }
+
+      // Action buttons (jen pro non-root, non-form)
+      if (!isRoot && !isForm) {
+        // ⚙ Settings
+        const settingsBtn = document.createElement("button");
+        settingsBtn.type = "button";
+        settingsBtn.textContent = "⚙";
+        settingsBtn.title = "Nastaveni komponenty";
+        settingsBtn.style.cssText =
+          "background:transparent;border:none;color:#5d6975;" +
+          "cursor:pointer;font-size:11px;padding:2px 4px;line-height:1;" +
+          "border-radius:2px;transition:color 0.1s;";
+        settingsBtn.addEventListener("mouseenter", () => {
+          settingsBtn.style.color = "#a88cd4";
+        });
+        settingsBtn.addEventListener("mouseleave", () => {
+          settingsBtn.style.color = "#5d6975";
+        });
+        settingsBtn.addEventListener("click", (ev) => {
+          ev.stopPropagation();
+          if (isContainer) {
+            this._openContainerSettings(comp);
+          } else {
+            this._openFieldSettings(comp);
+          }
+        });
+        node.appendChild(settingsBtn);
+
+        // ✕ Delete
+        const delBtn = document.createElement("button");
+        delBtn.type = "button";
+        delBtn.textContent = "✕";
+        delBtn.title = "Smazat tuto komponentu";
+        delBtn.style.cssText =
+          "background:transparent;border:none;color:#5d2828;" +
+          "cursor:pointer;font-size:11px;padding:2px 4px;line-height:1;" +
+          "border-radius:2px;transition:color 0.1s;";
+        delBtn.addEventListener("mouseenter", () => {
+          delBtn.style.color = "#e57373";
+        });
+        delBtn.addEventListener("mouseleave", () => {
+          delBtn.style.color = "#5d2828";
+        });
+        delBtn.addEventListener("click", async (ev) => {
+          ev.stopPropagation();
+          const decision = await _confirmDarkDialog({
+            title: "Smazat z schema",
+            message: "Smazat " + code + " '" + (comp.caption || comp.name) +
+                     "' (#" + comp.id + ")?\n\n(soft-delete, audit zustava)",
+          });
+          if (decision !== true) return;
+          await this._performFieldDelete(comp);
+        });
+        node.appendChild(delBtn);
+      }
+
+      // Click on node — scroll do view + flash
+      node.addEventListener("click", () => {
+        if (isRoot || isForm) return;
+        const targetEl = this._shell && this._shell.body &&
+          this._shell.body.querySelector('[data-comp-def-id="' + comp.id + '"]') ||
+          this._shell.body.querySelector('[data-field-id="' + comp.id + '"]');
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: "smooth", block: "center" });
+          // Flash highlight
+          const orig = targetEl.style.outline;
+          targetEl.style.outline = "3px solid " + color;
+          targetEl.style.outlineOffset = "2px";
+          targetEl.style.transition = "outline-color 0.6s ease";
+          setTimeout(() => {
+            targetEl.style.outline = orig;
+            targetEl.style.outlineOffset = "";
+          }, 1200);
+        }
+      });
+
+      return node;
     }
 
     // Phase 38.4 Krok 14b+3 (13.5.2026 rano): render template-level component.

@@ -2866,6 +2866,38 @@
       }
     }
 
+    // ────────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok 14g-H+30 Etapa 3/4/5 (15.5.2026 vecer, Marti's B
+    // varianta dotahnout do finale): data_source picker + unassociate.
+    //
+    // Etapa 3 stub: alert placeholders → real impl v Etape 4 (picker pres
+    // ErpCatalogPicker) + Etape 5 (backend PATCH associate). Etapa 6
+    // (➕ Novy data_source button) prijde po picker funkcnim.
+    // ────────────────────────────────────────────────────────────────────
+    async _openDataSourcePickerModal() {
+      // Etapa 4 placeholder — bude rewritten po backend POST endpoint
+      // pro vazba pres code (fw.data_source.code = fw.core.code) hotov.
+      alert(
+        "🔗 Picker datoveho zdroje\n\n" +
+        "Etapa 4 (prijde za chvili): ErpCatalogPicker s columns " +
+        "[Cislo, Code, Nazev, Refresh, Operations, Used by N cores].\n\n" +
+        "Endpoint: GET /api/v1/erp/design/fw-data-source/list (LIVE od Etapy 1)\n" +
+        "Vazba: fw.data_source.code = fw.core.code (Marti's pattern)"
+      );
+    }
+
+    async _unassociateDataSource() {
+      // Etapa 5 placeholder — bude rewritten po backend PATCH endpoint
+      // pro data_source <-> core associace hotov.
+      alert(
+        "🚫 Zrusit asociaci datoveho zdroje\n\n" +
+        "Etapa 5 (prijde za chvili): PATCH backend pro vazba pres code.\n\n" +
+        "Pattern: fw.data_source.code = NULL nebo update na rodicovsky data_source.\n" +
+        "TBD design rozhodnuti: drop code? Maintain orphan?\n" +
+        "(decidneme po Etape 2 + 3 smoke test)"
+      );
+    }
+
     // Phase 38.4 Krok 14a-A1m #2 (12.5.2026 odpoledne): 📖 popup pro
     // description memo. Vybere entitu podle aktivniho tabu —
     // Soudecek tab → menu_node, Prehled tab → core.
@@ -3282,8 +3314,91 @@
 
       root.appendChild(idSec.wrap);
 
+      // ───────────────────────────────────────────────────────────────
+      // Phase 38.4 Krok 14g-H+30 Etapa 3 (15.5.2026 vecer, Marti's
+      // "B varianta dotahnout do finale"): 2. groupbox — Datovy zdroj
+      // (vazba na fw.data_source via core.code, Marti's "vazba via code"
+      // pattern). Stejna struktura jako 1. groupbox: 4 prvky inline.
+      // ───────────────────────────────────────────────────────────────
+      const dataSource = (this._data && this._data.data_source) || null;
+      const hasDataSource = !!(dataSource && dataSource.id);
+
+      const dsSec = _sectionBuild(
+        "Datovy zdroj",
+        "fw.data_source — vazba pres code (s.code = c.code)"
+      );
+      dsSec.grid.style.display = "flex";
+      dsSec.grid.style.flexDirection = "row";
+      dsSec.grid.style.alignItems = "flex-end";
+      dsSec.grid.style.gap = "8px";
+      dsSec.grid.style.flexWrap = "wrap";
+
+      // 1. 🔗 Vybrat / Zmenit data_source
+      dsSec.grid.appendChild(_mkIconBtn(
+        "🔗",
+        hasDataSource
+          ? "Zmenit asociovany datovy zdroj"
+          : (hasCore
+              ? "Vybrat existing data_source (nebo ➕ Novy)"
+              : "Nejdriv vyber/vytvor core (👆 vyse)"),
+        hasCore ? "#4a7ba8" : "#4a4a4a",
+        () => {
+          if (!hasCore) {
+            _confirmDarkDialog({
+              title: "Nejdriv core",
+              message: "Datovy zdroj se vaze na core (pres code).\n" +
+                       "Nejdriv vyber/vytvor core prehled v 1. radku.",
+              ok: "OK",
+              cancel: null,
+            });
+            return;
+          }
+          this._openDataSourcePickerModal();
+        }
+      ));
+
+      // 2. 🚫 Odpojit (jen pokud hasDataSource)
+      if (hasDataSource) {
+        dsSec.grid.appendChild(_mkIconBtn(
+          "🚫",
+          "Zrusit asociaci datoveho zdroje.\nData_source sam zustane v fw.data_source.",
+          "#8a3a3a",
+          () => this._unassociateDataSource()
+        ));
+      }
+
+      // 3. Cislo (compact, fixed width)
+      const dsCisloWrap = _f(
+        "Cislo",
+        hasDataSource ? dataSource.id : "",
+        "data_source.id",
+        { mono: true, readonly: true }
+      );
+      dsCisloWrap.style.flex = "0 0 100px";
+      dsSec.grid.appendChild(dsCisloWrap);
+
+      // 4. Nazev datoveho zdroje (flex:1, vyplni zbytek)
+      const dsNazevWrap = _f(
+        "Nazev datoveho zdroje",
+        hasDataSource ? (dataSource.name || dataSource.code || "") : "",
+        "data_source.name",
+        {
+          readonly: true,
+          placeholder: hasDataSource
+            ? ""
+            : (hasCore
+                ? "(zadny data_source — klik 🔗)"
+                : "(nejdriv vyber core 👆)"),
+        }
+      );
+      dsNazevWrap.style.flex = "1 1 200px";
+      dsNazevWrap.style.minWidth = "200px";
+      dsSec.grid.appendChild(dsNazevWrap);
+
+      root.appendChild(dsSec.wrap);
+
       // Note: popis (📖 popup) zustava v header (separate flow).
-      // Sloupce / DataSource binding / DataSet config = separate komponenty
+      // Sloupce / DataSet config = separate komponenty
       // (Marti's "pozdeji udelame plnohodnotnou jednu FW komponentu").
 
       return root;

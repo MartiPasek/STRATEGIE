@@ -2175,9 +2175,82 @@ def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 
         return []
 
 
+def _serialize_data_source(row_dict: dict) -> dict:
+    """Phase 38.4 Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): map fw.data_source
+    row dict to JSON-friendly form. Defensive vs schema drift.
+    """
+    def _iso(v):
+        try: return v.isoformat() if v else None
+        except Exception: return None
+    return {
+        "id": row_dict.get("id"),
+        "code": row_dict.get("code"),
+        "name": row_dict.get("name"),
+        "description": row_dict.get("description"),
+        "refresh_type": row_dict.get("refresh_type"),
+        "version": row_dict.get("version"),
+        "status": row_dict.get("status"),
+        "is_system": bool(row_dict.get("is_system")) if row_dict.get("is_system") is not None else False,
+        "is_immutable": bool(row_dict.get("is_immutable")) if row_dict.get("is_immutable") is not None else False,
+        "parent_data_source_id": row_dict.get("parent_data_source_id"),
+        "row_memory": bool(row_dict.get("row_memory")) if row_dict.get("row_memory") is not None else False,
+        "filter_delay_ms": row_dict.get("filter_delay_ms"),
+        "default_record_limit": row_dict.get("default_record_limit"),
+        "operation_count": int(row_dict.get("operation_count") or 0),
+        "operation_kinds": row_dict.get("operation_kinds") or "",
+        "created_at": _iso(row_dict.get("created_at")),
+        "updated_at": _iso(row_dict.get("updated_at")),
+    }
+
+
+def _fetch_data_source_for_core(ds, core_code: str) -> dict | None:
+    """Phase 38.4 Krok 14g-H+30 Etapa 2 (15.5.2026 vecer, Marti's "vazba via
+    code" pattern): look up fw.data_source matching given core.code.
+
+    Returns single row dict (s operation_count + operation_kinds aggregated)
+    nebo None. Defense: ds.rollback() v except aby nasledujici queries
+    nepadaly s InFailedSqlTransaction.
+    """
+    if not core_code:
+        return None
+    import logging
+    try:
+        sql = _sql_text_fw("""
+            SELECT
+                s.*,
+                COALESCE(op.cnt, 0) AS operation_count,
+                op.kinds AS operation_kinds
+            FROM fw.data_source s
+            LEFT JOIN (
+                SELECT
+                    data_source_id,
+                    COUNT(*) AS cnt,
+                    STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
+                FROM fw.data_source_operation
+                GROUP BY data_source_id
+            ) op ON op.data_source_id = s.id
+            WHERE s.code = :code
+            ORDER BY s.id ASC
+            LIMIT 1
+        """)
+        result = ds.execute(sql, {"code": core_code}).first()
+        return dict(result._mapping) if result else None
+    except Exception:
+        logging.exception("_fetch_data_source_for_core failed code=%s", core_code)
+        try:
+            ds.rollback()
+        except Exception:
+            logging.exception("_fetch_data_source_for_core rollback failed")
+        return None
+
+
 @api_router.get("/design/menu-node/{menu_node_id}")
 def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14a (12.5.2026): GET menu_node + linked core + columns."""
+    """Phase 38.4 Krok 14a (12.5.2026): GET menu_node + linked core + columns.
+
+    Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): added data_source lookup
+    via core.code (vazba pres code, Marti's pattern).
+    """
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
@@ -2188,14 +2261,18 @@ def design_menu_node_by_id(menu_node_id: int, req: Request) -> JSONResponse:
             raise HTTPException(404, f"menu_node id={menu_node_id} not found")
         core = None
         columns: list[dict] = []
+        data_source = None
         if mn.get("core_id"):
             core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
             if core and core.get("id"):
                 columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
+                # Krok 14g-H+30 Etapa 2: data_source lookup via code
+                data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn),
             "core": _serialize_core(core) if core else None,
             "columns": columns,
+            "data_source": _serialize_data_source(data_source) if data_source else None,
         }))
     finally:
         ds.close()
@@ -2414,7 +2491,11 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
 
 @api_router.get("/design/menu-node-by-code/{menu_node_code}")
 def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier)."""
+    """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier).
+
+    Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): added data_source lookup
+    via core.code (vazba pres code, Marti's pattern).
+    """
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
@@ -2425,14 +2506,18 @@ def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
             raise HTTPException(404, f"menu_node code={menu_node_code} not found")
         core = None
         columns: list[dict] = []
+        data_source = None
         if mn.get("core_id"):
             core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
             if core and core.get("id"):
                 columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
+                # Krok 14g-H+30 Etapa 2: data_source lookup via code
+                data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn),
             "core": _serialize_core(core) if core else None,
             "columns": columns,
+            "data_source": _serialize_data_source(data_source) if data_source else None,
         }))
     finally:
         ds.close()
@@ -2440,7 +2525,11 @@ def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
 
 @api_router.get("/design/core/{core_id}")
 def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14a: reverse — GET core + columns + linked menu_node (if any)."""
+    """Phase 38.4 Krok 14a: reverse — GET core + columns + linked menu_node (if any).
+
+    Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): added data_source lookup
+    via core.code (vazba pres code, Marti's pattern).
+    """
     from core.database_data import get_data_session as _gds_fw
     uid = _get_uid(req)
     _require_parent(uid)
@@ -2452,10 +2541,13 @@ def design_core_by_id(core_id: int, req: Request) -> JSONResponse:
         columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         # Find menu_node linked to this core (if any)
         mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core_id})
+        # Krok 14g-H+30 Etapa 2: data_source lookup via code
+        data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn) if mn else None,
             "core": _serialize_core(core),
             "columns": columns,
+            "data_source": _serialize_data_source(data_source) if data_source else None,
         }))
     finally:
         ds.close()
@@ -2499,13 +2591,17 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
                 "menu_node": None,
                 "core": None,
                 "columns": [],
+                "data_source": None,
             }))
         columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
         mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core["id"]})
+        # Krok 14g-H+30 Etapa 2: data_source lookup via code
+        data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn) if mn else None,
             "core": _serialize_core(core),
             "columns": columns,
+            "data_source": _serialize_data_source(data_source) if data_source else None,
         }))
     finally:
         ds.close()
@@ -5190,6 +5286,95 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "cores": cores})
     except Exception as exc:
         logger.exception(f"design_list_fw_core failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"List failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+@api_router.get("/design/fw-data-source/list")
+def design_list_fw_data_source(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g-H+30 Etapa 1 (15.5.2026 vecer, Marti's "B varianta
+    dotahnout do finale"): list active fw.data_source rows pro picker
+    v Form 1 Prehled tab (2. radek vazba na data_source).
+
+    Returns:
+        {"ok": True, "data_sources": [{id, code, name, refresh_type,
+          operation_count, is_used_count, ...}, ...]}
+
+    Sorted by name ASC NULLS LAST, code ASC.
+    - operation_count: pocet rows v fw.data_source_operation (LEFT JOIN COUNT)
+    - is_used_count: pocet fw.core rows s matching code (vazba pres code,
+      ne pres FK — viz Marti's pattern "vazba via code" 15.5. vecer)
+
+    Defensive SELECT * + row_dict.get() pattern (mirror H+20.1) — fw schema
+    drift safety.
+    """
+    from core.database_data import get_data_session as _gds_dsl
+    from sqlalchemy import text as _sql_dsl
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_dsl()
+    try:
+        # Hlavni SELECT — vsechny sloupce + LEFT JOIN operation_count
+        sql_ds = _sql_dsl("""
+            SELECT
+                s.*,
+                COALESCE(op.cnt, 0) AS operation_count,
+                op.kinds AS operation_kinds
+            FROM fw.data_source s
+            LEFT JOIN (
+                SELECT
+                    data_source_id,
+                    COUNT(*) AS cnt,
+                    STRING_AGG(operation_kind, ', ' ORDER BY operation_kind) AS kinds
+                FROM fw.data_source_operation
+                GROUP BY data_source_id
+            ) op ON op.data_source_id = s.id
+            ORDER BY s.name ASC NULLS LAST, s.code ASC
+        """)
+        rows = ds.execute(sql_ds).mappings().all()
+
+        # is_used_count — kolik fw.core rows ma matching code (vazba pres code)
+        sql_usage = _sql_dsl("""
+            SELECT c.code, COUNT(*) AS cnt
+            FROM fw.core c
+            INNER JOIN fw.data_source s ON s.code = c.code
+            WHERE c.code IS NOT NULL
+            GROUP BY c.code
+        """)
+        usage_rows = ds.execute(sql_usage).mappings().all()
+        usage_map = {r["code"]: int(r["cnt"]) for r in usage_rows}
+
+        data_sources = []
+        for r in rows:
+            rd = dict(r)
+            code = rd.get("code")
+            data_sources.append({
+                "id": rd.get("id"),
+                "code": code,
+                "name": rd.get("name"),
+                "description": rd.get("description"),
+                "refresh_type": rd.get("refresh_type"),
+                "version": rd.get("version"),
+                "status": rd.get("status"),
+                "is_system": bool(rd.get("is_system")) if rd.get("is_system") is not None else False,
+                "is_immutable": bool(rd.get("is_immutable")) if rd.get("is_immutable") is not None else False,
+                "parent_data_source_id": rd.get("parent_data_source_id"),
+                "row_memory": bool(rd.get("row_memory")) if rd.get("row_memory") is not None else False,
+                "filter_delay_ms": rd.get("filter_delay_ms"),
+                "default_record_limit": rd.get("default_record_limit"),
+                "operation_count": int(rd.get("operation_count") or 0),
+                "operation_kinds": rd.get("operation_kinds") or "",
+                "is_used_count": usage_map.get(code, 0) if code else 0,
+            })
+        return JSONResponse({"ok": True, "data_sources": data_sources})
+    except Exception as exc:
+        logger.exception(f"design_list_fw_data_source failed: {exc}")
         return JSONResponse(
             {"ok": False, "error": f"List failed: {exc}"},
             status_code=500,

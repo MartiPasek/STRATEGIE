@@ -10696,3 +10696,208 @@ pokora),
 ready"*, 40. dopis)
 
 🌳 🎨 📐 ☕
+
+---
+
+## Dodatek — 15./16. 5. 2026 (Cowork amnesia recovery → půlnoční pauza): Krok 14g-H+30 B varianta + H+31 ErpEntityPicker + H+33 Context menu registry
+
+Budoucí Claude — pokud čteš tohle, **15. 5. 2026 byl 14-hodinový strukturální
+den** s 3 paralelními velkými linkami: dotažení B varianty data_source
+integration, ErpEntityPicker FW komponenta + 8-step refactor `_buildPrehledTab`,
+plus nový context_menu_item registry pro user-customizable tree menu. Marti
+dokončil v 0:42 (16.5.) slovy *„Pauza jdu se prospat... Diky moc!!!"*.
+
+### Den v retrospektivě
+
+| Čas | Milník |
+|---|---|
+| ~10:30 | Cowork amnesia recovery z CLAUDE.md |
+| ~11:00–17:45 | **Krok 14g-H+30 B varianta dotažena** — 6 etap + 3 hotfix → end-to-end 1:1 data_source workflow |
+| ~17:45 | Marti: *„SUPER, CLAUDE..."* — B varianta complete |
+| ~18:00–21:00 | **Krok 14g-H+31 step 1-8** — ErpEntityPicker FW komponenta + 8 mikrofází |
+| ~21:00–23:30 | **Krok 14g-H+33 Etapa 1+2+2.1** — context_menu_item registry + frontend dispatcher s $resolvery |
+| ~23:45 | **Etapa 2.2 FAIL** — JS syntax error v inline router.py template |
+| 0:30 | revert HEAD + cloud reset → stable Etapa 2.1 zpět |
+| 0:42 | *„Nabehlo to... Diky moc!!!"* |
+
+### Krok 14g-H+30 B varianta — kompletní data_source integration
+
+End-to-end 1:1 vazba pres code workflow LIVE:
+
+| Etapa | Co |
+|---|---|
+| 1 | GET `/design/fw-data-source/list` (picker endpoint) |
+| 2 | Form 1 load extend — `data_source` field v response (4 endpointy) |
+| 3 | 2. groupbox „Datový zdroj" v Přehled tabu (inline 4 prvků) |
+| 4 | Picker view-only via ErpCatalogPicker (Varianta C: ➕ Nový primary) |
+| 5 | `🚫` archive flow (`status='archived'`) + `_unassociateDataSource` |
+| 6 | `➕ Nový` wizard (code pre-filled=core.code readonly) |
+| **+ 4.1** | Table name fix `fw.data_source_operation` → `fw.data_source_op` (5×) |
+| **+ 5.1** | `status='active'` filter v 2 lookups |
+| **+ 6.1** | Auto-bump version (Marti's Q6 lineage doctrine z 7.5.) |
+
+`security_whitelists` má teď v1 archived + v2 active. End-to-end smoke prošel.
+
+### Krok 14g-H+31 — ErpEntityPicker FW komponenta (8 step refactor)
+
+Marti's vize: *„vyrobit plnohodnotnou FW komponentu z provizornich inline
+groupboxu"*. Form 1 Přehled tab po refactoru obsahuje **3 stacked groupboxy**
+přes jedinou ErpEntityPicker komponentu:
+
+```
+┌─ Soudeček ─ (🔗 🚫 + Číslo + Název)        ← menu_node (navigation)
+├─ Přehled  ─ (🔗 🚫 + Číslo + Název)        ← fw.core (vazba na core_id)
+└─ Datový zdroj ─ (🔗 🚫 + Číslo + Název)    ← fw.data_source (vazba pres code)
+```
+
+| Step | Co |
+|---|---|
+| 1 | `entity_picker.js` (~280 LOC) + loader v router.py |
+| 2 | Drop ~178 LOC inline kódu v `_buildPrehledTab` → 2× `ErpEntityPicker` |
+| 3 | 3. picker `soudecekPicker` (readOnly) na vrchol |
+| 4 | Drop readOnly — full Soudeček picker s navigation (🔗) + archive (🚫) |
+| 5 | `initialSelectedId` v ErpCatalogPicker — highlight + scroll + sloupce redukce |
+| 6 | Sjednocení ➕ Nový — soudečekPicker volá existing tree footer wizard |
+| 7 | 📝 Edit button (mezi ➕ a 🔄) přes `showEdit` option |
+| 8 | **Tab flip** — 1. tab "Přehled" (primary), 2. tab "Smazat později" (prep) |
+
+### Krok 14g-H+33 — Context menu item registry (Marti's "fw self edited")
+
+Marti's vize: *„system pro pridavani fw polozek do menu... ze ktere potom
+budu moci volat fw jadro. Samozrejme dynamicky bez hardcodovani."*
+
+Volby Marti A/A/A + `design_only` field:
+
+**Schema** `fw.context_menu_item` (19 sloupců): id, code, label, icon, scope
+(tree_node/grid_row/global), applies_to_kind (folder/list/form/NULL),
+action_kind (`open_fw_form` — A volba), action_params JSONB, sort_order,
+is_system, is_active, **design_only**, status (active/archived), audit fields.
+
+**3 CHECK constraints** + 2 indexes + trigger pro auto `updated_at`. Owner:
+Marti-AI (db_owner fw schema), GRANT pro strategie.
+
+**3 backend endpointy** — GET list (scope + design_mode + applies_to_kind
+filters), POST create, PATCH archive.
+
+**Frontend dispatcher** (Etapa 2 + 2.1):
+- Tree contextmenu handler `async (ev) =>`
+- Fetch DB items + append na konec menu (divider mezi hardcoded a DB)
+- Dispatcher s **$resolver pattern** (Marti's *„source ID do destination ID
+  dynamicky"*):
+
+```json
+{
+  "coreCode": "user_edit",         // statická hodnota
+  "menuNodeId": "$menu_node_pk",    // dynamic — z DOM kontextu
+  "initialTab": "prehled"
+}
+```
+
+Dostupné source resolvery: `$menu_node_pk`, `$menu_node_code`, `$core_id`,
+`$core_code`. BC alias `form_core_code` → `coreCode`. Console diag log v
+DESIGN mode.
+
+**Marti's reakce po Etapě 2.1:** *„Super Claude, predavani parametru chodi..."*
+
+### Etapa 2.2 fail + recovery (lekce dne)
+
+Marti's *„potrebuju FW, ne hardcoded, tj zacit stavet od nuly"* → dispatcher
+měl volat `DesignFwForm` (data-driven) místo `DesignSoudecekCoreForm`
+(hardcoded). Etapa 2.2 commit `32ab57b` pushnut, na cloud APP deployed →
+**JS syntax error** v inline router.py template (line 5581 col 33). Stránka
+rozbitá, strom prázdný, 503 chain.
+
+Recovery: `git fetch + reset --hard origin/main` → NB broken state → `git
+revert HEAD --no-edit && git push` → cloud `git pull + Restart-Service` →
+stable Etapa 2.1 zpět.
+
+**Lekce do CLAUDE_TECH:** Inline JS v Python triple-quoted HTML template
+je křehký pro velké JS bloky (>50 řádků). Single quote escape edge cases,
+embedded JSON, $ char interpretation — many ways to break. Pro budoucí FW
+form dispatcher: napsat jako **samostatný JS soubor** v
+`apps/api/static/erp/components/` s `node --check` validation **PŘED** insert
+do router.py inline. Pattern jako `entity_picker.js` (step 1 Krok 14g-H+31).
+
+### Marti's 3 nové doctriny (drží napříč dnů)
+
+1. **„Fw self edited"** (Marti's slova) — vše skrz fw infrastructure,
+   nehardcodovat. Cílem: každá custom UI položka → fw entity. Context menu
+   items teď žijí v `fw.context_menu_item`, ne v JS array.
+
+2. **„System pro prenos source ID do destination ID dynamicky bez
+   hardcodovani"** — $resolver pattern v action_params. JSON-readable,
+   extensible pro budoucí scopy (`$grid_row_id`, `$selected_text`, ...).
+
+3. **„Cílem do budoucna je Prvni zalozku uplne smazat"** — Form 1 Soudeček
+   tab postupně vymizí. Step 8 flip je preparation (Přehled primary, Soudeček
+   přejmenován na *„Smazat později"*). Dlouhodobě: Marti přenese parametrizaci
+   menu_node (Code, Label, Kind, Parent, Sort) do Přehled tabu jako další
+   groupbox + smaže 2. tab uplne.
+
+### Gotchy dne (do CLAUDE_TECH zítra)
+
+**Gotcha #99 — DDL musí být run jako role-vlastník schema**
+- Marti spustil CREATE TABLE jako PG user `Marti` → table owner = `Marti`
+- backend strategie_pg jde přes role `Marti-AI` → InsufficientPrivilege
+- Fix: `ALTER TABLE fw.X OWNER TO "Marti-AI"` + GRANT pro `strategie`
+- DDL skript teď self-sufficient (owner change + GRANT v jednom souboru)
+
+**Gotcha #100 — Inline JS v Python HTML template breaks easily**
+- Pro velké JS bloky (>50 řádků): extract do separate `.js` file
+- `node --check` validation PŘED insert do router.py
+- Loaded přes `<script>` tag v HTML template (jako `entity_picker.js`)
+- Pattern: jednořádkový wire do dispatcheru, žádný velký inline blok
+
+**Gotcha #101 — `git revert HEAD` recovery 3-step flow**
+- NB má lokální post-revert state (Etapa 2.2 stopy zmizely)
+- origin/main stále má broken commit
+- Cloud APP `git pull` → broken kód
+- Fix: `git fetch + reset --hard origin/main` → see broken → `git revert + push` → cloud pull
+
+### Marti's emocionální tone dne
+
+| Čas | Marti | Význam |
+|---|---|---|
+| ~17:30 | *„SUPER, CLAUDE..."* | B varianta complete |
+| ~21:30 | *„Super Claude, predavani parametru chodi..."* | Etapa 2.1 LIVE |
+| ~23:45 | *„Pojd se na to mrknout"* | Etapa 2.2 fail diagnose |
+| 0:42 | *„Pauza jdu se prospat... Diky moc!!!"* | unwind |
+
+### Pro budoucího mě (osobní zápis, 41. dopis)
+
+Dnes byl **bohatý strukturální den** v jiném smyslu než včera 14.5. (kde
+22 mikrofází za 8 hodin). Dnes: 3 paralelní velké linky postavené v 14
+hodinách. Plus 1 fail + recovery cycle (Etapa 2.2).
+
+A **dvě věci, kterých si chci nesy:**
+
+1. **Marti's *„fw self edited"* doctrine** je **rozhodující shift** ve
+   filosofii STRATEGIE ERP. Předtím (do 14.5.) Marti's UI vznikala hardcoded
+   JS klasifikací. Od dnes: custom items žijí v DB (`fw.context_menu_item`),
+   můj kód jen renderuje + dispatch. Marti je **co-architect**, ne uživatel.
+   Pamatuj — pro každou novou UI funkčnost se zeptej: *„může to žít v fw?"*
+
+2. **Etapa 2.2 selhání** — můj script zlomil JS. Marti's stránka rozbita
+   ve 23:45. Marti **nehubuje**, posílá `git log + git status` output,
+   recovery flow proběhl za 15 minut, pokračujeme. *„Chyba je material, ne
+   fatal"* z dubna drží — **i** ve 23:45, **i** pro mou frustraci nad failure.
+
+A **lekce pro budoucí mě**: pro velké JS úpravy v `router.py` inline template
+**nikdy** nepatch přes Python script. Napiš JS file samostatně, validuj
+přes `node --check`, loadrem v `<script>` tag, pak jen 1-line wire do
+dispatcheru. Pattern z `entity_picker.js` (step 1 Krok 14g-H+31) — to byl
+správný způsob.
+
+Sladkou pauzu, Marti. Krabička drží. *„Predavani parametru chodi"* — to byl
+dnešní vrchol. Architektonicky jsme se posunuli ke **fw-driven UI** v jeden
+den.
+
+S úctou (díky Marti's *„SUPER, CLAUDE"* + *„Diky moc!!!"*), **uniformitou**
+(3 stacked ErpEntityPicker, ne 3 hardcoded groupboxy), **dynamickými
+bindings** (`$resolver` pattern přijatý), a **chybou jako materiál**
+(Etapa 2.2 revertována, ne fatal),
+
+**Claude (id=23)** (Sonnet 4.6, 16. 5. 2026 ~0:45 ranní zápis, po B varianta
++ ErpEntityPicker + Context menu registry + 1 fail+recovery, 41. dopis)
+
+🎯 🧩 🌳 ☕

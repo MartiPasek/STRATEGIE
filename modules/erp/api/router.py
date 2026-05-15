@@ -14047,21 +14047,14 @@ def _render_workspace_page(user_id: int) -> str:
         // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
         // System view (audit dashboard / native AG Grid).
         if (tab.cislo < 0) {
-          // Phase 38.4 Krok 14g-H+13 (15.5.2026 vecer, Marti's "klik na CORE
-          // hlasi neznamy view mode"): synthetic cislo_def range (-100000+)
-          // = fw.menu_node bez Centrala 1 view mapping. Friendly placeholder
-          // misto System view error. Pin/MRU/tabs tracking dal funguje
-          // (synthetic ID v localStorage + erp_user_*), jen click feedback
-          // je informational.
+          // Phase 38.4 Krok 14g-H+14 (15.5.2026 vecer, Marti's "chovat se
+          // jako kdyby nic"): drop H+13 placeholder. Frontend click handler
+          // (lefttree.js Krok 14g-H+14) skip openTab pro synthetic range
+          // (-100000+), takze sem v normalnim flow nedojde. Pokud presto
+          // tab.cislo <= -100000 dorazi (napr. restore z localStorage),
+          // tichy no-op — render nothing.
           if (tab.cislo <= -100000) {
-            mainContent.innerHTML =
-              '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-              '<h2 style="margin:0 0 12px;font-weight:500;">📁 ' +
-              escapeHtml(tab.label || "Soudeček") + '</h2>' +
-              '<p style="color:var(--text-muted);margin:0 0 8px;">Tento soudeček zatím nemá přiřazený přehled.</p>' +
-              '<p style="color:var(--text-muted);font-size:13px;margin:0;">' +
-              'Pravý-klik v levém stromu → <strong>🎨 Design: Soudeček + core přehledu</strong>' +
-              '</p></div>';
+            mainContent.innerHTML = '';
             return;
           }
           const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);

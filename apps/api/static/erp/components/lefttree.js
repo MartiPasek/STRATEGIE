@@ -571,7 +571,12 @@
       const cisloDefStr = li.dataset.cisloDef;
       if (cisloDefStr) {
         const cisloN = parseInt(cisloDefStr, 10);
-        if (cisloN) {
+        // Phase 38.4 Krok 14g-H+14 (15.5.2026 vecer, Marti's "chovat se jako
+        // kdyby nic"): synthetic cislo_def range (cisloN <= -100000) = fw.menu_node
+        // bez core prehledu. Skip setActive + onActivate. Klik je no-op
+        // (expand/collapse fired separately, vyse). Pin/MRU/tabs tracking
+        // dale funguje pres contextmenu (H+12 synthetic IDs).
+        if (cisloN && cisloN > -100000) {
           // Visual active class (base setActive čistí jiné active rows)
           this.setActive(id);
           // Activate hook → router.py openTab

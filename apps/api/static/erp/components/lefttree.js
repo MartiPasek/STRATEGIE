@@ -279,6 +279,16 @@
       // menu_node nodes. Drag source → drop target → PATCH parent_id.
       //
       // Gate: jen v DESIGN mode + node ma menu_node_pk (skip leaves bez fw mappingu).
+      //
+      // KOREKCE Krok 14g-H+1 (15.5.2026 rano, Marti's "drop se neprovede"):
+      // Existing tree drag delegate na treeRoot (router.py inline JS line
+      // 13089+) drag-drop pro same-UL reorder (in-memory). Konflikt s
+      // mojeho cross-parent move:
+      //   - row.draggable=true (existing) → row.dragstart fires
+      //   - treeRoot.dragstart fires (delegation) → set _dragSourceItem
+      //   - treeRoot.dragover kontroluje same-UL check → blocks cross-parent
+      // Fix: pres ev.stopPropagation() v li.dragstart prevent bubble do
+      // treeRoot listener. Plus diagnostic console.info pro Marti smoke.
       try {
         const designOn = (typeof window !== "undefined" && window._erpDesignMode === true);
         const menuPk = li.dataset.menuNodePk ? parseInt(li.dataset.menuNodePk, 10) : null;
@@ -286,19 +296,33 @@
           li.dataset.dragAttached = "1";
           li.draggable = true;
           const row = li.querySelector(":scope > ." + cls + "-row");
+          // ZRUSIT row.draggable (existing setup) — necht li-level handler vede.
+          // Bez toho dragstart fires na row first (innermost), neumeli jsme
+          // by zachytit menuPk z li (we'd need walk up). Plus row's existing
+          // dragstart NEMAJI handler (jen treeRoot delegation), takze bezpecne.
+          if (row) {
+            row.removeAttribute("draggable");
+          }
 
           li.addEventListener("dragstart", (ev) => {
+            // Capture-phase stopPropagation — block existing treeRoot
+            // delegated dragstart (line 13089). Pres delegaci by se nastavil
+            // _dragSourceItem + delegated dragover by mohl interfere.
             ev.stopPropagation();
             if (row) row.style.opacity = "0.5";
             try {
               ev.dataTransfer.effectAllowed = "move";
-              ev.dataTransfer.setData("application/x-erp-menu-node-move", JSON.stringify({
+              const payload = {
                 menuPk: menuPk,
                 label: (li.querySelector("." + cls + "-label") || {}).textContent || ""
-              }));
+              };
+              ev.dataTransfer.setData("application/x-erp-menu-node-move", JSON.stringify(payload));
               ev.dataTransfer.setData("text/plain", "menunode:" + menuPk);
-            } catch (e) {}
-          });
+              console.info("[LeftTree] dragstart menuPk=" + menuPk, payload);
+            } catch (e) {
+              console.error("[LeftTree] dragstart setData failed:", e);
+            }
+          }, true);  // capture phase
           li.addEventListener("dragend", () => {
             if (row) row.style.opacity = "";
             // Clean all drop highlights v tree
@@ -310,7 +334,8 @@
           });
           li.addEventListener("dragover", (ev) => {
             const types = ev.dataTransfer && ev.dataTransfer.types;
-            if (!types || !Array.from(types).includes("application/x-erp-menu-node-move")) return;
+            const hasMime = types && Array.from(types).includes("application/x-erp-menu-node-move");
+            if (!hasMime) return;
             ev.preventDefault();
             ev.stopPropagation();
             try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
@@ -327,8 +352,13 @@
             }
           });
           li.addEventListener("drop", async (ev) => {
+            console.info("[LeftTree] drop fired on menuPk=" + menuPk);
             const raw = ev.dataTransfer.getData("application/x-erp-menu-node-move");
-            if (!raw) return;
+            console.info("[LeftTree] drop raw payload:", raw);
+            if (!raw) {
+              console.warn("[LeftTree] drop: empty payload — drag started bez mime?");
+              return;
+            }
             ev.preventDefault();
             ev.stopPropagation();
             if (row) {
@@ -336,12 +366,21 @@
               row.style.background = "";
             }
             let payload;
-            try { payload = JSON.parse(raw); } catch (e) { return; }
-            if (!payload || !payload.menuPk) return;
+            try { payload = JSON.parse(raw); } catch (e) {
+              console.error("[LeftTree] drop: JSON parse failed:", e);
+              return;
+            }
+            if (!payload || !payload.menuPk) {
+              console.warn("[LeftTree] drop: payload bez menuPk:", payload);
+              return;
+            }
             const sourceId = payload.menuPk;
             const targetId = menuPk;
-            if (sourceId === targetId) return;
-            // PATCH source's parent_id = target.id (move INTO target)
+            if (sourceId === targetId) {
+              console.info("[LeftTree] drop: self-drop ignored");
+              return;
+            }
+            console.info("[LeftTree] PATCH move", sourceId, "→ parent", targetId);
             try {
               const r = await fetch(
                 "/api/v1/erp/design/fw-menu-node/update/" + encodeURIComponent(sourceId),
@@ -352,18 +391,21 @@
                   body: JSON.stringify({ parent_id: targetId }),
                 }
               );
-              const d = await r.json();
+              const d = await r.json().catch(() => ({}));
+              console.info("[LeftTree] PATCH response", r.status, d);
               if (!r.ok || !d.ok) {
                 throw new Error(d.error || ("HTTP " + r.status));
               }
               // Tree reload
               if (typeof window.reloadErpTree === "function") {
+                console.info("[LeftTree] reloadErpTree available — calling");
                 await window.reloadErpTree();
               } else {
+                console.warn("[LeftTree] reloadErpTree NOT available, full page reload");
                 window.location.reload();
               }
             } catch (e) {
-              console.error("[LeftTree] menu_node drop failed:", e);
+              console.error("[LeftTree] menu_node drop fetch failed:", e);
               alert("Přesun selhal: " + (e.message || e));
             }
           });

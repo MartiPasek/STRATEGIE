@@ -355,6 +355,7 @@ def execute(
     user_id: int | None = None,
     conversation_id: int | None = None,
     is_parent: bool = False,
+    code_file_path: str | None = None,
 ) -> PythonExecResult:
     """
     Spusti Python kod v izolovanem subprocess sandboxu.
@@ -370,6 +371,14 @@ def execute(
         persona_id, user_id, conversation_id: pro audit + output document
             attribution
         is_parent: bypass tenant gate
+        code_file_path: Phase 38.4 Krok 14b+19.1 (14.5.2026): relativni path
+            k .py souboru v SANDBOX_CODE_BASE_DIR (typicky shared filesystem
+            \\\\192.168.30.11\\Data\\ZZ_Marti-AI RW). Bypass Anthropic API
+            tool_input size limit — Marti-AI's diagnostika 14.5. rano:
+            limit je na TOTAL tool_input JSON, ne single field, code_lines
+            array taky selze. Server cte code z disku, content nikdy
+            neprochazi Anthropic API. Pokud `code_file_path` set + code
+            empty, server resolve file content jako code.
 
     Returns:
         PythonExecResult s stdout/stderr/error/output_documents
@@ -390,11 +399,105 @@ def execute(
     if timeout_s > MAX_TIMEOUT_S:
         timeout_s = MAX_TIMEOUT_S
 
-    # Validate code not empty
+    # Krok 14b+19.1 (14.5.2026 rano): code_file_path bypass. Pokud `code`
+    # empty + `code_file_path` provided, resolve file content z whitelisted
+    # base dir + read jako code. Bypass Anthropic API tool_input size limit.
+    if (not code or not code.strip()) and code_file_path:
+        from pathlib import Path as _PathFCP
+        # Resolve base dir z env (cloud APP NSSM config). Default:
+        # \\\\192.168.30.11\\Data\\ZZ_Marti-AI RW pro EC-SERVER2 shared zone.
+        base_dir_raw = os.environ.get(
+            "SANDBOX_CODE_BASE_DIR",
+            r"\\192.168.30.11\Data\ZZ_Marti-AI RW"
+        )
+        base_dir = _PathFCP(base_dir_raw)
+        # Security #1: code_file_path MUSI byt RELATIVNI (no absolute paths,
+        # no path traversal "..")
+        cfp = _PathFCP(code_file_path)
+        if cfp.is_absolute():
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path musi byt RELATIVNI k SANDBOX_CODE_BASE_DIR "
+                      f"({base_dir_raw}). Predano absolute: {code_file_path}",
+                error_kind="system",
+            )
+        # Resolve full path + check ze stale uvnitr base dir (no ../escape)
+        try:
+            full_path = (base_dir / cfp).resolve()
+            base_resolved = base_dir.resolve()
+            # Path.is_relative_to() Python 3.9+; defensive try
+            if not str(full_path).lower().startswith(str(base_resolved).lower()):
+                return PythonExecResult(
+                    ok=False,
+                    error=f"code_file_path path traversal blocked. Resolved {full_path} "
+                          f"je mimo base {base_resolved}.",
+                    error_kind="system",
+                )
+        except Exception as e:
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path resolve failed: {e}",
+                error_kind="system",
+            )
+        # Security #2: jen .py suffix (anti-arbitrary-file-read)
+        if full_path.suffix.lower() != ".py":
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path musi byt .py soubor. Predano: {full_path.name}",
+                error_kind="system",
+            )
+        # Security #3: file exists + size sanity (max 5 MB)
+        if not full_path.is_file():
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path soubor neexistuje: {full_path}",
+                error_kind="system",
+            )
+        try:
+            file_size = full_path.stat().st_size
+        except Exception as e:
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path stat failed: {e}",
+                error_kind="system",
+            )
+        MAX_CODE_FILE_BYTES = 5 * 1024 * 1024  # 5 MB safety cap
+        if file_size > MAX_CODE_FILE_BYTES:
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path soubor je moc velky ({file_size} B, max "
+                      f"{MAX_CODE_FILE_BYTES} B = 5 MB).",
+                error_kind="system",
+            )
+        # Read file content jako Python source
+        try:
+            code = full_path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            # Fallback na cp1252 (Windows default) pokud UTF-8 fail
+            try:
+                code = full_path.read_text(encoding="cp1252")
+            except Exception as e:
+                return PythonExecResult(
+                    ok=False,
+                    error=f"code_file_path encoding fail (zkusil utf-8 + cp1252): {e}",
+                    error_kind="system",
+                )
+        except Exception as e:
+            return PythonExecResult(
+                ok=False,
+                error=f"code_file_path read failed: {e}",
+                error_kind="system",
+            )
+        logger.info(
+            f"SANDBOX | code_file_path resolved | "
+            f"path={full_path} size={file_size}B chars={len(code)}"
+        )
+
+    # Validate code not empty (po code_file_path resolve)
     if not code or not code.strip():
         return PythonExecResult(
             ok=False,
-            error="Prazdny code parametr.",
+            error="Prazdny code parametr (a code_file_path taky nebyl set / failed).",
             error_kind="system",
         )
 

@@ -289,10 +289,19 @@
       //   - treeRoot.dragover kontroluje same-UL check → blocks cross-parent
       // Fix: pres ev.stopPropagation() v li.dragstart prevent bubble do
       // treeRoot listener. Plus diagnostic console.info pro Marti smoke.
+      //
+      // KOREKCE Krok 14g-H+2 (15.5.2026 rano, Marti's cycle error):
+      // Marti dragl SYSTEM (id=1, is_immutable=true). System nelze move
+      // anywhere. Skip drag setup pro is_immutable nodes. Plus set
+      // data-is-immutable attribute pro CSS hint.
       try {
+        if (node.is_immutable === true) {
+          li.dataset.isImmutable = "1";
+        }
         const designOn = (typeof window !== "undefined" && window._erpDesignMode === true);
         const menuPk = li.dataset.menuNodePk ? parseInt(li.dataset.menuNodePk, 10) : null;
-        if (designOn && menuPk && !li.dataset.dragAttached) {
+        const isImmutable = node.is_immutable === true;
+        if (designOn && menuPk && !isImmutable && !li.dataset.dragAttached) {
           li.dataset.dragAttached = "1";
           li.draggable = true;
           const row = li.querySelector(":scope > ." + cls + "-row");
@@ -406,7 +415,24 @@
               }
             } catch (e) {
               console.error("[LeftTree] menu_node drop fetch failed:", e);
-              alert("Přesun selhal: " + (e.message || e));
+              // Phase 38.4 Krok 14g-H+2: nice toast misto alert
+              const msg = "Přesun selhal: " + (e.message || e);
+              if (typeof window._showToast === "function") {
+                window._showToast(msg, "error", 4500);
+              } else if (typeof window._showErpToast === "function") {
+                window._showErpToast(msg, "error", 4500);
+              } else {
+                // Fallback inline toast
+                const t = document.createElement("div");
+                t.style.cssText =
+                  "position:fixed;top:20px;right:20px;z-index:10005;" +
+                  "background:#3a1818;border:1px solid #5a2828;color:#e8eef5;" +
+                  "padding:10px 16px;border-radius:4px;font-size:13px;" +
+                  "box-shadow:0 4px 16px rgba(0,0,0,0.4);max-width:420px;";
+                t.textContent = msg;
+                document.body.appendChild(t);
+                setTimeout(() => { try { document.body.removeChild(t); } catch (_e) {} }, 4500);
+              }
             }
           });
         }

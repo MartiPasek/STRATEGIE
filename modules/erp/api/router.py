@@ -5431,7 +5431,7 @@ def _build_system_root_from_db():
         sql = _sql_text_st("""
             SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
                    n.visibility_scope, n.cislo_def, n.special_handler, n.status,
-                   n.core_id, c.code AS core_code,
+                   n.is_immutable, n.core_id, c.code AS core_code,
                    hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
             FROM fw.menu_node n
             LEFT JOIN fw.core c ON c.id = n.core_id
@@ -5513,6 +5513,10 @@ def _build_system_root_from_db():
                 "core_code": row.get("core_code"),
                 "is_system": True,
                 "is_folder": (row.get("kind") == "folder"),
+                # Phase 38.4 Krok 14g-H+2 (15.5.2026): propagate is_immutable
+                # pro frontend drag gate. Immutable nodes (SYSTEM, atd.) nelze
+                # drag-drop (drag setup je skipne).
+                "is_immutable": bool(row.get("is_immutable")),
                 "label": row["label"],
                 "nazev": row["label"],
             }
@@ -7853,6 +7857,38 @@ def _render_full_page(
       line-height: 1;
       font-weight: 700;
     }}
+    /* Phase 38.4 Krok 14g-H+2 (15.5.2026 rano, Marti's "drop kamkoli"):
+       Root drop zone — drag soudecek sem → parent_id=NULL (top-level).
+       Visible jen v DESIGN mode. Pattern stejny jako erp-tree-new-btn,
+       ale teal accent (rozliseni od + Novy soudecek). */
+    .erp-tree-root-dropzone {{
+      margin-top: 6px;
+      width: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 8px 10px;
+      background: transparent;
+      border: 1px dashed #4ad4d4;
+      border-radius: 5px;
+      color: #4ad4d4;
+      font-family: inherit;
+      font-size: 11px;
+      font-weight: 600;
+      cursor: default;
+      transition: all 0.12s;
+      user-select: none;
+    }}
+    .erp-tree-root-dropzone.erp-tree-root-dropzone-hover {{
+      background: rgba(74, 212, 212, 0.18);
+      border-style: solid;
+      transform: scale(1.02);
+    }}
+    .erp-tree-root-drop-icon {{
+      font-size: 14px;
+      line-height: 1;
+    }}
     .erp-tree-view-icon {{
       font-size: 12px;
       line-height: 1;
@@ -9776,6 +9812,15 @@ def _render_workspace_page(user_id: int) -> str:
             <span class="erp-tree-new-icon">+</span>
             <span class="erp-tree-new-label">Nový soudeček</span>
           </button>
+          <!-- Phase 38.4 Krok 14g-H+2 (15.5.2026 rano, Marti's "drop kamkoli"):
+               Drop zone pro move-to-root (parent_id=NULL). Drag soudeček
+               sem → top-level (sibling SYSTEM). DESIGN mode only. -->
+          <div id="erpRootDropZone" class="erp-tree-root-dropzone"
+               title="Drag soudeček sem → move to Root (top-level sibling SYSTEM)"
+               style="display:none;">
+            <span class="erp-tree-root-drop-icon">🌳</span>
+            <span class="erp-tree-root-drop-label">↓ Drop sem = Root (top-level)</span>
+          </div>
         </div>
       </aside>
       <div id="erpResizeHandle" class="erp-resize-handle" role="separator" aria-label="Resize tree pane" title="Drag pro změnu šířky stromu"></div>
@@ -11923,6 +11968,14 @@ def _render_workspace_page(user_id: int) -> str:
             newBtn.style.display = on ? 'flex' : 'none';
           }
         } catch (e) {}
+        // Phase 38.4 Krok 14g-H+2 (15.5.2026 rano, Marti's "drop kamkoli"):
+        // sync Root drop zone visibility z DESIGN flag.
+        try {
+          const rootDz = document.getElementById('erpRootDropZone');
+          if (rootDz) {
+            rootDz.style.display = on ? 'flex' : 'none';
+          }
+        } catch (e) {}
       }
       // Init při page load
       renderErpDesignBadge();
@@ -12166,6 +12219,112 @@ def _render_workspace_page(user_id: int) -> str:
           nsBtn.addEventListener('click', _erpOpenNewSoudecekDialog);
         }
       } catch (e) {}
+
+      // Phase 38.4 Krok 14g-H+2 (15.5.2026 rano, Marti's "drop kamkoli"):
+      // Wire-up Root drop zone — drag soudecek sem → PATCH parent_id=NULL.
+      // Idempotent attach pattern (data-attached flag).
+      function _erpToast(msg, type) {
+        try {
+          if (typeof window._showToast === 'function') {
+            window._showToast(msg, type || 'info');
+            return;
+          }
+        } catch (e) {}
+        try {
+          if (typeof window._showErpToast === 'function') {
+            window._showErpToast(msg, type || 'info');
+            return;
+          }
+        } catch (e) {}
+        // Inline fallback — fixed bottom-right toast
+        try {
+          const t = document.createElement('div');
+          t.textContent = msg;
+          t.style.cssText = 'position:fixed;bottom:20px;right:20px;z-index:99999;' +
+            'padding:10px 16px;border-radius:6px;font-size:13px;font-weight:500;' +
+            'color:#fff;box-shadow:0 4px 12px rgba(0,0,0,0.4);max-width:380px;' +
+            'background:' + (type === 'error' ? '#dc2626' : (type === 'success' ? '#10b981' : '#374151'));
+          document.body.appendChild(t);
+          setTimeout(() => { try { t.remove(); } catch (e) {} }, 4500);
+        } catch (e) {
+          alert(msg);
+        }
+      }
+      try {
+        const rootDz = document.getElementById('erpRootDropZone');
+        if (rootDz && !rootDz.dataset.attached) {
+          rootDz.dataset.attached = '1';
+          rootDz.addEventListener('dragover', (ev) => {
+            // Akceptovat jen menu-node payload (ne field/comp_def drag)
+            const types = ev.dataTransfer && ev.dataTransfer.types;
+            if (!types) return;
+            let hasMenuNode = false;
+            try {
+              for (let i = 0; i < types.length; i++) {
+                if (types[i] === 'application/x-erp-menu-node-move') {
+                  hasMenuNode = true;
+                  break;
+                }
+              }
+            } catch (e) {}
+            if (!hasMenuNode) return;
+            ev.preventDefault();
+            ev.dataTransfer.dropEffect = 'move';
+            rootDz.classList.add('erp-tree-root-dropzone-hover');
+          });
+          rootDz.addEventListener('dragleave', () => {
+            rootDz.classList.remove('erp-tree-root-dropzone-hover');
+          });
+          rootDz.addEventListener('drop', async (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            rootDz.classList.remove('erp-tree-root-dropzone-hover');
+            let payload = null;
+            try {
+              const raw = ev.dataTransfer.getData('application/x-erp-menu-node-move');
+              if (raw) payload = JSON.parse(raw);
+            } catch (e) {}
+            if (!payload || !payload.menuPk) {
+              _erpToast('Drop neúspěšný — chybí menu-node payload', 'error');
+              return;
+            }
+            console.info('[RootDropZone] drop menuPk=' + payload.menuPk + ' → parent_id=NULL', payload);
+            try {
+              const resp = await fetch('/api/v1/erp/design/fw-menu-node/update/' + encodeURIComponent(payload.menuPk), {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                credentials: 'same-origin',
+                body: JSON.stringify({ parent_id: null }),
+              });
+              const json = await resp.json().catch(() => ({}));
+              if (!resp.ok || json.ok === false) {
+                const err = (json && json.error) || ('HTTP ' + resp.status);
+                console.warn('[RootDropZone] PATCH failed', resp.status, json);
+                _erpToast('Přesun do Root selhal: ' + err, 'error');
+                return;
+              }
+              _erpToast('Přesunuto do Root ✓', 'success');
+              // Reload tree — use same function as _erpOpenNewSoudecekDialog
+              try {
+                if (typeof window.reloadErpTree === 'function') {
+                  await window.reloadErpTree();
+                } else if (typeof window._erpReloadTree === 'function') {
+                  await window._erpReloadTree();
+                } else {
+                  window.location.reload();
+                }
+              } catch (e) {
+                console.warn('[RootDropZone] reload failed', e);
+              }
+            } catch (e) {
+              console.error('[RootDropZone] fetch error', e);
+              _erpToast('Přesun do Root selhal — síťová chyba', 'error');
+            }
+          });
+        }
+      } catch (e) {
+        console.warn('[RootDropZone] init failed', e);
+      }
 
       function _erpRenderUserPopover() {
         const pop = document.getElementById('erpFooterUserPopover');

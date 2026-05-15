@@ -2875,15 +2875,101 @@
     // (➕ Novy data_source button) prijde po picker funkcnim.
     // ────────────────────────────────────────────────────────────────────
     async _openDataSourcePickerModal() {
-      // Etapa 4 placeholder — bude rewritten po backend POST endpoint
-      // pro vazba pres code (fw.data_source.code = fw.core.code) hotov.
-      alert(
-        "🔗 Picker datoveho zdroje\n\n" +
-        "Etapa 4 (prijde za chvili): ErpCatalogPicker s columns " +
-        "[Cislo, Code, Nazev, Refresh, Operations, Used by N cores].\n\n" +
-        "Endpoint: GET /api/v1/erp/design/fw-data-source/list (LIVE od Etapy 1)\n" +
-        "Vazba: fw.data_source.code = fw.core.code (Marti's pattern)"
-      );
+      // Phase 38.4 Krok 14g-H+30 Etapa 4 (15.5.2026 vecer, Marti's
+      // "B varianta dotahnout do finale"): real picker via
+      // ErpCatalogPicker (reuse z H+22). On-select zatim placeholder —
+      // Etapa 5 (associate backend) prijde dal.
+      const menuNode = (this._data && this._data.menu_node) || null;
+      const core = (this._data && this._data.core) || null;
+      if (!core || !core.id) {
+        alert("Picker chyba: chybi core (asociuj nejdriv core v 1. radku).");
+        return;
+      }
+      if (typeof window.ErpCatalogPicker !== "function") {
+        alert("ErpCatalogPicker not loaded (catalog_picker.js missing).");
+        return;
+      }
+
+      // Renderer pro Used by N cores (analog _openCorePickerModal)
+      const usedRenderer = function (params) {
+        const v = params && params.value;
+        if (v && v > 0) {
+          return '<span title="Pouzit v ' + v + ' core(s) pres code" ' +
+                 'style="color:#7a8696;">🔗 ' + v + '×</span>';
+        }
+        return '';
+      };
+
+      // Renderer pro operation_kinds (compact list)
+      const opsRenderer = function (params) {
+        const v = params && params.value;
+        if (!v) return '<span style="color:#5a6573;">—</span>';
+        return '<span style="color:#a8b4c2;font-size:11px;">' + v + '</span>';
+      };
+
+      const self = this;
+      const coreCode = core.code || "";
+      const picker = new window.ErpCatalogPicker({
+        title: "🔗 Vybrat existing data_source (vazba pres core.code = '" +
+               coreCode + "')",
+        endpoint: "/api/v1/erp/design/fw-data-source/list",
+        listKey: "data_sources",
+        labelField: "name",
+        columns: [
+          { headerName: "Code", field: "code", width: 220,
+            filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Nazev", field: "name", flex: 1, minWidth: 200,
+            filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Refresh", field: "refresh_type", width: 110,
+            filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Status", field: "status", width: 100,
+            filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Operations", field: "operation_kinds", flex: 1,
+            minWidth: 160, sortable: false, cellRenderer: opsRenderer },
+          { headerName: "Ops #", field: "operation_count", width: 80,
+            type: "numericColumn", sortable: true },
+          { headerName: "v", field: "version", width: 60,
+            type: "numericColumn", sortable: true },
+          { headerName: "Pouzit ×", field: "is_used_count", width: 100,
+            type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
+        ],
+        onSelect: (row) => {
+          // Etapa 5 placeholder — associate semantics TBD
+          alert(
+            "🔗 Asociace: '" + (row.name || row.code) + "' -> core '" +
+            coreCode + "'\n\n" +
+            "Etapa 5 (prijde za chvili): backend PATCH endpoint.\n\n" +
+            "Vybrany data_source:\n" +
+            "  id=" + row.id + "\n" +
+            "  code='" + (row.code || "") + "'\n" +
+            "  refresh=" + (row.refresh_type || "?") + "\n\n" +
+            "Otazka: pokud row.code != core.code, pak vazba pres code " +
+            "vyzaduje rename data_source.code na '" + coreCode + "'.\n" +
+            "  Volba A: rename in place (single source)\n" +
+            "  Volba B: clone + parent_data_source_id lineage (versioning)\n" +
+            "  Volba C: enforce CHECK constraint (refuze pick if code mismatch)\n\n" +
+            "Marti rozhodne v Etape 5."
+          );
+        },
+        // Etapa 6 placeholder — ➕ Novy data_source button
+        enableNew: true,
+        enableEdit: false,
+        enableDelete: false,
+        onNew: () => {
+          alert(
+            "➕ Novy datovy zdroj\n\n" +
+            "Etapa 6 (prijde za chvili): mini-form wizard.\n" +
+            "Pre-filled code='" + coreCode + "' (auto-link via code-based vazba).\n\n" +
+            "Body wizard:\n" +
+            "  code=" + coreCode + " (auto-fill, readonly)\n" +
+            "  name (required)\n" +
+            "  refresh_type (dropdown: manual / on_open / interval / ...)\n" +
+            "  description (optional)\n\n" +
+            "Vytvori fw.data_source row + automatically asocuje s aktualnim core."
+          );
+        },
+      });
+      picker.open();
     }
 
     async _unassociateDataSource() {

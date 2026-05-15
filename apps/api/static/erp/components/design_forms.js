@@ -2510,10 +2510,9 @@
     }
 
     /**
-     * Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30): core picker modal.
-     * Vyfetchne fw.core list, render scrollable list s search filter,
-     * on select → PATCH menu_node.core_id pres generic /design/menu_node
-     * endpoint. Po success → reload spec (re-render Prehled tab).
+     * Phase 38.4 Krok 14g-H+22 (15.5.2026 ~17:30): core picker pres novou
+     * ErpCatalogPicker komponentu (Centrála 1 parita). Reusable napriС
+     * vsechny FK reference scenarios.
      */
     async _openCorePickerModal() {
       const menuNode = (this._data && this._data.menu_node) || null;
@@ -2521,120 +2520,40 @@
         alert("Picker chyba: chybi menu_node ID.");
         return;
       }
-
-      // Fetch core list
-      let cores = [];
-      try {
-        const r = await fetch("/api/v1/erp/design/fw-core/list", {
-          credentials: "include",
-        });
-        if (!r.ok) throw new Error("HTTP " + r.status);
-        const data = await r.json();
-        cores = data.cores || [];
-      } catch (e) {
-        alert("Nepodařilo se načíst seznam core přehledů: " + (e.message || e));
+      if (typeof window.ErpCatalogPicker !== "function") {
+        alert("ErpCatalogPicker not loaded (catalog_picker.js missing).");
         return;
       }
 
-      // Modal overlay
-      const overlay = document.createElement("div");
-      overlay.style.cssText =
-        "position:fixed;top:0;left:0;right:0;bottom:0;z-index:10010;" +
-        "background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;";
-
-      const modal = document.createElement("div");
-      modal.style.cssText =
-        "width:600px;max-width:90vw;max-height:80vh;background:#1a1f26;" +
-        "border:1px solid #3a4754;border-radius:6px;display:flex;flex-direction:column;" +
-        "box-shadow:0 8px 32px rgba(0,0,0,0.5);";
-
-      const header = document.createElement("div");
-      header.style.cssText =
-        "padding:14px 18px;border-bottom:1px solid #2a3340;display:flex;" +
-        "align-items:center;justify-content:space-between;";
-      header.innerHTML =
-        '<div style="font-size:14px;font-weight:600;color:#e8eef5;">' +
-        '🔗 Vybrat existing core přehled</div>';
-      const closeBtn = document.createElement("button");
-      closeBtn.type = "button";
-      closeBtn.textContent = "✕";
-      closeBtn.style.cssText =
-        "background:none;border:none;color:#7a8696;font-size:18px;cursor:pointer;padding:0 4px;";
-      closeBtn.onclick = () => overlay.remove();
-      header.appendChild(closeBtn);
-      modal.appendChild(header);
-
-      // Search box
-      const searchBox = document.createElement("input");
-      searchBox.type = "text";
-      searchBox.placeholder = "Filtrovat (code / label / layout_type)…";
-      searchBox.style.cssText =
-        "margin:12px 18px;padding:8px 12px;background:#0f141a;border:1px solid #3a4754;" +
-        "border-radius:4px;color:#e8eef5;font-size:12px;outline:none;";
-      modal.appendChild(searchBox);
-
-      // List
-      const listEl = document.createElement("div");
-      listEl.style.cssText =
-        "flex:1;overflow-y:auto;padding:4px 12px 12px;";
-      modal.appendChild(listEl);
-
-      const renderList = (filterText) => {
-        listEl.innerHTML = "";
-        const ft = (filterText || "").toLowerCase().trim();
-        const filtered = cores.filter(c => !ft
-          || (c.code || "").toLowerCase().includes(ft)
-          || (c.label || "").toLowerCase().includes(ft)
-          || (c.layout_type || "").toLowerCase().includes(ft));
-        if (!filtered.length) {
-          const empty = document.createElement("div");
-          empty.style.cssText = "color:#7a8696;text-align:center;padding:24px;font-size:12px;";
-          empty.textContent = cores.length
-            ? "Žádný core neodpovídá filtru."
-            : "V fw.core nejsou žádné záznamy. Použij \"Vytvořit nový core\" (až bude wizard).";
-          listEl.appendChild(empty);
-          return;
+      const usedRenderer = function (params) {
+        const v = params && params.value;
+        if (v && v > 0) {
+          return '<span title="Použit v ' + v + ' soudečku(ů)" style="color:#7a8696;">🔗 ' + v + '×</span>';
         }
-        filtered.forEach(c => {
-          const row = document.createElement("div");
-          row.style.cssText =
-            "padding:10px 12px;background:#1f262f;border:1px solid #2a3340;" +
-            "border-radius:4px;margin-bottom:6px;cursor:pointer;display:flex;" +
-            "justify-content:space-between;align-items:center;transition:background 120ms;";
-          row.onmouseover = () => { row.style.background = "#252d37"; };
-          row.onmouseout = () => { row.style.background = "#1f262f"; };
-
-          const left = document.createElement("div");
-          left.innerHTML =
-            '<div style="color:#e8eef5;font-size:13px;font-weight:500;">' +
-            _esc(c.label || "(no label)") +
-            '</div>' +
-            '<div style="color:#7a8696;font-size:11px;margin-top:2px;font-family:monospace;">' +
-            _esc(c.code || "") +
-            ' · ' + _esc(c.layout_type || "?") +
-            ' · v' + (c.version || 1) +
-            '</div>';
-          row.appendChild(left);
-
-          const right = document.createElement("div");
-          right.style.cssText = "color:#7a8696;font-size:11px;";
-          if (c.is_used_count > 0) {
-            right.textContent = "🔗 " + c.is_used_count + "×";
-            right.title = "Tento core je již použit v " + c.is_used_count + " menu_node(s)";
-          }
-          row.appendChild(right);
-
-          row.onclick = () => this._associateCoreWithMenuNode(c.id, c.label, overlay);
-          listEl.appendChild(row);
-        });
+        return '';
       };
 
-      searchBox.oninput = () => renderList(searchBox.value);
-      renderList("");
-
-      overlay.appendChild(modal);
-      document.body.appendChild(overlay);
-      setTimeout(() => searchBox.focus(), 50);
+      new window.ErpCatalogPicker({
+        title: "🔗 Vybrat existing core přehled",
+        endpoint: "/api/v1/erp/design/fw-core/list",
+        listKey: "cores",
+        labelField: "label",
+        columns: [
+          { headerName: "Code", field: "code", width: 220, filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Label", field: "label", flex: 1, minWidth: 200, filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Layout", field: "layout_type", width: 130, filter: "agTextColumnFilter", sortable: true },
+          { headerName: "Data entity", field: "data_entity_type", width: 130, filter: "agTextColumnFilter", sortable: true },
+          { headerName: "v", field: "version", width: 60, type: "numericColumn", sortable: true },
+          { headerName: "Použit ×", field: "is_used_count", width: 110, type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
+        ],
+        onSelect: (row) => {
+          this._associateCoreWithMenuNode(row.id, row.label, null);
+        },
+        // Day 2: enable CRUD buttons
+        enableNew: false,
+        enableEdit: false,
+        enableDelete: false,
+      }).open();
     }
 
     async _associateCoreWithMenuNode(coreId, coreLabel, overlay) {

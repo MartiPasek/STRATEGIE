@@ -9890,6 +9890,12 @@ def _render_workspace_page(user_id: int) -> str:
          Použité / Všechny) + colored badge per scope. Marti-AI's 9-iter konzultace. -->
     <link rel="stylesheet" href="/static/erp/components/object_inspector.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/components/object_inspector.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 14g-H+22 (15.5.2026 ~17:30): ErpCatalogPicker komponenta
+         pro FK reference selection (Centrála 1 parita). Modal s AG Grid +
+         toolbar (➕/📝/🗑️/🔄) + double-click select + OK/Storno. Reusable
+         napriС form fields (fw.core, fw.menu_node parent, fw.data_source,
+         user assignment, atd.). Day 1: select-only. Day 2: full CRUD. -->
+    <script src="/static/erp/components/catalog_picker.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14a (12.5.2026 rano): Design forms — Form 1+2 konsolidace
          (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
          3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->

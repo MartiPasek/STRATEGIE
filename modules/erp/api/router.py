@@ -3444,20 +3444,40 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
 
     ds = _gds_fwid()
     try:
+        # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne):
+        # tolerantni id-based path pro drafted cores (code/label/layout_type/
+        # data_entity_type mohou byt NULL po Krok 5.C "nic nas nesmi omezovat"
+        # DDL). Pokud code IS NOT NULL → delegate na existing fw_form_load
+        # (zachovava entity data load + children sub-grids).
+        # Pokud code IS NULL → drafted core, vratit minimal empty_container
+        # response (frontend Krok 5.A handler renderuje placeholder).
         row = ds.execute(_sql_fwid("""
-            SELECT code FROM fw.core
-            WHERE id = :id AND is_active = true
+            SELECT * FROM fw.core
+            WHERE id = :id
         """), {"id": core_id}).mappings().one_or_none()
         if not row:
             return JSONResponse(
-                {"ok": False, "error": f"fw.core id={core_id} nenalezen / inactive"},
+                {"ok": False, "error": f"fw.core id={core_id} nenalezen"},
                 status_code=404,
             )
         resolved_code = row["code"]
+
+        # Drafted core path — empty container response (id+origin+audit only)
+        if not resolved_code:
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "core": dict(row),
+                "form": None,
+                "fields": [],
+                "data": None,
+                "template": None,
+                "children": {},
+                "empty_container": True,
+            }))
     finally:
         ds.close()
 
-    # Delegate na existing handler — response shape identical.
+    # Fully-formed core (code IS NOT NULL) — delegate na existing handler
     return fw_form_load(core_code=resolved_code, row_id=row_id, req=req)
 
 
@@ -5356,9 +5376,35 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
         inserted_row = inserted_row[0] if inserted_row else {}
     new_id = (inserted_row or {}).get("id")
 
+    # Marti's bod 2 (16.5.2026): "po insertu CORE jej priradit k tomu
+    # kontextovymu menu". Auto-link new core → cmi.target_core_id pokud
+    # origin_cmi_id posláno. Jeden round-trip — frontend nepotřebuje
+    # samostatný PATCH call.
+    linked_cmi = False
+    ds_cm = _gds_cm()
+    try:
+        if origin_cmi_id and new_id:
+            ds_cm.execute(_sql_cm("""
+                UPDATE fw.context_menu_item
+                SET target_core_id = :core_id,
+                    updated_at = NOW()
+                WHERE id = :cmi_id
+            """), {"core_id": new_id, "cmi_id": origin_cmi_id})
+            ds_cm.commit()
+            linked_cmi = True
+    except Exception as _link_e:
+        logger.warning(
+            f"design_create_fw_core_minimal auto-link cmi {origin_cmi_id} "
+            f"→ core {new_id} failed: {_link_e}"
+        )
+        ds_cm.rollback()
+    finally:
+        ds_cm.close()
+
     # Activity log audit
     ds_cm = _gds_cm()
     try:
+        link_note = f" + linked → cmi {origin_cmi_id}" if linked_cmi else ""
         ds_cm.execute(_sql_cm("""
             INSERT INTO public.activity_log
               (user_id, persona_id, category, actor, summary, change_source, ts)
@@ -5370,7 +5416,7 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
             "summary": (
                 f"+ fw.core draft id={new_id} "
                 f"origin_menu_node={origin_menu_node_id} "
-                f"origin_cmi={origin_cmi_id}"
+                f"origin_cmi={origin_cmi_id}{link_note}"
             ),
         })
         ds_cm.commit()
@@ -5382,6 +5428,7 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     return JSONResponse(jsonable_encoder({
         "ok": True,
         "core": dict(inserted_row or {}),
+        "linked_cmi": linked_cmi,
     }))
 
 

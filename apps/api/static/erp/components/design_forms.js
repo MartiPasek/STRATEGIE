@@ -7415,8 +7415,32 @@
           fieldChanges[fieldName] = val;
         }
 
+        // Phase 38.4 Krok 14g Etapa F Krok 5.I-G (16.5.2026 vecer): collect
+        // entity_picker changes pro comp_def root PATCH (Marti's two-layer
+        // data_source pattern). Picker #3 Datovy zdroj (display_mode='editable',
+        // field_extern='data_source_id') ukladame na form root comp_def.
+        const compDefChanges = {};
+        const pickerWraps = this._shell.body.querySelectorAll(".erp-entity-picker-host");
+        for (const pwrap of pickerWraps) {
+          if (pwrap._displayMode !== "editable" || !pwrap._fieldExtern) continue;
+          const initialId = pwrap._initialValue ? pwrap._initialValue.id : null;
+          // _selectedValue je null po unlink, undefined pred user action.
+          // Pokud undefined -> stale na initial. Pokud null nebo new value -> changed.
+          let currentId;
+          if (pwrap._selectedValue === undefined) {
+            currentId = initialId;
+          } else if (pwrap._selectedValue === null) {
+            currentId = null;
+          } else {
+            currentId = pwrap._selectedValue.id;
+          }
+          if (currentId !== initialId) {
+            compDefChanges[pwrap._fieldExtern] = currentId;
+          }
+        }
+
         // Pokud žádné changes -> clean close (Marti's "OK clean = close" doctrine)
-        if (Object.keys(fieldChanges).length === 0) {
+        if (Object.keys(fieldChanges).length === 0 && Object.keys(compDefChanges).length === 0) {
           console.info("[DesignFwForm] OK clicked, no dirty changes — closing.");
           this._dirty.clear();
           _markFormDirty(this, false);
@@ -7424,48 +7448,109 @@
           return;
         }
 
-        // POST PATCH
-        const r = await fetch(
-          "/api/v1/erp/design/" + encodeURIComponent(entityType) + "/" + encodeURIComponent(rowId),
-          {
-            method: "PATCH",
-            credentials: "include",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              field_changes: fieldChanges,
-              expected_updated_at: expectedUpdatedAt,
-            }),
-          }
-        );
-
-        if (r.status === 409) {
-          // Optimistic lock conflict
-          const errData = await r.json().catch(() => ({}));
-          alert(
-            "Konflikt: někdo jiný mezitím změnil tento řádek.\\n" +
-            "Server čas: " + (errData.server_updated_at || "?") + "\\n" +
-            "Tvůj čas: " + (errData.expected_updated_at || "?") + "\\n\\n" +
-            "Zavři modal a otevři znovu (Enter / dvojklik), tvé změny budou ztraceny."
+        // Krok 5.I-G: PATCH 1 — core entity (existing behavior, pokud
+        // jsou core field changes)
+        let savedFieldsCount = 0;
+        let lastRespData = null;
+        if (Object.keys(fieldChanges).length > 0) {
+          const r = await fetch(
+            "/api/v1/erp/design/" + encodeURIComponent(entityType) + "/" + encodeURIComponent(rowId),
+            {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                field_changes: fieldChanges,
+                expected_updated_at: expectedUpdatedAt,
+              }),
+            }
           );
-          btnEl.disabled = false;
-          btnEl.innerHTML = originalHtml;
-          return;
+
+          if (r.status === 409) {
+            const errData = await r.json().catch(() => ({}));
+            alert(
+              "Konflikt na " + entityType + ": někdo jiný mezitím změnil tento řádek.\\n" +
+              "Server čas: " + (errData.server_updated_at || "?") + "\\n" +
+              "Tvůj čas: " + (errData.expected_updated_at || "?") + "\\n\\n" +
+              "Zavři modal a otevři znovu (Enter / dvojklik), tvé změny budou ztraceny."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+
+          if (!r.ok) {
+            const errData = await r.json().catch(() => ({}));
+            alert(
+              "Uložení " + entityType + " selhalo: HTTP " + r.status + "\\n" +
+              (errData.error || "(žádný error message)")
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+
+          lastRespData = await r.json();
+          savedFieldsCount += Object.keys(fieldChanges).length;
+          console.info("[DesignFwForm] PATCH " + entityType + " success:", lastRespData);
         }
 
-        if (!r.ok) {
-          const errData = await r.json().catch(() => ({}));
-          alert(
-            "Uložení selhalo: HTTP " + r.status + "\\n" +
-            (errData.error || "(žádný error message)")
+        // Krok 5.I-G: PATCH 2 — comp_def root (Picker #3 + future per-instance
+        // settings). Optimistic lock pres form.updated_at (Krok 5.I-A2 trigger).
+        const formRoot = this._spec.form || {};
+        if (Object.keys(compDefChanges).length > 0) {
+          if (formRoot.id == null || !formRoot.updated_at) {
+            alert(
+              "Save selhal: form root comp_def chybi id nebo updated_at.\\n" +
+              "Backend musi vracet form.id + form.updated_at (Krok 5.I-F)."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+          const r2 = await fetch(
+            "/api/v1/erp/design/comp_def/" + encodeURIComponent(formRoot.id),
+            {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                field_changes: compDefChanges,
+                expected_updated_at: formRoot.updated_at,
+              }),
+            }
           );
-          btnEl.disabled = false;
-          btnEl.innerHTML = originalHtml;
-          return;
+
+          if (r2.status === 409) {
+            const errData = await r2.json().catch(() => ({}));
+            alert(
+              "Konflikt na comp_def root: někdo jiný mezitím změnil form metadata.\\n" +
+              "Server čas: " + (errData.server_updated_at || "?") + "\\n" +
+              "Zavři modal a otevři znovu."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+
+          if (!r2.ok) {
+            const errData = await r2.json().catch(() => ({}));
+            alert(
+              "Uložení comp_def root selhalo: HTTP " + r2.status + "\\n" +
+              (errData.error || "(žádný error message)")
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+
+          lastRespData = await r2.json();
+          savedFieldsCount += Object.keys(compDefChanges).length;
+          console.info("[DesignFwForm] PATCH comp_def success:", lastRespData);
         }
 
         // 200 OK — toast + close
-        const respData = await r.json();
-        console.info("[DesignFwForm] PATCH success:", respData);
+        const respData = lastRespData || {};
 
         // Visual feedback — green flash krátce před close
         btnEl.style.background = "#3a7a3a";
@@ -10266,6 +10351,56 @@
           const lookupDisplay = (fieldLayout.lookup_display_field) || "label";
           const actions = fieldLayout.show_quick_actions || ["link", "unlink", "create_new"];
 
+          // Phase 38.4 Krok 14g Etapa F Krok 5.I-D/E/F (16.5.2026 vecer,
+          // Marti's two-layer data_source pattern volby):
+          //   display_mode='origin'    -> Picker #1 Soudecek: display-only,
+          //     ctena z this._spec.origin.menu_node (backend denormalize)
+          //   display_mode='self'      -> Picker #2 Prehled: display-only,
+          //     ctena z this._spec.core (currentCore.id + currentCore.label)
+          //   display_mode='editable'  -> Picker #3 Datovy zdroj: full
+          //     functionality, field_extern='data_source_id' jako save target
+          //
+          // Marti's "field_extern, ne target_field" terminologie (16.5. odp.):
+          //   bidirectional binding column ve fw.comp_def row pres
+          //   PATCH design/comp_def/{id} (Marti's "SELECT EDIT POST"
+          //   dirty fields pattern z Centraly 1).
+          const displayMode = fieldLayout.display_mode || "editable";
+          const fieldExtern = fieldLayout.field_extern || null;
+          const isDisplayOnly = (displayMode === "origin" || displayMode === "self");
+
+          // Pre-populate values dle display_mode
+          let initialId = null;
+          let initialLabel = null;
+          if (displayMode === "origin") {
+            // Z this._spec.origin.menu_node (backend JOIN fw.menu_node)
+            const origin = (this._spec && this._spec.origin) || {};
+            const mn = origin.menu_node || null;
+            if (mn) {
+              initialId = mn.id;
+              initialLabel = mn.label;
+            }
+          } else if (displayMode === "self") {
+            // Z this._spec.data (current core row, data_entity_type='core')
+            const dataRow = (this._spec && this._spec.data) || {};
+            initialId = dataRow.id != null ? dataRow.id : null;
+            initialLabel = dataRow.label || dataRow.code || null;
+          } else if (displayMode === "editable" && fieldExtern) {
+            // Krok 5.I-F: Picker #3 (Datovy zdroj) — initial z form root
+            // comp_def via this._spec.form (po Krok 5.I-F backend extension).
+            // field_extern='data_source_id' → form.data_source_id + JOIN ds.code/name.
+            const formRoot = (this._spec && this._spec.form) || {};
+            if (fieldExtern === "data_source_id") {
+              initialId = formRoot.data_source_id != null ? formRoot.data_source_id : null;
+              initialLabel = formRoot.data_source_name || formRoot.data_source_code || null;
+            } else {
+              // Generic fallback — budouci pickery s jinym field_extern.
+              // Backend root_row musi tyto sloupce vracet (pro now jen
+              // data_source_id explicit JOIN-uto).
+              initialId = formRoot[fieldExtern] != null ? formRoot[fieldExtern] : null;
+              initialLabel = null;
+            }
+          }
+
           const wrap = document.createElement("div");
           wrap.className = "erp-field erp-field-design erp-entity-picker-host";
           wrap.style.cssText =
@@ -10273,6 +10408,8 @@
             "border:1px solid #2a3340;border-radius:6px;padding:12px;background:#0f1419;";
           wrap._fieldKey = fieldKey;
           wrap._kind = "entity_picker";
+          wrap._displayMode = displayMode;
+          wrap._fieldExtern = fieldExtern;
 
           // Header — label + data_source code/name badge
           const headerRow = document.createElement("div");
@@ -10297,6 +10434,23 @@
             badge.textContent = "ds: " + dsCode;
             headerRow.appendChild(badge);
           }
+
+          // Display-mode badge — visual distinction pro origin/self pickery
+          // (Marti-AI's "neni to omezeni, je to pojistka" doctrine 27.4.)
+          if (isDisplayOnly) {
+            const modeBadge = document.createElement("div");
+            modeBadge.style.cssText =
+              "font-size:10px;color:#8fb8d4;font-style:italic;" +
+              "padding:2px 6px;background:#1a2632;border-radius:3px;";
+            if (displayMode === "origin") {
+              modeBadge.textContent = "📍 origin";
+              modeBadge.title = "Display-only: zobrazeno z origin_menu_node_id (Soudeček, ze kterého byl form otevřen)";
+            } else if (displayMode === "self") {
+              modeBadge.textContent = "↺ self";
+              modeBadge.title = "Display-only: editujeme tento záznam (self-reference)";
+            }
+            headerRow.appendChild(modeBadge);
+          }
           wrap.appendChild(headerRow);
 
           // Action ikony row (🔗 / 🚫 / ➕)
@@ -10314,19 +10468,32 @@
           fieldsRow.style.cssText =
             "display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:end;flex:1;";
 
-          const idCol = _field("Číslo", value || "", {
+          // Krok 5.I-D/E: pre-populate s initialId/initialLabel (z origin/self
+          // display_mode). Pro editable mode initialId zatim null — Krok 5.I-F
+          // pro post-load fetch z data_source.
+          const idColValue = initialId != null ? String(initialId) : "";
+          const labelColValue = initialLabel != null ? String(initialLabel) : "";
+          const idCol = _field("Číslo", idColValue, {
             fieldKey: fieldKey + "._id",
             readonly: true,
             mono: true,
             onDirty: onDirty,
           });
-          const labelCol = _field("Název", "", {
+          const labelCol = _field("Název", labelColValue, {
             fieldKey: fieldKey + "._label",
             readonly: true,
             onDirty: onDirty,
           });
           fieldsRow.appendChild(idCol);
           fieldsRow.appendChild(labelCol);
+
+          // Store initial value pro Krok 5.I-G dirty check (jen pro editable mode)
+          if (!isDisplayOnly && initialId != null) {
+            wrap._initialValue = {
+              id: initialId,
+              display: initialLabel,
+            };
+          }
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.H (16.5.2026 vecer, Marti's
           // "pauza, ty pracuj"): 🔗 link onclick → fetch /api/v1/erp/data/{dsCode}
@@ -10341,7 +10508,10 @@
             btn.title = def.title;
             // Link je vždy klikatelný (browse picker). Unlink + create_new
             // disabled v PROD/RO mode.
-            const btnDisabled = readonly && act !== "link";
+            // Krok 5.I-D/E (16.5.2026 vecer): display-only mode (origin/self)
+            // disables VSECHNY buttons — Picker #1 cte z core.origin_menu_node_id
+            // (display-only), Picker #2 cte z current core row (readonly self-ref).
+            const btnDisabled = isDisplayOnly || (readonly && act !== "link");
             btn.disabled = btnDisabled;
             btn.style.cssText =
               "padding:6px 10px;font-size:14px;border-radius:4px;cursor:" +

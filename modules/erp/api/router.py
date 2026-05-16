@@ -3581,12 +3581,22 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # NE podle resolved_code. Po init-root mame comp_def root + core.code
         # stale NULL (drafted core nazva nemusi mit). Drz Marti-AI's "readiness_state"
         # doctrine: drafted (no root) / has_root / populated.
+        # Phase 38.4 Krok 14g Etapa F Krok 5.I-F (16.5.2026 vecer, Marti's
+        # two-layer data_source pattern): root_row vraci form's save target
+        # info — cd.data_source_id (= form's "framework_comp_def_list" binding),
+        # JOIN ds pro code+name (Picker #3 initial label populate), plus
+        # cd.updated_at jako optimistic lock baseline pro PATCH
+        # design/comp_def/{id} (Marti's "SELECT EDIT POST" pattern).
         root_row = ds.execute(_sql_fwid("""
             SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                    cd.sort_order, cd.is_active,
-                   ct.code AS comp_type_code, ct.label AS comp_type_label
+                   cd.data_source_id, cd.updated_at,
+                   ct.code AS comp_type_code, ct.label AS comp_type_label,
+                   ds.code AS data_source_code,
+                   ds.name AS data_source_name
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
+            LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
             WHERE cd.parent_core_id = :cid
               AND cd.parent_comp_def_id IS NULL
               AND cd.is_active = true

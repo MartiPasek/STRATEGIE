@@ -5284,6 +5284,107 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
     })
 
 
+@api_router.post("/design/fw-core/create-minimal")
+async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026, Marti's extreme
+    minimalism doctrine "nic nas nesmi omezovat" + "minimum parametru,
+    pojmenovavat nic je k nicemu"): create empty drafted fw.core entry.
+
+    Vse NULL krome:
+      - origin_menu_node_id (rodic — odkud kontejner vznikl, FK menu_node)
+      - origin_cmi_id (rodic — pres ktery cmi spusten, FK context_menu_item)
+      - created_by_id + created_by_text (audit minimum)
+      - id (PK auto)
+      - created_at (auto NOW())
+
+    Vse ostatni (code, label, layout_type, version, tenant_visibility,
+    layout_template, is_active, data_entity_type, ...) = NULL/default.
+    User si potom postupne vyplni v Design formu (PATCH endpoint).
+
+    Body: { origin_menu_node_id: int | null, origin_cmi_id: int | null }
+    Returns: { ok: True, core: { id, ... } }
+    """
+    from core.database_data import get_data_session as _gds_cm
+    from sqlalchemy import text as _sql_cm
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+
+    origin_menu_node_id = body.get("origin_menu_node_id")
+    origin_cmi_id = body.get("origin_cmi_id")
+
+    # Caller display (reuse pattern z H+23)
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_cm
+        from modules.core.infrastructure.models_core import User as _User_cm
+        cs_cm = _gcs_cm()
+        try:
+            u_cm = cs_cm.query(_User_cm).filter_by(id=uid).first()
+            if u_cm:
+                if u_cm.short_name and u_cm.short_name.strip():
+                    caller_display = u_cm.short_name.strip()
+                elif u_cm.first_name or u_cm.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_cm.first_name, u_cm.last_name
+                    ])).strip()
+        finally:
+            cs_cm.close()
+
+    # INSERT via strategie_pg (Marti-AI's PG role, db_owner fw.*)
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cm
+    values = {
+        "origin_menu_node_id": origin_menu_node_id,
+        "origin_cmi_id": origin_cmi_id,
+        "created_by_id": uid,
+        "created_by_text": caller_display,
+    }
+    upd = _spg_insert_cm(schema="fw", table="core", values=values)
+    if not upd.get("ok"):
+        return JSONResponse(
+            {"ok": False, "error": f"CREATE-MINIMAL failed: {upd.get('error')}"},
+            status_code=500,
+        )
+
+    inserted_row = upd.get("inserted")
+    if isinstance(inserted_row, list):
+        inserted_row = inserted_row[0] if inserted_row else {}
+    new_id = (inserted_row or {}).get("id")
+
+    # Activity log audit
+    ds_cm = _gds_cm()
+    try:
+        ds_cm.execute(_sql_cm("""
+            INSERT INTO public.activity_log
+              (user_id, persona_id, category, actor, summary, change_source, ts)
+            VALUES
+              (:uid, NULL, 'design_fw_core_minimal_create', 'user',
+               :summary, 'ui', NOW())
+        """), {
+            "uid": uid,
+            "summary": (
+                f"+ fw.core draft id={new_id} "
+                f"origin_menu_node={origin_menu_node_id} "
+                f"origin_cmi={origin_cmi_id}"
+            ),
+        })
+        ds_cm.commit()
+    except Exception as _act_e:
+        logger.warning(f"design_create_fw_core_minimal activity_log failed: {_act_e}")
+    finally:
+        ds_cm.close()
+
+    return JSONResponse(jsonable_encoder({
+        "ok": True,
+        "core": dict(inserted_row or {}),
+    }))
+
+
 @api_router.get("/design/fw-core/list")
 def design_list_fw_core(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vybrat stavajici

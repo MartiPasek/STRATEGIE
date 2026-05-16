@@ -146,7 +146,7 @@
     //   - $resolver pro rowId je dynamic (current node's core_id), coreId
     //     je STATIC z target_core_id FK → mismatch nemuze nastat
     //   - Marti's "ID je svaty" doctrine: ID-based truth > code-based check
-    function _openForm(formArgs, cmiCode) {
+    function _openForm(formArgs, cmiCode, ctx, cmiId) {
       if (typeof global.DesignFwForm !== "function") {
         alert("DesignFwForm not loaded (design_forms.js missing or older verze).");
         try {
@@ -203,16 +203,55 @@
             // Recurse s explicit coreId — projde guard above (coreId != undefined)
             _openForm(
               { coreId: row.id, rowId: formArgs.rowId || 1 },
-              cmiCode
+              cmiCode, ctx, cmiId
             );
           },
-          onNew: function () {
-            // Krok 5.C — wizard insert noveho core (po konzultaci s Marti-AI)
-            alert(
-              "➕ Nový CORE kontejner — Krok 5.C wizard.\n\n" +
-              "Picker přijde po konzultaci s Marti-AI " +
-              "(insider design partner pattern)."
-            );
+          onNew: async function () {
+            // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026, Marti's
+            // "minimum parametru, pojmenovavat nic je k nicemu"): POST
+            // create-minimal s origin tracking → recurse open form pro
+            // novy drafted core.
+            try {
+              const _resp = await fetch(
+                "/api/v1/erp/design/fw-core/create-minimal",
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  credentials: "include",
+                  body: JSON.stringify({
+                    origin_menu_node_id: (ctx && ctx.menu_node_pk) || null,
+                    origin_cmi_id: cmiId || null,
+                  }),
+                }
+              ).then(function (r) { return r.json(); });
+              if (_resp && _resp.ok && _resp.core && _resp.core.id) {
+                try {
+                  _logger.info("fw_form_dispatcher.js",
+                    "Created minimal fw.core draft id=" + _resp.core.id, {
+                      extra: {
+                        cmi_code: cmiCode,
+                        cmi_id: cmiId,
+                        origin_menu_node_id: (ctx && ctx.menu_node_pk) || null,
+                        new_core_id: _resp.core.id,
+                      },
+                    });
+                } catch (e) {}
+                // Zavri picker pred recurse (DesignFwForm modal otevre se v overlay)
+                try { _picker.close(); } catch (e) {}
+                // Recurse — open Design form pro novy drafted core
+                _openForm(
+                  { coreId: _resp.core.id, rowId: 1 },
+                  cmiCode, ctx, cmiId
+                );
+              } else {
+                alert(
+                  "Vytvoreni draftu selhalo: " +
+                  ((_resp && _resp.error) || "unknown error")
+                );
+              }
+            } catch (e) {
+              alert("Vytvoreni draftu (network): " + (e.message || e));
+            }
           },
         });
         _picker.open();
@@ -308,11 +347,10 @@
       const ctx = _buildContext(item, mnPk, mnCode);
       const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
       _diagLog(cmiSnap.action_params, ctx, formArgs);
-      // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup (16.5.2026): _openForm
-      // is synchronous again (Step E.2 expectedCoreCode pre-validation
-      // dropped — redundant after Krok 3 target_core_id FK + Krok 4
-      // expectedCoreCode strip). Drop .catch() wrap, drop actionParams arg.
-      _openForm(formArgs, cmiSnap.code);
+      // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026): pass ctx + cmiSnap.id
+      // pro Kontejner picker onNew callback (origin tracking pri minimal INSERT
+      // do fw.core — Marti's "rodicovstvi" doctrine).
+      _openForm(formArgs, cmiSnap.code, ctx, cmiSnap.id);
     };
 
   }); // _erpLoadModule end

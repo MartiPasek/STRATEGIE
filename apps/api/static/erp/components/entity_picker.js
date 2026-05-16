@@ -39,6 +39,15 @@
 (function(global) {
   "use strict";
 
+  // Phase 38.4 Krok 14g Etapa C (16.5.2026): mutual immunity wrap.
+  // Pri init failure: chyba do _erpModuleHealth + diag_log, ostatni
+  // moduly pokracuji (doctrine "zbytek bezi dale").
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("entity_picker.js", "v1.0.0", function () {
+
   // Helpers — same as design_forms.js _sectionBuild + _field stripped down.
   function _sectionBuild(label, subtitle) {
     const wrap = document.createElement("div");
@@ -343,4 +352,5 @@
   }
 
   global.ErpEntityPicker = ErpEntityPicker;
+  }); // _erpLoadModule end
 })(window);

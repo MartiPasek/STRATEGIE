@@ -5207,22 +5207,15 @@
       const core = this._spec.core;
       const formId = this._spec.form.id;
 
-      // Krok 5.J-B6 hotfix (17.5.2026 ~00:00, Marti's "+Pole nezobrazuje"):
-      // runtime validate entity_type — pokud NULL, info dialog (po Krok 5.A
-      // "core = kontejner" je entity nepovinné, ale picker ho potřebuje).
+      // Krok 5.J-B6 v2 (17.5.2026 ~00:10, Marti's "hlaska je k nicemu, misto
+      // toho update na patricnou entitu"): pokud entity_type NULL → direct
+      // open entity picker (existing dialog z Krok 5.F: 3 karty user/menu_node/
+      // core). Po assign + PATCH success → close entity picker, _spec reload,
+      // _render. User klikne +Pole znovu → field picker se otevre (po reload
+      // je data_entity_type set, this brach skip).
       if (!core.data_entity_type) {
-        await _confirmDarkDialog({
-          title: "Entita není nastavena",
-          message: "Tento core (id=" + core.id + ") nemá data_entity_type.\n\n" +
-            "Field Picker potřebuje vědět, jakou entitu form edituje, " +
-            "aby zobrazil dostupné sloupce. Nastav entitu přes init-root flow " +
-            "(Krok 5.D root type picker — assign data_entity_type=user/core/menu_node).\n\n" +
-            "Můžeš taky přidat custom fields přímo přes SQL nebo budoucí UI " +
-            "(Krok 5.J-B7+ entity-agnostic field create).",
-          ok: "Rozumím",
-          cancel: null,
-        });
-        return;
+        await this._openEntityTypePicker();
+        return;  // entity picker handles PATCH + reload async; user re-click +Pole
       }
 
       const picker = new global.FieldPickerModal({

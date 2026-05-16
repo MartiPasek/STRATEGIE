@@ -11967,49 +11967,45 @@ def _render_workspace_page(user_id: int) -> str:
         return cols || [];
       }
       async function gridDataResolved(mode) {
-        // Phase 38.4 Krok 13.3 (11.5.2026): 3-tier dispatch via fw.hw_registry.
-        // Backend /hw/{code} endpoint handles A3/HW/legacy decision via
-        // shadow_mode ENUM. Frontend just calls /hw/{code} a follow delegate_url
-        // if backend says so.
+        // Phase 38.4 Krok 14g Etapa D+2 (16.5.2026): delegated to window.dispatchGridData
+        // (erp_grid_dispatcher.js module). Modul logs every step do fw.diag_log
+        // via _erpLogToDb a zna `events` key (diag-log/events endpoint response).
         //
-        // Marti-AI's *„uniformita vítězí nad speciálními případy"* — žádný
-        // tier logic v frontend, vše rozhoduje backend přes hw_registry.
+        // Marti's *„rozdelit na dalsi JS a zalogovat"* — modul je single source
+        // of truth pro grid dispatch. Inline fallback (pokud modul nezachova) ma
+        // minimal parsing s `events` key awareness.
 
-        // Map UI mode → hw_registry code
+        if (typeof window.dispatchGridData === "function") {
+          return await window.dispatchGridData(mode);
+        }
+
+        // Fallback (erp_grid_dispatcher.js not loaded — would break banner 4/4 mod)
+        // — minimal 3-tier s `events` key awareness (event parsing fix)
+        console.warn("[gridDataResolved] erp_grid_dispatcher.js NOT loaded, using inline fallback");
         var code = mode;
         if (mode === "audited" || mode === "all" || mode === "stats") {
           code = "audit_" + mode;
         }
-        // security_* a framework_* zustanou as-is (matchovany code v hw_registry)
-
-        // Phase 13.3 — 3-tier dispatch via /hw/{code}
         try {
           var r = await fetch("/api/v1/erp/hw/" + encodeURIComponent(code),
                               { credentials: "include", cache: "no-store" });
           if (r.ok) {
             var d = await r.json();
             if (d && d.ok) {
-              // A3 primary — rows direct v response
               if (Array.isArray(d.rows)) {
                 return d.rows;
               }
-              // hw_off / hw_audit / hw_compare — follow delegate_url
               if (d.delegate_url) {
                 var rd = await fetch(d.delegate_url,
                                      { credentials: "include", cache: "no-store" });
                 if (rd.ok) {
                   var dd = await rd.json();
-                  return dd.rows || dd.conversations || [];
+                  return dd.rows || dd.events || dd.conversations || [];  // +events
                 }
               }
             }
           }
-          // hw_registry doesn't have entry (404) → fall through to legacy
-        } catch (e) {
-          // network error → fall through
-        }
-
-        // Legacy hardcoded dispatch (fallback pro mody bez hw_registry entries)
+        } catch (e) { /* fall through */ }
         var url;
         if (mode.indexOf("security_") === 0) {
           url = "/api/v1/erp/system/security?mode=" + encodeURIComponent(mode.substring(9));
@@ -12023,7 +12019,7 @@ def _render_workspace_page(user_id: int) -> str:
           throw new Error("HTTP " + res.status + " from " + url);
         }
         var data = await res.json();
-        return data.rows || data.conversations || [];
+        return data.rows || data.events || data.conversations || [];  // +events
       }
       if (window._sysHelpers) {
         window._sysHelpers.gridColumns = gridColumns;

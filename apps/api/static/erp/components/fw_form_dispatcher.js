@@ -74,8 +74,11 @@
     // Resolve action_params s $resolver pattern + BC alias
     // ════════════════════════════════════════════════════════════════
     function _resolveFormArgs(actionParams, ctx) {
-      // DesignFwForm vyzaduje {coreCode, rowId} — auto-context defaults
+      // Phase 38.4 Krok 14g Etapa F Step C (16.5.2026, Marti's "ID je svaty"):
+      // DesignFwForm Step B accepts {coreId, rowId} (primary) OR {coreCode, rowId} (BC).
+      // Auto-context: pass BOTH (Step B prefer coreId, fallback coreCode).
       const formArgs = {
+        coreId: ctx.core_id || undefined,
         coreCode: ctx.core_code || undefined,
         rowId: 1, // default — DesignFwForm requires non-null row
       };
@@ -142,18 +145,20 @@
         return;
       }
 
-      // Validate required coreCode
-      if (!formArgs.coreCode) {
+      // Phase 38.4 Krok 14g Etapa F Step C: accept either coreId (primary) OR coreCode (BC)
+      if (!formArgs.coreId && !formArgs.coreCode) {
         alert(
           "Custom item '" + (cmiCode || "?") +
-          "': chybi coreCode.\n\n" +
-          "Pridejte 'coreCode' do action_params, napr:\n" +
-          '{"coreCode": "user_edit", "rowId": 1}\n\n' +
-          "(nebo pouzijte $core_code pokud uzel ma asociovany core.)"
+          "': chybi coreId nebo coreCode.\n\n" +
+          "Pridejte 'coreId' do action_params (preferred), napr:\n" +
+          '{"coreId": "$core_id", "rowId": 1}\n\n' +
+          "Nebo BC variant:\n" +
+          '{"coreCode": "$core_code", "rowId": 1}\n\n' +
+          "($core_id / $core_code resolvers picknou z DOM data-core-id / data-core-code)"
         );
         try {
           _logger.warn("fw_form_dispatcher.js",
-            "coreCode missing in action_params for cmi=" + cmiCode, {
+            "coreId AND coreCode missing in action_params for cmi=" + cmiCode, {
               extra: { formArgs: formArgs },
             });
         } catch (e) {}
@@ -161,12 +166,16 @@
       }
 
       // Open FW form (data-driven render z fw.core + fw.comp_def)
+      // Phase 38.4 Krok 14g Etapa F Step C: pass both coreId + coreCode.
+      // Step B constructor: prefer coreId, fallback coreCode (warns BC).
       let modal;
       try {
-        modal = new global.DesignFwForm({
-          coreCode: formArgs.coreCode,
+        const ctorOpts = {
           rowId: formArgs.rowId || 1,
-        });
+        };
+        if (formArgs.coreId) ctorOpts.coreId = formArgs.coreId;
+        if (formArgs.coreCode) ctorOpts.coreCode = formArgs.coreCode;
+        modal = new global.DesignFwForm(ctorOpts);
       } catch (e) {
         console.error("[fw_form_dispatcher] DesignFwForm constructor failed:", e);
         alert("Inicializace FW formu selhala: " + (e.message || e));

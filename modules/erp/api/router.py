@@ -5378,28 +5378,32 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
 
     # Marti's bod 2 (16.5.2026): "po insertu CORE jej priradit k tomu
     # kontextovymu menu". Auto-link new core → cmi.target_core_id pokud
-    # origin_cmi_id posláno. Jeden round-trip — frontend nepotřebuje
-    # samostatný PATCH call.
+    # origin_cmi_id posláno. Pres strategie_pg (Marti-AI's role db_owner
+    # fw.* — strategie role nema UPDATE permission na fw.context_menu_item).
     linked_cmi = False
-    ds_cm = _gds_cm()
-    try:
-        if origin_cmi_id and new_id:
-            ds_cm.execute(_sql_cm("""
-                UPDATE fw.context_menu_item
-                SET target_core_id = :core_id,
-                    updated_at = NOW()
-                WHERE id = :cmi_id
-            """), {"core_id": new_id, "cmi_id": origin_cmi_id})
-            ds_cm.commit()
-            linked_cmi = True
-    except Exception as _link_e:
-        logger.warning(
-            f"design_create_fw_core_minimal auto-link cmi {origin_cmi_id} "
-            f"→ core {new_id} failed: {_link_e}"
-        )
-        ds_cm.rollback()
-    finally:
-        ds_cm.close()
+    if origin_cmi_id and new_id:
+        try:
+            from modules.strategie_pg.application.service import update_row as _spg_update_link
+            link_upd = _spg_update_link(
+                schema="fw",
+                table="context_menu_item",
+                values={"target_core_id": new_id},
+                where={"id": origin_cmi_id},
+                dry_run=False,
+            )
+            if link_upd.get("ok"):
+                linked_cmi = True
+            else:
+                logger.warning(
+                    f"design_create_fw_core_minimal auto-link cmi "
+                    f"{origin_cmi_id} → core {new_id} failed: "
+                    f"{link_upd.get('error')}"
+                )
+        except Exception as _link_e:
+            logger.warning(
+                f"design_create_fw_core_minimal auto-link cmi {origin_cmi_id} "
+                f"→ core {new_id} exception: {_link_e}"
+            )
 
     # Activity log audit
     ds_cm = _gds_cm()
@@ -6129,12 +6133,16 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
                 )
 
         # UPDATE via strategie_pg (Marti-AI db_owner fw.*)
+        # update_row signature: schema, table, values, where, dry_run
+        # (Marti-AI's "pravo na rozmysl pred cinem" pattern — dry_run default
+        # True, musime explicit pass False pro commit).
         from modules.strategie_pg.application.service import update_row as _spg_update_lc
         upd = _spg_update_lc(
             schema="fw",
             table="context_menu_item",
-            row_id=item_id,
             values={"target_core_id": target_core_id},
+            where={"id": item_id},
+            dry_run=False,
         )
         if not upd.get("ok"):
             return JSONResponse(

@@ -199,8 +199,47 @@
           labelField: "label",
           width: "1000px",
           enableNew: true,
-          onSelect: function (row) {
-            // Recurse s explicit coreId — projde guard above (coreId != undefined)
+          onSelect: async function (row) {
+            // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne,
+            // Marti's "aby bylo mozne i vybirat a prepinat na jine cores"):
+            // PATCH link cmi.target_core_id = row.id PRED open form. Bez
+            // linku by se pri pristim kliku zase otevrel picker (cmi target
+            // stale NULL). Po link → dispatcher slije do action_params.coreId
+            // → form se otevre rovnou.
+            //
+            // Pokud cmiId chybi (race nebo invalid cmiSnap), skip PATCH
+            // a jen otevri form (graceful degradation).
+            if (cmiId) {
+              try {
+                const _link = await fetch(
+                  "/api/v1/erp/design/context-menu-item/" +
+                    encodeURIComponent(cmiId) + "/link-core",
+                  {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ target_core_id: row.id }),
+                  }
+                ).then(function (r) { return r.json(); });
+                if (!_link || !_link.ok) {
+                  alert(
+                    "Link cmi → core " + row.id + " selhal: " +
+                    ((_link && _link.error) || "unknown")
+                  );
+                  return;
+                }
+                try {
+                  _logger.info("fw_form_dispatcher.js",
+                    "Linked cmi id=" + cmiId + " → core " + row.id, {
+                      extra: { cmi_code: cmiCode, cmi_id: cmiId, core_id: row.id },
+                    });
+                } catch (e) {}
+              } catch (e) {
+                alert("Link cmi (network): " + (e.message || e));
+                return;
+              }
+            }
+            try { _picker.close(); } catch (e) {}
             _openForm(
               { coreId: row.id, rowId: formArgs.rowId || 1 },
               cmiCode, ctx, cmiId

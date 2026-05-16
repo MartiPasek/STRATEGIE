@@ -6063,6 +6063,130 @@ async def design_create_context_menu_item(req: Request) -> JSONResponse:
         ds.close()
 
 
+@api_router.patch("/design/context-menu-item/{item_id}/link-core")
+async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne, Marti's
+    "aby bylo mozne i vybirat a prepinat na jine cores"): link/unlink
+    fw.context_menu_item → fw.core pres target_core_id FK.
+
+    Body:
+        { "target_core_id": int | null }
+        - int  → SET target_core_id = <id> (link)
+        - null → SET target_core_id = NULL (unlink, drafted state)
+
+    Marti's flow:
+      Picker onSelect (existing core) → PATCH link
+      Picker onNew (drafted) → POST create-minimal (auto-link inline)
+      "Zrusit core asociaci" → PATCH unlink (target_core_id=null)
+
+    Returns: { ok, cmi: {id, target_core_id, ...} }
+    """
+    from core.database_data import get_data_session as _gds_lc
+    from sqlalchemy import text as _sql_lc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        body = {}
+
+    target_core_id = body.get("target_core_id")
+    if target_core_id is not None:
+        try:
+            target_core_id = int(target_core_id)
+        except (TypeError, ValueError):
+            return JSONResponse(
+                {"ok": False, "error": "target_core_id musi byt int nebo null"},
+                status_code=400,
+            )
+
+    ds = _gds_lc()
+    try:
+        # Verify cmi exists
+        existing = ds.execute(_sql_lc("""
+            SELECT id, code, label, target_core_id
+            FROM fw.context_menu_item
+            WHERE id = :id
+        """), {"id": item_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse(
+                {"ok": False, "error": f"context_menu_item id={item_id} neexistuje"},
+                status_code=404,
+            )
+
+        # If target_core_id IS NOT NULL, verify fw.core row exists
+        if target_core_id is not None:
+            core_check = ds.execute(_sql_lc("""
+                SELECT id, code, label FROM fw.core WHERE id = :id
+            """), {"id": target_core_id}).mappings().one_or_none()
+            if not core_check:
+                return JSONResponse(
+                    {"ok": False,
+                     "error": f"fw.core id={target_core_id} neexistuje (FK violation)"},
+                    status_code=400,
+                )
+
+        # UPDATE via strategie_pg (Marti-AI db_owner fw.*)
+        from modules.strategie_pg.application.service import update_row as _spg_update_lc
+        upd = _spg_update_lc(
+            schema="fw",
+            table="context_menu_item",
+            row_id=item_id,
+            values={"target_core_id": target_core_id},
+        )
+        if not upd.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": f"LINK failed: {upd.get('error')}"},
+                status_code=500,
+            )
+
+        # Activity log audit
+        try:
+            old_id = existing.get("target_core_id")
+            if target_core_id is None:
+                summary = (
+                    f"cmi id={item_id} ({existing.get('code')}) unlinked "
+                    f"(was core {old_id})"
+                )
+            else:
+                summary = (
+                    f"cmi id={item_id} ({existing.get('code')}) linked "
+                    f"to core {target_core_id} (was {old_id})"
+                )
+            ds.execute(_sql_lc("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor, summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_cmi_link_core', 'user',
+                   :summary, 'ui', NOW())
+            """), {"uid": uid, "summary": summary})
+            ds.commit()
+        except Exception as _ae:
+            logger.warning(f"design_link_context_menu_item_core activity_log failed: {_ae}")
+
+        # Fetch updated cmi row pro response
+        updated = ds.execute(_sql_lc("""
+            SELECT id, code, label, icon, action_kind, action_params,
+                   target_core_id, status
+            FROM fw.context_menu_item
+            WHERE id = :id
+        """), {"id": item_id}).mappings().one_or_none()
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "cmi": dict(updated) if updated else {},
+        }))
+    except Exception as exc:
+        logger.exception(f"design_link_context_menu_item_core failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"Link failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/context-menu-item/{item_id}/archive")
 async def design_archive_context_menu_item(item_id: int, req: Request) -> JSONResponse:
     """Archive fw.context_menu_item row (soft delete, status='archived')."""

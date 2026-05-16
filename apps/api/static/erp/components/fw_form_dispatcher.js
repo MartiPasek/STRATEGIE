@@ -167,7 +167,7 @@
           code: "list_root",
           icon: "📊",
           title: "Přehled (list view)",
-          desc: "List s toolbar + filter + status barem. „Rozlezlý" — prvky mimo hlavní okno. Hlavní use case pro pravou stranu stromu.",
+          desc: "List s toolbar + filter + status barem. „Rozlezlý“ — prvky mimo hlavní okno. Hlavní use case pro pravou stranu stromu.",
           accent: "#a8c5dc",
         },
       ];

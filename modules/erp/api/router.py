@@ -14797,4 +14797,1265 @@ def _render_workspace_page(user_id: int) -> str:
                             };
                             // Apply action_params s $resolvers
                             const ap = cmiSnap.action_params || {};
-                 
+                            for (const [key, val] of Object.entries(ap)) {
+                              // BC alias z Etapy 2: form_core_code → coreCode
+                              const targetKey = (key === "form_core_code")
+                                ? "coreCode" : key;
+                              if (typeof val === "string" && val.startsWith("$")) {
+                                // Dynamic: resolve $sourceField → ctx[sourceField]
+                                const sourceKey = val.substring(1);
+                                if (ctx.hasOwnProperty(sourceKey)) {
+                                  formArgs[targetKey] = ctx[sourceKey];
+                                } else {
+                                  console.warn(
+                                    "[contextmenu] unknown source '" + val +
+                                    "' v action_params['" + key + "'] — " +
+                                    "dostupne: " + Object.keys(ctx).join(", ")
+                                  );
+                                  formArgs[targetKey] = null;
+                                }
+                              } else {
+                                formArgs[targetKey] = val;
+                              }
+                            }
+                            // Diag log (Marti's "design view" — co bude open)
+                            if (window._erpDesignMode === true) {
+                              console.info(
+                                "[contextmenu dispatch] action_params:", ap,
+                                "ctx:", ctx,
+                                "resolved formArgs:", formArgs
+                              );
+                            }
+                            try {
+                              new window.DesignSoudecekCoreForm(formArgs).open();
+                            } catch (e) {
+                              console.error("[contextmenu] open_fw_form failed:", e);
+                              alert("Otevreni formu selhalo: " + (e.message || e));
+                            }
+                          } else {
+                            alert(
+                              "Custom menu item '" + cmiSnap.code +
+                              "' ma action_kind='" + cmiSnap.action_kind +
+                              "' — neimplementovany dispatcher."
+                            );
+                          }
+                        };
+                      })(cmi),
+                    });
+                  }
+                }
+              }
+            } catch (e) {
+              console.warn("[contextmenu] DB items fetch failed:", e);
+            }
+          }
+
+          _showTreeContextMenu(ev.clientX, ev.clientY, menuItems);
+        });
+
+        // Klik na ★ ikonu = quick unpin (bez context menu)
+        treeRoot.addEventListener("click", (ev) => {
+          const star = ev.target.closest(".erp-tree-star");
+          if (!star) return;
+          ev.stopPropagation();
+          const item = star.closest(".erp-tree-item");
+          if (!item) return;
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (cislo) toggleTreeFavorite(cislo);
+        });
+      }
+      _attachTreePinHandlers();
+
+      // Esc kdekoli — zavři context menu + clear selection
+      document.addEventListener("keydown", (ev) => {
+        if (ev.key === "Escape") {
+          _closeTreeContextMenu();
+          // Pozn.: search Esc už handler clear input — to nesahá.
+          // Tree selection clear jen pokud focus není v inputu
+          const tag = ev.target && ev.target.tagName;
+          if (tag !== "INPUT" && tag !== "TEXTAREA") {
+            _clearTreeSelection();
+          }
+        }
+      });
+
+      // ── B+8.2a+++ (6.5.2026): drag-and-drop reorder uvnitř skupin ──
+      // Marti spec: "Poradi jednotlivych polozek per user ve vsech i v
+      // oblibenych... Drag and drop... POZOR jen v ramci skupin, aby se
+      // nestalo jako ve Windows, ze nekdo pretahne skupinu, nebo polozku
+      // skupiny do jine skupiny..."
+      const TREE_ORDER_KEY = "erp.tree.order.v1";
+      let _dragSourceItem = null;
+
+      function _loadTreeOrderMap() {
+        try { return JSON.parse(localStorage.getItem(TREE_ORDER_KEY) || "{}"); }
+        catch (e) { return {}; }
+      }
+      function _saveTreeOrderMap(map) {
+        try { localStorage.setItem(TREE_ORDER_KEY, JSON.stringify(map)); }
+        catch (e) {}
+      }
+      function _ulGroupKey(ul) {
+        // Identifier skupiny — parent .erp-tree-item.data-id, nebo "ROOT"
+        if (!ul) return "ROOT";
+        const childrenWrap = ul.parentElement;
+        const parentItem = childrenWrap && childrenWrap.classList.contains("erp-tree-children")
+          ? childrenWrap.parentElement
+          : null;
+        if (parentItem && parentItem.classList.contains("erp-tree-item")) {
+          return parentItem.getAttribute("data-id") || "ROOT";
+        }
+        return "ROOT";
+      }
+      function _saveTreeOrderForUl(ul) {
+        if (!ul) return;
+        const key = _ulGroupKey(ul);
+        const order = Array.from(ul.children)
+          .filter(li => li.classList.contains("erp-tree-item"))
+          .map(li => li.getAttribute("data-id"))
+          .filter(id => id != null);
+        const map = _loadTreeOrderMap();
+        map[key] = order;
+        _saveTreeOrderMap(map);
+        // B+8.1c: API sync (fire-and-forget)
+        _apiCall("PUT", "/api/v1/erp/tree-order", {
+          group_key: key, order: order
+        });
+      }
+      function _applyTreeOrderFromStorage() {
+        if (!treeRoot) return;
+        const map = _loadTreeOrderMap();
+        if (!map || Object.keys(map).length === 0) return;
+        treeRoot.querySelectorAll("ul.erp-tree-list").forEach(ul => {
+          const key = _ulGroupKey(ul);
+          const order = map[key];
+          if (!order || order.length === 0) return;
+          const items = Array.from(ul.children).filter(li =>
+            li.classList.contains("erp-tree-item")
+          );
+          const itemMap = new Map(items.map(li => [li.getAttribute("data-id"), li]));
+          // Reorder: nejdřív known IDs v saved order, pak unknown (nové) na konci
+          const seen = new Set();
+          order.forEach(id => {
+            if (itemMap.has(id)) {
+              ul.appendChild(itemMap.get(id));
+              seen.add(id);
+            }
+          });
+          items.forEach(li => {
+            const id = li.getAttribute("data-id");
+            if (!seen.has(id)) ul.appendChild(li);
+          });
+        });
+      }
+      function _attachTreeDragHandlers() {
+        if (!treeRoot) return;
+        // B+8.2a++++ (6.5.2026): drag na VŠECH tree rows (leaves + folders).
+        // Marti's UX: "v oblibenych mam dve skupiny a nemohu aktivovat drag
+        // ani u jedny, abych je mezi sebou prohodil". HTML5 drag a click jsou
+        // separate eventy — folder click (mousedown+up bez move) = expand,
+        // folder drag (mousedown+move+drop) = reorder. Žádný konflikt.
+        //
+        // Phase 38.4 Krok 14g-H+4 (15.5.2026 dopo, Marti's "v design mode
+        // zcela ignorovat immutable"): gate WHOLE row-level drag setup na
+        // PROD mode only. V DESIGN mode lefttree.js li-level cross-parent
+        // drag je primary (parent_id PATCH na libovolne misto, vc. Root).
+        // V PROD mode row-level drag drzi same-group reorder pro Oblibene.
+        // Bez gate: nested draggable konflikt (row > li) — browser preferuje
+        // innermost = row, ktery same-group check blokoval cross-tree drop.
+        const designMode = (typeof window !== "undefined" && window._erpDesignMode === true);
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (!row) return;
+          if (designMode) {
+            // DESIGN: nech lefttree.js li-level drag vest. Remove existing
+            // row.draggable (idempotent — re-attach after mode flip).
+            row.removeAttribute("draggable");
+            return;
+          }
+          // PROD: same-group reorder pro Oblibene.
+          row.setAttribute("draggable", "true");
+        });
+
+        // Single set listenerů na treeRoot (delegation)
+        if (treeRoot._dragWired) return;
+        treeRoot._dragWired = true;
+
+        treeRoot.addEventListener("dragstart", (ev) => {
+          // Phase 38.4 Krok 14g-H+4 (15.5.2026): DESIGN mode → skip.
+          // Lefttree.js capture-phase li.dragstart handler je primary
+          // (cross-parent move pres parent_id PATCH). Tento bubble-phase
+          // delegate je jen pro PROD same-group reorder.
+          if (typeof window !== "undefined" && window._erpDesignMode === true) {
+            return;
+          }
+          // MRU view — drag disabled (auto-sort by timestamp)
+          if (treeViewMode === "recent") {
+            ev.preventDefault();
+            return;
+          }
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) { ev.preventDefault(); return; }
+          const item = row.closest(".erp-tree-item");
+          if (!item) { ev.preventDefault(); return; }
+          _dragSourceItem = item;
+          item.classList.add("erp-tree-dragging");
+          try {
+            ev.dataTransfer.effectAllowed = "move";
+            ev.dataTransfer.setData("text/plain", item.getAttribute("data-id") || "");
+          } catch (e) {}
+        });
+
+        treeRoot.addEventListener("dragover", (ev) => {
+          if (!_dragSourceItem) return;
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) return;
+          const item = row.closest(".erp-tree-item");
+          if (!item || item === _dragSourceItem) return;
+          // Same group check — parent UL musí být totožný
+          const sourceUl = _dragSourceItem.parentElement;
+          const targetUl = item.parentElement;
+          if (sourceUl !== targetUl) {
+            ev.dataTransfer.dropEffect = "none";
+            return;
+          }
+          // Allow drop
+          ev.preventDefault();
+          ev.dataTransfer.dropEffect = "move";
+          // Visual: line above (insert before) nebo below (insert after)
+          treeRoot.querySelectorAll(
+            ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+          ).forEach(r => {
+            r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+          });
+          const rect = row.getBoundingClientRect();
+          const isAbove = ev.clientY < (rect.top + rect.height / 2);
+          row.classList.add(
+            isAbove ? "erp-tree-drag-over-before" : "erp-tree-drag-over-after"
+          );
+        });
+
+        treeRoot.addEventListener("dragleave", (ev) => {
+          // Pokud opustíme úplně tree, vyčisti indikátory
+          if (!treeRoot.contains(ev.relatedTarget)) {
+            treeRoot.querySelectorAll(
+              ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+            ).forEach(r => {
+              r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+            });
+          }
+        });
+
+        treeRoot.addEventListener("drop", (ev) => {
+          if (!_dragSourceItem) return;
+          const row = ev.target.closest(".erp-tree-row");
+          if (!row) return;
+          const targetItem = row.closest(".erp-tree-item");
+          if (!targetItem || targetItem === _dragSourceItem) return;
+          const sourceUl = _dragSourceItem.parentElement;
+          const targetUl = targetItem.parentElement;
+          if (sourceUl !== targetUl) return;
+          ev.preventDefault();
+
+          const rect = row.getBoundingClientRect();
+          const isAbove = ev.clientY < (rect.top + rect.height / 2);
+          if (isAbove) {
+            targetUl.insertBefore(_dragSourceItem, targetItem);
+          } else {
+            targetUl.insertBefore(_dragSourceItem, targetItem.nextSibling);
+          }
+          // Persist order pro tuto skupinu
+          _saveTreeOrderForUl(targetUl);
+        });
+
+        treeRoot.addEventListener("dragend", () => {
+          if (_dragSourceItem) {
+            _dragSourceItem.classList.remove("erp-tree-dragging");
+          }
+          _dragSourceItem = null;
+          treeRoot.querySelectorAll(
+            ".erp-tree-drag-over-before, .erp-tree-drag-over-after"
+          ).forEach(r => {
+            r.classList.remove("erp-tree-drag-over-before", "erp-tree-drag-over-after");
+          });
+        });
+      }
+
+      // Po každém renderTreeNodes inject ★ ikony pro pinned items
+      function _markPinnedTreeRows() {
+        if (!treeRoot) return;
+        const favSet = new Set(loadTreeFavorites());
+        treeRoot.querySelectorAll(".erp-tree-item").forEach(item => {
+          const cislo = parseInt(item.getAttribute("data-cislo-def") || "0", 10);
+          if (!cislo) return;
+          const row = item.querySelector(":scope > .erp-tree-row");
+          if (!row) return;
+          if (favSet.has(cislo)) {
+            row.classList.add("erp-tree-pinned");
+            // Inject ★ ikona pokud chybí
+            if (!row.querySelector(".erp-tree-star")) {
+              const star = document.createElement("span");
+              star.className = "erp-tree-star";
+              star.textContent = "★";
+              star.title = "Odepnout (klik) nebo pravý-klik";
+              row.appendChild(star);
+            }
+          } else {
+            row.classList.remove("erp-tree-pinned");
+          }
+        });
+      }
+      // (Phase B+6.11e: _origAttachTreeHandlers wrapper byl odstraněn —
+      //  post-render setup (favorites + drag-drop + view filter + footer
+      //  buttons) byl přesunut do loadTree() success path. Subclass
+      //  ErpLeftPanelTree je sole owner click handlerů.)
+
+      // ── B+8 (6.5.2026): Multi-tab přehled state + UI ───────────────
+      // MVP localStorage. Phase B+8.1 přepne na backend persistence
+      // (per user, per tenant — Marti's spec — endpoint /api/v1/erp/tabs).
+      const TABS_STATE_KEY = "erp.tabs.state.v1";
+      const tabsBarEl = document.getElementById("erpTabsBar");
+      const tabsState = {
+        tabs: [],            // [{cislo, itemId, label, data, gridState}]
+        activeIndex: -1,
+      };
+
+      // ════════════════════════════════════════════════════════════════
+      // Phase 38.5 (9.5.2026 vecer): ErpRefresh — refresh ikona v hlavicce
+      // s per-tab freshness tracking. Marti's UX: aby user pochopil ze
+      // data jsou stara (orange tint po 5 min, pulse po 15 min). Klik
+      // refreshne aktivni tab grid (ne tree, ne sidebar).
+      // ════════════════════════════════════════════════════════════════
+      const ErpRefresh = {
+        // Map<cisloStr, fetchedAtMs> — per-tab freshness timestamps
+        _gridFreshness: new Map(),
+        // Phase 38.5+ (10.5.2026 vecer Marti's debugging): TEST values
+        // 60s/90s/10s pro odladění detection logic. Po smoke vrátit na
+        // 5min / 15min / 30s (production values).
+        STALE_AT_MS: 60 * 1000,            // TEST 60s → orange (prod: 5*60*1000)
+        VERY_STALE_AT_MS: 90 * 1000,       // TEST 90s → pulse  (prod: 15*60*1000)
+        POLL_INTERVAL_MS: 10 * 1000,       // TEST 10s polling  (prod: 30*1000)
+
+        // Volat po uspesnem fetchi (v _loadTabData po `tab.data = data`)
+        markFresh(cislo) {
+          if (cislo == null) return;
+          this._gridFreshness.set(String(cislo), Date.now());
+          this._updateButton();
+        },
+
+        // Volat po close tabu (cleanup)
+        forget(cislo) {
+          if (cislo == null) return;
+          this._gridFreshness.delete(String(cislo));
+        },
+
+        // Aktualizovat barvu/tooltip ikony podle aktivniho tabu.
+        // Volat: po switchTab, po markFresh, polling timer.
+        _updateButton() {
+          const btn = document.getElementById('erpRefreshBtn');
+          if (!btn) return;
+          const activeCislo = this._getActiveTabCislo();
+          if (activeCislo == null) {
+            btn.classList.remove('stale', 'very-stale');
+            btn.disabled = true;
+            btn.setAttribute('data-hint', 'Žádný aktivní přehled');
+            return;
+          }
+          btn.disabled = false;
+          const fetchedAt = this._gridFreshness.get(String(activeCislo));
+          if (!fetchedAt) {
+            btn.classList.remove('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Obnovit data v aktivním přehledu');
+            return;
+          }
+          const ageMs = Date.now() - fetchedAt;
+          const ageMin = Math.floor(ageMs / 60000);
+          const ageStr = ageMin < 1 ? '<1 min' : (ageMin + ' min');
+          if (ageMs >= this.VERY_STALE_AT_MS) {
+            btn.classList.add('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Data jsou stará ' + ageStr + ' — klikni pro obnovení');
+          } else if (ageMs >= this.STALE_AT_MS) {
+            btn.classList.add('stale');
+            btn.classList.remove('very-stale');
+            btn.setAttribute('data-hint', 'Data jsou stará ' + ageStr + ' — klikni pro obnovení');
+          } else {
+            btn.classList.remove('stale', 'very-stale');
+            btn.setAttribute('data-hint', 'Data fresh (' + ageStr + '). Klikni pro manuální refresh.');
+          }
+        },
+
+        _getActiveTabCislo() {
+          if (typeof tabsState === 'undefined' || tabsState.activeIndex < 0) return null;
+          const tab = tabsState.tabs[tabsState.activeIndex];
+          return tab ? tab.cislo : null;
+        },
+
+        // Klik handler — clear cached data + re-call _loadTabData.
+        async refresh() {
+          const cislo = this._getActiveTabCislo();
+          if (cislo == null) return;
+          const tab = tabsState.tabs[tabsState.activeIndex];
+          if (!tab) return;
+          const btn = document.getElementById('erpRefreshBtn');
+          if (btn) btn.classList.add('spinning');
+          try {
+            // Clear cached data → _loadTabData fetchne znovu
+            tab.data = null;
+            if (typeof _loadTabData === 'function') {
+              await _loadTabData(tab);
+            } else {
+              // Fallback: full page reload
+              window.location.reload();
+            }
+          } finally {
+            if (btn) btn.classList.remove('spinning');
+          }
+        },
+
+        init() {
+          const btn = document.getElementById('erpRefreshBtn');
+          if (!btn) return;
+          btn.addEventListener('click', () => this.refresh());
+          // Polling timer pro update barvy aktivniho tabu (kazdych 30s
+          // prepocita stari).
+          setInterval(() => this._updateButton(), this.POLL_INTERVAL_MS);
+          this._updateButton();
+        }
+      };
+      // Init po DOMContentLoaded (button musi existovat)
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => ErpRefresh.init());
+      } else {
+        ErpRefresh.init();
+      }
+      window.ErpRefresh = ErpRefresh;  // expose pro debugging
+
+      // ════════════════════════════════════════════════════════════════
+      // Phase 38.5+ (10.5.2026 rano): Install button pro non-technical
+      // users. Marti's spec: 10 koleginim technicky unfriendly. ZIP +
+      // PowerShell + admin rights je out — potrebujeme "klik a hotovo".
+      //
+      // Chrome's "beforeinstallprompt" event fired kdyz PWA detection
+      // success (manifest valid + sw.js + HTTPS + ne uz installed).
+      // Zachyt event, ulozi pro lazy trigger pri user click.
+      // ════════════════════════════════════════════════════════════════
+      let _deferredInstallPrompt = null;
+      window.addEventListener('beforeinstallprompt', (ev) => {
+        // Prevent default mini-infobar (Chrome desktop default UI)
+        ev.preventDefault();
+        _deferredInstallPrompt = ev;
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'inline-flex';
+        console.log('[install] beforeinstallprompt captured — button shown');
+      });
+      const _installBtn = document.getElementById('erpInstallBtn');
+      if (_installBtn) {
+        _installBtn.addEventListener('click', async () => {
+          if (!_deferredInstallPrompt) {
+            // Fallback: ukaz user kde ma manualne kliknout
+            alert(
+              "Pro instalaci klikni na 3 tečky vpravo nahoře v Chrome → " +
+              "'Nainstalovat STRATEGIE ERP'.\\n\\n" +
+              "Pokud možnost nevidíš, zkus reload stránky."
+            );
+            return;
+          }
+          try {
+            _deferredInstallPrompt.prompt();
+            const { outcome } = await _deferredInstallPrompt.userChoice;
+            console.log('[install] user choice:', outcome);
+            if (outcome === 'accepted') {
+              _installBtn.style.display = 'none';
+            }
+          } catch (e) {
+            console.error('[install] prompt failed:', e);
+          }
+          _deferredInstallPrompt = null;
+        });
+      }
+      // Hide install button kdyz uz je nainstalovany (post-install event)
+      window.addEventListener('appinstalled', () => {
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'none';
+        console.log('[install] appinstalled event — button hidden');
+      });
+      // Hide install button v PWA standalone mode (uz nainstalovany)
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        const btn = document.getElementById('erpInstallBtn');
+        if (btn) btn.style.display = 'none';
+      }
+
+      function loadTabsState() {
+        try {
+          const s = localStorage.getItem(TABS_STATE_KEY);
+          if (!s) return null;
+          const parsed = JSON.parse(s);
+          if (!parsed || !Array.isArray(parsed.tabs)) return null;
+          return parsed;
+        } catch (e) { return null; }
+      }
+      function saveTabsState() {
+        try {
+          // Persistuj jen lehkou meta — ne data ani gridState (ty se znovu fetchnou).
+          // 11.5. fix: ukládat i pinned + lastAccessedAt aby LRU + pin přežily reload.
+          const persist = {
+            tabs: tabsState.tabs.map(t => ({
+              cislo: t.cislo,
+              itemId: t.itemId,
+              label: t.label,
+              pinned: t.pinned === true,
+              lastAccessedAt: typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : 0,
+            })),
+            activeIndex: tabsState.activeIndex,
+          };
+          localStorage.setItem(TABS_STATE_KEY, JSON.stringify(persist));
+        } catch (e) {}
+      }
+
+      function _findTabIndex(cislo) {
+        return tabsState.tabs.findIndex(t => t.cislo === cislo);
+      }
+
+      // B+8++ (6.5.2026): scroll active tree row do středu TreeRoot containeru.
+      // Marti's UX feedback: scrollIntoView nedosáhl protože element byl
+      // mimo viewport scroll containeru. Manuální compute relative offset.
+      function _scrollTreeRowIntoCenter(row) {
+        if (!row || !treeRoot) return;
+        try {
+          const rowRect = row.getBoundingClientRect();
+          const containerRect = treeRoot.getBoundingClientRect();
+          // Row offset uvnitř scroll containeru
+          const rowTopInContainer = rowRect.top - containerRect.top + treeRoot.scrollTop;
+          // Cílový scroll = row top - half container + half row (= centered)
+          const targetScroll = rowTopInContainer
+            - (containerRect.height / 2)
+            + (rowRect.height / 2);
+          treeRoot.scrollTo({
+            top: Math.max(0, targetScroll),
+            behavior: "smooth",
+          });
+        } catch (e) {
+          // Fallback — alespoň scrollIntoView
+          try { row.scrollIntoView({ block: "center" }); } catch (e2) {}
+        }
+      }
+
+      async function openTab(cislo, item) {
+        const idx = _findTabIndex(cislo);
+        // B+8.2a: track recent (i pokud tab už existuje — recency = move to top)
+        const itemId = item ? item.getAttribute("data-id") : null;
+        const labelEl = item ? item.querySelector(":scope > .erp-tree-row > .erp-tree-label") : null;
+        const labelText = (labelEl && (labelEl.dataset.erpOrigText || labelEl.textContent))
+          || ("Přehled #" + cislo);
+        try { trackTreeRecent(cislo, labelText); } catch (e) {}
+        if (idx >= 0) {
+          await switchTab(idx);
+          return;
+        }
+        // Nový tab
+        const tab = {
+          cislo: cislo,
+          itemId: itemId,
+          label: labelText,
+          data: null,
+          gridState: null,
+          pinned: false,
+          lastAccessedAt: Date.now(),
+        };
+        tabsState.tabs.push(tab);
+        // Phase 38.4 (11.5.2026 vecer): LRU eviction po push (pred persist)
+        _evictOldestTab();
+        // B+8.1c: API persist new tab — AWAIT aby následný switchTab
+        // (POST /tabs/{cislo}/active) nezávodil s create. Pokud network
+        // fail, _apiCall vrátí null bez throw → switchTab pokračuje.
+        await _apiCall("POST", "/api/v1/erp/tabs", {
+          cislo: cislo,
+          label: labelText,
+          item_id: itemId,
+        });
+        await switchTab(tabsState.tabs.length - 1);
+      }
+
+      async function switchTab(idx) {
+        if (idx < 0 || idx >= tabsState.tabs.length) return;
+        // Save current grid state před switch
+        if (tabsState.activeIndex >= 0 && tabsState.activeIndex < tabsState.tabs.length) {
+          const cur = tabsState.tabs[tabsState.activeIndex];
+          if (cur && activeErpDataGrid && activeErpDataGrid.gridApi) {
+            try {
+              cur.gridState = {
+                columnState: activeErpDataGrid.gridApi.getColumnState(),
+                filterModel: activeErpDataGrid.gridApi.getFilterModel(),
+              };
+            } catch (e) {}
+          }
+        }
+        tabsState.activeIndex = idx;
+        // Phase 38.4 (11.5.2026 vecer): track lastAccessedAt pro LRU eviction
+        if (tabsState.tabs[idx]) {
+          tabsState.tabs[idx].lastAccessedAt = Date.now();
+        }
+        renderTabsBar();
+        const tab = tabsState.tabs[idx];
+        // B+8.1c: API persist active tab (fire-and-forget)
+        _apiCall("POST", "/api/v1/erp/tabs/" + tab.cislo + "/active");
+        // B+10+++ (6.5.2026 Marti's drobnost): document.title + UI header
+        // brand row "STRATEGIE · <přehled>" — synchronizováno s tab.
+        // B+10++++ (po návratu): | → · (sjednocený separator s footerem).
+        const _tabLabel = tab.label || ("Přehled #" + tab.cislo);
+        try { document.title = "STRATEGIE · " + _tabLabel; } catch (e) {}
+        try {
+          const _hdrSep = document.getElementById("erpHeaderSep");
+          const _hdrPre = document.getElementById("erpHeaderPrehled");
+          if (_hdrSep) _hdrSep.removeAttribute("hidden");
+          if (_hdrPre) _hdrPre.textContent = _tabLabel;
+        } catch (e) {}
+        // Sync tree active state — highlight + expand ancestors + scroll
+        // (Marti's UX 6.5.2026: pri prepinani zalozek automaticky vyhledat
+        // a oznacit v levem panelu prislusnou vetu).
+        if (tab.itemId) {
+          treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+          let treeItem = treeRoot.querySelector('.erp-tree-item[data-id="' + tab.itemId + '"]');
+          // Fallback: pokud item nenajdeme přes itemId, zkus přes cislo_def
+          if (!treeItem) {
+            treeItem = treeRoot.querySelector(
+              '.erp-tree-item[data-cislo-def="' + tab.cislo + '"]'
+            );
+          }
+          if (treeItem) {
+            const row = treeItem.querySelector(":scope > .erp-tree-row");
+            if (row) row.classList.add("active");
+            saveActive(String(tab.cislo));
+            // Expand všechny parent containers aby active row byl visible
+            expandAncestors(treeItem);
+            // Scroll do středu viewport TreeRoot containeru — manuálně,
+            // protože scrollIntoView({block:"nearest"}) nescrolluje pokud
+            // je element úplně skrytý mimo scroll container.
+            // Delay 80ms aby expand měl čas vykreslit (DOM layout pass).
+            setTimeout(() => _scrollTreeRowIntoCenter(row), 80);
+          }
+        }
+        saveTabsState();
+        // Load data + render
+        if (!tab.data) {
+          await _loadTabData(tab);
+        } else {
+          _renderTabIntoMain(tab);
+        }
+        // Phase 38.5: po switch tabu (load nebo cached) prepocitat refresh
+        // ikonu — novy aktivni tab moze mit jine stari dat.
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh._updateButton();
+      }
+
+      function closeTab(idx) {
+        if (idx < 0 || idx >= tabsState.tabs.length) return;
+        const closedCislo = tabsState.tabs[idx].cislo;
+        tabsState.tabs.splice(idx, 1);
+        // B+8.1c: API persist tab close (fire-and-forget)
+        _apiCall("DELETE", "/api/v1/erp/tabs/" + closedCislo);
+        // Phase 38.5: cleanup freshness tracking pro zavreny tab
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh.forget(closedCislo);
+        if (tabsState.tabs.length === 0) {
+          tabsState.activeIndex = -1;
+          // Cleanup grid + reset main content
+          if (activeErpDataGrid) {
+            try { activeErpDataGrid.destroy(); } catch (e) {}
+            activeErpDataGrid = null;
+          }
+          mainContent.innerHTML =
+            '<div class="erp-main-placeholder">' +
+            '<h2>Vyber přehled ze stromu vlevo</h2>' +
+            '<p>Klikni na uzel pro otevření přehledu jako záložka.</p>' +
+            '</div>';
+          treeRoot.querySelectorAll(".erp-tree-row.active").forEach(r => r.classList.remove("active"));
+          saveActive("");
+          renderTabsBar();
+          saveTabsState();
+          // B+10+++ (6.5.2026 Marti's drobnost): reset title + UI header
+          // bez tab suffixu když všechny taby zavřené.
+          try { document.title = "STRATEGIE"; } catch (e) {}
+          try {
+            const _hdrSep = document.getElementById("erpHeaderSep");
+            const _hdrPre = document.getElementById("erpHeaderPrehled");
+            if (_hdrSep) _hdrSep.setAttribute("hidden", "");
+            if (_hdrPre) _hdrPre.textContent = "";
+          } catch (e) {}
+          return;
+        }
+        // Auto-switch — pokud se zavřel aktivní, jdi na předchozí (nebo první)
+        if (idx <= tabsState.activeIndex) {
+          tabsState.activeIndex = Math.max(0, tabsState.activeIndex - 1);
+        }
+        renderTabsBar();
+        saveTabsState();
+        switchTab(tabsState.activeIndex);
+      }
+
+      // Phase 38.4 (11.5.2026 vecer): MAX_TABS LRU eviction cap.
+      // Pokud bys mel vic, openTab() automaticky zavre nejstarsi
+      // unpinned tab (LRU). User vidi vzdy nejpouzivanejsich N tabu.
+      const MAX_TABS_VISIBLE = 10;
+
+      function renderTabsBar() {
+        if (!tabsBarEl) return;
+        if (tabsState.tabs.length === 0) {
+          tabsBarEl.setAttribute("hidden", "");
+          tabsBarEl.innerHTML = "";
+          return;
+        }
+        tabsBarEl.removeAttribute("hidden");
+        let html = "";
+        // Phase 38.4 (11.5.2026 vecer): Close-all-except-active button VLEVO.
+        // Marti's spec: nahrada za stary "+" button, ten zmizel — user otevira
+        // nove pres tree click (existing flow). 11.5. revize: normalni × misto ⊗
+        // (Marti's UX feedback).
+        html += '<button type="button" class="erp-tab-close-all" id="erpTabCloseAll" ' +
+                'title="Zavřít všechny záložky kromě aktivní">×</button>';
+        tabsState.tabs.forEach((t, i) => {
+          const active = (i === tabsState.activeIndex);
+          const pinned = (t.pinned === true);
+          // 11.5. revize: žádný pinned styling na celé záložce (Marti's UX
+          // feedback). Místo toho close ikona vpravo: × pro běžné, 📌 pro pinned.
+          // Right-click toggle pin <=> close (pinned tab close icon = 📌 disabled).
+          html += '<div class="erp-tab' + (active ? ' active' : '') +
+                  '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) +
+                  (pinned ? ' (📌 připnutá — pravý klik pro odepnutí)' : '') + '">';
+          html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
+          const closeChar = pinned ? '📌' : '×';
+          const closeTitle = pinned
+            ? 'Připnutá záložka (pravý klik pro odepnutí)'
+            : 'Zavřít záložku';
+          html += '<button type="button" class="erp-tab-close' +
+                  (pinned ? ' pinned' : '') +
+                  '" data-tab-close="' + i +
+                  '" title="' + closeTitle + '">' + closeChar + '</button>';
+          html += '</div>';
+        });
+        tabsBarEl.innerHTML = html;
+        // Event delegation — click switch + close × + close-all + right-click pin
+        tabsBarEl.querySelectorAll(".erp-tab").forEach(el => {
+          el.addEventListener("click", (ev) => {
+            if (ev.target.classList.contains("erp-tab-close")) return;
+            const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
+            if (!isNaN(idx)) switchTab(idx);
+          });
+          // Right-click toggle pin — Phase 38.4 (11.5.2026 vecer) write-through DB.
+          el.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault();
+            const idx = parseInt(el.getAttribute("data-tab-idx"), 10);
+            if (isNaN(idx)) return;
+            const tab = tabsState.tabs[idx];
+            if (!tab) return;
+            tab.pinned = !tab.pinned;
+            // Pinned tabs sort to left (pinned by access order, unpinned by access order)
+            const targetTab = tab;
+            tabsState.tabs.sort((a, b) => {
+              if ((a.pinned || false) !== (b.pinned || false)) return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+              return (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0);
+            });
+            // Re-find active index after sort
+            const newActiveIdx = tabsState.tabs.indexOf(targetTab);
+            tabsState.activeIndex = newActiveIdx >= 0 ? newActiveIdx : 0;
+            saveTabsState();
+            renderTabsBar();
+            // 11.5. write-through DB — pin status musí přežít F5 reload.
+            // Fire-and-forget (frontend už updatnul, server jen audit).
+            _apiCall("POST", "/api/v1/erp/tabs/" + encodeURIComponent(targetTab.cislo) + "/pinned",
+                     { pinned: targetTab.pinned });
+          });
+        });
+        tabsBarEl.querySelectorAll(".erp-tab-close").forEach(el => {
+          el.addEventListener("click", (ev) => {
+            ev.stopPropagation();
+            // 11.5. revize: pinned tab → close icon je 📌 (no-op na klik),
+            // jen right-click ho odepne. User must unpin first to close.
+            if (el.classList.contains("pinned")) return;
+            const idx = parseInt(el.getAttribute("data-tab-close"), 10);
+            if (!isNaN(idx)) closeTab(idx);
+          });
+        });
+        const closeAllBtn = document.getElementById("erpTabCloseAll");
+        if (closeAllBtn) {
+          closeAllBtn.addEventListener("click", () => {
+            // Zavrit vse krome aktivni (pinned zustanou) — Marti's mandate
+            const activeTab = tabsState.tabs[tabsState.activeIndex];
+            if (!activeTab) return;
+            const survivors = tabsState.tabs.filter(t => t === activeTab || t.pinned === true);
+            // Issue DELETE per tab being closed (backend persistence)
+            tabsState.tabs.forEach(t => {
+              if (!survivors.includes(t)) {
+                try {
+                  fetch("/api/v1/erp/tabs/" + encodeURIComponent(t.cislo), {
+                    method: "DELETE", credentials: "include"
+                  });
+                } catch (e) {}
+                try { ErpRefresh.forget(t.cislo); } catch (e) {}
+              }
+            });
+            tabsState.tabs = survivors;
+            tabsState.activeIndex = survivors.indexOf(activeTab);
+            saveTabsState();
+            renderTabsBar();
+          });
+        }
+        // 11.5. fix #4: dynamic overflow eviction po každém render.
+        // Pokud taby přetékají scrollbar (scrollWidth > clientWidth),
+        // evikuj nejstarší unpinned non-active dokud se zarovnají.
+        // Guards proti infinite loop uvnitř _scheduleOverflowEviction.
+        _scheduleOverflowEviction();
+      }
+
+      // Phase 38.4 (11.5.2026 vecer): dynamic overflow eviction — po
+      // každém renderTabsBar kontrolujeme jestli se taby vejdou do bar
+      // šířky. Pokud scrollWidth > clientWidth → eviktujeme nejstarší
+      // unpinned non-active dokud se nezarovnají, nebo dokud nezbude jen
+      // pinned + active (failsafe). Volá se přes requestAnimationFrame
+      // aby DOM layout byl už spočítaný.
+      let _overflowEvictionScheduled = false;
+      function _scheduleOverflowEviction() {
+        if (_overflowEvictionScheduled) return;
+        if (!tabsBarEl) return;
+        _overflowEvictionScheduled = true;
+        requestAnimationFrame(() => {
+          _overflowEvictionScheduled = false;
+          let safety = 50;  // hard guard proti infinite loop
+          while (safety-- > 0 && tabsBarEl.scrollWidth > tabsBarEl.clientWidth + 2) {
+            const before = tabsState.tabs.length;
+            _evictOldestTab(true);  // single-step mode
+            if (tabsState.tabs.length === before) break;  // nelze dál (vse pinned/active)
+            // Re-render po každém splice — DOM musí reflect aktuální state
+            // pro další scrollWidth check (synchronně, ne v rAF).
+            _renderTabsBarSync();
+          }
+        });
+      }
+      // Sync helper — volá se uvnitř overflow loop. Nesmí volat
+      // _scheduleOverflowEviction znovu (infinite recursion guard).
+      function _renderTabsBarSync() {
+        const wasScheduled = _overflowEvictionScheduled;
+        _overflowEvictionScheduled = true;
+        renderTabsBar();
+        _overflowEvictionScheduled = wasScheduled;
+      }
+
+      // Phase 38.4 (11.5.2026 vecer): LRU eviction — zavre nejstarsi
+      // unpinned non-active tab kdyz tabs.length > MAX_TABS_VISIBLE,
+      // nebo (singleStep=true) jen jeden krok pro overflow eviction.
+      function _evictOldestTab(singleStep) {
+        while (singleStep || tabsState.tabs.length > MAX_TABS_VISIBLE) {
+          // Najdi nejstarsi non-pinned, non-active
+          let oldestIdx = -1;
+          let oldestTime = Infinity;
+          for (let i = 0; i < tabsState.tabs.length; i++) {
+            const t = tabsState.tabs[i];
+            if (i === tabsState.activeIndex) continue;
+            if (t.pinned === true) continue;
+            const accessTime = t.lastAccessedAt || 0;
+            if (accessTime < oldestTime) {
+              oldestTime = accessTime;
+              oldestIdx = i;
+            }
+          }
+          if (oldestIdx < 0) break;  // vse pinned nebo jen aktivni
+          const victim = tabsState.tabs[oldestIdx];
+          try {
+            fetch("/api/v1/erp/tabs/" + encodeURIComponent(victim.cislo), {
+              method: "DELETE", credentials: "include"
+            });
+          } catch (e) {}
+          try { ErpRefresh.forget(victim.cislo); } catch (e) {}
+          tabsState.tabs.splice(oldestIdx, 1);
+          if (tabsState.activeIndex > oldestIdx) {
+            tabsState.activeIndex--;
+          }
+          if (singleStep) return;  // overflow eviction = jeden krok
+        }
+      }
+
+      async function _loadTabData(tab) {
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view bez fetch z /prehled. Data jsou self-contained
+        // (System grid si fetchuje vlastni data uvnitr).
+        if (tab.cislo < 0) {
+          tab.data = { _system: true };  // sentinel — renderTabIntoMain rozumí
+          _renderTabIntoMain(tab);
+          // Phase 38.5+ (10.5.2026 vecer Marti's debugging): System tabs taky
+          // markFresh — security_devices grid + audit-overview byly bug, ikona
+          // refresh nikdy nemarkla freshness pro negative cisla → stale
+          // detection nikdy nezafungovala. System grids fetchují data uvnitř
+          // renderSystemGrid, ale pro MVP označíme fresh při otevření tabu
+          // (re-fetch uvnitř system view → re-call markFresh later, nice-to-have).
+          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
+          return;
+        }
+        const userLimit = loadPrehledLimit(tab.cislo);
+        const url = userLimit
+          ? ("/api/v1/erp/prehled/" + tab.cislo + "?limit=" + userLimit)
+          : ("/api/v1/erp/prehled/" + tab.cislo);
+        const itemId = tab.itemId;
+        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
+        mainContent.innerHTML =
+          '<div class="erp-prehled-header">' +
+          '<div class="erp-bc-path">' + breadcrumb + '</div>' +
+          '<div class="erp-prehled-loading">' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line"></div>' +
+          '<div class="erp-skel-line short"></div>' +
+          '</div>' +
+          '<div class="erp-prehled-loading-msg">Načítám přehled #' + tab.cislo + '…</div>' +
+          '</div>';
+        try {
+          const r = await fetch(url, { credentials: "include" });
+          if (!r.ok) {
+            mainContent.innerHTML =
+              '<div class="erp-main-error">Přehled #' + tab.cislo +
+              ' nelze načíst: Status ' + r.status + '</div>';
+            return;
+          }
+          const data = await r.json();
+          tab.data = data;
+          // Phase 38.5: marknout grid jako fresh (ikona refreshe → neutral)
+          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
+          _renderTabIntoMain(tab);
+        } catch (e) {
+          mainContent.innerHTML =
+            '<div class="erp-main-error">Chyba: ' +
+            escapeHtml(e.message || String(e)) + '</div>';
+        }
+      }
+
+      function _renderTabIntoMain(tab) {
+        // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
+        if (currentJadro) closeJadroPane();
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view (audit dashboard / native AG Grid).
+        if (tab.cislo < 0) {
+          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pokud
+          // soudecek ma core_id, rovnou aktivovat prehled"): synthetic
+          // range + core_id check. Pokud node v tree cache má asociovany
+          // core, re-dispatch via core_code (jako bychom kliknuli na real
+          // prehled). Fallback: info placeholder s identifikatorem core.
+          if (tab.cislo <= -100000) {
+            // Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "nedeje
+            // se aktivace prehledu ani po hard reset"): add diagnostics +
+            // li.dataset fallback pokud tree cache lookup fails.
+            let node = (typeof _findSystemNodeById === "function")
+              ? _findSystemNodeById(tab.itemId) : null;
+
+            // Fallback: pokud cache lookup selhal, pokus li.dataset (set v
+            // _decorateLeftPanelLi). Tj. real DOM stejne ma core_id v dataset.
+            let coreId = node && node.core_id;
+            let coreCode = node && node.core_code;
+            if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
+              const li = tree.findLiByCislo(tab.cislo);
+              if (li) {
+                coreId = parseInt(li.dataset.coreId || "0", 10) || null;
+                coreCode = li.dataset.coreCode || null;
+              }
+            }
+
+            console.info("[H+29 dispatch] synthetic+core lookup:", {
+              cislo: tab.cislo,
+              itemId: tab.itemId,
+              node_found_in_cache: !!node,
+              core_id: coreId,
+              core_code: coreCode,
+            });
+
+            if (coreId) {
+              // Re-dispatch via core_code — pokud core matches known
+              // system mode, render system view. Jinak info placeholder.
+              const coreMode = coreCode
+                ? _systemModeFromItemId(coreCode)
+                : null;
+              console.info("[H+29 dispatch] coreMode lookup:", coreMode);
+              if (coreMode) {
+                _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
+                return;
+              }
+              // Generic placeholder s core info (TODO future: fw-form
+              // dispatch pro form layout_type, generic grid render pro list)
+              mainContent.innerHTML =
+                '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+                '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +
+                escapeHtml(tab.label || "Přehled") + '</h2>' +
+                '<p style="color:#a8b4c2;margin:0 0 8px;">' +
+                'Asociovaný core: <strong>' + escapeHtml(coreCode || "?") +
+                '</strong> (id=' + coreId + ')</p>' +
+                '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+                'Renderování pro tento core layout type přijde v dalším Kroku. ' +
+                'Pravý-klik → 🎨 Design pro úpravu asociace.' +
+                '</p></div>';
+              return;
+            }
+            // No core associated — info placeholder (drop H+14 silent doctrine
+            // pre nove asociace flow — Marti chce vidět něco, ne nic)
+            mainContent.innerHTML =
+              '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+              '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
+              escapeHtml(tab.label || "Soudeček") + '</h2>' +
+              '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+              'Soudeček bez asociovaného core přehledu. ' +
+              'Pravý-klik → 🎨 Design pro vybrání core.' +
+              '</p></div>';
+            return;
+          }
+          const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);
+          if (mode) {
+            _renderSystemViewIntoMain(mode, tab.label);
+            return;
+          }
+          // Fallback: System tab bez rozeznatelneho mode → hlaska
+          mainContent.innerHTML =
+            '<div class="erp-main-error">System tab #' + tab.cislo +
+            ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
+          return;
+        }
+        const data = tab.data;
+        if (!data) return;
+        const itemId = tab.itemId;
+        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
+        // Reuse existing renderPrehled logic (refactored)
+        renderPrehled(tab.cislo, { getAttribute: (k) => k === "data-id" ? itemId : null }, data, breadcrumb);
+        // Restore grid state pokud cached
+        if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
+          setTimeout(() => {
+            try {
+              if (tab.gridState.columnState) {
+                activeErpDataGrid.gridApi.applyColumnState({
+                  state: tab.gridState.columnState,
+                  applyOrder: true,
+                });
+              }
+              if (tab.gridState.filterModel) {
+                activeErpDataGrid.gridApi.setFilterModel(tab.gridState.filterModel);
+              }
+            } catch (e) {}
+          }, 30);
+        }
+      }
+
+      // Restore tabs state z localStorage (po loadTree() — potřebujeme tree pro itemId resolve)
+      function restoreTabsFromStorage() {
+        const persisted = loadTabsState();
+        if (!persisted || !persisted.tabs || persisted.tabs.length === 0) return;
+        // Re-create tab metadata (data + gridState se znovu fetchnou).
+        // 11.5. fix: restore pinned + lastAccessedAt (default = false + now)
+        // tak aby _evictOldestTab měl správný stav pro decisions.
+        const now = Date.now();
+        tabsState.tabs = persisted.tabs.map(t => ({
+          cislo: t.cislo,
+          itemId: t.itemId,
+          label: t.label,
+          data: null,
+          gridState: null,
+          pinned: t.pinned === true,
+          lastAccessedAt: typeof t.lastAccessedAt === "number" ? t.lastAccessedAt : now,
+        }));
+        const idx = (persisted.activeIndex >= 0 && persisted.activeIndex < tabsState.tabs.length)
+          ? persisted.activeIndex
+          : 0;
+        // 11.5. fix #2: pinned záložky seřadit vlevo (jako po right-click toggle).
+        // DB GET vrací podle sort_order (původní pořadí otevření), ale UI musí
+        // pinned umístit první. Marti's request — pinned drží přes F5 i pozici.
+        // Capture active tab před sort, pak najdi nový index.
+        const activeTabRef = tabsState.tabs[idx] || null;
+        tabsState.tabs.sort((a, b) => {
+          if ((a.pinned || false) !== (b.pinned || false)) {
+            return (b.pinned ? 1 : 0) - (a.pinned ? 1 : 0);
+          }
+          return (b.lastAccessedAt || 0) - (a.lastAccessedAt || 0);
+        });
+        tabsState.activeIndex = activeTabRef
+          ? Math.max(0, tabsState.tabs.indexOf(activeTabRef))
+          : 0;
+        // 11.5. fix: po restore zavolat eviction — pokud uloženo > MAX_TABS_VISIBLE,
+        // oldest unpinned non-active se zahodí (LRU cap drží i napříč reload).
+        _evictOldestTab();
+        renderTabsBar();
+        switchTab(tabsState.activeIndex);
+      }
+
+      // B+8.1c (6.5.2026): API hydration — fetch user state z DB,
+      // seed localStorage cache, pak loadTree() + restoreTabsFromStorage().
+      // Write-through pattern: API = source of truth, localStorage = cache.
+      // Pokud API fail (offline/network), fallback na localStorage.
+      async function hydrateUserStateFromAPI() {
+        try {
+          const [tabsR, favR, recR, ordR] = await Promise.all([
+            _apiCall("GET", "/api/v1/erp/tabs"),
+            _apiCall("GET", "/api/v1/erp/favorites"),
+            _apiCall("GET", "/api/v1/erp/recent"),
+            _apiCall("GET", "/api/v1/erp/tree-order"),
+          ]);
+          // Tabs → seed localStorage (restoreTabsFromStorage to pak prečte)
+          if (tabsR && Array.isArray(tabsR.tabs)) {
+            const persist = {
+              tabs: tabsR.tabs.map(t => ({
+                cislo: t.cislo,
+                itemId: t.itemId,
+                label: t.label,
+                // Phase 38.4 (11.5.2026 vecer): hydrate pinned + lastAccessedAt
+                // z DB (priorita nad localStorage). Marti's request — pinned
+                // záložky musí přežít F5 reload.
+                pinned: t.pinned === true,
+                lastAccessedAt: (typeof t.lastAccessedAt === "number")
+                  ? t.lastAccessedAt : null,
+              })),
+              activeIndex: (typeof tabsR.activeIndex === "number")
+                ? tabsR.activeIndex : -1,
+            };
+            try { localStorage.setItem(TABS_STATE_KEY, JSON.stringify(persist)); }
+            catch (e) {}
+          }
+          // Favorites → seed (jen čísla — UI z čísel rekonstruuje)
+          if (favR && Array.isArray(favR.favorites)) {
+            const arr = favR.favorites
+              .map(f => parseInt(f.cislo, 10))
+              .filter(n => !isNaN(n));
+            try { localStorage.setItem(TREE_FAVORITES_KEY, JSON.stringify(arr)); }
+            catch (e) {}
+          }
+          // Recent → seed (cislo + label + ts derivovaný z lastUsedAt)
+          if (recR && Array.isArray(recR.recent)) {
+            const arr = recR.recent.map(r => ({
+              cislo: parseInt(r.cislo, 10),
+              label: r.label || ("Přehled #" + r.cislo),
+              ts: r.lastUsedAt ? Date.parse(r.lastUsedAt) : Date.now(),
+            })).filter(r => !isNaN(r.cislo));
+            try { localStorage.setItem(TREE_RECENT_KEY, JSON.stringify(arr)); }
+            catch (e) {}
+          }
+          // Tree order → seed (server vrací map group_key → array)
+          if (ordR && ordR.order && typeof ordR.order === "object") {
+            try { localStorage.setItem(TREE_ORDER_KEY, JSON.stringify(ordR.order)); }
+            catch (e) {}
+          }
+        } catch (e) {
+          console.warn("hydrateUserStateFromAPI failed, using localStorage cache", e);
+        }
+      }
+
+      // B+10+++ (Marti's drobnost 6.5.2026 — 5 minut před odjezdem):
+      // Marti-AI ploška v hlavičce — fetch default persona avatar + click
+      // otevře chat v novém tabu (žádný interrupt aktuálního ERP workflow).
+      (async () => {
+        try {
+          const r = await fetch("/api/v1/personas/list", { credentials: "include" });
+          if (!r.ok) return;
+          const data = await r.json();
+          const personas = (data && (data.personas || data.items || data)) || [];
+          const list = Array.isArray(personas) ? personas : [];
+          // Default persona — is_default first, fallback first persona
+          const def = list.find(p => p.is_default || p.is_default_persona)
+                   || list.find(p => p.name && p.name.toLowerCase().includes("marti"))
+                   || list[0];
+          if (def && def.id) {
+            const img = document.getElementById("erpMartiAiAvatar");
+            if (img) img.src = "/api/v1/personas/" + def.id + "/avatar";
+            const lbl = document.querySelector(".erp-marti-btn-label");
+            if (lbl && def.name) {
+              // Marti-AI default → "Tvoje Marti" (drobnost po návratu).
+              // Non-default persona → "Tvoje <name>".
+              const isMarti = (def.name || "").toLowerCase().includes("marti");
+              lbl.textContent = isMarti ? "Tvoje Marti" : ("Tvoje " + def.name);
+            }
+          }
+        } catch (e) { /* silent fallback */ }
+      })();
+      const _martiBtn = document.getElementById("erpMartiAiBtn");
+      if (_martiBtn) {
+        _martiBtn.addEventListener("click", () => {
+          // Phase 38.5+ (10.5.2026): window.open() z PWA window Chrome
+          // interpretuje jako "browser tab" navigation (bila Chrome lista).
+          // Pro Chat PWA install s launch_handler.client_mode='focus-existing'
+          // musime pouzit anchor click — Chrome's PWA navigation handler
+          // detekuje installed PWA scope match a otevre v Chat PWA window
+          // (existing focus / new). window.open je programmatic = bypasses
+          // PWA detection.
+          //
+          // Plus named target "strategie-chat" stale soucasti pro fallback
+          // (browser without PWA install) — ten alespon focusne existing tab
+          // misto noveho.
+          const a = document.createElement("a");
+          a.href = "/";
+          a.target = "strategie-chat";
+          a.rel = "noopener";
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        });
+      }
+      // B+10+++++ (Marti's drobnost 6.5.2026 po návratu): zakázat browser
+      // native context menu na celém ERP workspace (Marti: "ty hnusne
+      // systemove okna na pravy klik mysi jeste neodeznely"). AG Grid
+      // option preventDefaultOnContextMenu nepokryje status bar / column
+      // headers / blank space — JS event listener jako pojistka.
+      // Workspace area (.erp-workspace) je hlavní target. Na přehled tabs,
+      // input fields apod. potřebujeme right-click ponechat (paste, undo).
+      document.addEventListener("contextmenu", (ev) => {
+        const t = ev.target;
+        if (!t || !t.closest) return;
+        // Allow right-click jen na input/textarea (paste, undo) — vše jiné
+        // suprimovat. Plus tree pane má vlastní context menu (Phase B+8.2a+).
+        if (t.closest("input, textarea, .erp-tree-row")) return;
+        ev.preventDefault();
+      });
+
+      // B+10++++ (Marti's drobnost 6.5.2026 po návratu): Ctrl+Shift+klik
+      // na logo = hard reset (vymaž SW cache + force reload). Default klik
+      // ponechán jako navigate na /erp/ (soft reload).
+      const _logoLink = document.getElementById("erpLogoLink");
+      if (_logoLink) {
+        _logoLink.addEventListener("click", async (ev) => {
+          if (ev.ctrlKey && ev.shiftKey) {
+            ev.preventDefault();
+            // Hard reset — clear SW caches + force reload bypass cache
+            try {
+              if ("caches" in window) {
+                const keys = await caches.keys();
+                await Promise.all(keys.map(k => caches.delete(k)));
+              }
+              if ("serviceWorker" in navigator) {
+                const regs = await navigator.serviceWorker.getRegistrations();
+                await Promise.all(regs.map(r => r.unregister()));
+              }
+            } catch (e) { /* silent */ }
+            location.reload();
+          }
+        });
+      }
+
+      // Bootstrap: hydrate API → loadTree → restore tabs.
+      // Použij .finally() aby loadTree() běžela i při API fail (offline mode).
+      hydrateUserStateFromAPI().finally(() => {
+        loadTree();
+        // Po load tree (async) zkus restore tabs — počkej krátce na DOM
+        setTimeout(restoreTabsFromStorage, 200);
+      });
+    })();
+    </script>
+    '''
+    return _render_full_page(
+        title="STRATEGIE ERP",
+        content=content,
+        breadcrumb=[],
+        user_id=user_id,
+    )
+
+
+def _render_error_page(title: str, msg: str) -> str:
+    """Error page (404 / 500) — STRATEGIE BLACK theme."""
+    content = f'''
+    <div class="erp-error">
+      <h1>{html.escape(title)}</h1>
+      <p>{html.escape(msg)}</p>
+      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
+    </div>
+    '''
+    return _render_full_page(
+        title=title,
+        content=content,
+        breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
+    )
+

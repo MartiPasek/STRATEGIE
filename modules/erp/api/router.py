@@ -6926,7 +6926,7 @@ _SYSTEM_CISLO_TO_VIEW = {
     # Phase 38.4 Krok 14g Etapa D (16.5.2026): diag log master view.
     # Mode 'diag_log_master' = hw_registry.code → /api/v1/erp/hw/diag_log_master
     # dispatch returns delegate_url pres response_hint $.events extraction.
-    -118: ("data", "diag_log_master", False),
+    -118: ("diag_log", "master", False),  # 16.5. Marti's "data_diag_log_master" → "diag_log_master" hw_registry match
 }
 
 
@@ -11293,6 +11293,10 @@ def _render_workspace_page(user_id: int) -> str:
          widget pro 1:1 FK vazbu. Renderuje 1 groupbox se 4 prvky (🔗/🚫/ID/Nazev).
          Pouziva ErpCatalogPicker pro modal grid. -->
     <script src="/static/erp/components/entity_picker.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
+         Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
+         logs every step do fw.diag_log via _erpLogToDb. -->
+    <script src="/static/erp/components/erp_grid_dispatcher.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14a (12.5.2026 rano): Design forms — Form 1+2 konsolidace
          (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
          3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->

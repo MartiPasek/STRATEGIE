@@ -11232,6 +11232,10 @@ def _render_workspace_page(user_id: int) -> str:
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-grid.css">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/styles/ag-theme-quartz.css">
     <script src="https://cdn.jsdelivr.net/npm/ag-grid-enterprise@32/dist/ag-grid-enterprise.min.js"></script>
+    <!-- Phase 38.4 Krok 14g Etapa B (16.5.2026): module kit FIRST.
+         Provides _erpLogToDb + _erpLoadModule + _erpModuleHealth pro vsechny
+         nasledujici moduly. Doctrine: "kdyz neco selze, zbytek bezi dale". -->
+    <script src="/static/erp/components/erp_module_kit.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->

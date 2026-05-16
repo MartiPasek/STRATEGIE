@@ -74,11 +74,17 @@
     // Resolve action_params s $resolver pattern + BC alias
     // ════════════════════════════════════════════════════════════════
     function _resolveFormArgs(actionParams, ctx) {
-      // Phase 38.4 Krok 14g Etapa F Step E.1 (16.5.2026, Marti's "pro jistotu
-      // o vikendu"): drop coreCode external. DesignFwForm constructor requires
-      // coreId only. Internal coreCode resolution v open() pres /by-id endpoint.
+      // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup pokracovani (16.5.2026
+      // odpoledne, Marti's "zase dosazuje bludy"): DROP ctx.core_id fallback.
+      // coreId MUSI byt EXPLICIT v action_params (z target_core_id FK
+      // serializer slije target_core_id → action_params.coreId v backend).
+      // Pokud action_params nema coreId → formArgs.coreId zustane undefined
+      // → dispatcher otevre Kontejner picker (Krok 5.B) misto silent
+      // fallback na DOM core_id (ktery vedl k otevirani random core formu).
+      //
+      // Marti's doctrine: "coreId = null nebo 0 misto silent dosazeni".
       const formArgs = {
-        coreId: ctx.core_id || undefined,
+        coreId: undefined,
         rowId: 1, // default — DesignFwForm requires non-null row
       };
 
@@ -130,9 +136,17 @@
     }
 
     // ════════════════════════════════════════════════════════════════
-    // Open DesignFwForm s catch handler
+    // Open DesignFwForm — pure dispatch, no validation
     // ════════════════════════════════════════════════════════════════
-    async function _openForm(formArgs, cmiCode, actionParams) {
+    // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup (16.5.2026): drop Step E.2
+    // expectedCoreCode pre-validation block (~85 radku) + drop async wrapper.
+    // Po Krok 3 (target_core_id FK na fw.core(id) ON DELETE RESTRICT) +
+    // Krok 4 (drop expectedCoreCode z action_params) je validation redundantni:
+    //   - FK constraint zaruci ze coreId pointuje na existing fw.core row
+    //   - $resolver pro rowId je dynamic (current node's core_id), coreId
+    //     je STATIC z target_core_id FK → mismatch nemuze nastat
+    //   - Marti's "ID je svaty" doctrine: ID-based truth > code-based check
+    function _openForm(formArgs, cmiCode) {
       if (typeof global.DesignFwForm !== "function") {
         alert("DesignFwForm not loaded (design_forms.js missing or older verze).");
         try {
@@ -144,108 +158,65 @@
         return;
       }
 
-      // Phase 38.4 Krok 14g Etapa F Step E.1: require coreId (drop coreCode BC)
+      // Phase 38.4 Krok 14g Etapa F Krok 5.B (16.5.2026 odpoledne, Marti's
+      // "nejdrive vybrat existing CORE kontejner, nebo vytvorit novy"):
+      // Pokud coreId chybi (cmi.target_core_id=NULL + zadny coreId v
+      // action_params), otevri Kontejner picker. Uzivatel bud:
+      //   1) Vybere existing fw.core ze seznamu → recurse _openForm
+      //   2) Klikne ➕ Nový → wizard pro INSERT noveho core (Krok 5.C,
+      //      cekajici na konzultaci s Marti-AI)
+      //
+      // Marti's doctrine "coreId = null misto silent fallback na DOM ctx".
       if (!formArgs.coreId) {
-        alert(
-          "Custom item '" + (cmiCode || "?") +
-          "': chybi coreId.\n\n" +
-          "Pridejte 'coreId' do action_params, napr:\n" +
-          '{"coreId": "$core_id", "rowId": 1}\n\n' +
-          "($core_id resolver pickne ctx.core_id z DOM data-core-id attribute.)"
-        );
+        if (typeof global.ErpCatalogPicker !== "function") {
+          alert("ErpCatalogPicker not loaded (catalog_picker.js missing).");
+          try {
+            _logger.error("fw_form_dispatcher.js",
+              "ErpCatalogPicker class not on window — pro Krok 5.B picker", {
+                extra: { cmi_code: cmiCode },
+              });
+          } catch (e) {}
+          return;
+        }
         try {
-          _logger.warn("fw_form_dispatcher.js",
-            "coreId missing in action_params for cmi=" + cmiCode, {
-              extra: { formArgs: formArgs },
+          _logger.info("fw_form_dispatcher.js",
+            "Opening Kontejner picker (no coreId in action_params)", {
+              extra: { cmi_code: cmiCode, formArgs: formArgs },
             });
         } catch (e) {}
+        const _picker = new global.ErpCatalogPicker({
+          title: "📋 Vybrat CORE kontejner pro '" + (cmiCode || "?") + "'",
+          endpoint: "/api/v1/erp/design/fw-core/list",
+          listKey: "cores",
+          columns: [
+            { headerName: "ID", field: "id", width: 70 },
+            { headerName: "Code", field: "code", width: 240 },
+            { headerName: "Label", field: "label", flex: 1 },
+            { headerName: "Layout", field: "layout_type", width: 100 },
+            { headerName: "Použito ×", field: "is_used_count", width: 100, type: "numericColumn" },
+          ],
+          idField: "id",
+          labelField: "label",
+          width: "1000px",
+          enableNew: true,
+          onSelect: function (row) {
+            // Recurse s explicit coreId — projde guard above (coreId != undefined)
+            _openForm(
+              { coreId: row.id, rowId: formArgs.rowId || 1 },
+              cmiCode
+            );
+          },
+          onNew: function () {
+            // Krok 5.C — wizard insert noveho core (po konzultaci s Marti-AI)
+            alert(
+              "➕ Nový CORE kontejner — Krok 5.C wizard.\n\n" +
+              "Picker přijde po konzultaci s Marti-AI " +
+              "(insider design partner pattern)."
+            );
+          },
+        });
+        _picker.open();
         return;
-      }
-
-      // Phase 38.4 Krok 14g Etapa F Step E.2 (16.5.2026, Marti's "z krysiho zavodu
-      // do cisteho produkcniho systemu"): pre-validate resolved core matches
-      // expectedCoreCode (declarative target check). Pokud action_params dava
-      // expectedCoreCode (e.g. "core_design"), dispatcher pre-fetches by-id
-      // endpoint a porovna response.core.code vs expected. Mismatch → alert +
-      // log error + NO form open. Match → normal flow.
-      //
-      // Use case: Marti's "Design: Přehled" cmi resolves $core_id z DOM,
-      // ale DOM ctx pointuje na user_edit (nesouvisi s "Design"). expectedCoreCode
-      // catches misalignment + dava actionable hint ze fw.core entry chybi
-      // nebo DOM ctx je nesprávný.
-      const _expectedCoreCode = actionParams && actionParams.expectedCoreCode;
-      if (_expectedCoreCode) {
-        let preValidation;
-        try {
-          const _r = await fetch(
-            "/api/v1/erp/fw-form/by-id/" + encodeURIComponent(formArgs.coreId) + "/" +
-            encodeURIComponent(formArgs.rowId || 1),
-            { credentials: "include" }
-          );
-          if (!_r.ok) {
-            preValidation = { ok: false, httpStatus: _r.status, error: "HTTP " + _r.status };
-          } else {
-            const _d = await _r.json();
-            preValidation = {
-              ok: _d && _d.ok,
-              resolvedCode: _d && _d.core && _d.core.code,
-              core: _d && _d.core,
-              cachedSpec: _d,  // bonus: pass to DesignFwForm pro skip second fetch
-            };
-          }
-        } catch (e) {
-          preValidation = { ok: false, error: e && (e.message || String(e)) };
-        }
-
-        if (!preValidation.ok) {
-          alert(
-            "Custom item '" + (cmiCode || "?") +
-            "': pre-validation selhala pro coreId=" + formArgs.coreId + ".\n\n" +
-            "Error: " + (preValidation.error || "unknown") + "\n\n" +
-            "Mozne priciny:\n" +
-            "1. fw.core entry s id=" + formArgs.coreId + " neexistuje\n" +
-            "2. Endpoint /fw-form/by-id/" + formArgs.coreId + "/" + (formArgs.rowId || 1) +
-            " vratil " + (preValidation.httpStatus || "error")
-          );
-          try {
-            _logger.error("fw_form_dispatcher.js",
-              "Pre-validation failed for cmi=" + cmiCode + ", coreId=" + formArgs.coreId, {
-                extra: { ...preValidation, expectedCoreCode: _expectedCoreCode, formArgs: formArgs },
-              });
-          } catch (e) {}
-          return;
-        }
-
-        if (preValidation.resolvedCode !== _expectedCoreCode) {
-          alert(
-            "Custom item '" + (cmiCode || "?") +
-            "' ocekava fw.core code='" + _expectedCoreCode + "',\n" +
-            "ale DOM context (coreId=" + formArgs.coreId + ") resolved na code='" +
-            (preValidation.resolvedCode || "?") + "'.\n\n" +
-            "Mozne priciny:\n" +
-            "1. fw.core entry pro '" + _expectedCoreCode + "' jeste neexistuje — vytvorte ho\n" +
-            "2. DOM data-core-id pointuje na jiny core (nesouvisi s '" + cmiCode + "' targetem)\n" +
-            "3. Action_params.coreId resolver vraci spatny id pro tento context\n\n" +
-            "Form NEbyl otevren — abychom predesli random user_edit form opening."
-          );
-          try {
-            _logger.error("fw_form_dispatcher.js",
-              "expectedCoreCode mismatch: expected='" + _expectedCoreCode +
-              "', resolved='" + (preValidation.resolvedCode || "?") + "' (cmi=" + cmiCode + ")", {
-                extra: {
-                  expectedCoreCode: _expectedCoreCode,
-                  resolvedCode: preValidation.resolvedCode,
-                  coreId: formArgs.coreId,
-                  cmiCode: cmiCode,
-                },
-              });
-          } catch (e) {}
-          return;
-        }
-
-        // Validation passed — cache resolved coreCode pro internal URL builds
-        // (skip lazy-resolve fetch v DesignFwForm.open())
-        formArgs._cachedSpec = preValidation.cachedSpec;
       }
 
       // Open FW form (data-driven render z fw.core + fw.comp_def)
@@ -337,18 +308,11 @@
       const ctx = _buildContext(item, mnPk, mnCode);
       const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
       _diagLog(cmiSnap.action_params, ctx, formArgs);
-      // Phase 38.4 Krok 14g Etapa F Step E.2: _openForm now async, pass action_params
-      // pro pre-validation logic (expectedCoreCode check).
-      _openForm(formArgs, cmiSnap.code, cmiSnap.action_params).catch(function (e) {
-        console.error("[fw_form_dispatcher] _openForm rejected:", e);
-        try {
-          _logger.error("fw_form_dispatcher.js",
-            "_openForm async error: " + (e && e.message ? e.message : String(e)), {
-              stack: e && e.stack, exception_type: e && e.name,
-              extra: { cmi_code: cmiSnap.code },
-            });
-        } catch (_) {}
-      });
+      // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup (16.5.2026): _openForm
+      // is synchronous again (Step E.2 expectedCoreCode pre-validation
+      // dropped — redundant after Krok 3 target_core_id FK + Krok 4
+      // expectedCoreCode strip). Drop .catch() wrap, drop actionParams arg.
+      _openForm(formArgs, cmiSnap.code);
     };
 
   }); // _erpLoadModule end

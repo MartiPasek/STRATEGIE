@@ -8048,13 +8048,31 @@
 
     async _reloadSpec() {
       // Krok 14b+9: shared reload helper (used by delete + rename + reorder)
+      // Phase 38.4 Krok 14g Etapa F Krok 5.G (16.5.2026 vecer): null guards
+      // pro drafted core (code=NULL, data=null). Fallback na /by-id endpoint
+      // pokud code chybi.
       try {
-        const r = await fetch(
-          "/api/v1/erp/fw-form/" +
-            encodeURIComponent(this._spec.core.code) + "/" +
-            encodeURIComponent(this._spec.data.id || 0),
-          { credentials: "include" }
-        );
+        const core = this._spec && this._spec.core;
+        const data = this._spec && this._spec.data;
+        const rowId = (data && data.id) || this.opts.rowId || 0;
+
+        let url;
+        if (core && core.code) {
+          // Fully-formed core — code-based path
+          url = "/api/v1/erp/fw-form/" +
+                encodeURIComponent(core.code) + "/" +
+                encodeURIComponent(rowId);
+        } else if (core && core.id) {
+          // Drafted core (code=NULL) — fallback na by-id
+          url = "/api/v1/erp/fw-form/by-id/" +
+                encodeURIComponent(core.id) + "/" +
+                encodeURIComponent(rowId);
+        } else {
+          console.warn("[DesignFwForm] _reloadSpec: no core code or id");
+          return;
+        }
+
+        const r = await fetch(url, { credentials: "include" });
         if (r.ok) {
           const newSpec = await r.json();
           if (newSpec.ok) {

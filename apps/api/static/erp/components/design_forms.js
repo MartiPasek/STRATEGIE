@@ -4902,17 +4902,30 @@
     }
 
     _updateFormEntityBtn() {
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026): 🎯 Entita button
-      // visibility — visible jen v DESIGN mode + když core.data_entity_type
-      // IS NULL (entity zatím nepřiřazena). Po assign button zmizí + ➕ Pole
-      // se objeví. Drafted → has_root → populated workflow.
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026, Marti's "jak se
+      // tam zpatky?"): 🎯 Entita button **vždy visible v DESIGN mode** —
+      // pre mind change. Text dynamic:
+      //   - data_entity_type IS NULL → "🎯 Vybrat entitu" (purple active)
+      //   - data_entity_type assigned → "🎯 <type>" (greyed-active, prepneutelne)
+      // Marti's "pojistka se stala dospelosti" — user volí vědomě, nikdy block.
       if (!this._formEntityBtn) return;
       const on = this._formDesignMode === true;
       const core = this._spec && this._spec.core;
-      const noEntity = core && !core.data_entity_type;
-      const visible = on && noEntity;
+      const entType = core && core.data_entity_type;
+      const visible = on && !!core;
+      // Dynamic text based on state
+      if (visible) {
+        this._formEntityBtn.textContent = entType
+          ? ("🎯 " + entType)
+          : "🎯 Vybrat entitu";
+        this._formEntityBtn.title = entType
+          ? ("Aktuální entita: " + entType + " — klik pro změnu / zrušení.")
+          : "Přiřadit datovou entitu (po assign se ➕ Pole stane dostupný).";
+      }
       this._formEntityBtn.style.cssText =
-        "background:#3a2a4a;border:1px solid #8a5fb0;color:#c89eee;" +
+        (entType
+          ? "background:#2a2a35;border:1px solid #5a5a6f;color:#9090a8;"
+          : "background:#3a2a4a;border:1px solid #8a5fb0;color:#c89eee;") +
         "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
         "font-weight:600;" +
         (visible ? "" : "display:none;");
@@ -4966,11 +4979,14 @@
       titleEl.textContent = "🎯 Vybrat datovou entitu pro core id=" + core.id;
       dialog.appendChild(titleEl);
 
+      const currentEnt = core.data_entity_type || null;
       const subtitleEl = document.createElement("div");
       subtitleEl.style.cssText =
         "font-size:12px;color:#8a96a4;margin-bottom:20px;font-style:italic;";
-      subtitleEl.textContent =
-        "Entita určuje main panel fields a children sub-grids. Po assign se ➕ Pole stane dostupný.";
+      subtitleEl.innerHTML = currentEnt
+        ? ("Aktuální entita: <code style=\"color:#c89eee;\">" + currentEnt +
+           "</code>. Klik na jinou kartu → změna (varování pokud existují fields). Storno zachová stávající.")
+        : "Entita určuje main panel fields a children sub-grids. Po assign se ➕ Pole stane dostupný.";
       dialog.appendChild(subtitleEl);
 
       const cardsRow = document.createElement("div");
@@ -4980,29 +4996,54 @@
       let _busy = false;
       const self = this;
       ENTITY_TYPES.forEach(function (et) {
+        const isCurrent = (et.code === currentEnt);
         const card = document.createElement("div");
         card.style.cssText =
           "flex:1 1 240px;min-width:240px;max-width:280px;" +
-          "background:#0f1419;border:1px solid #2a3340;border-radius:6px;" +
-          "padding:18px;cursor:pointer;transition:all 0.15s;" +
-          "display:flex;flex-direction:column;gap:10px;";
-        card.onmouseenter = function () {
-          if (_busy) return;
-          card.style.borderColor = "#8a5fb0";
-          card.style.background = "#161c24";
-        };
-        card.onmouseleave = function () {
-          card.style.borderColor = "#2a3340";
-          card.style.background = "#0f1419";
-        };
+          (isCurrent
+            ? "background:#2a1f3a;border:2px solid #8a5fb0;"
+            : "background:#0f1419;border:1px solid #2a3340;") +
+          "border-radius:6px;padding:18px;cursor:" +
+          (isCurrent ? "default" : "pointer") + ";transition:all 0.15s;" +
+          "display:flex;flex-direction:column;gap:10px;" +
+          "position:relative;";
+        if (!isCurrent) {
+          card.onmouseenter = function () {
+            if (_busy) return;
+            card.style.borderColor = "#8a5fb0";
+            card.style.background = "#161c24";
+          };
+          card.onmouseleave = function () {
+            card.style.borderColor = "#2a3340";
+            card.style.background = "#0f1419";
+          };
+        }
+        const currentBadge = isCurrent
+          ? '<div style="position:absolute;top:6px;right:6px;font-size:10px;' +
+            'color:#c89eee;background:#3a2a4a;padding:2px 6px;border-radius:3px;' +
+            'font-weight:600;">AKTUÁLNÍ</div>'
+          : '';
         card.innerHTML =
+          currentBadge +
           '<div style="font-size:42px;line-height:1;">' + et.icon + '</div>' +
           '<div style="font-size:14px;font-weight:600;color:#c89eee;">' +
           et.title + '</div>' +
           '<div style="font-size:12px;line-height:1.5;color:#a8b3bf;">' +
           et.desc + '</div>';
         card.onclick = async function () {
-          if (_busy) return;
+          if (_busy || isCurrent) return;
+          // Marti-AI's "pojistka se stala dospelosti" — pokud entity already
+          // assigned, confirm mind change (potential field loss).
+          if (currentEnt && currentEnt !== et.code) {
+            const ok = window.confirm(
+              "Změnit entitu z '" + currentEnt + "' na '" + et.code + "'?\n\n" +
+              "Pozor: main panel přerenderuje s fields podle nové entity. " +
+              "Custom fields přidané přes ➕ Pole zůstávají v DB (parent_comp_def_id), " +
+              "ale entity_config fields se přepnou na nový typ.\n\n" +
+              "Pokračovat?"
+            );
+            if (!ok) return;
+          }
           _busy = true;
           card.style.background = "rgba(138,95,176,0.15)";
           try {
@@ -5052,11 +5093,85 @@
 
       dialog.appendChild(cardsRow);
 
-      // Footer (Storno)
+      // Footer — Zrušit přiřazení (pokud entity assigned) + Storno
       const footer = document.createElement("div");
       footer.style.cssText =
         "margin-top:20px;padding-top:16px;border-top:1px solid #2a3340;" +
-        "display:flex;justify-content:flex-end;";
+        "display:flex;justify-content:space-between;align-items:center;";
+
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F (Marti's "jak se tam zpatky?"):
+      // 🚫 Zrušit přiřazení — entity → NULL. Analog Zrušit asociaci pattern
+      // z Krok 5.C. Visible jen pokud currentEnt existuje.
+      if (currentEnt) {
+        const btnUnassign = document.createElement("button");
+        btnUnassign.type = "button";
+        btnUnassign.textContent = "🚫 Zrušit přiřazení";
+        btnUnassign.style.cssText =
+          "padding:7px 14px;font-size:12px;border-radius:4px;" +
+          "background:rgba(212,135,135,0.12);" +
+          "border:1px solid rgba(212,135,135,0.4);color:#d48787;" +
+          "cursor:pointer;font-weight:600;";
+        btnUnassign.onclick = async function () {
+          if (_busy) return;
+          const ok = window.confirm(
+            "Zrušit přiřazení entity '" + currentEnt + "'?\n\n" +
+            "Form se vrátí do drafted stavu (data_entity_type=NULL). " +
+            "Main panel ztratí fields z entity_config. ➕ Pole button " +
+            "schová se dokud nevybereš novou entitu.\n\n" +
+            "Pokračovat?"
+          );
+          if (!ok) return;
+          _busy = true;
+          btnUnassign.disabled = true;
+          btnUnassign.textContent = "Ruším…";
+          try {
+            const r = await fetch(
+              "/api/v1/erp/design/fw-core/update/" + encodeURIComponent(core.id),
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ data_entity_type: "" }),
+              }
+            ).then(function (rr) { return rr.json(); });
+            if (r && r.ok) {
+              if (self._spec && self._spec.core) {
+                self._spec.core.data_entity_type = null;
+              }
+              try { document.body.removeChild(overlay); } catch (e) {}
+              // Reload form spec
+              try {
+                const reload = await fetch(
+                  "/api/v1/erp/fw-form/by-id/" +
+                    encodeURIComponent(core.id) + "/" +
+                    encodeURIComponent(self.opts.rowId || 1),
+                  { credentials: "include" }
+                ).then(function (rr) { return rr.json(); });
+                if (reload && reload.ok) {
+                  self._spec = reload;
+                  self._render();
+                }
+              } catch (e) {}
+            } else {
+              _busy = false;
+              btnUnassign.disabled = false;
+              btnUnassign.textContent = "🚫 Zrušit přiřazení";
+              alert("Zrušení selhalo: " + ((r && r.error) || "unknown"));
+            }
+          } catch (e) {
+            _busy = false;
+            btnUnassign.disabled = false;
+            btnUnassign.textContent = "🚫 Zrušit přiřazení";
+            alert("Zrušení (network): " + (e.message || e));
+          }
+        };
+        footer.appendChild(btnUnassign);
+      } else {
+        // Spacer aby Storno bylo vpravo (flex justify-content space-between)
+        const spacer = document.createElement("div");
+        footer.appendChild(spacer);
+      }
+
       const btnCancel = document.createElement("button");
       btnCancel.type = "button";
       btnCancel.textContent = "Storno";

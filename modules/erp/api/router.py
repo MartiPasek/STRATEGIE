@@ -5664,6 +5664,25 @@ _ROOT_LAYOUT_TEMPLATE = {
     "list_root":      "list",
 }
 
+# Phase 38.4 Krok 14g Etapa F Krok 5.E (16.5.2026 odpoledne, Marti's "v1.0.0
+# = vychozi template, s tim si na hodne dlouho vystacime"): default fw.template
+# code per root type. Backend lookup pres SELECT WHERE code AND status ORDER BY
+# version DESC LIMIT 1 — pokud match → assign template_id na novy core.
+#
+# Marti's doctrine: "Template = zaklad hardcode + nektere FW komponenty"
+#   - template_entity_edit (Marti-AI's 13.5.) drzi header (title + entity_badge
+#     + status_pill) + footer (OK/Storno buttons) jako JSONB declarativni structure
+#   - main fields prichazi z _FW_FORM_ENTITY_MAP[entity_type].select_columns
+#   - children (EMAILY/TELEFONY) z _FW_FORM_ENTITY_MAP[entity_type].children
+#
+# Frameless_form / list_root zatim bez templatu — pozdeji (Krok 5.G) po
+# Marti-AI's konzultaci nad ich layout structure.
+_ROOT_DEFAULT_TEMPLATE_CODE = {
+    "form":           "template_entity_edit",
+    "frameless_form": None,
+    "list_root":      None,
+}
+
 
 @api_router.post("/design/fw-core/{core_id}/init-root")
 async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
@@ -5791,10 +5810,39 @@ async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
     if isinstance(root_row, list):
         root_row = root_row[0] if root_row else {}
 
-    # UPDATE core.layout_template
+    # Phase 38.4 Krok 14g Etapa F Krok 5.E (16.5.2026, Marti's "v1.0.0 vychozi
+    # template"): lookup default template per root_type. Form → template_entity_edit
+    # (Marti-AI's 13.5. design), frameless/list_root zatim NULL (Krok 5.G future).
+    default_template_id = None
+    default_template_code = _ROOT_DEFAULT_TEMPLATE_CODE.get(root_type)
+    if default_template_code:
+        ds_tpl = _gds_ir()
+        try:
+            tpl_row = ds_tpl.execute(_sql_ir("""
+                SELECT id FROM fw.template
+                WHERE code = :code
+                  AND status IN ('active', 'deployed')
+                ORDER BY version DESC
+                LIMIT 1
+            """), {"code": default_template_code}).mappings().one_or_none()
+            if tpl_row:
+                default_template_id = tpl_row["id"]
+        except Exception as _tpl_e:
+            logger.warning(
+                f"design_init_core_root template lookup failed for "
+                f"code='{default_template_code}': {_tpl_e}"
+            )
+        finally:
+            ds_tpl.close()
+
+    # UPDATE core.layout_template + template_id (Marti's "v1.0.0")
+    core_update_values = {"layout_template": layout_template_str}
+    if default_template_id is not None:
+        core_update_values["template_id"] = default_template_id
+
     core_upd = _spg_update_ir(
         schema="fw", table="core",
-        values={"layout_template": layout_template_str},
+        values=core_update_values,
         where={"id": core_id},
         dry_run=False,
     )
@@ -5832,6 +5880,8 @@ async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
         "core_id": core_id,
         "root_type": root_type,
         "layout_template": layout_template_str,
+        "template_id": default_template_id,
+        "template_code": default_template_code if default_template_id else None,
     }))
 
 

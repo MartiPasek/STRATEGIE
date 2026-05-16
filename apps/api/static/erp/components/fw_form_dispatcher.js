@@ -154,6 +154,7 @@
           icon: "📋",
           title: "Form (klasický modal)",
           desc: "Samostatné okno. Otevírá se jako dialog, má vlastní záhlaví a akce.",
+          template_note: "Template v1.0.0: header (title + badge + status), footer (OK/Storno). Main panel se naplní podle entity.",
           accent: "#8fb8d4",
         },
         {
@@ -161,6 +162,7 @@
           icon: "📄",
           title: "Frameless form",
           desc: "Vložená část. Žije uvnitř jiného formuláře nebo panelu, přebírá jeho kontext.",
+          template_note: "Bez templatu (zatím) — main panel z comp_def stack.",
           accent: "#d4b88a",
         },
         {
@@ -168,6 +170,7 @@
           icon: "📊",
           title: "Přehled (list view)",
           desc: "List s toolbar + filter + status barem. „Rozlezlý“ — prvky mimo hlavní okno. Hlavní use case pro pravou stranu stromu.",
+          template_note: "Bez templatu (zatím) — toolbar + grid z comp_def stack.",
           accent: "#a8c5dc",
         },
       ];
@@ -224,7 +227,10 @@
           '<div style="font-size:14px;font-weight:600;color:' + rt.accent + ';">' +
           rt.title + '</div>' +
           '<div style="font-size:12px;line-height:1.5;color:#a8b3bf;">' +
-          rt.desc + '</div>';
+          rt.desc + '</div>' +
+          '<div style="font-size:10px;line-height:1.4;color:#6a7684;' +
+          'font-style:italic;border-top:1px solid #22282f;padding-top:8px;margin-top:auto;">' +
+          rt.template_note + '</div>';
         card.onclick = async function () {
           if (_busy) return;
           _busy = true;

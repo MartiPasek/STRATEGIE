@@ -10151,23 +10151,138 @@
           "display:flex;border-bottom:1px solid #2a3340;background:#0d1117;" +
           "padding:0 8px;gap:0;flex:0 0 auto;";
 
+        // Phase 38.4 Krok 14g Etapa F Krok 5.J-B3 (16.5.2026 ~24:05, Marti's
+        // "Prosim o tu parametrizaci Tabsheetu.. Pocet zalozek, Nazvy zalozek"):
+        // - Right-click na tab → prompt rename → PATCH caption
+        // - ✕ button na tab v DESIGN mode → confirm → PATCH is_active=false
+        //   (soft-delete, recursive CTE filtr drop)
+        // - Click na tab → switch active (existing)
+        const designModePc = this._formDesignMode === true;
+        const self = this;
+
         for (const ts of tabsheets) {
           const isActive = (ts.id === activeTsId);
           const tabBtn = document.createElement("button");
           tabBtn.type = "button";
-          tabBtn.textContent = ts.caption || ts.name || ("Tab #" + ts.id);
           tabBtn.dataset.tabsheetId = String(ts.id);
           tabBtn.style.cssText =
-            "padding:8px 16px;background:transparent;border:none;outline:none;" +
+            "padding:8px 14px;background:transparent;border:none;outline:none;" +
             "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
             "color:" + (isActive ? "#e8eef5" : "#8a96a4") + ";" +
             "font-size:13px;font-weight:" + (isActive ? "600" : "400") + ";" +
-            "cursor:pointer;transition:color 0.15s, border-color 0.15s;";
+            "cursor:pointer;transition:color 0.15s, border-color 0.15s;" +
+            "display:inline-flex;align-items:center;gap:6px;";
+
+          // Label text span
+          const tabLabel = document.createElement("span");
+          tabLabel.textContent = ts.caption || ts.name || ("Tab #" + ts.id);
+          tabBtn.appendChild(tabLabel);
+
+          // ✕ delete badge (DESIGN only)
+          if (designModePc) {
+            const delBadge = document.createElement("span");
+            delBadge.textContent = "✕";
+            delBadge.title = "Smazat záložku (soft delete)";
+            delBadge.style.cssText =
+              "color:#5a2828;font-size:10px;padding:0 4px;border-radius:2px;" +
+              "cursor:pointer;transition:color 0.15s, background 0.15s;";
+            delBadge.addEventListener("mouseenter", () => {
+              delBadge.style.color = "#e57373";
+              delBadge.style.background = "#1f1010";
+            });
+            delBadge.addEventListener("mouseleave", () => {
+              delBadge.style.color = "#5a2828";
+              delBadge.style.background = "transparent";
+            });
+            delBadge.addEventListener("click", async (ev) => {
+              ev.stopPropagation();
+              const decision = await _confirmDarkDialog({
+                title: "Smazat záložku",
+                message: "Opravdu smazat záložku \"" + (ts.caption || ts.name) +
+                  "\"?\n\n(soft delete — komponenty uvnitř zůstanou v DB ale " +
+                  "z formu zmizí. Lze obnovit přes is_active=true.)",
+              });
+              if (decision !== true) return;
+              try {
+                const r = await fetch(
+                  "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(ts.id),
+                  {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ is_active: false }),
+                  }
+                );
+                if (!r.ok) {
+                  const eb = await r.json().catch(() => ({}));
+                  throw new Error(eb.error || ("HTTP " + r.status));
+                }
+                // Pokud byl smazaný aktivní → switch na první remaining
+                if (self._activeTabSheets[pcId] === ts.id) {
+                  delete self._activeTabSheets[pcId];  // re-default on next render
+                }
+                if (typeof _showToast === "function") {
+                  _showToast("Záložka smazána", "success", 2000);
+                }
+                await self._reloadSpec();
+              } catch (e) {
+                console.error("[pagecontrol] delete tabsheet failed:", e);
+                if (typeof _showToast === "function") {
+                  _showToast("Smazání selhalo: " + (e.message || e), "error", 3500);
+                }
+              }
+            });
+            tabBtn.appendChild(delBadge);
+          }
+
+          // Click → switch active tab
           tabBtn.addEventListener("click", () => {
             this._activeTabSheets[pcId] = ts.id;
-            // Re-render whole form — simple approach (could optimize to swap only content area)
             this._render();
           });
+
+          // Right-click → prompt rename (DESIGN only)
+          if (designModePc) {
+            tabBtn.addEventListener("contextmenu", async (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              const newCaption = prompt("Nový název záložky:", ts.caption || "");
+              if (newCaption == null) return;  // cancel
+              const trimmed = newCaption.trim();
+              if (!trimmed) {
+                if (typeof _showToast === "function") {
+                  _showToast("Název nesmí být prázdný", "error", 2500);
+                }
+                return;
+              }
+              if (trimmed === (ts.caption || "")) return;  // no change
+              try {
+                const r = await fetch(
+                  "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(ts.id),
+                  {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ caption: trimmed }),
+                  }
+                );
+                if (!r.ok) {
+                  const eb = await r.json().catch(() => ({}));
+                  throw new Error(eb.error || ("HTTP " + r.status));
+                }
+                if (typeof _showToast === "function") {
+                  _showToast("Záložka přejmenována", "success", 2000);
+                }
+                await self._reloadSpec();
+              } catch (e) {
+                console.error("[pagecontrol] rename tabsheet failed:", e);
+                if (typeof _showToast === "function") {
+                  _showToast("Přejmenování selhalo: " + (e.message || e), "error", 3500);
+                }
+              }
+            });
+          }
+
           tabStrip.appendChild(tabBtn);
         }
         pcWrap.appendChild(tabStrip);

@@ -189,11 +189,16 @@
           endpoint: "/api/v1/erp/design/fw-core/list",
           listKey: "cores",
           columns: [
-            { headerName: "ID", field: "id", width: 70 },
-            { headerName: "Code", field: "code", width: 240 },
-            { headerName: "Label", field: "label", flex: 1 },
-            { headerName: "Layout", field: "layout_type", width: 100 },
-            { headerName: "Použito ×", field: "is_used_count", width: 100, type: "numericColumn" },
+            // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne,
+            // Marti's "do vyberu pridat sloupecky ohledne zdroje + radit
+            // sestupne podle ID"). Backend sortuje ORDER BY id DESC.
+            { headerName: "ID", field: "id", width: 70, sort: "desc" },
+            { headerName: "Code", field: "code", width: 200 },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 160 },
+            { headerName: "Layout", field: "layout_type", width: 90 },
+            { headerName: "📁 Z menu", field: "origin_menu_node_label", width: 160 },
+            { headerName: "📋 Z položky", field: "origin_cmi_label", width: 160 },
+            { headerName: "Použito ×", field: "is_used_count", width: 90, type: "numericColumn" },
           ],
           idField: "id",
           labelField: "label",

@@ -5536,9 +5536,23 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         # line 2066). fw.core schema drift — version/shadow_mode/
         # parent_framework_id mohou neexistovat v older schema (pre-master
         # tier 8.5. večer). Fetch is_used_count separately to avoid SQL fail.
-        sql_cores = _sql_clst(
-            "SELECT * FROM fw.core ORDER BY label ASC NULLS LAST, code ASC"
-        )
+        #
+        # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne, Marti's
+        # "do vyberu core pridat ty sloupecky ohledne zdroje a radit
+        # sestupne podle ID"):
+        #   - LEFT JOIN na origin_menu_node + origin_cmi pro provenance display
+        #   - ORDER BY c.id DESC (nejnovejsi draft prvni)
+        sql_cores = _sql_clst("""
+            SELECT c.*,
+                   mn.code  AS _origin_mn_code,
+                   mn.label AS _origin_mn_label,
+                   cmi.code  AS _origin_cmi_code,
+                   cmi.label AS _origin_cmi_label
+            FROM fw.core c
+            LEFT JOIN fw.menu_node mn          ON mn.id  = c.origin_menu_node_id
+            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
+            ORDER BY c.id DESC
+        """)
         rows = ds.execute(sql_cores).mappings().all()
 
         # Fetch usage counts in single subquery (NULL-safe pokud menu_node
@@ -5565,6 +5579,11 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "version": rd.get("version"),
                 "shadow_mode": rd.get("shadow_mode"),
                 "is_used_count": usage_map.get(core_id, 0),
+                # Krok 5.C origin provenance — picker display
+                "origin_menu_node_label": rd.get("_origin_mn_label"),
+                "origin_menu_node_code": rd.get("_origin_mn_code"),
+                "origin_cmi_label": rd.get("_origin_cmi_label"),
+                "origin_cmi_code": rd.get("_origin_cmi_code"),
             })
         return JSONResponse({"ok": True, "cores": cores})
     except Exception as exc:

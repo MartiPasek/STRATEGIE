@@ -7382,12 +7382,12 @@
         const rowId = data.id != null ? data.id : (data.ID != null ? data.ID : null);
         const expectedUpdatedAt = data.updated_at;
 
-        if (!entityType || rowId == null) {
-          alert("Save selhal: missing entity_type nebo row_id");
-          btnEl.disabled = false;
-          btnEl.innerHTML = originalHtml;
-          return;
-        }
+        // Krok 5.I-G hotfix (16.5.2026 ~22:45, Marti's "Save selhal: missing
+        // entity_type nebo row_id" pri pickeru-only zmenach): NE early-exit.
+        // Pokud user mení JEN entity_picker comp_def root (no core data
+        // changes), nepotrebujeme entity_type/row_id. Validace presunuta na
+        // conditional check po collect — vyžadována jen pri fieldChanges
+        // non-empty (core entity save flow).
 
         // Collect dirty changes z DOM. _field / _dropdown helpers ukladaji
         // wrap._fieldKey + wrap._inst (UI Kit instance). Walkujem vsechny
@@ -7453,6 +7453,21 @@
         let savedFieldsCount = 0;
         let lastRespData = null;
         if (Object.keys(fieldChanges).length > 0) {
+          // Krok 5.I-G hotfix (16.5.2026 ~22:45): validace entity context
+          // PRESUNUTA sem (early exit v top byla too strict — blokovalo i
+          // picker-only changes pres comp_def root). Aktivuje se jen pokud
+          // user opravdu modifikoval core entity sloupce.
+          if (!entityType || rowId == null) {
+            alert(
+              "Save selhal: missing entity_type nebo row_id\n\n" +
+              "Core entity changes detected (" +
+              Object.keys(fieldChanges).join(", ") +
+              ") ale form nema kontext entity row."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
           const r = await fetch(
             "/api/v1/erp/design/" + encodeURIComponent(entityType) + "/" + encodeURIComponent(rowId),
             {

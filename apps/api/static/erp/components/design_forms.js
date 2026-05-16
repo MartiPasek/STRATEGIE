@@ -4331,8 +4331,27 @@
   class DesignFwForm {
     constructor(opts) {
       this.opts = opts || {};
-      // opts.coreCode (required) — fw.core.code (e.g. 'user_edit')
-      // opts.rowId (required)    — data row ID (e.g. users.id=14)
+      // Phase 38.4 Krok 14g Etapa F Step B (16.5.2026, Marti's "ID je svaty"
+      // doctrine + UNIQUE(code, version) → code samo není unique):
+      //   opts.coreId   (preferred — fw.core.id, e.g. 22)
+      //   opts.coreCode (BC — fw.core.code, e.g. 'user_edit')
+      //   opts.rowId    (required — data row ID, e.g. users.id=14)
+      //
+      // Pokud jen coreId, open() resolve coreCode via /fw-form/by-id/{coreId}/{rowId}
+      // (Step A endpoint) + store this.opts.coreCode pro subsequent URL builds.
+      if (!this.opts.coreId && !this.opts.coreCode) {
+        console.error("DesignFwForm: must specify coreId (preferred) or coreCode (BC)");
+      }
+      if (this.opts.coreCode && !this.opts.coreId &&
+          typeof window !== "undefined" && window._erpLogToDb) {
+        // BC warning — track migration urgency
+        try {
+          window._erpLogToDb.warn("design_forms.js",
+            "DesignFwForm constructed with coreCode (BC), prefer coreId (Marti's 'ID je svaty' doctrine)", {
+              extra: { coreCode: this.opts.coreCode, rowId: this.opts.rowId },
+            });
+        } catch (e) { /* fail-safe */ }
+      }
       this._shell = null;
       this._spec = null;       // backend response: {core, form, fields, data}
       this._dirty = new Set();
@@ -5054,10 +5073,40 @@
     }
 
     async open() {
-      const coreCode = this.opts.coreCode;
+      // Phase 38.4 Krok 14g Etapa F Step B: dual {coreId|coreCode, rowId} support.
+      // Pokud jen coreId, fetch /fw-form/by-id/{coreId}/{rowId} (Step A endpoint)
+      // vrátí spec včetně core.code → store this.opts.coreCode pro subsequent
+      // URL builds (children/save/refresh — Step C migrate na coreId paths).
       const rowId = this.opts.rowId;
-      if (!coreCode || rowId == null) {
-        console.error("DesignFwForm: coreCode + rowId required");
+      if (rowId == null) {
+        console.error("DesignFwForm: rowId required");
+        return;
+      }
+      if (!this.opts.coreCode && this.opts.coreId) {
+        // coreId-only call: resolve coreCode via by-id endpoint
+        // (Step A backend, /fw-form/by-id/{core_id}/{row_id})
+        try {
+          const lookup = await fetch(
+            "/api/v1/erp/fw-form/by-id/" +
+            encodeURIComponent(this.opts.coreId) + "/" +
+            encodeURIComponent(rowId)
+          ).then(r => r.json());
+          if (lookup && lookup.ok && lookup.core && lookup.core.code) {
+            this.opts.coreCode = lookup.core.code;
+            // Bonus: cache spec for first render — skip second fetch
+            this._spec = lookup;
+          } else {
+            console.error("DesignFwForm: by-id lookup failed for coreId=" + this.opts.coreId, lookup);
+            return;
+          }
+        } catch (e) {
+          console.error("DesignFwForm: by-id lookup network error:", e);
+          return;
+        }
+      }
+      const coreCode = this.opts.coreCode;
+      if (!coreCode) {
+        console.error("DesignFwForm: coreCode resolution failed (provide coreId or coreCode)");
         return;
       }
 

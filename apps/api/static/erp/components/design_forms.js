@@ -4382,6 +4382,7 @@
       this._formDesignMode = !!on;
       this._updateFormDesignToggle();
       this._updateFormAddFieldBtn();  // Krok 14b+7.1: "+ Pole" button visibility
+      this._updateFormEntityBtn();    // Krok 5.F: 🎯 Entita button visibility
       this._updateFormSaveSizeBtn();  // Krok 14b+11: 💾 Velikost button visibility
       this._updateFormDetectMinBtn(); // Krok 14b+12: 📐 Min button visibility
       if (this._spec) {
@@ -4557,6 +4558,22 @@
       undoBtn.addEventListener("click", () => {
         this._performUndo();
       });
+
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026 odpoledne, Marti's
+      // "schazi Pole + magic"): 🎯 Entita button. Visible jen v DESIGN
+      // mode + když core.data_entity_type IS NULL. Click → entity picker
+      // modal → PATCH /design/fw-core/update/{id} → reload form spec →
+      // ➕ Pole button se objeví (_canPickFields() returns true).
+      const entityBtn = document.createElement("button");
+      entityBtn.type = "button";
+      entityBtn.className = "erp-form-design-entity";
+      entityBtn.textContent = "🎯 Entita";
+      entityBtn.title = "Přiřadit datovou entitu (user / menu_node / core). Po assign se ➕ Pole stane dostupný.";
+      this._formEntityBtn = entityBtn;
+      this._updateFormEntityBtn();  // initial visibility
+      entityBtn.addEventListener("click", () => {
+        this._openEntityTypePicker();
+      });
       // Ctrl+Z keyboard shortcut — capture phase aby browser default
       // (undo v inputu) nepřebijel (jen pokud focus mimo input).
       this._undoKeyHandler = (ev) => {
@@ -4581,6 +4598,7 @@
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
         rightActions.insertBefore(undoBtn, sysToggle);
+        rightActions.insertBefore(entityBtn, sysToggle);
         rightActions.insertBefore(addBtn, sysToggle);
         rightActions.insertBefore(saveSizeBtn, sysToggle);
         rightActions.insertBefore(detectMinBtn, sysToggle);
@@ -4589,6 +4607,7 @@
         rightActions.insertBefore(detectMinBtn, rightActions.firstChild);
         rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
+        rightActions.insertBefore(entityBtn, rightActions.firstChild);
         rightActions.insertBefore(undoBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
@@ -4880,6 +4899,188 @@
         "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
         "font-weight:600;" +
         (visible ? "" : "display:none;");
+    }
+
+    _updateFormEntityBtn() {
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026): 🎯 Entita button
+      // visibility — visible jen v DESIGN mode + když core.data_entity_type
+      // IS NULL (entity zatím nepřiřazena). Po assign button zmizí + ➕ Pole
+      // se objeví. Drafted → has_root → populated workflow.
+      if (!this._formEntityBtn) return;
+      const on = this._formDesignMode === true;
+      const core = this._spec && this._spec.core;
+      const noEntity = core && !core.data_entity_type;
+      const visible = on && noEntity;
+      this._formEntityBtn.style.cssText =
+        "background:#3a2a4a;border:1px solid #8a5fb0;color:#c89eee;" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:600;" +
+        (visible ? "" : "display:none;");
+    }
+
+    async _openEntityTypePicker() {
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026): entity picker modal.
+      // Marti's "schazi Pole + magic" — assign data_entity_type je preconditie
+      // pro ➕ Pole button. Po výběru → PATCH /design/fw-core/update/{id}
+      // body {data_entity_type: <code>} → reload _spec → buttons refresh.
+      const core = this._spec && this._spec.core;
+      if (!core || !core.id) {
+        alert("Core data nejsou loaded.");
+        return;
+      }
+      const ENTITY_TYPES = [
+        {
+          code: "user",
+          icon: "👤",
+          title: "Uživatel",
+          desc: "Editace user záznamu. Fields: legal_name, first_name, last_name, status, ews_email, atd. + EMAILY/TELEFONY sub-grids.",
+        },
+        {
+          code: "menu_node",
+          icon: "📁",
+          title: "Menu node",
+          desc: "Editace tree node / soudeček. Fields: code, label, kind, parent_id, sort_order, visibility_scope, atd.",
+        },
+        {
+          code: "core",
+          icon: "🎨",
+          title: "Core (fw.core)",
+          desc: "Editace samotné core entity. Fields: code, label, layout_type, data_entity_type, version, atd. (meta-design).",
+        },
+      ];
+
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10025;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const dialog = document.createElement("div");
+      dialog.style.cssText =
+        "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
+        "padding:24px;width:840px;max-width:95vw;max-height:85vh;overflow:auto;" +
+        "color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.6);";
+
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText =
+        "font-size:16px;font-weight:600;color:#c89eee;margin-bottom:6px;";
+      titleEl.textContent = "🎯 Vybrat datovou entitu pro core id=" + core.id;
+      dialog.appendChild(titleEl);
+
+      const subtitleEl = document.createElement("div");
+      subtitleEl.style.cssText =
+        "font-size:12px;color:#8a96a4;margin-bottom:20px;font-style:italic;";
+      subtitleEl.textContent =
+        "Entita určuje main panel fields a children sub-grids. Po assign se ➕ Pole stane dostupný.";
+      dialog.appendChild(subtitleEl);
+
+      const cardsRow = document.createElement("div");
+      cardsRow.style.cssText =
+        "display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between;";
+
+      let _busy = false;
+      const self = this;
+      ENTITY_TYPES.forEach(function (et) {
+        const card = document.createElement("div");
+        card.style.cssText =
+          "flex:1 1 240px;min-width:240px;max-width:280px;" +
+          "background:#0f1419;border:1px solid #2a3340;border-radius:6px;" +
+          "padding:18px;cursor:pointer;transition:all 0.15s;" +
+          "display:flex;flex-direction:column;gap:10px;";
+        card.onmouseenter = function () {
+          if (_busy) return;
+          card.style.borderColor = "#8a5fb0";
+          card.style.background = "#161c24";
+        };
+        card.onmouseleave = function () {
+          card.style.borderColor = "#2a3340";
+          card.style.background = "#0f1419";
+        };
+        card.innerHTML =
+          '<div style="font-size:42px;line-height:1;">' + et.icon + '</div>' +
+          '<div style="font-size:14px;font-weight:600;color:#c89eee;">' +
+          et.title + '</div>' +
+          '<div style="font-size:12px;line-height:1.5;color:#a8b3bf;">' +
+          et.desc + '</div>';
+        card.onclick = async function () {
+          if (_busy) return;
+          _busy = true;
+          card.style.background = "rgba(138,95,176,0.15)";
+          try {
+            const r = await fetch(
+              "/api/v1/erp/design/fw-core/update/" + encodeURIComponent(core.id),
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ data_entity_type: et.code }),
+              }
+            ).then(function (rr) { return rr.json(); });
+            if (r && r.ok) {
+              // Update local _spec + refresh buttons
+              if (self._spec && self._spec.core) {
+                self._spec.core.data_entity_type = et.code;
+              }
+              try { document.body.removeChild(overlay); } catch (e) {}
+              // Reload form spec (re-fetch + re-render)
+              try {
+                const reload = await fetch(
+                  "/api/v1/erp/fw-form/by-id/" +
+                    encodeURIComponent(core.id) + "/" +
+                    encodeURIComponent(self.opts.rowId || 1),
+                  { credentials: "include" }
+                ).then(function (rr) { return rr.json(); });
+                if (reload && reload.ok) {
+                  self._spec = reload;
+                  self._render();
+                }
+              } catch (e) {
+                console.warn("[DesignFwForm] reload after entity assign failed:", e);
+              }
+            } else {
+              _busy = false;
+              card.style.background = "#0f1419";
+              alert("Assign entity selhal: " + ((r && r.error) || "unknown"));
+            }
+          } catch (e) {
+            _busy = false;
+            card.style.background = "#0f1419";
+            alert("Assign entity (network): " + (e.message || e));
+          }
+        };
+        cardsRow.appendChild(card);
+      });
+
+      dialog.appendChild(cardsRow);
+
+      // Footer (Storno)
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "margin-top:20px;padding-top:16px;border-top:1px solid #2a3340;" +
+        "display:flex;justify-content:flex-end;";
+      const btnCancel = document.createElement("button");
+      btnCancel.type = "button";
+      btnCancel.textContent = "Storno";
+      btnCancel.style.cssText =
+        "padding:7px 16px;font-size:13px;border-radius:4px;" +
+        "background:#22282f;border:1px solid #2a3340;color:#cfd6df;cursor:pointer;";
+      btnCancel.onclick = function () {
+        try { document.body.removeChild(overlay); } catch (e) {}
+      };
+      footer.appendChild(btnCancel);
+      dialog.appendChild(footer);
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      // Esc to close
+      function _escH(ev) {
+        if (ev.key === "Escape" && !_busy) {
+          ev.preventDefault();
+          btnCancel.click();
+          document.removeEventListener("keydown", _escH);
+        }
+      }
+      document.addEventListener("keydown", _escH);
     }
 
     _canPickFields() {
@@ -5935,6 +6136,11 @@
       // header/footer components (title / entity_badge / status_pill / button).
       // Forms bez template_id → fallback na form.layout (legacy pre-Krok 14b+1).
       const template = this._spec.template || null;
+
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F: refresh entity btn visibility
+      // po _render (post-PATCH _spec.core.data_entity_type update reflektovat).
+      try { this._updateFormEntityBtn(); } catch (e) {}
+      try { this._updateFormAddFieldBtn(); } catch (e) {}
 
       // Phase 38.4 Krok 14g Etapa F Krok 5.A (16.5.2026, Marti's "core =
       // kontejner"): pokud core nema root comp_def (empty_container=true),

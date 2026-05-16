@@ -7382,7 +7382,14 @@ async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
             status_code=400,
         )
 
-    ALLOWED = ("label", "description_user", "description_system")
+    # Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026, Marti's "schazi
+    # Pole + magic"): rozsireno o data_entity_type a code (drafted core
+    # postupne nabira meta info — entity assignment je preconditie pro
+    # ➕ Pole button visibility v DesignFwForm header).
+    ALLOWED = (
+        "label", "description_user", "description_system",
+        "data_entity_type", "code",
+    )
     update_vals = {}
     for k in ALLOWED:
         if k in body:

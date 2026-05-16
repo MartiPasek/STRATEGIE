@@ -3103,15 +3103,22 @@ _FW_FORM_ENTITY_MAP: dict = {
         "schema": "fw",
         "table": "core",
         "id_column": "id",
-        # Verified columns from _serialize_core (router.py line 2066). NE
-        # 'kind' (existuje jen v menu_node), NE 'is_active' (zatim chybi).
+        # Phase 38.4 Krok 14g Etapa F Krok 5.A hotfix (16.5.2026): verified
+        # columns from Marti's SELECT * z 16.5. dopoledne (fw.core schema
+        # snapshot). Drop `shadow_mode` (patri do fw.hw_registry per
+        # Marti-AI's Q5 z 11.5. Krok 13) + `updated_at` (zatim neni v
+        # fw.core schema). Plus pridan `is_active`, `tenant_visibility`,
+        # `template_id`, `data_source_config`, audit fields.
         "select_columns": [
             "id", "code", "label",
-            "layout_type", "data_entity_type",
+            "layout_type", "data_entity_type", "data_source_config",
             "version", "parent_framework_id",
-            "layout_template", "shadow_mode",
+            "layout_template", "template_id",
+            "is_active", "tenant_visibility",
             "description_user", "description_system",
-            "created_at", "updated_at",
+            "created_by_id", "created_by_text",
+            "updated_by_id", "updated_by_text",
+            "created_at",
         ],
     },
 }

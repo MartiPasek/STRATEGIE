@@ -3406,6 +3406,51 @@ def _resolve_user_audit(uid: int, ds_core) -> tuple[int | None, str]:
     return uid, name or "Unknown"
 
 
+@api_router.get("/fw-form/by-id/{core_id}/{row_id}")
+def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g Etapa F Step A (16.5.2026): coreId-first variant.
+
+    Marti's doctrine "ID je svaty" (Krok 13.0 z 11.5.) + UNIQUE(code, version)
+    z Marti-AI's Q3 (8.5.) — code sám není unique. Tento endpoint accept
+    core_id (PK, FK target), resolve do code, delegate na existing
+    /fw-form/{core_code}/{row_id} handler.
+
+    Long-term migration plan (Krok 14g Etapa F):
+      Step A — NEW /fw-form/by-id/{core_id}/{row_id}  ← TENTO COMMIT
+      Step B — DesignFwForm constructor accepts {coreId, rowId} (BC coreCode warn)
+      Step C — fw_form_dispatcher.js accept coreId + $core_id resolver
+      Step D — context_menu_item action_params migrate to coreId
+      Step E — (po týdnu stable) drop /fw-form/{core_code} branch + coreCode BC
+
+    Returns:
+        200: identical shape jako existing handler ({core, form, fields, data})
+        404: core_id nenalezen / inactive
+    """
+    from core.database_data import get_data_session as _gds_fwid
+    from sqlalchemy import text as _sql_fwid
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_fwid()
+    try:
+        row = ds.execute(_sql_fwid("""
+            SELECT code FROM fw.core
+            WHERE id = :id AND is_active = true
+        """), {"id": core_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} nenalezen / inactive"},
+                status_code=404,
+            )
+        resolved_code = row["code"]
+    finally:
+        ds.close()
+
+    # Delegate na existing handler — response shape identical.
+    return fw_form_load(core_code=resolved_code, row_id=row_id, req=req)
+
+
 @api_router.get("/fw-form/{core_code}/{parent_id}/children/{child_key}")
 def fw_form_children_list(
     core_code: str, parent_id: int, child_key: str, req: Request

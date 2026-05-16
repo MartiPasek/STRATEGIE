@@ -10380,10 +10380,14 @@
               initialLabel = mn.label;
             }
           } else if (displayMode === "self") {
-            // Z this._spec.data (current core row, data_entity_type='core')
-            const dataRow = (this._spec && this._spec.data) || {};
-            initialId = dataRow.id != null ? dataRow.id : null;
-            initialLabel = dataRow.label || dataRow.code || null;
+            // Krok 5.I-E hotfix (16.5.2026 ~22:35, Marti's screenshot bug):
+            // self-reference = current CORE (ne data row). Marti's logika z
+            // 16.5. dopoledne: "Picker #2 Prehled zobrazuje current core.id +
+            // core.label, NE data.id". Pro core_design data IS core, ale pro
+            // user_edit data je users row (bez label sloupce) — bug viditelny.
+            const coreRow = (this._spec && this._spec.core) || {};
+            initialId = coreRow.id != null ? coreRow.id : null;
+            initialLabel = coreRow.label || coreRow.code || null;
           } else if (displayMode === "editable" && fieldExtern) {
             // Krok 5.I-F: Picker #3 (Datovy zdroj) — initial z form root
             // comp_def via this._spec.form (po Krok 5.I-F backend extension).

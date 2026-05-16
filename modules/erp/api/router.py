@@ -3214,63 +3214,61 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             LIMIT 1
         """), {"core_id": core_dict["id"]}).mappings().one_or_none()
 
+        # Phase 38.4 Krok 14g Etapa F Krok 5.A (16.5.2026): core = kontejner,
+        # ne hardcoded form. Marti's doctrine "core = plocha, na ni se
+        # uzivatelsky rozhodne co vlozit (form 302, list, dashboard, ...)"
+        # + Marti-AI's "uniformita vitezi nad specialnimi pripady" (11.5.
+        # Krok 13 Uniform Components). Pokud root comp_def chybi, ne 404 —
+        # vratime 200 s form=null + empty_container=True. Frontend (Krok 5.B)
+        # renderuje empty canvas placeholder + picker pro user-driven volbu
+        # root komponenty.
         if not form_row:
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": (
-                        f"fw.comp_def s type_id=302 (form) pro "
-                        f"parent_core_id={core_dict['id']} nenalezen. "
-                        f"Form template chybí — INSERT comp_def s "
-                        f"type_id=302 + layout.panels JSONB."
-                    ),
-                },
-                status_code=404,
-            )
+            form_dict = None
+            fields_list = []
+        else:
+            form_dict = dict(form_row)
 
-        form_dict = dict(form_row)
+            # 4. Load field comp_defs — Phase 38.4 Krok 14e-B (14.5.2026 vecer):
+            # Recursive CTE pres ENTIRE component tree pod form root, ne jen
+            # direct children. Doctrine z Krok 14e-A: form → panel → groupbox
+            # → fields (nested containers). Pro legacy forms (flat fields) chodi
+            # stejne — anchor + 1 level recurse.
+            #
+            # Returns flat list s parent_comp_def_id + depth — frontend (Krok
+            # 14e-C) si strom postavi groupingem podle parent_comp_def_id.
+            # Tim padem zachovavame existujici "fields_list" key v response (BC),
+            # jen pridavame nove rows pro containers (panel/groupbox).
+            fields_rows = ds.execute(_sql_text_fwform("""
+                WITH RECURSIVE comp_tree AS (
+                  -- Anchor: direct children form rootu
+                  SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                         cd.sort_order, cd.region_slot, cd.is_active,
+                         cd.parent_comp_def_id,
+                         ct.code AS comp_type_code, ct.label AS comp_type_label,
+                         ct.kind AS comp_type_kind,
+                         0 AS depth
+                  FROM fw.comp_def cd
+                  JOIN fw.comp_type ct ON ct.id = cd.type_id
+                  WHERE cd.parent_comp_def_id = :form_id
+                    AND cd.is_active = true
+                  UNION ALL
+                  -- Recurse: descendants (containers → children)
+                  SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                         cd.sort_order, cd.region_slot, cd.is_active,
+                         cd.parent_comp_def_id,
+                         ct.code AS comp_type_code, ct.label AS comp_type_label,
+                         ct.kind AS comp_type_kind,
+                         tree.depth + 1
+                  FROM fw.comp_def cd
+                  JOIN fw.comp_type ct ON ct.id = cd.type_id
+                  JOIN comp_tree tree ON cd.parent_comp_def_id = tree.id
+                  WHERE cd.is_active = true
+                )
+                SELECT * FROM comp_tree
+                ORDER BY depth ASC, region_slot ASC, sort_order ASC, id ASC
+            """), {"form_id": form_dict["id"]}).mappings().all()
 
-        # 4. Load field comp_defs — Phase 38.4 Krok 14e-B (14.5.2026 vecer):
-        # Recursive CTE pres ENTIRE component tree pod form root, ne jen
-        # direct children. Doctrine z Krok 14e-A: form → panel → groupbox
-        # → fields (nested containers). Pro legacy forms (flat fields) chodi
-        # stejne — anchor + 1 level recurse.
-        #
-        # Returns flat list s parent_comp_def_id + depth — frontend (Krok
-        # 14e-C) si strom postavi groupingem podle parent_comp_def_id.
-        # Tim padem zachovavame existujici "fields_list" key v response (BC),
-        # jen pridavame nove rows pro containers (panel/groupbox).
-        fields_rows = ds.execute(_sql_text_fwform("""
-            WITH RECURSIVE comp_tree AS (
-              -- Anchor: direct children form rootu
-              SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
-                     cd.sort_order, cd.region_slot, cd.is_active,
-                     cd.parent_comp_def_id,
-                     ct.code AS comp_type_code, ct.label AS comp_type_label,
-                     ct.kind AS comp_type_kind,
-                     0 AS depth
-              FROM fw.comp_def cd
-              JOIN fw.comp_type ct ON ct.id = cd.type_id
-              WHERE cd.parent_comp_def_id = :form_id
-                AND cd.is_active = true
-              UNION ALL
-              -- Recurse: descendants (containers → children)
-              SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
-                     cd.sort_order, cd.region_slot, cd.is_active,
-                     cd.parent_comp_def_id,
-                     ct.code AS comp_type_code, ct.label AS comp_type_label,
-                     ct.kind AS comp_type_kind,
-                     tree.depth + 1
-              FROM fw.comp_def cd
-              JOIN fw.comp_type ct ON ct.id = cd.type_id
-              JOIN comp_tree tree ON cd.parent_comp_def_id = tree.id
-              WHERE cd.is_active = true
-            )
-            SELECT * FROM comp_tree
-            ORDER BY depth ASC, region_slot ASC, sort_order ASC, id ASC
-        """), {"form_id": form_dict["id"]}).mappings().all()
-
-        fields_list = [dict(f) for f in fields_rows]
+            fields_list = [dict(f) for f in fields_rows]
 
         # 5. Load data row from target entity table
         schema_name = entity_config["schema"]
@@ -3352,6 +3350,11 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             # Children = 1:N sub-grids per entity_config.children. Pro
             # user_edit: emails + phones z user_contacts polymorphic.
             "children": children_dict,
+            # Phase 38.4 Krok 14g Etapa F Krok 5.A (16.5.2026, Marti's "core
+            # = kontejner"): true pokud root comp_def neexistuje (=core je
+            # prazdne platno). Frontend (Krok 5.B) zobrazi empty canvas
+            # placeholder + picker pro user-driven volbu root komponenty.
+            "empty_container": form_dict is None,
         }))
     finally:
         ds.close()

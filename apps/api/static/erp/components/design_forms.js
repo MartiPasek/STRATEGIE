@@ -5918,6 +5918,39 @@
       // Forms bez template_id → fallback na form.layout (legacy pre-Krok 14b+1).
       const template = this._spec.template || null;
 
+      // Phase 38.4 Krok 14g Etapa F Krok 5.A (16.5.2026, Marti's "core =
+      // kontejner"): pokud core nema root comp_def (empty_container=true),
+      // render placeholder + picker preparation message. Marti's "uniformita
+      // vitezi nad specialnimi pripady" + "core je plocha, na ni se rozhodne
+      // uzivatelsky co vlozit". Plny picker UI (Krok 5.B/5.C) prijde po
+      // konzultaci s Marti-AI.
+      if (form === null || this._spec.empty_container === true) {
+        if (this._shell.title) {
+          this._shell.title.textContent = core.label || core.code || "Prázdný core";
+        }
+        const empty = document.createElement("div");
+        empty.style.cssText =
+          "padding:48px 32px;text-align:center;color:#8a96a4;" +
+          "display:flex;flex-direction:column;align-items:center;gap:16px;";
+        empty.innerHTML =
+          '<div style="font-size:64px;line-height:1;">🎨</div>' +
+          '<div style="font-size:18px;color:#d4b88a;font-weight:600;">' +
+          'Prázdný core kontejner' +
+          '</div>' +
+          '<div style="font-size:13px;max-width:480px;line-height:1.6;">' +
+          '<code style="color:#8fb8d4;">' + (core.code || "?") + '</code> ' +
+          'zatím nemá žádnou root komponentu. ' +
+          'Marti doctrine: <em>„core = plocha, na ní se rozhodne uživatelsky ' +
+          'co vložit (form 302, list, dashboard, ...)."</em>' +
+          '</div>' +
+          '<div style="font-size:12px;color:#6a7684;font-style:italic;margin-top:8px;">' +
+          'Picker root komponenty přijde v Krok 5.B/5.C ' +
+          '(po konzultaci s Marti-AI).' +
+          '</div>';
+        this._shell.body.appendChild(empty);
+        return;
+      }
+
       // Title z core.label (preferuj nad form.caption)
       if (this._shell.title) {
         this._shell.title.textContent = core.label || form.caption || core.code;

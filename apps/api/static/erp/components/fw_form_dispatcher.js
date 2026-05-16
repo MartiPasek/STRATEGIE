@@ -216,11 +216,18 @@
       }
 
       // Success log (info level)
+      // Phase 38.4 Krok 14g Etapa F Step C.1 (16.5.2026): label includes coreId
+      // when coreCode unavailable (coreId-primary dispatch path). Pre-fix logged
+      // "Dispatched FW form: undefined" pro coreId-only callers.
       try {
+        const _coreLabel = formArgs.coreCode
+          ? formArgs.coreCode
+          : (formArgs.coreId ? ("id=" + formArgs.coreId) : "(unknown)");
         _logger.info("fw_form_dispatcher.js",
-          "Dispatched FW form: " + formArgs.coreCode, {
+          "Dispatched FW form: " + _coreLabel, {
             extra: {
               cmi_code: cmiCode,
+              coreId: formArgs.coreId,
               coreCode: formArgs.coreCode,
               rowId: formArgs.rowId,
             },

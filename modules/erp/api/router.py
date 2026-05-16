@@ -15677,54 +15677,11 @@ def _render_workspace_page(user_id: int) -> str:
 
           // Phase 38.4 (11.5.2026 vecer): DESIGN položka — jen když design
           // mód aktivní + single selection (design je per-entity, ne bulk).
-          // MVP placeholder = alert s identifikací; Object Inspector přijde dál.
-          if (window._erpDesignMode === true && !multi) {
-            // Phase 38.4 (11.5.2026 vecer): fw.* identifikatory pro DESIGN.
-            //   data-menu-node-pk = fw.menu_node.id (INT PK, primary)
-            //   data-id           = fw.menu_node.code (text identifier)
-            //   data-core-id      = fw.core.id (INT PK, pokud menu_node.core_id IS NOT NULL)
-            //   data-core-code    = fw.core.code (text)
-            //   data-dispatch-kind = a3_primary / hw_off / hw_audit / hw_compare / orphan
-            // Legacy cislo_def smazano z alertu (Centrala 1 pozustatek).
-            var _designMenuNodePk = item.getAttribute("data-menu-node-pk") || "";
-            var _designMenuNodeCode = item.getAttribute("data-id") || "";
-            var _designLabelEl = item.querySelector(".erp-tree-label");
-            var _designLabel = "";
-            if (_designLabelEl) {
-              _designLabel = _designLabelEl.dataset.erpOrigText || _designLabelEl.textContent || "";
-            }
-            var _designDispatchKind = item.getAttribute("data-dispatch-kind") || "";
-            var _designCoreId = item.getAttribute("data-core-id") || "";
-            var _designCoreCode = item.getAttribute("data-core-code") || "";
-            menuItems.push({
-              icon: "🎨",
-              label: "Design: Soudecek + core prehledu",
-              handler: function () {
-                // Phase 38.4 Krok 14a (12.5.2026 rano): nahrazujeme alert placeholder
-                // -> otevirame DesignSoudecekCoreForm s default focus na Tab "Soudecek".
-                try {
-                  if (typeof window.DesignSoudecekCoreForm !== "function") {
-                    alert("DesignSoudecekCoreForm neni nactena (design_forms.js missing).");
-                    return;
-                  }
-                  var formOpts = { initialTab: "soudecek" };
-                  // Preferred: menuNodeId (INT PK). Fallback: menuNodeCode (text).
-                  if (_designMenuNodePk) {
-                    formOpts.menuNodeId = parseInt(_designMenuNodePk, 10);
-                  } else if (_designMenuNodeCode) {
-                    formOpts.menuNodeCode = _designMenuNodeCode;
-                  } else {
-                    alert("Chybi menu_node identifikator (data-menu-node-pk nebo data-id).");
-                    return;
-                  }
-                  new window.DesignSoudecekCoreForm(formOpts).open();
-                } catch (e) {
-                  console.error("DesignSoudecekCoreForm open failed:", e);
-                  alert("Chyba otevreni Design formu: " + e.message);
-                }
-              },
-            });
-          }
+          // Phase 38.4 Krok 14g Etapa F Krok 5.J-B3 (16.5.2026 ~24:15, Marti's
+          // "Smazat ze stromu HCoded menu Design: Soudecek plus core prehledu"):
+          // hardcoded menu item odstranen — fw-driven Design forms (Krok 5.A-J)
+          // jsou teď preferred entry point. DesignSoudecekCoreForm (Form 1)
+          // zůstává jako legacy class pro backward compat, ale není v menu.
 
           // ═════════════════════════════════════════════════════════════
           // Phase 38.4 Krok 14g-H+33 Etapa 2 (15.5.2026 vecer, Marti's

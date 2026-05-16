@@ -4331,26 +4331,33 @@
   class DesignFwForm {
     constructor(opts) {
       this.opts = opts || {};
-      // Phase 38.4 Krok 14g Etapa F Step B (16.5.2026, Marti's "ID je svaty"
-      // doctrine + UNIQUE(code, version) → code samo není unique):
-      //   opts.coreId   (preferred — fw.core.id, e.g. 22)
-      //   opts.coreCode (BC — fw.core.code, e.g. 'user_edit')
-      //   opts.rowId    (required — data row ID, e.g. users.id=14)
+      // Phase 38.4 Krok 14g Etapa F Step E.1 (16.5.2026, Marti's "pro jistotu
+      // o vikendu"): drop coreCode EXTERNAL — constructor refuses coreCode
+      // parameter. Pokud caller jeste posila coreCode, console.error +
+      // _erpLogToDb error event (visible v fw.diag_log).
       //
-      // Pokud jen coreId, open() resolve coreCode via /fw-form/by-id/{coreId}/{rowId}
-      // (Step A endpoint) + store this.opts.coreCode pro subsequent URL builds.
-      if (!this.opts.coreId && !this.opts.coreCode) {
-        console.error("DesignFwForm: must specify coreId (preferred) or coreCode (BC)");
-      }
-      if (this.opts.coreCode && !this.opts.coreId &&
-          typeof window !== "undefined" && window._erpLogToDb) {
-        // BC warning — track migration urgency
-        try {
-          window._erpLogToDb.warn("design_forms.js",
-            "DesignFwForm constructed with coreCode (BC), prefer coreId (Marti's 'ID je svaty' doctrine)", {
-              extra: { coreCode: this.opts.coreCode, rowId: this.opts.rowId },
+      // Internal: open() lazy-resolves coreCode-from-coreId pres /fw-form/by-id
+      // endpoint pro subsequent URL builds (children/save/refresh).
+      //
+      // Constructor signature:
+      //   opts.coreId   (required — fw.core.id, e.g. 22)
+      //   opts.rowId    (required — data row ID, e.g. users.id=14)
+      if (this.opts.coreCode && !this.opts.coreId) {
+        const _errMsg = "DesignFwForm: coreCode parameter NOT SUPPORTED (Etapa F Step E.1 drop). Pass coreId instead.";
+        console.error(_errMsg);
+        if (typeof window !== "undefined" && window._erpLogToDb) {
+          try {
+            window._erpLogToDb.error("design_forms.js", _errMsg, {
+              extra: { passed_coreCode: this.opts.coreCode, passed_rowId: this.opts.rowId },
             });
-        } catch (e) { /* fail-safe */ }
+          } catch (e) { /* fail-safe */ }
+        }
+        // Constructor must not throw (existing flow chains .open() — let validation
+        // handle it in open()). Mark coreId missing for open() to bail.
+        this.opts._etapaFInvalid = true;
+      } else if (!this.opts.coreId) {
+        console.error("DesignFwForm: coreId required");
+        this.opts._etapaFInvalid = true;
       }
       this._shell = null;
       this._spec = null;       // backend response: {core, form, fields, data}

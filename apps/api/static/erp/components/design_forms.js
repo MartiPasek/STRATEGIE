@@ -10241,6 +10241,72 @@
             this._render();
           });
 
+          // Phase 38.4 Krok 14g Etapa F Krok 5.J-B5 (16.5.2026 ~24:35, Marti's
+          // "Zvladnes dodelat na tom page control presouvani komponent z jedne
+          // do druhe zalozky? Drop?"): tab button = drop target pro fields.
+          // Drag field/container z aktivního tabu → drop na **neaktivní** tab
+          // → PATCH parent_comp_def_id = drop_target_ts.id → re-parent
+          // komponenta do drop tabsheet. Existing _wrapFieldForDesign +
+          // _attachContainerDragEvents sets text/plain = component id.
+          if (designModePc) {
+            tabBtn.addEventListener("dragover", (ev) => {
+              // Allow drop pokud máme nějaký drag state (field nebo container)
+              if (!self._dragState && !self._containerDragState) return;
+              ev.preventDefault();
+              ev.dataTransfer.dropEffect = "move";
+              tabBtn.style.background = "#1a2632";
+              tabBtn.style.borderBottomColor = "#5dbf5d";  // green = drop accept
+            });
+            tabBtn.addEventListener("dragleave", () => {
+              tabBtn.style.background = "transparent";
+              tabBtn.style.borderBottomColor = (ts.id === activeTsId) ? "#7ed4e8" : "transparent";
+            });
+            tabBtn.addEventListener("drop", async (ev) => {
+              ev.preventDefault();
+              ev.stopPropagation();
+              tabBtn.style.background = "transparent";
+              tabBtn.style.borderBottomColor = (ts.id === activeTsId) ? "#7ed4e8" : "transparent";
+              const rawId = ev.dataTransfer.getData("text/plain");
+              const draggedId = parseInt(rawId, 10);
+              if (!draggedId || isNaN(draggedId)) {
+                console.warn("[pagecontrol drop] no valid dragged id:", rawId);
+                return;
+              }
+              // Self-drop guard: pokud field uz patri tomuto tabsheetu, skip
+              // (need to look up — but easier just attempt PATCH; backend
+              // is idempotent for same parent_comp_def_id, succeeds silently)
+              try {
+                const r = await fetch(
+                  "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(draggedId),
+                  {
+                    method: "PATCH",
+                    credentials: "include",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ parent_comp_def_id: ts.id }),
+                  }
+                );
+                if (!r.ok) {
+                  const eb = await r.json().catch(() => ({}));
+                  throw new Error(eb.error || ("HTTP " + r.status));
+                }
+                if (typeof _showToast === "function") {
+                  _showToast(
+                    "Komponenta přesunuta do \"" + (ts.caption || ts.name) + "\"",
+                    "success", 2000
+                  );
+                }
+                // Switch active na drop-target tab pro visual feedback
+                self._activeTabSheets[pcId] = ts.id;
+                await self._reloadSpec();
+              } catch (e) {
+                console.error("[pagecontrol drop] re-parent failed:", e);
+                if (typeof _showToast === "function") {
+                  _showToast("Přesun selhal: " + (e.message || e), "error", 3500);
+                }
+              }
+            });
+          }
+
           // Right-click → prompt rename (DESIGN only)
           if (designModePc) {
             tabBtn.addEventListener("contextmenu", async (ev) => {
@@ -10285,6 +10351,78 @@
 
           tabStrip.appendChild(tabBtn);
         }
+
+        // Phase 38.4 Krok 14g Etapa F Krok 5.J-B4 (16.5.2026 ~24:25, Marti's
+        // "Prosim jeste pridani zalozky sheetu"): ➕ Add new tab button
+        // na konec tab strip (DESIGN only). Click → prompt caption →
+        // POST /design/comp-def s parent_comp_def_id=pagecontrol.id.
+        if (designModePc) {
+          const addBtn = document.createElement("button");
+          addBtn.type = "button";
+          addBtn.textContent = "➕";
+          addBtn.title = "Přidat novou záložku";
+          addBtn.style.cssText =
+            "padding:8px 12px;background:transparent;border:none;outline:none;" +
+            "color:#5dbf5d;font-size:14px;font-weight:600;cursor:pointer;" +
+            "margin-left:auto;transition:background 0.15s;";
+          addBtn.addEventListener("mouseenter", () => {
+            addBtn.style.background = "#0a1410";
+          });
+          addBtn.addEventListener("mouseleave", () => {
+            addBtn.style.background = "transparent";
+          });
+          addBtn.addEventListener("click", async () => {
+            const caption = prompt("Název nové záložky:", "Nový tab");
+            if (caption == null) return;  // cancel
+            const trimmed = caption.trim();
+            if (!trimmed) {
+              if (typeof _showToast === "function") {
+                _showToast("Název nesmí být prázdný", "error", 2500);
+              }
+              return;
+            }
+            // type_id z first existing tabsheet (fallback 16 = Krok 13 Delphi compat)
+            const tabsheetTypeId = (tabsheets[0] && tabsheets[0].type_id) || 16;
+            // Unique name (idempotency check je na parent+name+region, takže timestamp suffix garantuje)
+            const uniqueName = "tab_" + Date.now();
+            try {
+              const r = await fetch("/api/v1/erp/design/comp-def", {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  parent_comp_def_id: pcId,
+                  name: uniqueName,
+                  caption: trimmed,
+                  type_id: tabsheetTypeId,
+                  region_slot: "main",
+                  // sort_order: auto-set backend (max + 10)
+                }),
+              });
+              if (!r.ok) {
+                const eb = await r.json().catch(() => ({}));
+                throw new Error(eb.error || ("HTTP " + r.status));
+              }
+              const respData = await r.json();
+              const newTsId = respData.comp_def_id;
+              if (typeof _showToast === "function") {
+                _showToast("Záložka přidána", "success", 2000);
+              }
+              // Switch active na nový tab (pres _reloadSpec ho ukáže)
+              if (newTsId) {
+                self._activeTabSheets[pcId] = newTsId;
+              }
+              await self._reloadSpec();
+            } catch (e) {
+              console.error("[pagecontrol] add new tab failed:", e);
+              if (typeof _showToast === "function") {
+                _showToast("Přidání selhalo: " + (e.message || e), "error", 3500);
+              }
+            }
+          });
+          tabStrip.appendChild(addBtn);
+        }
+
         pcWrap.appendChild(tabStrip);
 
         // Content area — render active tabsheet children

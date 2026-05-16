@@ -132,7 +132,7 @@
     // ════════════════════════════════════════════════════════════════
     // Open DesignFwForm s catch handler
     // ════════════════════════════════════════════════════════════════
-    function _openForm(formArgs, cmiCode) {
+    async function _openForm(formArgs, cmiCode, actionParams) {
       if (typeof global.DesignFwForm !== "function") {
         alert("DesignFwForm not loaded (design_forms.js missing or older verze).");
         try {
@@ -160,6 +160,92 @@
             });
         } catch (e) {}
         return;
+      }
+
+      // Phase 38.4 Krok 14g Etapa F Step E.2 (16.5.2026, Marti's "z krysiho zavodu
+      // do cisteho produkcniho systemu"): pre-validate resolved core matches
+      // expectedCoreCode (declarative target check). Pokud action_params dava
+      // expectedCoreCode (e.g. "core_design"), dispatcher pre-fetches by-id
+      // endpoint a porovna response.core.code vs expected. Mismatch → alert +
+      // log error + NO form open. Match → normal flow.
+      //
+      // Use case: Marti's "Design: Přehled" cmi resolves $core_id z DOM,
+      // ale DOM ctx pointuje na user_edit (nesouvisi s "Design"). expectedCoreCode
+      // catches misalignment + dava actionable hint ze fw.core entry chybi
+      // nebo DOM ctx je nesprávný.
+      const _expectedCoreCode = actionParams && actionParams.expectedCoreCode;
+      if (_expectedCoreCode) {
+        let preValidation;
+        try {
+          const _r = await fetch(
+            "/api/v1/erp/fw-form/by-id/" + encodeURIComponent(formArgs.coreId) + "/" +
+            encodeURIComponent(formArgs.rowId || 1),
+            { credentials: "include" }
+          );
+          if (!_r.ok) {
+            preValidation = { ok: false, httpStatus: _r.status, error: "HTTP " + _r.status };
+          } else {
+            const _d = await _r.json();
+            preValidation = {
+              ok: _d && _d.ok,
+              resolvedCode: _d && _d.core && _d.core.code,
+              core: _d && _d.core,
+              cachedSpec: _d,  // bonus: pass to DesignFwForm pro skip second fetch
+            };
+          }
+        } catch (e) {
+          preValidation = { ok: false, error: e && (e.message || String(e)) };
+        }
+
+        if (!preValidation.ok) {
+          alert(
+            "Custom item '" + (cmiCode || "?") +
+            "': pre-validation selhala pro coreId=" + formArgs.coreId + ".\n\n" +
+            "Error: " + (preValidation.error || "unknown") + "\n\n" +
+            "Mozne priciny:\n" +
+            "1. fw.core entry s id=" + formArgs.coreId + " neexistuje\n" +
+            "2. Endpoint /fw-form/by-id/" + formArgs.coreId + "/" + (formArgs.rowId || 1) +
+            " vratil " + (preValidation.httpStatus || "error")
+          );
+          try {
+            _logger.error("fw_form_dispatcher.js",
+              "Pre-validation failed for cmi=" + cmiCode + ", coreId=" + formArgs.coreId, {
+                extra: { ...preValidation, expectedCoreCode: _expectedCoreCode, formArgs: formArgs },
+              });
+          } catch (e) {}
+          return;
+        }
+
+        if (preValidation.resolvedCode !== _expectedCoreCode) {
+          alert(
+            "Custom item '" + (cmiCode || "?") +
+            "' ocekava fw.core code='" + _expectedCoreCode + "',\n" +
+            "ale DOM context (coreId=" + formArgs.coreId + ") resolved na code='" +
+            (preValidation.resolvedCode || "?") + "'.\n\n" +
+            "Mozne priciny:\n" +
+            "1. fw.core entry pro '" + _expectedCoreCode + "' jeste neexistuje — vytvorte ho\n" +
+            "2. DOM data-core-id pointuje na jiny core (nesouvisi s '" + cmiCode + "' targetem)\n" +
+            "3. Action_params.coreId resolver vraci spatny id pro tento context\n\n" +
+            "Form NEbyl otevren — abychom predesli random user_edit form opening."
+          );
+          try {
+            _logger.error("fw_form_dispatcher.js",
+              "expectedCoreCode mismatch: expected='" + _expectedCoreCode +
+              "', resolved='" + (preValidation.resolvedCode || "?") + "' (cmi=" + cmiCode + ")", {
+                extra: {
+                  expectedCoreCode: _expectedCoreCode,
+                  resolvedCode: preValidation.resolvedCode,
+                  coreId: formArgs.coreId,
+                  cmiCode: cmiCode,
+                },
+              });
+          } catch (e) {}
+          return;
+        }
+
+        // Validation passed — cache resolved coreCode pro internal URL builds
+        // (skip lazy-resolve fetch v DesignFwForm.open())
+        formArgs._cachedSpec = preValidation.cachedSpec;
       }
 
       // Open FW form (data-driven render z fw.core + fw.comp_def)
@@ -251,7 +337,18 @@
       const ctx = _buildContext(item, mnPk, mnCode);
       const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
       _diagLog(cmiSnap.action_params, ctx, formArgs);
-      _openForm(formArgs, cmiSnap.code);
+      // Phase 38.4 Krok 14g Etapa F Step E.2: _openForm now async, pass action_params
+      // pro pre-validation logic (expectedCoreCode check).
+      _openForm(formArgs, cmiSnap.code, cmiSnap.action_params).catch(function (e) {
+        console.error("[fw_form_dispatcher] _openForm rejected:", e);
+        try {
+          _logger.error("fw_form_dispatcher.js",
+            "_openForm async error: " + (e && e.message ? e.message : String(e)), {
+              stack: e && e.stack, exception_type: e && e.name,
+              extra: { cmi_code: cmiSnap.code },
+            });
+        } catch (_) {}
+      });
     };
 
   }); // _erpLoadModule end

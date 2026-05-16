@@ -11293,6 +11293,9 @@ def _render_workspace_page(user_id: int) -> str:
          (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
          3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->
     <script src="/static/erp/components/design_forms.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 14g Etapa E (16.5.2026): fw_form_dispatcher.js po
+         design_forms.js (potreba DesignFwForm class pred dispatch). -->
+    <script src="/static/erp/components/fw_form_dispatcher.js?v=''' + _STATIC_VERSION + '''"></script>
     <script>
       // Phase 38.4 Krok 9-D: expose current user ID pro Object Inspector
       // (potřebuje pro user-scoped overrides při Save).
@@ -14770,71 +14773,19 @@ def _render_workspace_page(user_id: int) -> str:
                           // Dispatch by action_kind (Marti's volba A: jen open_fw_form)
                           if (cmiSnap.action_kind === "open_fw_form") {
                             // ═══════════════════════════════════════════════
-                            // Phase 38.4 Krok 14g-H+33 Etapa 2.1 (15.5.2026
-                            // vecer, Marti's "system pro prenos source ID do
-                            // destination ID dynamicky bez hardcodovani"):
-                            // dynamic resolver pro action_params s $sourceX
-                            // placeholdery + auto-context defaults.
+                            // Phase 38.4 Krok 14g-H+33 Etapa 2.2 v2 (16.5.2026
+                            // ranní, modular retry po Etapa 2.2 v1 fail):
+                            // FW form dispatch externalized do
+                            // /static/erp/components/fw_form_dispatcher.js
+                            // (DesignFwForm data-driven, ne DesignSoudecekCoreForm
+                            // hardcoded). Plus mutual immunity (_erpLoadModule)
+                            // + _erpLogToDb event logging.
                             // ═══════════════════════════════════════════════
-                            if (typeof window.DesignSoudecekCoreForm !== "function") {
-                              alert("DesignSoudecekCoreForm not loaded.");
-                              return;
-                            }
-                            // Source resolvery — z DOM kontextu (item dataset)
-                            const ctx = {
-                              menu_node_pk: mnPk ? parseInt(mnPk, 10) : null,
-                              menu_node_code: mnCode || null,
-                              core_id: (function () {
-                                const v = item.getAttribute("data-core-id");
-                                return v ? parseInt(v, 10) : null;
-                              })(),
-                              core_code: item.getAttribute("data-core-code") || null,
-                            };
-                            // Auto-context defaults pro DesignSoudecekCoreForm
-                            // (action_params overrides win)
-                            const formArgs = {
-                              menuNodeId: ctx.menu_node_pk || undefined,
-                              menuNodeCode: ctx.menu_node_code || undefined,
-                              coreId: ctx.core_id || undefined,
-                              coreCode: ctx.core_code || undefined,
-                              initialTab: "prehled",
-                            };
-                            // Apply action_params s $resolvers
-                            const ap = cmiSnap.action_params || {};
-                            for (const [key, val] of Object.entries(ap)) {
-                              // BC alias z Etapy 2: form_core_code → coreCode
-                              const targetKey = (key === "form_core_code")
-                                ? "coreCode" : key;
-                              if (typeof val === "string" && val.startsWith("$")) {
-                                // Dynamic: resolve $sourceField → ctx[sourceField]
-                                const sourceKey = val.substring(1);
-                                if (ctx.hasOwnProperty(sourceKey)) {
-                                  formArgs[targetKey] = ctx[sourceKey];
-                                } else {
-                                  console.warn(
-                                    "[contextmenu] unknown source '" + val +
-                                    "' v action_params['" + key + "'] — " +
-                                    "dostupne: " + Object.keys(ctx).join(", ")
-                                  );
-                                  formArgs[targetKey] = null;
-                                }
-                              } else {
-                                formArgs[targetKey] = val;
-                              }
-                            }
-                            // Diag log (Marti's "design view" — co bude open)
-                            if (window._erpDesignMode === true) {
-                              console.info(
-                                "[contextmenu dispatch] action_params:", ap,
-                                "ctx:", ctx,
-                                "resolved formArgs:", formArgs
-                              );
-                            }
-                            try {
-                              new window.DesignSoudecekCoreForm(formArgs).open();
-                            } catch (e) {
-                              console.error("[contextmenu] open_fw_form failed:", e);
-                              alert("Otevreni formu selhalo: " + (e.message || e));
+                            if (typeof window.dispatchFwFormFromContextMenu === "function") {
+                              window.dispatchFwFormFromContextMenu(cmiSnap, item, mnPk, mnCode);
+                            } else {
+                              alert("fw_form_dispatcher.js not loaded (kit chybi).");
+                              console.error("[contextmenu] dispatchFwFormFromContextMenu not on window");
                             }
                           } else {
                             alert(

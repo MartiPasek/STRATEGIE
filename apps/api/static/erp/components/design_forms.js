@@ -5090,7 +5090,7 @@
         return;
       }
       if (!this.opts.coreCode && this.opts.coreId) {
-        // coreId-only call: resolve coreCode via by-id endpoint
+        // coreId-only call: resolve via by-id endpoint
         // (Step A backend, /fw-form/by-id/{core_id}/{row_id})
         try {
           const lookup = await fetch(
@@ -5098,10 +5098,13 @@
             encodeURIComponent(this.opts.coreId) + "/" +
             encodeURIComponent(rowId)
           ).then(r => r.json());
-          if (lookup && lookup.ok && lookup.core && lookup.core.code) {
-            this.opts.coreCode = lookup.core.code;
-            // Bonus: cache spec for first render — skip second fetch
-            this._spec = lookup;
+          // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne):
+          // tolerate drafted core (code=NULL after Krok 5.C DDL "nic nas
+          // nesmi omezovat"). Backend vrati lookup.empty_container=true
+          // pro drafted — accept + cache spec, render placeholder.
+          if (lookup && lookup.ok && lookup.core) {
+            this.opts.coreCode = lookup.core.code || null;
+            this._spec = lookup; // cache — skip second fetch ve vsech pripadech
           } else {
             console.error("DesignFwForm: by-id lookup failed for coreId=" + this.opts.coreId, lookup);
             return;
@@ -5112,8 +5115,12 @@
         }
       }
       const coreCode = this.opts.coreCode;
-      if (!coreCode) {
-        console.error("DesignFwForm: coreCode resolution failed (provide coreId or coreCode)");
+      // Phase 38.4 Krok 14g Etapa F Krok 5.C: coreCode CAN be null pro drafted
+      // core (empty_container). Pokud chybi coreCode AND chybi cached _spec,
+      // fail (neni co renderovat). Jinak pokracujeme — _render handle
+      // empty_container placeholder branch.
+      if (!coreCode && !this._spec) {
+        console.error("DesignFwForm: ani coreCode ani _spec (provide coreId or coreCode)");
         return;
       }
 
@@ -5180,20 +5187,31 @@
 
       const loading = document.createElement("div");
       loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
-      loading.textContent = "Načítám " + coreCode + " #" + rowId + "…";
+      // Phase 38.4 Krok 14g Etapa F Krok 5.C: fallback label pro drafted
+      // core (coreCode=null).
+      const _loadLabel = coreCode || ("id=" + this.opts.coreId);
+      loading.textContent = "Načítám " + _loadLabel + " #" + rowId + "…";
       this._shell.body.appendChild(loading);
 
       try {
-        const resp = await fetch(
-          "/api/v1/erp/fw-form/" + encodeURIComponent(coreCode) + "/" + encodeURIComponent(rowId)
-        );
-        if (!resp.ok) {
-          const errBody = await resp.json().catch(() => ({}));
-          throw new Error(
-            "HTTP " + resp.status + ": " + (errBody.error || resp.statusText)
+        // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne):
+        // Pokud _spec uz cached z by-id lookup (drafted core nebo bonus
+        // cache z fully-formed core), skip second fetch — by-id response
+        // ma identical shape jako /fw-form/{code}/{rowId} po Krok 5.A.
+        // Pro fully-formed core mozeme re-fetch pres code (kontrola
+        // konzistence), ale primarni dispatch path je teted by-id.
+        if (!this._spec) {
+          const resp = await fetch(
+            "/api/v1/erp/fw-form/" + encodeURIComponent(coreCode) + "/" + encodeURIComponent(rowId)
           );
+          if (!resp.ok) {
+            const errBody = await resp.json().catch(() => ({}));
+            throw new Error(
+              "HTTP " + resp.status + ": " + (errBody.error || resp.statusText)
+            );
+          }
+          this._spec = await resp.json();
         }
-        this._spec = await resp.json();
         if (!this._spec || !this._spec.ok) {
           throw new Error(
             "Backend error: " + (this._spec && this._spec.error || "unknown")

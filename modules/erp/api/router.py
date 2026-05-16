@@ -3283,29 +3283,38 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             # 14e-C) si strom postavi groupingem podle parent_comp_def_id.
             # Tim padem zachovavame existujici "fields_list" key v response (BC),
             # jen pridavame nove rows pro containers (panel/groupbox).
+            # Phase 38.4 Krok 14g Etapa F Krok 5.G (16.5.2026 vecer): rozsireno
+            # o cd.data_source_id + LEFT JOIN na fw.data_source pro entity_picker
+            # binding info (code + name) — frontend volá /api/v1/erp/data/{code}.
             fields_rows = ds.execute(_sql_text_fwform("""
                 WITH RECURSIVE comp_tree AS (
                   -- Anchor: direct children form rootu
                   SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                          cd.sort_order, cd.region_slot, cd.is_active,
-                         cd.parent_comp_def_id,
+                         cd.parent_comp_def_id, cd.data_source_id,
                          ct.code AS comp_type_code, ct.label AS comp_type_label,
                          ct.kind AS comp_type_kind,
+                         ds.code AS data_source_code,
+                         ds.name AS data_source_name,
                          0 AS depth
                   FROM fw.comp_def cd
                   JOIN fw.comp_type ct ON ct.id = cd.type_id
+                  LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
                   WHERE cd.parent_comp_def_id = :form_id
                     AND cd.is_active = true
                   UNION ALL
                   -- Recurse: descendants (containers → children)
                   SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                          cd.sort_order, cd.region_slot, cd.is_active,
-                         cd.parent_comp_def_id,
+                         cd.parent_comp_def_id, cd.data_source_id,
                          ct.code AS comp_type_code, ct.label AS comp_type_label,
                          ct.kind AS comp_type_kind,
+                         ds.code AS data_source_code,
+                         ds.name AS data_source_name,
                          tree.depth + 1
                   FROM fw.comp_def cd
                   JOIN fw.comp_type ct ON ct.id = cd.type_id
+                  LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
                   JOIN comp_tree tree ON cd.parent_comp_def_id = tree.id
                   WHERE cd.is_active = true
                 )
@@ -3572,28 +3581,37 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # Root exists — render path
         form_dict = dict(root_row)
 
-        # Load fields (recursive CTE pod root)
+        # Load fields (recursive CTE pod root) — Phase 38.4 Krok 14g Etapa F
+        # Krok 5.G (16.5.2026 vecer): rozsireno o cd.data_source_id + LEFT JOIN
+        # na fw.data_source pro code + name (entity_picker rendering needs to
+        # fetch /api/v1/erp/data/{ds_code}).
         fields_rows = ds.execute(_sql_fwid("""
             WITH RECURSIVE comp_tree AS (
               SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                      cd.sort_order, cd.region_slot, cd.is_active,
-                     cd.parent_comp_def_id,
+                     cd.parent_comp_def_id, cd.data_source_id,
                      ct.code AS comp_type_code, ct.label AS comp_type_label,
                      ct.kind AS comp_type_kind,
+                     ds.code AS data_source_code,
+                     ds.name AS data_source_name,
                      0 AS depth
               FROM fw.comp_def cd
               JOIN fw.comp_type ct ON ct.id = cd.type_id
+              LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
               WHERE cd.parent_comp_def_id = :form_id
                 AND cd.is_active = true
               UNION ALL
               SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                      cd.sort_order, cd.region_slot, cd.is_active,
-                     cd.parent_comp_def_id,
+                     cd.parent_comp_def_id, cd.data_source_id,
                      ct.code AS comp_type_code, ct.label AS comp_type_label,
                      ct.kind AS comp_type_kind,
+                     ds.code AS data_source_code,
+                     ds.name AS data_source_name,
                      tree.depth + 1
               FROM fw.comp_def cd
               JOIN fw.comp_type ct ON ct.id = cd.type_id
+              LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
               JOIN comp_tree tree ON cd.parent_comp_def_id = tree.id
               WHERE cd.is_active = true
             )

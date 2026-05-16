@@ -4902,33 +4902,13 @@
     }
 
     _updateFormEntityBtn() {
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026, Marti's "jak se
-      // tam zpatky?"): 🎯 Entita button **vždy visible v DESIGN mode** —
-      // pre mind change. Text dynamic:
-      //   - data_entity_type IS NULL → "🎯 Vybrat entitu" (purple active)
-      //   - data_entity_type assigned → "🎯 <type>" (greyed-active, prepneutelne)
-      // Marti's "pojistka se stala dospelosti" — user volí vědomě, nikdy block.
+      // Phase 38.4 Krok 14g Etapa F Krok 5.F REVERT (16.5.2026, Marti's "vyber
+      // entity uz kdyz jsme na formulari tam nepatri"): entity volba je
+      // higher-level concept (tree node nebo cmi). Form je layout + fields,
+      // entity je inherited. Button vždy hidden — funkce zachovaná jako
+      // dead code pro budoucí Krok 5.G implementaci na správné vrstvě.
       if (!this._formEntityBtn) return;
-      const on = this._formDesignMode === true;
-      const core = this._spec && this._spec.core;
-      const entType = core && core.data_entity_type;
-      const visible = on && !!core;
-      // Dynamic text based on state
-      if (visible) {
-        this._formEntityBtn.textContent = entType
-          ? ("🎯 " + entType)
-          : "🎯 Vybrat entitu";
-        this._formEntityBtn.title = entType
-          ? ("Aktuální entita: " + entType + " — klik pro změnu / zrušení.")
-          : "Přiřadit datovou entitu (po assign se ➕ Pole stane dostupný).";
-      }
-      this._formEntityBtn.style.cssText =
-        (entType
-          ? "background:#2a2a35;border:1px solid #5a5a6f;color:#9090a8;"
-          : "background:#3a2a4a;border:1px solid #8a5fb0;color:#c89eee;") +
-        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
-        "font-weight:600;" +
-        (visible ? "" : "display:none;");
+      this._formEntityBtn.style.cssText = "display:none;";
     }
 
     async _openEntityTypePicker() {
@@ -10248,6 +10228,123 @@
             readonly: true,
             onDirty: onDirty,
           });
+
+        case "entity_picker": {
+          // Phase 38.4 Krok 14g Etapa F Krok 5.G (16.5.2026 vecer, Marti's
+          // "1 komponenta + N instancí s data_source binding"):
+          // entity_picker komponenta — render groupbox s label + 2 fields
+          // (Číslo + Název) + 3 quick action ikony (🔗 / 🚫 / ➕).
+          //
+          // Data flow: comp_def.data_source_id → backend SELECT JOIN vraci
+          // data_source_code → frontend volá /api/v1/erp/data/{code} pro
+          // rows + builds picker on click.
+          //
+          // Marti's Centrála 1 paralela: TUserFormList s LookupView/LookupField/
+          // LookupDisplay. Drz "uniformita vítězí" — 1 entity_picker comp_type,
+          // N instances přes per-instance data_source_id binding.
+          const dsCode = field.data_source_code || null;
+          const dsName = field.data_source_name || null;
+          const lookupId = (fieldLayout.lookup_id_field) || "id";
+          const lookupDisplay = (fieldLayout.lookup_display_field) || "label";
+          const actions = fieldLayout.show_quick_actions || ["link", "unlink", "create_new"];
+
+          const wrap = document.createElement("div");
+          wrap.className = "erp-field erp-field-design erp-entity-picker-host";
+          wrap.style.cssText =
+            "display:flex;flex-direction:column;gap:6px;" +
+            "border:1px solid #2a3340;border-radius:6px;padding:12px;background:#0f1419;";
+          wrap._fieldKey = fieldKey;
+          wrap._kind = "entity_picker";
+
+          // Header — label + data_source code/name badge
+          const headerRow = document.createElement("div");
+          headerRow.style.cssText =
+            "display:flex;justify-content:space-between;align-items:center;" +
+            "padding-bottom:4px;border-bottom:1px solid #1f2630;";
+
+          const labelEl = document.createElement("div");
+          labelEl.style.cssText =
+            "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;" +
+            "text-transform:uppercase;cursor:context-menu;";
+          labelEl.setAttribute("data-design-fieldkey", fieldKey);
+          labelEl.dataset.designOrigLabel = label;
+          labelEl.textContent = label;
+          headerRow.appendChild(labelEl);
+
+          if (dsCode) {
+            const badge = document.createElement("div");
+            badge.style.cssText =
+              "font-size:10px;color:#6a7684;font-style:italic;";
+            badge.title = dsName || dsCode;
+            badge.textContent = "ds: " + dsCode;
+            headerRow.appendChild(badge);
+          }
+          wrap.appendChild(headerRow);
+
+          // Action ikony row (🔗 / 🚫 / ➕)
+          const actionsRow = document.createElement("div");
+          actionsRow.style.cssText = "display:flex;gap:6px;align-items:center;";
+
+          const ACTION_DEFS = {
+            link: { icon: "🔗", title: "Vybrat existující záznam", color: "#8fb8d4" },
+            unlink: { icon: "🚫", title: "Zrušit asociaci", color: "#d48787" },
+            create_new: { icon: "➕", title: "Vytvořit nový záznam", color: "#7ed4a8" },
+          };
+          actions.forEach(function (act) {
+            const def = ACTION_DEFS[act];
+            if (!def) return;
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = def.icon;
+            btn.title = def.title;
+            btn.disabled = readonly && act !== "link";  // link je read-friendly (picker browse)
+            btn.style.cssText =
+              "padding:6px 10px;font-size:14px;border-radius:4px;cursor:" +
+              (btn.disabled ? "default" : "pointer") + ";" +
+              "background:#1a1f26;border:1px solid #2a3340;color:" + def.color + ";" +
+              (btn.disabled ? "opacity:0.4;" : "");
+            // TODO Krok 5.H: onclick handlery (link → ErpCatalogPicker s data_source rows,
+            //                                  unlink → PATCH NULL, create_new → wizard)
+            actionsRow.appendChild(btn);
+          });
+
+          // Číslo (id) + Název (display) fields (read-only zatím)
+          const fieldsRow = document.createElement("div");
+          fieldsRow.style.cssText =
+            "display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:end;flex:1;";
+
+          const idCol = _field("Číslo", value || "", {
+            fieldKey: fieldKey + "._id",
+            readonly: true,
+            mono: true,
+            onDirty: onDirty,
+          });
+          const labelCol = _field("Název", "", {
+            fieldKey: fieldKey + "._label",
+            readonly: true,
+            onDirty: onDirty,
+          });
+          fieldsRow.appendChild(idCol);
+          fieldsRow.appendChild(labelCol);
+
+          // Layout: actions row | fields row vedle sebe
+          const innerRow = document.createElement("div");
+          innerRow.style.cssText = "display:flex;gap:12px;align-items:flex-end;";
+          innerRow.appendChild(actionsRow);
+          innerRow.appendChild(fieldsRow);
+          wrap.appendChild(innerRow);
+
+          // Krok 5.H placeholder hint
+          if (!dsCode) {
+            const hint = document.createElement("div");
+            hint.style.cssText =
+              "font-size:11px;color:#d48787;font-style:italic;margin-top:6px;";
+            hint.textContent = "⚠ data_source_id nenastaveno — picker bez dat.";
+            wrap.appendChild(hint);
+          }
+
+          return wrap;
+        }
 
         default:
           // Unknown comp_type → readonly fallback (don't crash, just show value as text)

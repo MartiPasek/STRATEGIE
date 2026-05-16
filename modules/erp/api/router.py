@@ -6923,6 +6923,10 @@ _SYSTEM_CISLO_TO_VIEW = {
     -115: ("framework", "menu_nodes",   False),
     -116: ("framework", "data_sources", False),
     -117: ("framework", "data_sets",    False),
+    # Phase 38.4 Krok 14g Etapa D (16.5.2026): diag log master view.
+    # Mode 'diag_log_master' = hw_registry.code → /api/v1/erp/hw/diag_log_master
+    # dispatch returns delegate_url pres response_hint $.events extraction.
+    -118: ("data", "diag_log_master", False),
 }
 
 

@@ -1,11 +1,22 @@
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.trustedhost import TrustedHostMiddleware
+import logging
 import os
+import uuid
 
 from core.config import settings
 from core.logging import setup_logging
+# Phase 38.4 Krok 14g Etapa A (16.5.2026) — DB Log Infrastructure
+from core.log_queue import (
+    DiagLogHandler,
+    set_request_id,
+    start_background_drain,
+    startup_drain_oneshot,
+    stop_background_drain,
+)
 from modules.ai_processing.api.router import router as ai_processing_router
 from modules.conversation.api.router import router as conversation_router
 from modules.conversation.api.dm_router import router as dm_router
@@ -33,11 +44,65 @@ from modules.erp.api.router import router as erp_router, api_router as erp_api_r
 
 setup_logging()
 
+# Phase 38.4 Krok 14g Etapa A (16.5.2026): attach DiagLogHandler na root logger.
+# Vsechny .error()/.warning() across modules tezi do fw.diag_log (source='py').
+# Self-reference guard je inside handler.emit (skip strategie.log_queue logger).
+_diag_handler = DiagLogHandler(level=logging.WARNING)
+logging.getLogger().addHandler(_diag_handler)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Phase 38.4 Krok 14g Etapa A: startup drain + background task.
+
+    Startup:
+      - Drain queued JSONL files (z minulych runs / crash recovery).
+      - Spawn background task: drain every 5 min.
+    Shutdown:
+      - Cancel background task + final drain attempt.
+    """
+    # Startup
+    try:
+        startup_drain_oneshot()  # sync, blocks until done (fast)
+        start_background_drain()  # async, fire-and-forget
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            f"[lifespan] log_queue startup hooks failed: {exc}"
+        )
+    yield
+    # Shutdown
+    try:
+        stop_background_drain()
+    except Exception:
+        pass
+
+
 app = FastAPI(
     title="STRATEGIE API",
     description="Modular enterprise AI platform",
     version="0.1.0",
+    lifespan=lifespan,
 )
+
+
+# Phase 38.4 Krok 14g Etapa A (16.5.2026): request_id middleware.
+# UUID per request, set request.state.request_id + context var pro log_queue,
+# add X-Request-Id response header. Frontend JS fetch reads header pro
+# correlation s backend log entries.
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
+    request.state.request_id = request_id
+    set_request_id(request_id)
+    try:
+        response = await call_next(request)
+    finally:
+        set_request_id(None)
+    try:
+        response.headers["X-Request-Id"] = request_id
+    except Exception:
+        pass
+    return response
 
 # Trusted hosts -- ochrana proti Host header attack. V production tam musi
 # byt jen app.strategie-system.com. V dev puštíme localhost varianty.

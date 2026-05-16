@@ -5705,6 +5705,16 @@ def design_list_context_menu_items(req: Request) -> JSONResponse:
         items = []
         for r in rows:
             rd = dict(r)
+            # Phase 38.4 Krok 14g Etapa F Krok 3 (16.5.2026, Marti's "ID je svaty"):
+            # target_core_id zije ve vlastnim FK sloupci s ON DELETE RESTRICT.
+            # Pro dispatcher transparency (fw_form_dispatcher.js cte
+            # action_params.coreId) slijeme target_core_id zpet do
+            # action_params.coreId pri serializaci. Top-level field
+            # `target_core_id` taky vraceny pro budouci FE migration.
+            ap_out = dict(rd.get("action_params") or {})
+            target_core_id = rd.get("target_core_id")
+            if target_core_id is not None:
+                ap_out["coreId"] = target_core_id
             items.append({
                 "id": rd.get("id"),
                 "code": rd.get("code"),
@@ -5713,7 +5723,8 @@ def design_list_context_menu_items(req: Request) -> JSONResponse:
                 "scope": rd.get("scope"),
                 "applies_to_kind": rd.get("applies_to_kind"),
                 "action_kind": rd.get("action_kind"),
-                "action_params": rd.get("action_params"),
+                "action_params": ap_out,
+                "target_core_id": target_core_id,
                 "sort_order": rd.get("sort_order"),
                 "is_system": bool(rd.get("is_system")) if rd.get("is_system") is not None else False,
                 "design_only": bool(rd.get("design_only")) if rd.get("design_only") is not None else False,

@@ -10308,25 +10308,8 @@
             unlink: { icon: "🚫", title: "Zrušit asociaci", color: "#d48787" },
             create_new: { icon: "➕", title: "Vytvořit nový záznam", color: "#7ed4a8" },
           };
-          actions.forEach(function (act) {
-            const def = ACTION_DEFS[act];
-            if (!def) return;
-            const btn = document.createElement("button");
-            btn.type = "button";
-            btn.textContent = def.icon;
-            btn.title = def.title;
-            btn.disabled = readonly && act !== "link";  // link je read-friendly (picker browse)
-            btn.style.cssText =
-              "padding:6px 10px;font-size:14px;border-radius:4px;cursor:" +
-              (btn.disabled ? "default" : "pointer") + ";" +
-              "background:#1a1f26;border:1px solid #2a3340;color:" + def.color + ";" +
-              (btn.disabled ? "opacity:0.4;" : "");
-            // TODO Krok 5.H: onclick handlery (link → ErpCatalogPicker s data_source rows,
-            //                                  unlink → PATCH NULL, create_new → wizard)
-            actionsRow.appendChild(btn);
-          });
 
-          // Číslo (id) + Název (display) fields (read-only zatím)
+          // Číslo (id) + Název (display) fields (read-only — populate přes link)
           const fieldsRow = document.createElement("div");
           fieldsRow.style.cssText =
             "display:grid;grid-template-columns:120px 1fr;gap:10px;align-items:end;flex:1;";
@@ -10344,6 +10327,97 @@
           });
           fieldsRow.appendChild(idCol);
           fieldsRow.appendChild(labelCol);
+
+          // Phase 38.4 Krok 14g Etapa F Krok 5.H (16.5.2026 vecer, Marti's
+          // "pauza, ty pracuj"): 🔗 link onclick → fetch /api/v1/erp/data/{dsCode}
+          // → ErpCatalogPicker (existing class) → onSelect populate idCol/labelCol.
+          // PATCH persistence parent entity = Krok 5.I (post Marti-AI consult).
+          actions.forEach(function (act) {
+            const def = ACTION_DEFS[act];
+            if (!def) return;
+            const btn = document.createElement("button");
+            btn.type = "button";
+            btn.textContent = def.icon;
+            btn.title = def.title;
+            // Link je vždy klikatelný (browse picker). Unlink + create_new
+            // disabled v PROD/RO mode.
+            const btnDisabled = readonly && act !== "link";
+            btn.disabled = btnDisabled;
+            btn.style.cssText =
+              "padding:6px 10px;font-size:14px;border-radius:4px;cursor:" +
+              (btnDisabled ? "default" : "pointer") + ";" +
+              "background:#1a1f26;border:1px solid #2a3340;color:" + def.color + ";" +
+              (btnDisabled ? "opacity:0.4;" : "");
+
+            if (act === "link" && dsCode) {
+              btn.addEventListener("click", async function () {
+                if (typeof window.ErpCatalogPicker !== "function") {
+                  alert("ErpCatalogPicker není načtený (catalog_picker.js).");
+                  return;
+                }
+                try {
+                  const _picker = new window.ErpCatalogPicker({
+                    title: "🔗 Vybrat " + label + " (z " + (dsName || dsCode) + ")",
+                    endpoint: "/api/v1/erp/data/" + encodeURIComponent(dsCode) + "?limit=500",
+                    listKey: "rows",
+                    idField: lookupId,
+                    labelField: lookupDisplay,
+                    width: "900px",
+                    columns: [
+                      { headerName: "ID", field: lookupId, width: 80, type: "numericColumn" },
+                      { headerName: "Code", field: "code", width: 220 },
+                      { headerName: "Název", field: lookupDisplay, flex: 1, minWidth: 200 },
+                    ],
+                    onSelect: function (row) {
+                      // Populate read-only fields s vybranou hodnotou
+                      try {
+                        const idInput = idCol.querySelector("input");
+                        const labelInput = labelCol.querySelector("input");
+                        if (idInput) idInput.value = row[lookupId] != null ? String(row[lookupId]) : "";
+                        if (labelInput) labelInput.value = row[lookupDisplay] != null ? String(row[lookupDisplay]) : "";
+                      } catch (e) {}
+                      // Store selection na wrap pro Krok 5.I PATCH persistence
+                      wrap._selectedValue = {
+                        id: row[lookupId],
+                        display: row[lookupDisplay],
+                        rawRow: row,
+                      };
+                      console.info(
+                        "[entity_picker]", field.name, "selected:",
+                        row[lookupId], "(" + row[lookupDisplay] + ")"
+                      );
+                    },
+                  });
+                  _picker.open();
+                } catch (e) {
+                  alert("Picker selhal: " + (e.message || e));
+                }
+              });
+            } else if (act === "unlink") {
+              btn.addEventListener("click", function () {
+                if (btn.disabled) return;
+                // Clear fields lokálně (Krok 5.I: plus PATCH parent entity)
+                try {
+                  const idInput = idCol.querySelector("input");
+                  const labelInput = labelCol.querySelector("input");
+                  if (idInput) idInput.value = "";
+                  if (labelInput) labelInput.value = "";
+                } catch (e) {}
+                wrap._selectedValue = null;
+                console.info("[entity_picker]", field.name, "unlinked");
+              });
+            } else if (act === "create_new") {
+              btn.addEventListener("click", function () {
+                if (btn.disabled) return;
+                alert(
+                  "➕ Vytvořit nový '" + label + "' — Krok 5.I wizard.\n\n" +
+                  "Picker pro create-new přijde po konzultaci s Marti-AI " +
+                  "(potřebujeme řešit target table + minimální fields)."
+                );
+              });
+            }
+            actionsRow.appendChild(btn);
+          });
 
           // Layout: actions row | fields row vedle sebe
           const innerRow = document.createElement("div");

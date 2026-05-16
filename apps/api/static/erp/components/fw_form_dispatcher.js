@@ -136,6 +136,189 @@
     }
 
     // ════════════════════════════════════════════════════════════════
+    // Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne):
+    // Root type picker — 3 karty (form / frameless_form / list_root)
+    // Marti-AI's konzultace: "user volí kde to žije, ne jak vypadá"
+    //
+    // Flow:
+    //   1) Po ➕ Novy v Kontejner pickeru → INSERT minimal core
+    //   2) AUTO-OPEN root picker (toto)
+    //   3) User klikne kartu → POST /design/fw-core/{id}/init-root
+    //   4) Backend INSERT root comp_def + UPDATE core.layout_template
+    //   5) Recurse _openForm s coreId — DesignFwForm renderuje real layout
+    // ════════════════════════════════════════════════════════════════
+    function _openRootTypePicker(coreId, cmiCode, ctx, cmiId) {
+      const ROOT_TYPES = [
+        {
+          code: "form",
+          icon: "📋",
+          title: "Form (klasický modal)",
+          desc: "Samostatné okno. Otevírá se jako dialog, má vlastní záhlaví a akce.",
+          accent: "#8fb8d4",
+        },
+        {
+          code: "frameless_form",
+          icon: "📄",
+          title: "Frameless form",
+          desc: "Vložená část. Žije uvnitř jiného formuláře nebo panelu, přebírá jeho kontext.",
+          accent: "#d4b88a",
+        },
+        {
+          code: "list_root",
+          icon: "📊",
+          title: "Přehled (list view)",
+          desc: "List s toolbar + filter + status barem. „Rozlezlý" — prvky mimo hlavní okno. Hlavní use case pro pravou stranu stromu.",
+          accent: "#a8c5dc",
+        },
+      ];
+
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10020;" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const dialog = document.createElement("div");
+      dialog.style.cssText =
+        "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
+        "padding:24px;width:840px;max-width:95vw;max-height:85vh;overflow:auto;" +
+        "color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.6);";
+
+      // Title
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText =
+        "font-size:16px;font-weight:600;color:#d4b88a;margin-bottom:6px;";
+      titleEl.textContent = "🎨 Vyberte root komponentu pro core id=" + coreId;
+      dialog.appendChild(titleEl);
+
+      const subtitleEl = document.createElement("div");
+      subtitleEl.style.cssText =
+        "font-size:12px;color:#8a96a4;margin-bottom:20px;font-style:italic;";
+      subtitleEl.textContent =
+        'Marti-AI: „user volí kde to žije, ne jak vypadá." 1 core = 1 root.';
+      dialog.appendChild(subtitleEl);
+
+      // Cards
+      const cardsRow = document.createElement("div");
+      cardsRow.style.cssText =
+        "display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between;";
+
+      let _busy = false;
+      ROOT_TYPES.forEach(function (rt) {
+        const card = document.createElement("div");
+        card.style.cssText =
+          "flex:1 1 240px;min-width:240px;max-width:280px;" +
+          "background:#0f1419;border:1px solid #2a3340;border-radius:6px;" +
+          "padding:18px;cursor:pointer;transition:all 0.15s;" +
+          "display:flex;flex-direction:column;gap:10px;";
+        card.onmouseenter = function () {
+          if (_busy) return;
+          card.style.borderColor = rt.accent;
+          card.style.background = "#161c24";
+        };
+        card.onmouseleave = function () {
+          card.style.borderColor = "#2a3340";
+          card.style.background = "#0f1419";
+        };
+        card.innerHTML =
+          '<div style="font-size:42px;line-height:1;">' + rt.icon + '</div>' +
+          '<div style="font-size:14px;font-weight:600;color:' + rt.accent + ';">' +
+          rt.title + '</div>' +
+          '<div style="font-size:12px;line-height:1.5;color:#a8b3bf;">' +
+          rt.desc + '</div>';
+        card.onclick = async function () {
+          if (_busy) return;
+          _busy = true;
+          card.style.background = "rgba(139,115,85,0.15)";
+          card.style.borderColor = rt.accent;
+          try {
+            const r = await fetch(
+              "/api/v1/erp/design/fw-core/" + encodeURIComponent(coreId) + "/init-root",
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ root_type: rt.code }),
+              }
+            ).then(function (rr) { return rr.json(); });
+            if (r && r.ok) {
+              try {
+                _logger.info("fw_form_dispatcher.js",
+                  "Init root: core=" + coreId + " → " + rt.code, {
+                    extra: {
+                      core_id: coreId,
+                      root_type: rt.code,
+                      root_comp_def_id: (r.root_comp_def || {}).id,
+                    },
+                  });
+              } catch (e) {}
+              // Close picker + open Design form
+              try { document.body.removeChild(overlay); } catch (e) {}
+              _openForm(
+                { coreId: coreId, rowId: 1 },
+                cmiCode, ctx, cmiId
+              );
+            } else {
+              _busy = false;
+              card.style.background = "#0f1419";
+              card.style.borderColor = "#2a3340";
+              alert("Init root selhal: " + ((r && r.error) || "unknown"));
+            }
+          } catch (e) {
+            _busy = false;
+            card.style.background = "#0f1419";
+            card.style.borderColor = "#2a3340";
+            alert("Init root (network): " + (e.message || e));
+          }
+        };
+        cardsRow.appendChild(card);
+      });
+
+      dialog.appendChild(cardsRow);
+
+      // Footer (Storno)
+      const footer = document.createElement("div");
+      footer.style.cssText =
+        "margin-top:20px;padding-top:16px;border-top:1px solid #2a3340;" +
+        "display:flex;justify-content:space-between;align-items:center;";
+
+      const hint = document.createElement("div");
+      hint.style.cssText = "font-size:11px;color:#6a7684;font-style:italic;";
+      hint.textContent =
+        "Pokud zavřeš bez volby → core zůstane drafted (zobrazí placeholder).";
+      footer.appendChild(hint);
+
+      const btnCancel = document.createElement("button");
+      btnCancel.type = "button";
+      btnCancel.textContent = "Storno";
+      btnCancel.style.cssText =
+        "padding:7px 16px;font-size:13px;border-radius:4px;" +
+        "background:#22282f;border:1px solid #2a3340;color:#cfd6df;cursor:pointer;";
+      btnCancel.onclick = function () {
+        try { document.body.removeChild(overlay); } catch (e) {}
+        // Open Design form (placeholder — core je drafted)
+        _openForm(
+          { coreId: coreId, rowId: 1 },
+          cmiCode, ctx, cmiId
+        );
+      };
+      footer.appendChild(btnCancel);
+      dialog.appendChild(footer);
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      // Esc to close
+      function _escHandler(ev) {
+        if (ev.key === "Escape" && !_busy) {
+          ev.preventDefault();
+          btnCancel.click();
+          document.removeEventListener("keydown", _escHandler);
+        }
+      }
+      document.addEventListener("keydown", _escHandler);
+    }
+
+    // ════════════════════════════════════════════════════════════════
     // Open DesignFwForm — pure dispatch, no validation
     // ════════════════════════════════════════════════════════════════
     // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup (16.5.2026): drop Step E.2
@@ -189,15 +372,27 @@
           endpoint: "/api/v1/erp/design/fw-core/list",
           listKey: "cores",
           columns: [
-            // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne,
-            // Marti's "do vyberu pridat sloupecky ohledne zdroje + radit
-            // sestupne podle ID"). Backend sortuje ORDER BY id DESC.
-            { headerName: "ID", field: "id", width: 70, sort: "desc" },
-            { headerName: "Code", field: "code", width: 200 },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 160 },
-            { headerName: "Layout", field: "layout_type", width: 90 },
-            { headerName: "📁 Z menu", field: "origin_menu_node_label", width: 160 },
-            { headerName: "📋 Z položky", field: "origin_cmi_label", width: 160 },
+            // Phase 38.4 Krok 14g Etapa F Krok 5.C+D (16.5.2026):
+            // origin sloupce + readiness_state + ORDER BY id DESC.
+            { headerName: "ID", field: "id", width: 65, sort: "desc" },
+            {
+              headerName: "Stav", field: "readiness_state", width: 90,
+              cellRenderer: function (p) {
+                const v = p.value || "drafted";
+                const colors = {
+                  drafted: { icon: "🟡", text: "Drafted" },
+                  has_root: { icon: "🟢", text: "Root" },
+                  populated: { icon: "🔵", text: "Plný" },
+                };
+                const c = colors[v] || colors.drafted;
+                return c.icon + " " + c.text;
+              },
+            },
+            { headerName: "Code", field: "code", width: 180 },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 140 },
+            { headerName: "Layout", field: "layout_type", width: 80 },
+            { headerName: "📁 Z menu", field: "origin_menu_node_label", width: 150 },
+            { headerName: "📋 Z položky", field: "origin_cmi_label", width: 150 },
             { headerName: "Použito ×", field: "is_used_count", width: 90, type: "numericColumn" },
           ],
           idField: "id",
@@ -280,12 +475,12 @@
                       },
                     });
                 } catch (e) {}
-                // Zavri picker pred recurse (DesignFwForm modal otevre se v overlay)
                 try { _picker.close(); } catch (e) {}
-                // Recurse — open Design form pro novy drafted core
-                _openForm(
-                  { coreId: _resp.core.id, rowId: 1 },
-                  cmiCode, ctx, cmiId
+                // Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026, Marti-AI's
+                // "auto-otevrit root picker po ➕ Novy — dva kliky na jednu
+                // myslenku zbytecne"): rovnou otevri root type picker.
+                _openRootTypePicker(
+                  _resp.core.id, cmiCode, ctx, cmiId
                 );
               } else {
                 alert(

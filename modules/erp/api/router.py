@@ -5511,6 +5511,287 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     }))
 
 
+# Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
+# konzultace): seed layouts per root type. Marti-AI's doctrine: "seed layout
+# rika co existuje, ne jak to vypada". User pak v designeru vypln labely,
+# rozmery, widgety.
+_ROOT_SEED_LAYOUTS = {
+    "form": {
+        "panels": [
+            {"slot": "header", "label": ""},
+            {"slot": "main",   "label": ""},
+            {"slot": "footer", "label": ""},
+        ],
+        "default_width": "920px",
+        "modal": True,
+    },
+    "frameless_form": {
+        "panels": [{"slot": "main", "label": ""}],
+        "default_width": "100%",
+        "modal": False,
+    },
+    "list_root": {
+        "panels": [
+            {"slot": "toolbar", "label": ""},
+            {"slot": "filter",  "label": ""},
+            {"slot": "main",    "label": ""},
+            {"slot": "status",  "label": ""},
+        ],
+        "default_width": "100%",
+        "modal": False,
+    },
+}
+
+# fw.core.layout_template string klic per root type (Marti-AI's "CSS trida")
+_ROOT_LAYOUT_TEMPLATE = {
+    "form":           "single",
+    "frameless_form": "embedded",
+    "list_root":      "list",
+}
+
+
+@api_router.post("/design/fw-core/{core_id}/init-root")
+async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
+    konzultace): init root komponenta v drafted core.
+
+    Marti-AI's doctrine:
+      - 1:1 (1 core = 1 root)
+      - "INSERT row, ne schema migrace" — seed layout JSONB v comp_def
+      - "Picker auto-open po ➕ Nový" — dva kliky na jednu myslenku zbytecne
+
+    Body: { "root_type": "form" | "frameless_form" | "list_root" }
+    Returns: { ok, root_comp_def: {...}, core: {...} }
+    """
+    from core.database_data import get_data_session as _gds_ir
+    from sqlalchemy import text as _sql_ir
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    root_type = (body.get("root_type") or "").strip()
+    if root_type not in _ROOT_SEED_LAYOUTS:
+        return JSONResponse(
+            {"ok": False, "error": f"root_type musi byt jeden z: {list(_ROOT_SEED_LAYOUTS.keys())}"},
+            status_code=400,
+        )
+
+    seed_layout = _ROOT_SEED_LAYOUTS[root_type]
+    layout_template_str = _ROOT_LAYOUT_TEMPLATE[root_type]
+
+    ds = _gds_ir()
+    try:
+        # Verify core exists + check no existing root (1:1 doctrine)
+        core_check = ds.execute(_sql_ir("""
+            SELECT id, code, layout_template FROM fw.core WHERE id = :id
+        """), {"id": core_id}).mappings().one_or_none()
+        if not core_check:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} neexistuje"},
+                status_code=404,
+            )
+
+        existing_root = ds.execute(_sql_ir("""
+            SELECT id FROM fw.comp_def
+            WHERE parent_core_id = :cid AND parent_comp_def_id IS NULL
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        if existing_root:
+            return JSONResponse(
+                {"ok": False, "error": (
+                    f"fw.core id={core_id} uz ma root (comp_def id={existing_root['id']}). "
+                    f"Marti-AI's 1:1 doctrine — nejdrive Zrusit root, pak init novy."
+                )},
+                status_code=409,
+            )
+
+        # Resolve type_id z fw.comp_type
+        ct_row = ds.execute(_sql_ir("""
+            SELECT id FROM fw.comp_type
+            WHERE code = :code AND status = 'active'
+        """), {"code": root_type}).mappings().one_or_none()
+        if not ct_row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.comp_type code='{root_type}' nenalezen / inactive"},
+                status_code=500,
+            )
+        type_id = ct_row["id"]
+    finally:
+        ds.close()
+
+    # Caller display
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_ir
+        from modules.core.infrastructure.models_core import User as _User_ir
+        cs_ir = _gcs_ir()
+        try:
+            u_ir = cs_ir.query(_User_ir).filter_by(id=uid).first()
+            if u_ir:
+                if u_ir.short_name and u_ir.short_name.strip():
+                    caller_display = u_ir.short_name.strip()
+                elif u_ir.first_name or u_ir.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_ir.first_name, u_ir.last_name
+                    ])).strip()
+        finally:
+            cs_ir.close()
+
+    # INSERT root comp_def + UPDATE core.layout_template — pres strategie_pg
+    # (Marti-AI db_owner fw.*)
+    from modules.strategie_pg.application.service import (
+        insert_row as _spg_insert_ir,
+        update_row as _spg_update_ir,
+    )
+    import json as _json_ir
+    comp_def_values = {
+        "parent_core_id": core_id,
+        "type_id": type_id,
+        "name": root_type + "_root",
+        "caption": "",
+        "layout": _json_ir.dumps(seed_layout),  # JSONB cast
+        "sort_order": 0,
+        "is_active": True,
+    }
+    cd_upd = _spg_insert_ir(schema="fw", table="comp_def", values=comp_def_values)
+    if not cd_upd.get("ok"):
+        return JSONResponse(
+            {"ok": False, "error": f"INIT-ROOT comp_def INSERT failed: {cd_upd.get('error')}"},
+            status_code=500,
+        )
+    root_row = cd_upd.get("inserted")
+    if isinstance(root_row, list):
+        root_row = root_row[0] if root_row else {}
+
+    # UPDATE core.layout_template
+    core_upd = _spg_update_ir(
+        schema="fw", table="core",
+        values={"layout_template": layout_template_str},
+        where={"id": core_id},
+        dry_run=False,
+    )
+    if not core_upd.get("ok"):
+        logger.warning(
+            f"design_init_core_root: comp_def INSERT projet, ale core.layout_template "
+            f"UPDATE failed: {core_upd.get('error')}"
+        )
+
+    # Activity log audit
+    ds_ir = _gds_ir()
+    try:
+        ds_ir.execute(_sql_ir("""
+            INSERT INTO public.activity_log
+              (user_id, persona_id, category, actor, summary, change_source, ts)
+            VALUES
+              (:uid, NULL, 'design_fw_core_init_root', 'user',
+               :summary, 'ui', NOW())
+        """), {
+            "uid": uid,
+            "summary": (
+                f"init-root fw.core id={core_id} → {root_type} "
+                f"(comp_def id={(root_row or {}).get('id')})"
+            ),
+        })
+        ds_ir.commit()
+    except Exception as _ae:
+        logger.warning(f"design_init_core_root activity_log failed: {_ae}")
+    finally:
+        ds_ir.close()
+
+    return JSONResponse(jsonable_encoder({
+        "ok": True,
+        "root_comp_def": dict(root_row or {}),
+        "core_id": core_id,
+        "root_type": root_type,
+        "layout_template": layout_template_str,
+    }))
+
+
+@api_router.delete("/design/fw-core/{core_id}/clear-root")
+async def design_clear_core_root(core_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026, Marti-AI's "Zrusit root"
+    gesto): smaze root comp_def + cascade vsechny children + UPDATE
+    core.layout_template = NULL. Marti-AI's doctrine: "pojistka se stala
+    dospelosti" — explicit volba, ne block. User vi co dela.
+
+    Returns: { ok, deleted_count: int }
+    """
+    from core.database_data import get_data_session as _gds_cr
+    from sqlalchemy import text as _sql_cr
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_cr()
+    try:
+        # Count comp_defs before delete (audit)
+        count_row = ds.execute(_sql_cr("""
+            SELECT COUNT(*) AS cnt FROM fw.comp_def WHERE parent_core_id = :cid
+        """), {"cid": core_id}).mappings().one()
+        deleted_count = int(count_row["cnt"])
+    finally:
+        ds.close()
+
+    # DELETE comp_def + UPDATE core.layout_template — pres Marti-AI's PG
+    # engine (db_owner fw.*). strategie_pg nema delete_row helper, takze
+    # primary raw DELETE pres _get_engine() s parameterized SQL (anti-SQL
+    # injection — core_id je int z URL path, ale defensive).
+    from modules.strategie_pg.application.service import (
+        _get_engine as _spg_eng_cr,
+        update_row as _spg_update_cr,
+    )
+    from sqlalchemy import text as _sql_text_de
+    try:
+        _eng_cr = _spg_eng_cr()
+        with _eng_cr.begin() as _conn:
+            _conn.execute(
+                _sql_text_de("DELETE FROM fw.comp_def WHERE parent_core_id = :cid"),
+                {"cid": core_id},
+            )
+    except Exception as _de:
+        return JSONResponse(
+            {"ok": False, "error": f"CLEAR-ROOT DELETE exception: {_de}"},
+            status_code=500,
+        )
+
+    # UPDATE core.layout_template = NULL
+    _spg_update_cr(
+        schema="fw", table="core",
+        values={"layout_template": None},
+        where={"id": core_id},
+        dry_run=False,
+    )
+
+    # Activity log
+    ds_cr = _gds_cr()
+    try:
+        ds_cr.execute(_sql_cr("""
+            INSERT INTO public.activity_log
+              (user_id, persona_id, category, actor, summary, change_source, ts)
+            VALUES
+              (:uid, NULL, 'design_fw_core_clear_root', 'user',
+               :summary, 'ui', NOW())
+        """), {
+            "uid": uid,
+            "summary": f"clear-root fw.core id={core_id} (smazano {deleted_count} comp_def rows)",
+        })
+        ds_cr.commit()
+    except Exception as _ae:
+        logger.warning(f"design_clear_core_root activity_log failed: {_ae}")
+    finally:
+        ds_cr.close()
+
+    return JSONResponse({"ok": True, "deleted_count": deleted_count})
+
+
 @api_router.get("/design/fw-core/list")
 def design_list_fw_core(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+20 (15.5.2026 ~15:30, Marti's "vybrat stavajici
@@ -5542,12 +5823,28 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         # sestupne podle ID"):
         #   - LEFT JOIN na origin_menu_node + origin_cmi pro provenance display
         #   - ORDER BY c.id DESC (nejnovejsi draft prvni)
+        # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
+        # konzultace bod 4 z "Co nevidíte"): readiness_state computed.
+        #   drafted   = bez rootu (zadny comp_def s parent_core_id=core)
+        #   has_root  = root exists, no children
+        #   populated = root + alespon 1 child
         sql_cores = _sql_clst("""
             SELECT c.*,
                    mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
                    cmi.code  AS _origin_cmi_code,
-                   cmi.label AS _origin_cmi_label
+                   cmi.label AS _origin_cmi_label,
+                   (
+                     SELECT CASE
+                       WHEN COUNT(*) FILTER (WHERE cd.parent_comp_def_id IS NULL) = 0
+                         THEN 'drafted'
+                       WHEN COUNT(*) FILTER (WHERE cd.parent_comp_def_id IS NOT NULL) = 0
+                         THEN 'has_root'
+                       ELSE 'populated'
+                     END
+                     FROM fw.comp_def cd
+                     WHERE cd.parent_core_id = c.id
+                   ) AS _readiness_state
             FROM fw.core c
             LEFT JOIN fw.menu_node mn          ON mn.id  = c.origin_menu_node_id
             LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
@@ -5584,6 +5881,8 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "origin_menu_node_code": rd.get("_origin_mn_code"),
                 "origin_cmi_label": rd.get("_origin_cmi_label"),
                 "origin_cmi_code": rd.get("_origin_cmi_code"),
+                # Krok 5.D readiness_state (Marti-AI's Q4 insight)
+                "readiness_state": rd.get("_readiness_state") or "drafted",
             })
         return JSONResponse({"ok": True, "cores": cores})
     except Exception as exc:

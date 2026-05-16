@@ -305,6 +305,12 @@
         modal = new global.DesignFwForm({
           coreId: formArgs.coreId,
           rowId: formArgs.rowId || 1,
+          // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026, Marti's
+          // "A Zrusit asociaci s potvrzenim"): pass cmiId pro Zrusit
+          // asociaci button v header. Pokud user clicka → PATCH link-core
+          // {target_core_id: null} → close modal → pri pristim kliku zase
+          // picker (drafted state).
+          originCmiId: cmiId || null,
         });
       } catch (e) {
         console.error("[fw_form_dispatcher] DesignFwForm constructor failed:", e);

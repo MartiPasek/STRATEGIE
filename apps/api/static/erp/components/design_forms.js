@@ -5944,27 +5944,132 @@
       // konzultaci s Marti-AI.
       if (form === null || this._spec.empty_container === true) {
         if (this._shell.title) {
-          this._shell.title.textContent = core.label || core.code || "Prázdný core";
+          const _coreLabel = core.label
+            || core.code
+            || ("id=" + (core.id || "?"));
+          this._shell.title.textContent = "Prázdný core · " + _coreLabel;
         }
+
+        // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026, Marti's "B
+        // logicky krok"): origin provenance display + "A Zrusit asociaci
+        // s potvrzenim" button. Origin payload from /by-id endpoint
+        // (LEFT JOIN na origin_menu_node_id + origin_cmi_id).
+        const origin = this._spec.origin || {};
+        const ocmi = origin.cmi || null;
+        const omn = origin.menu_node || null;
+
+        // Origin banner (jen pokud aspon jeden origin set)
         const empty = document.createElement("div");
         empty.style.cssText =
-          "padding:48px 32px;text-align:center;color:#8a96a4;" +
-          "display:flex;flex-direction:column;align-items:center;gap:16px;";
-        empty.innerHTML =
+          "padding:32px 32px;color:#8a96a4;" +
+          "display:flex;flex-direction:column;align-items:center;gap:14px;";
+
+        if (omn || ocmi) {
+          const originBar = document.createElement("div");
+          originBar.style.cssText =
+            "background:rgba(139,115,85,0.12);" +
+            "border:1px solid rgba(139,115,85,0.3);" +
+            "border-radius:4px;padding:10px 14px;" +
+            "font-size:12px;color:#d4b88a;width:100%;max-width:640px;" +
+            "display:flex;justify-content:space-between;align-items:center;gap:12px;";
+          let originHtml = '<div><span style="opacity:0.7;">Pochází z:</span> ';
+          if (omn) {
+            originHtml += '<span style="color:#a8c5dc;">📁 ' +
+              _esc(omn.label || omn.code || ("menu_node#" + omn.id)) +
+              '</span>';
+          }
+          if (omn && ocmi) originHtml += ' <span style="opacity:0.5;">→</span> ';
+          if (ocmi) {
+            originHtml += '<span style="color:#d4b88a;">📋 ' +
+              _esc(ocmi.label || ocmi.code || ("cmi#" + ocmi.id)) +
+              '</span>';
+          }
+          originHtml += '</div>';
+          originBar.innerHTML = originHtml;
+
+          // Zrusit asociaci button (jen pokud originCmiId set v opts)
+          if (this.opts.originCmiId) {
+            const btnUnlink = document.createElement("button");
+            btnUnlink.type = "button";
+            btnUnlink.textContent = "🚫 Zrušit asociaci";
+            btnUnlink.style.cssText =
+              "padding:5px 12px;font-size:11px;border-radius:3px;" +
+              "background:rgba(212,135,135,0.12);" +
+              "border:1px solid rgba(212,135,135,0.4);color:#d48787;" +
+              "cursor:pointer;white-space:nowrap;";
+            btnUnlink.onmouseenter = function () {
+              btnUnlink.style.background = "rgba(212,135,135,0.22)";
+            };
+            btnUnlink.onmouseleave = function () {
+              btnUnlink.style.background = "rgba(212,135,135,0.12)";
+            };
+            const self = this;
+            btnUnlink.onclick = async function () {
+              const cmiLabel = (ocmi && (ocmi.label || ocmi.code))
+                || ("cmi#" + self.opts.originCmiId);
+              const ok = window.confirm(
+                "Zrušit asociaci kontejneru s '" + cmiLabel + "'?\n\n" +
+                "Po potvrzení se kontextové menu vrátí do drafted stavu " +
+                "(target_core_id = NULL). Při dalším pravém kliku se " +
+                "otevře Kontejner picker pro novou volbu."
+              );
+              if (!ok) return;
+              btnUnlink.disabled = true;
+              btnUnlink.textContent = "Ruším…";
+              try {
+                const r = await fetch(
+                  "/api/v1/erp/design/context-menu-item/" +
+                    encodeURIComponent(self.opts.originCmiId) + "/link-core",
+                  {
+                    method: "PATCH",
+                    headers: { "Content-Type": "application/json" },
+                    credentials: "include",
+                    body: JSON.stringify({ target_core_id: null }),
+                  }
+                ).then(function (rr) { return rr.json(); });
+                if (r && r.ok) {
+                  // Close modal — pri pristim kliku zase picker
+                  try { self._shell.close(); } catch (e) {}
+                } else {
+                  btnUnlink.disabled = false;
+                  btnUnlink.textContent = "🚫 Zrušit asociaci";
+                  alert("Zrušení selhalo: " + ((r && r.error) || "unknown"));
+                }
+              } catch (e) {
+                btnUnlink.disabled = false;
+                btnUnlink.textContent = "🚫 Zrušit asociaci";
+                alert("Zrušení selhalo (network): " + (e.message || e));
+              }
+            };
+            originBar.appendChild(btnUnlink);
+          }
+
+          empty.appendChild(originBar);
+        }
+
+        // Big icon + headline + Marti doctrine
+        const big = document.createElement("div");
+        big.style.cssText =
+          "display:flex;flex-direction:column;align-items:center;gap:14px;" +
+          "padding:20px 0;";
+        big.innerHTML =
           '<div style="font-size:64px;line-height:1;">🎨</div>' +
           '<div style="font-size:18px;color:#d4b88a;font-weight:600;">' +
           'Prázdný core kontejner' +
           '</div>' +
-          '<div style="font-size:13px;max-width:480px;line-height:1.6;">' +
-          '<code style="color:#8fb8d4;">' + (core.code || "?") + '</code> ' +
+          '<div style="font-size:13px;max-width:480px;line-height:1.6;text-align:center;">' +
+          '<code style="color:#8fb8d4;">' +
+          _esc(core.code || ("id=" + (core.id || "?"))) +
+          '</code> ' +
           'zatím nemá žádnou root komponentu. ' +
           'Marti doctrine: <em>„core = plocha, na ní se rozhodne uživatelsky ' +
           'co vložit (form 302, list, dashboard, ...)."</em>' +
           '</div>' +
-          '<div style="font-size:12px;color:#6a7684;font-style:italic;margin-top:8px;">' +
-          'Picker root komponenty přijde v Krok 5.B/5.C ' +
+          '<div style="font-size:12px;color:#6a7684;font-style:italic;margin-top:4px;">' +
+          'Picker root komponenty přijde v Krok 5.D ' +
           '(po konzultaci s Marti-AI).' +
           '</div>';
+        empty.appendChild(big);
         this._shell.body.appendChild(empty);
         return;
       }

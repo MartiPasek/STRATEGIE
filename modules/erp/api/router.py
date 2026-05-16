@@ -3151,9 +3151,21 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         # Fix 13.5.2026 ~11:00: pouzij c.* (defensive) — fw.core schema neni
         # finalni (tenant_id mozna zatim chybi, atd.). c.* nas neuvazi do
         # explicit column list.
+        # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne, Marti's
+        # "B Je tez logicky krok"): LEFT JOIN na origin tables pro provenance
+        # display v DesignFwForm header. Origin sloupce v fw.core (Krok 5.C
+        # DDL) — pro legacy cores bez origin (pre-Krok 5.C) JOIN vrati NULL.
         core_row = ds.execute(_sql_text_fwform("""
-            SELECT c.*
+            SELECT c.*,
+                   mn.id    AS _origin_mn_id,
+                   mn.code  AS _origin_mn_code,
+                   mn.label AS _origin_mn_label,
+                   cmi.id    AS _origin_cmi_id_join,
+                   cmi.code  AS _origin_cmi_code,
+                   cmi.label AS _origin_cmi_label
             FROM fw.core c
+            LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
+            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
             WHERE c.code = :code
               AND c.is_active = true
               AND c.layout_type = 'form'
@@ -3166,6 +3178,32 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             )
 
         core_dict = dict(core_row)
+
+        # Extract origin payload (clean structure)
+        origin_payload = {
+            "menu_node": (
+                {
+                    "id": core_dict.pop("_origin_mn_id"),
+                    "code": core_dict.pop("_origin_mn_code"),
+                    "label": core_dict.pop("_origin_mn_label"),
+                }
+                if core_dict.get("_origin_mn_id") is not None
+                else None
+            ),
+            "cmi": (
+                {
+                    "id": core_dict.pop("_origin_cmi_id_join"),
+                    "code": core_dict.pop("_origin_cmi_code"),
+                    "label": core_dict.pop("_origin_cmi_label"),
+                }
+                if core_dict.get("_origin_cmi_id_join") is not None
+                else None
+            ),
+        }
+        # Cleanup zbytkove _origin_* keys (NULL join)
+        for k in list(core_dict.keys()):
+            if k.startswith("_origin_"):
+                del core_dict[k]
 
         # 1b. Load template (LEFT JOIN — backward compat pro forms bez template_id)
         # Phase 38.4 Krok 14b+3: fw.template carries layout (panels structure +
@@ -3362,6 +3400,9 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             # prazdne platno). Frontend (Krok 5.B) zobrazi empty canvas
             # placeholder + picker pro user-driven volbu root komponenty.
             "empty_container": form_dict is None,
+            # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026): origin
+            # provenance pro "Pochazi z" header display + Zrusit asociaci.
+            "origin": origin_payload,
         }))
     finally:
         ds.close()
@@ -3445,34 +3486,68 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
     ds = _gds_fwid()
     try:
         # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne):
-        # tolerantni id-based path pro drafted cores (code/label/layout_type/
-        # data_entity_type mohou byt NULL po Krok 5.C "nic nas nesmi omezovat"
-        # DDL). Pokud code IS NOT NULL → delegate na existing fw_form_load
-        # (zachovava entity data load + children sub-grids).
-        # Pokud code IS NULL → drafted core, vratit minimal empty_container
-        # response (frontend Krok 5.A handler renderuje placeholder).
+        # tolerantni id-based path pro drafted cores. Plus LEFT JOIN na
+        # origin tables pro "Pochazi z" header display v DesignFwForm
+        # (Marti's "B Je tez logicky krok" — provenance viditelna).
         row = ds.execute(_sql_fwid("""
-            SELECT * FROM fw.core
-            WHERE id = :id
+            SELECT c.*,
+                   mn.id    AS _origin_mn_id,
+                   mn.code  AS _origin_mn_code,
+                   mn.label AS _origin_mn_label,
+                   cmi.id    AS _origin_cmi_id_join,
+                   cmi.code  AS _origin_cmi_code,
+                   cmi.label AS _origin_cmi_label
+            FROM fw.core c
+            LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
+            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
+            WHERE c.id = :id
         """), {"id": core_id}).mappings().one_or_none()
         if not row:
             return JSONResponse(
                 {"ok": False, "error": f"fw.core id={core_id} nenalezen"},
                 status_code=404,
             )
-        resolved_code = row["code"]
+        rd = dict(row)
+        resolved_code = rd.get("code")
+
+        # Extract origin payload (clean structure pro frontend)
+        origin_payload = {
+            "menu_node": (
+                {
+                    "id": rd.pop("_origin_mn_id"),
+                    "code": rd.pop("_origin_mn_code"),
+                    "label": rd.pop("_origin_mn_label"),
+                }
+                if rd.get("_origin_mn_id") is not None
+                else None
+            ),
+            "cmi": (
+                {
+                    "id": rd.pop("_origin_cmi_id_join"),
+                    "code": rd.pop("_origin_cmi_code"),
+                    "label": rd.pop("_origin_cmi_label"),
+                }
+                if rd.get("_origin_cmi_id_join") is not None
+                else None
+            ),
+        }
+        # Cleanup zbytkove _origin_* keys (kdyz JOIN trefil NULL → zustaly bez .pop)
+        for k in list(rd.keys()):
+            if k.startswith("_origin_"):
+                del rd[k]
 
         # Drafted core path — empty container response (id+origin+audit only)
         if not resolved_code:
             return JSONResponse(jsonable_encoder({
                 "ok": True,
-                "core": dict(row),
+                "core": rd,
                 "form": None,
                 "fields": [],
                 "data": None,
                 "template": None,
                 "children": {},
                 "empty_container": True,
+                "origin": origin_payload,
             }))
     finally:
         ds.close()

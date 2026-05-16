@@ -8660,10 +8660,84 @@
       header.appendChild(closeBtn);
       modal.appendChild(header);
 
+      // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:15, Marti's
+      // vize "abychom mohli pres UI stavet dalsi core a prehledy"):
+      // entity_picker dostane tab sheet — Tab 1 "Základní" (existing fields)
+      // + Tab 2 "Komponenta" (6 entity_picker specific parametrů). Marti's
+      // "Zakladni nastaveni uz jsem tam videl, jen je treba pridat tab sheet".
+      const isEntityPicker = (field.comp_type_code === "entity_picker");
+      let basicPaneEl = null;
+      let componentPaneEl = null;
+      let tabButtonsState = null;
+
       // Body
       const body = document.createElement("div");
-      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+      body.style.cssText = "padding:0;display:flex;flex-direction:column;";
 
+      // Tab bar (only for entity_picker)
+      if (isEntityPicker) {
+        const tabBar = document.createElement("div");
+        tabBar.style.cssText =
+          "display:flex;border-bottom:1px solid #2a3340;background:#0f141a;" +
+          "padding:0 16px;gap:0;";
+
+        const _mkTab = (label, isActive) => {
+          const btn = document.createElement("button");
+          btn.type = "button";
+          btn.textContent = label;
+          btn.style.cssText =
+            "padding:10px 18px;background:transparent;border:none;" +
+            "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
+            "color:" + (isActive ? "#e8eef5" : "#8a96a4") + ";" +
+            "font-size:13px;font-weight:" + (isActive ? "600" : "400") + ";" +
+            "cursor:pointer;outline:none;";
+          return btn;
+        };
+
+        const basicTabBtn = _mkTab("Základní", true);
+        const componentTabBtn = _mkTab("Komponenta", false);
+        tabBar.appendChild(basicTabBtn);
+        tabBar.appendChild(componentTabBtn);
+        body.appendChild(tabBar);
+
+        tabButtonsState = { basicTabBtn, componentTabBtn };
+      }
+
+      // Inner content wrapper (basicPane lives here, padding inside)
+      const bodyInner = document.createElement("div");
+      bodyInner.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
+
+      // Basic pane wrapper (existing fields go here below)
+      basicPaneEl = document.createElement("div");
+      basicPaneEl.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+      bodyInner.appendChild(basicPaneEl);
+
+      // Component pane (only for entity_picker — populated after basic fields)
+      if (isEntityPicker) {
+        componentPaneEl = document.createElement("div");
+        componentPaneEl.style.cssText = "display:none;flex-direction:column;gap:10px;";
+        bodyInner.appendChild(componentPaneEl);
+
+        // Wire tab switching
+        const { basicTabBtn, componentTabBtn } = tabButtonsState;
+        const _switchTab = (toComponent) => {
+          basicPaneEl.style.display = toComponent ? "none" : "flex";
+          componentPaneEl.style.display = toComponent ? "flex" : "none";
+          basicTabBtn.style.borderBottomColor = toComponent ? "transparent" : "#7ed4e8";
+          basicTabBtn.style.color = toComponent ? "#8a96a4" : "#e8eef5";
+          basicTabBtn.style.fontWeight = toComponent ? "400" : "600";
+          componentTabBtn.style.borderBottomColor = toComponent ? "#7ed4e8" : "transparent";
+          componentTabBtn.style.color = toComponent ? "#e8eef5" : "#8a96a4";
+          componentTabBtn.style.fontWeight = toComponent ? "600" : "400";
+        };
+        basicTabBtn.addEventListener("click", () => _switchTab(false));
+        componentTabBtn.addEventListener("click", () => _switchTab(true));
+      }
+
+      body.appendChild(bodyInner);
+
+      // _row helper + _inputStyle pro existing code (preserve API)
+      // Note: existing `body.appendChild(...)` calls must redirect to basicPaneEl
       const _row = (labelText, inputEl) => {
         const wrap = document.createElement("div");
         wrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
@@ -8686,7 +8760,7 @@
         "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
       infoDb.innerHTML = "🔗 DB sloupec: <code style=\"color:#7ed4e8;\">" + field.name +
                          "</code>" + (field.region_slot ? " · panel: <code style=\"color:#a8b4c2;\">" + field.region_slot + "</code>" : "");
-      body.appendChild(infoDb);
+      basicPaneEl.appendChild(infoDb);
 
       // Caption
       const captionInput = document.createElement("input");
@@ -8694,7 +8768,7 @@
       captionInput.style.cssText = _inputStyle;
       captionInput.value = field.caption || "";
       captionInput.placeholder = field.name;
-      body.appendChild(_row("Caption (label)", captionInput));
+      basicPaneEl.appendChild(_row("Caption (label)", captionInput));
 
       // Placeholder
       const placeholderInput = document.createElement("input");
@@ -8702,7 +8776,7 @@
       placeholderInput.style.cssText = _inputStyle;
       placeholderInput.value = currentLayout.placeholder || "";
       placeholderInput.placeholder = "např. '—' nebo 'Zadej hodnotu...'";
-      body.appendChild(_row("Placeholder", placeholderInput));
+      basicPaneEl.appendChild(_row("Placeholder", placeholderInput));
 
       // Phase 38.4 Krok 14f-N (14.5.2026 vecer, Marti's correction):
       // šířka komponenty na displeji — Min width / Max width (px).
@@ -8715,7 +8789,7 @@
       minWidthInput.style.cssText = _inputStyle;
       minWidthInput.value = currentLayout.min_width != null ? String(currentLayout.min_width) : "";
       minWidthInput.placeholder = "px (např. 150 — minimum sirka pred reflow)";
-      body.appendChild(_row("Min width", minWidthInput));
+      basicPaneEl.appendChild(_row("Min width", minWidthInput));
 
       const maxWidthInput = document.createElement("input");
       maxWidthInput.type = "number";
@@ -8723,7 +8797,7 @@
       maxWidthInput.style.cssText = _inputStyle;
       maxWidthInput.value = currentLayout.max_width != null ? String(currentLayout.max_width) : "";
       maxWidthInput.placeholder = "px (např. 300 — empty = bez limitu)";
-      body.appendChild(_row("Max width", maxWidthInput));
+      basicPaneEl.appendChild(_row("Max width", maxWidthInput));
 
       // Phase 38.4 Krok 14f-M (text length validation, advanced):
       // Max/Min length textu (HTML5 maxlength/minlength). Optional.
@@ -8733,7 +8807,7 @@
       maxLenInput.style.cssText = _inputStyle;
       maxLenInput.value = currentLayout.max_length != null ? String(currentLayout.max_length) : "";
       maxLenInput.placeholder = "max počet znaků (HTML5 maxlength, empty = bez limitu)";
-      body.appendChild(_row("Max length (text)", maxLenInput));
+      basicPaneEl.appendChild(_row("Max length (text)", maxLenInput));
 
       const minLenInput = document.createElement("input");
       minLenInput.type = "number";
@@ -8741,7 +8815,7 @@
       minLenInput.style.cssText = _inputStyle;
       minLenInput.value = currentLayout.min_length != null ? String(currentLayout.min_length) : "";
       minLenInput.placeholder = "min počet znaků (validace pri submit, empty = bez minima)";
-      body.appendChild(_row("Min length (text)", minLenInput));
+      basicPaneEl.appendChild(_row("Min length (text)", minLenInput));
 
       // Readonly checkbox
       const roCheckWrap = document.createElement("div");
@@ -8755,7 +8829,7 @@
       roCheck.checked = !!currentLayout.readonly;
       roCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
       roCheckWrap.appendChild(roCheck);
-      body.appendChild(roCheckWrap);
+      basicPaneEl.appendChild(roCheckWrap);
 
       // Required checkbox
       const reqCheckWrap = document.createElement("div");
@@ -8769,7 +8843,183 @@
       reqCheck.checked = !!currentLayout.required;
       reqCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
       reqCheckWrap.appendChild(reqCheck);
-      body.appendChild(reqCheckWrap);
+      basicPaneEl.appendChild(reqCheckWrap);
+
+      // ════════════════════════════════════════════════════════════════════
+      // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:25): Tab 2
+      // "Komponenta" — entity_picker specific parametrizace. 6 fields:
+      //   1. Data source (lookup source — comp_def.data_source_id FK)
+      //   2. Display mode (radio: origin / self / editable)
+      //   3. Field extern (string — save target column v parent comp_def)
+      //   4. Lookup ID field (string — picker source ID column, default "id")
+      //   5. Lookup display field (string — picker source label, default "label")
+      //   6. Quick actions (3 checkboxes — link / unlink / create_new)
+      //
+      // Save flow: data_source_id top-level + layout JSONB merge.
+      // ════════════════════════════════════════════════════════════════════
+      let dsIdState = null;       // {id, code, name} or null
+      let displayModeRadios = null;
+      let fieldExternInput = null;
+      let lookupIdInput = null;
+      let lookupDisplayInput = null;
+      let qaLinkCheck = null;
+      let qaUnlinkCheck = null;
+      let qaCreateCheck = null;
+
+      if (isEntityPicker && componentPaneEl) {
+        // 0. Info — comp_def.id + parent context (read-only)
+        const infoEp = document.createElement("div");
+        infoEp.style.cssText =
+          "padding:8px 10px;background:#0f141a;border:1px dashed #2a3340;" +
+          "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
+        infoEp.innerHTML = "🧩 entity_picker · comp_def #<code style=\"color:#7ed4e8;\">" + field.id + "</code>" +
+                            " · parent #<code style=\"color:#a8b4c2;\">" + (field.parent_comp_def_id || "—") + "</code>";
+        componentPaneEl.appendChild(infoEp);
+
+        // 1. Data source picker
+        // Initial state z field.data_source_id + field.data_source_code/name
+        // (z recursive CTE JOIN ds — fw_form_load_by_id endpoint).
+        dsIdState = field.data_source_id != null
+          ? { id: field.data_source_id, code: field.data_source_code || null, name: field.data_source_name || null }
+          : null;
+
+        const dsButtonWrap = document.createElement("div");
+        dsButtonWrap.style.cssText = "display:flex;gap:8px;align-items:center;";
+
+        const dsDisplay = document.createElement("input");
+        dsDisplay.type = "text";
+        dsDisplay.readOnly = true;
+        dsDisplay.style.cssText = _inputStyle + "flex:1;background:#0f141a;color:#cfd6df;";
+        const _refreshDsDisplay = () => {
+          if (dsIdState && dsIdState.id) {
+            dsDisplay.value = "#" + dsIdState.id + " · " + (dsIdState.name || dsIdState.code || "(?)");
+          } else {
+            dsDisplay.value = "(none)";
+          }
+        };
+        _refreshDsDisplay();
+
+        const dsPickerBtn = document.createElement("button");
+        dsPickerBtn.type = "button";
+        dsPickerBtn.textContent = "🔗";
+        dsPickerBtn.title = "Vybrat data_source (lookup source pro entity_picker)";
+        dsPickerBtn.style.cssText =
+          "padding:6px 10px;background:#1a1f26;border:1px solid #2a3340;" +
+          "color:#8fb8d4;border-radius:3px;cursor:pointer;font-size:14px;";
+        dsPickerBtn.addEventListener("click", () => {
+          if (typeof window.ErpCatalogPicker !== "function") {
+            alert("ErpCatalogPicker not loaded.");
+            return;
+          }
+          const _p = new window.ErpCatalogPicker({
+            title: "🔗 Vybrat data source (lookup source pro entity_picker)",
+            endpoint: "/api/v1/erp/design/fw-data-source/list?status=active&limit=500",
+            listKey: "data_sources",
+            idField: "id",
+            labelField: "name",
+            width: "900px",
+            columns: [
+              { headerName: "ID", field: "id", width: 80, type: "numericColumn" },
+              { headerName: "Code", field: "code", width: 260 },
+              { headerName: "Název", field: "name", flex: 1, minWidth: 200 },
+            ],
+            onSelect: function (row) {
+              dsIdState = { id: row.id, code: row.code || null, name: row.name || null };
+              _refreshDsDisplay();
+            },
+          });
+          _p.open();
+        });
+
+        const dsClearBtn = document.createElement("button");
+        dsClearBtn.type = "button";
+        dsClearBtn.textContent = "🚫";
+        dsClearBtn.title = "Zrušit data_source binding";
+        dsClearBtn.style.cssText =
+          "padding:6px 10px;background:#1a1f26;border:1px solid #2a3340;" +
+          "color:#d48787;border-radius:3px;cursor:pointer;font-size:14px;";
+        dsClearBtn.addEventListener("click", () => {
+          dsIdState = null;
+          _refreshDsDisplay();
+        });
+
+        dsButtonWrap.appendChild(dsPickerBtn);
+        dsButtonWrap.appendChild(dsClearBtn);
+        dsButtonWrap.appendChild(dsDisplay);
+        componentPaneEl.appendChild(_row("Data source", dsButtonWrap));
+
+        // 2. Display mode radio (origin / self / editable)
+        const dmCurrent = currentLayout.display_mode || "editable";
+        const dmWrap = document.createElement("div");
+        dmWrap.style.cssText = "display:flex;gap:14px;align-items:center;";
+        displayModeRadios = {};
+        ["origin", "self", "editable"].forEach((mode) => {
+          const lbl = document.createElement("label");
+          lbl.style.cssText = "display:flex;align-items:center;gap:5px;color:#cfd6df;font-size:12px;cursor:pointer;";
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = "epDisplayMode_" + field.id;
+          radio.value = mode;
+          radio.checked = (mode === dmCurrent);
+          radio.style.cssText = "cursor:pointer;";
+          lbl.appendChild(radio);
+          const span = document.createElement("span");
+          span.textContent = mode;
+          lbl.appendChild(span);
+          dmWrap.appendChild(lbl);
+          displayModeRadios[mode] = radio;
+        });
+        componentPaneEl.appendChild(_row("Display mode", dmWrap));
+
+        // 3. Field extern (string, save target column)
+        fieldExternInput = document.createElement("input");
+        fieldExternInput.type = "text";
+        fieldExternInput.style.cssText = _inputStyle;
+        fieldExternInput.value = currentLayout.field_extern || "";
+        fieldExternInput.placeholder = "např. data_source_id (sloupec ve form root comp_def)";
+        componentPaneEl.appendChild(_row("Field extern", fieldExternInput));
+
+        // 4. Lookup ID field (default "id")
+        lookupIdInput = document.createElement("input");
+        lookupIdInput.type = "text";
+        lookupIdInput.style.cssText = _inputStyle;
+        lookupIdInput.value = currentLayout.lookup_id_field || "";
+        lookupIdInput.placeholder = "id (column ve picker source — default 'id')";
+        componentPaneEl.appendChild(_row("Lookup ID field", lookupIdInput));
+
+        // 5. Lookup display field (default "label")
+        lookupDisplayInput = document.createElement("input");
+        lookupDisplayInput.type = "text";
+        lookupDisplayInput.style.cssText = _inputStyle;
+        lookupDisplayInput.value = currentLayout.lookup_display_field || "";
+        lookupDisplayInput.placeholder = "label (column ve picker source — default 'label', pro fw.data_source = 'name')";
+        componentPaneEl.appendChild(_row("Lookup display", lookupDisplayInput));
+
+        // 6. Quick actions (3 checkboxes — link / unlink / create_new)
+        const qaCurrent = Array.isArray(currentLayout.show_quick_actions)
+          ? currentLayout.show_quick_actions
+          : ["link", "unlink", "create_new"];
+        const qaWrap = document.createElement("div");
+        qaWrap.style.cssText = "display:flex;gap:14px;align-items:center;";
+        const _mkQaCheck = (name, label) => {
+          const lbl = document.createElement("label");
+          lbl.style.cssText = "display:flex;align-items:center;gap:5px;color:#cfd6df;font-size:12px;cursor:pointer;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.checked = qaCurrent.indexOf(name) !== -1;
+          cb.style.cssText = "cursor:pointer;";
+          lbl.appendChild(cb);
+          const span = document.createElement("span");
+          span.textContent = label;
+          lbl.appendChild(span);
+          qaWrap.appendChild(lbl);
+          return cb;
+        };
+        qaLinkCheck = _mkQaCheck("link", "🔗 link");
+        qaUnlinkCheck = _mkQaCheck("unlink", "🚫 unlink");
+        qaCreateCheck = _mkQaCheck("create_new", "➕ create");
+        componentPaneEl.appendChild(_row("Quick actions", qaWrap));
+      }
 
       modal.appendChild(body);
 
@@ -8869,7 +9119,60 @@
           if (reqCheck.checked) newLayout.required = true;
           else delete newLayout.required;
 
+          // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:30):
+          // entity_picker tab "Komponenta" — merge 6 nových fields do
+          // newLayout + capture data_source_id (top-level column).
+          let newDataSourceId = undefined;  // undefined = ne-send, null = clear, int = set
+          if (isEntityPicker) {
+            // 1. Data source — top-level column (NE v layout)
+            newDataSourceId = (dsIdState && dsIdState.id != null) ? dsIdState.id : null;
+
+            // 2. Display mode (origin / self / editable)
+            let dmSelected = null;
+            for (const mode in displayModeRadios) {
+              if (displayModeRadios[mode].checked) {
+                dmSelected = mode;
+                break;
+              }
+            }
+            if (dmSelected) newLayout.display_mode = dmSelected;
+            else delete newLayout.display_mode;
+
+            // 3. Field extern (string, save target column)
+            const fieldExternVal = fieldExternInput.value.trim();
+            if (fieldExternVal) newLayout.field_extern = fieldExternVal;
+            else delete newLayout.field_extern;
+
+            // 4. Lookup ID field (default "id" v renderu)
+            const lookupIdVal = lookupIdInput.value.trim();
+            if (lookupIdVal) newLayout.lookup_id_field = lookupIdVal;
+            else delete newLayout.lookup_id_field;
+
+            // 5. Lookup display field (default "label" v renderu)
+            const lookupDisplayVal = lookupDisplayInput.value.trim();
+            if (lookupDisplayVal) newLayout.lookup_display_field = lookupDisplayVal;
+            else delete newLayout.lookup_display_field;
+
+            // 6. Quick actions (array — preserve order link/unlink/create_new)
+            const qaList = [];
+            if (qaLinkCheck.checked) qaList.push("link");
+            if (qaUnlinkCheck.checked) qaList.push("unlink");
+            if (qaCreateCheck.checked) qaList.push("create_new");
+            if (qaList.length > 0) newLayout.show_quick_actions = qaList;
+            else delete newLayout.show_quick_actions;
+          }
+
           const newCaption = captionInput.value.trim();
+
+          // Build body — include data_source_id JEN pokud entity_picker
+          // (jinak undefined → JSON.stringify ho vynechá)
+          const _patchBody = {
+            caption: newCaption,
+            layout: newLayout,
+          };
+          if (isEntityPicker && newDataSourceId !== undefined) {
+            _patchBody.data_source_id = newDataSourceId;
+          }
 
           const pr = await fetch(
             "/api/v1/erp/design/comp-def/update/" + encodeURIComponent(field.id),
@@ -8877,10 +9180,7 @@
               method: "PATCH",
               headers: { "Content-Type": "application/json" },
               credentials: "include",
-              body: JSON.stringify({
-                caption: newCaption,
-                layout: newLayout,
-              }),
+              body: JSON.stringify(_patchBody),
             }
           );
           if (!pr.ok) {

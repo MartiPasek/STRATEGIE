@@ -5076,7 +5076,16 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     # atomic move + place at target position.
     # Phase 38.4 Krok 14g-D (15.5.2026 rano, Marti's "simple undo"):
     # pridat is_active pro undo-of-delete (restore soft-deleted komponentu).
-    ALLOWED = ("caption", "region_slot", "layout", "parent_comp_def_id", "sort_order", "is_active")
+    # Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:15, Marti's
+    # "parametrizace komponent, abychom mohli stavet dalsi core"):
+    # pridat data_source_id pro entity_picker per-instance konfiguraci
+    # (lookup source binding). Settings popup posila vsechny editovatelne
+    # parametry najednou.
+    ALLOWED = (
+        "caption", "region_slot", "layout",
+        "parent_comp_def_id", "sort_order", "is_active",
+        "data_source_id",
+    )
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -5102,6 +5111,16 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
         if not isinstance(new_active, bool):
             return JSONResponse(
                 {"ok": False, "error": "is_active musi byt bool"},
+                status_code=400,
+            )
+
+    # data_source_id validation (Krok 5.J-A — entity_picker lookup source binding)
+    # null = clear binding, positive int = FK na fw.data_source.id
+    if "data_source_id" in update_vals:
+        new_ds_id = update_vals["data_source_id"]
+        if new_ds_id is not None and (not isinstance(new_ds_id, int) or new_ds_id <= 0):
+            return JSONResponse(
+                {"ok": False, "error": "data_source_id musi byt positive int nebo null"},
                 status_code=400,
             )
 

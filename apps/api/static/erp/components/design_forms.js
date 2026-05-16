@@ -8286,10 +8286,14 @@
     _renderComponentTree(comp, idx, total) {
       const code = comp.comp_type_code;
       // Container types (Marti's 19yr Delphi compat + new modern UI):
-      //   panel    = invisible structural section
-      //   groupbox = visual border-top + optional label
-      // Future containers (tab_pageless, accordion, etc) lze pridat sem.
-      const CONTAINER_CODES = new Set(["panel", "groupbox"]);
+      //   panel       = invisible structural section
+      //   groupbox    = visual border-top + optional label
+      //   pagecontrol = tabs container (renders tabstrip + active tabsheet content)
+      //   tabsheet    = wrapper INSIDE pagecontrol (renders children jen kdyz active)
+      //
+      // Phase 38.4 Krok 14g Etapa F Krok 5.J-B2 (16.5.2026 ~23:50, Marti's
+      // "page control jako standardni fw componentu").
+      const CONTAINER_CODES = new Set(["panel", "groupbox", "pagecontrol", "tabsheet"]);
       if (CONTAINER_CODES.has(code)) {
         return this._renderContainerNode(comp);
       }
@@ -10098,6 +10102,110 @@
       const layout = container.layout || {};
       const children = byParent.get(container.id) || [];
 
+      // ─── PageControl = tabs container ─────────────────────────────
+      // Phase 38.4 Krok 14g Etapa F Krok 5.J-B2 (16.5.2026 ~23:50, Marti's
+      // "page control jako fw componentu"). Quick scaffold:
+      //   - Tab strip nad content area
+      //   - Active tabsheet content renders, ostatní hidden
+      //   - State: this._activeTabSheets[pagecontrol_id] = active tabsheet_id
+      //   - Default = first tabsheet (sort_order ASC)
+      //
+      // TODO Krok 5.J-B3+: per-tabsheet settings popup (caption edit,
+      // sort reorder, add/remove tabsheet via wizard).
+      if (code === "pagecontrol") {
+        const tabsheets = children.filter(c => c.comp_type_code === "tabsheet");
+        if (tabsheets.length === 0) {
+          // No tabsheets — render empty placeholder (DESIGN hint)
+          const empty = document.createElement("div");
+          empty.style.cssText =
+            "padding:24px;text-align:center;color:#8a96a4;font-size:12px;" +
+            "border:1px dashed #2a3340;border-radius:4px;";
+          empty.textContent = "📑 PageControl #" + container.id + " — žádný tabsheet uvnitr.";
+          return empty;
+        }
+
+        // Active tab state — per pagecontrol id
+        if (!this._activeTabSheets) this._activeTabSheets = {};
+        const pcId = container.id;
+        if (this._activeTabSheets[pcId] == null) {
+          this._activeTabSheets[pcId] = tabsheets[0].id;
+        }
+        let activeTsId = this._activeTabSheets[pcId];
+        if (!tabsheets.some(ts => ts.id === activeTsId)) {
+          activeTsId = tabsheets[0].id;
+          this._activeTabSheets[pcId] = activeTsId;
+        }
+
+        // Wrap container
+        const pcWrap = document.createElement("div");
+        pcWrap.className = "erp-design-pagecontrol";
+        pcWrap.dataset.compDefId = String(container.id);
+        pcWrap.dataset.compTypeCode = "pagecontrol";
+        pcWrap.style.cssText =
+          "display:flex;flex-direction:column;gap:0;min-height:0;min-width:0;" +
+          "border:1px solid #2a3340;border-radius:4px;background:#0f141a;";
+
+        // Tab strip
+        const tabStrip = document.createElement("div");
+        tabStrip.style.cssText =
+          "display:flex;border-bottom:1px solid #2a3340;background:#0d1117;" +
+          "padding:0 8px;gap:0;flex:0 0 auto;";
+
+        for (const ts of tabsheets) {
+          const isActive = (ts.id === activeTsId);
+          const tabBtn = document.createElement("button");
+          tabBtn.type = "button";
+          tabBtn.textContent = ts.caption || ts.name || ("Tab #" + ts.id);
+          tabBtn.dataset.tabsheetId = String(ts.id);
+          tabBtn.style.cssText =
+            "padding:8px 16px;background:transparent;border:none;outline:none;" +
+            "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
+            "color:" + (isActive ? "#e8eef5" : "#8a96a4") + ";" +
+            "font-size:13px;font-weight:" + (isActive ? "600" : "400") + ";" +
+            "cursor:pointer;transition:color 0.15s, border-color 0.15s;";
+          tabBtn.addEventListener("click", () => {
+            this._activeTabSheets[pcId] = ts.id;
+            // Re-render whole form — simple approach (could optimize to swap only content area)
+            this._render();
+          });
+          tabStrip.appendChild(tabBtn);
+        }
+        pcWrap.appendChild(tabStrip);
+
+        // Content area — render active tabsheet children
+        const contentArea = document.createElement("div");
+        contentArea.style.cssText =
+          "flex:1 1 auto;padding:12px;display:flex;flex-direction:column;" +
+          "gap:8px;min-height:0;min-width:0;overflow:auto;";
+
+        const activeTs = tabsheets.find(ts => ts.id === activeTsId);
+        if (activeTs) {
+          const tsChildren = byParent.get(activeTs.id) || [];
+          for (let i = 0; i < tsChildren.length; i++) {
+            const childEl = this._renderComponentTree(tsChildren[i], i, tsChildren.length);
+            if (childEl) contentArea.appendChild(childEl);
+          }
+        }
+        pcWrap.appendChild(contentArea);
+        return pcWrap;
+      }
+
+      // ─── TabSheet = wrapper INSIDE pagecontrol ────────────────────
+      // Rendered as standalone JEN pokud nekdo nas zavola mimo pagecontrol
+      // kontextu (tj. byParent lookup vrati tabsheet jako top-level child).
+      // Pagecontrol branch above renders tabsheet children directly v contentArea,
+      // takze tato vetev je fallback pro orphan tabsheet.
+      if (code === "tabsheet") {
+        const orphanWrap = document.createElement("div");
+        orphanWrap.style.cssText =
+          "padding:12px;border:1px dashed #5a4828;border-radius:4px;" +
+          "color:#d4b88a;font-size:11px;background:#1a1410;";
+        orphanWrap.textContent = "⚠ Orphan tabsheet #" + container.id + " — " +
+          (container.caption || container.name) +
+          " (musi byt child pagecontrol komponenty)";
+        return orphanWrap;
+      }
+
       // ─── Panel = structural container ─────────────────────────────
       // Marti's doctrine (Krok 14e, 14.5.2026 vecer): panel je purely
       // structural — visual styling delegujeme na nested groupbox.
@@ -10722,19 +10830,24 @@
 
           const wrap = document.createElement("div");
           wrap.className = "erp-field erp-field-design erp-entity-picker-host";
+          // Phase 38.4 Krok 14g Etapa F Krok 5.J-B1 (16.5.2026 ~23:50, Marti's
+          // screenshot diff vs Form 1): kompaktnější styl — padding 12→8,
+          // gap 6→3, border-radius 6→4. Form 1 (DesignSoudecekCoreForm) má
+          // tighter visual rhythm — pojď shodit DesignFwForm na stejnou level.
           wrap.style.cssText =
-            "display:flex;flex-direction:column;gap:6px;" +
-            "border:1px solid #2a3340;border-radius:6px;padding:12px;background:#0f1419;";
+            "display:flex;flex-direction:column;gap:3px;" +
+            "border:1px solid #2a3340;border-radius:4px;padding:8px 10px;background:#0f1419;";
           wrap._fieldKey = fieldKey;
           wrap._kind = "entity_picker";
           wrap._displayMode = displayMode;
           wrap._fieldExtern = fieldExtern;
 
           // Header — label + data_source code/name badge
+          // Krok 5.J-B1: kompaktnější padding (4→2) — Form 1 styl
           const headerRow = document.createElement("div");
           headerRow.style.cssText =
             "display:flex;justify-content:space-between;align-items:center;" +
-            "padding-bottom:4px;border-bottom:1px solid #1f2630;";
+            "padding-bottom:2px;border-bottom:1px solid #1f2630;";
 
           const labelEl = document.createElement("div");
           labelEl.style.cssText =
@@ -10909,8 +11022,9 @@
           });
 
           // Layout: actions row | fields row vedle sebe
+          // Krok 5.J-B1: kompaktnější gap (12→8) — Form 1 styl
           const innerRow = document.createElement("div");
-          innerRow.style.cssText = "display:flex;gap:12px;align-items:flex-end;";
+          innerRow.style.cssText = "display:flex;gap:8px;align-items:flex-end;";
           innerRow.appendChild(actionsRow);
           innerRow.appendChild(fieldsRow);
           wrap.appendChild(innerRow);

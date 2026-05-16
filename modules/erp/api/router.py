@@ -3536,8 +3536,27 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             if k.startswith("_origin_"):
                 del rd[k]
 
-        # Drafted core path — empty container response (id+origin+audit only)
-        if not resolved_code:
+        # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026, Marti's "INSERT do
+        # comp_def probehl, ted treba zobrazit ten form"): rozhodnuti
+        # empty_container vs render path **podle existence root comp_def**,
+        # NE podle resolved_code. Po init-root mame comp_def root + core.code
+        # stale NULL (drafted core nazva nemusi mit). Drz Marti-AI's "readiness_state"
+        # doctrine: drafted (no root) / has_root / populated.
+        root_row = ds.execute(_sql_fwid("""
+            SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                   cd.sort_order, cd.is_active,
+                   ct.code AS comp_type_code, ct.label AS comp_type_label
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            WHERE cd.parent_core_id = :cid
+              AND cd.parent_comp_def_id IS NULL
+              AND cd.is_active = true
+            ORDER BY cd.sort_order ASC, cd.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+
+        if not root_row:
+            # No root comp_def → drafted, empty_container
             return JSONResponse(jsonable_encoder({
                 "ok": True,
                 "core": rd,
@@ -3549,11 +3568,107 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 "empty_container": True,
                 "origin": origin_payload,
             }))
+
+        # Root exists — render path
+        form_dict = dict(root_row)
+
+        # Load fields (recursive CTE pod root)
+        fields_rows = ds.execute(_sql_fwid("""
+            WITH RECURSIVE comp_tree AS (
+              SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                     cd.sort_order, cd.region_slot, cd.is_active,
+                     cd.parent_comp_def_id,
+                     ct.code AS comp_type_code, ct.label AS comp_type_label,
+                     ct.kind AS comp_type_kind,
+                     0 AS depth
+              FROM fw.comp_def cd
+              JOIN fw.comp_type ct ON ct.id = cd.type_id
+              WHERE cd.parent_comp_def_id = :form_id
+                AND cd.is_active = true
+              UNION ALL
+              SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
+                     cd.sort_order, cd.region_slot, cd.is_active,
+                     cd.parent_comp_def_id,
+                     ct.code AS comp_type_code, ct.label AS comp_type_label,
+                     ct.kind AS comp_type_kind,
+                     tree.depth + 1
+              FROM fw.comp_def cd
+              JOIN fw.comp_type ct ON ct.id = cd.type_id
+              JOIN comp_tree tree ON cd.parent_comp_def_id = tree.id
+              WHERE cd.is_active = true
+            )
+            SELECT * FROM comp_tree
+            ORDER BY depth ASC, region_slot ASC, sort_order ASC, id ASC
+        """), {"form_id": form_dict["id"]}).mappings().all()
+        fields_list = [dict(f) for f in fields_rows]
+
+        # Load data row + children pokud entity_type known
+        entity_type = rd.get("data_entity_type")
+        data_row = None
+        children_dict = {}
+        if entity_type and entity_type in _FW_FORM_ENTITY_MAP:
+            entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+            schema_name = entity_config["schema"]
+            table_name = entity_config["table"]
+            id_column = entity_config["id_column"]
+            cols_list = entity_config["select_columns"]
+            cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+            data_query = (
+                f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
+                f'WHERE "{id_column}" = :row_id'
+            )
+            data_row_raw = ds.execute(
+                _sql_fwid(data_query), {"row_id": row_id}
+            ).mappings().one_or_none()
+            if data_row_raw:
+                data_row = dict(data_row_raw)
+
+            # Children sub-grids (per entity_config.children)
+            for child_key, child_cfg in (entity_config.get("children") or {}).items():
+                child_cols_sql = ", ".join(f'"{c}"' for c in child_cfg["select_columns"])
+                where_parts = [f'"{child_cfg["fk_column"]}" = :parent_id']
+                filter_params = {"parent_id": row_id}
+                for fc, fv in (child_cfg.get("filter") or {}).items():
+                    key = f"_filter_{fc}"
+                    where_parts.append(f'"{fc}" = :{key}')
+                    filter_params[key] = fv
+                child_query = (
+                    f'SELECT {child_cols_sql} FROM "public"."{child_cfg["table"]}" '
+                    f'WHERE {" AND ".join(where_parts)} ORDER BY id ASC'
+                )
+                child_rows = ds.execute(
+                    _sql_fwid(child_query), filter_params
+                ).mappings().all()
+                children_dict[child_key] = {
+                    "rows": [dict(r) for r in child_rows],
+                    "label": child_cfg.get("label") or child_key,
+                    "default_label": child_cfg.get("default_label"),
+                    "id_column": child_cfg.get("id_column", "id"),
+                }
+
+        # Template (LEFT JOIN optional)
+        template_dict = None
+        if rd.get("template_id"):
+            template_row = ds.execute(_sql_fwid("""
+                SELECT t.* FROM fw.template t
+                WHERE t.id = :tid AND t.status IN ('active', 'deployed')
+            """), {"tid": rd["template_id"]}).mappings().one_or_none()
+            if template_row:
+                template_dict = dict(template_row)
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "core": rd,
+            "form": form_dict,
+            "fields": fields_list,
+            "data": data_row,
+            "template": template_dict,
+            "children": children_dict,
+            "empty_container": False,
+            "origin": origin_payload,
+        }))
     finally:
         ds.close()
-
-    # Fully-formed core (code IS NOT NULL) — delegate na existing handler
-    return fw_form_load(core_code=resolved_code, row_id=row_id, req=req)
 
 
 @api_router.get("/fw-form/{core_code}/{parent_id}/children/{child_key}")

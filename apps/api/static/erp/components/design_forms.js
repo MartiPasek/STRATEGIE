@@ -5181,11 +5181,16 @@
     _canPickFields() {
       // Krok 14b+7.1: shared predicate — kdy je field picker dostupny.
       // Pouziva header "+ Pole" button + empty hint + footer hint.
+      //
+      // Krok 5.J-B6 hotfix (16.5.2026 ~24:40, Marti's "+Pole se nezobrazuje
+      // na hlavicce formu"): drop strict data_entity_type check. Po Krok 5.A
+      // "core = kontejner" doctrine může být data_entity_type=NULL pro drafted
+      // core. Picker show button v DESIGN mode + form has root; _openFieldPicker
+      // validates entity_type runtime — pokud null, info dialog "set entity first".
       if (!this._spec) return false;
       const core = this._spec.core;
       const form = this._spec.form;
       if (!core || !form) return false;
-      if (!core.data_entity_type) return false;
       if (!form.id) return false;
       if (typeof global.FieldPickerModal !== "function") return false;
       return true;
@@ -5201,6 +5206,25 @@
       }
       const core = this._spec.core;
       const formId = this._spec.form.id;
+
+      // Krok 5.J-B6 hotfix (17.5.2026 ~00:00, Marti's "+Pole nezobrazuje"):
+      // runtime validate entity_type — pokud NULL, info dialog (po Krok 5.A
+      // "core = kontejner" je entity nepovinné, ale picker ho potřebuje).
+      if (!core.data_entity_type) {
+        await _confirmDarkDialog({
+          title: "Entita není nastavena",
+          message: "Tento core (id=" + core.id + ") nemá data_entity_type.\n\n" +
+            "Field Picker potřebuje vědět, jakou entitu form edituje, " +
+            "aby zobrazil dostupné sloupce. Nastav entitu přes init-root flow " +
+            "(Krok 5.D root type picker — assign data_entity_type=user/core/menu_node).\n\n" +
+            "Můžeš taky přidat custom fields přímo přes SQL nebo budoucí UI " +
+            "(Krok 5.J-B7+ entity-agnostic field create).",
+          ok: "Rozumím",
+          cancel: null,
+        });
+        return;
+      }
+
       const picker = new global.FieldPickerModal({
         entityType: core.data_entity_type,
         parentCompDefId: formId,

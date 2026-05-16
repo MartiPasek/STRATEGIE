@@ -3121,6 +3121,36 @@ _FW_FORM_ENTITY_MAP: dict = {
             "created_at",
         ],
     },
+    # Phase 38.4 Krok 14g Etapa F Krok 5.I-H (16.5.2026 vecer): comp_def
+    # entity pro form's save target (Marti's two-layer data_source pattern).
+    # Form root id=37 (form_root, type=302) ma data_source_id=21
+    # (framework_comp_def_list). Save flow:
+    #   Picker #3 (Datovy zdroj, field_extern='data_source_id') -> PATCH
+    #   /api/v1/erp/design/comp_def/37 {field_changes: {data_source_id: X}}
+    #
+    # `updated_at` pridan v Krok 5.I-A2 (16.5. ~21:50) — ADD COLUMN +
+    # trigger fw.update_updated_at(). Optimistic lock funguje.
+    #
+    # Drop legacy `parent_id` (predchudce Krok 13.1 split na parent_comp_def_id
+    # + parent_core_id — zero references v code).
+    "comp_def": {
+        "schema": "fw",
+        "table": "comp_def",
+        "id_column": "id",
+        "select_columns": [
+            "id", "name", "caption",
+            "type_id",
+            "parent_core_id", "parent_comp_def_id",
+            "region_slot", "sort_order", "is_active",
+            "data_source_id", "layout",
+            "container_template_id", "container_template_version",
+            "layout_mode", "refresh_strategy",
+            "layout_x", "layout_y", "layout_w", "layout_h",
+            "created_by_id", "created_by_text",
+            "updated_by_id", "updated_by_text",
+            "created_at", "updated_at",
+        ],
+    },
 }
 
 

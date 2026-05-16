@@ -5660,6 +5660,11 @@ async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
         "layout": _json_ir.dumps(seed_layout),  # JSONB cast
         "sort_order": 0,
         "is_active": True,
+        # Audit minimum — fw.comp_def.created_by_text NOT NULL
+        "created_by_id": uid,
+        "created_by_text": caller_display,
+        "updated_by_id": uid,
+        "updated_by_text": caller_display,
     }
     cd_upd = _spg_insert_ir(schema="fw", table="comp_def", values=comp_def_values)
     if not cd_upd.get("ok"):

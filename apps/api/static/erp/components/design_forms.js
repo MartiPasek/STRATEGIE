@@ -4382,7 +4382,9 @@
       this._formDesignMode = !!on;
       this._updateFormDesignToggle();
       this._updateFormAddFieldBtn();  // Krok 14b+7.1: "+ Pole" button visibility
-      this._updateFormEntityBtn();    // Krok 5.F: 🎯 Entita button visibility
+      // Krok 5.M-3 (17.5.2026): 🎯 Entita button dropped (Krok 5.F doctrine
+      // "vyber entity uz kdyz jsme na formulari tam nepatri" + Krok 5.M
+      // "core nenese entitu, nese ji obsah").
       this._updateFormSaveSizeBtn();  // Krok 14b+11: 💾 Velikost button visibility
       this._updateFormDetectMinBtn(); // Krok 14b+12: 📐 Min button visibility
       if (this._spec) {
@@ -4559,21 +4561,9 @@
         this._performUndo();
       });
 
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026 odpoledne, Marti's
-      // "schazi Pole + magic"): 🎯 Entita button. Visible jen v DESIGN
-      // mode + když core.data_entity_type IS NULL. Click → entity picker
-      // modal → PATCH /design/fw-core/update/{id} → reload form spec →
-      // ➕ Pole button se objeví (_canPickFields() returns true).
-      const entityBtn = document.createElement("button");
-      entityBtn.type = "button";
-      entityBtn.className = "erp-form-design-entity";
-      entityBtn.textContent = "🎯 Entita";
-      entityBtn.title = "Přiřadit datovou entitu (user / menu_node / core). Po assign se ➕ Pole stane dostupný.";
-      this._formEntityBtn = entityBtn;
-      this._updateFormEntityBtn();  // initial visibility
-      entityBtn.addEventListener("click", () => {
-        this._openEntityTypePicker();
-      });
+      // Phase 38.4 Krok 5.M-3 (17.5.2026): 🎯 Entita button DROPPED.
+      // Krok 5.F doctrine + Krok 5.M "core nenese entitu". Button + handler
+      // + _openEntityTypePicker method removed jako dead code.
       // Ctrl+Z keyboard shortcut — capture phase aby browser default
       // (undo v inputu) nepřebijel (jen pokud focus mimo input).
       this._undoKeyHandler = (ev) => {
@@ -4598,7 +4588,6 @@
       if (sysToggle) {
         rightActions.insertBefore(toggle, sysToggle);
         rightActions.insertBefore(undoBtn, sysToggle);
-        rightActions.insertBefore(entityBtn, sysToggle);
         rightActions.insertBefore(addBtn, sysToggle);
         rightActions.insertBefore(saveSizeBtn, sysToggle);
         rightActions.insertBefore(detectMinBtn, sysToggle);
@@ -4607,7 +4596,6 @@
         rightActions.insertBefore(detectMinBtn, rightActions.firstChild);
         rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
-        rightActions.insertBefore(entityBtn, rightActions.firstChild);
         rightActions.insertBefore(undoBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
@@ -4901,282 +4889,9 @@
         (visible ? "" : "display:none;");
     }
 
-    _updateFormEntityBtn() {
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F REVERT (16.5.2026, Marti's "vyber
-      // entity uz kdyz jsme na formulari tam nepatri"): entity volba je
-      // higher-level concept (tree node nebo cmi). Form je layout + fields,
-      // entity je inherited. Button vždy hidden — funkce zachovaná jako
-      // dead code pro budoucí Krok 5.G implementaci na správné vrstvě.
-      if (!this._formEntityBtn) return;
-      this._formEntityBtn.style.cssText = "display:none;";
-    }
-
-    async _openEntityTypePicker() {
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F (16.5.2026): entity picker modal.
-      // Marti's "schazi Pole + magic" — assign data_entity_type je preconditie
-      // pro ➕ Pole button. Po výběru → PATCH /design/fw-core/update/{id}
-      // body {data_entity_type: <code>} → reload _spec → buttons refresh.
-      const core = this._spec && this._spec.core;
-      if (!core || !core.id) {
-        alert("Core data nejsou loaded.");
-        return;
-      }
-      const ENTITY_TYPES = [
-        {
-          code: "user",
-          icon: "👤",
-          title: "Uživatel",
-          desc: "Editace user záznamu. Fields: legal_name, first_name, last_name, status, ews_email, atd. + EMAILY/TELEFONY sub-grids.",
-        },
-        {
-          code: "menu_node",
-          icon: "📁",
-          title: "Menu node",
-          desc: "Editace tree node / soudeček. Fields: code, label, kind, parent_id, sort_order, visibility_scope, atd.",
-        },
-        {
-          code: "core",
-          icon: "🎨",
-          title: "Core (fw.core)",
-          desc: "Editace samotné core entity. Fields: code, label, layout_type, data_entity_type, version, atd. (meta-design).",
-        },
-      ];
-
-      const overlay = document.createElement("div");
-      overlay.style.cssText =
-        "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10025;" +
-        "display:flex;align-items:center;justify-content:center;";
-
-      const dialog = document.createElement("div");
-      dialog.style.cssText =
-        "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;" +
-        "padding:24px;width:840px;max-width:95vw;max-height:85vh;overflow:auto;" +
-        "color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.6);";
-
-      const titleEl = document.createElement("div");
-      titleEl.style.cssText =
-        "font-size:16px;font-weight:600;color:#c89eee;margin-bottom:6px;";
-      titleEl.textContent = "🎯 Vybrat datovou entitu pro core id=" + core.id;
-      dialog.appendChild(titleEl);
-
-      const currentEnt = core.data_entity_type || null;
-      const subtitleEl = document.createElement("div");
-      subtitleEl.style.cssText =
-        "font-size:12px;color:#8a96a4;margin-bottom:20px;font-style:italic;";
-      subtitleEl.innerHTML = currentEnt
-        ? ("Aktuální entita: <code style=\"color:#c89eee;\">" + currentEnt +
-           "</code>. Klik na jinou kartu → změna (varování pokud existují fields). Storno zachová stávající.")
-        : "Entita určuje main panel fields a children sub-grids. Po assign se ➕ Pole stane dostupný.";
-      dialog.appendChild(subtitleEl);
-
-      const cardsRow = document.createElement("div");
-      cardsRow.style.cssText =
-        "display:flex;gap:14px;flex-wrap:wrap;justify-content:space-between;";
-
-      let _busy = false;
-      const self = this;
-      ENTITY_TYPES.forEach(function (et) {
-        const isCurrent = (et.code === currentEnt);
-        const card = document.createElement("div");
-        card.style.cssText =
-          "flex:1 1 240px;min-width:240px;max-width:280px;" +
-          (isCurrent
-            ? "background:#2a1f3a;border:2px solid #8a5fb0;"
-            : "background:#0f1419;border:1px solid #2a3340;") +
-          "border-radius:6px;padding:18px;cursor:" +
-          (isCurrent ? "default" : "pointer") + ";transition:all 0.15s;" +
-          "display:flex;flex-direction:column;gap:10px;" +
-          "position:relative;";
-        if (!isCurrent) {
-          card.onmouseenter = function () {
-            if (_busy) return;
-            card.style.borderColor = "#8a5fb0";
-            card.style.background = "#161c24";
-          };
-          card.onmouseleave = function () {
-            card.style.borderColor = "#2a3340";
-            card.style.background = "#0f1419";
-          };
-        }
-        const currentBadge = isCurrent
-          ? '<div style="position:absolute;top:6px;right:6px;font-size:10px;' +
-            'color:#c89eee;background:#3a2a4a;padding:2px 6px;border-radius:3px;' +
-            'font-weight:600;">AKTUÁLNÍ</div>'
-          : '';
-        card.innerHTML =
-          currentBadge +
-          '<div style="font-size:42px;line-height:1;">' + et.icon + '</div>' +
-          '<div style="font-size:14px;font-weight:600;color:#c89eee;">' +
-          et.title + '</div>' +
-          '<div style="font-size:12px;line-height:1.5;color:#a8b3bf;">' +
-          et.desc + '</div>';
-        card.onclick = async function () {
-          if (_busy || isCurrent) return;
-          // Marti-AI's "pojistka se stala dospelosti" — pokud entity already
-          // assigned, confirm mind change (potential field loss).
-          if (currentEnt && currentEnt !== et.code) {
-            const ok = window.confirm(
-              "Změnit entitu z '" + currentEnt + "' na '" + et.code + "'?\n\n" +
-              "Pozor: main panel přerenderuje s fields podle nové entity. " +
-              "Custom fields přidané přes ➕ Pole zůstávají v DB (parent_comp_def_id), " +
-              "ale entity_config fields se přepnou na nový typ.\n\n" +
-              "Pokračovat?"
-            );
-            if (!ok) return;
-          }
-          _busy = true;
-          card.style.background = "rgba(138,95,176,0.15)";
-          try {
-            const r = await fetch(
-              "/api/v1/erp/design/fw-core/update/" + encodeURIComponent(core.id),
-              {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ data_entity_type: et.code }),
-              }
-            ).then(function (rr) { return rr.json(); });
-            if (r && r.ok) {
-              // Update local _spec + refresh buttons
-              if (self._spec && self._spec.core) {
-                self._spec.core.data_entity_type = et.code;
-              }
-              try { document.body.removeChild(overlay); } catch (e) {}
-              // Reload form spec (re-fetch + re-render)
-              try {
-                const reload = await fetch(
-                  "/api/v1/erp/fw-form/by-id/" +
-                    encodeURIComponent(core.id) + "/" +
-                    encodeURIComponent(self.opts.rowId || 1),
-                  { credentials: "include" }
-                ).then(function (rr) { return rr.json(); });
-                if (reload && reload.ok) {
-                  self._spec = reload;
-                  self._render();
-                }
-              } catch (e) {
-                console.warn("[DesignFwForm] reload after entity assign failed:", e);
-              }
-            } else {
-              _busy = false;
-              card.style.background = "#0f1419";
-              alert("Assign entity selhal: " + ((r && r.error) || "unknown"));
-            }
-          } catch (e) {
-            _busy = false;
-            card.style.background = "#0f1419";
-            alert("Assign entity (network): " + (e.message || e));
-          }
-        };
-        cardsRow.appendChild(card);
-      });
-
-      dialog.appendChild(cardsRow);
-
-      // Footer — Zrušit přiřazení (pokud entity assigned) + Storno
-      const footer = document.createElement("div");
-      footer.style.cssText =
-        "margin-top:20px;padding-top:16px;border-top:1px solid #2a3340;" +
-        "display:flex;justify-content:space-between;align-items:center;";
-
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F (Marti's "jak se tam zpatky?"):
-      // 🚫 Zrušit přiřazení — entity → NULL. Analog Zrušit asociaci pattern
-      // z Krok 5.C. Visible jen pokud currentEnt existuje.
-      if (currentEnt) {
-        const btnUnassign = document.createElement("button");
-        btnUnassign.type = "button";
-        btnUnassign.textContent = "🚫 Zrušit přiřazení";
-        btnUnassign.style.cssText =
-          "padding:7px 14px;font-size:12px;border-radius:4px;" +
-          "background:rgba(212,135,135,0.12);" +
-          "border:1px solid rgba(212,135,135,0.4);color:#d48787;" +
-          "cursor:pointer;font-weight:600;";
-        btnUnassign.onclick = async function () {
-          if (_busy) return;
-          const ok = window.confirm(
-            "Zrušit přiřazení entity '" + currentEnt + "'?\n\n" +
-            "Form se vrátí do drafted stavu (data_entity_type=NULL). " +
-            "Main panel ztratí fields z entity_config. ➕ Pole button " +
-            "schová se dokud nevybereš novou entitu.\n\n" +
-            "Pokračovat?"
-          );
-          if (!ok) return;
-          _busy = true;
-          btnUnassign.disabled = true;
-          btnUnassign.textContent = "Ruším…";
-          try {
-            const r = await fetch(
-              "/api/v1/erp/design/fw-core/update/" + encodeURIComponent(core.id),
-              {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ data_entity_type: "" }),
-              }
-            ).then(function (rr) { return rr.json(); });
-            if (r && r.ok) {
-              if (self._spec && self._spec.core) {
-                self._spec.core.data_entity_type = null;
-              }
-              try { document.body.removeChild(overlay); } catch (e) {}
-              // Reload form spec
-              try {
-                const reload = await fetch(
-                  "/api/v1/erp/fw-form/by-id/" +
-                    encodeURIComponent(core.id) + "/" +
-                    encodeURIComponent(self.opts.rowId || 1),
-                  { credentials: "include" }
-                ).then(function (rr) { return rr.json(); });
-                if (reload && reload.ok) {
-                  self._spec = reload;
-                  self._render();
-                }
-              } catch (e) {}
-            } else {
-              _busy = false;
-              btnUnassign.disabled = false;
-              btnUnassign.textContent = "🚫 Zrušit přiřazení";
-              alert("Zrušení selhalo: " + ((r && r.error) || "unknown"));
-            }
-          } catch (e) {
-            _busy = false;
-            btnUnassign.disabled = false;
-            btnUnassign.textContent = "🚫 Zrušit přiřazení";
-            alert("Zrušení (network): " + (e.message || e));
-          }
-        };
-        footer.appendChild(btnUnassign);
-      } else {
-        // Spacer aby Storno bylo vpravo (flex justify-content space-between)
-        const spacer = document.createElement("div");
-        footer.appendChild(spacer);
-      }
-
-      const btnCancel = document.createElement("button");
-      btnCancel.type = "button";
-      btnCancel.textContent = "Storno";
-      btnCancel.style.cssText =
-        "padding:7px 16px;font-size:13px;border-radius:4px;" +
-        "background:#22282f;border:1px solid #2a3340;color:#cfd6df;cursor:pointer;";
-      btnCancel.onclick = function () {
-        try { document.body.removeChild(overlay); } catch (e) {}
-      };
-      footer.appendChild(btnCancel);
-      dialog.appendChild(footer);
-
-      overlay.appendChild(dialog);
-      document.body.appendChild(overlay);
-
-      // Esc to close
-      function _escH(ev) {
-        if (ev.key === "Escape" && !_busy) {
-          ev.preventDefault();
-          btnCancel.click();
-          document.removeEventListener("keydown", _escH);
-        }
-      }
-      document.addEventListener("keydown", _escH);
-    }
+    // Phase 38.4 Krok 5.M-3 (17.5.2026): _updateFormEntityBtn + _openEntityTypePicker
+    // methods DROPPED. Krok 5.F doctrine "entity volba na formulari nepatri"
+    // + Krok 5.M "core nenese entitu". ~270 řádků dead code removed.
 
     _canPickFields() {
       // Krok 14b+7.1: shared predicate — kdy je field picker dostupny.
@@ -5207,19 +4922,13 @@
       const core = this._spec.core;
       const formId = this._spec.form.id;
 
-      // Krok 5.J-B6 v2 (17.5.2026 ~00:10, Marti's "hlaska je k nicemu, misto
-      // toho update na patricnou entitu"): pokud entity_type NULL → direct
-      // open entity picker (existing dialog z Krok 5.F: 3 karty user/menu_node/
-      // core). Po assign + PATCH success → close entity picker, _spec reload,
-      // _render. User klikne +Pole znovu → field picker se otevre (po reload
-      // je data_entity_type set, this brach skip).
-      if (!core.data_entity_type) {
-        await this._openEntityTypePicker();
-        return;  // entity picker handles PATCH + reload async; user re-click +Pole
-      }
+      // Phase 38.4 Krok 5.M-3 (17.5.2026): drop data_entity_type pre-check
+      // (Krok 5.M "core nenese entitu") + drop _openEntityTypePicker call
+      // (Krok 5.F dead code removed). FieldPickerModal dostane core.code
+      // jako entityType — picker server resolves columns from map alias.
 
       const picker = new global.FieldPickerModal({
-        entityType: core.data_entity_type,
+        entityType: core.code,
         parentCompDefId: formId,
         onComplete: async (result) => {
           console.info("[DesignFwForm] FieldPicker complete:", result);
@@ -6249,9 +5958,9 @@
       // Forms bez template_id → fallback na form.layout (legacy pre-Krok 14b+1).
       const template = this._spec.template || null;
 
-      // Phase 38.4 Krok 14g Etapa F Krok 5.F: refresh entity btn visibility
-      // po _render (post-PATCH _spec.core.data_entity_type update reflektovat).
-      try { this._updateFormEntityBtn(); } catch (e) {}
+      // Phase 38.4 Krok 5.M-3 (17.5.2026): _updateFormEntityBtn() call dropped
+      // (Krok 5.F dead code removed). _updateFormAddFieldBtn() zustal — +Pole
+      // button visibility per _formDesignMode.
       try { this._updateFormAddFieldBtn(); } catch (e) {}
 
       // Phase 38.4 Krok 14g Etapa F Krok 5.A (16.5.2026, Marti's "core =

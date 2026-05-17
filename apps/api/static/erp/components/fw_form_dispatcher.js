@@ -526,9 +526,6 @@
           // se vzdy prenasi jen ID 16"): runtime menu_node from contextmenu
           // click. entity_picker(display_mode='origin') prefer tyto runtime
           // hodnoty pred _spec.origin.menu_node (stamped pri core create).
-          // Bez tohoto override: vsechny Design: Core CMIs s target_core_id=X
-          // ukazuji menu_node X.origin_menu_node_id (e.g. 16), regardless
-          // odkud byly otevreny.
           runtimeMenuNodePk: (ctx && ctx.menu_node_pk) || null,
           runtimeMenuNodeLabel: (ctx && ctx.menu_node_label) || null,
           runtimeMenuNodeCode: (ctx && ctx.menu_node_code) || null,
@@ -622,4 +619,14 @@
       // Phase 38.4 Krok 14g Etapa F (17.5.2026): mnLabel je novy 5. param
       // — runtime menu_node display label pro entity_picker(display_mode='origin')
       // override stamped core.origin_menu_node_id. Marti's "vzdy ID 16" fix.
-      const ctx = _buildC
+      const ctx = _buildContext(item, mnPk, mnCode, mnLabel);
+      const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
+      _diagLog(cmiSnap.action_params, ctx, formArgs);
+      // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026): pass ctx + cmiSnap.id
+      // pro Kontejner picker onNew callback (origin tracking pri minimal INSERT
+      // do fw.core — Marti's "rodicovstvi" doctrine).
+      _openForm(formArgs, cmiSnap.code, ctx, cmiSnap.id);
+    };
+
+  }); // _erpLoadModule end
+})(window);

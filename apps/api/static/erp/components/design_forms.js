@@ -11209,13 +11209,18 @@
           fieldsRow.appendChild(idCol);
           fieldsRow.appendChild(labelCol);
 
-          // Store initial value pro Krok 5.I-G dirty check (jen pro editable mode)
-          if (!isDisplayOnly && initialId != null) {
-            wrap._initialValue = {
-              id: initialId,
-              display: initialLabel,
-            };
-          }
+          // Store initial value pro dirty check.
+          // Phase 38.4 Krok 14g Etapa F Krok 5.J-B7 (17.5.2026, Marti's
+          // "po vyberu jineho prehledu +1 v paticce"): capture initialValue
+          // UNIVERZALNE (i pro display-only). Diff check potrebuje baseline
+          // i kdyby uzivatel pretipoval display-only display_mode na editable
+          // pres settings popup (Krok 5.J-A). Plus pro initialId === null
+          // capture { id: null } abychom rozlisili "user explicit unlinked"
+          // vs "form opened bez selected value".
+          wrap._initialValue = {
+            id: initialId,
+            display: initialLabel,
+          };
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.H (16.5.2026 vecer, Marti's
           // "pauza, ty pracuj"): 🔗 link onclick → fetch /api/v1/erp/data/{dsCode}
@@ -11274,9 +11279,26 @@
                         display: row[lookupDisplay],
                         rawRow: row,
                       };
+                      // Phase 38.4 Krok 14g Etapa F Krok 5.J-B7 (17.5.2026,
+                      // Marti's "po vyberu jineho prehledu +1 v paticce"):
+                      // trigger dirty diff vs initialValue. Bez tohoto by
+                      // se _dirtyBadge nikdy nezobrazil — form._dirty Set
+                      // by zustal prazdny. Diff check: id mismatch =>
+                      // dirty true, id match (re-select stejne) => false.
+                      try {
+                        const newId = row[lookupId];
+                        const initialId = (wrap._initialValue && wrap._initialValue.id != null)
+                          ? wrap._initialValue.id : null;
+                        const changed = (newId != null && newId !== initialId)
+                          || (newId == null && initialId != null);
+                        if (typeof onDirty === "function") {
+                          onDirty(fieldKey, changed);
+                        }
+                      } catch (e) { /* fail-safe — dirty je nice-to-have */ }
                       console.info(
                         "[entity_picker]", field.name, "selected:",
-                        row[lookupId], "(" + row[lookupDisplay] + ")"
+                        row[lookupId], "(" + row[lookupDisplay] + ")",
+                        "initialId=" + ((wrap._initialValue || {}).id)
                       );
                     },
                   });
@@ -11296,7 +11318,20 @@
                   if (labelInput) labelInput.value = "";
                 } catch (e) {}
                 wrap._selectedValue = null;
-                console.info("[entity_picker]", field.name, "unlinked");
+                // Phase 38.4 Krok 14g Etapa F Krok 5.J-B7 (17.5.2026,
+                // Marti's "po vyberu jineho prehledu +1 v paticce"):
+                // unlink je dirty pokud byl initialValue non-null. Pokud
+                // initial == null (a unlink nic nemenil) → no dirty.
+                try {
+                  const hadInitial = !!(wrap._initialValue && wrap._initialValue.id != null);
+                  if (typeof onDirty === "function") {
+                    onDirty(fieldKey, hadInitial);
+                  }
+                } catch (e) { /* fail-safe */ }
+                console.info(
+                  "[entity_picker]", field.name, "unlinked",
+                  "hadInitial=" + !!(wrap._initialValue && wrap._initialValue.id != null)
+                );
               });
             } else if (act === "create_new") {
               btn.addEventListener("click", function () {

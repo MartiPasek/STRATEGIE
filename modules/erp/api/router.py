@@ -6451,6 +6451,346 @@ async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JS
 # ════════════════════════════════════════════════════════════════════
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Krok 5.K-A (17.5.2026 rano, Marti's
+# "nejdulezitejsi a nejpouzivaneji nastroj pro designery"):
+# Data source + data set editor backend.
+#
+# A3 architecture recap (Marti-AI's doctrine 9.5.):
+#   fw.data_source      = hlavička (code, name, description, refresh_type, limit)
+#   fw.data_source_op   = mapping (FK source + FK set + variant + kind)
+#   fw.data_set         = SQL primitiv (code, kind, sql_text, db_connection)
+#
+# Endpointy MVP:
+#   POST /design/data-source/full           — bulk create (header + N ops + N data_sets)
+#   GET  /design/data-source/{id}/full      — full detail s ops + linked data_sets
+#
+# DEFER pro budoucí iterace:
+#   PATCH /design/data-set/{id}             — update SQL text + kind + db_connection
+#   PATCH /design/data-source-op/{id}       — update variant + sort + default
+#   POST  /design/data-set/test-query       — execute SQL s mock params (test preview)
+# ════════════════════════════════════════════════════════════════════════
+
+
+@api_router.post("/design/data-source/full")
+async def design_create_data_source_full(req: Request) -> JSONResponse:
+    """Krok 5.K-A bulk endpoint: create data_source + N operations + N
+    inline data_sets v 1 transaction.
+
+    Body shape:
+    {
+        "source": {
+            "code": str (required, unique),
+            "name": str (required),
+            "description": str | None,
+            "refresh_type": str (default 'manual'),
+            "default_record_limit": int (default 10000)
+        },
+        "operations": [
+            {
+                "variant_code": str (required, e.g. 'list', 'select_form'),
+                "operation_kind": str (required, 'select'/'insert'/'update'/'delete'),
+                "is_default": bool (default false),
+                "sort_order": int (optional, auto-assigned if missing),
+                // Buď nový data_set inline:
+                "data_set": {
+                    "code": str (required, unique),
+                    "kind": str (required, matches operation_kind typically),
+                    "sql_text": str (required),
+                    "db_connection": str (default 'data_db'),
+                    "description": str | None
+                },
+                // NEBO link na existing:
+                "data_set_id": int
+            },
+            ...
+        ]
+    }
+
+    Transactional: pokud kterýkoli INSERT failed → ROLLBACK celé transakce.
+
+    Returns:
+        200: {
+            ok: true,
+            data_source_id: int,
+            operations: [{op_id, data_set_id}, ...]
+        }
+        400: invalid body / duplicate code / chybi povinne pole
+        500: DB error / rollback
+    """
+    from core.database_data import get_data_session as _gds_dsf
+    from sqlalchemy import text as _sql_text_dsf
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_dsf
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    src = body.get("source") or {}
+    ops = body.get("operations") or []
+
+    if not isinstance(src, dict) or not isinstance(ops, list):
+        return JSONResponse({"ok": False, "error": "Body musi obsahovat 'source' (object) + 'operations' (array)"}, status_code=400)
+
+    src_code = (src.get("code") or "").strip()
+    src_name = (src.get("name") or "").strip()
+    if not src_code:
+        return JSONResponse({"ok": False, "error": "source.code povinne"}, status_code=400)
+    if not src_name:
+        return JSONResponse({"ok": False, "error": "source.name povinne"}, status_code=400)
+
+    src_description = src.get("description")
+    if src_description is not None:
+        src_description = (str(src_description).strip()) or None
+    src_refresh = (src.get("refresh_type") or "manual").strip()
+    src_limit = src.get("default_record_limit", 10000)
+    if not isinstance(src_limit, int) or src_limit <= 0:
+        src_limit = 10000
+
+    # Validate operations — at least 1 required
+    if not ops:
+        return JSONResponse({"ok": False, "error": "operations array musi mit alespon 1 polozku"}, status_code=400)
+
+    for idx, op in enumerate(ops):
+        if not isinstance(op, dict):
+            return JSONResponse({"ok": False, "error": f"operations[{idx}] musi byt object"}, status_code=400)
+        if not (op.get("variant_code") or "").strip():
+            return JSONResponse({"ok": False, "error": f"operations[{idx}].variant_code povinne"}, status_code=400)
+        if not (op.get("operation_kind") or "").strip():
+            return JSONResponse({"ok": False, "error": f"operations[{idx}].operation_kind povinne"}, status_code=400)
+        # Buď data_set (inline) NEBO data_set_id (link)
+        has_inline = isinstance(op.get("data_set"), dict)
+        has_link = isinstance(op.get("data_set_id"), int) and op["data_set_id"] > 0
+        if not has_inline and not has_link:
+            return JSONResponse({"ok": False, "error": f"operations[{idx}] musi mit 'data_set' (inline create) NEBO 'data_set_id' (link existing)"}, status_code=400)
+        if has_inline:
+            ds = op["data_set"]
+            if not (ds.get("code") or "").strip():
+                return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.code povinne"}, status_code=400)
+            if not (ds.get("kind") or "").strip():
+                return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.kind povinne"}, status_code=400)
+            if not (ds.get("sql_text") or "").strip():
+                return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.sql_text povinne"}, status_code=400)
+
+    # Caller display lookup pro audit
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_dsf
+        from modules.core.infrastructure.models_core import User as _User_dsf
+        cs_dsf = _gcs_dsf()
+        try:
+            u_dsf = cs_dsf.query(_User_dsf).filter_by(id=uid).first()
+            if u_dsf:
+                if u_dsf.short_name and u_dsf.short_name.strip():
+                    caller_display = u_dsf.short_name.strip()
+                elif u_dsf.first_name or u_dsf.last_name:
+                    caller_display = " ".join(filter(None, [u_dsf.first_name, u_dsf.last_name])).strip()
+        finally:
+            cs_dsf.close()
+
+    ds_session = _gds_dsf()
+    try:
+        # Uniqueness check (active data_source s same code)
+        existing_src = ds_session.execute(_sql_text_dsf("""
+            SELECT id FROM fw.data_source
+            WHERE code = :code AND status = 'active'
+            LIMIT 1
+        """), {"code": src_code}).mappings().one_or_none()
+        if existing_src:
+            return JSONResponse(
+                {"ok": False, "error": f"Aktivni data_source s code='{src_code}' uz existuje (id={existing_src['id']}). Pojmenuj jinak nebo archive starý."},
+                status_code=400,
+            )
+
+        # 1. INSERT data_source header
+        src_values = {
+            "code": src_code,
+            "name": src_name,
+            "description": src_description,
+            "refresh_type": src_refresh,
+            "default_record_limit": src_limit,
+            "version": 1,
+            "status": "active",
+            "is_system": False,
+            "is_immutable": False,
+            "row_memory": False,
+            "filter_delay_ms": 0,
+            "created_by_id": uid,
+            "created_by_text": caller_display,
+            "updated_by_id": uid,
+            "updated_by_text": caller_display,
+        }
+        src_result = _spg_insert_dsf(schema="fw", table="data_source", values=src_values)
+        if not src_result.get("ok"):
+            return JSONResponse({"ok": False, "error": f"INSERT data_source failed: {src_result.get('error')}"}, status_code=500)
+        new_source_id = src_result["inserted"]["id"]  # single dict insert
+
+        # 2. Loop operations — INSERT data_set (inline) + INSERT data_source_op
+        op_results = []
+        for idx, op in enumerate(ops):
+            # Resolve data_set_id — buď create new, nebo use existing
+            if isinstance(op.get("data_set"), dict):
+                ds_in = op["data_set"]
+                set_values = {
+                    "code": ds_in["code"].strip(),
+                    "kind": ds_in["kind"].strip(),
+                    "sql_text": ds_in["sql_text"],  # multi-line, no strip
+                    "db_connection": (ds_in.get("db_connection") or "data_db").strip(),
+                    "description": (ds_in.get("description") or None),
+                    "is_system": False,
+                    "status": "active",
+                    "created_by_id": uid,
+                    "created_by_text": caller_display,
+                    "updated_by_id": uid,
+                    "updated_by_text": caller_display,
+                }
+                # Uniqueness check
+                existing_set = ds_session.execute(_sql_text_dsf("""
+                    SELECT id FROM fw.data_set
+                    WHERE code = :code AND status = 'active'
+                    LIMIT 1
+                """), {"code": set_values["code"]}).mappings().one_or_none()
+                if existing_set:
+                    # Rollback source insert
+                    ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                    ds_session.commit()
+                    return JSONResponse(
+                        {"ok": False, "error": f"operations[{idx}].data_set.code='{set_values['code']}' uz existuje (id={existing_set['id']}). Použij data_set_id pro reuse, nebo přejmenuj."},
+                        status_code=400,
+                    )
+                set_result = _spg_insert_dsf(schema="fw", table="data_set", values=set_values)
+                if not set_result.get("ok"):
+                    # Rollback source
+                    ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                    ds_session.commit()
+                    return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {set_result.get('error')}"}, status_code=500)
+                new_set_id = set_result["inserted"]["id"]
+            else:
+                new_set_id = op["data_set_id"]
+                # Verify existing data_set
+                verify = ds_session.execute(_sql_text_dsf("""
+                    SELECT id FROM fw.data_set WHERE id = :id AND status = 'active'
+                """), {"id": new_set_id}).mappings().one_or_none()
+                if not verify:
+                    ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                    ds_session.commit()
+                    return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set_id={new_set_id} neexistuje nebo neni aktivni"}, status_code=404)
+
+            # INSERT data_source_op
+            op_values = {
+                "data_source_id": new_source_id,
+                "data_set_id": new_set_id,
+                "operation_kind": op["operation_kind"].strip(),
+                "variant_code": op["variant_code"].strip(),
+                "sort_order": op.get("sort_order", idx * 10),
+                "is_default": bool(op.get("is_default", False)),
+                "description": op.get("description"),
+                "created_by_id": uid,
+                "created_by_text": caller_display,
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+            }
+            op_result = _spg_insert_dsf(schema="fw", table="data_source_op", values=op_values)
+            if not op_result.get("ok"):
+                ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                ds_session.commit()
+                return JSONResponse({"ok": False, "error": f"INSERT data_source_op failed: {op_result.get('error')}"}, status_code=500)
+            op_results.append({"op_id": op_result["inserted"]["id"], "data_set_id": new_set_id})
+
+        return JSONResponse({
+            "ok": True,
+            "data_source_id": new_source_id,
+            "operations": op_results,
+        })
+    except Exception as exc:
+        logger.exception(f"design_create_data_source_full failed: {exc}")
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds_session.close()
+
+
+@api_router.get("/design/data-source/{data_source_id}/full")
+def design_get_data_source_full(data_source_id: int, req: Request) -> JSONResponse:
+    """Krok 5.K-A GET endpoint: full detail s linked ops + data_sets pro
+    editor edit mode load.
+
+    Returns:
+        200: {
+            ok: true,
+            source: {id, code, name, description, refresh_type, default_record_limit, status, created_*, updated_*},
+            operations: [
+                {
+                    id, variant_code, operation_kind, sort_order, is_default, description,
+                    data_set: { id, code, kind, sql_text, db_connection, description, status }
+                },
+                ...
+            ]
+        }
+        404: data_source neexistuje
+    """
+    from core.database_data import get_data_session as _gds_dgf
+    from sqlalchemy import text as _sql_text_dgf
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds_session = _gds_dgf()
+    try:
+        src_row = ds_session.execute(_sql_text_dgf("""
+            SELECT id, code, name, description, refresh_type, default_record_limit,
+                   version, status, is_system, is_immutable,
+                   created_by_id, created_by_text, created_at,
+                   updated_by_id, updated_by_text
+            FROM fw.data_source WHERE id = :id
+        """), {"id": data_source_id}).mappings().one_or_none()
+        if not src_row:
+            return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} nenalezen"}, status_code=404)
+
+        op_rows = ds_session.execute(_sql_text_dgf("""
+            SELECT op.id AS op_id, op.variant_code, op.operation_kind,
+                   op.sort_order, op.is_default, op.description AS op_description,
+                   ds.id AS data_set_id, ds.code AS data_set_code, ds.kind AS data_set_kind,
+                   ds.sql_text, ds.db_connection,
+                   ds.description AS data_set_description, ds.status AS data_set_status
+            FROM fw.data_source_op op
+            LEFT JOIN fw.data_set ds ON ds.id = op.data_set_id
+            WHERE op.data_source_id = :sid
+            ORDER BY op.sort_order ASC, op.id ASC
+        """), {"sid": data_source_id}).mappings().all()
+
+        operations = []
+        for r in op_rows:
+            operations.append({
+                "id": r["op_id"],
+                "variant_code": r["variant_code"],
+                "operation_kind": r["operation_kind"],
+                "sort_order": r["sort_order"],
+                "is_default": r["is_default"],
+                "description": r["op_description"],
+                "data_set": {
+                    "id": r["data_set_id"],
+                    "code": r["data_set_code"],
+                    "kind": r["data_set_kind"],
+                    "sql_text": r["sql_text"],
+                    "db_connection": r["db_connection"],
+                    "description": r["data_set_description"],
+                    "status": r["data_set_status"],
+                } if r["data_set_id"] is not None else None,
+            })
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "source": dict(src_row),
+            "operations": operations,
+        }))
+    finally:
+        ds_session.close()
+
+
 @api_router.get("/design/context-menu-items")
 def design_list_context_menu_items(req: Request) -> JSONResponse:
     """List active context_menu_item rows pro frontend.

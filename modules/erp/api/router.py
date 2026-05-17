@@ -3182,6 +3182,54 @@ _FW_FORM_ENTITY_MAP["comp_def_design"] = _FW_FORM_ENTITY_MAP["comp_def"]
 _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
 
 
+# Phase 38.4 Krok 5.N-1 (17.5.2026): ID-based form_core registry.
+# Marti's doctrine "code je optional, ID je truth" — applied to fw.core
+# lookups (parallel s CMI refactor M-6: target_core_id → core_id FK).
+#
+# Map fw.core.id → entity_config (Python references to _FW_FORM_ENTITY_MAP
+# entries — DRY, no duplication).
+#
+# Po this Krok: Marti's rename fw.core.code na '22a' / NULL / cokoliv
+# neproblém — lookup chodi via id, ne code.
+#
+# Long-term plan: migrate config do fw.data_source.target_xxx columns
+# (Krok 5.N-2+) — vše v DB, žádný Python map.
+_FW_FORM_CORE_REGISTRY: dict = {
+    22: _FW_FORM_ENTITY_MAP["user"],   # user_edit form_core (Marti's code: '22a')
+    23: _FW_FORM_ENTITY_MAP["core"],   # core_design form_core (Marti's code: '23a')
+    # Add more as form_cores are created. Long-term: replace s DB-driven config.
+}
+
+
+def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
+    """Resolve entity config for a form_core — ID first, code fallback.
+
+    Phase 38.4 Krok 5.N-1 (17.5.2026): pojistka proti Marti's code rename.
+    Lookup chain:
+      1. core_id v _FW_FORM_CORE_REGISTRY (primary, ID-keyed)
+      2. core.code v _FW_FORM_ENTITY_MAP (legacy fallback, code-keyed)
+
+    Args:
+        core_dict_or_id: dict s 'id' + 'code', nebo přímo int core_id
+
+    Returns:
+        entity_config dict, nebo None pokud neresolved
+    """
+    if isinstance(core_dict_or_id, int):
+        return _FW_FORM_CORE_REGISTRY.get(core_dict_or_id)
+    if not isinstance(core_dict_or_id, dict):
+        return None
+    # Try by id first (5.N-1 primary)
+    core_id = core_dict_or_id.get("id")
+    if core_id is not None and core_id in _FW_FORM_CORE_REGISTRY:
+        return _FW_FORM_CORE_REGISTRY[core_id]
+    # Fallback by code (legacy, until Marti's all cores have registry entry)
+    code = core_dict_or_id.get("code")
+    if code and code in _FW_FORM_ENTITY_MAP:
+        return _FW_FORM_ENTITY_MAP[code]
+    return None
+
+
 @api_router.get("/fw-form/{core_code}/{row_id}")
 def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
     """Load fw form spec + row data pro frontend rendering.
@@ -3285,24 +3333,24 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         # ELSE: legacy form bez template_id (pre-Krok 14b+1) — frontend pouzije
         # form.layout fallback v rendereru.
 
-        # Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu"):
-        # lookup pres core.code misto core.data_entity_type. Map ma form-code
-        # aliases (user_edit, core_design, comp_def_design, menu_node_design)
-        # plus zachovane direct entity keys (user, core, comp_def, menu_node).
-        entity_type = core_dict.get("code")
-        if not entity_type or entity_type not in _FW_FORM_ENTITY_MAP:
+        # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID
+        # je truth"): ID-first resolve via _resolve_entity_config_for_core.
+        # Lookup chain: core.id (registry primary) → core.code (legacy fallback).
+        # Marti's rename code na '22a' / NULL → neproblém.
+        entity_config = _resolve_entity_config_for_core(core_dict)
+        if not entity_config:
             return JSONResponse(
                 {
                     "ok": False,
                     "error": (
-                        f"Form core code='{entity_type}' není v _FW_FORM_ENTITY_MAP. "
-                        f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+                        f"Form core id={core_dict.get('id')} code='{core_dict.get('code')}' "
+                        f"není v _FW_FORM_CORE_REGISTRY ani _FW_FORM_ENTITY_MAP. "
+                        f"Registry IDs: {list(_FW_FORM_CORE_REGISTRY.keys())}. "
+                        f"Map codes: {list(_FW_FORM_ENTITY_MAP.keys())}."
                     ),
                 },
                 status_code=501,
             )
-
-        entity_config = _FW_FORM_ENTITY_MAP[entity_type]
         # 3. Load root form comp_def (type_id=302, parent_core_id=core.id)
         form_row = ds.execute(_sql_text_fwform("""
             SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
@@ -3696,15 +3744,14 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         """), {"form_id": form_dict["id"]}).mappings().all()
         fields_list = [dict(f) for f in fields_rows]
 
-        # Phase 38.4 Krok 5.M-3 hotfix (17.5.2026, Marti's "entity-columns null"
-        # bug): use code preferentially (Krok 5.M doctrine "core nenese entitu"),
-        # fallback na data_entity_type pro drafted cores s code=NULL (Krok 5.A
-        # doctrine "core = kontejner — vse muze byt NULL").
-        entity_type = rd.get("code") or rd.get("data_entity_type")
+        # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID
+        # je truth" doctrine): ID-first resolve s code fallback. Marti's
+        # rename code na '22a' (z 'user_edit') už nelámej lookup — registry
+        # je keyed by id=22.
         data_row = None
         children_dict = {}
-        if entity_type and entity_type in _FW_FORM_ENTITY_MAP:
-            entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+        entity_config = _resolve_entity_config_for_core(rd)
+        if entity_config:
             schema_name = entity_config["schema"]
             table_name = entity_config["table"]
             id_column = entity_config["id_column"]

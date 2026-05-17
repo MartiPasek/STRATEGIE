@@ -13556,8 +13556,18 @@
             try { this.onComplete(respData); } catch (e) {}
           }
           setTimeout(() => this._shell.close(), 600);
+          }  // end if (headerPatch.length > 0)
+          else if (newOps.length > 0) {
+            // Pouze new ops bez header changes — close after success toast (uz nahore)
+            setTimeout(() => {
+              this._shell.close();
+              if (typeof this.onComplete === "function") {
+                try { this.onComplete({ok: true, new_ops_count: newOps.length}); } catch (e) {}
+              }
+            }, 600);
+          }
         } catch (e) {
-          console.error("[DesignDataSourceEditor] header PATCH failed:", e);
+          console.error("[DesignDataSourceEditor] edit save failed:", e);
           if (typeof _showToast === "function") {
             _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
           }

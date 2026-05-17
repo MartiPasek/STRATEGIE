@@ -3582,6 +3582,73 @@ def _resolve_user_audit(uid: int, ds_core) -> tuple[int | None, str]:
     return uid, name or "Unknown"
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 5.R-A (17.5.2026 vecer, Marti's "klik na soudecek =
+# render prazdny grid"): generic page-spec endpoint pro fw.core+comp_def.
+# Vraci shape pro frontend dispatch: form (302), grid_modern/list (306),
+# frameless_form (305). Mimo hardcoded system views.
+# ════════════════════════════════════════════════════════════════════════════
+
+@api_router.get("/fw-core/{core_id}/page-spec")
+def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 5.R-A — generic page-spec pro fw.core kontejner.
+
+    URL: GET /api/v1/erp/fw-core/{core_id}/page-spec
+
+    Returns:
+        200: {
+            "ok": True,
+            "core": {"id", "code", "label"},
+            "root_comp_def": {
+                "id", "code", "name", "type_id", "type_code",
+                "data_source_id"
+            } | None,
+            "has_root": bool,
+        }
+        404: core_id nenalezen
+    """
+    from core.database_data import get_data_session as _gds_psp
+    from sqlalchemy import text as _sql_psp
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_psp()
+    try:
+        core_row = ds.execute(_sql_psp("""
+            SELECT id, code, label
+            FROM fw.core
+            WHERE id = :cid
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not core_row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} nenalezen"},
+                status_code=404,
+            )
+
+        # Root comp_def: parent_core_id = core.id, is_active=true, prvni dle
+        # sort_order ASC + id ASC. Drafted core muze mit None (no root yet).
+        root_row = ds.execute(_sql_psp("""
+            SELECT cd.id, cd.code, cd.name, cd.type_id, cd.data_source_id,
+                   ct.code AS type_code, ct.label AS type_label
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            WHERE cd.parent_core_id = :cid
+              AND cd.is_active = true
+            ORDER BY cd.sort_order ASC, cd.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "core": dict(core_row),
+            "root_comp_def": dict(root_row) if root_row else None,
+            "has_root": root_row is not None,
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.get("/fw-form/by-id/{core_id}/{row_id}")
 def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g Etapa F Step A (16.5.2026): coreId-first variant.
@@ -13584,6 +13651,12 @@ def _render_workspace_page(user_id: int) -> str:
          widget pro 1:1 FK vazbu. Renderuje 1 groupbox se 4 prvky (🔗/🚫/ID/Nazev).
          Pouziva ErpCatalogPicker pro modal grid. -->
     <script src="/static/erp/components/entity_picker.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase 38.4 Krok 5.R (17.5.2026 vecer, Marti's "JO, melo by to byt
+         v nezavislem js. TJ ten 5/5"): page render dispatch pro
+         fw.core+comp_def kontejnery. Standalone modul s _erpLoadModule
+         wrap, namespace window.ErpPageRender. Volano z router.py inline
+         pri kliknuti na soudecek s coreId. -->
+    <script src="/static/erp/components/page_render.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa D+1 (16.5.2026): grid dispatcher modul.
          Extrahuje gridDataResolved 3-tier dispatch z inline router.py +
          logs every step do fw.diag_log via _erpLogToDb. -->
@@ -18411,19 +18484,20 @@ def _render_workspace_page(user_id: int) -> str:
                 _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
                 return;
               }
-              // Generic placeholder s core info (TODO future: fw-form
-              // dispatch pro form layout_type, generic grid render pro list)
-              mainContent.innerHTML =
-                '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-                '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +
-                escapeHtml(tab.label || "Přehled") + '</h2>' +
-                '<p style="color:#a8b4c2;margin:0 0 8px;">' +
-                'Asociovaný core: <strong>' + escapeHtml(coreCode || "?") +
-                '</strong> (id=' + coreId + ')</p>' +
-                '<p style="color:#7a8696;font-size:13px;margin:0;">' +
-                'Renderování pro tento core layout type přijde v dalším Kroku. ' +
-                'Pravý-klik → 🎨 Design pro úpravu asociace.' +
-                '</p></div>';
+              // Phase 38.4 Krok 5.R (17.5.2026 vecer, Marti's "JO, melo
+              // by to byt v nezavislem js. TJ ten 5/5"): page render
+              // dispatch presunuty do standalone modulu
+              // apps/api/static/erp/components/page_render.js (gotcha #100
+              // — inline JS v router.py je krehky pro velke bloky).
+              if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
+                window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
+              } else {
+                console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
+                mainContent.innerHTML =
+                  '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
+                  '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
+                  '</div>';
+              }
               return;
             }
             // No core associated — info placeholder (drop H+14 silent doctrine

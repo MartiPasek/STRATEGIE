@@ -7395,7 +7395,12 @@
       try {
         const core = this._spec.core;
         const data = this._spec.data || {};
-        const entityType = core.data_entity_type;
+        // Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu"):
+        // entityType = core.code (was core.data_entity_type). Backend map
+        // ma form-code aliases (user_edit, core_design, ...) plus zachovane
+        // entity keys (user, core, ...) - direct PATCH endpoints fungujou
+        // kompatibilne. URL becomes /design/{core.code}/{rowId}.
+        const entityType = core.code;
         const rowId = data.id != null ? data.id : (data.ID != null ? data.ID : null);
         const expectedUpdatedAt = data.updated_at;
 

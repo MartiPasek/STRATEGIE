@@ -3165,6 +3165,16 @@ _FW_FORM_ENTITY_MAP: dict = {
     },
 }
 
+# Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu, nese ji
+# obsah - druh toho formu, nebo list"): ADD form-code aliases (Python
+# references - same dict objects). Backward compat zachovan pro direct
+# entity PATCH endpoints (/design/user/{id} etc.), plus NEW form-driven
+# lookup pres core.code (e.g., /design/user_edit/{id}).
+_FW_FORM_ENTITY_MAP["user_edit"] = _FW_FORM_ENTITY_MAP["user"]
+_FW_FORM_ENTITY_MAP["core_design"] = _FW_FORM_ENTITY_MAP["core"]
+_FW_FORM_ENTITY_MAP["comp_def_design"] = _FW_FORM_ENTITY_MAP["comp_def"]
+_FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
+
 
 @api_router.get("/fw-form/{core_code}/{row_id}")
 def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
@@ -3271,14 +3281,17 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
         # ELSE: legacy form bez template_id (pre-Krok 14b+1) — frontend pouzije
         # form.layout fallback v rendereru.
 
-        # 2. Validate data_entity_type → table mapping
-        entity_type = core_dict.get("data_entity_type")
+        # Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu"):
+        # lookup pres core.code misto core.data_entity_type. Map ma form-code
+        # aliases (user_edit, core_design, comp_def_design, menu_node_design)
+        # plus zachovane direct entity keys (user, core, comp_def, menu_node).
+        entity_type = core_dict.get("code")
         if not entity_type or entity_type not in _FW_FORM_ENTITY_MAP:
             return JSONResponse(
                 {
                     "ok": False,
                     "error": (
-                        f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP. "
+                        f"Form core code='{entity_type}' není v _FW_FORM_ENTITY_MAP. "
                         f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
                     ),
                 },
@@ -3286,7 +3299,6 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             )
 
         entity_config = _FW_FORM_ENTITY_MAP[entity_type]
-
         # 3. Load root form comp_def (type_id=302, parent_core_id=core.id)
         form_row = ds.execute(_sql_text_fwform("""
             SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
@@ -4959,18 +4971,18 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
                 status_code=400,
             )
 
-        # 3. Get core.data_entity_type
+        # Phase 38.4 Krok 5.M-2 (17.5.2026): lookup pres core.code.
         core = ds_dv.execute(_sql_text_dv("""
-            SELECT id, code, data_entity_type
+            SELECT id, code
             FROM fw.core WHERE id = :id
         """), {"id": core_id}).mappings().one_or_none()
-        if not core or not core["data_entity_type"]:
+        if not core or not core["code"]:
             return JSONResponse(
-                {"ok": False, "error": "Core nema data_entity_type"},
+                {"ok": False, "error": "Core nema code"},
                 status_code=400,
             )
 
-        entity_type = core["data_entity_type"]
+        entity_type = core["code"]
         config = _FW_FORM_ENTITY_MAP.get(entity_type)
         if not config:
             return JSONResponse(

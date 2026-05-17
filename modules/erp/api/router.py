@@ -7034,6 +7034,132 @@ async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
         ds_pdset.close()
 
 
+@api_router.post("/design/data-source/{data_source_id}/op-create")
+async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSONResponse:
+    """Sprint B+++ (17.5.2026 odp., Marti's "add op v edit mode"):
+    POST nová data_source_op pro existing fw.data_source.
+
+    Body required:
+        operation_kind (str, "select"|"insert"|...)
+
+    Body optional:
+        variant_code (str|None) — Marti's NULL doctrine: NULL OK (runtime fallback)
+        is_default (bool, default False)
+        sort_order (int, default 0)
+        description (str|None)
+
+    Body — buď reuse OR inline create:
+        data_set_id (int) — reuse existing fw.data_set
+        OR
+        data_set: {sql_text, db_connection_id|db_connection, description?, code?}
+                  — inline create new fw.data_set
+
+    Returns:
+        200: {ok, op_id, data_set_id}
+        400: invalid body
+        404: data_source neexistuje
+    """
+    from core.database_data import get_data_session as _gds_aop
+    from sqlalchemy import text as _sql_text_aop
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_aop
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    op_kind = (body.get("operation_kind") or "").strip()
+    if not op_kind:
+        return JSONResponse({"ok": False, "error": "operation_kind povinne"}, status_code=400)
+
+    ds = _gds_aop()
+    try:
+        # Verify data_source exists
+        ds_row = ds.execute(_sql_text_aop("""
+            SELECT id FROM fw.data_source WHERE id = :id AND status = 'active'
+        """), {"id": data_source_id}).mappings().one_or_none()
+        if not ds_row:
+            return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} neexistuje nebo neni aktivni"}, status_code=404)
+
+        # Resolve data_set_id — reuse OR inline create
+        data_set_id = body.get("data_set_id")
+        if data_set_id is not None:
+            # Reuse path — verify exists + active
+            verify = ds.execute(_sql_text_aop("""
+                SELECT id FROM fw.data_set WHERE id = :id AND status = 'active'
+            """), {"id": int(data_set_id)}).mappings().one_or_none()
+            if not verify:
+                return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} neexistuje nebo neni aktivni"}, status_code=404)
+            new_set_id = int(data_set_id)
+        elif isinstance(body.get("data_set"), dict):
+            # Inline create path
+            ds_in = body["data_set"]
+            sql_text = (ds_in.get("sql_text") or "").strip()
+            if not sql_text:
+                return JSONResponse({"ok": False, "error": "data_set.sql_text povinne"}, status_code=400)
+            # Resolve db_connection_id (FK preferred, legacy string fallback)
+            db_conn_id_raw = ds_in.get("db_connection_id")
+            if db_conn_id_raw is not None:
+                try:
+                    db_conn_id = int(db_conn_id_raw)
+                except (ValueError, TypeError):
+                    return JSONResponse({"ok": False, "error": f"data_set.db_connection_id musi byt integer"}, status_code=400)
+            else:
+                conn_code = (ds_in.get("db_connection") or "data_db").strip() or "data_db"
+                conn_row = ds.execute(_sql_text_aop("""
+                    SELECT id FROM fw.db_connection WHERE code = :c OR default_db = :c LIMIT 1
+                """), {"c": conn_code}).mappings().one_or_none()
+                if conn_row is None:
+                    return JSONResponse({"ok": False, "error": f"db_connection '{conn_code}' nenalezen"}, status_code=400)
+                db_conn_id = conn_row["id"]
+            ds_code_raw = ds_in.get("code")
+            ds_code = str(ds_code_raw).strip() or None if ds_code_raw is not None else None
+            set_values = {
+                "code": ds_code,
+                "sql_text": sql_text,
+                "db_connection_id": db_conn_id,
+                "description": (ds_in.get("description") or None),
+                "is_system": False,
+                "status": "active",
+            }
+            set_result = _spg_insert_aop(schema="fw", table="data_set", values=set_values)
+            if not set_result.get("ok"):
+                return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {set_result.get('error')}"}, status_code=500)
+            new_set_id = set_result["inserted"]["id"]
+        else:
+            return JSONResponse({"ok": False, "error": "body musi mit 'data_set_id' (reuse) NEBO 'data_set' (inline create)"}, status_code=400)
+
+        # Build op values — variant_code NULL allowed (Krok 5.K-B6 doctrine)
+        variant_code = body.get("variant_code")
+        if variant_code is not None and not str(variant_code).strip():
+            variant_code = None
+        op_values = {
+            "data_source_id": data_source_id,
+            "data_set_id": new_set_id,
+            "operation_kind": op_kind,
+            "variant_code": variant_code,
+            "is_default": bool(body.get("is_default", False)),
+            "sort_order": int(body.get("sort_order") or 0),
+            "description": (body.get("description") or None),
+        }
+        op_result = _spg_insert_aop(schema="fw", table="data_source_op", values=op_values)
+        if not op_result.get("ok"):
+            return JSONResponse({"ok": False, "error": f"INSERT data_source_op failed: {op_result.get('error')}"}, status_code=500)
+
+        new_op_id = op_result["inserted"]["id"]
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "op_id": new_op_id,
+            "data_set_id": new_set_id,
+            "data_source_id": data_source_id,
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/data-source-op/update/{op_id}")
 async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-B3: PATCH data_source_op (mapping) — update variant + kind +

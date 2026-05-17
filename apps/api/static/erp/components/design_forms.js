@@ -13473,9 +13473,11 @@
 
     async _onSaveClick() {
       if (!this._isCreateMode) {
-        // Krok 5.K-B3 edit mode: PATCH header diff vs initial _spec.source.
+        // Krok 5.K-B3 edit mode + Sprint B+++ (17.5.2026 odp.): PATCH header
+        // diff + add new ops (Marti's "Reuse picker save flow").
         // Existing ops byly editované přes inline expand (per-op PATCH calls
-        // už persistovány). Tento Save = jen header level changes.
+        // už persistovány). Nove ops z "+Pridat operaci" form se posilaji
+        // přes POST /design/data-source/{id}/op-create.
         const srcInitial = (this._spec && this._spec.source) || {};
         const headerPatch = {};
         if (this._headerState.name !== (srcInitial.name || "")) headerPatch.name = this._headerState.name.trim();
@@ -13483,8 +13485,11 @@
         if (this._headerState.refresh_type !== srcInitial.refresh_type) headerPatch.refresh_type = this._headerState.refresh_type;
         if (this._headerState.default_record_limit !== srcInitial.default_record_limit) headerPatch.default_record_limit = this._headerState.default_record_limit || 10000;
 
-        if (Object.keys(headerPatch).length === 0) {
-          if (typeof _showToast === "function") _showToast("Žádné header změny", "info", 2000);
+        // Sprint B+++: detect new ops přidané v edit mode (existing=false)
+        const newOps = (this._opsState || []).filter(o => !o.existing);
+
+        if (Object.keys(headerPatch).length === 0 && newOps.length === 0) {
+          if (typeof _showToast === "function") _showToast("Žádné změny", "info", 2000);
           this._shell.close();
           return;
         }
@@ -13492,7 +13497,52 @@
         this._saveBtn.disabled = true;
         this._saveBtn.innerHTML = "⏳ Ukládám…";
         try {
-          const r = await fetch("/api/v1/erp/design/fw-data-source/update/" + encodeURIComponent(this.dataSourceId), {
+          // 1) POST each new op (Sprint B+++ flow)
+          if (newOps.length > 0) {
+            // Auto-gen variant_code: 1st kind → null, 2nd → "default_2", atd.
+            // Use existing ops kind counts as starting point.
+            const kindCounts = {};
+            for (const ex of (this._opsState || []).filter(o => o.existing)) {
+              const k = ex.operation_kind;
+              kindCounts[k] = (kindCounts[k] || 0) + 1;
+            }
+            for (const op of newOps) {
+              const k = op.operation_kind;
+              kindCounts[k] = (kindCounts[k] || 0) + 1;
+              const variantCode = kindCounts[k] === 1 ? null : "default_" + kindCounts[k];
+              const opBody = {
+                operation_kind: k,
+                variant_code: variantCode,
+                is_default: !!op.is_default,
+                sort_order: op.sort_order || 0,
+                description: op.description || null,
+              };
+              if (op.data_set_id) {
+                opBody.data_set_id = op.data_set_id;
+              } else if (op.data_set && typeof op.data_set === "object") {
+                opBody.data_set = Object.assign({}, op.data_set, { code: null });  // NULL doctrine
+              } else {
+                throw new Error("Op nemá data_set_id ani inline data_set");
+              }
+              const opR = await fetch(
+                "/api/v1/erp/design/data-source/" + encodeURIComponent(this.dataSourceId) + "/op-create",
+                {
+                  method: "POST", credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify(opBody),
+                }
+              );
+              const opD = await opR.json().catch(() => ({}));
+              if (!opR.ok || !opD.ok) throw new Error(opD.error || ("op-create HTTP " + opR.status));
+            }
+            if (typeof _showToast === "function") {
+              _showToast("Přidáno " + newOps.length + " operací", "success", 2500);
+            }
+          }
+
+          // 2) PATCH header pokud změny (existing flow)
+          if (Object.keys(headerPatch).length > 0) {
+            const r = await fetch("/api/v1/erp/design/fw-data-source/update/" + encodeURIComponent(this.dataSourceId), {
             method: "PATCH", credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(headerPatch),

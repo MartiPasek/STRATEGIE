@@ -6705,9 +6705,14 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
         ds_session.close()
 
 
-@api_router.patch("/design/fw-data-source/{data_source_id}")
+@api_router.patch("/design/fw-data-source/update/{data_source_id}")
 async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-B3: general PATCH pro data_source header (NEN archive-specific).
+
+    Route shape: /design/fw-data-source/update/{id} (3 segments) — Marti's
+    "literál paths před /{id}" doctrine z Krok 14b+10. 2-segment shape
+    /design/fw-data-source/{id} by collidoval s generic design_patch_entity
+    `/design/{entity_type}/{row_id}`.
 
     Body: {name?, description?, refresh_type?, default_record_limit?}
     Whitelist non-immutable fields. Reuse strategie_pg.update_row.
@@ -6768,10 +6773,13 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
         ds_pds.close()
 
 
-@api_router.patch("/design/data-set/{data_set_id}")
+@api_router.patch("/design/data-set/update/{data_set_id}")
 async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text + kind +
     db_connection + description.
+
+    Route 3-segment (Marti's gotcha #14b+10) — vyhne collision s generic
+    design_patch_entity `/design/{entity_type}/{row_id}`.
 
     Body: {sql_text?, kind?, db_connection?, description?}
     """
@@ -6818,10 +6826,13 @@ async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
         ds_pdset.close()
 
 
-@api_router.patch("/design/data-source-op/{op_id}")
+@api_router.patch("/design/data-source-op/update/{op_id}")
 async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-B3: PATCH data_source_op (mapping) — update variant + kind +
     sort + is_default + description.
+
+    Route 3-segment (Marti's gotcha #14b+10) — vyhne collision s generic
+    design_patch_entity `/design/{entity_type}/{row_id}`.
 
     Body: {variant_code?, operation_kind?, sort_order?, is_default?, description?}
     """

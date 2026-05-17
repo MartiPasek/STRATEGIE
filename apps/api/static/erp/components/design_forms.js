@@ -13111,7 +13111,7 @@
 
           // PATCH data_set if changed
           if (Object.keys(setPatchBody).length > 0) {
-            const r1 = await fetch("/api/v1/erp/design/data-set/" + encodeURIComponent(ds.id), {
+            const r1 = await fetch("/api/v1/erp/design/data-set/update/" + encodeURIComponent(ds.id), {
               method: "PATCH", credentials: "include",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(setPatchBody),
@@ -13122,7 +13122,7 @@
 
           // PATCH op if changed
           if (Object.keys(opPatchBody).length > 0) {
-            const r2 = await fetch("/api/v1/erp/design/data-source-op/" + encodeURIComponent(op.op_id), {
+            const r2 = await fetch("/api/v1/erp/design/data-source-op/update/" + encodeURIComponent(op.op_id), {
               method: "PATCH", credentials: "include",
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify(opPatchBody),
@@ -13190,7 +13190,7 @@
         this._saveBtn.disabled = true;
         this._saveBtn.innerHTML = "⏳ Ukládám…";
         try {
-          const r = await fetch("/api/v1/erp/design/fw-data-source/" + encodeURIComponent(this.dataSourceId), {
+          const r = await fetch("/api/v1/erp/design/fw-data-source/update/" + encodeURIComponent(this.dataSourceId), {
             method: "PATCH", credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify(headerPatch),

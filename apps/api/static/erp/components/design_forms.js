@@ -6312,19 +6312,12 @@
           // Click handlers wire na existing class methods (_onSaveClick
           // + _shell.close()), dirty guard od A1t pattern automaticky
           // pres _shell.close → _handleCloseClick.
-          const cancelBtn = document.createElement("button");
-          cancelBtn.type = "button";
-          cancelBtn.textContent = "X Storno";
-          cancelBtn.style.cssText =
-            "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
-            "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
-          cancelBtn.addEventListener("click", () => {
-            if (this._shell && typeof this._shell.close === "function") {
-              this._shell.close();
-            }
-          });
-          sec.grid.appendChild(cancelBtn);
-
+          // Phase 38.4 Krok 5.P-1+++ (17.5.2026 vecer, Marti's "tlacitka
+          // prohozena, Storno cerveny krizek"): swap order — OK primary
+          // VLEVO, Storno secondary VPRAVO. Parita s A1t pattern (12.5.
+          // vecer): "Uložit primary vlevo, Zrušit secondary vpravo".
+          // Plus X červený (destructive accent) — Marti's recurring
+          // pattern z konfirmacnich dialogu (#5a3a3a / #d48787).
           const okBtn = document.createElement("button");
           okBtn.type = "button";
           okBtn.textContent = "✓ OK";
@@ -6334,6 +6327,19 @@
             "font-weight:600;";
           okBtn.addEventListener("click", () => this._onSaveClick());
           sec.grid.appendChild(okBtn);
+
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.textContent = "X Storno";
+          cancelBtn.style.cssText =
+            "padding:6px 16px;background:#5a3a3a;border:1px solid #7a4a4a;" +
+            "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;";
+          cancelBtn.addEventListener("click", () => {
+            if (this._shell && typeof this._shell.close === "function") {
+              this._shell.close();
+            }
+          });
+          sec.grid.appendChild(cancelBtn);
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.
           // Marti's polish (13.5.2026 ~14:45): "alClient ten panel" —

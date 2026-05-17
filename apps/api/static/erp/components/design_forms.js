@@ -7414,6 +7414,13 @@
         for (const wrap of allWraps) {
           const fk = wrap._fieldKey;
           if (!fk || !this._dirty.has(fk)) continue;
+          // Phase 38.4 Krok 5.M-1 (17.5.2026, Marti's "Save selhal: missing
+          // entity_type" hotfix): skip entity_pickers — maji vlastni save
+          // flow pres compDefChanges (second loop nize). Entity_picker wrap
+          // sdili .erp-field class kvuli vizualnimu styling, ale neni to
+          // core entity field. wrap._kind === "entity_picker" identifies.
+          if (wrap.classList && wrap.classList.contains("erp-entity-picker-host")) continue;
+          if (wrap._kind === "entity_picker") continue;
           // fieldKey format: "<core.code>.<field.name>" -> extract field name
           const parts = fk.split(".");
           if (parts.length < 2) continue;

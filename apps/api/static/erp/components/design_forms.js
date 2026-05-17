@@ -6036,7 +6036,7 @@
               const ok = window.confirm(
                 "Zrušit asociaci kontejneru s '" + cmiLabel + "'?\n\n" +
                 "Po potvrzení se kontextové menu vrátí do drafted stavu " +
-                "(target_core_id = NULL). Při dalším pravém kliku se " +
+                "(core_id = NULL). Při dalším pravém kliku se " +
                 "otevře Kontejner picker pro novou volbu."
               );
               if (!ok) return;
@@ -6050,7 +6050,7 @@
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     credentials: "include",
-                    body: JSON.stringify({ target_core_id: null }),
+                    body: JSON.stringify({ core_id: null }),
                   }
                 ).then(function (rr) { return rr.json(); });
                 if (r && r.ok) {
@@ -10866,7 +10866,7 @@
             // Design: Core CMIs ukazovaly stejny menu_node bez ohledu na
             // misto kliku ve stromu.
             //
-            // Pro Design: Core formy (target_core_id v cmi) je runtime
+            // Pro Design: Core formy (core_id v cmi) je runtime
             // origin to, co user prave teď zvolil — ne pristup, kde core
             // vznikal. Display-only picker, ne edit — read-only zobrazeni
             // "z jakeho menu_node byl form otevren".

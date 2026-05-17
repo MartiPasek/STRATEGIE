@@ -81,8 +81,8 @@
     function _resolveFormArgs(actionParams, ctx) {
       // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup pokracovani (16.5.2026
       // odpoledne, Marti's "zase dosazuje bludy"): DROP ctx.core_id fallback.
-      // coreId MUSI byt EXPLICIT v action_params (z target_core_id FK
-      // serializer slije target_core_id → action_params.coreId v backend).
+      // coreId MUSI byt EXPLICIT v action_params (z core_id FK
+      // serializer slije core_id → action_params.coreId v backend).
       // Pokud action_params nema coreId → formArgs.coreId zustane undefined
       // → dispatcher otevre Kontejner picker (Krok 5.B) misto silent
       // fallback na DOM core_id (ktery vedl k otevirani random core formu).
@@ -334,11 +334,11 @@
     // ════════════════════════════════════════════════════════════════
     // Phase 38.4 Krok 14g Etapa F Krok 5.A cleanup (16.5.2026): drop Step E.2
     // expectedCoreCode pre-validation block (~85 radku) + drop async wrapper.
-    // Po Krok 3 (target_core_id FK na fw.core(id) ON DELETE RESTRICT) +
+    // Po Krok 3 (core_id FK na fw.core(id) ON DELETE RESTRICT) +
     // Krok 4 (drop expectedCoreCode z action_params) je validation redundantni:
     //   - FK constraint zaruci ze coreId pointuje na existing fw.core row
     //   - $resolver pro rowId je dynamic (current node's core_id), coreId
-    //     je STATIC z target_core_id FK → mismatch nemuze nastat
+    //     je STATIC z core_id FK → mismatch nemuze nastat
     //   - Marti's "ID je svaty" doctrine: ID-based truth > code-based check
     function _openForm(formArgs, cmiCode, ctx, cmiId) {
       if (typeof global.DesignFwForm !== "function") {
@@ -354,7 +354,7 @@
 
       // Phase 38.4 Krok 14g Etapa F Krok 5.B (16.5.2026 odpoledne, Marti's
       // "nejdrive vybrat existing CORE kontejner, nebo vytvorit novy"):
-      // Pokud coreId chybi (cmi.target_core_id=NULL + zadny coreId v
+      // Pokud coreId chybi (cmi.core_id=NULL + zadny coreId v
       // action_params), otevri Kontejner picker. Uzivatel bud:
       //   1) Vybere existing fw.core ze seznamu → recurse _openForm
       //   2) Klikne ➕ Nový → wizard pro INSERT noveho core (Krok 5.C,
@@ -413,7 +413,7 @@
           onSelect: async function (row) {
             // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne,
             // Marti's "aby bylo mozne i vybirat a prepinat na jine cores"):
-            // PATCH link cmi.target_core_id = row.id PRED open form. Bez
+            // PATCH link cmi.core_id = row.id PRED open form. Bez
             // linku by se pri pristim kliku zase otevrel picker (cmi target
             // stale NULL). Po link → dispatcher slije do action_params.coreId
             // → form se otevre rovnou.
@@ -429,7 +429,7 @@
                     method: "PATCH",
                     headers: { "Content-Type": "application/json" },
                     credentials: "include",
-                    body: JSON.stringify({ target_core_id: row.id }),
+                    body: JSON.stringify({ core_id: row.id }),
                   }
                 ).then(function (r) { return r.json(); });
                 if (!_link || !_link.ok) {
@@ -519,7 +519,7 @@
           // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026, Marti's
           // "A Zrusit asociaci s potvrzenim"): pass cmiId pro Zrusit
           // asociaci button v header. Pokud user clicka → PATCH link-core
-          // {target_core_id: null} → close modal → pri pristim kliku zase
+          // {core_id: null} → close modal → pri pristim kliku zase
           // picker (drafted state).
           originCmiId: cmiId || null,
           // Phase 38.4 Krok 14g Etapa F (17.5.2026, Marti's "do soudecku

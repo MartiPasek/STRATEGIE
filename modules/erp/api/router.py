@@ -5691,7 +5691,7 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     new_id = (inserted_row or {}).get("id")
 
     # Marti's bod 2 (16.5.2026): "po insertu CORE jej priradit k tomu
-    # kontextovymu menu". Auto-link new core → cmi.target_core_id pokud
+    # kontextovymu menu". Auto-link new core → cmi.core_id pokud
     # origin_cmi_id posláno. Pres strategie_pg (Marti-AI's role db_owner
     # fw.* — strategie role nema UPDATE permission na fw.context_menu_item).
     linked_cmi = False
@@ -5701,7 +5701,7 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
             link_upd = _spg_update_link(
                 schema="fw",
                 table="context_menu_item",
-                values={"target_core_id": new_id},
+                values={"core_id": new_id},
                 where={"id": origin_cmi_id},
                 dry_run=False,
             )
@@ -7519,15 +7519,15 @@ def design_list_context_menu_items(req: Request) -> JSONResponse:
         for r in rows:
             rd = dict(r)
             # Phase 38.4 Krok 14g Etapa F Krok 3 (16.5.2026, Marti's "ID je svaty"):
-            # target_core_id zije ve vlastnim FK sloupci s ON DELETE RESTRICT.
+            # core_id zije ve vlastnim FK sloupci s ON DELETE RESTRICT.
             # Pro dispatcher transparency (fw_form_dispatcher.js cte
-            # action_params.coreId) slijeme target_core_id zpet do
+            # action_params.coreId) slijeme core_id zpet do
             # action_params.coreId pri serializaci. Top-level field
-            # `target_core_id` taky vraceny pro budouci FE migration.
+            # `core_id` taky vraceny pro budouci FE migration.
             ap_out = dict(rd.get("action_params") or {})
-            target_core_id = rd.get("target_core_id")
-            if target_core_id is not None:
-                ap_out["coreId"] = target_core_id
+            core_id = rd.get("core_id")
+            if core_id is not None:
+                ap_out["coreId"] = core_id
             items.append({
                 "id": rd.get("id"),
                 "code": rd.get("code"),
@@ -7537,7 +7537,7 @@ def design_list_context_menu_items(req: Request) -> JSONResponse:
                 "applies_to_kind": rd.get("applies_to_kind"),
                 "action_kind": rd.get("action_kind"),
                 "action_params": ap_out,
-                "target_core_id": target_core_id,
+                "core_id": core_id,
                 "sort_order": rd.get("sort_order"),
                 "is_system": bool(rd.get("is_system")) if rd.get("is_system") is not None else False,
                 "design_only": bool(rd.get("design_only")) if rd.get("design_only") is not None else False,
@@ -7722,19 +7722,19 @@ async def design_create_context_menu_item(req: Request) -> JSONResponse:
 async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne, Marti's
     "aby bylo mozne i vybirat a prepinat na jine cores"): link/unlink
-    fw.context_menu_item → fw.core pres target_core_id FK.
+    fw.context_menu_item → fw.core pres core_id FK.
 
     Body:
-        { "target_core_id": int | null }
-        - int  → SET target_core_id = <id> (link)
-        - null → SET target_core_id = NULL (unlink, drafted state)
+        { "core_id": int | null }
+        - int  → SET core_id = <id> (link)
+        - null → SET core_id = NULL (unlink, drafted state)
 
     Marti's flow:
       Picker onSelect (existing core) → PATCH link
       Picker onNew (drafted) → POST create-minimal (auto-link inline)
-      "Zrusit core asociaci" → PATCH unlink (target_core_id=null)
+      "Zrusit core asociaci" → PATCH unlink (core_id=null)
 
-    Returns: { ok, cmi: {id, target_core_id, ...} }
+    Returns: { ok, cmi: {id, core_id, ...} }
     """
     from core.database_data import get_data_session as _gds_lc
     from sqlalchemy import text as _sql_lc
@@ -7747,13 +7747,13 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
     except Exception:
         body = {}
 
-    target_core_id = body.get("target_core_id")
-    if target_core_id is not None:
+    core_id = body.get("core_id")
+    if core_id is not None:
         try:
-            target_core_id = int(target_core_id)
+            core_id = int(core_id)
         except (TypeError, ValueError):
             return JSONResponse(
-                {"ok": False, "error": "target_core_id musi byt int nebo null"},
+                {"ok": False, "error": "core_id musi byt int nebo null"},
                 status_code=400,
             )
 
@@ -7761,7 +7761,7 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
     try:
         # Verify cmi exists
         existing = ds.execute(_sql_lc("""
-            SELECT id, code, label, target_core_id
+            SELECT id, code, label, core_id
             FROM fw.context_menu_item
             WHERE id = :id
         """), {"id": item_id}).mappings().one_or_none()
@@ -7771,15 +7771,15 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
                 status_code=404,
             )
 
-        # If target_core_id IS NOT NULL, verify fw.core row exists
-        if target_core_id is not None:
+        # If core_id IS NOT NULL, verify fw.core row exists
+        if core_id is not None:
             core_check = ds.execute(_sql_lc("""
                 SELECT id, code, label FROM fw.core WHERE id = :id
-            """), {"id": target_core_id}).mappings().one_or_none()
+            """), {"id": core_id}).mappings().one_or_none()
             if not core_check:
                 return JSONResponse(
                     {"ok": False,
-                     "error": f"fw.core id={target_core_id} neexistuje (FK violation)"},
+                     "error": f"fw.core id={core_id} neexistuje (FK violation)"},
                     status_code=400,
                 )
 
@@ -7791,7 +7791,7 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
         upd = _spg_update_lc(
             schema="fw",
             table="context_menu_item",
-            values={"target_core_id": target_core_id},
+            values={"core_id": core_id},
             where={"id": item_id},
             dry_run=False,
         )
@@ -7803,8 +7803,8 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
 
         # Activity log audit
         try:
-            old_id = existing.get("target_core_id")
-            if target_core_id is None:
+            old_id = existing.get("core_id")
+            if core_id is None:
                 summary = (
                     f"cmi id={item_id} ({existing.get('code')}) unlinked "
                     f"(was core {old_id})"
@@ -7812,7 +7812,7 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
             else:
                 summary = (
                     f"cmi id={item_id} ({existing.get('code')}) linked "
-                    f"to core {target_core_id} (was {old_id})"
+                    f"to core {core_id} (was {old_id})"
                 )
             ds.execute(_sql_lc("""
                 INSERT INTO public.activity_log
@@ -7828,7 +7828,7 @@ async def design_link_context_menu_item_core(item_id: int, req: Request) -> JSON
         # Fetch updated cmi row pro response
         updated = ds.execute(_sql_lc("""
             SELECT id, code, label, icon, action_kind, action_params,
-                   target_core_id, status
+                   core_id, status
             FROM fw.context_menu_item
             WHERE id = :id
         """), {"id": item_id}).mappings().one_or_none()

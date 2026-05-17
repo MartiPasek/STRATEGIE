@@ -3628,8 +3628,11 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
 
         # Root comp_def: parent_core_id = core.id, is_active=true, prvni dle
         # sort_order ASC + id ASC. Drafted core muze mit None (no root yet).
+        # Phase 38.4 Krok 5.R-A hotfix (17.5.2026 vecer): drop cd.code —
+        # fw.comp_def nema sloupec 'code', jen 'name'. Marti's traceback:
+        # ProgrammingError: column cd.code does not exist.
         root_row = ds.execute(_sql_psp("""
-            SELECT cd.id, cd.code, cd.name, cd.type_id, cd.data_source_id,
+            SELECT cd.id, cd.name, cd.type_id, cd.data_source_id,
                    ct.code AS type_code, ct.label AS type_label
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id

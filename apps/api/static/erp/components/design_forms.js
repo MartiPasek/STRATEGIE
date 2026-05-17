@@ -6280,7 +6280,44 @@
 
           // Update visibility podle aktualniho dirty count (volane po _render)
           this._updateDirtyDiscardBtn();
-          // OK/Storno buttons (template footer komponenty) append v dalším loop.
+
+          // Phase 38.4 Krok 5.P-1 (17.5.2026 vecer, Marti's "ErpJadroForm
+          // = vzdy jedna class, jednotny render"): hardcoded X Storno + ✓ OK
+          // buttons. Parita s Power tools (DesignDataSourceEditor /
+          // DataSet / DbConnection). Drop template-driven button rendering
+          // (Krok 14b+3 path) — uniformita vitezi nad special-case template
+          // buttons.
+          //
+          // CORE 22 (Editace uzivatele) + CORE 23 (Framework: Desing
+          // Prehled) chovaji se nyni IDENTICKY — zadny "kazdy zvlast"
+          // (Marti's doctrine 17.5. vecer).
+          //
+          // Order: discardBtn — spacer — X Storno — ✓ OK (rightmost).
+          // Click handlers wire na existing class methods (_onSaveClick
+          // + _shell.close()), dirty guard od A1t pattern automaticky
+          // pres _shell.close → _handleCloseClick.
+          const cancelBtn = document.createElement("button");
+          cancelBtn.type = "button";
+          cancelBtn.textContent = "X Storno";
+          cancelBtn.style.cssText =
+            "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;" +
+            "border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+          cancelBtn.addEventListener("click", () => {
+            if (this._shell && typeof this._shell.close === "function") {
+              this._shell.close();
+            }
+          });
+          sec.grid.appendChild(cancelBtn);
+
+          const okBtn = document.createElement("button");
+          okBtn.type = "button";
+          okBtn.textContent = "✓ OK";
+          okBtn.style.cssText =
+            "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;" +
+            "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;" +
+            "font-weight:600;";
+          okBtn.addEventListener("click", () => this._onSaveClick());
+          sec.grid.appendChild(okBtn);
         } else if (panel.slot === "main") {
           // Main je v Grid row 2 (1fr) — alClient automaticky.
           // Marti's polish (13.5.2026 ~14:45): "alClient ten panel" —
@@ -6307,7 +6344,14 @@
         // Buttons (OK/Storno) ZUSTAVAJI — to jsou funkcni actions, ne
         // pomocne pills.
         const SUPPRESSED_TEMPLATE_TYPES = new Set([
-          "title", "entity_badge", "status_pill"
+          "title", "entity_badge", "status_pill",
+          // Phase 38.4 Krok 5.P-1 (17.5.2026 vecer, Marti's doctrine
+          // "ErpJadroForm = vzdy jedna class"): drop template-driven
+          // button rendering. Hardcoded X Storno + ✓ OK v _render
+          // footer panel (parita s Power tools). Future-proof — pokud
+          // fw.template.layout JSON nadale ma button components,
+          // skip render — no duplicate s hardcoded.
+          "button",
         ]);
         for (const comp of templateComponents) {
           const compType = comp && comp.type ? String(comp.type) : "";

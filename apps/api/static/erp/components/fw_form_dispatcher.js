@@ -49,10 +49,14 @@
     // ════════════════════════════════════════════════════════════════
     // Build dispatch context z DOM item dataset
     // ════════════════════════════════════════════════════════════════
-    function _buildContext(item, mnPk, mnCode) {
-      // mnPk/mnCode pochazi z item.getAttribute("data-menu-node-pk")/"data-id"
-      // (predane volajicim, drzi closure-safe i kdyby item zmenil node mezi
-      // contextmenu open a klik na custom item)
+    function _buildContext(item, mnPk, mnCode, mnLabel) {
+      // mnPk/mnCode/mnLabel pochazi z item.getAttribute("data-menu-node-pk")
+      // / "data-id" / .erp-tree-label.textContent (predane volajicim, drzi
+      // closure-safe i kdyby item zmenil node mezi contextmenu open a klik
+      // na custom item).
+      // Phase 38.4 Krok 14g Etapa F (17.5.2026, Marti's "vzdy ID 16"):
+      // mnLabel je novy 4. param pro runtime origin display v entity_picker
+      // (display_mode='origin' prefer runtime nad stamped core.origin_menu_node).
       let coreId = null;
       let coreCode = null;
       try {
@@ -65,6 +69,7 @@
       return {
         menu_node_pk: mnPk ? parseInt(mnPk, 10) : null,
         menu_node_code: mnCode || null,
+        menu_node_label: mnLabel || null,
         core_id: coreId,
         core_code: coreCode || null,
       };
@@ -517,6 +522,16 @@
           // {target_core_id: null} → close modal → pri pristim kliku zase
           // picker (drafted state).
           originCmiId: cmiId || null,
+          // Phase 38.4 Krok 14g Etapa F (17.5.2026, Marti's "do soudecku
+          // se vzdy prenasi jen ID 16"): runtime menu_node from contextmenu
+          // click. entity_picker(display_mode='origin') prefer tyto runtime
+          // hodnoty pred _spec.origin.menu_node (stamped pri core create).
+          // Bez tohoto override: vsechny Design: Core CMIs s target_core_id=X
+          // ukazuji menu_node X.origin_menu_node_id (e.g. 16), regardless
+          // odkud byly otevreny.
+          runtimeMenuNodePk: (ctx && ctx.menu_node_pk) || null,
+          runtimeMenuNodeLabel: (ctx && ctx.menu_node_label) || null,
+          runtimeMenuNodeCode: (ctx && ctx.menu_node_code) || null,
         });
       } catch (e) {
         console.error("[fw_form_dispatcher] DesignFwForm constructor failed:", e);
@@ -588,14 +603,20 @@
      * @param {Element} item     — DOM element (.erp-tree-item / .ag-row)
      * @param {string} mnPk      — menu_node primary key (data-menu-node-pk)
      * @param {string} mnCode    — menu_node code (data-id)
+     * @param {string} mnLabel   — menu_node display label (z .erp-tree-label),
+     *                              17.5.2026 — runtime origin pro entity_picker
+     *                              (Marti's "vzdy ID 16" fix)
      */
-    global.dispatchFwFormFromContextMenu = function (cmiSnap, item, mnPk, mnCode) {
+    global.dispatchFwFormFromContextMenu = function (cmiSnap, item, mnPk, mnCode, mnLabel) {
       if (!cmiSnap || typeof cmiSnap !== "object") {
         console.error("[fw_form_dispatcher] dispatch called with invalid cmiSnap:", cmiSnap);
         return;
       }
 
-      const ctx = _buildContext(item, mnPk, mnCode);
+      // Phase 38.4 Krok 14g Etapa F (17.5.2026): mnLabel je novy 5. param
+      // — runtime menu_node display label pro entity_picker(display_mode='origin')
+      // override stamped core.origin_menu_node_id. Marti's "vzdy ID 16" fix.
+      const ctx = _buildContext(item, mnPk, mnCode, mnLabel);
       const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
       _diagLog(cmiSnap.action_params, ctx, formArgs);
       // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026): pass ctx + cmiSnap.id

@@ -11065,12 +11065,32 @@
           let initialId = null;
           let initialLabel = null;
           if (displayMode === "origin") {
-            // Z this._spec.origin.menu_node (backend JOIN fw.menu_node)
-            const origin = (this._spec && this._spec.origin) || {};
-            const mn = origin.menu_node || null;
-            if (mn) {
-              initialId = mn.id;
-              initialLabel = mn.label;
+            // Phase 38.4 Krok 14g Etapa F (17.5.2026, Marti's "do soudecku
+            // se vzdy prenasi jen ID 16"): prefer RUNTIME context (kde byl
+            // form otevren) pred STAMPED core.origin_menu_node_id (kde byl
+            // core puvodne vytvoren). Bez runtime override by vsechny
+            // Design: Core CMIs ukazovaly stejny menu_node bez ohledu na
+            // misto kliku ve stromu.
+            //
+            // Pro Design: Core formy (target_core_id v cmi) je runtime
+            // origin to, co user prave teď zvolil — ne pristup, kde core
+            // vznikal. Display-only picker, ne edit — read-only zobrazeni
+            // "z jakeho menu_node byl form otevren".
+            const runtimePk = (this.opts && this.opts.runtimeMenuNodePk) || null;
+            const runtimeLabel = (this.opts && this.opts.runtimeMenuNodeLabel) || null;
+            if (runtimePk != null) {
+              initialId = runtimePk;
+              initialLabel = runtimeLabel || ("menu_node#" + runtimePk);
+            } else {
+              // Fallback: stamped core.origin_menu_node_id (legacy chovani
+              // pro forms otevrene bez contextmenu, napr. dvojklik na strome
+              // ze H+27 path).
+              const origin = (this._spec && this._spec.origin) || {};
+              const mn = origin.menu_node || null;
+              if (mn) {
+                initialId = mn.id;
+                initialLabel = mn.label;
+              }
             }
           } else if (displayMode === "self") {
             // Krok 5.I-E hotfix (16.5.2026 ~22:35, Marti's screenshot bug):

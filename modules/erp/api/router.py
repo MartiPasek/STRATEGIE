@@ -17335,7 +17335,13 @@ def _render_workspace_page(user_id: int) -> str:
                             // + _erpLogToDb event logging.
                             // ═══════════════════════════════════════════════
                             if (typeof window.dispatchFwFormFromContextMenu === "function") {
-                              window.dispatchFwFormFromContextMenu(cmiSnap, item, mnPk, mnCode);
+                              // Phase 38.4 Krok 14g-H+33 Etapa F (17.5.2026,
+                              // Marti's "do soudecku se vzdy prenasi jen ID 16"):
+                              // pass mnLabel jako 5. param — fw_form_dispatcher
+                              // jej preda do DesignFwForm runtimeMenuNodeLabel,
+                              // entity_picker(display_mode='origin') ho zobrazi
+                              // misto _spec.origin.menu_node (stamped).
+                              window.dispatchFwFormFromContextMenu(cmiSnap, item, mnPk, mnCode, mnLabel);
                             } else {
                               alert("fw_form_dispatcher.js not loaded (kit chybi).");
                               console.error("[contextmenu] dispatchFwFormFromContextMenu not on window");

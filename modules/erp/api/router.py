@@ -9033,24 +9033,40 @@ def design_list_entity_columns(
                 "error": (
                     "Entity type je 'null'/empty — pravdepodobne core.code "
                     "neni set v DB (drafted core per Krok 5.A doctrine). "
-                    "Frontend by mel fallback na core.data_entity_type."
+                    "Frontend by mel fallback na core.id."
                 ),
-                "hint": "Marti: SELECT id, code, data_entity_type FROM fw.core WHERE id = <core_id>",
-                "registered": list(_FW_FORM_ENTITY_MAP.keys()),
-            },
-            status_code=404,
-        )
-    if entity_type not in _FW_FORM_ENTITY_MAP:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": f"Entity '{entity_type}' neni v _FW_FORM_ENTITY_MAP",
-                "registered": list(_FW_FORM_ENTITY_MAP.keys()),
+                "hint": "Marti: SELECT id, code FROM fw.core WHERE id = <core_id>",
+                "registry_ids": list(_FW_FORM_CORE_REGISTRY.keys()),
+                "map_codes": list(_FW_FORM_ENTITY_MAP.keys()),
             },
             status_code=404,
         )
 
-    config = _FW_FORM_ENTITY_MAP[entity_type]
+    # Phase 38.4 Krok 5.N-2b (17.5.2026, Marti's "code je optional, ID je truth"):
+    # entity_type može być numeric (URL /design/entity-columns/22 — ID-based)
+    # NEBO string (URL /design/entity-columns/user — legacy entity_type).
+    # Detekce + dispatch via _resolve_entity_config_for_core (5.N-1 helper).
+    config = None
+    if entity_type.isdigit():
+        # ID-based path — Marti's 5.N doctrine
+        config = _resolve_entity_config_for_core(int(entity_type))
+    elif entity_type in _FW_FORM_ENTITY_MAP:
+        # Legacy string path — direct entity (user, menu_node, core, comp_def)
+        config = _FW_FORM_ENTITY_MAP[entity_type]
+
+    if not config:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP "
+                    f"ani _FW_FORM_CORE_REGISTRY. "
+                    f"Registry IDs: {list(_FW_FORM_CORE_REGISTRY.keys())}. "
+                    f"Map codes: {list(_FW_FORM_ENTITY_MAP.keys())}."
+                ),
+            },
+            status_code=404,
+        )
     id_col = config["id_column"]
     cols_list = config["select_columns"]
 

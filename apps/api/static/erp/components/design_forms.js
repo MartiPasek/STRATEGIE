@@ -13028,45 +13028,58 @@
       exTitle.textContent = "📎 Existing data_set (uniform reuse)";
       existingSection.appendChild(exTitle);
 
-      // Sprint B+ (17.5.2026 odp., Marti's "100s-1000s data_setů, orientace"):
-      // ErpDataGrid místo <select> dropdown — filter row, sort, columns.
-      // existingPickerSelect remains as state pointer (refactored: holds grid api).
+      // Sprint B++ (17.5.2026 odp., Marti's "tu vcerejsi komponentu"):
+      // ErpCatalogPicker (Krok 14g-H+22) 1:1 pattern — modal picker s plnym
+      // AG Grid, filter, sort, drilldown. Replace inline grid (cramped) +
+      // <select> (too primitive) — proven Centrála 1 parita UX.
 
-      // Header toolbar (refresh button + selection indicator)
-      const exToolbar = document.createElement("div");
-      exToolbar.style.cssText = "display:flex;justify-content:space-between;align-items:center;gap:8px;";
-      const exToolbarLeft = document.createElement("div");
-      exToolbarLeft.style.cssText = "font-size:11px;color:#8a96a4;";
-      exToolbarLeft.textContent = "⏳ Načítám seznam data_sets…";
-      const exRefreshBtn = document.createElement("button");
-      exRefreshBtn.type = "button";
-      exRefreshBtn.textContent = "🔄 Refresh";
-      exRefreshBtn.title = "Reload seznamu data_sets z DB";
-      exRefreshBtn.style.cssText = "padding:3px 10px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:11px;";
-      exToolbar.appendChild(exToolbarLeft);
-      exToolbar.appendChild(exRefreshBtn);
-      existingSection.appendChild(exToolbar);
+      this._existingSelectedDs = null;
 
-      // Grid host
-      const exGridHost = document.createElement("div");
-      exGridHost.style.cssText = "height:280px;width:100%;border:1px solid #2a3340;border-radius:3px;overflow:hidden;";
-      existingSection.appendChild(exGridHost);
+      // Inline action bar: 🔗 Vybrat button + selected display + 🚫 Zrušit
+      const exActionBar = document.createElement("div");
+      exActionBar.style.cssText = "display:flex;gap:8px;align-items:center;";
 
-      // Preview pod gridem (SQL preview + metadata pro selected row)
+      const exPickBtn = document.createElement("button");
+      exPickBtn.type = "button";
+      exPickBtn.innerHTML = '🔗 Vybrat existing data_set';
+      exPickBtn.style.cssText = "padding:6px 14px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
+      exActionBar.appendChild(exPickBtn);
+
+      const exSelectedInfo = document.createElement("div");
+      exSelectedInfo.style.cssText = "flex:1;font-size:11px;color:#8a96a4;font-style:italic;";
+      exSelectedInfo.textContent = "(žádný data_set vybrán)";
+      exActionBar.appendChild(exSelectedInfo);
+
+      const exClearBtn = document.createElement("button");
+      exClearBtn.type = "button";
+      exClearBtn.innerHTML = '🚫 Zrušit výběr';
+      exClearBtn.title = "Zrušit vybraný data_set";
+      exClearBtn.style.cssText = "padding:5px 10px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:11px;display:none;";
+      exActionBar.appendChild(exClearBtn);
+
+      existingSection.appendChild(exActionBar);
+
+      // Preview pod button (SQL preview + metadata pro selected)
       const exPreview = document.createElement("div");
       exPreview.style.cssText = "padding:8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;min-height:60px;";
-      exPreview.innerHTML = "<em>Klikni na řádek v gridu → zobrazí se preview SQL + metadata.</em>";
+      exPreview.innerHTML = "<em>Klikni 🔗 Vybrat → otevře se picker → vyber data_set → zobrazí se preview SQL + metadata.</em>";
       existingSection.appendChild(exPreview);
 
-      // State holders (instance-scoped pro _onSaveClick read)
-      this._existingSelectedDs = null;
-      let exGridInstance = null;
-
-      const _exUpdatePreview = (ds) => {
+      const _exUpdateDisplay = (ds) => {
         if (!ds) {
-          exPreview.innerHTML = "<em>Klikni na řádek v gridu → zobrazí se preview SQL + metadata.</em>";
+          exSelectedInfo.textContent = "(žádný data_set vybrán)";
+          exSelectedInfo.style.color = "#8a96a4";
+          exSelectedInfo.style.fontStyle = "italic";
+          exClearBtn.style.display = "none";
+          exPreview.innerHTML = "<em>Klikni 🔗 Vybrat → otevře se picker → vyber data_set → zobrazí se preview SQL + metadata.</em>";
           return;
         }
+        exSelectedInfo.innerHTML =
+          '<span style="color:#7ed4e8;font-family:monospace;font-weight:600;">' + (ds.code || "(no code)") + '</span>' +
+          '<span style="color:#6a7684;"> · id=' + ds.id + '</span>' +
+          '<span style="color:#aaa;"> · ' + (ds.db_connection || "?") + '</span>';
+        exSelectedInfo.style.fontStyle = "normal";
+        exClearBtn.style.display = "";
         exPreview.innerHTML =
           '<div style="color:#cfd6df;font-weight:600;margin-bottom:4px;">' + (ds.code || "(no code)") + ' · id=' + ds.id + '</div>' +
           '<div style="color:#7ba8d4;font-size:11px;margin-bottom:4px;">' + (ds.db_connection_label || ds.db_connection || "?") + '</div>' +
@@ -13077,78 +13090,56 @@
           '</pre>';
       };
 
-      const _exColumnDefs = [
-        { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", filter: "agNumberColumnFilter" },
-        { headerName: "Code", field: "code", width: 180, sortable: true, filter: "agTextColumnFilter",
-          cellStyle: { fontFamily: "monospace", color: "#7ed4e8" },
-          valueFormatter: function(p) { return p.value || "(no code)"; } },
-        { headerName: "DB", field: "db_connection", width: 110, sortable: true, filter: "agTextColumnFilter",
-          cellStyle: { fontFamily: "monospace", color: "#aaa" } },
-        { headerName: "Description", field: "description", flex: 1, minWidth: 180, filter: "agTextColumnFilter",
-          cellStyle: { color: "#aaa", fontStyle: "italic" } },
-        { headerName: "SQL preview", field: "sql_text_preview", flex: 2, minWidth: 280, filter: "agTextColumnFilter",
-          cellStyle: { fontFamily: "monospace", fontSize: "10px", color: "#7ed4a8" },
-          valueFormatter: function(p) {
-            if (!p.value) return "(empty)";
-            var s = String(p.value).replace(/\s+/g, " ").trim();
-            return s.length > 120 ? s.substring(0, 120) + "…" : s;
-          } },
-        { headerName: "Used", field: "use_count", width: 80, sortable: true, type: "numericColumn", filter: "agNumberColumnFilter",
-          cellStyle: function(p) {
-            if (p.value > 0) return { color: "#6aa84f", fontWeight: "500" };
-            return { color: "#888" };
-          } },
-        { headerName: "Status", field: "status", width: 100, sortable: true, filter: "agTextColumnFilter",
-          cellStyle: function(p) {
-            if (p.value === "active") return { color: "#6aa84f" };
-            if (p.value === "archived") return { color: "#888" };
-            return null;
-          } }
-      ];
+      exClearBtn.addEventListener("click", () => {
+        this._existingSelectedDs = null;
+        _exUpdateDisplay(null);
+      });
 
-      const _exFetchAndRender = async () => {
-        exToolbarLeft.textContent = "⏳ Načítám seznam data_sets…";
-        try {
-          const r = await fetch("/api/v1/erp/design/data-set-list", { credentials: "include" });
-          if (!r.ok) throw new Error("HTTP " + r.status);
-          const data = await r.json();
-          if (!data.ok || !Array.isArray(data.data_sets)) throw new Error("malformed response");
-          const rows = data.data_sets;
-          exToolbarLeft.textContent = "📎 " + rows.length + " data_setů · klikni pro výběr";
-
-          // Create grid (first time) or replace rowData (refresh)
-          if (exGridInstance && typeof exGridInstance.destroy === "function") {
-            try { exGridInstance.destroy(); } catch (e) {}
-            exGridInstance = null;
-          }
-          exGridHost.innerHTML = "";
-          if (typeof global.ErpDataGrid !== "function") {
-            exGridHost.innerHTML = '<div style="padding:12px;color:#e57373;font-size:11px;">ErpDataGrid komponenta není dostupná.</div>';
-            return;
-          }
-          exGridInstance = new global.ErpDataGrid(exGridHost, {
-            rowData: rows,
-            columnDefs: _exColumnDefs,
-            theme: "dark",
-            height: "100%",
-            compact: true,
-            pinnedIdColumn: false,
-            enableExport: false,
-            enableFilters: true,
-            enableRangeSelection: false,
-            onRowClick: (row) => {
-              this._existingSelectedDs = row || null;
-              _exUpdatePreview(row);
-            }
-          });
-        } catch (err) {
-          console.error("[DesignDataSourceEditor] data-set list failed:", err);
-          exToolbarLeft.textContent = "❌ Načtení selhalo — " + (err.message || err);
-          exGridHost.innerHTML = '<div style="padding:12px;color:#e57373;font-size:11px;">' + (err.message || err) + '</div>';
+      exPickBtn.addEventListener("click", () => {
+        if (typeof global.ErpCatalogPicker !== "function") {
+          alert("ErpCatalogPicker není načtený (catalog_picker.js).");
+          return;
         }
-      };
-      exRefreshBtn.addEventListener("click", _exFetchAndRender);
-      _exFetchAndRender();
+        const picker = new global.ErpCatalogPicker({
+          title: "🔗 Vybrat existing data_set (SQL primitiv)",
+          endpoint: "/api/v1/erp/design/data-set-list",
+          listKey: "data_sets",
+          labelField: "code",
+          columns: [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left", filter: "agNumberColumnFilter" },
+            { headerName: "Code", field: "code", width: 220, sortable: true, filter: "agTextColumnFilter",
+              cellStyle: { fontFamily: "monospace", color: "#7ed4e8" },
+              valueFormatter: function(p) { return p.value || "(no code)"; } },
+            { headerName: "DB", field: "db_connection", width: 130, sortable: true, filter: "agTextColumnFilter",
+              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 200, filter: "agTextColumnFilter",
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
+            { headerName: "SQL preview", field: "sql_text_preview", flex: 2, minWidth: 280, filter: "agTextColumnFilter",
+              cellStyle: { fontFamily: "monospace", fontSize: "11px", color: "#7ed4a8" },
+              valueFormatter: function(p) {
+                if (!p.value) return "(empty)";
+                var s = String(p.value).replace(/\s+/g, " ").trim();
+                return s.length > 150 ? s.substring(0, 150) + "…" : s;
+              } },
+            { headerName: "Used ×", field: "use_count", width: 90, sortable: true, type: "numericColumn", filter: "agNumberColumnFilter",
+              cellStyle: function(p) {
+                if (p.value > 0) return { color: "#6aa84f", fontWeight: "500" };
+                return { color: "#888" };
+              } },
+            { headerName: "Status", field: "status", width: 110, sortable: true, filter: "agTextColumnFilter",
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f" };
+                if (p.value === "archived") return { color: "#888" };
+                return null;
+              } }
+          ],
+          onSelect: (row) => {
+            this._existingSelectedDs = row || null;
+            _exUpdateDisplay(row);
+          }
+        });
+        picker.open();
+      });
 
       // Action buttons
       const btnRow = document.createElement("div");

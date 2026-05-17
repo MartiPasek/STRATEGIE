@@ -12850,8 +12850,52 @@
 
       const formTitle = document.createElement("div");
       formTitle.style.cssText = "font-size:12px;font-weight:600;color:#7ed4e8;";
-      formTitle.textContent = "➕ Nová operace + inline data_set";
+      formTitle.textContent = "➕ Nová operace";
       formWrap.appendChild(formTitle);
+
+      // Sprint B (17.5.2026 dop.): Mode toggle — inline new vs existing data_set
+      // Marti-AI's "uniformita vítězí" doctrine z 11.5. — reuse > duplicate inline.
+      const modeBar = document.createElement("div");
+      modeBar.style.cssText = "display:flex;gap:4px;padding:4px;background:rgba(20,26,32,0.7);border:1px solid #2a3340;border-radius:3px;";
+      let _opMode = "inline";  // "inline" | "existing"
+      const _modeBtns = {};
+      [
+        { value: "inline",   label: "📝 Nový SQL primitiv" },
+        { value: "existing", label: "📎 Reuse existing data_set" }
+      ].forEach((opt) => {
+        const b = document.createElement("button");
+        b.type = "button";
+        b.textContent = opt.label;
+        b.style.cssText =
+          "padding:4px 12px;border-radius:3px;border:1px solid;font-size:11px;cursor:pointer;flex:1;" +
+          (opt.value === _opMode
+            ? "background:#1f4858;border-color:#3a8aa8;color:#7ed4e8;font-weight:600;"
+            : "background:transparent;border-color:#3a4754;color:#8a96a4;font-weight:400;");
+        b.addEventListener("click", () => {
+          _opMode = opt.value;
+          // Update buttons styling
+          Object.values(_modeBtns).forEach((bb) => {
+            const isActive = bb.dataset.value === _opMode;
+            bb.style.cssText =
+              "padding:4px 12px;border-radius:3px;border:1px solid;font-size:11px;cursor:pointer;flex:1;" +
+              (isActive
+                ? "background:#1f4858;border-color:#3a8aa8;color:#7ed4e8;font-weight:600;"
+                : "background:transparent;border-color:#3a4754;color:#8a96a4;font-weight:400;");
+          });
+          // Toggle sections
+          if (inlineSection) inlineSection.style.display = (_opMode === "inline") ? "" : "none";
+          if (existingSection) existingSection.style.display = (_opMode === "existing") ? "" : "none";
+        });
+        b.dataset.value = opt.value;
+        _modeBtns[opt.value] = b;
+        modeBar.appendChild(b);
+      });
+      formWrap.appendChild(modeBar);
+
+      // Holders for sections — defined later, referenced in mode toggle handler
+      let inlineSection = null;
+      let existingSection = null;
+      let existingPickerSelect = null;  // <select> with data_set rows
 
       // Op header inputs (grid)
       const opGrid = document.createElement("div");
@@ -12901,11 +12945,16 @@
 
       formWrap.appendChild(opGrid);
 
+      // Sprint B: Inline section wrap (default visible)
+      inlineSection = document.createElement("div");
+      inlineSection.style.cssText = "display:flex;flex-direction:column;gap:8px;";
+      formWrap.appendChild(inlineSection);
+
       // Data set inline form
       const setTitle = document.createElement("div");
       setTitle.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;padding-bottom:4px;border-bottom:1px solid #1f2630;";
       setTitle.textContent = "📄 Inline Data Set";
-      formWrap.appendChild(setTitle);
+      inlineSection.appendChild(setTitle);
 
       const setGrid = document.createElement("div");
       setGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
@@ -12932,16 +12981,16 @@
       descWrap.appendChild(setDescInput);
       setGrid.appendChild(descWrap);
 
-      formWrap.appendChild(setGrid);
+      inlineSection.appendChild(setGrid);
 
       // SQL editor (Ace)
       const sqlLabel = document.createElement("div");
       sqlLabel.style.cssText = "font-size:11px;color:#a8b4c2;margin-top:4px;";
       sqlLabel.textContent = "SQL text (parameters: :param_name):";
-      formWrap.appendChild(sqlLabel);
+      inlineSection.appendChild(sqlLabel);
 
       const editorHost = document.createElement("div");
-      formWrap.appendChild(editorHost);
+      inlineSection.appendChild(editorHost);
 
       let aceEd = null;
       if (typeof global.ErpRichEdit === "function") {
@@ -12967,7 +13016,85 @@
       const paramHint = document.createElement("div");
       paramHint.style.cssText = "padding:6px 8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;font-style:italic;";
       paramHint.textContent = "Detected parameters: (none yet — zapiš `:param_name` v SQL)";
-      formWrap.appendChild(paramHint);
+      inlineSection.appendChild(paramHint);
+
+      // Sprint B: Existing data_set section (hidden by default)
+      existingSection = document.createElement("div");
+      existingSection.style.cssText = "display:none;flex-direction:column;gap:8px;";
+      formWrap.appendChild(existingSection);
+
+      const exTitle = document.createElement("div");
+      exTitle.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;padding-bottom:4px;border-bottom:1px solid #1f2630;";
+      exTitle.textContent = "📎 Existing data_set (uniform reuse)";
+      existingSection.appendChild(exTitle);
+
+      existingPickerSelect = document.createElement("select");
+      existingPickerSelect.style.cssText = "padding:5px 8px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;cursor:pointer;font-family:monospace;";
+      const exLoadingOpt = document.createElement("option");
+      exLoadingOpt.value = "";
+      exLoadingOpt.textContent = "⏳ Načítám seznam data_sets…";
+      existingPickerSelect.appendChild(exLoadingOpt);
+      existingSection.appendChild(existingPickerSelect);
+
+      // Preview pod selectem (SQL preview, db_connection, use_count)
+      const exPreview = document.createElement("div");
+      exPreview.style.cssText = "padding:8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;min-height:60px;";
+      exPreview.innerHTML = "<em>Vyber data_set výše → zobrazí se preview SQL + metadata.</em>";
+      existingSection.appendChild(exPreview);
+
+      // Fetch data_sets list async
+      (async () => {
+        try {
+          const r = await fetch("/api/v1/erp/design/data-set/list", { credentials: "include" });
+          if (!r.ok) throw new Error("HTTP " + r.status);
+          const data = await r.json();
+          if (!data.ok || !Array.isArray(data.data_sets)) throw new Error("malformed response");
+          existingPickerSelect.innerHTML = "";
+          const placeholderOpt = document.createElement("option");
+          placeholderOpt.value = "";
+          placeholderOpt.textContent = "— vyber data_set —";
+          existingPickerSelect.appendChild(placeholderOpt);
+          for (const ds of data.data_sets) {
+            const o = document.createElement("option");
+            o.value = String(ds.id);
+            const label = "#" + ds.id +
+              (ds.code ? " · " + ds.code : " · (no code)") +
+              (ds.db_connection ? " [" + ds.db_connection + "]" : "") +
+              (ds.use_count > 0 ? " · " + ds.use_count + "× použito" : "");
+            o.textContent = label;
+            o.dataset.ds = JSON.stringify(ds);
+            existingPickerSelect.appendChild(o);
+          }
+          existingPickerSelect.addEventListener("change", () => {
+            const sel = existingPickerSelect.selectedOptions[0];
+            if (!sel || !sel.value) {
+              exPreview.innerHTML = "<em>Vyber data_set výše → zobrazí se preview SQL + metadata.</em>";
+              return;
+            }
+            try {
+              const ds = JSON.parse(sel.dataset.ds);
+              exPreview.innerHTML =
+                "<div style=\"color:#cfd6df;font-weight:600;margin-bottom:4px;\">" + (ds.code || "(no code)") + " · id=" + ds.id + "</div>" +
+                "<div style=\"color:#7ba8d4;font-size:11px;margin-bottom:4px;\">" + (ds.db_connection_label || ds.db_connection || "?") + "</div>" +
+                (ds.description ? "<div style=\"color:#aaa;font-style:italic;margin-bottom:4px;\">" + ds.description + "</div>" : "") +
+                "<pre style=\"margin:0;padding:6px;background:#000;color:#7ed4a8;font-family:monospace;font-size:11px;max-height:120px;overflow:auto;border-radius:3px;\">" +
+                  (ds.sql_text_preview || "(no SQL)") +
+                  (ds.sql_text_length > 200 ? "\n... (" + (ds.sql_text_length - 200) + " more chars)" : "") +
+                "</pre>";
+            } catch (e) {
+              exPreview.innerHTML = "<em>Chyba parse — viz console.</em>";
+              console.error("[DesignDataSourceEditor] preview parse failed:", e);
+            }
+          });
+        } catch (err) {
+          console.error("[DesignDataSourceEditor] data-set list failed:", err);
+          existingPickerSelect.innerHTML = "";
+          const errOpt = document.createElement("option");
+          errOpt.value = "";
+          errOpt.textContent = "❌ Načtení selhalo — " + (err.message || err);
+          existingPickerSelect.appendChild(errOpt);
+        }
+      })();
 
       // Action buttons
       const btnRow = document.createElement("div");
@@ -12988,37 +13115,61 @@
       okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Přidat operaci';
       okBtn.style.cssText = "padding:5px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
       okBtn.addEventListener("click", () => {
-        // Validate — drop variant_code check (Marti's "strach" Krok 5.K-B5)
-        const sqlText = aceEd.value();
-        if (!sqlText.trim()) {
-          if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
-          return;
-        }
-
-        // Krok 5.K-B5: auto-gen variant_code v _onSaveClick (default/_2/_3 per kind)
-        // Plus data_set.code resolved tam taky.
-        // Krok 5.M-D: db_connection_id (FK) preferred. Value může být "legacy:<str>"
-        // pokud fetch fail (fallback array), jinak int FK.
-        const dbVal = dbConnSelect.value;
-        const dataSetEntry = {
-          // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
-          code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
-          sql_text: sqlText,
-          description: setDescInput.value.trim() || null,
-        };
-        if (dbVal.startsWith("legacy:")) {
-          dataSetEntry.db_connection = dbVal.slice("legacy:".length);
-        } else {
-          dataSetEntry.db_connection_id = parseInt(dbVal, 10);
-        }
+        // Sprint B: validate dle aktivního modu
         const newOp = {
           existing: false,
           variant_code: null,  // resolved v _onSaveClick (default/_2/_3 logic)
           operation_kind: kindSelect.value,
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
-          data_set: dataSetEntry,
         };
+
+        if (_opMode === "existing") {
+          // Existing data_set reference
+          const selId = existingPickerSelect && existingPickerSelect.value;
+          if (!selId) {
+            if (typeof _showToast === "function") _showToast("Vyber existing data_set", "error", 2500);
+            return;
+          }
+          newOp.data_set_id = parseInt(selId, 10);
+          // Plus kopie summary pro display v ops list (op.data_set objekt)
+          try {
+            const ds = JSON.parse(existingPickerSelect.selectedOptions[0].dataset.ds);
+            newOp.data_set = {
+              id: ds.id,
+              code: ds.code,
+              db_connection: ds.db_connection,
+              db_connection_id: ds.db_connection_id,
+              description: ds.description,
+              sql_text: ds.sql_text_preview,  // truncated, full text loaded přes /data-set/{id}
+            };
+          } catch (e) { /* display fallback OK */ }
+        } else {
+          // Inline new data_set
+          // Krok 5.K-B5: auto-gen variant_code v _onSaveClick (default/_2/_3 per kind)
+          // Plus data_set.code resolved tam taky.
+          // Krok 5.M-D: db_connection_id (FK) preferred. Value může být "legacy:<str>"
+          // pokud fetch fail (fallback array), jinak int FK.
+          const sqlText = aceEd.value();
+          if (!sqlText.trim()) {
+            if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
+            return;
+          }
+          const dbVal = dbConnSelect.value;
+          const dataSetEntry = {
+            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
+            code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
+            sql_text: sqlText,
+            description: setDescInput.value.trim() || null,
+          };
+          if (dbVal.startsWith("legacy:")) {
+            dataSetEntry.db_connection = dbVal.slice("legacy:".length);
+          } else {
+            dataSetEntry.db_connection_id = parseInt(dbVal, 10);
+          }
+          newOp.data_set = dataSetEntry;
+        }
+
         this._opsState.push(newOp);
         this._render();
       });
@@ -13350,6 +13501,17 @@
         const k = op.operation_kind;
         kindCounts[k] = (kindCounts[k] || 0) + 1;
         const variantCode = kindCounts[k] === 1 ? null : "default_" + kindCounts[k];
+        // Sprint B: pokud op je "existing data_set reference" → send data_set_id only
+        // (backend POST bulk čeká EITHER data_set:{...} dict OR data_set_id int).
+        if (op.data_set_id) {
+          return {
+            variant_code: variantCode,
+            operation_kind: k,
+            is_default: op.is_default,
+            sort_order: op.sort_order,
+            data_set_id: op.data_set_id,
+          };
+        }
         return {
           variant_code: variantCode,
           operation_kind: k,
@@ -13637,6 +13799,107 @@
       wrap.appendChild(this._paramHint);
       this._refreshParamHint();
 
+      // Sprint C (17.5.2026 dop.): ▶ Test SQL button — ad-hoc execute SQL
+      // s LIMIT 10 preview. Marti's "Kristý/Jirka chce vidět co spustila".
+      const testBar = document.createElement("div");
+      testBar.style.cssText = "display:flex;gap:8px;align-items:center;margin-top:4px;";
+
+      const testBtn = document.createElement("button");
+      testBtn.type = "button";
+      testBtn.innerHTML = '<span style="color:#7ed4a8;font-weight:700;margin-right:4px;">▶</span>Test SQL (LIMIT 10)';
+      testBtn.style.cssText = "padding:6px 14px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
+      testBtn.title = "Spustí draft SQL proti vybranému DB connection (jen SELECT, LIMIT 10).";
+
+      const testHint = document.createElement("span");
+      testHint.style.cssText = "color:#8a96a4;font-size:11px;font-style:italic;";
+      testHint.textContent = "Tip: použij :limit parameter pro vlastní LIMIT v SQL.";
+      testBar.appendChild(testBtn);
+      testBar.appendChild(testHint);
+      wrap.appendChild(testBar);
+
+      // Test result panel (initially empty)
+      this._testResult = document.createElement("div");
+      this._testResult.style.cssText = "display:none;border:1px solid #2a3340;border-radius:3px;background:#0a0f14;padding:8px;overflow:auto;max-height:280px;";
+      wrap.appendChild(this._testResult);
+
+      testBtn.addEventListener("click", async () => {
+        const sql = this._state.sql_text || "";
+        if (!sql.trim()) {
+          if (typeof _showToast === "function") _showToast("SQL text je prázdný", "error", 2500);
+          return;
+        }
+        if (this._state.db_connection_id == null) {
+          if (typeof _showToast === "function") _showToast("Vyber DB connection PŘED testem", "error", 2500);
+          return;
+        }
+        testBtn.disabled = true;
+        const origText = testBtn.innerHTML;
+        testBtn.innerHTML = '<span style="margin-right:4px;">⏳</span>Spouštím…';
+        this._testResult.style.display = "block";
+        this._testResult.innerHTML = '<div style="color:#8a96a4;font-size:11px;font-style:italic;padding:8px;">⏳ Spouštím SQL test (LIMIT 10)…</div>';
+        try {
+          const r = await fetch("/api/v1/erp/design/data-set/test", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sql_text: sql,
+              db_connection_id: this._state.db_connection_id,
+              limit: 10,
+            }),
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data.ok) {
+            this._testResult.innerHTML =
+              '<div style="color:#e57373;font-size:12px;font-weight:600;margin-bottom:6px;">❌ Test failed</div>' +
+              '<pre style="margin:0;padding:8px;background:#000;color:#ffaaaa;font-family:monospace;font-size:11px;border-radius:3px;white-space:pre-wrap;">' +
+              (data.error || ("HTTP " + r.status)) +
+              '</pre>';
+            return;
+          }
+          // Success — render result table
+          const rows = data.rows || [];
+          const cols = data.columns || [];
+          const header =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">' +
+            '<div style="color:#7ed4a8;font-size:12px;font-weight:600;">✓ Test OK · ' + data.row_count + ' řádků · ' + data.execution_ms + ' ms</div>' +
+            '<div style="color:#8a96a4;font-size:11px;">' + (data.db_connection.label || data.db_connection.code) + '</div>' +
+            '</div>';
+          if (rows.length === 0) {
+            this._testResult.innerHTML = header +
+              '<div style="padding:12px;text-align:center;color:#8a96a4;font-style:italic;">(prázdný resultset — 0 řádků)</div>';
+            return;
+          }
+          // Compact HTML table
+          let tableHtml = '<table style="width:100%;border-collapse:collapse;font-family:monospace;font-size:11px;">';
+          tableHtml += '<thead><tr style="background:#1a1f26;">';
+          for (const c of cols) {
+            tableHtml += '<th style="padding:4px 8px;border:1px solid #2a3340;color:#7ba8d4;text-align:left;font-weight:600;">' +
+              String(c).replace(/[<>&]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[m])) + '</th>';
+          }
+          tableHtml += '</tr></thead><tbody>';
+          for (const row of rows) {
+            tableHtml += '<tr>';
+            for (const c of cols) {
+              const v = row[c];
+              const str = v == null ? '<em style="color:#666;">NULL</em>' :
+                String(v).replace(/[<>&]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]));
+              tableHtml += '<td style="padding:3px 8px;border:1px solid #2a3340;color:#cfd6df;vertical-align:top;">' + str + '</td>';
+            }
+            tableHtml += '</tr>';
+          }
+          tableHtml += '</tbody></table>';
+          this._testResult.innerHTML = header + tableHtml;
+        } catch (e) {
+          this._testResult.innerHTML =
+            '<div style="color:#e57373;font-size:12px;padding:8px;">❌ Test failed: ' +
+            String(e.message || e).replace(/[<>&]/g, m => ({'<':'&lt;','>':'&gt;','&':'&amp;'}[m])) +
+            '</div>';
+        } finally {
+          testBtn.disabled = false;
+          testBtn.innerHTML = origText;
+        }
+      });
+
       this._shell.body.appendChild(wrap);
     }
 
@@ -13745,11 +14008,274 @@
   // Export
   // ────────────────────────────────────────────────────────────────────
 
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 38.4 Krok 14g Etapa F Sprint D (17.5.2026 dop., Marti's "Kristý/
+  // Jirka z UI"): DesignDbConnectionEditor — form pro create/edit
+  // fw.db_connection rows (label, description, scope, atd.).
+  //
+  // Constructor: { connId: int|null, onComplete?: fn }
+  //   null = create mode (TODO: bude added per use case, MVP edit-only)
+  //   int  = edit existing
+  // ══════════════════════════════════════════════════════════════════════
+  class DesignDbConnectionEditor {
+    constructor(opts) {
+      this.opts = opts || {};
+      this.connId = this.opts.connId || null;
+      this.onComplete = this.opts.onComplete || null;
+      this._spec = null;     // raw row z fw.db_connection
+      this._state = null;    // editable state
+      this._shell = null;
+      this._isCreateMode = (this.connId == null);
+    }
+
+    async open() {
+      const title = this._isCreateMode
+        ? "➕ Nový DB connection"
+        : ("🔌 DB Connection #" + this.connId);
+      this._shell = _buildModalShell({ title: title, width: "780px" });
+      document.body.appendChild(this._shell.overlay);
+
+      const loading = document.createElement("div");
+      loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
+      loading.textContent = "Načítám…";
+      this._shell.body.appendChild(loading);
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      cancelBtn.addEventListener("click", () => this._shell.close());
+      this._shell.footer.appendChild(cancelBtn);
+
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+      this._saveBtn.addEventListener("click", () => this._onSaveClick());
+      this._shell.footer.appendChild(this._saveBtn);
+
+      if (this._isCreateMode) {
+        if (typeof _showToast === "function") {
+          _showToast("Create nový connection zatím není v MVP — Marti přidá v DBeaveru (Sprint D Phase 2).", "info", 4000);
+        }
+        this._shell.close();
+        return;
+      }
+
+      // Fetch single connection — reuse list endpoint, filter v JS
+      try {
+        const r = await fetch("/api/v1/erp/system/db-connections?include_inactive=true", { credentials: "include" });
+        if (!r.ok) throw new Error("HTTP " + r.status);
+        const data = await r.json();
+        if (!data.ok || !Array.isArray(data.connections)) throw new Error("malformed");
+        const found = data.connections.find(c => c.id === this.connId);
+        if (!found) throw new Error("Connection #" + this.connId + " nenalezen");
+        this._spec = found;
+        this._state = {
+          label: found.label || "",
+          description: found.description || "",
+          default_db: found.default_db || "",
+          host: found.host || "",
+          port: found.port != null ? String(found.port) : "",
+          login_name: found.login_name || "",
+          scope_databases: JSON.stringify(found.scope_databases || [], null, 2),
+          is_active: !!found.is_active,
+          sort_order: found.sort_order != null ? String(found.sort_order) : "0",
+        };
+        this._render();
+      } catch (e) {
+        console.error("[DesignDbConnectionEditor] fetch failed:", e);
+        this._shell.body.innerHTML = "";
+        const err = document.createElement("div");
+        err.style.cssText = "padding:24px;color:#e57373;font-size:13px;";
+        err.textContent = "Načtení selhalo: " + (e.message || e);
+        this._shell.body.appendChild(err);
+      }
+    }
+
+    _render() {
+      this._shell.body.innerHTML = "";
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:12px;";
+
+      // Identity pill (immutable code + tenant + db_type)
+      const idRow = document.createElement("div");
+      idRow.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;padding:8px 12px;background:#0f1419;border-radius:3px;border:1px solid #2a3340;";
+      idRow.innerHTML =
+        '<span style="color:#7ed4e8;font-family:monospace;font-size:12px;">🔒 ' + (this._spec.code || "?") + '</span>' +
+        '<span style="color:#6a7684;font-size:11px;">· id=' + this._spec.id + '</span>' +
+        '<span style="color:#aaa;font-size:11px;">· ' + (this._spec.tenant_code || "—") + '</span>' +
+        '<span style="color:#aa66cc;font-family:monospace;font-size:11px;">· ' + (this._spec.db_type || "?") + '</span>';
+      wrap.appendChild(idRow);
+
+      const _lbl = (text) => {
+        const l = document.createElement("label");
+        l.textContent = text;
+        l.style.cssText = "color:#a8b4c2;font-size:12px;";
+        return l;
+      };
+      const _inputStyle = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;";
+
+      const _ipt = (val, placeholder) => {
+        const i = document.createElement("input");
+        i.type = "text";
+        i.value = val || "";
+        i.placeholder = placeholder || "";
+        i.style.cssText = _inputStyle;
+        return i;
+      };
+
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px 12px;align-items:center;";
+
+      const labelInput = _ipt(this._state.label, "Label v dropdown");
+      labelInput.addEventListener("input", () => { this._state.label = labelInput.value; });
+      grid.appendChild(_lbl("Label"));
+      grid.appendChild(labelInput);
+
+      const descInput = _ipt(this._state.description, "Krátký popis účelu");
+      descInput.addEventListener("input", () => { this._state.description = descInput.value; });
+      grid.appendChild(_lbl("Description"));
+      grid.appendChild(descInput);
+
+      const hostInput = _ipt(this._state.host, "192.168.30.11 nebo 10.200.188.12");
+      hostInput.addEventListener("input", () => { this._state.host = hostInput.value; });
+      grid.appendChild(_lbl("Host"));
+      grid.appendChild(hostInput);
+
+      const portInput = _ipt(this._state.port, "1433 (MSSQL) / 5432 (PostgreSQL)");
+      portInput.type = "number";
+      portInput.addEventListener("input", () => { this._state.port = portInput.value; });
+      grid.appendChild(_lbl("Port"));
+      grid.appendChild(portInput);
+
+      const defaultDbInput = _ipt(this._state.default_db, "DB_EC, data_db, ...");
+      defaultDbInput.style.fontFamily = "monospace";
+      defaultDbInput.addEventListener("input", () => { this._state.default_db = defaultDbInput.value; });
+      grid.appendChild(_lbl("Default DB"));
+      grid.appendChild(defaultDbInput);
+
+      const loginInput = _ipt(this._state.login_name, "Marti-AI");
+      loginInput.style.fontFamily = "monospace";
+      loginInput.addEventListener("input", () => { this._state.login_name = loginInput.value; });
+      grid.appendChild(_lbl("Login (audit)"));
+      grid.appendChild(loginInput);
+
+      const sortInput = _ipt(this._state.sort_order, "10, 20, 30, ...");
+      sortInput.type = "number";
+      sortInput.addEventListener("input", () => { this._state.sort_order = sortInput.value; });
+      grid.appendChild(_lbl("Sort order"));
+      grid.appendChild(sortInput);
+
+      // is_active checkbox
+      const activeWrap = document.createElement("div");
+      activeWrap.style.cssText = "display:flex;gap:8px;align-items:center;";
+      const activeCheck = document.createElement("input");
+      activeCheck.type = "checkbox";
+      activeCheck.checked = !!this._state.is_active;
+      activeCheck.style.cssText = "width:16px;height:16px;cursor:pointer;";
+      activeCheck.addEventListener("change", () => { this._state.is_active = activeCheck.checked; });
+      activeWrap.appendChild(activeCheck);
+      const activeHint = document.createElement("span");
+      activeHint.style.cssText = "color:#8a96a4;font-size:11px;";
+      activeHint.textContent = "is_active = true → dropdown visible, false → 'zatím neaktivní'";
+      activeWrap.appendChild(activeHint);
+      grid.appendChild(_lbl("Aktivní"));
+      grid.appendChild(activeWrap);
+
+      wrap.appendChild(grid);
+
+      // scope_databases (JSONB array) — textarea editor
+      const scopeLabel = document.createElement("div");
+      scopeLabel.style.cssText = "font-size:11px;color:#a8b4c2;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;";
+      scopeLabel.textContent = "Scope databases (JSON array)";
+      wrap.appendChild(scopeLabel);
+
+      const scopeHint = document.createElement("div");
+      scopeHint.style.cssText = "color:#8a96a4;font-size:11px;font-style:italic;margin-top:-4px;";
+      scopeHint.textContent = "MSSQL cross-DB SELECT scope (např. [\"DB_EC\",\"DB_IS\",\"DB-Ceniky\"]). PostgreSQL: jen [\"data_db\"].";
+      wrap.appendChild(scopeHint);
+
+      const scopeTa = document.createElement("textarea");
+      scopeTa.style.cssText = "padding:8px;background:#0a0f14;border:1px solid #2a3340;color:#cfd6df;font-family:monospace;font-size:11px;width:100%;box-sizing:border-box;min-height:120px;border-radius:3px;";
+      scopeTa.value = this._state.scope_databases || "[]";
+      scopeTa.addEventListener("input", () => { this._state.scope_databases = scopeTa.value; });
+      wrap.appendChild(scopeTa);
+
+      this._shell.body.appendChild(wrap);
+    }
+
+    async _onSaveClick() {
+      // Validate scope_databases JSON
+      let scopeParsed;
+      try {
+        scopeParsed = JSON.parse(this._state.scope_databases || "[]");
+        if (!Array.isArray(scopeParsed)) throw new Error("musi byt array");
+      } catch (e) {
+        if (typeof _showToast === "function") _showToast("scope_databases musí být validní JSON array: " + e.message, "error", 4000);
+        return;
+      }
+
+      // Diff vs initial
+      const init = this._spec;
+      const patch = {};
+      if (this._state.label !== (init.label || "")) patch.label = this._state.label;
+      if ((this._state.description || "") !== (init.description || "")) patch.description = this._state.description.trim() || null;
+      if (this._state.host !== (init.host || "")) patch.host = this._state.host || null;
+      if (this._state.port !== (init.port != null ? String(init.port) : "")) {
+        patch.port = this._state.port ? parseInt(this._state.port, 10) : null;
+      }
+      if (this._state.default_db !== (init.default_db || "")) patch.default_db = this._state.default_db || null;
+      if (this._state.login_name !== (init.login_name || "")) patch.login_name = this._state.login_name || null;
+      if (this._state.sort_order !== String(init.sort_order || 0)) patch.sort_order = parseInt(this._state.sort_order, 10) || 0;
+      if (this._state.is_active !== !!init.is_active) patch.is_active = this._state.is_active;
+      // scope_databases — compare as JSON normalized
+      const initScopeStr = JSON.stringify(init.scope_databases || []);
+      const newScopeStr = JSON.stringify(scopeParsed);
+      if (newScopeStr !== initScopeStr) patch.scope_databases = scopeParsed;
+
+      if (Object.keys(patch).length === 0) {
+        if (typeof _showToast === "function") _showToast("Žádné změny", "info", 2000);
+        this._shell.close();
+        return;
+      }
+
+      this._saveBtn.disabled = true;
+      this._saveBtn.innerHTML = "⏳ Ukládám…";
+      try {
+        const r = await fetch("/api/v1/erp/design/db-connection/update/" + encodeURIComponent(this.connId), {
+          method: "PATCH", credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(patch),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || !data.ok) throw new Error(data.error || ("HTTP " + r.status));
+        if (typeof _showToast === "function") {
+          _showToast("Connection uložen (" + data.updated_fields.join(", ") + ")", "success", 2500);
+        }
+        // Invalidate cache pro dropdown — Marti's "KDE TO CACHUJES?" doctrine
+        if (typeof _DB_CONNECTIONS_CACHE !== "undefined") _DB_CONNECTIONS_CACHE = null;
+        if (typeof this.onComplete === "function") {
+          try { this.onComplete(data); } catch (e) {}
+        }
+        setTimeout(() => this._shell.close(), 600);
+      } catch (e) {
+        console.error("[DesignDbConnectionEditor] PATCH failed:", e);
+        if (typeof _showToast === "function") {
+          _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
+        }
+        this._saveBtn.disabled = false;
+        this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      }
+    }
+  }
+
   global.DesignSoudecekCoreForm = DesignSoudecekCoreForm;
   global.DesignJadroRadekForm = DesignJadroRadekForm;
   global.DesignFwForm = DesignFwForm;
   global.FieldPickerModal = FieldPickerModal;
   global.DesignDataSourceEditor = DesignDataSourceEditor;
   global.DesignDataSetEditor = DesignDataSetEditor;
+  global.DesignDbConnectionEditor = DesignDbConnectionEditor;
 
 })(window);

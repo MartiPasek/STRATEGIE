@@ -6776,7 +6776,9 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
     except Exception:
         return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
 
-    ALLOWED = ("name", "description", "refresh_type", "default_record_limit")
+    # Phase 38.4 Krok 14g Etapa F Sprint A (17.5.2026): + status field
+    # pro archive/restore z UI (Kristý + Jirka bez DBeaver access).
+    ALLOWED = ("name", "description", "refresh_type", "default_record_limit", "status")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -6789,6 +6791,10 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
         v = update_vals["default_record_limit"]
         if not isinstance(v, int) or v <= 0:
             return JSONResponse({"ok": False, "error": "default_record_limit musi byt positive int"}, status_code=400)
+    if "status" in update_vals:
+        v = update_vals["status"]
+        if v not in ("active", "archived"):
+            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
 
     ds_pds = _gds_pds()
     try:
@@ -6977,11 +6983,16 @@ async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
     # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind z ALLOWED
     # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
     # Backward compat: accept db_connection_id (FK BIGINT) or db_connection (legacy code string).
-    ALLOWED = ("sql_text", "db_connection_id", "description")
+    # Sprint A (17.5.2026 dop.): + status pro archive/restore z UI.
+    ALLOWED = ("sql_text", "db_connection_id", "description", "status")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
             update_vals[k] = body[k]
+    if "status" in update_vals:
+        v = update_vals["status"]
+        if v not in ("active", "archived"):
+            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
 
     ds_pdset = _gds_pdset()
     try:
@@ -7156,6 +7167,81 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
         }))
     finally:
         ds_session.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Sprint D (17.5.2026 dop.):
+# PATCH /design/db-connection/update/{id} + POST /design/db-connection/create
+# — Marti's "Kristý/Jirka z UI" — DB connection management bez DBeaveru.
+# ════════════════════════════════════════════════════════════════════════
+@api_router.patch("/design/db-connection/update/{conn_id}")
+async def design_patch_db_connection(conn_id: int, req: Request) -> JSONResponse:
+    """PATCH fw.db_connection (Sprint D 17.5.2026).
+
+    Body fields (all optional, alespoň 1):
+      label, description, default_db, host, port, login_name,
+      scope_databases (JSONB array), is_active, sort_order, status
+      (NE: code — immutable per "ID je svaty" doctrine)
+
+    Returns:
+        200: {ok, conn_id, updated_fields: [...]}
+        400: invalid body
+        404: connection neexistuje
+    """
+    from core.database_data import get_data_session as _gds_pdc
+    from sqlalchemy import text as _sql_text_pdc
+    from modules.strategie_pg.application.service import update_row as _spg_update_pdc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    ALLOWED = ("label", "description", "default_db", "host", "port",
+               "login_name", "scope_databases", "is_active", "sort_order", "status")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+
+    if not update_vals:
+        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
+
+    # Validation
+    if "status" in update_vals:
+        v = update_vals["status"]
+        if v not in ("active", "archived"):
+            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
+    if "is_active" in update_vals:
+        update_vals["is_active"] = bool(update_vals["is_active"])
+    if "port" in update_vals and update_vals["port"] is not None:
+        try:
+            update_vals["port"] = int(update_vals["port"])
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "port musi byt integer nebo null"}, status_code=400)
+
+    ds = _gds_pdc()
+    try:
+        existing = ds.execute(_sql_text_pdc("""
+            SELECT id FROM fw.db_connection WHERE id = :id
+        """), {"id": conn_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"db_connection id={conn_id} neexistuje"}, status_code=404)
+
+        upd = _spg_update_pdc(schema="fw", table="db_connection", values=update_vals, where={"id": conn_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "conn_id": conn_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds.close()
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -8178,6 +8264,204 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "data_sources": data_sources})
     except Exception as exc:
         logger.exception(f"design_list_fw_data_source failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"List failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Sprint C (17.5.2026 dop.):
+# POST /design/data-set/test — ad-hoc SQL execute pro draft data_set SQL
+# (preview rows PŘED save). Marti's "Kristý/Jirka chce vidět co spustila".
+# MVP: PostgreSQL only (db_type='postgres'). MSSQL → graceful error.
+# ════════════════════════════════════════════════════════════════════════
+@api_router.post("/design/data-set/test")
+async def design_test_data_set(req: Request) -> JSONResponse:
+    """Ad-hoc execute SQL pro data_set draft (preview).
+
+    Body:
+        {sql_text: str, db_connection_id: int, params?: dict, limit?: int}
+
+    Returns:
+        200: {ok, rows: [...], row_count, columns: [...], execution_ms,
+              db_connection: {code, default_db, db_type}}
+        400: missing sql_text / db_connection_id, MSSQL unsupported,
+             non-SELECT detected
+        500: SQL execute failed
+
+    Safety:
+        - Parent gate
+        - SELECT-only regex (no INSERT/UPDATE/DELETE/DROP/...)
+        - HARD_LIMIT_CAP=100 rows
+        - 30s timeout (SQLAlchemy statement_timeout)
+    """
+    from core.database_data import get_data_session as _gds_dst
+    from sqlalchemy import text as _sql_text_dst
+    import re as _re_dst
+    import time as _time_dst
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    sql_text = (body.get("sql_text") or "").strip()
+    db_conn_id = body.get("db_connection_id")
+    params = body.get("params") or {}
+    limit = int(body.get("limit") or 10)
+    if limit < 1 or limit > 100:
+        limit = 10
+
+    if not sql_text:
+        return JSONResponse({"ok": False, "error": "sql_text povinný"}, status_code=400)
+    if db_conn_id is None:
+        return JSONResponse({"ok": False, "error": "db_connection_id povinný"}, status_code=400)
+
+    # SELECT-only guard — Marti-AI Q5 doctrine z 9.5. (strategie_pg_query_raw)
+    # Strip leading comments + blank lines, then check first keyword
+    sql_check = sql_text.lstrip()
+    while sql_check.startswith("--") or sql_check.startswith("/*"):
+        if sql_check.startswith("--"):
+            sql_check = sql_check.split("\n", 1)[1].lstrip() if "\n" in sql_check else ""
+        else:  # /* */
+            end_idx = sql_check.find("*/")
+            sql_check = sql_check[end_idx + 2:].lstrip() if end_idx >= 0 else ""
+    if not _re_dst.match(r"^\s*(SELECT|WITH)\b", sql_check, _re_dst.IGNORECASE):
+        return JSONResponse({"ok": False, "error": "Pouze SELECT nebo WITH (CTE) je dovoleno pro test."}, status_code=400)
+    # Blocklist defense
+    if _re_dst.search(r"\b(DELETE|UPDATE|INSERT|DROP|ALTER|CREATE|TRUNCATE|MERGE|GRANT|REVOKE|EXEC(?!\s+sp_help)|XP_)\b", sql_check, _re_dst.IGNORECASE):
+        return JSONResponse({"ok": False, "error": "SQL obsahuje destructive keyword (DELETE/UPDATE/INSERT/atd.)"}, status_code=400)
+
+    ds = _gds_dst()
+    try:
+        # Resolve db_connection
+        conn_row = ds.execute(_sql_text_dst("""
+            SELECT id, code, label, db_type, default_db, host
+            FROM fw.db_connection
+            WHERE id = :id AND is_active = TRUE
+            LIMIT 1
+        """), {"id": db_conn_id}).mappings().one_or_none()
+        if conn_row is None:
+            return JSONResponse({"ok": False, "error": f"db_connection id={db_conn_id} nenalezen nebo neaktivní"}, status_code=400)
+
+        # MVP: PostgreSQL only
+        if conn_row["db_type"] != "postgres":
+            return JSONResponse({
+                "ok": False,
+                "error": f"MVP test podporuje pouze PostgreSQL. Tento connection je {conn_row['db_type']} ({conn_row['label']}). "
+                         "MSSQL test bude dostupný po Phase 30+1.",
+            }, status_code=400)
+        if conn_row["default_db"] != "data_db":
+            return JSONResponse({
+                "ok": False,
+                "error": f"MVP test podporuje pouze default_db='data_db'. Tento connection je {conn_row['default_db']}.",
+            }, status_code=400)
+
+        # Inject LIMIT (HARD_LIMIT_CAP) — pokud uživatel už nemá v SQL
+        params_bound = dict(params) if isinstance(params, dict) else {}
+        params_bound["limit"] = limit
+
+        # Statement-level timeout 30s — PostgreSQL parameter
+        ds.execute(_sql_text_dst("SET LOCAL statement_timeout = 30000"))
+
+        start_ms = _time_dst.time()
+        try:
+            result = ds.execute(_sql_text_dst(sql_text), params_bound)
+            rows = [dict(r) for r in result.mappings().all()[:limit]]
+            cols = list(rows[0].keys()) if rows else []
+        except Exception as exc:
+            execution_ms = int((_time_dst.time() - start_ms) * 1000)
+            return JSONResponse({
+                "ok": False,
+                "error": f"SQL execute failed: {type(exc).__name__}: {exc}",
+                "execution_ms": execution_ms,
+            }, status_code=400)
+        execution_ms = int((_time_dst.time() - start_ms) * 1000)
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "rows": rows,
+            "row_count": len(rows),
+            "columns": cols,
+            "execution_ms": execution_ms,
+            "db_connection": {
+                "id": conn_row["id"],
+                "code": conn_row["code"],
+                "label": conn_row["label"],
+                "db_type": conn_row["db_type"],
+                "default_db": conn_row["default_db"],
+            },
+            "limit_applied": limit,
+        }))
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Sprint B (17.5.2026 dop.):
+# GET /design/data-set/list — list active fw.data_set pro picker v
+# DesignDataSourceEditor._showAddOpForm (📎 Vybrat existing data_set).
+# Marti-AI's "uniformita vítězí" doctrine z 11.5. — reuse > duplicate inline.
+# ════════════════════════════════════════════════════════════════════════
+@api_router.get("/design/data-set/list")
+def design_list_data_set(req: Request) -> JSONResponse:
+    """List active fw.data_set rows + JOIN fw.db_connection pro readable label.
+
+    Returns:
+        {ok: True, data_sets: [{id, code, sql_text_preview,
+          db_connection_id, db_connection, db_connection_label,
+          description, use_count, version, status}]}
+
+    use_count = LEFT JOIN COUNT fw.data_source_op references (kolik ops
+    používá tenhle data_set).
+    """
+    from core.database_data import get_data_session as _gds_dsl
+    from sqlalchemy import text as _sql_dsl
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_dsl()
+    try:
+        sql_dsl = _sql_dsl("""
+            SELECT
+                ds.id,
+                ds.code,
+                ds.version,
+                ds.description,
+                ds.status,
+                ds.db_connection_id,
+                dc.default_db AS db_connection,
+                dc.code       AS db_connection_code,
+                dc.label      AS db_connection_label,
+                LEFT(ds.sql_text, 200) AS sql_text_preview,
+                CHAR_LENGTH(ds.sql_text) AS sql_text_length,
+                COALESCE(op.cnt, 0) AS use_count
+            FROM fw.data_set ds
+            LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
+            LEFT JOIN (
+                SELECT data_set_id, COUNT(*) AS cnt
+                FROM fw.data_source_op
+                GROUP BY data_set_id
+            ) op ON op.data_set_id = ds.id
+            WHERE ds.status = 'active'
+            ORDER BY ds.code ASC NULLS LAST, ds.id ASC
+        """)
+        rows = ds.execute(sql_dsl).mappings().all()
+        data_sets = [dict(r) for r in rows]
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_sets": data_sets,
+            "count": len(data_sets),
+        }))
+    except Exception as exc:
+        logger.exception(f"design_list_data_set failed: {exc}")
         return JSONResponse(
             {"ok": False, "error": f"List failed: {exc}"},
             status_code=500,
@@ -13273,13 +13557,115 @@ def _render_workspace_page(user_id: int) -> str:
           });
         } catch (e) { return iso; }
       }
+      // Phase 38.4 Krok 14g Etapa F Sprint A (17.5.2026 dop.):
+      // Archive + Restore helpers pro framework_data_sources + framework_data_sets grids.
+      // Marti's "Kristý + Jirka nemají DBeaver access" — UI-driven workflow.
+      async function _designArchiveDataSource(id, onComplete) {
+        if (!confirm("Archivovat data_source #" + id + "?")) return;
+        try {
+          var r = await fetch(
+            "/api/v1/erp/design/fw-data-source/update/" + encodeURIComponent(id),
+            {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "archived" })
+            }
+          );
+          var d = await r.json().catch(function() { return {}; });
+          if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+          if (typeof window._showToast === "function") {
+            window._showToast("Data source #" + id + " archivován", "success", 2500);
+          }
+          if (typeof onComplete === "function") onComplete();
+        } catch (e) {
+          console.error("[ERP-SYS] archive failed:", e);
+          if (typeof window._showToast === "function") {
+            window._showToast("Archivace selhala: " + (e.message || e), "error", 4000);
+          }
+        }
+      }
+      async function _designRestoreDataSource(id, onComplete) {
+        try {
+          var r = await fetch(
+            "/api/v1/erp/design/fw-data-source/update/" + encodeURIComponent(id),
+            {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "active" })
+            }
+          );
+          var d = await r.json().catch(function() { return {}; });
+          if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+          if (typeof window._showToast === "function") {
+            window._showToast("Data source #" + id + " obnoven", "success", 2500);
+          }
+          if (typeof onComplete === "function") onComplete();
+        } catch (e) {
+          console.error("[ERP-SYS] restore failed:", e);
+          if (typeof window._showToast === "function") {
+            window._showToast("Obnovení selhalo: " + (e.message || e), "error", 4000);
+          }
+        }
+      }
+      async function _designArchiveDataSet(id, onComplete) {
+        if (!confirm("Archivovat data_set #" + id + "?")) return;
+        try {
+          var r = await fetch(
+            "/api/v1/erp/design/data-set/update/" + encodeURIComponent(id),
+            {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "archived" })
+            }
+          );
+          var d = await r.json().catch(function() { return {}; });
+          if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+          if (typeof window._showToast === "function") {
+            window._showToast("Data set #" + id + " archivován", "success", 2500);
+          }
+          if (typeof onComplete === "function") onComplete();
+        } catch (e) {
+          console.error("[ERP-SYS] archive failed:", e);
+          if (typeof window._showToast === "function") {
+            window._showToast("Archivace selhala: " + (e.message || e), "error", 4000);
+          }
+        }
+      }
+      async function _designRestoreDataSet(id, onComplete) {
+        try {
+          var r = await fetch(
+            "/api/v1/erp/design/data-set/update/" + encodeURIComponent(id),
+            {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ status: "active" })
+            }
+          );
+          var d = await r.json().catch(function() { return {}; });
+          if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+          if (typeof window._showToast === "function") {
+            window._showToast("Data set #" + id + " obnoven", "success", 2500);
+          }
+          if (typeof onComplete === "function") onComplete();
+        } catch (e) {
+          console.error("[ERP-SYS] restore failed:", e);
+          if (typeof window._showToast === "function") {
+            window._showToast("Obnovení selhalo: " + (e.message || e), "error", 4000);
+          }
+        }
+      }
+
       window._sysHelpers = {
         statusBadge: statusBadge,
         scopeIconHtml: scopeIconHtml,
         formatDateRel: formatDateRel,
+        archiveDataSource: _designArchiveDataSource,
+        restoreDataSource: _designRestoreDataSource,
+        archiveDataSet: _designArchiveDataSet,
+        restoreDataSet: _designRestoreDataSet,
         loaded: true
       };
-      console.log("[ERP-DIAG] _sysHelpers loaded");
+      console.log("[ERP-DIAG] _sysHelpers loaded (with archive/restore)");
     })();
     </script>
 
@@ -13415,7 +13801,50 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
             { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
+            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
+              sortable: false, filter: false, resizable: false,
+              cellRenderer: function(p) {
+                var rowId = p.data && p.data.id;
+                var status = p.data && p.data.status;
+                if (rowId == null) return "";
+                var wrap = document.createElement("div");
+                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
+                var btn = document.createElement("button");
+                btn.type = "button";
+                if (status === "archived") {
+                  btn.textContent = "↻";
+                  btn.title = "Obnovit (restore z archivu)";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.restoreDataSource) {
+                      window._sysHelpers.restoreDataSource(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                } else {
+                  btn.textContent = "✕";
+                  btn.title = "Archivovat data_source";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.archiveDataSource) {
+                      window._sysHelpers.archiveDataSource(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                }
+                wrap.appendChild(btn);
+                return wrap;
+              } }
           ];
         }
         // ── Phase 38.4 Krok 6+ DataSets (fw.data_set, low-level SQL) ──
@@ -13462,6 +13891,103 @@ def _render_workspace_page(user_id: int) -> str:
               cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
             { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
+            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
+              sortable: false, filter: false, resizable: false,
+              cellRenderer: function(p) {
+                var rowId = p.data && p.data.id;
+                var status = p.data && p.data.status;
+                if (rowId == null) return "";
+                var wrap = document.createElement("div");
+                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
+                var btn = document.createElement("button");
+                btn.type = "button";
+                if (status === "archived") {
+                  btn.textContent = "↻";
+                  btn.title = "Obnovit (restore z archivu)";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.restoreDataSet) {
+                      window._sysHelpers.restoreDataSet(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                } else {
+                  btn.textContent = "✕";
+                  btn.title = "Archivovat data_set";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.archiveDataSet) {
+                      window._sysHelpers.archiveDataSet(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                }
+                wrap.appendChild(btn);
+                return wrap;
+              } }
+          ];
+        }
+
+        // Sprint D (17.5.2026 dop.): DB Connections grid
+        if (mode === "framework_db_connections") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 180, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#7ed4e8" },
+              headerTooltip: "Stable identifier (immutable, like ID)" },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 280, sortable: true,
+              cellStyle: { fontWeight: "500" } },
+            { headerName: "Tenant", field: "tenant_code", width: 110, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "STRATEGIE") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "EUR")       return { color: "#7ba8d4" };
+                if (p.value === "INTERSOFT") return { color: "#d4a017" };
+                return { color: "#888" };
+              } },
+            { headerName: "Type", field: "db_type", width: 90, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "postgres") return { color: "#7ed4a8", fontFamily: "monospace" };
+                if (p.value === "mssql")    return { color: "#aa66cc", fontFamily: "monospace" };
+                return { fontFamily: "monospace" };
+              } },
+            { headerName: "Host", field: "host", width: 140, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
+            { headerName: "Port", field: "port", width: 70, sortable: true, type: "numericColumn" },
+            { headerName: "Default DB", field: "default_db", width: 130, sortable: true,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Scope", field: "scope_databases", width: 110,
+              valueFormatter: function(p) {
+                if (!p.value) return "-";
+                try {
+                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
+                  return Array.isArray(arr) ? (arr.length + "× DBs") : "?";
+                } catch (e) { return "?"; }
+              },
+              headerTooltip: "JSONB array of accessible databases (cross-DB SELECT scope)" },
+            { headerName: "Login", field: "login_name", width: 110,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
+            { headerName: "Active", field: "is_active", width: 80, sortable: true,
+              cellRenderer: function(p) { return p.value ? "<span style=\"color:#6aa84f;font-weight:600\">✓</span>" : "<span style=\"color:#cc6666\">✗</span>"; } },
+            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active")   return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                return null;
+              } },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 220,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
             { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
               valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
           ];
@@ -13998,6 +14524,61 @@ def _render_workspace_page(user_id: int) -> str:
           body.appendChild(addNewSetBtn);
         }
 
+        // Phase 38.4 Krok 14g Etapa F Sprint A (17.5.2026 dop.):
+        // Status filter pills (Aktivní/Archivované/Vše) pro framework_data_sources
+        // + framework_data_sets. Marti's "Kristý/Jirka bez DBeaveru" — explicit
+        // affordance místo AG built-in column filter.
+        // Default = Aktivní. Filter aplikován na rowData PŘED passováním do
+        // ErpDataGrid (client-side, žádná AG Grid API gymnastics).
+        var _filterableModes = ["framework_data_sources", "framework_data_sets"];
+        if (_filterableModes.indexOf(mode) !== -1) {
+          window._designStatusFilter = window._designStatusFilter || {};
+          if (!window._designStatusFilter[mode]) window._designStatusFilter[mode] = "active";
+
+          // Filter rowData podle current pill state
+          var currentFilter = window._designStatusFilter[mode];
+          if (currentFilter !== "all" && Array.isArray(rowData)) {
+            rowData = rowData.filter(function(r) {
+              return r && r.status === currentFilter;
+            });
+          }
+
+          var filterBar = document.createElement("div");
+          filterBar.style.cssText =
+            "position:absolute;top:8px;left:8px;z-index:50;" +
+            "display:flex;gap:4px;padding:4px;background:rgba(20,26,32,0.85);" +
+            "border:1px solid #2a3340;border-radius:4px;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
+
+          var _filterOptions = [
+            { value: "active",   label: "✓ Aktivní" },
+            { value: "archived", label: "📦 Archivované" },
+            { value: "all",      label: "⊕ Vše" }
+          ];
+          _filterOptions.forEach(function(opt) {
+            var pill = document.createElement("button");
+            pill.type = "button";
+            pill.textContent = opt.label;
+            pill.dataset.value = opt.value;
+            var isActive = window._designStatusFilter[mode] === opt.value;
+            pill.style.cssText =
+              "padding:4px 12px;border-radius:3px;border:1px solid;" +
+              "font-size:11px;cursor:pointer;font-weight:" + (isActive ? "600" : "400") + ";" +
+              (isActive
+                ? "background:#1f4858;border-color:#3a8aa8;color:#7ed4e8;"
+                : "background:transparent;border-color:#3a4754;color:#8a96a4;");
+            pill.addEventListener("click", function() {
+              window._designStatusFilter[mode] = opt.value;
+              // Re-render grid (filter aplikován v rowData filter loop)
+              if (window._sysHelpers && window._sysHelpers.renderSystemGrid) {
+                window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+              }
+            });
+            filterBar.appendChild(pill);
+          });
+          body.style.position = "relative";
+          body.appendChild(filterBar);
+        }
+
         try {
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
@@ -14053,6 +14634,18 @@ def _render_workspace_page(user_id: int) -> str:
                 }).open();
                 return;
               }
+              // Sprint D (17.5.2026 dop.): DB Connections mode dvojklik → DesignDbConnectionEditor
+              if (mode === "framework_db_connections" && typeof window.DesignDbConnectionEditor === "function") {
+                new window.DesignDbConnectionEditor({
+                  connId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
               if (!sysLayoutKey) return;
               if (typeof window._openFwFormForRow === "function") {
                 window._openFwFormForRow(sysLayoutKey, rowId, null);
@@ -14080,6 +14673,18 @@ def _render_workspace_page(user_id: int) -> str:
               if (mode === "framework_data_sets" && typeof window.DesignDataSetEditor === "function") {
                 new window.DesignDataSetEditor({
                   dataSetId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
+              // Sprint D: DB Connections Enter → DesignDbConnectionEditor
+              if (mode === "framework_db_connections" && typeof window.DesignDbConnectionEditor === "function") {
+                new window.DesignDbConnectionEditor({
+                  connId: rowId,
                   onComplete: function() {
                     if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
                       window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");

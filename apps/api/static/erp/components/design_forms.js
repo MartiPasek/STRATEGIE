@@ -7176,16 +7176,28 @@
           }
         }
 
-        // Phase 38.4 Krok 5.M-5+1 (17.5.2026, Marti's "ke kazdemu soudecku
-        // priradit prehled"): 3rd save target — display_mode='self' pickery
-        // ukladame na menu_node.core_id pres runtime context (runtimeMenuNodePk
-        // z Krok 14g-H+33 context menu fix). Picker #2 (Prehled) je primarni
-        // use case — soudecek -> core pairing.
+        // Phase 38.4 Krok 5.M-5+1 FIX (17.5.2026, Marti's "Ma ode mne nastaveno
+        // editable"): dispatch routing podle field_extern column name.
+        // Picker #2 (Prehled) ma display_mode='editable' (Marti's change),
+        // ale save target = menu_node.core_id (ne form root comp_def).
+        //
+        // Routing rule:
+        //   field_extern='core_id' AND runtimeMenuNodePk set → menuNodePatch
+        //     (Picker #2 Prehled → menu_node.core_id pres runtime context)
+        //   ELSE → compDefChanges (Picker #3 → form root comp_def — existing
+        //     behavior, jiz handled v predchozim loopu)
+        //
+        // Edge case: pokud field_extern='core_id' ale runtimeMenuNodePk
+        // chybi (form opened bez context menu, napr. via direct URL),
+        // change zustane v compDefChanges → form root PATCH. Defensive
+        // fallback, ne ztracene dirty.
         const menuNodePatch = {};
         const runtimeMenuNodePk = this.opts && this.opts.runtimeMenuNodePk;
         if (runtimeMenuNodePk) {
           for (const pwrap of pickerWraps) {
-            if (pwrap._displayMode !== "self") continue;
+            // Only editable + field_extern='core_id' route to menu_node
+            if (pwrap._displayMode !== "editable") continue;
+            if (pwrap._fieldExtern !== "core_id") continue;
             if (!pwrap._fieldKey || !this._dirty.has(pwrap._fieldKey)) continue;
             const initialId = pwrap._initialValue ? pwrap._initialValue.id : null;
             let currentId;
@@ -7197,8 +7209,9 @@
               currentId = pwrap._selectedValue.id;
             }
             if (currentId !== initialId) {
-              // Picker #2 Prehled saves to menu_node.core_id (Marti's doctrine)
               menuNodePatch.core_id = currentId;
+              // Remove from compDefChanges (predchozi loop ho tam pridal)
+              delete compDefChanges.core_id;
             }
           }
         }
@@ -10883,17 +10896,30 @@
             initialId = coreRow.id != null ? coreRow.id : null;
             initialLabel = coreRow.label || coreRow.code || null;
           } else if (displayMode === "editable" && fieldExtern) {
-            // Krok 5.I-F: Picker #3 (Datovy zdroj) — initial z form root
-            // comp_def via this._spec.form (po Krok 5.I-F backend extension).
-            // field_extern='data_source_id' → form.data_source_id + JOIN ds.code/name.
-            const formRoot = (this._spec && this._spec.form) || {};
-            if (fieldExtern === "data_source_id") {
+            // Phase 38.4 Krok 5.M-5+2 (17.5.2026, Marti's "ze stromu predat
+            // PK ID a FK core_id"): Picker #2 Prehled (field_extern='core_id')
+            // — initial z runtime menu_node.core_id (tree contextmenu),
+            // ne z form root.
+            if (fieldExtern === "core_id") {
+              const runtimeCoreId = (this.opts && this.opts.runtimeMenuNodeCoreId) || null;
+              if (runtimeCoreId != null) {
+                initialId = runtimeCoreId;
+                initialLabel = null;  // backend label lookup pres picker reload (label fetched z framework_core_list data_source)
+              } else {
+                // Fallback: form root (legacy, non-tree contextmenu open)
+                const formRoot = (this._spec && this._spec.form) || {};
+                initialId = formRoot.core_id != null ? formRoot.core_id : null;
+                initialLabel = null;
+              }
+            } else if (fieldExtern === "data_source_id") {
+              // Picker #3 Datovy zdroj — initial z form root comp_def
+              // (Krok 5.I-F backend extension JOIN).
+              const formRoot = (this._spec && this._spec.form) || {};
               initialId = formRoot.data_source_id != null ? formRoot.data_source_id : null;
               initialLabel = formRoot.data_source_name || formRoot.data_source_code || null;
             } else {
               // Generic fallback — budouci pickery s jinym field_extern.
-              // Backend root_row musi tyto sloupce vracet (pro now jen
-              // data_source_id explicit JOIN-uto).
+              const formRoot = (this._spec && this._spec.form) || {};
               initialId = formRoot[fieldExtern] != null ? formRoot[fieldExtern] : null;
               initialLabel = null;
             }

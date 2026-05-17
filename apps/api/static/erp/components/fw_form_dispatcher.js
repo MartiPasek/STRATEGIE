@@ -532,6 +532,12 @@
           runtimeMenuNodePk: (ctx && ctx.menu_node_pk) || null,
           runtimeMenuNodeLabel: (ctx && ctx.menu_node_label) || null,
           runtimeMenuNodeCode: (ctx && ctx.menu_node_code) || null,
+          // Phase 38.4 Krok 5.M-5+2 (17.5.2026, Marti's "ze stromu predat
+          // PK ID a FK core_id"): runtime menu_node.core_id z tree
+          // contextmenu (data-core-id attribute). Picker #2 Prehled
+          // (display_mode='editable' + field_extern='core_id') ho pouzije
+          // jako initialId.
+          runtimeMenuNodeCoreId: (ctx && ctx.core_id) || null,
         });
       } catch (e) {
         console.error("[fw_form_dispatcher] DesignFwForm constructor failed:", e);
@@ -616,14 +622,4 @@
       // Phase 38.4 Krok 14g Etapa F (17.5.2026): mnLabel je novy 5. param
       // — runtime menu_node display label pro entity_picker(display_mode='origin')
       // override stamped core.origin_menu_node_id. Marti's "vzdy ID 16" fix.
-      const ctx = _buildContext(item, mnPk, mnCode, mnLabel);
-      const formArgs = _resolveFormArgs(cmiSnap.action_params, ctx);
-      _diagLog(cmiSnap.action_params, ctx, formArgs);
-      // Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026): pass ctx + cmiSnap.id
-      // pro Kontejner picker onNew callback (origin tracking pri minimal INSERT
-      // do fw.core — Marti's "rodicovstvi" doctrine).
-      _openForm(formArgs, cmiSnap.code, ctx, cmiSnap.id);
-    };
-
-  }); // _erpLoadModule end
-})(window);
+      const ctx = _buildC

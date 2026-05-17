@@ -5094,8 +5094,20 @@
         message: "Mám uložit tebou " + phrase + "? (" + count + ")",
       });
       if (decision === true) {
-        // TODO Phase 38.4 Krok 14b ráno — PATCH endpoint
-        console.warn("Save not implemented yet — Krok 14b ráno.");
+        // Phase 38.4 Krok 5.P-1++++++ (17.5.2026 vecer, Marti's "Ano se
+        // chova jako Ne"): replace TODO from 13.5. rano s actual save
+        // call. _handleSaveAndClose vyžaduje btnEl ref pro visual
+        // feedback (btn.innerHTML manipulation) — vytvori fake btn
+        // pro dirty close flow (no visible UI changes, just lifecycle).
+        try {
+          const fakeBtn = document.createElement("button");
+          fakeBtn.innerHTML = "✓ OK";
+          await this._handleSaveAndClose(fakeBtn);
+        } catch (e) {
+          console.error("_beforeCloseHandler save failed:", e);
+          // Pokud save failne, NE-close — necháme dialog open, user může retry.
+          return "cancel";
+        }
         return "save";
       }
       if (decision === false) return "close";

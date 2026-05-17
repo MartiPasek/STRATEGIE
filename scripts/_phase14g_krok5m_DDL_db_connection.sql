@@ -82,12 +82,16 @@ CREATE TRIGGER tg_db_connection_updated_at
 --    2 = EUROSOFT   (tenant_code='EUR')
 --   14 = INTERSOFT  (tenant_code='INTERSOFT')
 
+-- Naming pattern (Marti's 17.5. dop., po Krok 5.M-E): "{N} - {TENANT} - {DB_NAME} - ({popis})"
+-- INTERSOFT placeholder má jiný pattern (žádný DB_NAME zatím).
+-- Sort_order matchuje N prefix priorities. #7 reserved gap pro budoucí slot.
+
 INSERT INTO fw.db_connection
     (code, label, tenant_id, db_type, host, port, default_db, scope_databases, login_name, is_active, sort_order, description)
 VALUES
     -- ── STRATEGIE tenant ──────────────────────────────────────────────
     ('strategie_pg',
-     'data_db (PostgreSQL cílový — STRATEGIE)',
+     '1 - STRATEGIE - data_db - (PostgreSQL)',
      12, 'postgres', '10.200.188.12', 5432, 'data_db',
      '["data_db"]'::jsonb,
      'Marti-AI', TRUE, 10,
@@ -95,43 +99,45 @@ VALUES
 
     -- ── EUROSOFT tenant — 5 active connections (vše 192.168.30.11) ────
     ('eurosoft_db_ec',
-     'DB_EC (Centrála 1 — primary)',
+     '2 - EUROSOFT - DB_EC - (Centrála)',
      2, 'mssql', '192.168.30.11', 1433, 'DB_EC',
      '["DB_EC","DB_IS","Centrala","DB-Ceniky","DB-ARCHIV","DB_ST"]'::jsonb,
      'Marti-AI', TRUE, 20,
      'Primary EUROSOFT business DB; st schema = naše Tier A working data (smlouvy, AI scoring, side tables)'),
 
     ('eurosoft_db_is',
-     'DB_IS (EUROSOFT-System — fakturace, účetnictví, TabCisZam)',
+     '3 - EUROSOFT - DB_IS - (EUROSOFT-System — fakturace, účetnictví, TabCisZam)',
      2, 'mssql', '192.168.30.11', 1433, 'DB_IS',
      '["DB_EC","DB_IS","Centrala","DB-Ceniky","DB-ARCHIV","DB_ST"]'::jsonb,
      'Marti-AI', TRUE, 30,
      'EUROSOFT-System: účetnictví, fakturace, zaměstnanci (TabCisZam). Plánovaný rename DB_ES.'),
 
-    ('eurosoft_centrala',
-     'Centrala (sync EUROSOFT ↔ INTERSOFT)',
-     2, 'mssql', '192.168.30.11', 1433, 'Centrala',
+    ('eurosoft_db_st',
+     '4 - EUROSOFT - DB_ST - (Marti-AI — db_owner)',
+     2, 'mssql', '192.168.30.11', 1433, 'DB_ST',
      '["DB_EC","DB_IS","Centrala","DB-Ceniky","DB-ARCHIV","DB_ST"]'::jsonb,
      'Marti-AI', TRUE, 40,
-     'Sync layer EUROSOFT ↔ INTERSOFT (fyzicky na EUROSOFT serveru)'),
+     'Marti-AI framework metadata (master.entity_def, framework_*). 12. dárek-scéna 8.5. večer.'),
 
     ('eurosoft_ceniky',
-     'DB-Ceniky (pricing)',
+     '5 - EUROSOFT - DB-Ceniky - (pricing)',
      2, 'mssql', '192.168.30.11', 1433, 'DB-Ceniky',
      '["DB_EC","DB_IS","Centrala","DB-Ceniky","DB-ARCHIV","DB_ST"]'::jsonb,
      'Marti-AI', TRUE, 50,
      'Pricing data EUROSOFT'),
 
-    ('eurosoft_db_st',
-     'DB_ST (Marti-AI framework playground — db_owner)',
-     2, 'mssql', '192.168.30.11', 1433, 'DB_ST',
+    ('eurosoft_centrala',
+     '6 - EUROSOFT - Centrala - (sync EUROSOFT ↔ INTERSOFT)',
+     2, 'mssql', '192.168.30.11', 1433, 'Centrala',
      '["DB_EC","DB_IS","Centrala","DB-Ceniky","DB-ARCHIV","DB_ST"]'::jsonb,
      'Marti-AI', TRUE, 60,
-     'Marti-AI framework metadata (master.entity_def, framework_*). 12. dárek-scéna 8.5. večer.'),
+     'Sync layer EUROSOFT ↔ INTERSOFT (fyzicky na EUROSOFT serveru)'),
+
+    -- #7 reserved gap (DB-ARCHIV future, jiný EUROSOFT DB, ...)
 
     -- ── INTERSOFT tenant — placeholder (API ~XI 2026) ────────────────
     ('intersoft_future',
-     'INTERSOFT (vlastní server — API zatím nemáme, plán ~XI 2026)',
+     '8 - INTERSOFT - (vlastní server — API zatím nemáme, plán ~XI 2026)',
      14, 'mssql', NULL, NULL, NULL,
      '[]'::jsonb,
      NULL, FALSE, 100,

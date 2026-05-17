@@ -12386,25 +12386,91 @@
       .replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "untitled";
   }
 
-  // Phase 38.4 Krok 14g Etapa F Krok 5.M (17.5.2026):
-  // — Marti's 17.5.: DB_IS = EUROSOFT-System (NE INTERSOFT). Fakturace,
-  //   účetnictví, TabCisZam. Plánovaný rename DB_ES.
-  // — DB-ARCHIV dropped (Marti's Q4: "neresit, nevim"). Přidáme až bude
-  //   real use case.
-  // — Added Centrala (sync layer) + DB_ST (Marti-AI's framework playground).
+  // Phase 38.4 Krok 14g Etapa F Krok 5.M-D (17.5.2026):
+  // Marti's "KDE TO CACHUJES?" — drop hardcoded DDS_DB_CONNECTIONS.
+  // DB = single source of truth. Fetch z /api/v1/erp/system/db-connections
+  // při open editoru. Cache per-modal (žádný stale state).
   //
-  // Backward compat: values = legacy code strings (data_db, DB_EC, atd.).
-  // Backend Krok 5.M lookup `WHERE code OR default_db match :c` resolve
-  // na fw.db_connection.id (BIGINT FK). Žádný frontend refactor potřeba.
-  // Optgroup grouping + tenant labels — Phase 30+1 polish.
-  const DDS_DB_CONNECTIONS = [
-    { value: "data_db",   label: "data_db (PostgreSQL cílový — STRATEGIE)" },
-    { value: "DB_EC",     label: "DB_EC (MSSQL EUROSOFT — Centrála 1)" },
-    { value: "DB_IS",     label: "DB_IS (MSSQL EUROSOFT-System — fakturace, TabCisZam)" },
-    { value: "Centrala",  label: "Centrala (MSSQL sync EUROSOFT ↔ INTERSOFT)" },
-    { value: "DB-Ceniky", label: "DB-Ceniky (MSSQL pricing)" },
-    { value: "DB_ST",     label: "DB_ST (MSSQL Marti-AI playground)" },
-  ];
+  // Value = db_connection_id (BIGINT FK) — clean cut (žádný legacy string
+  // matching). Backend POST/PATCH accept FK přímo.
+  //
+  // Fallback (pokud fetch fail): legacy hardcoded array s default_db jako
+  // legacy compat. Tj. UI nikdy nezůstane prázdné.
+
+  let _DB_CONNECTIONS_CACHE = null;  // module-level cache (1 fetch per session)
+
+  async function _fetchDbConnections(forceRefresh = false) {
+    if (_DB_CONNECTIONS_CACHE && !forceRefresh) return _DB_CONNECTIONS_CACHE;
+    try {
+      const r = await fetch("/api/v1/erp/system/db-connections", { credentials: "include" });
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      const data = await r.json();
+      if (!data.ok || !Array.isArray(data.connections)) throw new Error("malformed response");
+      _DB_CONNECTIONS_CACHE = data.connections;
+      return _DB_CONNECTIONS_CACHE;
+    } catch (err) {
+      console.warn("[design_forms] fetch db-connections failed, fallback:", err);
+      // Fallback legacy array s default_db jako value (backend backward compat lookup)
+      return [
+        { id: null, code: "strategie_pg",  default_db: "data_db",   label: "data_db (PostgreSQL — STRATEGIE)",            tenant_code: "STRATEGIE", is_active: true, sort_order: 10  },
+        { id: null, code: "eurosoft_db_ec", default_db: "DB_EC",     label: "DB_EC (MSSQL EUROSOFT — Centrála 1)",          tenant_code: "EUR",       is_active: true, sort_order: 20  },
+        { id: null, code: "eurosoft_db_is", default_db: "DB_IS",     label: "DB_IS (EUROSOFT-System — fakturace, TabCisZam)", tenant_code: "EUR",     is_active: true, sort_order: 30  },
+        { id: null, code: "eurosoft_centrala", default_db: "Centrala", label: "Centrala (sync EUROSOFT ↔ INTERSOFT)",      tenant_code: "EUR",       is_active: true, sort_order: 40  },
+        { id: null, code: "eurosoft_ceniky", default_db: "DB-Ceniky", label: "DB-Ceniky (pricing)",                         tenant_code: "EUR",       is_active: true, sort_order: 50  },
+        { id: null, code: "eurosoft_db_st", default_db: "DB_ST",     label: "DB_ST (Marti-AI playground)",                  tenant_code: "EUR",       is_active: true, sort_order: 60  },
+      ];
+    }
+  }
+
+  function _buildDbConnSelect(connections, selectedId, opts) {
+    // Build <select> s optgroup po tenant_code. selectedId = matchnout dle FK id.
+    // opts: {fallbackValue: legacy default_db string pro pre-select pokud selectedId == null}
+    const o = opts || {};
+    const sel = document.createElement("select");
+    sel.style.cssText = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;cursor:pointer;";
+
+    // Group connections by tenant_code
+    const groups = {};
+    const tenantOrder = [];
+    for (const c of connections) {
+      const tc = c.tenant_code || "_OTHER";
+      if (!groups[tc]) {
+        groups[tc] = [];
+        tenantOrder.push(tc);
+      }
+      groups[tc].push(c);
+    }
+
+    // Tenant label decorations
+    const tenantLabels = {
+      "STRATEGIE": "🌳 STRATEGIE (PostgreSQL cloud)",
+      "EUR":       "🏢 EUROSOFT (MSSQL on-prem)",
+      "INTERSOFT": "🏭 INTERSOFT (vlastní server)",
+    };
+
+    for (const tc of tenantOrder) {
+      const og = document.createElement("optgroup");
+      og.label = tenantLabels[tc] || tc;
+      for (const c of groups[tc]) {
+        const opt = document.createElement("option");
+        opt.value = String(c.id != null ? c.id : ("legacy:" + c.default_db));
+        opt.textContent = c.label || c.default_db || c.code;
+        if (!c.is_active) {
+          opt.textContent += "  (zatím neaktivní)";
+          opt.disabled = true;
+        }
+        // Match selectedId (FK) — preferred. Fallback na default_db string match.
+        if (selectedId != null && c.id != null && String(c.id) === String(selectedId)) {
+          opt.selected = true;
+        } else if (selectedId == null && o.fallbackValue && c.default_db === o.fallbackValue) {
+          opt.selected = true;
+        }
+        og.appendChild(opt);
+      }
+      sel.appendChild(og);
+    }
+    return sel;
+  }
 
   const DDS_REFRESH_TYPES = [
     { value: "manual",     label: "manual" },
@@ -12431,9 +12497,10 @@
       this._shell = null;
       this._editors = [];      // tracked Ace editor instances pro destroy
       this._isCreateMode = (this.dataSourceId == null);
+      this._dbConnections = [];  // Krok 5.M-D: fetched at open()
     }
 
-    open() {
+    async open() {
       const title = this._isCreateMode
         ? "➕ Nový datový zdroj"
         : ("📦 Datový zdroj #" + this.dataSourceId);
@@ -12465,6 +12532,9 @@
       this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
       this._saveBtn.addEventListener("click", () => this._onSaveClick());
       this._shell.footer.appendChild(this._saveBtn);
+
+      // Krok 5.M-D: pre-fetch db connections z DB
+      this._dbConnections = await _fetchDbConnections();
 
       if (this._isCreateMode) {
         // Init empty spec
@@ -12842,7 +12912,16 @@
 
       // Krok 5.K-B4 (Marti's "code matouci a navic"): drop Code input —
       // auto-generated v save: <source_code>_<variant_code>
-      const dbConnSelect = _sel(DDS_DB_CONNECTIONS);
+      // Krok 5.M-D: optgroup dropdown z fetched fw.db_connection.
+      const defaultConn = (this._dbConnections || []).find(c => c.is_active) || null;
+      const dbConnSelect = _buildDbConnSelect(
+        this._dbConnections || [],
+        defaultConn ? defaultConn.id : null,
+        {}
+      );
+      // Compact size pro inline form
+      dbConnSelect.style.padding = "5px 8px";
+      dbConnSelect.style.fontSize = "12px";
       const setDescInput = _ipt("(volitelný popis)");
 
       setGrid.appendChild(_lbl("DB connection:"));
@@ -12918,19 +12997,27 @@
 
         // Krok 5.K-B5: auto-gen variant_code v _onSaveClick (default/_2/_3 per kind)
         // Plus data_set.code resolved tam taky.
+        // Krok 5.M-D: db_connection_id (FK) preferred. Value může být "legacy:<str>"
+        // pokud fetch fail (fallback array), jinak int FK.
+        const dbVal = dbConnSelect.value;
+        const dataSetEntry = {
+          // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
+          code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
+          sql_text: sqlText,
+          description: setDescInput.value.trim() || null,
+        };
+        if (dbVal.startsWith("legacy:")) {
+          dataSetEntry.db_connection = dbVal.slice("legacy:".length);
+        } else {
+          dataSetEntry.db_connection_id = parseInt(dbVal, 10);
+        }
         const newOp = {
           existing: false,
           variant_code: null,  // resolved v _onSaveClick (default/_2/_3 logic)
           operation_kind: kindSelect.value,
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
-          data_set: {
-            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
-            code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
-            sql_text: sqlText,
-            db_connection: dbConnSelect.value,
-            description: setDescInput.value.trim() || null,
-          },
+          data_set: dataSetEntry,
         };
         this._opsState.push(newOp);
         this._render();
@@ -13022,7 +13109,15 @@
       setCodeDisplay.style.cssText = "padding:5px 8px;color:#7ed4e8;font-family:monospace;font-size:12px;background:#0f1419;border:1px dashed #2a3340;border-radius:3px;";
       setCodeDisplay.textContent = ds.code || "(?)";
 
-      const dbConnSelect = _sel(DDS_DB_CONNECTIONS, ds.db_connection || "data_db");
+      // Krok 5.M-D: optgroup dropdown z fetched fw.db_connection.
+      // Pre-select prefer FK (ds.db_connection_id), fallback default_db string (ds.db_connection).
+      const dbConnSelect = _buildDbConnSelect(
+        this._dbConnections || [],
+        ds.db_connection_id != null ? ds.db_connection_id : null,
+        { fallbackValue: ds.db_connection || "data_db" }
+      );
+      dbConnSelect.style.padding = "5px 8px";
+      dbConnSelect.style.fontSize = "12px";
       const setDescInput = _ipt(ds.description, "(volitelný popis)");
 
       setGrid.appendChild(_lbl("Code (locked):"));
@@ -13100,10 +13195,18 @@
 
           // Diff data_set vs initial
           // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
+          // Krok 5.M-D: db_connection_id (FK) preferred. Value parsing — int FK or "legacy:<str>".
           const setPatchBody = {};
           const newSql = aceEd.value();
           if (newSql !== (ds.sql_text || "")) setPatchBody.sql_text = newSql;
-          if (dbConnSelect.value !== (ds.db_connection || "")) setPatchBody.db_connection = dbConnSelect.value;
+          const dbVal = dbConnSelect.value;
+          if (dbVal.startsWith("legacy:")) {
+            const legacyStr = dbVal.slice("legacy:".length);
+            if (legacyStr !== (ds.db_connection || "")) setPatchBody.db_connection = legacyStr;
+          } else {
+            const newFk = parseInt(dbVal, 10);
+            if (newFk !== (ds.db_connection_id || null)) setPatchBody.db_connection_id = newFk;
+          }
           const newDesc = setDescInput.value.trim() || null;
           if (newDesc !== (ds.description || null)) setPatchBody.description = newDesc;
 
@@ -13326,13 +13429,14 @@
       this.dataSetId = this.opts.dataSetId || null;
       this.onComplete = this.opts.onComplete || null;
       this._spec = null;     // { data_set, use_count } z GET
-      this._state = null;    // { sql_text, db_connection, description } — kind dropped (Krok 5.L-D)
+      this._state = null;    // { sql_text, db_connection_id, db_connection, description } — kind dropped (Krok 5.L-D); db_connection legacy fallback (Krok 5.M-D)
       this._shell = null;
       this._aceEd = null;
       this._isCreateMode = (this.dataSetId == null);
+      this._dbConnections = [];  // Krok 5.M-D: fetched at open()
     }
 
-    open() {
+    async open() {
       const title = this._isCreateMode
         ? "➕ Nový data_set (SQL primitiv)"
         : ("📄 Data set #" + this.dataSetId);
@@ -13363,11 +13467,17 @@
       this._saveBtn.addEventListener("click", () => this._onSaveClick());
       this._shell.footer.appendChild(this._saveBtn);
 
+      // Krok 5.M-D: pre-fetch db connections z DB (single source of truth)
+      this._dbConnections = await _fetchDbConnections();
+
       if (this._isCreateMode) {
         this._spec = { data_set: null, use_count: 0 };
+        // Default = first active connection (sort_order 10 = strategie_pg)
+        const defaultConn = this._dbConnections.find(c => c.is_active) || null;
         this._state = {
           sql_text: "",
-          db_connection: "data_db",
+          db_connection_id: defaultConn ? defaultConn.id : null,
+          db_connection: defaultConn ? defaultConn.default_db : "data_db",
           description: "",
         };
         this._render();
@@ -13396,9 +13506,11 @@
         this._spec = await r.json();
         if (!this._spec || !this._spec.ok) throw new Error("Neplatná response");
         const ds = this._spec.data_set || {};
+        // Krok 5.M-D: db_connection_id (FK) primary, db_connection (legacy string) fallback
         this._state = {
           sql_text: ds.sql_text || "",
-          db_connection: ds.db_connection || "data_db",
+          db_connection_id: ds.db_connection_id != null ? ds.db_connection_id : null,
+          db_connection: ds.db_connection || "data_db",  // legacy semantic (dc.default_db)
           description: ds.description || "",
         };
         this._render();
@@ -13458,17 +13570,24 @@
       };
       const _inputStyle = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;";
 
-      // DB connection dropdown
-      const dbSelect = document.createElement("select");
-      dbSelect.style.cssText = _inputStyle + "cursor:pointer;";
-      for (const opt of DDS_DB_CONNECTIONS) {
-        const o = document.createElement("option");
-        o.value = opt.value;
-        o.textContent = opt.label;
-        if (opt.value === this._state.db_connection) o.selected = true;
-        dbSelect.appendChild(o);
-      }
-      dbSelect.addEventListener("change", () => { this._state.db_connection = dbSelect.value; });
+      // DB connection dropdown — Krok 5.M-D: optgroup z fetched fw.db_connection
+      const dbSelect = _buildDbConnSelect(
+        this._dbConnections,
+        this._state.db_connection_id,
+        { fallbackValue: this._state.db_connection }
+      );
+      dbSelect.addEventListener("change", () => {
+        const v = dbSelect.value;
+        if (v.startsWith("legacy:")) {
+          this._state.db_connection_id = null;
+          this._state.db_connection = v.slice("legacy:".length);
+        } else {
+          this._state.db_connection_id = parseInt(v, 10);
+          // Update legacy fallback z connection row pro consistency
+          const c = this._dbConnections.find(x => String(x.id) === v);
+          this._state.db_connection = c ? c.default_db : this._state.db_connection;
+        }
+      });
       grid.appendChild(_lbl("DB connection"));
       grid.appendChild(dbSelect);
 
@@ -13548,16 +13667,21 @@
 
       try {
         if (this._isCreateMode) {
-          // POST create
+          // POST create — Krok 5.M-D: db_connection_id (FK) preferred
+          const body = {
+            code: null,  // Marti's NULL doctrine
+            sql_text: sqlText,
+            description: this._state.description.trim() || null,
+          };
+          if (this._state.db_connection_id != null) {
+            body.db_connection_id = this._state.db_connection_id;
+          } else {
+            body.db_connection = this._state.db_connection;  // legacy fallback
+          }
           const r = await fetch("/api/v1/erp/design/data-set/create", {
             method: "POST", credentials: "include",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              code: null,  // Marti's NULL doctrine
-              sql_text: sqlText,
-              db_connection: this._state.db_connection,
-              description: this._state.description.trim() || null,
-            }),
+            body: JSON.stringify(body),
           });
           const respData = await r.json().catch(() => ({}));
           if (!r.ok || !respData.ok) throw new Error(respData.error || ("HTTP " + r.status));
@@ -13571,10 +13695,18 @@
         } else {
           // PATCH edit
           // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind diff dropped.
+          // Krok 5.M-D: db_connection_id (FK) preferred diff.
           const initialDs = (this._spec && this._spec.data_set) || {};
           const patch = {};
           if (this._state.sql_text !== (initialDs.sql_text || "")) patch.sql_text = this._state.sql_text;
-          if (this._state.db_connection !== (initialDs.db_connection || "")) patch.db_connection = this._state.db_connection;
+          // FK diff (preferred). Legacy string fallback only if FK unset.
+          if (this._state.db_connection_id != null) {
+            if (this._state.db_connection_id !== (initialDs.db_connection_id || null)) {
+              patch.db_connection_id = this._state.db_connection_id;
+            }
+          } else if (this._state.db_connection !== (initialDs.db_connection || "")) {
+            patch.db_connection = this._state.db_connection;  // legacy
+          }
           const newDesc = this._state.description.trim() || null;
           if (newDesc !== (initialDs.description || null)) patch.description = newDesc;
 

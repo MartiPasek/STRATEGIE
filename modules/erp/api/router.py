@@ -7158,6 +7158,61 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
         ds_session.close()
 
 
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Krok 5.M-D (17.5.2026):
+# GET /system/db-connections — frontend reads master registry from DB
+# (Marti's "KDE TO CACHUJES?" — drop hardcoded JS array)
+# ════════════════════════════════════════════════════════════════════════
+@api_router.get("/system/db-connections")
+def system_db_connections(req: Request, include_inactive: bool = False) -> JSONResponse:
+    """Krok 5.M-D: List DB connections z fw.db_connection.
+
+    Frontend DesignDataSetEditor + DesignDataSourceEditor fetchnou tento
+    endpoint při open místo hardcoded DDS_DB_CONNECTIONS — DB = single
+    source of truth. Marti's pattern z 17.5. dop.
+
+    Query params:
+        include_inactive: bool (default False) — INTERSOFT placeholder shows
+                          jen pokud true (UI dropdown by default skryje)
+
+    Returns:
+        { ok, connections: [
+            {id, code, label, tenant_id, tenant_code, tenant_name,
+             db_type, host, port, default_db, scope_databases,
+             is_active, sort_order, description}
+        ] }
+    """
+    from core.database_data import get_data_session as _gds_dbconn
+    from sqlalchemy import text as _sql_text_dbconn
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_dbconn()
+    try:
+        sql = _sql_text_dbconn("""
+            SELECT dc.id, dc.code, dc.label,
+                   dc.tenant_id,
+                   t.tenant_code, t.tenant_name,
+                   dc.db_type, dc.host, dc.port, dc.default_db,
+                   dc.scope_databases,
+                   dc.is_active, dc.sort_order, dc.description, dc.status
+            FROM fw.db_connection dc
+            LEFT JOIN public.tenants t ON t.id = dc.tenant_id
+            WHERE (:include_inactive OR dc.is_active = TRUE)
+              AND dc.status = 'active'
+            ORDER BY dc.sort_order ASC, dc.code ASC
+        """)
+        rows = ds.execute(sql, {"include_inactive": include_inactive}).mappings().all()
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "connections": [dict(r) for r in rows],
+            "count": len(rows),
+        }))
+    finally:
+        ds.close()
+
+
 @api_router.get("/design/context-menu-items")
 def design_list_context_menu_items(req: Request) -> JSONResponse:
     """List active context_menu_item rows pro frontend.

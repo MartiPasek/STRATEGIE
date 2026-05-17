@@ -68,11 +68,11 @@ SELECT count(*) AS step1_data_source FROM fw.data_source WHERE code='diag_log_ma
 -- ─────────────────────────────────────────────────────────────
 -- KROK 2: fw.core (description_user post-Krok 14b+21 rename)
 -- ─────────────────────────────────────────────────────────────
-INSERT INTO fw.core (code, label, description_user, layout_type, data_entity_type)
+INSERT INTO fw.core (code, label, description_user, layout_type)
 VALUES
     ('diag_log_master', 'Diag log (master)',
      'JS+Python audit log master view — Marti''s NE-anonymous doctrine 16.5.',
-     'list', NULL)
+     'list')
 ON CONFLICT (code) DO NOTHING;
 
 -- Verify krok 2

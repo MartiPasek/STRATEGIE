@@ -44,17 +44,17 @@ VALUES
 -- ════════════════════════════════════════════════════════════════════════
 -- 1. CORE rows (jádra per grid)
 -- ════════════════════════════════════════════════════════════════════════
-INSERT INTO fw.core (code, label, description, layout_type, data_entity_type)
+INSERT INTO fw.core (code, label, description, layout_type)
 VALUES
     ('security_users', 'Security: Users',
      'Přehled uživatelů (Phase 38.4 Krok 10 migrace z hardcoded JS).',
-     'list', NULL),
+     'list'),
     ('security_whitelists', 'Security: IP whitelists',
      'IP whitelist rows — global/user scope, status confirmed/pending/revoked.',
-     'list', NULL),
+     'list'),
     ('security_invites', 'Security: Invites',
      'Magic link invites (Phase 38) — state consumed/expired/pending.',
-     'list', NULL);
+     'list');
 
 -- ════════════════════════════════════════════════════════════════════════
 -- 2. COMP_GRID_MASTER rows (1 per grid)

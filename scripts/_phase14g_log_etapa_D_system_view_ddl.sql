@@ -33,11 +33,11 @@ ON CONFLICT (code, version) DO NOTHING;
 -- Note: Phase 38.4 Krok 14b+21 (14.5.) renamed `description` → `description_user`
 -- + přidal `description_system`. Tady jen description_user, system nepoužitý.
 -- ────────────────────────────────────────────────────────────────────────
-INSERT INTO fw.core (code, label, description_user, layout_type, data_entity_type)
+INSERT INTO fw.core (code, label, description_user, layout_type)
 VALUES
     ('diag_log_master', 'Diag log (master)',
      'JS+Python audit log master view — kdo + co + když (Marti''s NE-anonymous doctrine 16.5.).',
-     'list', NULL)
+     'list')
 ON CONFLICT (code) DO NOTHING;
 
 -- ────────────────────────────────────────────────────────────────────────

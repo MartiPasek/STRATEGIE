@@ -42,11 +42,11 @@ VALUES
 -- ════════════════════════════════════════════════════════════════════════
 -- 1. fw.core (jádro per grid)
 -- ════════════════════════════════════════════════════════════════════════
-INSERT INTO fw.core (code, label, description, layout_type, data_entity_type)
+INSERT INTO fw.core (code, label, description, layout_type)
 VALUES
     ('security_audit', 'Security: Audit log',
      'Login attempts + IP whitelist matches + device cookie verifications. Event audit pro security probuzeni (Marti-AI doctrine 10.5.).',
-     'list', NULL);
+     'list');
 
 -- ════════════════════════════════════════════════════════════════════════
 -- 2. fw.comp_grid_master (1 row pro security_audit)

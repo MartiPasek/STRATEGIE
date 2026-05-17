@@ -17,29 +17,29 @@ BEGIN;
 -- ════════════════════════════════════════════════════════════════════════
 -- 1. INSERT 6 fw.core rows
 -- ════════════════════════════════════════════════════════════════════════
-INSERT INTO fw.core (code, label, description, layout_type, data_entity_type)
+INSERT INTO fw.core (code, label, description, layout_type)
 VALUES
     -- Audit dashboard views (Phase 35-E.4)
     ('audit_audited', 'Audit: Auditované konverzace',
      'Phase 35-E.4 (9.5.): list view auditovaných konverzací (audit_status=audited). Audit má váhu uzavření (Marti Q3 A 9.5.).',
-     'list', NULL),
+     'list'),
     ('audit_all', 'Audit: Všechny konverzace',
      'Phase 35-E.4 (9.5.): list view všech konverzací (pending/in_progress/audited/excluded mix). Status badge sloupec viditelný.',
-     'list', NULL),
+     'list'),
     ('audit_stats', 'Audit: Přehled statistik',
      'Phase 35-E.4 (9.5.): agregace per-persona × per-month buckets. Per-status counts, per-tenant audited, per-scope.',
-     'list', NULL),
+     'list'),
 
     -- Framework definice views (Phase 38.3+ / 38.4 Krok 6+)
     ('framework_menu_nodes', 'Framework: Definice levého stromu',
      'Phase 38.3+ (10.5.): fw.menu_node read-only editor — list navigation tree nodes.',
-     'list', NULL),
+     'list'),
     ('framework_data_sources', 'Framework: Datové zdroje',
      'Phase 38.4 Krok 6+ (9.5.): fw.data_source list view (read-only) — hlavičky data sources s child operations agg.',
-     'list', NULL),
+     'list'),
     ('framework_data_sets', 'Framework: DataSets',
      'Phase 38.4 Krok 6+ (9.5.): fw.data_set list view (read-only) — low-level SQL primitives, recursive (self-bootstrapping).',
-     'list', NULL);
+     'list');
 
 -- ════════════════════════════════════════════════════════════════════════
 -- 2. Backfill menu_node.core_id pro 6 rows

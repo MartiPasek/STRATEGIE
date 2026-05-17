@@ -7176,8 +7176,37 @@
           }
         }
 
+        // Phase 38.4 Krok 5.M-5+1 (17.5.2026, Marti's "ke kazdemu soudecku
+        // priradit prehled"): 3rd save target — display_mode='self' pickery
+        // ukladame na menu_node.core_id pres runtime context (runtimeMenuNodePk
+        // z Krok 14g-H+33 context menu fix). Picker #2 (Prehled) je primarni
+        // use case — soudecek -> core pairing.
+        const menuNodePatch = {};
+        const runtimeMenuNodePk = this.opts && this.opts.runtimeMenuNodePk;
+        if (runtimeMenuNodePk) {
+          for (const pwrap of pickerWraps) {
+            if (pwrap._displayMode !== "self") continue;
+            if (!pwrap._fieldKey || !this._dirty.has(pwrap._fieldKey)) continue;
+            const initialId = pwrap._initialValue ? pwrap._initialValue.id : null;
+            let currentId;
+            if (pwrap._selectedValue === undefined) {
+              currentId = initialId;
+            } else if (pwrap._selectedValue === null) {
+              currentId = null;
+            } else {
+              currentId = pwrap._selectedValue.id;
+            }
+            if (currentId !== initialId) {
+              // Picker #2 Prehled saves to menu_node.core_id (Marti's doctrine)
+              menuNodePatch.core_id = currentId;
+            }
+          }
+        }
+
         // Pokud žádné changes -> clean close (Marti's "OK clean = close" doctrine)
-        if (Object.keys(fieldChanges).length === 0 && Object.keys(compDefChanges).length === 0) {
+        if (Object.keys(fieldChanges).length === 0
+            && Object.keys(compDefChanges).length === 0
+            && Object.keys(menuNodePatch).length === 0) {
           console.info("[DesignFwForm] OK clicked, no dirty changes — closing.");
           this._dirty.clear();
           _markFormDirty(this, false);
@@ -7299,6 +7328,38 @@
           lastRespData = await r2.json();
           savedFieldsCount += Object.keys(compDefChanges).length;
           console.info("[DesignFwForm] PATCH comp_def success:", lastRespData);
+        }
+
+        // Phase 38.4 Krok 5.M-5+1 (17.5.2026, Marti's "priradit prehled
+        // ke kazdemu soudecku"): PATCH 3 — menu_node.core_id (Picker #2
+        // Prehled save). Runtime menu_node_pk z context menu fix.
+        if (Object.keys(menuNodePatch).length > 0) {
+          const r3 = await fetch(
+            "/api/v1/erp/design/menu_node/" + encodeURIComponent(runtimeMenuNodePk),
+            {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                field_changes: menuNodePatch,
+              }),
+            }
+          );
+          if (!r3.ok) {
+            const errData = await r3.json().catch(() => ({}));
+            alert(
+              "Uloženi menu_node selhalo: HTTP " + r3.status + "\n" +
+              (errData.error || "(žádný error message)") + "\n\n" +
+              "Soudeček-Přehled pairing nedotaženo. Form ostatní změny " +
+              "(pokud jsou) byly ulozeny."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+          const r3data = await r3.json();
+          savedFieldsCount += Object.keys(menuNodePatch).length;
+          console.info("[DesignFwForm] PATCH menu_node success:", r3data);
         }
 
         // 200 OK — toast + close

@@ -87,6 +87,10 @@ def _resolve_operation(
     # NULL doctrine"): runtime lookup s NULL fallback. Pokud :variant='default'
     # a žádná row match exactly, fallback na variant_code IS NULL (treat NULL
     # jako "default" pro backward compat s Marti's NULL-allowing schema).
+    # Phase 38.4 Krok 14g Etapa F Krok 5.M (17.5.2026): ds.db_connection VARCHAR
+    # → FK ds.db_connection_id. JOIN fw.db_connection + alias dc.default_db AS
+    # db_connection (semantic preservation — legacy column stored default_db).
+    # Plus dc.code AS db_connection_code (new FK identifier).
     query = _sql_text("""
         SELECT
             s.id AS data_source_id,
@@ -95,12 +99,15 @@ def _resolve_operation(
             s.default_record_limit,
             ds.id AS data_set_id,
             ds.sql_text,
-            ds.db_connection,
+            dc.default_db AS db_connection,
+            dc.code AS db_connection_code,
+            ds.db_connection_id,
             op.operation_kind,
             op.variant_code
         FROM fw.data_source s
         JOIN fw.data_source_op op ON op.data_source_id = s.id
         JOIN fw.data_set ds ON ds.id = op.data_set_id
+        LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
         WHERE s.code = :code
           AND s.status = 'active'
           AND op.operation_kind = :kind

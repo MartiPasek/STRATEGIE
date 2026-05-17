@@ -1734,8 +1734,18 @@ def system_framework(
         ds = _gds_fw()
         rows = []
         try:
+            # Krok 5.L-D (17.5.): drop kind column.
+            # Krok 5.M (17.5.): db_connection VARCHAR → FK; JOIN fw.db_connection + alias
+            # dc.default_db AS db_connection (semantic preservation, legacy column
+            # stored default_db value). Plus dc.code AS db_connection_code.
             sql = _sql_text("""
-                SELECT * FROM fw.data_set ORDER BY id LIMIT :limit
+                SELECT ds.*,
+                       dc.default_db AS db_connection,
+                       dc.code       AS db_connection_code,
+                       dc.label      AS db_connection_label
+                FROM fw.data_set ds
+                LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
+                ORDER BY ds.id LIMIT :limit
             """)
             result = ds.execute(sql, {"limit": limit})
             for r in result:
@@ -1750,9 +1760,11 @@ def system_framework(
                     "code": d.get("code"),
                     "version": d.get("version"),
                     "description": d.get("description"),
-                    "kind": d.get("kind"),
                     "sql_text": d.get("sql_text"),
-                    "db_connection": d.get("db_connection"),
+                    "db_connection": d.get("db_connection"),           # Krok 5.M: aliased dc.default_db (legacy semantic)
+                    "db_connection_code": d.get("db_connection_code"), # Krok 5.M: dc.code (new FK identifier)
+                    "db_connection_id": d.get("db_connection_id"),     # Krok 5.M: FK BIGINT
+                    "db_connection_label": d.get("db_connection_label"),  # Krok 5.M: human label
                     "parameters": params,
                     "tenant_id": d.get("tenant_id"),
                     "is_system": bool(d.get("is_system")),
@@ -6459,7 +6471,7 @@ async def design_archive_fw_data_source(data_source_id: int, req: Request) -> JS
 # A3 architecture recap (Marti-AI's doctrine 9.5.):
 #   fw.data_source      = hlavička (code, name, description, refresh_type, limit)
 #   fw.data_source_op   = mapping (FK source + FK set + variant + kind)
-#   fw.data_set         = SQL primitiv (code, kind, sql_text, db_connection)
+#   fw.data_set         = SQL primitiv (code, sql_text, db_connection) — kind dropped Krok 5.L-D 17.5.2026
 #
 # Endpointy MVP:
 #   POST /design/data-source/full           — bulk create (header + N ops + N data_sets)
@@ -6573,8 +6585,8 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
         if has_inline:
             ds = op["data_set"]
             # Krok 5.K-B5+: data_set.code optional (NULL allowed per Marti's doctrine)
-            if not (ds.get("kind") or "").strip():
-                return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.kind povinne"}, status_code=400)
+            # Krok 5.L-D (17.5.2026, Marti's "kind nereflektuje SQL"): drop kind validation,
+            # ALTER TABLE DROP COLUMN. SQL text je truth source.
             if not (ds.get("sql_text") or "").strip():
                 return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.sql_text povinne"}, status_code=400)
 
@@ -6637,16 +6649,38 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
             if isinstance(op.get("data_set"), dict):
                 ds_in = op["data_set"]
                 # Krok 5.K-B5+ (Marti's NULL doctrine): data_set.code optional.
-                # None = NULL v DB. Uniqueness check JEN pokud non-null.
+                # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind column
+                # — SQL text je truth source, kind je dead weight.
                 ds_code_raw = ds_in.get("code")
                 ds_code_normalized = None
                 if ds_code_raw is not None:
                     ds_code_normalized = str(ds_code_raw).strip() or None
+                # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
+                # Backward compat: accept db_connection_id (FK) or db_connection (legacy code string).
+                ds_conn_id_raw = ds_in.get("db_connection_id")
+                if ds_conn_id_raw is not None:
+                    try:
+                        _ds_db_connection_id = int(ds_conn_id_raw)
+                    except (ValueError, TypeError):
+                        ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                        ds_session.commit()
+                        return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.db_connection_id musí být integer, got {ds_conn_id_raw!r}"}, status_code=400)
+                else:
+                    _ds_conn_code = (ds_in.get("db_connection") or "data_db").strip() or "data_db"
+                    _ds_conn_row = ds_session.execute(_sql_text_dsf("""
+                        SELECT id FROM fw.db_connection
+                        WHERE code = :c OR default_db = :c
+                        LIMIT 1
+                    """), {"c": _ds_conn_code}).mappings().one_or_none()
+                    if _ds_conn_row is None:
+                        ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                        ds_session.commit()
+                        return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.db_connection '{_ds_conn_code}' nenalezen v fw.db_connection"}, status_code=400)
+                    _ds_db_connection_id = _ds_conn_row["id"]
                 set_values = {
                     "code": ds_code_normalized,
-                    "kind": ds_in["kind"].strip(),
                     "sql_text": ds_in["sql_text"],  # multi-line, no strip
-                    "db_connection": (ds_in.get("db_connection") or "data_db").strip(),
+                    "db_connection_id": _ds_db_connection_id,
                     "description": (ds_in.get("description") or None),
                     "is_system": False,
                     "status": "active",
@@ -6785,8 +6819,8 @@ def design_get_data_set_single(data_set_id: int, req: Request) -> JSONResponse:
     """Krok 5.L-A GET single data_set detail + use count (pocet refs v data_source_op).
 
     Returns:
-        200: { ok, data_set: {id, code, kind, sql_text, db_connection, description, status,
-               is_system, created_at}, use_count }
+        200: { ok, data_set: {id, code, sql_text, db_connection, description, status,
+               is_system, created_at}, use_count }  # kind dropped Krok 5.L-D 17.5.2026
         404: data_set neexistuje
     """
     from core.database_data import get_data_session as _gds_gdss
@@ -6842,9 +6876,12 @@ async def design_create_data_set(req: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
 
-    kind = (body.get("kind") or "").strip()
+    # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind field — SQL truth source
+    # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
+    # Backward compat: accept db_connection_id (FK BIGINT) or db_connection (legacy code string).
     sql_text = body.get("sql_text") or ""
-    db_connection = (body.get("db_connection") or "data_db").strip()
+    db_conn_id_raw = body.get("db_connection_id")
+    db_conn_legacy = body.get("db_connection")  # legacy string code
     description = body.get("description")
     if description is not None:
         description = str(description).strip() or None
@@ -6856,13 +6893,30 @@ async def design_create_data_set(req: Request) -> JSONResponse:
         code_normalized = str(code_raw).strip() or None
 
     # Validation
-    if not kind:
-        return JSONResponse({"ok": False, "error": "kind povinné (select/insert/update/delete)"}, status_code=400)
     if not sql_text.strip():
         return JSONResponse({"ok": False, "error": "sql_text povinný"}, status_code=400)
 
     ds_session = _gds_cds_set()
     try:
+        # Resolve db_connection_id (Krok 5.M backward compat)
+        db_connection_id = None
+        if db_conn_id_raw is not None:
+            try:
+                db_connection_id = int(db_conn_id_raw)
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": f"db_connection_id musí být integer, got {db_conn_id_raw!r}"}, status_code=400)
+        else:
+            # Legacy fallback: lookup FK by code OR default_db string
+            conn_code = (db_conn_legacy or "data_db").strip() or "data_db"
+            conn_row = ds_session.execute(_sql_text_cds_set("""
+                SELECT id FROM fw.db_connection
+                WHERE code = :c OR default_db = :c
+                LIMIT 1
+            """), {"c": conn_code}).mappings().one_or_none()
+            if conn_row is None:
+                return JSONResponse({"ok": False, "error": f"db_connection '{conn_code}' nenalezen v fw.db_connection"}, status_code=400)
+            db_connection_id = conn_row["id"]
+
         # Uniqueness check JEN pokud code non-null
         if code_normalized is not None:
             existing = ds_session.execute(_sql_text_cds_set("""
@@ -6878,9 +6932,8 @@ async def design_create_data_set(req: Request) -> JSONResponse:
 
         values = {
             "code": code_normalized,
-            "kind": kind,
             "sql_text": sql_text,
-            "db_connection": db_connection,
+            "db_connection_id": db_connection_id,
             "description": description,
             "is_system": False,
             "status": "active",
@@ -6901,8 +6954,8 @@ async def design_create_data_set(req: Request) -> JSONResponse:
 
 @api_router.patch("/design/data-set/update/{data_set_id}")
 async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
-    """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text + kind +
-    db_connection + description.
+    """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text +
+    db_connection + description.  # kind dropped Krok 5.L-D 17.5.2026
 
     Route 3-segment (Marti's gotcha #14b+10) — vyhne collision s generic
     design_patch_entity `/design/{entity_type}/{row_id}`.
@@ -6921,16 +6974,32 @@ async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
 
-    ALLOWED = ("sql_text", "kind", "db_connection", "description")
+    # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind z ALLOWED
+    # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
+    # Backward compat: accept db_connection_id (FK BIGINT) or db_connection (legacy code string).
+    ALLOWED = ("sql_text", "db_connection_id", "description")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
             update_vals[k] = body[k]
-    if not update_vals:
-        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
 
     ds_pdset = _gds_pdset()
     try:
+        # Legacy db_connection (string code) → FK resolve
+        if "db_connection_id" not in update_vals and "db_connection" in body:
+            conn_code = (body["db_connection"] or "").strip()
+            if conn_code:
+                conn_row = ds_pdset.execute(_sql_text_pdset("""
+                    SELECT id FROM fw.db_connection
+                    WHERE code = :c OR default_db = :c
+                    LIMIT 1
+                """), {"c": conn_code}).mappings().one_or_none()
+                if conn_row is None:
+                    return JSONResponse({"ok": False, "error": f"db_connection '{conn_code}' nenalezen v fw.db_connection"}, status_code=400)
+                update_vals["db_connection_id"] = conn_row["id"]
+
+        if not update_vals:
+            return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: sql_text, db_connection_id (nebo db_connection), description"}, status_code=400)
         existing = ds_pdset.execute(_sql_text_pdset("""
             SELECT id, status FROM fw.data_set WHERE id = :id
         """), {"id": data_set_id}).mappings().one_or_none()
@@ -7015,7 +7084,7 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
             operations: [
                 {
                     id, variant_code, operation_kind, sort_order, is_default, description,
-                    data_set: { id, code, kind, sql_text, db_connection, description, status }
+                    data_set: { id, code, sql_text, db_connection, description, status }  # kind dropped Krok 5.L-D
                 },
                 ...
             ]
@@ -7038,14 +7107,23 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
         if not src_row:
             return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} nenalezen"}, status_code=404)
 
+        # Krok 5.L-D: drop ds.kind (kind column removed)
+        # Krok 5.M: ds.db_connection VARCHAR → FK ds.db_connection_id;
+        # JOIN fw.db_connection + alias dc.default_db AS db_connection (semantic
+        # preservation — legacy varchar column stored default_db value, NE code).
+        # Plus dc.code AS db_connection_code (new FK identifier).
         op_rows = ds_session.execute(_sql_text_dgf("""
             SELECT op.id AS op_id, op.variant_code, op.operation_kind,
                    op.sort_order, op.is_default, op.description AS op_description,
-                   ds.id AS data_set_id, ds.code AS data_set_code, ds.kind AS data_set_kind,
-                   ds.sql_text, ds.db_connection,
+                   ds.id AS data_set_id, ds.code AS data_set_code,
+                   ds.sql_text,
+                   dc.default_db AS db_connection,
+                   dc.code AS db_connection_code,
+                   ds.db_connection_id,
                    ds.description AS data_set_description, ds.status AS data_set_status
             FROM fw.data_source_op op
             LEFT JOIN fw.data_set ds ON ds.id = op.data_set_id
+            LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
             WHERE op.data_source_id = :sid
             ORDER BY op.sort_order ASC, op.id ASC
         """), {"sid": data_source_id}).mappings().all()
@@ -7062,9 +7140,10 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
                 "data_set": {
                     "id": r["data_set_id"],
                     "code": r["data_set_code"],
-                    "kind": r["data_set_kind"],
                     "sql_text": r["sql_text"],
-                    "db_connection": r["db_connection"],
+                    "db_connection": r["db_connection"],            # legacy semantic: dc.default_db ('data_db', 'DB_EC', ...)
+                    "db_connection_code": r["db_connection_code"],  # Krok 5.M: dc.code ('strategie_pg', 'eurosoft_db_ec', ...)
+                    "db_connection_id": r["db_connection_id"],      # Krok 5.M: FK
                     "description": r["data_set_description"],
                     "status": r["data_set_status"],
                 } if r["data_set_id"] is not None else None,
@@ -13291,17 +13370,8 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Code", field: "code", width: 200, sortable: true,
               cellStyle: { fontFamily: "monospace" } },
             { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
-            { headerName: "Kind", field: "kind", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "select") return { color: "#7ba8d4", fontWeight: "500" };
-                if (p.value === "insert") return { color: "#6aa84f" };
-                if (p.value === "update") return { color: "#d4a017" };
-                if (p.value === "delete") return { color: "#cc6666" };
-                if (p.value === "procedure") return { color: "#aa66cc" };
-                if (p.value === "pre_open") return { color: "#888" };
-                if (p.value === "copy")   return { color: "#7bd4a8" };
-                return null;
-              } },
+            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): Kind dropped
+            // (Marti's "V tom SQL textu muze byt cokoli... Chceme ho na neco?")
             { headerName: "DB", field: "db_connection", width: 110, sortable: true,
               headerTooltip: "Cílový connection (data_db, eurosoft, ...)" },
             { headerName: "Description", field: "description", width: 220 },

@@ -12386,12 +12386,24 @@
       .replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "untitled";
   }
 
+  // Phase 38.4 Krok 14g Etapa F Krok 5.M (17.5.2026):
+  // — Marti's 17.5.: DB_IS = EUROSOFT-System (NE INTERSOFT). Fakturace,
+  //   účetnictví, TabCisZam. Plánovaný rename DB_ES.
+  // — DB-ARCHIV dropped (Marti's Q4: "neresit, nevim"). Přidáme až bude
+  //   real use case.
+  // — Added Centrala (sync layer) + DB_ST (Marti-AI's framework playground).
+  //
+  // Backward compat: values = legacy code strings (data_db, DB_EC, atd.).
+  // Backend Krok 5.M lookup `WHERE code OR default_db match :c` resolve
+  // na fw.db_connection.id (BIGINT FK). Žádný frontend refactor potřeba.
+  // Optgroup grouping + tenant labels — Phase 30+1 polish.
   const DDS_DB_CONNECTIONS = [
-    { value: "data_db",     label: "data_db (PostgreSQL cílový — STRATEGIE)" },
-    { value: "DB_EC",       label: "DB_EC (MSSQL EUROSOFT — Centrála 1)" },
-    { value: "DB_IS",       label: "DB_IS (MSSQL INTERSOFT)" },
-    { value: "DB-Ceniky",   label: "DB-Ceniky (MSSQL pricing)" },
-    { value: "DB-ARCHIV",   label: "DB-ARCHIV (MSSQL historical)" },
+    { value: "data_db",   label: "data_db (PostgreSQL cílový — STRATEGIE)" },
+    { value: "DB_EC",     label: "DB_EC (MSSQL EUROSOFT — Centrála 1)" },
+    { value: "DB_IS",     label: "DB_IS (MSSQL EUROSOFT-System — fakturace, TabCisZam)" },
+    { value: "Centrala",  label: "Centrala (MSSQL sync EUROSOFT ↔ INTERSOFT)" },
+    { value: "DB-Ceniky", label: "DB-Ceniky (MSSQL pricing)" },
+    { value: "DB_ST",     label: "DB_ST (MSSQL Marti-AI playground)" },
   ];
 
   const DDS_REFRESH_TYPES = [
@@ -12675,10 +12687,11 @@
       row.appendChild(_cell(op.operation_kind));
       // Description = primary human label. Fallback na data_set summary
       // pokud description chybí.
+      // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): data_set.kind dropped.
       const humanLabel = op.description
         ? op.description
         : (op.data_set
-            ? ("📄 " + (op.data_set.db_connection || "?") + (op.data_set.kind ? " · " + op.data_set.kind : ""))
+            ? ("📄 " + (op.data_set.db_connection || "?"))
             : "(?)");
       row.appendChild(_cell(humanLabel));
       row.appendChild(_cell(op.is_default ? "✓ default" : ""));
@@ -12719,9 +12732,10 @@
 
       const titleEl = document.createElement("div");
       titleEl.style.cssText = "font-weight:600;font-size:14px;";
+      // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): data_set.kind dropped.
       titleEl.innerHTML = "📄 " + (op.data_set.code || "data_set") +
         " <span style=\"color:#7ed4e8;font-size:11px;font-weight:400;\">" +
-        op.data_set.kind + " · " + op.data_set.db_connection + "</span>";
+        op.data_set.db_connection + "</span>";
       dialog.appendChild(titleEl);
 
       const editorHost = document.createElement("div");
@@ -12911,8 +12925,8 @@
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
           data_set: {
+            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
             code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
-            kind: kindSelect.value,
             sql_text: sqlText,
             db_connection: dbConnSelect.value,
             description: setDescInput.value.trim() || null,
@@ -13085,14 +13099,13 @@
           if (!isNaN(newSort) && newSort !== op.sort_order) opPatchBody.sort_order = newSort;
 
           // Diff data_set vs initial
+          // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
           const setPatchBody = {};
           const newSql = aceEd.value();
           if (newSql !== (ds.sql_text || "")) setPatchBody.sql_text = newSql;
           if (dbConnSelect.value !== (ds.db_connection || "")) setPatchBody.db_connection = dbConnSelect.value;
           const newDesc = setDescInput.value.trim() || null;
           if (newDesc !== (ds.description || null)) setPatchBody.description = newDesc;
-          // kind synchronize s op.operation_kind (Marti's idiom)
-          if (kindSelect.value !== ds.kind) setPatchBody.kind = kindSelect.value;
 
           // Validate — alespoň 1 změna
           if (Object.keys(opPatchBody).length === 0 && Object.keys(setPatchBody).length === 0) {
@@ -13303,12 +13316,9 @@
   //   int  = edit existing mode
   // ══════════════════════════════════════════════════════════════════════
 
-  const DDS_KIND_OPTIONS = [
-    { value: "select", label: "select" },
-    { value: "insert", label: "insert" },
-    { value: "update", label: "update" },
-    { value: "delete", label: "delete" },
-  ];
+  // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): DDS_KIND_OPTIONS dropped
+  // — Marti's "V tom SQL textu muze byt cokoli... Chceme ho na neco?". Kind
+  // sloupec smazán z fw.data_set (DROP COLUMN). SQL text je truth source.
 
   class DesignDataSetEditor {
     constructor(opts) {
@@ -13316,7 +13326,7 @@
       this.dataSetId = this.opts.dataSetId || null;
       this.onComplete = this.opts.onComplete || null;
       this._spec = null;     // { data_set, use_count } z GET
-      this._state = null;    // { kind, sql_text, db_connection, description }
+      this._state = null;    // { sql_text, db_connection, description } — kind dropped (Krok 5.L-D)
       this._shell = null;
       this._aceEd = null;
       this._isCreateMode = (this.dataSetId == null);
@@ -13356,7 +13366,6 @@
       if (this._isCreateMode) {
         this._spec = { data_set: null, use_count: 0 };
         this._state = {
-          kind: "select",
           sql_text: "",
           db_connection: "data_db",
           description: "",
@@ -13388,7 +13397,6 @@
         if (!this._spec || !this._spec.ok) throw new Error("Neplatná response");
         const ds = this._spec.data_set || {};
         this._state = {
-          kind: ds.kind || "select",
           sql_text: ds.sql_text || "",
           db_connection: ds.db_connection || "data_db",
           description: ds.description || "",
@@ -13434,7 +13442,8 @@
         wrap.appendChild(idRow);
       }
 
-      // Header section — kind + db_connection + description
+      // Header section — db_connection + description
+      // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): Kind dropdown dropped.
       const sec = document.createElement("div");
       sec.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:12px;background:#0f1419;border:1px solid #2a3340;border-radius:4px;";
 
@@ -13448,20 +13457,6 @@
         return l;
       };
       const _inputStyle = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;";
-
-      // Kind dropdown
-      const kindSelect = document.createElement("select");
-      kindSelect.style.cssText = _inputStyle + "cursor:pointer;";
-      for (const opt of DDS_KIND_OPTIONS) {
-        const o = document.createElement("option");
-        o.value = opt.value;
-        o.textContent = opt.label;
-        if (opt.value === this._state.kind) o.selected = true;
-        kindSelect.appendChild(o);
-      }
-      kindSelect.addEventListener("change", () => { this._state.kind = kindSelect.value; });
-      grid.appendChild(_lbl("Kind"));
-      grid.appendChild(kindSelect);
 
       // DB connection dropdown
       const dbSelect = document.createElement("select");
@@ -13541,7 +13536,7 @@
     }
 
     async _onSaveClick() {
-      const kind = this._state.kind;
+      // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind dropped.
       const sqlText = this._state.sql_text || "";
       if (!sqlText.trim()) {
         if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
@@ -13559,7 +13554,6 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               code: null,  // Marti's NULL doctrine
-              kind: kind,
               sql_text: sqlText,
               db_connection: this._state.db_connection,
               description: this._state.description.trim() || null,
@@ -13576,9 +13570,9 @@
           setTimeout(() => this._shell.close(), 600);
         } else {
           // PATCH edit
+          // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): kind diff dropped.
           const initialDs = (this._spec && this._spec.data_set) || {};
           const patch = {};
-          if (this._state.kind !== initialDs.kind) patch.kind = this._state.kind;
           if (this._state.sql_text !== (initialDs.sql_text || "")) patch.sql_text = this._state.sql_text;
           if (this._state.db_connection !== (initialDs.db_connection || "")) patch.db_connection = this._state.db_connection;
           const newDesc = this._state.description.trim() || null;

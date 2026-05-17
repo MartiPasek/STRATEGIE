@@ -1699,7 +1699,6 @@
     // fw.core
     "core.layout_type": "Typ rozložení",
     "core.layout_template": "Šablona rozložení",
-    "core.data_entity_type": "Typ datové entity",
     "core.parent_framework_id": "Nadřazené jádro (lineage)",
     "core.version": "Verze",
     // Krok 14a-A1l #1 — dva popisy
@@ -1738,7 +1737,6 @@
     "core.label": "Lidsky čitelný název core zobrazený jako title přehledu / formu.",
     "core.layout_type": "list = grid view (přehled řádků), form = single record (jádro), special = hardcoded.",
     "core.layout_template": "Volitelná šablona pro pixel-aware layout (single, multi-pane).",
-    "core.data_entity_type": "FK na fw.entity_def.code — typ entity, kterou core reprezentuje (např. menu_node, core, comp_def).",
     "core.version": "Phase 8.5. Marti-AI's Q6 — verze pro lineage bez history tabulky.",
     "core.parent_framework_id": "Phase 8.5. Marti-AI's Q6 — FK na předchozí verzi (self-FK pro lineage).",
     "core.description": "Popis core — co reprezentuje, kdy byl vytvořen, kdo je tvůrce.",
@@ -2543,7 +2541,6 @@
           { headerName: "Code", field: "code", width: 220, filter: "agTextColumnFilter", sortable: true },
           { headerName: "Label", field: "label", flex: 1, minWidth: 200, filter: "agTextColumnFilter", sortable: true },
           { headerName: "Layout", field: "layout_type", width: 130, filter: "agTextColumnFilter", sortable: true },
-          { headerName: "Data entity", field: "data_entity_type", width: 130, filter: "agTextColumnFilter", sortable: true },
           { headerName: "v", field: "version", width: 60, type: "numericColumn", sortable: true },
           { headerName: "Použit ×", field: "is_used_count", width: 110, type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
         ],
@@ -2652,16 +2649,9 @@
       layoutWrap.appendChild(layoutSelect);
       body.appendChild(layoutWrap);
 
-      // data_entity_type
-      const entityWrap = _mkField("Data entity (table)", "Volitelně. fw.menu_node entity ref. Např. 'user', 'menu_node', 'security_device'.", false);
-      const entityInput = document.createElement("input");
-      entityInput.type = "text";
-      entityInput.style.cssText =
-        "padding:8px 10px;background:#0f141a;border:1px solid #3a4754;border-radius:4px;" +
-        "color:#e8eef5;font-size:12px;font-family:monospace;outline:none;";
-      entityInput.placeholder = "user";
-      entityWrap.appendChild(entityInput);
-      body.appendChild(entityWrap);
+      // Phase 38.4 Krok 5.M-3+B (17.5.2026): "Data entity (table)" input
+      // field DROPPED. Krok 5.M doctrine "core nenese entitu". Wizard
+      // creates drafted core, entity je odvozena z form root data_source.
 
       modal.appendChild(body);
 
@@ -2690,7 +2680,8 @@
         const code = codeInput.value.trim();
         const label = labelInput.value.trim();
         const layoutType = layoutSelect.value;
-        const dataEntity = entityInput.value.trim() || null;
+        // Phase 38.4 Krok 5.M-3+B (17.5.2026): dataEntity DROPPED, entity
+        // is determined by form root data_source (Krok 5.M doctrine).
 
         if (!code) { alert("Code je povinný."); codeInput.focus(); return; }
         if (!/^[a-z][a-z0-9_]*$/.test(code)) {
@@ -2711,7 +2702,8 @@
               code: code,
               label: label,
               layout_type: layoutType,
-              data_entity_type: dataEntity,
+              // Phase 38.4 Krok 5.M-3+B: data_entity_type omitted from POST.
+              // Backend defaults na NULL (drafted core, Krok 5.A doctrine).
             }),
           });
           const data = await r.json().catch(() => ({}));
@@ -3861,8 +3853,6 @@
               filter: "agTextColumnFilter", sortable: true },
             { headerName: "Layout", field: "layout_type", width: 130,
               filter: "agTextColumnFilter", sortable: true },
-            { headerName: "Data entity", field: "data_entity_type", width: 130,
-              filter: "agTextColumnFilter", sortable: true },
             { headerName: "v", field: "version", width: 60,
               type: "numericColumn", sortable: true },
             { headerName: "Použit ×", field: "is_used_count", width: 110,
@@ -4184,7 +4174,8 @@
         idSec.grid.appendChild(_f("Code", formCore.code, "form_core.code", { mono: true }));
         idSec.grid.appendChild(_f("Label", formCore.label, "form_core.label"));
         idSec.grid.appendChild(_d("Layout type", formCore.layout_type, "layout_type", "form_core.layout_type"));
-        idSec.grid.appendChild(_f("Data entity type", formCore.data_entity_type, "form_core.data_entity_type", { mono: true }));
+        // Phase 38.4 Krok 5.M-3+B (17.5.2026): "Data entity type" field DROPPED
+        // (Krok 5.M doctrine "core nenese entitu").
         idSec.grid.appendChild(_f("Layout template", formCore.layout_template, "form_core.layout_template", { mono: true }));
         idSec.grid.appendChild(_f("Version", formCore.version, "form_core.version", { mono: true, readonly: true }));
         root.appendChild(idSec.wrap);
@@ -4209,11 +4200,15 @@
             _esc(suggestedCode || "?") +
             ")</code> + <code style='color:#cfd6df;'>fw.comp_def form 302</code> root s defaultním panelem <em>Obsah</em>.";
         } else {
+          // Phase 38.4 Krok 5.M-3+B (17.5.2026): drop "doplnit data_entity_type"
+          // hint (Krok 5.M doctrine). Generic hint zustal — form scaffold
+          // konfigurovany pres root comp_def data_source.
           hint.innerHTML =
             "Tento grid (<code style='color:#cfd6df;'>" +
             _esc(this.opts.gridCode || "?") +
-            "</code>) nemá nastavený <strong>typ datové entity</strong>." +
-            "<br>Bez něj nelze založit form detail. Doplň <code style='color:#cfd6df;'>data_entity_type</code> v list core přes <em>Design: Core přehledu</em>.";
+            "</code>) zatim nema <strong>form detail</strong>." +
+            "<br>Form lze zalozit cez Design: Core formular " +
+            "(volba root template + binding na data_source).";
         }
         wrap.appendChild(hint);
 

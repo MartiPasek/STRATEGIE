@@ -29,6 +29,10 @@ ALTER TABLE fw.data_source ALTER COLUMN code DROP NOT NULL;
 -- 2. fw.data_set.code DROP NOT NULL
 ALTER TABLE fw.data_set ALTER COLUMN code DROP NOT NULL;
 
+-- 3. Phase 38.4 Krok 14g Etapa F Krok 5.K-B6 (17.5.2026, Marti's volba A
+--    pro variant_code): NULL allowed + runtime fallback v data_source_runner.
+ALTER TABLE fw.data_source_op ALTER COLUMN variant_code DROP NOT NULL;
+
 COMMIT;
 
 -- ════════════════════════════════════════════════════════════════════════
@@ -37,6 +41,9 @@ COMMIT;
 SELECT table_schema, table_name, column_name, is_nullable, data_type
 FROM information_schema.columns
 WHERE table_schema = 'fw'
-  AND table_name IN ('data_source', 'data_set')
-  AND column_name = 'code';
--- Expected: 2 rows, oba is_nullable='YES'
+  AND (
+      (table_name IN ('data_source', 'data_set') AND column_name = 'code')
+      OR (table_name = 'data_source_op' AND column_name = 'variant_code')
+  )
+ORDER BY table_name, column_name;
+-- Expected: 3 rows, všechny is_nullable='YES'

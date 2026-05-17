@@ -83,6 +83,10 @@ def _resolve_operation(
             f"pojdou přes specifické endpointy s ACL)."
         )
 
+    # Phase 38.4 Krok 14g Etapa F Krok 5.K-B6 (17.5.2026, Marti's "variant_code
+    # NULL doctrine"): runtime lookup s NULL fallback. Pokud :variant='default'
+    # a žádná row match exactly, fallback na variant_code IS NULL (treat NULL
+    # jako "default" pro backward compat s Marti's NULL-allowing schema).
     query = _sql_text("""
         SELECT
             s.id AS data_source_id,
@@ -100,8 +104,14 @@ def _resolve_operation(
         WHERE s.code = :code
           AND s.status = 'active'
           AND op.operation_kind = :kind
-          AND op.variant_code = :variant
-        ORDER BY op.is_default DESC, op.sort_order ASC
+          AND (
+              op.variant_code = :variant
+              OR (:variant = 'default' AND op.variant_code IS NULL)
+          )
+        ORDER BY
+            (op.variant_code = :variant) DESC,  -- exact match first
+            op.is_default DESC,
+            op.sort_order ASC
         LIMIT 1
     """)
 

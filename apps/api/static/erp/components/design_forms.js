@@ -13226,12 +13226,14 @@
       // variant_code zůstává auto-gen "default"/"default_2" (backend lookup).
       const newOps = this._opsState.filter(o => !o.existing);
 
+      // Krok 5.K-B6 (Marti's "variant_code NULL allowed"): 1st op kind → null,
+      // 2nd same kind → "default_2", 3rd → "default_3". Backend runtime lookup
+      // má NULL fallback (data_source_runner.py — :variant='default' OR variant_code IS NULL).
       const kindCounts = {};
       const operations = newOps.map((op) => {
         const k = op.operation_kind;
         kindCounts[k] = (kindCounts[k] || 0) + 1;
-        const suffix = kindCounts[k] === 1 ? "" : "_" + kindCounts[k];
-        const variantCode = "default" + suffix;
+        const variantCode = kindCounts[k] === 1 ? null : "default_" + kindCounts[k];
         return {
           variant_code: variantCode,
           operation_kind: k,

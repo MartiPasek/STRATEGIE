@@ -6573,8 +6573,10 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
     for idx, op in enumerate(ops):
         if not isinstance(op, dict):
             return JSONResponse({"ok": False, "error": f"operations[{idx}] musi byt object"}, status_code=400)
-        if not (op.get("variant_code") or "").strip():
-            return JSONResponse({"ok": False, "error": f"operations[{idx}].variant_code povinne"}, status_code=400)
+        # Krok 5.K-B5+B6 (17.5.2026 rano, Marti's "variant_code NULL allowed"):
+        # drop variant_code povinne validation. NULL = default fallback per
+        # data_source_runner.py runtime lookup (variant_code IS NULL OR :variant='default').
+        # Frontend Krok 5.K-B5 auto-gen 1st kind -> null, 2nd -> "default_2", atd.
         if not (op.get("operation_kind") or "").strip():
             return JSONResponse({"ok": False, "error": f"operations[{idx}].operation_kind povinne"}, status_code=400)
         # Buď data_set (inline) NEBO data_set_id (link)

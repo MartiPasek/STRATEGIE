@@ -6333,7 +6333,11 @@
             "padding:6px 16px;background:#3a5a3a;border:1px solid #4a7a4a;" +
             "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;" +
             "font-weight:600;";
-          okBtn.addEventListener("click", () => this._onSaveClick());
+          // Phase 38.4 Krok 5.P-1+++++ (17.5.2026 vecer, Marti's "OK nereaguje"):
+          // DesignFwForm NEMA _onSaveClick — save method je _handleSaveAndClose
+          // (volana z _renderTemplateComponent button action='save_and_close'
+          // branch). Volání s btnEl ref pro visual feedback "⏳ Ukládám…".
+          okBtn.addEventListener("click", () => this._handleSaveAndClose(okBtn));
           sec.grid.appendChild(okBtn);
 
           const cancelBtn = document.createElement("button");

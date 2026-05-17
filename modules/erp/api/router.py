@@ -6705,6 +6705,167 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
         ds_session.close()
 
 
+@api_router.patch("/design/fw-data-source/{data_source_id}")
+async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSONResponse:
+    """Krok 5.K-B3: general PATCH pro data_source header (NEN archive-specific).
+
+    Body: {name?, description?, refresh_type?, default_record_limit?}
+    Whitelist non-immutable fields. Reuse strategie_pg.update_row.
+
+    Returns:
+        200: {ok, data_source_id, updated_fields}
+        400: invalid body
+        404: data_source neexistuje
+        500: UPDATE failed
+    """
+    from core.database_data import get_data_session as _gds_pds
+    from sqlalchemy import text as _sql_text_pds
+    from modules.strategie_pg.application.service import update_row as _spg_update_pds
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    ALLOWED = ("name", "description", "refresh_type", "default_record_limit")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+    if not update_vals:
+        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
+
+    # Validation
+    if "default_record_limit" in update_vals:
+        v = update_vals["default_record_limit"]
+        if not isinstance(v, int) or v <= 0:
+            return JSONResponse({"ok": False, "error": "default_record_limit musi byt positive int"}, status_code=400)
+
+    ds_pds = _gds_pds()
+    try:
+        # Verify existence
+        existing = ds_pds.execute(_sql_text_pds("""
+            SELECT id, status FROM fw.data_source WHERE id = :id
+        """), {"id": data_source_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} neexistuje"}, status_code=404)
+        if existing["status"] != "active":
+            return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} neni active (status={existing['status']})"}, status_code=400)
+
+        upd = _spg_update_pds(schema="fw", table="data_source", values=update_vals, where={"id": data_source_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "data_source_id": data_source_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds_pds.close()
+
+
+@api_router.patch("/design/data-set/{data_set_id}")
+async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
+    """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text + kind +
+    db_connection + description.
+
+    Body: {sql_text?, kind?, db_connection?, description?}
+    """
+    from core.database_data import get_data_session as _gds_pdset
+    from sqlalchemy import text as _sql_text_pdset
+    from modules.strategie_pg.application.service import update_row as _spg_update_pdset
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    ALLOWED = ("sql_text", "kind", "db_connection", "description")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+    if not update_vals:
+        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
+
+    ds_pdset = _gds_pdset()
+    try:
+        existing = ds_pdset.execute(_sql_text_pdset("""
+            SELECT id, status FROM fw.data_set WHERE id = :id
+        """), {"id": data_set_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} neexistuje"}, status_code=404)
+        if existing["status"] != "active":
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} neni active"}, status_code=400)
+
+        upd = _spg_update_pdset(schema="fw", table="data_set", values=update_vals, where={"id": data_set_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "data_set_id": data_set_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds_pdset.close()
+
+
+@api_router.patch("/design/data-source-op/{op_id}")
+async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
+    """Krok 5.K-B3: PATCH data_source_op (mapping) — update variant + kind +
+    sort + is_default + description.
+
+    Body: {variant_code?, operation_kind?, sort_order?, is_default?, description?}
+    """
+    from core.database_data import get_data_session as _gds_pop
+    from sqlalchemy import text as _sql_text_pop
+    from modules.strategie_pg.application.service import update_row as _spg_update_pop
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    ALLOWED = ("variant_code", "operation_kind", "sort_order", "is_default", "description")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+    if not update_vals:
+        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
+
+    ds_pop = _gds_pop()
+    try:
+        existing = ds_pop.execute(_sql_text_pop("""
+            SELECT id FROM fw.data_source_op WHERE id = :id
+        """), {"id": op_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"data_source_op id={op_id} neexistuje"}, status_code=404)
+
+        upd = _spg_update_pop(schema="fw", table="data_source_op", values=update_vals, where={"id": op_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "op_id": op_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds_pop.close()
+
+
 @api_router.get("/design/data-source/{data_source_id}/full")
 def design_get_data_source_full(data_source_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-A GET endpoint: full detail s linked ops + data_sets pro

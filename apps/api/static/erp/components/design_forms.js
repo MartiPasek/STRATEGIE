@@ -12661,10 +12661,13 @@
       const actionBtn = document.createElement("button");
       actionBtn.type = "button";
       if (isExisting) {
-        actionBtn.textContent = "👁";
-        actionBtn.title = "Zobrazit SQL (read-only)";
-        actionBtn.style.cssText = "padding:2px 6px;background:transparent;border:1px solid #3a4754;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:11px;";
-        actionBtn.addEventListener("click", () => this._showOpSqlReadOnly(op));
+        // Krok 5.K-B3 (17.5.2026 dopoledne, Marti's "ted je treba se k tomu
+        // vratit a editovat"): existing op → ✏ Edit button → expand inline form
+        // s pre-populated values + per-op PATCH save. Žádné 👁 read-only view.
+        actionBtn.textContent = "✏";
+        actionBtn.title = "Editovat operaci + SQL";
+        actionBtn.style.cssText = "padding:2px 6px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:11px;";
+        actionBtn.addEventListener("click", () => this._showEditOpForm(row, op, idx, actionBtn));
       } else {
         actionBtn.textContent = "✕";
         actionBtn.title = "Odstranit operaci (nebyla uložena)";
@@ -12909,6 +12912,227 @@
       container.appendChild(formWrap);
     }
 
+    _showEditOpForm(rowEl, op, idx, editBtn) {
+      // Krok 5.K-B3: edit existing op — pre-populated values + per-op PATCH save.
+      // Marti's "ted je treba se k tomu vratit a editovat".
+      // Render expand form pod row.
+      editBtn.disabled = true;
+      editBtn.style.opacity = "0.5";
+
+      const formWrap = document.createElement("div");
+      formWrap.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:14px;background:#0a1820;border:2px solid #3a8aa8;border-radius:4px;margin-top:6px;";
+
+      const formTitle = document.createElement("div");
+      formTitle.style.cssText = "font-size:12px;font-weight:600;color:#7ed4e8;";
+      formTitle.textContent = "✏ Editace operace #" + op.op_id + " + data_set #" + (op.data_set && op.data_set.id);
+      formWrap.appendChild(formTitle);
+
+      // Op header
+      const opGrid = document.createElement("div");
+      opGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
+
+      const _ipt = (val, ph) => {
+        const i = document.createElement("input");
+        i.type = "text";
+        i.value = val != null ? String(val) : "";
+        i.placeholder = ph || "";
+        i.style.cssText = "padding:5px 8px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;";
+        return i;
+      };
+      const _sel = (options, val) => {
+        const s = document.createElement("select");
+        s.style.cssText = "padding:5px 8px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;cursor:pointer;";
+        for (const opt of options) {
+          const o = document.createElement("option");
+          o.value = opt.value;
+          o.textContent = opt.label;
+          if (opt.value === val) o.selected = true;
+          s.appendChild(o);
+        }
+        return s;
+      };
+      const _lbl = (text) => {
+        const l = document.createElement("label");
+        l.textContent = text;
+        l.style.cssText = "color:#a8b4c2;font-size:11px;";
+        return l;
+      };
+
+      const variantInput = _ipt(op.variant_code, "např. 'list'");
+      const kindSelect = _sel(DDS_OPERATION_KINDS, op.operation_kind);
+      const isDefaultCheck = document.createElement("input");
+      isDefaultCheck.type = "checkbox";
+      isDefaultCheck.checked = !!op.is_default;
+      isDefaultCheck.style.cssText = "width:16px;height:16px;cursor:pointer;";
+      const sortInput = _ipt(op.sort_order, "0");
+      sortInput.type = "number";
+
+      opGrid.appendChild(_lbl("Variant code:"));
+      opGrid.appendChild(variantInput);
+      opGrid.appendChild(_lbl("Kind:"));
+      opGrid.appendChild(kindSelect);
+      opGrid.appendChild(_lbl("Default:"));
+      opGrid.appendChild(isDefaultCheck);
+      opGrid.appendChild(_lbl("Sort order:"));
+      opGrid.appendChild(sortInput);
+      formWrap.appendChild(opGrid);
+
+      // Data set inline
+      const setTitle = document.createElement("div");
+      setTitle.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;padding-bottom:4px;border-bottom:1px solid #1f2630;";
+      setTitle.textContent = "📄 Data Set #" + (op.data_set && op.data_set.id);
+      formWrap.appendChild(setTitle);
+
+      const setGrid = document.createElement("div");
+      setGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
+
+      const ds = op.data_set || {};
+      // data_set.code je immutable po insertu (Marti's "ID je svaty" tradition) — read-only display
+      const setCodeDisplay = document.createElement("div");
+      setCodeDisplay.style.cssText = "padding:5px 8px;color:#7ed4e8;font-family:monospace;font-size:12px;background:#0f1419;border:1px dashed #2a3340;border-radius:3px;";
+      setCodeDisplay.textContent = ds.code || "(?)";
+
+      const dbConnSelect = _sel(DDS_DB_CONNECTIONS, ds.db_connection || "data_db");
+      const setDescInput = _ipt(ds.description, "(volitelný popis)");
+
+      setGrid.appendChild(_lbl("Code (locked):"));
+      setGrid.appendChild(setCodeDisplay);
+      setGrid.appendChild(_lbl("DB connection:"));
+      setGrid.appendChild(dbConnSelect);
+      setGrid.appendChild(_lbl("Description:"));
+      const descWrap = document.createElement("div");
+      descWrap.style.gridColumn = "2 / 5";
+      descWrap.appendChild(setDescInput);
+      setGrid.appendChild(descWrap);
+      formWrap.appendChild(setGrid);
+
+      // SQL editor
+      const sqlLabel = document.createElement("div");
+      sqlLabel.style.cssText = "font-size:11px;color:#a8b4c2;margin-top:4px;";
+      sqlLabel.textContent = "SQL text:";
+      formWrap.appendChild(sqlLabel);
+
+      const editorHost = document.createElement("div");
+      formWrap.appendChild(editorHost);
+
+      let aceEd = null;
+      if (typeof global.ErpRichEdit === "function") {
+        aceEd = new global.ErpRichEdit(editorHost, {
+          value: ds.sql_text || "",
+          language: "sql",
+          theme: "monokai",
+          height: "260px",
+          lineNumbers: true,
+          onBlur: () => this._refreshParamHint(aceEd, paramHint),
+        });
+        this._editors.push(aceEd);
+      } else {
+        const ta = document.createElement("textarea");
+        ta.style.cssText = "padding:8px;background:#0a0f14;border:1px solid #2a3340;color:#cfd6df;font-family:monospace;font-size:12px;width:100%;box-sizing:border-box;min-height:260px;";
+        ta.value = ds.sql_text || "";
+        editorHost.appendChild(ta);
+        aceEd = { value: () => ta.value, destroy: () => {} };
+      }
+
+      const paramHint = document.createElement("div");
+      paramHint.style.cssText = "padding:6px 8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;font-style:italic;";
+      formWrap.appendChild(paramHint);
+      this._refreshParamHint(aceEd, paramHint);
+
+      // Buttons
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:6px;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Zrušit";
+      cancelBtn.style.cssText = "padding:5px 12px;background:#2a3340;border:1px solid #3a4754;color:#cfd6df;border-radius:3px;cursor:pointer;font-size:12px;";
+      cancelBtn.addEventListener("click", () => {
+        formWrap.remove();
+        editBtn.disabled = false;
+        editBtn.style.opacity = "1";
+      });
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Uložit operaci';
+      okBtn.style.cssText = "padding:5px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
+      okBtn.addEventListener("click", async () => {
+        okBtn.disabled = true;
+        okBtn.innerHTML = "⏳ Ukládám…";
+        try {
+          // Diff op header vs initial
+          const opPatchBody = {};
+          if (variantInput.value.trim() !== op.variant_code) opPatchBody.variant_code = variantInput.value.trim();
+          if (kindSelect.value !== op.operation_kind) opPatchBody.operation_kind = kindSelect.value;
+          if (isDefaultCheck.checked !== !!op.is_default) opPatchBody.is_default = isDefaultCheck.checked;
+          const newSort = parseInt(sortInput.value, 10);
+          if (!isNaN(newSort) && newSort !== op.sort_order) opPatchBody.sort_order = newSort;
+
+          // Diff data_set vs initial
+          const setPatchBody = {};
+          const newSql = aceEd.value();
+          if (newSql !== (ds.sql_text || "")) setPatchBody.sql_text = newSql;
+          if (dbConnSelect.value !== (ds.db_connection || "")) setPatchBody.db_connection = dbConnSelect.value;
+          const newDesc = setDescInput.value.trim() || null;
+          if (newDesc !== (ds.description || null)) setPatchBody.description = newDesc;
+          // kind synchronize s op.operation_kind (Marti's idiom)
+          if (kindSelect.value !== ds.kind) setPatchBody.kind = kindSelect.value;
+
+          // Validate — alespoň 1 změna
+          if (Object.keys(opPatchBody).length === 0 && Object.keys(setPatchBody).length === 0) {
+            if (typeof _showToast === "function") _showToast("Žádné změny k uložení", "info", 2000);
+            okBtn.disabled = false;
+            okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Uložit operaci';
+            return;
+          }
+
+          // PATCH data_set if changed
+          if (Object.keys(setPatchBody).length > 0) {
+            const r1 = await fetch("/api/v1/erp/design/data-set/" + encodeURIComponent(ds.id), {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(setPatchBody),
+            });
+            const respData1 = await r1.json().catch(() => ({}));
+            if (!r1.ok || !respData1.ok) throw new Error(respData1.error || ("HTTP " + r1.status + " data-set"));
+          }
+
+          // PATCH op if changed
+          if (Object.keys(opPatchBody).length > 0) {
+            const r2 = await fetch("/api/v1/erp/design/data-source-op/" + encodeURIComponent(op.op_id), {
+              method: "PATCH", credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(opPatchBody),
+            });
+            const respData2 = await r2.json().catch(() => ({}));
+            if (!r2.ok || !respData2.ok) throw new Error(respData2.error || ("HTTP " + r2.status + " data-source-op"));
+          }
+
+          if (typeof _showToast === "function") {
+            _showToast("Operace uložena (data_set #" + ds.id + " · op #" + op.op_id + ")", "success", 2500);
+          }
+          // Reload full spec → refresh display
+          formWrap.remove();
+          await this._fetchData();
+        } catch (e) {
+          console.error("[DesignDataSourceEditor] edit op save failed:", e);
+          if (typeof _showToast === "function") {
+            _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
+          }
+          okBtn.disabled = false;
+          okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Uložit operaci';
+        }
+      });
+
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+      formWrap.appendChild(btnRow);
+
+      // Insert after row
+      rowEl.parentNode.insertBefore(formWrap, rowEl.nextSibling);
+    }
+
     _refreshParamHint(aceEd, paramHintEl) {
       // Krok 5.K-C parameter auto-extract
       const sqlText = aceEd.value() || "";
@@ -12925,9 +13149,46 @@
 
     async _onSaveClick() {
       if (!this._isCreateMode) {
-        // Edit mode = MVP defer — backend PATCH endpoints budou v Krok 5.K-B3
-        if (typeof _showToast === "function") {
-          _showToast("Edit existujícího data_source je TODO (Krok 5.K-B3). Pro now přes DBeaver.", "info", 4000);
+        // Krok 5.K-B3 edit mode: PATCH header diff vs initial _spec.source.
+        // Existing ops byly editované přes inline expand (per-op PATCH calls
+        // už persistovány). Tento Save = jen header level changes.
+        const srcInitial = (this._spec && this._spec.source) || {};
+        const headerPatch = {};
+        if (this._headerState.name !== (srcInitial.name || "")) headerPatch.name = this._headerState.name.trim();
+        if ((this._headerState.description || "") !== (srcInitial.description || "")) headerPatch.description = this._headerState.description.trim() || null;
+        if (this._headerState.refresh_type !== srcInitial.refresh_type) headerPatch.refresh_type = this._headerState.refresh_type;
+        if (this._headerState.default_record_limit !== srcInitial.default_record_limit) headerPatch.default_record_limit = this._headerState.default_record_limit || 10000;
+
+        if (Object.keys(headerPatch).length === 0) {
+          if (typeof _showToast === "function") _showToast("Žádné header změny", "info", 2000);
+          this._shell.close();
+          return;
+        }
+
+        this._saveBtn.disabled = true;
+        this._saveBtn.innerHTML = "⏳ Ukládám…";
+        try {
+          const r = await fetch("/api/v1/erp/design/fw-data-source/" + encodeURIComponent(this.dataSourceId), {
+            method: "PATCH", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(headerPatch),
+          });
+          const respData = await r.json().catch(() => ({}));
+          if (!r.ok || !respData.ok) throw new Error(respData.error || ("HTTP " + r.status));
+          if (typeof _showToast === "function") {
+            _showToast("Header uložen (" + respData.updated_fields.join(", ") + ")", "success", 2500);
+          }
+          if (typeof this.onComplete === "function") {
+            try { this.onComplete(respData); } catch (e) {}
+          }
+          setTimeout(() => this._shell.close(), 600);
+        } catch (e) {
+          console.error("[DesignDataSourceEditor] header PATCH failed:", e);
+          if (typeof _showToast === "function") {
+            _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
+          }
+          this._saveBtn.disabled = false;
+          this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
         }
         return;
       }

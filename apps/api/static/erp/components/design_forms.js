@@ -6158,7 +6158,23 @@
         panels = [{ slot: "main", label: "", order: 10, components: [] }];
         layoutSource = "default-fallback";
       }
-      console.info("[DesignFwForm] layout source:", layoutSource, "panels:", panels.length);
+
+      // Phase 38.4 Krok 5.P-1+ (17.5.2026 vecer, Marti's "CORE 22 stale
+      // chybi footer buttons po 5.P-1"): ENSURE FOOTER PANEL ALWAYS EXISTS.
+      // Marti's doctrine "ErpJadroForm = vzdy jedna class, systemove stejne"
+      // — kazdy form 302 musi mit footer panel pro hardcoded X Storno + ✓ OK
+      // (5.P-1). Pokud source layout (template.layout / form.layout / default
+      // fallback) neobsahuje footer slot, append synthetic.
+      //
+      // Bez tohoto fix: CORE 22 form.layout ma jen [main] -> footer branch
+      // v _render loopu se nikdy nespusti -> no OK/Storno. CORE 23 ma
+      // [header, main, footer] -> footer fires -> OK works. To je
+      // "kazdy zvlast" pattern co Marti explicitne odmita.
+      const hasFooter = panels.some(p => p && p.slot === "footer");
+      if (!hasFooter) {
+        panels.push({ slot: "footer", label: "", order: 999, components: [] });
+      }
+      console.info("[DesignFwForm] layout source:", layoutSource, "panels:", panels.length, "footer ensured:", !hasFooter);
 
       // Sort panels by order
       panels.sort((a, b) => (a.order || 0) - (b.order || 0));

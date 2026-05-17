@@ -13978,7 +13978,7 @@ def _render_workspace_page(user_id: int) -> str:
             { headerName: "Login", field: "login_name", width: 110,
               cellStyle: { fontFamily: "monospace", color: "#aaa" } },
             { headerName: "Active", field: "is_active", width: 80, sortable: true,
-              cellRenderer: function(p) { return p.value ? "<span style=\"color:#6aa84f;font-weight:600\">✓</span>" : "<span style=\"color:#cc6666\">✗</span>"; } },
+              cellRenderer: function(p) { return p.value ? '<span style="color:#6aa84f;font-weight:600">✓</span>' : '<span style="color:#cc6666">✗</span>'; } },
             { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
             { headerName: "Status", field: "status", width: 100, sortable: true,
               cellStyle: function(p) {

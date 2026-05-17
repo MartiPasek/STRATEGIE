@@ -3684,8 +3684,11 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         """), {"form_id": form_dict["id"]}).mappings().all()
         fields_list = [dict(f) for f in fields_rows]
 
-        # Load data row + children pokud entity_type known
-        entity_type = rd.get("data_entity_type")
+        # Phase 38.4 Krok 5.M-3 hotfix (17.5.2026, Marti's "entity-columns null"
+        # bug): use code preferentially (Krok 5.M doctrine "core nenese entitu"),
+        # fallback na data_entity_type pro drafted cores s code=NULL (Krok 5.A
+        # doctrine "core = kontejner — vse muze byt NULL").
+        entity_type = rd.get("code") or rd.get("data_entity_type")
         data_row = None
         children_dict = {}
         if entity_type and entity_type in _FW_FORM_ENTITY_MAP:
@@ -8944,6 +8947,23 @@ def design_list_entity_columns(
     uid = _get_uid(req)
     _require_parent(uid)
 
+    # Phase 38.4 Krok 5.M-3 hotfix (17.5.2026): defensive against
+    # entity_type=="null" (string) — JS encodeURIComponent(null) -> "null".
+    # Vraci diagnostika: poradek volajiciho ma fallback na data_entity_type.
+    if entity_type == "null" or not entity_type:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    "Entity type je 'null'/empty — pravdepodobne core.code "
+                    "neni set v DB (drafted core per Krok 5.A doctrine). "
+                    "Frontend by mel fallback na core.data_entity_type."
+                ),
+                "hint": "Marti: SELECT id, code, data_entity_type FROM fw.core WHERE id = <core_id>",
+                "registered": list(_FW_FORM_ENTITY_MAP.keys()),
+            },
+            status_code=404,
+        )
     if entity_type not in _FW_FORM_ENTITY_MAP:
         return JSONResponse(
             {

@@ -4927,8 +4927,12 @@
       // (Krok 5.F dead code removed). FieldPickerModal dostane core.code
       // jako entityType — picker server resolves columns from map alias.
 
+      // Phase 38.4 Krok 5.M-3 hotfix (17.5.2026): defensive fallback —
+      // pokud core.code je NULL (drafted core per Krok 5.A doctrine), padni
+      // na legacy core.data_entity_type. After M-5 (DDL drop column) tato
+      // fallback expire — vsechny cores budou mit code set.
       const picker = new global.FieldPickerModal({
-        entityType: core.code,
+        entityType: core.code || core.data_entity_type,
         parentCompDefId: formId,
         onComplete: async (result) => {
           console.info("[DesignFwForm] FieldPicker complete:", result);

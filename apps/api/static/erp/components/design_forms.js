@@ -6418,8 +6418,15 @@
         // mode, nezavisly od panel content / scroll position. Empty hint
         // (v full-empty case) zustava — discoverability pro novy form.
 
-        // Empty state — panel 'main' bez fields i bez template components
-        if (templateComponents.length === 0 && slotFields.length === 0) {
+        // Empty state — panel 'main' bez fields i bez template components.
+        // Phase 38.4 Krok 5.P-1++ (17.5.2026 vecer, Marti's "23 ma
+        // dvojitou hlavicku"): placeholder JEN pro 'main' panel. Header
+        // a footer jsou UI chrome (title bar / action buttons) — empty
+        // state hint je matoucí ("dvojita hlavicka" / "panel footer nema
+        // fields" vedle hardcoded OK/Storno).
+        if (panel.slot === "main"
+            && templateComponents.length === 0
+            && slotFields.length === 0) {
           const hint = document.createElement("div");
           // Phase 38.4 Krok 14b+5 polish #6 (13.5.2026 ~14:45, Marti's
           // "alClient ten panel"): hint fills entire grid (1/-1 v obou

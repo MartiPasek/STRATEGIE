@@ -141,7 +141,7 @@
             return;
           }
           const typeCode = rootCd.type_code || '';
-          if (typeCode === 'grid_modern' || typeCode === 'list') {
+          if (typeCode === 'grid_modern' || typeCode === 'list' || typeCode === 'list_root') {
             _renderEmptyGrid(mainContent, tab, rootCd, coreId);
             return;
           }

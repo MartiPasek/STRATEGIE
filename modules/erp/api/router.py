@@ -8411,7 +8411,7 @@ async def design_test_data_set(req: Request) -> JSONResponse:
 # DesignDataSourceEditor._showAddOpForm (📎 Vybrat existing data_set).
 # Marti-AI's "uniformita vítězí" doctrine z 11.5. — reuse > duplicate inline.
 # ════════════════════════════════════════════════════════════════════════
-@api_router.get("/design/data-set/list")
+@api_router.get("/design/data-set-list")  # Sprint B hotfix 17.5. odp: hyphen avoids collision s /design/data-set/{id:int} (Marti's gotcha #14b+10)
 def design_list_data_set(req: Request) -> JSONResponse:
     """List active fw.data_set rows + JOIN fw.db_connection pro readable label.
 

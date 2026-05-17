@@ -13045,7 +13045,7 @@
       // Fetch data_sets list async
       (async () => {
         try {
-          const r = await fetch("/api/v1/erp/design/data-set/list", { credentials: "include" });
+          const r = await fetch("/api/v1/erp/design/data-set-list", { credentials: "include" });
           if (!r.ok) throw new Error("HTTP " + r.status);
           const data = await r.json();
           if (!data.ok || !Array.isArray(data.data_sets)) throw new Error("malformed response");

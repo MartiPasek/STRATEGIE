@@ -6536,10 +6536,13 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
     if not isinstance(src, dict) or not isinstance(ops, list):
         return JSONResponse({"ok": False, "error": "Body musi obsahovat 'source' (object) + 'operations' (array)"}, status_code=400)
 
-    src_code = (src.get("code") or "").strip()
+    # Krok 5.K-B5+ (17.5.2026, Marti's "code NULL aby bylo videt ze s nim
+    # nikde nepracujes"): code je optional. None = NULL v DB. Backend
+    # uniqueness check jen pokud non-null.
+    src_code = src.get("code")
+    if src_code is not None:
+        src_code = str(src_code).strip() or None  # empty string → None
     src_name = (src.get("name") or "").strip()
-    if not src_code:
-        return JSONResponse({"ok": False, "error": "source.code povinne"}, status_code=400)
     if not src_name:
         return JSONResponse({"ok": False, "error": "source.name povinne"}, status_code=400)
 
@@ -6569,8 +6572,7 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
             return JSONResponse({"ok": False, "error": f"operations[{idx}] musi mit 'data_set' (inline create) NEBO 'data_set_id' (link existing)"}, status_code=400)
         if has_inline:
             ds = op["data_set"]
-            if not (ds.get("code") or "").strip():
-                return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.code povinne"}, status_code=400)
+            # Krok 5.K-B5+: data_set.code optional (NULL allowed per Marti's doctrine)
             if not (ds.get("kind") or "").strip():
                 return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set.kind povinne"}, status_code=400)
             if not (ds.get("sql_text") or "").strip():
@@ -6594,17 +6596,18 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
 
     ds_session = _gds_dsf()
     try:
-        # Uniqueness check (active data_source s same code)
-        existing_src = ds_session.execute(_sql_text_dsf("""
-            SELECT id FROM fw.data_source
-            WHERE code = :code AND status = 'active'
-            LIMIT 1
-        """), {"code": src_code}).mappings().one_or_none()
-        if existing_src:
-            return JSONResponse(
-                {"ok": False, "error": f"Aktivni data_source s code='{src_code}' uz existuje (id={existing_src['id']}). Pojmenuj jinak nebo archive starý."},
-                status_code=400,
-            )
+        # Krok 5.K-B5+ (Marti's NULL doctrine): uniqueness check JEN pokud code non-null
+        if src_code is not None:
+            existing_src = ds_session.execute(_sql_text_dsf("""
+                SELECT id FROM fw.data_source
+                WHERE code = :code AND status = 'active'
+                LIMIT 1
+            """), {"code": src_code}).mappings().one_or_none()
+            if existing_src:
+                return JSONResponse(
+                    {"ok": False, "error": f"Aktivni data_source s code='{src_code}' uz existuje (id={existing_src['id']}). Pojmenuj jinak nebo archive starý."},
+                    status_code=400,
+                )
 
         # 1. INSERT data_source header
         # Krok 5.K-A hotfix (17.5.2026 ~10:30, Marti smoke 500 "column
@@ -6633,9 +6636,14 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
             # Resolve data_set_id — buď create new, nebo use existing
             if isinstance(op.get("data_set"), dict):
                 ds_in = op["data_set"]
-                # Krok 5.K-A hotfix: fw.data_set z Krok 11-E nema audit columns
+                # Krok 5.K-B5+ (Marti's NULL doctrine): data_set.code optional.
+                # None = NULL v DB. Uniqueness check JEN pokud non-null.
+                ds_code_raw = ds_in.get("code")
+                ds_code_normalized = None
+                if ds_code_raw is not None:
+                    ds_code_normalized = str(ds_code_raw).strip() or None
                 set_values = {
-                    "code": ds_in["code"].strip(),
+                    "code": ds_code_normalized,
                     "kind": ds_in["kind"].strip(),
                     "sql_text": ds_in["sql_text"],  # multi-line, no strip
                     "db_connection": (ds_in.get("db_connection") or "data_db").strip(),
@@ -6643,20 +6651,19 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
                     "is_system": False,
                     "status": "active",
                 }
-                # Uniqueness check
-                existing_set = ds_session.execute(_sql_text_dsf("""
-                    SELECT id FROM fw.data_set
-                    WHERE code = :code AND status = 'active'
-                    LIMIT 1
-                """), {"code": set_values["code"]}).mappings().one_or_none()
-                if existing_set:
-                    # Rollback source insert
-                    ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
-                    ds_session.commit()
-                    return JSONResponse(
-                        {"ok": False, "error": f"operations[{idx}].data_set.code='{set_values['code']}' uz existuje (id={existing_set['id']}). Použij data_set_id pro reuse, nebo přejmenuj."},
-                        status_code=400,
-                    )
+                if ds_code_normalized is not None:
+                    existing_set = ds_session.execute(_sql_text_dsf("""
+                        SELECT id FROM fw.data_set
+                        WHERE code = :code AND status = 'active'
+                        LIMIT 1
+                    """), {"code": ds_code_normalized}).mappings().one_or_none()
+                    if existing_set:
+                        ds_session.execute(_sql_text_dsf("DELETE FROM fw.data_source WHERE id = :id"), {"id": new_source_id})
+                        ds_session.commit()
+                        return JSONResponse(
+                            {"ok": False, "error": f"operations[{idx}].data_set.code='{ds_code_normalized}' uz existuje (id={existing_set['id']}). Použij data_set_id pro reuse, nebo přejmenuj."},
+                            status_code=400,
+                        )
                 set_result = _spg_insert_dsf(schema="fw", table="data_set", values=set_values)
                 if not set_result.get("ok"):
                     # Rollback source
@@ -13687,6 +13694,39 @@ def _render_workspace_page(user_id: int) -> str:
           }
         }
 
+        // Phase 38.4 Krok 14g Etapa F Krok 5.K-D (17.5.2026, Marti's "dodelat
+        // UI, aby se to dalo resit uzivatelsky"): + Nový datový zdroj button
+        // pro framework_data_sources mode. Floating top-right, jen v tomto modu.
+        if (mode === "framework_data_sources" && typeof window.DesignDataSourceEditor === "function") {
+          var addNewBtn = document.createElement("button");
+          addNewBtn.type = "button";
+          addNewBtn.textContent = "➕ Nový datový zdroj";
+          addNewBtn.title = "Vytvořit nový data_source + operations (Krok 5.K editor)";
+          addNewBtn.style.cssText =
+            "position:absolute;top:8px;right:80px;z-index:50;" +
+            "padding:6px 14px;background:#1f4858;border:1px solid #3a8aa8;" +
+            "color:#7ed4e8;border-radius:4px;cursor:pointer;font-size:12px;" +
+            "font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
+          addNewBtn.addEventListener("mouseenter", function() {
+            addNewBtn.style.background = "#2a5a6a";
+          });
+          addNewBtn.addEventListener("mouseleave", function() {
+            addNewBtn.style.background = "#1f4858";
+          });
+          addNewBtn.addEventListener("click", function() {
+            new window.DesignDataSourceEditor({
+              dataSourceId: null,
+              onComplete: function() {
+                if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                  window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                }
+              },
+            }).open();
+          });
+          body.style.position = "relative";  // anchor pro absolute child
+          body.appendChild(addNewBtn);
+        }
+
         try {
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
@@ -13714,7 +13754,23 @@ def _render_workspace_page(user_id: int) -> str:
             onRowDoubleClick: function(row, ev) {
               if (!row) return;
               var rowId = row.ID != null ? row.ID : (row.id != null ? row.id : null);
-              if (rowId == null || !sysLayoutKey) return;
+              if (rowId == null) return;
+              // Phase 38.4 Krok 14g Etapa F Krok 5.K-D (17.5.2026, Marti's
+              // "Jak se dostanu do ty editace... dodelat UI"): framework_data_sources
+              // mode má vlastní hardcoded editor (DesignDataSourceEditor) — ne
+              // generic fw form. Power tool pro daily designer use.
+              if (mode === "framework_data_sources" && typeof window.DesignDataSourceEditor === "function") {
+                new window.DesignDataSourceEditor({
+                  dataSourceId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
+              if (!sysLayoutKey) return;
               if (typeof window._openFwFormForRow === "function") {
                 window._openFwFormForRow(sysLayoutKey, rowId, null);
               } else {
@@ -13724,7 +13780,20 @@ def _render_workspace_page(user_id: int) -> str:
             onRowEnter: function(row, ev) {
               if (!row) return;
               var rowId = row.ID != null ? row.ID : (row.id != null ? row.id : null);
-              if (rowId == null || !sysLayoutKey) return;
+              if (rowId == null) return;
+              // Krok 5.K-D: stejně jako double-click handler pro framework_data_sources
+              if (mode === "framework_data_sources" && typeof window.DesignDataSourceEditor === "function") {
+                new window.DesignDataSourceEditor({
+                  dataSourceId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
+              if (!sysLayoutKey) return;
               if (typeof window._openFwFormForRow === "function") {
                 window._openFwFormForRow(sysLayoutKey, rowId, null);
               } else {

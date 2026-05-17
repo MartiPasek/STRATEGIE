@@ -13219,39 +13219,33 @@
         return;
       }
 
-      // Krok 5.K-B4: auto-generate codes z name slugify (Marti's "code je
-      // matouci a navic" — UI hides code, save flow generates).
-      // source.code = slugify(name)
-      // data_set.code = source.code + "_" + variant_code
-      const sourceCode = _slugifyForCode(name);
-
+      // Krok 5.K-B5+ (17.5.2026, Marti's "nech to v DB NULL, aby bylo videt
+      // ze s nim nikde nepracujes"): code je NULL pro new entities. Backend
+      // refactor migration → drop column postupně. Existing hardcoded data_sources
+      // mají code historicky (Krok 11-E etc.) — to ponecháme až po refactoru.
+      // variant_code zůstává auto-gen "default"/"default_2" (backend lookup).
       const newOps = this._opsState.filter(o => !o.existing);
 
-      // Krok 5.K-B5 (Marti's "instinktivni strach z variant_code"):
-      // auto-gen variant_code per operation_kind. 1st kind → "default",
-      // 2nd same kind → "default_2", etc. Plus data_set.code = source.code +
-      // "_" + operation_kind + suffix (no variant_code v code).
       const kindCounts = {};
       const operations = newOps.map((op) => {
         const k = op.operation_kind;
         kindCounts[k] = (kindCounts[k] || 0) + 1;
         const suffix = kindCounts[k] === 1 ? "" : "_" + kindCounts[k];
         const variantCode = "default" + suffix;
-        const dataSetCode = sourceCode + "_" + k + suffix;
         return {
           variant_code: variantCode,
           operation_kind: k,
           is_default: op.is_default,
           sort_order: op.sort_order,
           data_set: Object.assign({}, op.data_set, {
-            code: dataSetCode,
+            code: null,  // Marti's NULL doctrine — neviditelný v UI, neviditelný v DB
           }),
         };
       });
 
       const payload = {
         source: {
-          code: sourceCode,
+          code: null,  // Marti's NULL doctrine
           name: name,
           description: this._headerState.description.trim() || null,
           refresh_type: this._headerState.refresh_type,

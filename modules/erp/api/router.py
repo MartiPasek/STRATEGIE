@@ -3219,7 +3219,6 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
                    mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
                    cmi.id    AS _origin_cmi_id_join,
-                   cmi.code  AS _origin_cmi_code,
                    cmi.label AS _origin_cmi_label
             FROM fw.core c
             LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
@@ -3251,7 +3250,6 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             "cmi": (
                 {
                     "id": core_dict.pop("_origin_cmi_id_join"),
-                    "code": core_dict.pop("_origin_cmi_code"),
                     "label": core_dict.pop("_origin_cmi_label"),
                 }
                 if core_dict.get("_origin_cmi_id_join") is not None
@@ -3574,7 +3572,6 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                    mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
                    cmi.id    AS _origin_cmi_id_join,
-                   cmi.code  AS _origin_cmi_code,
                    cmi.label AS _origin_cmi_label
             FROM fw.core c
             LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
@@ -3603,7 +3600,6 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             "cmi": (
                 {
                     "id": rd.pop("_origin_cmi_id_join"),
-                    "code": rd.pop("_origin_cmi_code"),
                     "label": rd.pop("_origin_cmi_label"),
                 }
                 if rd.get("_origin_cmi_id_join") is not None
@@ -6126,7 +6122,6 @@ def design_list_fw_core(req: Request) -> JSONResponse:
             SELECT c.*,
                    mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
-                   cmi.code  AS _origin_cmi_code,
                    cmi.label AS _origin_cmi_label,
                    (
                      SELECT CASE
@@ -6174,7 +6169,6 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "origin_menu_node_label": rd.get("_origin_mn_label"),
                 "origin_menu_node_code": rd.get("_origin_mn_code"),
                 "origin_cmi_label": rd.get("_origin_cmi_label"),
-                "origin_cmi_code": rd.get("_origin_cmi_code"),
                 # Krok 5.D readiness_state (Marti-AI's Q4 insight)
                 "readiness_state": rd.get("_readiness_state") or "drafted",
             })

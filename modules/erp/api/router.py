@@ -6607,22 +6607,20 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
             )
 
         # 1. INSERT data_source header
+        # Krok 5.K-A hotfix (17.5.2026 ~10:30, Marti smoke 500 "column
+        # created_by_id does not exist"): fw.data_source z Krok 11-E nema
+        # _text audit columns ani row_memory/filter_delay_ms. Jen
+        # created_by (FK) per Etapa 6 design_create_fw_data_source pattern.
         src_values = {
             "code": src_code,
             "name": src_name,
             "description": src_description,
             "refresh_type": src_refresh,
             "default_record_limit": src_limit,
-            "version": 1,
-            "status": "active",
             "is_system": False,
             "is_immutable": False,
-            "row_memory": False,
-            "filter_delay_ms": 0,
-            "created_by_id": uid,
-            "created_by_text": caller_display,
-            "updated_by_id": uid,
-            "updated_by_text": caller_display,
+            "status": "active",
+            "created_by": uid,
         }
         src_result = _spg_insert_dsf(schema="fw", table="data_source", values=src_values)
         if not src_result.get("ok"):
@@ -6635,6 +6633,7 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
             # Resolve data_set_id — buď create new, nebo use existing
             if isinstance(op.get("data_set"), dict):
                 ds_in = op["data_set"]
+                # Krok 5.K-A hotfix: fw.data_set z Krok 11-E nema audit columns
                 set_values = {
                     "code": ds_in["code"].strip(),
                     "kind": ds_in["kind"].strip(),
@@ -6643,10 +6642,6 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
                     "description": (ds_in.get("description") or None),
                     "is_system": False,
                     "status": "active",
-                    "created_by_id": uid,
-                    "created_by_text": caller_display,
-                    "updated_by_id": uid,
-                    "updated_by_text": caller_display,
                 }
                 # Uniqueness check
                 existing_set = ds_session.execute(_sql_text_dsf("""
@@ -6681,6 +6676,7 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
                     return JSONResponse({"ok": False, "error": f"operations[{idx}].data_set_id={new_set_id} neexistuje nebo neni aktivni"}, status_code=404)
 
             # INSERT data_source_op
+            # Krok 5.K-A hotfix: fw.data_source_op z Krok 11-E nema audit columns
             op_values = {
                 "data_source_id": new_source_id,
                 "data_set_id": new_set_id,
@@ -6689,10 +6685,6 @@ async def design_create_data_source_full(req: Request) -> JSONResponse:
                 "sort_order": op.get("sort_order", idx * 10),
                 "is_default": bool(op.get("is_default", False)),
                 "description": op.get("description"),
-                "created_by_id": uid,
-                "created_by_text": caller_display,
-                "updated_by_id": uid,
-                "updated_by_text": caller_display,
             }
             op_result = _spg_insert_dsf(schema="fw", table="data_source_op", values=op_values)
             if not op_result.get("ok"):
@@ -6740,12 +6732,10 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
 
     ds_session = _gds_dgf()
     try:
+        # Krok 5.K-A hotfix: fw.data_source z Krok 11-E nema _text audit columns
+        # ani version. SELECT * defensively pres mappings() — returns all cols.
         src_row = ds_session.execute(_sql_text_dgf("""
-            SELECT id, code, name, description, refresh_type, default_record_limit,
-                   version, status, is_system, is_immutable,
-                   created_by_id, created_by_text, created_at,
-                   updated_by_id, updated_by_text
-            FROM fw.data_source WHERE id = :id
+            SELECT * FROM fw.data_source WHERE id = :id
         """), {"id": data_source_id}).mappings().one_or_none()
         if not src_row:
             return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} nenalezen"}, status_code=404)

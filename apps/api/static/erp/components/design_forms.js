@@ -12376,6 +12376,16 @@
   // Test query / DB schema autocomplete / edit existing op / delete op DEFER.
   // ══════════════════════════════════════════════════════════════════════
 
+  // Krok 5.K-B4 (17.5.2026, Marti's "code je matouci a navic"): slugify
+  // helper pro auto-generate technical code z user-friendly name.
+  // "EUROSOFT Klienti" → "eurosoft_klienti"
+  // Diacritics stripped via NFD normalize, non-alphanumeric → underscore.
+  function _slugifyForCode(s) {
+    return String(s || "").trim().toLowerCase()
+      .normalize("NFD").replace(/[̀-ͯ]/g, "")  // strip diacritics
+      .replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "") || "untitled";
+  }
+
   const DDS_DB_CONNECTIONS = [
     { value: "data_db",     label: "data_db (PostgreSQL cílový — STRATEGIE)" },
     { value: "DB_EC",       label: "DB_EC (MSSQL EUROSOFT — Centrála 1)" },
@@ -12585,8 +12595,21 @@
         grid.appendChild(el);
       };
 
-      _addInput("Kód", "code", "text", "např. 'eurosoft_klient_list'");
-      _addInput("Název", "name", "text", "lidsky čitelný název");
+      // Krok 5.K-B4 (Marti's "code je matouci a navic"): kód NENÍ visible
+      // jako input. V edit mode display jako read-only 🔒 pill (visual badge,
+      // user vidí ID/code). V create mode auto-generated z name v save flow.
+      if (!this._isCreateMode && this._spec && this._spec.source && this._spec.source.code) {
+        const lbl = document.createElement("label");
+        lbl.textContent = "Identita";
+        lbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        grid.appendChild(lbl);
+        const pill = document.createElement("div");
+        pill.style.cssText = "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#0a0f14;border:1px dashed #2a3340;border-radius:3px;color:#7ed4e8;font-family:monospace;font-size:12px;width:fit-content;";
+        pill.innerHTML = "🔒 <span>" + (this._spec.source.code) + "</span>" +
+          " <span style=\"color:#6a7684;\">· id=" + (this._spec.source.id || "?") + "</span>";
+        grid.appendChild(pill);
+      }
+      _addInput("Název", "name", "text", "lidsky čitelný název (např. 'EUROSOFT Klienti')");
       _addInput("Popis", "description", "textarea", "Krátký popis účelu");
       _addInput("Refresh type", "refresh_type", "select", null, DDS_REFRESH_TYPES);
       _addInput("Default limit", "default_record_limit", "number", "10000");
@@ -12799,12 +12822,11 @@
       const setGrid = document.createElement("div");
       setGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
 
-      const setCodeInput = _ipt("např. 'eurosoft_klient_list_select'");
+      // Krok 5.K-B4 (Marti's "code matouci a navic"): drop Code input —
+      // auto-generated v save: <source_code>_<variant_code>
       const dbConnSelect = _sel(DDS_DB_CONNECTIONS);
       const setDescInput = _ipt("(volitelný popis)");
 
-      setGrid.appendChild(_lbl("Code:"));
-      setGrid.appendChild(setCodeInput);
       setGrid.appendChild(_lbl("DB connection:"));
       setGrid.appendChild(dbConnSelect);
       setGrid.appendChild(_lbl("Description:"));
@@ -12871,20 +12893,20 @@
       okBtn.addEventListener("click", () => {
         // Validate
         const variant = variantInput.value.trim();
-        const setCode = setCodeInput.value.trim();
         const sqlText = aceEd.value();
         if (!variant) {
           if (typeof _showToast === "function") _showToast("Variant code je povinné", "error", 2500);
-          return;
-        }
-        if (!setCode) {
-          if (typeof _showToast === "function") _showToast("Data set code je povinné", "error", 2500);
           return;
         }
         if (!sqlText.trim()) {
           if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
           return;
         }
+
+        // Krok 5.K-B4: auto-generate data_set.code (place holder — final
+        // resolution v _onSaveClick once source.code je known z name slugify)
+        // Pro now: dummy placeholder, refined v save flow.
+        const placeholderCode = "_pending_" + _slugifyForCode(variant);
 
         // Add to opsState
         const newOp = {
@@ -12894,7 +12916,7 @@
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
           data_set: {
-            code: setCode,
+            code: placeholderCode,  // refined v _onSaveClick
             kind: kindSelect.value,
             sql_text: sqlText,
             db_connection: dbConnSelect.value,
@@ -13194,14 +13216,9 @@
       }
 
       // Validate header
-      const code = this._headerState.code.trim();
       const name = this._headerState.name.trim();
-      if (!code) {
-        if (typeof _showToast === "function") _showToast("Source code je povinné", "error", 2500);
-        return;
-      }
       if (!name) {
-        if (typeof _showToast === "function") _showToast("Source name je povinné", "error", 2500);
+        if (typeof _showToast === "function") _showToast("Název je povinný", "error", 2500);
         return;
       }
       if (this._opsState.length === 0) {
@@ -13209,11 +13226,16 @@
         return;
       }
 
-      // Build POST body
-      const newOps = this._opsState.filter(o => !o.existing);  // jen nové ops
+      // Krok 5.K-B4: auto-generate codes z name slugify (Marti's "code je
+      // matouci a navic" — UI hides code, save flow generates).
+      // source.code = slugify(name)
+      // data_set.code = source.code + "_" + variant_code
+      const sourceCode = _slugifyForCode(name);
+
+      const newOps = this._opsState.filter(o => !o.existing);
       const payload = {
         source: {
-          code: code,
+          code: sourceCode,
           name: name,
           description: this._headerState.description.trim() || null,
           refresh_type: this._headerState.refresh_type,
@@ -13224,7 +13246,10 @@
           operation_kind: op.operation_kind,
           is_default: op.is_default,
           sort_order: op.sort_order,
-          data_set: op.data_set,
+          data_set: Object.assign({}, op.data_set, {
+            // Override placeholder code s final auto-generated
+            code: sourceCode + "_" + _slugifyForCode(op.variant_code),
+          }),
         })),
       };
 

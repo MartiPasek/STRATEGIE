@@ -12355,6 +12355,650 @@
   }
 
   // ────────────────────────────────────────────────────────────────────
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 38.4 Krok 14g Etapa F Krok 5.K-B (17.5.2026 dopoledne, Marti's
+  // "nejdulezitejsi a nejpouzivaneji nastroj pro designery"): hardcoded
+  // editor pro fw.data_source + N operations + N inline data_sets.
+  //
+  // Marti's MVP scope: CRUD data_source header + add operations inline.
+  // SQL editor = ErpRichEdit (Ace 1.32, SQL mode, monokai theme).
+  // DB connection = hardcoded dropdown (data_db / DB_EC / DB_IS / DB-Ceniky /
+  // DB-ARCHIV) per Marti's tempo "pomaly start".
+  //
+  // Backend Krok 5.K-A endpoints:
+  //   GET  /design/data-source/{id}/full     — load existing detail
+  //   POST /design/data-source/full          — bulk create (header + ops + sets)
+  //
+  // Constructor: { dataSourceId: int|null, onComplete?: fn }
+  //   null = create new mode
+  //   int  = view existing mode (load + display, no edit yet — defer Krok 5.K-B3)
+  //
+  // Test query / DB schema autocomplete / edit existing op / delete op DEFER.
+  // ══════════════════════════════════════════════════════════════════════
+
+  const DDS_DB_CONNECTIONS = [
+    { value: "data_db",     label: "data_db (PostgreSQL cílový — STRATEGIE)" },
+    { value: "DB_EC",       label: "DB_EC (MSSQL EUROSOFT — Centrála 1)" },
+    { value: "DB_IS",       label: "DB_IS (MSSQL INTERSOFT)" },
+    { value: "DB-Ceniky",   label: "DB-Ceniky (MSSQL pricing)" },
+    { value: "DB-ARCHIV",   label: "DB-ARCHIV (MSSQL historical)" },
+  ];
+
+  const DDS_REFRESH_TYPES = [
+    { value: "manual",     label: "manual" },
+    { value: "on_open",    label: "on_open" },
+    { value: "interval",   label: "interval" },
+    { value: "on_event",   label: "on_event" },
+  ];
+
+  const DDS_OPERATION_KINDS = [
+    { value: "select", label: "select" },
+    { value: "insert", label: "insert" },
+    { value: "update", label: "update" },
+    { value: "delete", label: "delete" },
+  ];
+
+  class DesignDataSourceEditor {
+    constructor(opts) {
+      this.opts = opts || {};
+      this.dataSourceId = this.opts.dataSourceId || null;  // null = new
+      this.onComplete = this.opts.onComplete || null;
+      this._spec = null;       // { source, operations } z GET full
+      this._headerState = null; // { code, name, description, refresh_type, default_record_limit }
+      this._opsState = [];     // Array of { variant_code, operation_kind, is_default, sort_order, data_set: {...} | data_set_id }
+      this._shell = null;
+      this._editors = [];      // tracked Ace editor instances pro destroy
+      this._isCreateMode = (this.dataSourceId == null);
+    }
+
+    open() {
+      const title = this._isCreateMode
+        ? "➕ Nový datový zdroj"
+        : ("📦 Datový zdroj #" + this.dataSourceId);
+      this._shell = _buildModalShell({
+        title: title,
+        width: "1100px",
+        beforeClose: () => this._beforeCloseHandler(),
+        onClose: () => this._cleanup(),
+      });
+      document.body.appendChild(this._shell.overlay);
+
+      // Loading state
+      const loading = document.createElement("div");
+      loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
+      loading.textContent = "Načítám…";
+      this._shell.body.appendChild(loading);
+
+      // Footer
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      cancelBtn.addEventListener("click", () => this._shell.close());
+      this._shell.footer.appendChild(cancelBtn);
+
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+      this._saveBtn.addEventListener("click", () => this._onSaveClick());
+      this._shell.footer.appendChild(this._saveBtn);
+
+      if (this._isCreateMode) {
+        // Init empty spec
+        this._spec = { source: null, operations: [] };
+        this._headerState = {
+          code: "",
+          name: "",
+          description: "",
+          refresh_type: "manual",
+          default_record_limit: 10000,
+        };
+        this._opsState = [];
+        this._render();
+      } else {
+        this._fetchData();
+      }
+    }
+
+    _cleanup() {
+      // Destroy Ace editor instances pro proper cleanup
+      for (const ed of this._editors) {
+        try { if (ed && typeof ed.destroy === "function") ed.destroy(); } catch (e) {}
+      }
+      this._editors = [];
+    }
+
+    async _beforeCloseHandler() {
+      // TODO Krok 5.K-B3: dirty check pres _confirmDarkDialog
+      return "close";
+    }
+
+    async _fetchData() {
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/data-source/" + encodeURIComponent(this.dataSourceId) + "/full",
+          { method: "GET", credentials: "include" }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error(eb.error || ("HTTP " + r.status));
+        }
+        this._spec = await r.json();
+        if (!this._spec || !this._spec.ok) {
+          throw new Error("Neplatná response (ok=false)");
+        }
+        // Init working state z loaded data
+        const src = this._spec.source || {};
+        this._headerState = {
+          code: src.code || "",
+          name: src.name || "",
+          description: src.description || "",
+          refresh_type: src.refresh_type || "manual",
+          default_record_limit: src.default_record_limit || 10000,
+        };
+        this._opsState = (this._spec.operations || []).map(op => ({
+          existing: true,  // marker — existing ops nelze editovat v MVP, jen read
+          op_id: op.id,
+          variant_code: op.variant_code,
+          operation_kind: op.operation_kind,
+          is_default: op.is_default,
+          sort_order: op.sort_order,
+          description: op.description,
+          data_set: op.data_set,  // full inline display
+        }));
+        this._render();
+      } catch (e) {
+        console.error("[DesignDataSourceEditor] _fetchData failed:", e);
+        this._shell.body.innerHTML = "";
+        const err = document.createElement("div");
+        err.style.cssText = "padding:24px;color:#e57373;font-size:13px;";
+        err.textContent = "Načtení selhalo: " + (e.message || e);
+        this._shell.body.appendChild(err);
+      }
+    }
+
+    _render() {
+      this._shell.body.innerHTML = "";
+      this._cleanup();  // destroy any existing editors before re-render
+
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:18px;";
+
+      // Sekce 1: Header
+      this._renderHeaderSection(wrap);
+
+      // Sekce 2: Operations
+      this._renderOpsSection(wrap);
+
+      this._shell.body.appendChild(wrap);
+    }
+
+    _renderHeaderSection(parent) {
+      const sec = document.createElement("div");
+      sec.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:12px;background:#0f1419;border:1px solid #2a3340;border-radius:4px;";
+
+      const title = document.createElement("div");
+      title.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;padding-bottom:4px;border-bottom:1px solid #1f2630;";
+      title.textContent = "📦 Hlavička";
+      sec.appendChild(title);
+
+      // 2-column grid
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid;grid-template-columns:120px 1fr;gap:10px 12px;align-items:center;";
+
+      const _addInput = (label, key, type, placeholder, opts) => {
+        const lbl = document.createElement("label");
+        lbl.textContent = label;
+        lbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        grid.appendChild(lbl);
+
+        let el;
+        if (type === "textarea") {
+          el = document.createElement("textarea");
+          el.rows = 2;
+          el.style.cssText = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;resize:vertical;min-height:40px;font-family:inherit;";
+        } else if (type === "select") {
+          el = document.createElement("select");
+          el.style.cssText = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;cursor:pointer;";
+          for (const opt of (opts || [])) {
+            const optEl = document.createElement("option");
+            optEl.value = opt.value;
+            optEl.textContent = opt.label;
+            el.appendChild(optEl);
+          }
+        } else {
+          el = document.createElement("input");
+          el.type = type || "text";
+          el.style.cssText = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;";
+        }
+        el.value = this._headerState[key] != null ? String(this._headerState[key]) : "";
+        if (placeholder) el.placeholder = placeholder;
+        el.addEventListener("input", () => {
+          if (type === "number") {
+            const n = parseInt(el.value, 10);
+            this._headerState[key] = isNaN(n) ? null : n;
+          } else {
+            this._headerState[key] = el.value;
+          }
+        });
+        grid.appendChild(el);
+      };
+
+      _addInput("Kód", "code", "text", "např. 'eurosoft_klient_list'");
+      _addInput("Název", "name", "text", "lidsky čitelný název");
+      _addInput("Popis", "description", "textarea", "Krátký popis účelu");
+      _addInput("Refresh type", "refresh_type", "select", null, DDS_REFRESH_TYPES);
+      _addInput("Default limit", "default_record_limit", "number", "10000");
+
+      sec.appendChild(grid);
+      parent.appendChild(sec);
+    }
+
+    _renderOpsSection(parent) {
+      const sec = document.createElement("div");
+      sec.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:12px;background:#0f1419;border:1px solid #2a3340;border-radius:4px;";
+
+      const headerRow = document.createElement("div");
+      headerRow.style.cssText = "display:flex;justify-content:space-between;align-items:center;padding-bottom:4px;border-bottom:1px solid #1f2630;";
+
+      const title = document.createElement("div");
+      title.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;";
+      title.textContent = "🔗 Operace (" + this._opsState.length + ")";
+      headerRow.appendChild(title);
+
+      const addBtn = document.createElement("button");
+      addBtn.type = "button";
+      addBtn.textContent = "➕ Přidat operaci";
+      addBtn.style.cssText = "padding:4px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:11px;font-weight:600;";
+      addBtn.addEventListener("click", () => this._showAddOpForm(sec, addBtn));
+      headerRow.appendChild(addBtn);
+
+      sec.appendChild(headerRow);
+
+      // Existing ops list
+      if (this._opsState.length === 0) {
+        const empty = document.createElement("div");
+        empty.style.cssText = "padding:12px;color:#6a7684;font-size:12px;font-style:italic;text-align:center;";
+        empty.textContent = "Žádné operace. Klikni ➕ Přidat operaci.";
+        sec.appendChild(empty);
+      } else {
+        for (let i = 0; i < this._opsState.length; i++) {
+          sec.appendChild(this._renderOpRow(this._opsState[i], i));
+        }
+      }
+
+      parent.appendChild(sec);
+    }
+
+    _renderOpRow(op, idx) {
+      const row = document.createElement("div");
+      row.style.cssText = "display:grid;grid-template-columns:120px 80px 1fr 60px 90px 30px;gap:8px;align-items:center;padding:8px 10px;background:#0a0f14;border:1px solid #1f2630;border-radius:3px;font-size:12px;";
+      // Marker pro existing vs new
+      const isExisting = !!op.existing;
+      if (!isExisting) {
+        row.style.borderColor = "#3a8aa8";
+        row.style.background = "#0a1820";
+      }
+
+      const _cell = (text, opts) => {
+        const c = document.createElement("div");
+        c.textContent = text;
+        c.style.cssText = "color:#cfd6df;" + (opts && opts.mono ? "font-family:monospace;color:#7ed4e8;" : "");
+        return c;
+      };
+
+      row.appendChild(_cell(op.variant_code, { mono: true }));
+      row.appendChild(_cell(op.operation_kind));
+      const setLabel = op.data_set
+        ? ("📄 " + (op.data_set.code || ("id=" + op.data_set.id)) + " · " + (op.data_set.db_connection || "?"))
+        : ("data_set_id=" + (op.data_set_id || "?"));
+      row.appendChild(_cell(setLabel));
+      row.appendChild(_cell(op.is_default ? "✓ default" : ""));
+      row.appendChild(_cell(isExisting ? "existing" : "new", { mono: true }));
+
+      // Action button
+      const actionBtn = document.createElement("button");
+      actionBtn.type = "button";
+      if (isExisting) {
+        actionBtn.textContent = "👁";
+        actionBtn.title = "Zobrazit SQL (read-only)";
+        actionBtn.style.cssText = "padding:2px 6px;background:transparent;border:1px solid #3a4754;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:11px;";
+        actionBtn.addEventListener("click", () => this._showOpSqlReadOnly(op));
+      } else {
+        actionBtn.textContent = "✕";
+        actionBtn.title = "Odstranit operaci (nebyla uložena)";
+        actionBtn.style.cssText = "padding:2px 6px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:11px;";
+        actionBtn.addEventListener("click", () => {
+          this._opsState.splice(idx, 1);
+          this._render();
+        });
+      }
+      row.appendChild(actionBtn);
+
+      return row;
+    }
+
+    _showOpSqlReadOnly(op) {
+      // Quick view existing data_set SQL — modal s ErpRichEdit read-only
+      const overlay = document.createElement("div");
+      overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.65);z-index:10030;display:flex;align-items:center;justify-content:center;";
+
+      const dialog = document.createElement("div");
+      dialog.style.cssText = "background:#141a20;border:1px solid #2a3340;border-radius:6px;width:900px;max-width:95vw;color:#e8eef5;font-size:13px;padding:16px;display:flex;flex-direction:column;gap:10px;box-shadow:0 12px 40px rgba(0,0,0,0.6);";
+
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText = "font-weight:600;font-size:14px;";
+      titleEl.innerHTML = "📄 " + (op.data_set.code || "data_set") +
+        " <span style=\"color:#7ed4e8;font-size:11px;font-weight:400;\">" +
+        op.data_set.kind + " · " + op.data_set.db_connection + "</span>";
+      dialog.appendChild(titleEl);
+
+      const editorHost = document.createElement("div");
+      dialog.appendChild(editorHost);
+
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "Zavřít";
+      closeBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;align-self:flex-end;";
+      closeBtn.addEventListener("click", () => {
+        try { document.body.removeChild(overlay); } catch (e) {}
+      });
+      dialog.appendChild(closeBtn);
+
+      overlay.appendChild(dialog);
+      document.body.appendChild(overlay);
+
+      if (typeof global.ErpRichEdit === "function") {
+        const ed = new global.ErpRichEdit(editorHost, {
+          value: op.data_set.sql_text || "",
+          language: "sql",
+          theme: "monokai",
+          readonly: true,
+          height: "400px",
+          lineNumbers: true,
+        });
+        this._editors.push(ed);
+      } else {
+        const fallback = document.createElement("pre");
+        fallback.textContent = op.data_set.sql_text || "(prázdné)";
+        fallback.style.cssText = "background:#0a0f14;padding:12px;border:1px solid #2a3340;color:#cfd6df;font-family:monospace;font-size:12px;max-height:400px;overflow:auto;";
+        editorHost.appendChild(fallback);
+      }
+    }
+
+    _showAddOpForm(container, addBtn) {
+      addBtn.disabled = true;
+      addBtn.style.opacity = "0.5";
+
+      const formWrap = document.createElement("div");
+      formWrap.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:14px;background:#0a1820;border:2px solid #3a8aa8;border-radius:4px;margin-top:6px;";
+
+      const formTitle = document.createElement("div");
+      formTitle.style.cssText = "font-size:12px;font-weight:600;color:#7ed4e8;";
+      formTitle.textContent = "➕ Nová operace + inline data_set";
+      formWrap.appendChild(formTitle);
+
+      // Op header inputs (grid)
+      const opGrid = document.createElement("div");
+      opGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
+
+      const _ipt = (placeholder) => {
+        const i = document.createElement("input");
+        i.type = "text";
+        i.placeholder = placeholder || "";
+        i.style.cssText = "padding:5px 8px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;";
+        return i;
+      };
+      const _sel = (options) => {
+        const s = document.createElement("select");
+        s.style.cssText = "padding:5px 8px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;cursor:pointer;";
+        for (const opt of options) {
+          const o = document.createElement("option");
+          o.value = opt.value;
+          o.textContent = opt.label;
+          s.appendChild(o);
+        }
+        return s;
+      };
+      const _lbl = (text) => {
+        const l = document.createElement("label");
+        l.textContent = text;
+        l.style.cssText = "color:#a8b4c2;font-size:11px;";
+        return l;
+      };
+
+      const variantInput = _ipt("např. 'list', 'select_form', 'archive'");
+      const kindSelect = _sel(DDS_OPERATION_KINDS);
+      const isDefaultCheck = document.createElement("input");
+      isDefaultCheck.type = "checkbox";
+      isDefaultCheck.style.cssText = "width:16px;height:16px;cursor:pointer;";
+      const sortInput = _ipt("0");
+      sortInput.type = "number";
+
+      opGrid.appendChild(_lbl("Variant code:"));
+      opGrid.appendChild(variantInput);
+      opGrid.appendChild(_lbl("Kind:"));
+      opGrid.appendChild(kindSelect);
+      opGrid.appendChild(_lbl("Default:"));
+      opGrid.appendChild(isDefaultCheck);
+      opGrid.appendChild(_lbl("Sort order:"));
+      opGrid.appendChild(sortInput);
+
+      formWrap.appendChild(opGrid);
+
+      // Data set inline form
+      const setTitle = document.createElement("div");
+      setTitle.style.cssText = "font-size:11px;font-weight:600;color:#a8b4c2;letter-spacing:0.05em;text-transform:uppercase;margin-top:8px;padding-bottom:4px;border-bottom:1px solid #1f2630;";
+      setTitle.textContent = "📄 Inline Data Set";
+      formWrap.appendChild(setTitle);
+
+      const setGrid = document.createElement("div");
+      setGrid.style.cssText = "display:grid;grid-template-columns:130px 1fr 130px 1fr;gap:8px 12px;align-items:center;";
+
+      const setCodeInput = _ipt("např. 'eurosoft_klient_list_select'");
+      const dbConnSelect = _sel(DDS_DB_CONNECTIONS);
+      const setDescInput = _ipt("(volitelný popis)");
+
+      setGrid.appendChild(_lbl("Code:"));
+      setGrid.appendChild(setCodeInput);
+      setGrid.appendChild(_lbl("DB connection:"));
+      setGrid.appendChild(dbConnSelect);
+      setGrid.appendChild(_lbl("Description:"));
+      const descWrap = document.createElement("div");
+      descWrap.style.gridColumn = "2 / 5";
+      descWrap.appendChild(setDescInput);
+      setGrid.appendChild(descWrap);
+
+      formWrap.appendChild(setGrid);
+
+      // SQL editor (Ace)
+      const sqlLabel = document.createElement("div");
+      sqlLabel.style.cssText = "font-size:11px;color:#a8b4c2;margin-top:4px;";
+      sqlLabel.textContent = "SQL text (parameters: :param_name):";
+      formWrap.appendChild(sqlLabel);
+
+      const editorHost = document.createElement("div");
+      formWrap.appendChild(editorHost);
+
+      let aceEd = null;
+      if (typeof global.ErpRichEdit === "function") {
+        aceEd = new global.ErpRichEdit(editorHost, {
+          value: "",
+          language: "sql",
+          theme: "monokai",
+          height: "200px",
+          lineNumbers: true,
+          onBlur: () => this._refreshParamHint(aceEd, paramHint),
+        });
+        this._editors.push(aceEd);
+      } else {
+        // Fallback textarea
+        const ta = document.createElement("textarea");
+        ta.style.cssText = "padding:8px;background:#0a0f14;border:1px solid #2a3340;color:#cfd6df;font-family:monospace;font-size:12px;width:100%;box-sizing:border-box;min-height:200px;";
+        ta.placeholder = "SELECT ... FROM ... WHERE col = :param";
+        editorHost.appendChild(ta);
+        aceEd = { value: () => ta.value, setValue: (v) => { ta.value = v; }, destroy: () => {} };
+      }
+
+      // Param hint panel
+      const paramHint = document.createElement("div");
+      paramHint.style.cssText = "padding:6px 8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;font-style:italic;";
+      paramHint.textContent = "Detected parameters: (none yet — zapiš `:param_name` v SQL)";
+      formWrap.appendChild(paramHint);
+
+      // Action buttons
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;justify-content:flex-end;gap:8px;margin-top:6px;";
+
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Zrušit";
+      cancelBtn.style.cssText = "padding:5px 12px;background:#2a3340;border:1px solid #3a4754;color:#cfd6df;border-radius:3px;cursor:pointer;font-size:12px;";
+      cancelBtn.addEventListener("click", () => {
+        formWrap.remove();
+        addBtn.disabled = false;
+        addBtn.style.opacity = "1";
+      });
+
+      const okBtn = document.createElement("button");
+      okBtn.type = "button";
+      okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Přidat operaci';
+      okBtn.style.cssText = "padding:5px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
+      okBtn.addEventListener("click", () => {
+        // Validate
+        const variant = variantInput.value.trim();
+        const setCode = setCodeInput.value.trim();
+        const sqlText = aceEd.value();
+        if (!variant) {
+          if (typeof _showToast === "function") _showToast("Variant code je povinné", "error", 2500);
+          return;
+        }
+        if (!setCode) {
+          if (typeof _showToast === "function") _showToast("Data set code je povinné", "error", 2500);
+          return;
+        }
+        if (!sqlText.trim()) {
+          if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
+          return;
+        }
+
+        // Add to opsState
+        const newOp = {
+          existing: false,
+          variant_code: variant,
+          operation_kind: kindSelect.value,
+          is_default: isDefaultCheck.checked,
+          sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
+          data_set: {
+            code: setCode,
+            kind: kindSelect.value,
+            sql_text: sqlText,
+            db_connection: dbConnSelect.value,
+            description: setDescInput.value.trim() || null,
+          },
+        };
+        this._opsState.push(newOp);
+        this._render();
+      });
+
+      btnRow.appendChild(cancelBtn);
+      btnRow.appendChild(okBtn);
+      formWrap.appendChild(btnRow);
+
+      container.appendChild(formWrap);
+    }
+
+    _refreshParamHint(aceEd, paramHintEl) {
+      // Krok 5.K-C parameter auto-extract
+      const sqlText = aceEd.value() || "";
+      const matches = sqlText.match(/:[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
+      const unique = Array.from(new Set(matches));
+      if (unique.length === 0) {
+        paramHintEl.textContent = "Detected parameters: (none — zapiš `:param_name` v SQL)";
+        paramHintEl.style.color = "#8a96a4";
+      } else {
+        paramHintEl.innerHTML = "Detected parameters: <strong style=\"color:#7ed4e8;\">" + unique.join(", ") + "</strong>";
+        paramHintEl.style.color = "#cfd6df";
+      }
+    }
+
+    async _onSaveClick() {
+      if (!this._isCreateMode) {
+        // Edit mode = MVP defer — backend PATCH endpoints budou v Krok 5.K-B3
+        if (typeof _showToast === "function") {
+          _showToast("Edit existujícího data_source je TODO (Krok 5.K-B3). Pro now přes DBeaver.", "info", 4000);
+        }
+        return;
+      }
+
+      // Validate header
+      const code = this._headerState.code.trim();
+      const name = this._headerState.name.trim();
+      if (!code) {
+        if (typeof _showToast === "function") _showToast("Source code je povinné", "error", 2500);
+        return;
+      }
+      if (!name) {
+        if (typeof _showToast === "function") _showToast("Source name je povinné", "error", 2500);
+        return;
+      }
+      if (this._opsState.length === 0) {
+        if (typeof _showToast === "function") _showToast("Datový zdroj musí mít alespoň 1 operaci", "error", 2500);
+        return;
+      }
+
+      // Build POST body
+      const newOps = this._opsState.filter(o => !o.existing);  // jen nové ops
+      const payload = {
+        source: {
+          code: code,
+          name: name,
+          description: this._headerState.description.trim() || null,
+          refresh_type: this._headerState.refresh_type,
+          default_record_limit: this._headerState.default_record_limit || 10000,
+        },
+        operations: newOps.map(op => ({
+          variant_code: op.variant_code,
+          operation_kind: op.operation_kind,
+          is_default: op.is_default,
+          sort_order: op.sort_order,
+          data_set: op.data_set,
+        })),
+      };
+
+      this._saveBtn.disabled = true;
+      this._saveBtn.innerHTML = "⏳ Ukládám…";
+
+      try {
+        const r = await fetch("/api/v1/erp/design/data-source/full", {
+          method: "POST",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+        });
+        const respData = await r.json().catch(() => ({}));
+        if (!r.ok || !respData.ok) {
+          throw new Error(respData.error || ("HTTP " + r.status));
+        }
+        if (typeof _showToast === "function") {
+          _showToast("Datový zdroj vytvořen (id=" + respData.data_source_id + ")", "success", 2500);
+        }
+        if (typeof this.onComplete === "function") {
+          try { this.onComplete(respData); } catch (e) { console.warn("[DesignDataSourceEditor] onComplete failed:", e); }
+        }
+        setTimeout(() => this._shell.close(), 600);
+      } catch (e) {
+        console.error("[DesignDataSourceEditor] save failed:", e);
+        if (typeof _showToast === "function") {
+          _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
+        }
+        this._saveBtn.disabled = false;
+        this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      }
+    }
+  }
+
   // Export
   // ────────────────────────────────────────────────────────────────────
 
@@ -12362,5 +13006,6 @@
   global.DesignJadroRadekForm = DesignJadroRadekForm;
   global.DesignFwForm = DesignFwForm;
   global.FieldPickerModal = FieldPickerModal;
+  global.DesignDataSourceEditor = DesignDataSourceEditor;
 
 })(window);

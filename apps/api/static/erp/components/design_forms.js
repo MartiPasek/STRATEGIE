@@ -13288,6 +13288,334 @@
     }
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // Phase 38.4 Krok 14g Etapa F Krok 5.L-B (17.5.2026, Marti's "DataSets
+  // soudeček chce vlastní editor"): standalone editor pro fw.data_set SQL
+  // primitives. Bez ops (data_set je low-level — pouze SQL + metadata).
+  //
+  // Backend Krok 5.L-A endpointy:
+  //   GET  /design/data-set/{id}            — single detail + use_count
+  //   POST /design/data-set/create          — single create (code=NULL default)
+  //   PATCH /design/data-set/update/{id}    — existing z Krok 5.K-B3
+  //
+  // Constructor: { dataSetId: int|null, onComplete?: fn }
+  //   null = create new mode
+  //   int  = edit existing mode
+  // ══════════════════════════════════════════════════════════════════════
+
+  const DDS_KIND_OPTIONS = [
+    { value: "select", label: "select" },
+    { value: "insert", label: "insert" },
+    { value: "update", label: "update" },
+    { value: "delete", label: "delete" },
+  ];
+
+  class DesignDataSetEditor {
+    constructor(opts) {
+      this.opts = opts || {};
+      this.dataSetId = this.opts.dataSetId || null;
+      this.onComplete = this.opts.onComplete || null;
+      this._spec = null;     // { data_set, use_count } z GET
+      this._state = null;    // { kind, sql_text, db_connection, description }
+      this._shell = null;
+      this._aceEd = null;
+      this._isCreateMode = (this.dataSetId == null);
+    }
+
+    open() {
+      const title = this._isCreateMode
+        ? "➕ Nový data_set (SQL primitiv)"
+        : ("📄 Data set #" + this.dataSetId);
+      this._shell = _buildModalShell({
+        title: title,
+        width: "900px",
+        onClose: () => this._cleanup(),
+      });
+      document.body.appendChild(this._shell.overlay);
+
+      const loading = document.createElement("div");
+      loading.style.cssText = "padding:24px;text-align:center;color:#8a96a4;";
+      loading.textContent = "Načítám…";
+      this._shell.body.appendChild(loading);
+
+      // Footer
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button";
+      cancelBtn.textContent = "Storno";
+      cancelBtn.style.cssText = "padding:6px 16px;background:#2a3340;border:1px solid #3a4754;border-radius:3px;color:#cfd6df;cursor:pointer;font-size:12px;";
+      cancelBtn.addEventListener("click", () => this._shell.close());
+      this._shell.footer.appendChild(cancelBtn);
+
+      this._saveBtn = document.createElement("button");
+      this._saveBtn.type = "button";
+      this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      this._saveBtn.style.cssText = "padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;border-radius:3px;color:#e8eef5;cursor:pointer;font-size:12px;font-weight:600;";
+      this._saveBtn.addEventListener("click", () => this._onSaveClick());
+      this._shell.footer.appendChild(this._saveBtn);
+
+      if (this._isCreateMode) {
+        this._spec = { data_set: null, use_count: 0 };
+        this._state = {
+          kind: "select",
+          sql_text: "",
+          db_connection: "data_db",
+          description: "",
+        };
+        this._render();
+      } else {
+        this._fetchData();
+      }
+    }
+
+    _cleanup() {
+      if (this._aceEd && typeof this._aceEd.destroy === "function") {
+        try { this._aceEd.destroy(); } catch (e) {}
+      }
+      this._aceEd = null;
+    }
+
+    async _fetchData() {
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/data-set/" + encodeURIComponent(this.dataSetId),
+          { method: "GET", credentials: "include" }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error(eb.error || ("HTTP " + r.status));
+        }
+        this._spec = await r.json();
+        if (!this._spec || !this._spec.ok) throw new Error("Neplatná response");
+        const ds = this._spec.data_set || {};
+        this._state = {
+          kind: ds.kind || "select",
+          sql_text: ds.sql_text || "",
+          db_connection: ds.db_connection || "data_db",
+          description: ds.description || "",
+        };
+        this._render();
+      } catch (e) {
+        console.error("[DesignDataSetEditor] _fetchData failed:", e);
+        this._shell.body.innerHTML = "";
+        const err = document.createElement("div");
+        err.style.cssText = "padding:24px;color:#e57373;font-size:13px;";
+        err.textContent = "Načtení selhalo: " + (e.message || e);
+        this._shell.body.appendChild(err);
+      }
+    }
+
+    _render() {
+      this._shell.body.innerHTML = "";
+      this._cleanup();
+
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:14px;";
+
+      // Edit mode: identity pill + use count
+      if (!this._isCreateMode && this._spec && this._spec.data_set) {
+        const ds = this._spec.data_set;
+        const idRow = document.createElement("div");
+        idRow.style.cssText = "display:flex;gap:10px;align-items:center;flex-wrap:wrap;";
+
+        const pill = document.createElement("div");
+        pill.style.cssText = "display:inline-flex;align-items:center;gap:6px;padding:5px 10px;background:#0a0f14;border:1px dashed #2a3340;border-radius:3px;color:#7ed4e8;font-family:monospace;font-size:12px;";
+        pill.innerHTML = "🔒 <span>" + (ds.code || "(NULL)") + "</span>" +
+          " <span style=\"color:#6a7684;\">· id=" + ds.id + "</span>";
+        idRow.appendChild(pill);
+
+        const useBadge = document.createElement("div");
+        useBadge.style.cssText = "padding:4px 10px;border-radius:3px;font-size:11px;font-weight:600;" +
+          (this._spec.use_count > 0
+            ? "background:rgba(125,212,168,0.15);color:#7ed4a8;border:1px solid rgba(125,212,168,0.3);"
+            : "background:#1a1f26;color:#6a7684;border:1px solid #2a3340;");
+        useBadge.textContent = "🔗 použito v " + this._spec.use_count + " operacích";
+        idRow.appendChild(useBadge);
+
+        wrap.appendChild(idRow);
+      }
+
+      // Header section — kind + db_connection + description
+      const sec = document.createElement("div");
+      sec.style.cssText = "display:flex;flex-direction:column;gap:10px;padding:12px;background:#0f1419;border:1px solid #2a3340;border-radius:4px;";
+
+      const grid = document.createElement("div");
+      grid.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px 12px;align-items:center;";
+
+      const _lbl = (text) => {
+        const l = document.createElement("label");
+        l.textContent = text;
+        l.style.cssText = "color:#a8b4c2;font-size:12px;";
+        return l;
+      };
+      const _inputStyle = "padding:6px 10px;background:#0a0f14;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:13px;width:100%;box-sizing:border-box;";
+
+      // Kind dropdown
+      const kindSelect = document.createElement("select");
+      kindSelect.style.cssText = _inputStyle + "cursor:pointer;";
+      for (const opt of DDS_KIND_OPTIONS) {
+        const o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === this._state.kind) o.selected = true;
+        kindSelect.appendChild(o);
+      }
+      kindSelect.addEventListener("change", () => { this._state.kind = kindSelect.value; });
+      grid.appendChild(_lbl("Kind"));
+      grid.appendChild(kindSelect);
+
+      // DB connection dropdown
+      const dbSelect = document.createElement("select");
+      dbSelect.style.cssText = _inputStyle + "cursor:pointer;";
+      for (const opt of DDS_DB_CONNECTIONS) {
+        const o = document.createElement("option");
+        o.value = opt.value;
+        o.textContent = opt.label;
+        if (opt.value === this._state.db_connection) o.selected = true;
+        dbSelect.appendChild(o);
+      }
+      dbSelect.addEventListener("change", () => { this._state.db_connection = dbSelect.value; });
+      grid.appendChild(_lbl("DB connection"));
+      grid.appendChild(dbSelect);
+
+      // Description input
+      const descInput = document.createElement("input");
+      descInput.type = "text";
+      descInput.value = this._state.description || "";
+      descInput.placeholder = "Krátký popis účelu primitive";
+      descInput.style.cssText = _inputStyle;
+      descInput.addEventListener("input", () => { this._state.description = descInput.value; });
+      grid.appendChild(_lbl("Popis"));
+      grid.appendChild(descInput);
+
+      sec.appendChild(grid);
+      wrap.appendChild(sec);
+
+      // SQL editor
+      const sqlLabel = document.createElement("div");
+      sqlLabel.style.cssText = "font-size:11px;color:#a8b4c2;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;";
+      sqlLabel.textContent = "📝 SQL TEXT (parameters: :param_name)";
+      wrap.appendChild(sqlLabel);
+
+      const editorHost = document.createElement("div");
+      wrap.appendChild(editorHost);
+
+      if (typeof global.ErpRichEdit === "function") {
+        this._aceEd = new global.ErpRichEdit(editorHost, {
+          value: this._state.sql_text || "",
+          language: "sql",
+          theme: "monokai",
+          height: "320px",
+          lineNumbers: true,
+          onChange: (val) => { this._state.sql_text = val; },
+          onBlur: () => this._refreshParamHint(),
+        });
+      } else {
+        const ta = document.createElement("textarea");
+        ta.style.cssText = "padding:8px;background:#0a0f14;border:1px solid #2a3340;color:#cfd6df;font-family:monospace;font-size:12px;width:100%;box-sizing:border-box;min-height:320px;";
+        ta.value = this._state.sql_text || "";
+        ta.addEventListener("input", () => { this._state.sql_text = ta.value; });
+        editorHost.appendChild(ta);
+        this._aceEd = { value: () => ta.value, destroy: () => {} };
+      }
+
+      this._paramHint = document.createElement("div");
+      this._paramHint.style.cssText = "padding:6px 8px;background:#0a0f14;border:1px dashed #2a3340;color:#8a96a4;font-size:11px;font-style:italic;";
+      wrap.appendChild(this._paramHint);
+      this._refreshParamHint();
+
+      this._shell.body.appendChild(wrap);
+    }
+
+    _refreshParamHint() {
+      if (!this._paramHint) return;
+      const sql = this._state.sql_text || "";
+      const matches = sql.match(/:[a-zA-Z_][a-zA-Z0-9_]*/g) || [];
+      const unique = Array.from(new Set(matches));
+      if (unique.length === 0) {
+        this._paramHint.textContent = "Detected parameters: (none — zapiš `:param_name` v SQL)";
+        this._paramHint.style.color = "#8a96a4";
+      } else {
+        this._paramHint.innerHTML = "Detected parameters: <strong style=\"color:#7ed4e8;\">" + unique.join(", ") + "</strong>";
+        this._paramHint.style.color = "#cfd6df";
+      }
+    }
+
+    async _onSaveClick() {
+      const kind = this._state.kind;
+      const sqlText = this._state.sql_text || "";
+      if (!sqlText.trim()) {
+        if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
+        return;
+      }
+
+      this._saveBtn.disabled = true;
+      this._saveBtn.innerHTML = "⏳ Ukládám…";
+
+      try {
+        if (this._isCreateMode) {
+          // POST create
+          const r = await fetch("/api/v1/erp/design/data-set/create", {
+            method: "POST", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              code: null,  // Marti's NULL doctrine
+              kind: kind,
+              sql_text: sqlText,
+              db_connection: this._state.db_connection,
+              description: this._state.description.trim() || null,
+            }),
+          });
+          const respData = await r.json().catch(() => ({}));
+          if (!r.ok || !respData.ok) throw new Error(respData.error || ("HTTP " + r.status));
+          if (typeof _showToast === "function") {
+            _showToast("Data set vytvořen (id=" + respData.data_set_id + ")", "success", 2500);
+          }
+          if (typeof this.onComplete === "function") {
+            try { this.onComplete(respData); } catch (e) {}
+          }
+          setTimeout(() => this._shell.close(), 600);
+        } else {
+          // PATCH edit
+          const initialDs = (this._spec && this._spec.data_set) || {};
+          const patch = {};
+          if (this._state.kind !== initialDs.kind) patch.kind = this._state.kind;
+          if (this._state.sql_text !== (initialDs.sql_text || "")) patch.sql_text = this._state.sql_text;
+          if (this._state.db_connection !== (initialDs.db_connection || "")) patch.db_connection = this._state.db_connection;
+          const newDesc = this._state.description.trim() || null;
+          if (newDesc !== (initialDs.description || null)) patch.description = newDesc;
+
+          if (Object.keys(patch).length === 0) {
+            if (typeof _showToast === "function") _showToast("Žádné změny", "info", 2000);
+            this._shell.close();
+            return;
+          }
+
+          const r = await fetch("/api/v1/erp/design/data-set/update/" + encodeURIComponent(this.dataSetId), {
+            method: "PATCH", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(patch),
+          });
+          const respData = await r.json().catch(() => ({}));
+          if (!r.ok || !respData.ok) throw new Error(respData.error || ("HTTP " + r.status));
+          if (typeof _showToast === "function") {
+            _showToast("Data set uložen (" + respData.updated_fields.join(", ") + ")", "success", 2500);
+          }
+          if (typeof this.onComplete === "function") {
+            try { this.onComplete(respData); } catch (e) {}
+          }
+          setTimeout(() => this._shell.close(), 600);
+        }
+      } catch (e) {
+        console.error("[DesignDataSetEditor] save failed:", e);
+        if (typeof _showToast === "function") {
+          _showToast("Uložení selhalo: " + (e.message || e), "error", 4000);
+        }
+        this._saveBtn.disabled = false;
+        this._saveBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Uložit';
+      }
+    }
+  }
+
   // Export
   // ────────────────────────────────────────────────────────────────────
 
@@ -13296,5 +13624,6 @@
   global.DesignFwForm = DesignFwForm;
   global.FieldPickerModal = FieldPickerModal;
   global.DesignDataSourceEditor = DesignDataSourceEditor;
+  global.DesignDataSetEditor = DesignDataSetEditor;
 
 })(window);

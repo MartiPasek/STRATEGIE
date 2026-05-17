@@ -6780,6 +6780,125 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
         ds_pds.close()
 
 
+@api_router.get("/design/data-set/{data_set_id}")
+def design_get_data_set_single(data_set_id: int, req: Request) -> JSONResponse:
+    """Krok 5.L-A GET single data_set detail + use count (pocet refs v data_source_op).
+
+    Returns:
+        200: { ok, data_set: {id, code, kind, sql_text, db_connection, description, status,
+               is_system, created_at}, use_count }
+        404: data_set neexistuje
+    """
+    from core.database_data import get_data_session as _gds_gdss
+    from sqlalchemy import text as _sql_text_gdss
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds_session = _gds_gdss()
+    try:
+        row = ds_session.execute(_sql_text_gdss("""
+            SELECT * FROM fw.data_set WHERE id = :id
+        """), {"id": data_set_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} nenalezen"}, status_code=404)
+
+        # Count refs in data_source_op (informativní pro UI warning)
+        use_count = ds_session.execute(_sql_text_gdss("""
+            SELECT COUNT(*) AS cnt FROM fw.data_source_op WHERE data_set_id = :id
+        """), {"id": data_set_id}).scalar() or 0
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_set": dict(row),
+            "use_count": use_count,
+        }))
+    finally:
+        ds_session.close()
+
+
+@api_router.post("/design/data-set/create")
+async def design_create_data_set(req: Request) -> JSONResponse:
+    """Krok 5.L-A POST single data_set create.
+
+    Body: {kind: str, sql_text: str, db_connection?: 'data_db', description?: str, code?: null}
+
+    code defaultne NULL per Marti's doctrine (17.5.). PG UNIQUE allows multiple NULLs.
+
+    Returns:
+        200: {ok, data_set_id, data_set: {...full row...}}
+        400: invalid body
+        500: INSERT failed
+    """
+    from core.database_data import get_data_session as _gds_cds_set
+    from sqlalchemy import text as _sql_text_cds_set
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cds_set
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    kind = (body.get("kind") or "").strip()
+    sql_text = body.get("sql_text") or ""
+    db_connection = (body.get("db_connection") or "data_db").strip()
+    description = body.get("description")
+    if description is not None:
+        description = str(description).strip() or None
+
+    # Code optional — None = NULL v DB (Marti's NULL doctrine)
+    code_raw = body.get("code")
+    code_normalized = None
+    if code_raw is not None:
+        code_normalized = str(code_raw).strip() or None
+
+    # Validation
+    if not kind:
+        return JSONResponse({"ok": False, "error": "kind povinné (select/insert/update/delete)"}, status_code=400)
+    if not sql_text.strip():
+        return JSONResponse({"ok": False, "error": "sql_text povinný"}, status_code=400)
+
+    ds_session = _gds_cds_set()
+    try:
+        # Uniqueness check JEN pokud code non-null
+        if code_normalized is not None:
+            existing = ds_session.execute(_sql_text_cds_set("""
+                SELECT id FROM fw.data_set
+                WHERE code = :code AND status = 'active'
+                LIMIT 1
+            """), {"code": code_normalized}).mappings().one_or_none()
+            if existing:
+                return JSONResponse(
+                    {"ok": False, "error": f"Aktivni data_set s code='{code_normalized}' uz existuje (id={existing['id']})."},
+                    status_code=400,
+                )
+
+        values = {
+            "code": code_normalized,
+            "kind": kind,
+            "sql_text": sql_text,
+            "db_connection": db_connection,
+            "description": description,
+            "is_system": False,
+            "status": "active",
+        }
+        result = _spg_insert_cds_set(schema="fw", table="data_set", values=values)
+        if not result.get("ok"):
+            return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {result.get('error')}"}, status_code=500)
+
+        new_row = result.get("inserted") or {}
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_set_id": new_row.get("id"),
+            "data_set": new_row,
+        }))
+    finally:
+        ds_session.close()
+
+
 @api_router.patch("/design/data-set/update/{data_set_id}")
 async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
     """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text + kind +
@@ -13727,6 +13846,33 @@ def _render_workspace_page(user_id: int) -> str:
           body.appendChild(addNewBtn);
         }
 
+        // Krok 5.L-C: + Nový data_set button pro framework_data_sets mode
+        if (mode === "framework_data_sets" && typeof window.DesignDataSetEditor === "function") {
+          var addNewSetBtn = document.createElement("button");
+          addNewSetBtn.type = "button";
+          addNewSetBtn.textContent = "➕ Nový data set";
+          addNewSetBtn.title = "Vytvořit nový SQL primitiv (Krok 5.L editor)";
+          addNewSetBtn.style.cssText =
+            "position:absolute;top:8px;right:80px;z-index:50;" +
+            "padding:6px 14px;background:#1f4858;border:1px solid #3a8aa8;" +
+            "color:#7ed4e8;border-radius:4px;cursor:pointer;font-size:12px;" +
+            "font-weight:600;box-shadow:0 2px 6px rgba(0,0,0,0.4);";
+          addNewSetBtn.addEventListener("mouseenter", function() { addNewSetBtn.style.background = "#2a5a6a"; });
+          addNewSetBtn.addEventListener("mouseleave", function() { addNewSetBtn.style.background = "#1f4858"; });
+          addNewSetBtn.addEventListener("click", function() {
+            new window.DesignDataSetEditor({
+              dataSetId: null,
+              onComplete: function() {
+                if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                  window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                }
+              },
+            }).open();
+          });
+          body.style.position = "relative";
+          body.appendChild(addNewSetBtn);
+        }
+
         try {
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
@@ -13770,6 +13916,18 @@ def _render_workspace_page(user_id: int) -> str:
                 }).open();
                 return;
               }
+              // Krok 5.L-C (17.5.2026): DataSets mode dvojklik → DesignDataSetEditor
+              if (mode === "framework_data_sets" && typeof window.DesignDataSetEditor === "function") {
+                new window.DesignDataSetEditor({
+                  dataSetId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
               if (!sysLayoutKey) return;
               if (typeof window._openFwFormForRow === "function") {
                 window._openFwFormForRow(sysLayoutKey, rowId, null);
@@ -13785,6 +13943,18 @@ def _render_workspace_page(user_id: int) -> str:
               if (mode === "framework_data_sources" && typeof window.DesignDataSourceEditor === "function") {
                 new window.DesignDataSourceEditor({
                   dataSourceId: rowId,
+                  onComplete: function() {
+                    if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
+                      window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");
+                    }
+                  },
+                }).open();
+                return;
+              }
+              // Krok 5.L-C: DataSets Enter → DesignDataSetEditor
+              if (mode === "framework_data_sets" && typeof window.DesignDataSetEditor === "function") {
+                new window.DesignDataSetEditor({
+                  dataSetId: rowId,
                   onComplete: function() {
                     if (window._sysHelpers && typeof window._sysHelpers.renderSystemGrid === "function") {
                       window._sysHelpers.renderSystemGrid(mode, window._sysCurrentLabel || "");

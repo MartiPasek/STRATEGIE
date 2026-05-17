@@ -12656,8 +12656,9 @@
 
     _renderOpRow(op, idx) {
       const row = document.createElement("div");
-      row.style.cssText = "display:grid;grid-template-columns:120px 80px 1fr 60px 90px 30px;gap:8px;align-items:center;padding:8px 10px;background:#0a0f14;border:1px solid #1f2630;border-radius:3px;font-size:12px;";
-      // Marker pro existing vs new
+      // Krok 5.K-B5: drop variant_code sloupec (Marti's strach), display
+      // description + operation_kind + data_set summary + default + status.
+      row.style.cssText = "display:grid;grid-template-columns:80px 1fr 60px 90px 30px;gap:8px;align-items:center;padding:8px 10px;background:#0a0f14;border:1px solid #1f2630;border-radius:3px;font-size:12px;";
       const isExisting = !!op.existing;
       if (!isExisting) {
         row.style.borderColor = "#3a8aa8";
@@ -12671,12 +12672,15 @@
         return c;
       };
 
-      row.appendChild(_cell(op.variant_code, { mono: true }));
       row.appendChild(_cell(op.operation_kind));
-      const setLabel = op.data_set
-        ? ("📄 " + (op.data_set.code || ("id=" + op.data_set.id)) + " · " + (op.data_set.db_connection || "?"))
-        : ("data_set_id=" + (op.data_set_id || "?"));
-      row.appendChild(_cell(setLabel));
+      // Description = primary human label. Fallback na data_set summary
+      // pokud description chybí.
+      const humanLabel = op.description
+        ? op.description
+        : (op.data_set
+            ? ("📄 " + (op.data_set.db_connection || "?") + (op.data_set.kind ? " · " + op.data_set.kind : ""))
+            : "(?)");
+      row.appendChild(_cell(humanLabel));
       row.appendChild(_cell(op.is_default ? "✓ default" : ""));
       row.appendChild(_cell(isExisting ? "existing" : "new", { mono: true }));
 
@@ -12794,7 +12798,9 @@
         return l;
       };
 
-      const variantInput = _ipt("např. 'list', 'select_form', 'archive'");
+      // Krok 5.K-B5 (17.5.2026, Marti's "z variant_code mam instinktivni strach"):
+      // drop variant_code UI input. Auto-gen v save flow ('default', 'default_2'...).
+      // Backend keeps column pro runtime lookup (data_source_runner.py:103).
       const kindSelect = _sel(DDS_OPERATION_KINDS);
       const isDefaultCheck = document.createElement("input");
       isDefaultCheck.type = "checkbox";
@@ -12802,8 +12808,6 @@
       const sortInput = _ipt("0");
       sortInput.type = "number";
 
-      opGrid.appendChild(_lbl("Variant code:"));
-      opGrid.appendChild(variantInput);
       opGrid.appendChild(_lbl("Kind:"));
       opGrid.appendChild(kindSelect);
       opGrid.appendChild(_lbl("Default:"));
@@ -12891,32 +12895,23 @@
       okBtn.innerHTML = '<span style="color:#5dbf5d;margin-right:4px;">✓</span>Přidat operaci';
       okBtn.style.cssText = "padding:5px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
       okBtn.addEventListener("click", () => {
-        // Validate
-        const variant = variantInput.value.trim();
+        // Validate — drop variant_code check (Marti's "strach" Krok 5.K-B5)
         const sqlText = aceEd.value();
-        if (!variant) {
-          if (typeof _showToast === "function") _showToast("Variant code je povinné", "error", 2500);
-          return;
-        }
         if (!sqlText.trim()) {
           if (typeof _showToast === "function") _showToast("SQL text je povinný", "error", 2500);
           return;
         }
 
-        // Krok 5.K-B4: auto-generate data_set.code (place holder — final
-        // resolution v _onSaveClick once source.code je known z name slugify)
-        // Pro now: dummy placeholder, refined v save flow.
-        const placeholderCode = "_pending_" + _slugifyForCode(variant);
-
-        // Add to opsState
+        // Krok 5.K-B5: auto-gen variant_code v _onSaveClick (default/_2/_3 per kind)
+        // Plus data_set.code resolved tam taky.
         const newOp = {
           existing: false,
-          variant_code: variant,
+          variant_code: null,  // resolved v _onSaveClick (default/_2/_3 logic)
           operation_kind: kindSelect.value,
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
           data_set: {
-            code: placeholderCode,  // refined v _onSaveClick
+            code: null,  // resolved v _onSaveClick (source_code + kind + suffix)
             kind: kindSelect.value,
             sql_text: sqlText,
             db_connection: dbConnSelect.value,
@@ -12980,7 +12975,8 @@
         return l;
       };
 
-      const variantInput = _ipt(op.variant_code, "např. 'list'");
+      // Krok 5.K-B5: drop variant_code input z edit form (Marti's strach).
+      // Backend column keeps existing value — not editable v UI.
       const kindSelect = _sel(DDS_OPERATION_KINDS, op.operation_kind);
       const isDefaultCheck = document.createElement("input");
       isDefaultCheck.type = "checkbox";
@@ -12989,8 +12985,6 @@
       const sortInput = _ipt(op.sort_order, "0");
       sortInput.type = "number";
 
-      opGrid.appendChild(_lbl("Variant code:"));
-      opGrid.appendChild(variantInput);
       opGrid.appendChild(_lbl("Kind:"));
       opGrid.appendChild(kindSelect);
       opGrid.appendChild(_lbl("Default:"));
@@ -13083,9 +13077,8 @@
         okBtn.disabled = true;
         okBtn.innerHTML = "⏳ Ukládám…";
         try {
-          // Diff op header vs initial
+          // Diff op header vs initial (Krok 5.K-B5: variant_code dropped z UI)
           const opPatchBody = {};
-          if (variantInput.value.trim() !== op.variant_code) opPatchBody.variant_code = variantInput.value.trim();
           if (kindSelect.value !== op.operation_kind) opPatchBody.operation_kind = kindSelect.value;
           if (isDefaultCheck.checked !== !!op.is_default) opPatchBody.is_default = isDefaultCheck.checked;
           const newSort = parseInt(sortInput.value, 10);
@@ -13233,6 +13226,29 @@
       const sourceCode = _slugifyForCode(name);
 
       const newOps = this._opsState.filter(o => !o.existing);
+
+      // Krok 5.K-B5 (Marti's "instinktivni strach z variant_code"):
+      // auto-gen variant_code per operation_kind. 1st kind → "default",
+      // 2nd same kind → "default_2", etc. Plus data_set.code = source.code +
+      // "_" + operation_kind + suffix (no variant_code v code).
+      const kindCounts = {};
+      const operations = newOps.map((op) => {
+        const k = op.operation_kind;
+        kindCounts[k] = (kindCounts[k] || 0) + 1;
+        const suffix = kindCounts[k] === 1 ? "" : "_" + kindCounts[k];
+        const variantCode = "default" + suffix;
+        const dataSetCode = sourceCode + "_" + k + suffix;
+        return {
+          variant_code: variantCode,
+          operation_kind: k,
+          is_default: op.is_default,
+          sort_order: op.sort_order,
+          data_set: Object.assign({}, op.data_set, {
+            code: dataSetCode,
+          }),
+        };
+      });
+
       const payload = {
         source: {
           code: sourceCode,
@@ -13241,16 +13257,7 @@
           refresh_type: this._headerState.refresh_type,
           default_record_limit: this._headerState.default_record_limit || 10000,
         },
-        operations: newOps.map(op => ({
-          variant_code: op.variant_code,
-          operation_kind: op.operation_kind,
-          is_default: op.is_default,
-          sort_order: op.sort_order,
-          data_set: Object.assign({}, op.data_set, {
-            // Override placeholder code s final auto-generated
-            code: sourceCode + "_" + _slugifyForCode(op.variant_code),
-          }),
-        })),
+        operations: operations,
       };
 
       this._saveBtn.disabled = true;

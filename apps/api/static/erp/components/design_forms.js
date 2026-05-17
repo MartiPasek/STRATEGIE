@@ -7103,12 +7103,13 @@
       try {
         const core = this._spec.core;
         const data = this._spec.data || {};
-        // Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu"):
-        // entityType = core.code (was core.data_entity_type). Backend map
-        // ma form-code aliases (user_edit, core_design, ...) plus zachovane
-        // entity keys (user, core, ...) - direct PATCH endpoints fungujou
-        // kompatibilne. URL becomes /design/{core.code}/{rowId}.
-        const entityType = core.code;
+        // Phase 38.4 Krok 5.N-2 (17.5.2026, Marti's "code je optional, ID
+        // je truth"): entityType = String(core.id) misto core.code. URL build
+        // /design/22/14 (ID-based). Backend dispatcher detekuje numeric vs
+        // string a routes podle _FW_FORM_CORE_REGISTRY (ID-based) nebo
+        // _FW_FORM_ENTITY_MAP (legacy string fallback). Marti's rename code
+        // na cokoliv neproblém — ID je truth.
+        const entityType = core.id != null ? String(core.id) : core.code;
         const rowId = data.id != null ? data.id : (data.ID != null ? data.ID : null);
         const expectedUpdatedAt = data.updated_at;
 

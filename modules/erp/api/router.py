@@ -4268,20 +4268,31 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             status_code=400,
         )
 
-    # Entity routing — reuse _FW_FORM_ENTITY_MAP (Krok 14b base)
-    if entity_type not in _FW_FORM_ENTITY_MAP:
+    # Phase 38.4 Krok 5.N-2 (17.5.2026, Marti's "code je optional, ID je truth"):
+    # entity_type może być numeric (URL /design/22/14 — ID-based) NEBO string
+    # (URL /design/user/14 — legacy entity_type / Form 1 direct path).
+    # Detekce + dispatch via _resolve_entity_config_for_core (5.N-1 helper).
+    entity_config = None
+    if entity_type.isdigit():
+        # ID-based path — Marti's 5.N doctrine
+        entity_config = _resolve_entity_config_for_core(int(entity_type))
+    elif entity_type in _FW_FORM_ENTITY_MAP:
+        # Legacy string path — direct entity (user, menu_node, core, comp_def)
+        entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+
+    if not entity_config:
         return JSONResponse(
             {
                 "ok": False,
                 "error": (
-                    f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP. "
-                    f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+                    f"Entity '{entity_type}' není v _FW_FORM_ENTITY_MAP "
+                    f"ani _FW_FORM_CORE_REGISTRY. "
+                    f"Registry IDs: {list(_FW_FORM_CORE_REGISTRY.keys())}. "
+                    f"Map codes: {list(_FW_FORM_ENTITY_MAP.keys())}."
                 ),
             },
             status_code=404,
         )
-
-    entity_config = _FW_FORM_ENTITY_MAP[entity_type]
     schema_name = entity_config["schema"]
     table_name = entity_config["table"]
     id_column = entity_config["id_column"]

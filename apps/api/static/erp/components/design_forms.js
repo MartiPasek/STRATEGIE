@@ -6170,6 +6170,14 @@
       // v _render loopu se nikdy nespusti -> no OK/Storno. CORE 23 ma
       // [header, main, footer] -> footer fires -> OK works. To je
       // "kazdy zvlast" pattern co Marti explicitne odmita.
+      // Phase 38.4 Krok 5.P-1++++ (17.5.2026 vecer, Marti's "paticka
+      // align down"): ENSURE MAIN PANEL TOO (parita s ensure footer
+      // pattern). Bez main panelu by Grid row 2 (1fr stretch) zustal
+      // prazdny a footer by se posunul nahoru.
+      const hasMain = panels.some(p => p && p.slot === "main");
+      if (!hasMain) {
+        panels.push({ slot: "main", label: "", order: 100, components: [] });
+      }
       const hasFooter = panels.some(p => p && p.slot === "footer");
       if (!hasFooter) {
         panels.push({ slot: "footer", label: "", order: 999, components: [] });
@@ -6354,6 +6362,25 @@
           // (alignContent default = stretch v grid s 1 item)
         }
         // header — no extra styling, Grid auto-rows assignuje natural height
+
+        // Phase 38.4 Krok 5.P-1++++ (17.5.2026 vecer, Marti's "paticka
+        // align down"): explicit gridRow assignment per panel.slot.
+        // Bez tohoto Grid implicit assigment hraje insertion order ->
+        // pokud panels nemaji header, main dostane row 1 (auto, natural
+        // height) misto row 2 (1fr stretch), footer dostane row 2 (1fr)
+        // misto row 3 (auto). Footer se pak stretch over remaining height.
+        //
+        // Explicit gridRow garantuje:
+        //   - header (slot='header') → Grid row 1 (auto, natural top)
+        //   - main (slot='main')     → Grid row 2 (1fr, stretch fill)
+        //   - footer (slot='footer') → Grid row 3 (auto, natural bottom)
+        if (panel.slot === "header") {
+          sec.wrap.style.gridRow = "1";
+        } else if (panel.slot === "main") {
+          sec.wrap.style.gridRow = "2";
+        } else if (panel.slot === "footer") {
+          sec.wrap.style.gridRow = "3";
+        }
 
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
         // PRED fields (fields jsou typicky v 'main' panel, components v 'header' / 'footer')

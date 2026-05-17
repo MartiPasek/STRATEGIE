@@ -2660,7 +2660,7 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
         # bylo RENAMED na description_user + description_system (split).
         list_core = ds.execute(_sql_text_fcfg("""
             SELECT id, code, label, description_user, description_system,
-                   layout_type, data_entity_type, version, is_active
+                   layout_type, form_core_id, version, is_active
             FROM fw.core
             WHERE code = :code
               AND is_active = true
@@ -2682,7 +2682,7 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
                 if mn_for_cislo and mn_for_cislo.get("core_id"):
                     list_core = ds.execute(_sql_text_fcfg("""
                         SELECT id, code, label, description_user, description_system,
-                               layout_type, data_entity_type, version, is_active
+                               layout_type, form_core_id, version, is_active
                         FROM fw.core
                         WHERE id = :id
                           AND is_active = true
@@ -2698,44 +2698,49 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
             )
 
         list_core_dict = dict(list_core)
-        entity_type = list_core_dict.get("data_entity_type")
+        list_id = list_core_dict["id"]
+        form_core_id = list_core_dict.get("form_core_id")
 
-        # 2. Bez data_entity_type nelze hledat form core
-        if not entity_type:
+        # Phase 38.4 Krok 5.M-5 (17.5.2026, Marti's "core nenese entitu"
+        # doctrine): list→form pairing pres explicit fw.core.form_core_id FK
+        # misto data_entity_type matching. Backfill v DDL skriptu z existing
+        # pairs (security_users→user_edit, atd.). Pokud form_core_id IS NULL
+        # → list zatim nema paired form, user musi vytvorit pres scaffold.
+
+        # Suggested code pro scaffold action — based on list code
+        suggested_form_code = f"{list_core_dict['code']}_form" if list_core_dict.get("code") else None
+
+        if form_core_id is None:
             return JSONResponse(jsonable_encoder({
                 "ok": True,
                 "found": False,
                 "list_core": list_core_dict,
-                "entity_type": None,
-                "suggested_form_code": None,
+                "form_core_id": None,
+                "suggested_form_code": suggested_form_code,
                 "form_core": None,
                 "hint": (
-                    f"List core '{grid_core_code}' nemá nastaveno "
-                    f"data_entity_type. UPDATE fw.core SET data_entity_type "
-                    f"= '<entity>' WHERE id = {list_core_dict['id']} potřeba "
-                    f"předtím, než lze scaffold form."
+                    f"List core '{grid_core_code}' (id={list_id}) nema "
+                    f"paired form. Vytvor pres scaffold action nebo PATCH "
+                    f"fw.core SET form_core_id = <form_id> manualne."
                 ),
             }))
 
-        # 3. Hledej form core pro tu entity
-        suggested_form_code = f"{entity_type}_edit"
+        # form_core_id is set — load the paired form core
         form_core = ds.execute(_sql_text_fcfg("""
             SELECT id, code, label, description_user, description_system,
-                   layout_type, data_entity_type, version, layout_template,
+                   layout_type, version, layout_template,
                    is_active, created_at
             FROM fw.core
-            WHERE data_entity_type = :etype
+            WHERE id = :form_id
               AND layout_type = 'form'
               AND is_active = true
-            ORDER BY id ASC
-            LIMIT 1
-        """), {"etype": entity_type}).mappings().one_or_none()
+        """), {"form_id": form_core_id}).mappings().one_or_none()
 
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "found": form_core is not None,
             "list_core": list_core_dict,
-            "entity_type": entity_type,
+            "form_core_id": form_core_id,
             "suggested_form_code": suggested_form_code,
             "form_core": dict(form_core) if form_core else None,
         }))
@@ -3123,9 +3128,10 @@ _FW_FORM_ENTITY_MAP: dict = {
         # `template_id`, `data_source_config`, audit fields.
         "select_columns": [
             "id", "code", "label",
-            "layout_type", "data_entity_type", "data_source_config",
+            "layout_type", "data_source_config",
             "version", "parent_framework_id",
             "layout_template", "template_id",
+            "form_core_id",
             "is_active", "tenant_visibility",
             "description_user", "description_system",
             "created_by_id", "created_by_text",
@@ -3480,26 +3486,36 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
 
 
 def _resolve_child_config(core_code: str, child_key: str, ds) -> tuple[dict, dict]:
-    """Helper — resolve fw.core code → entity_type → children[child_key].
+    """Helper — resolve fw.core code → entity_config → children[child_key].
 
-    Returns (entity_config, child_config). Raises HTTPException-like 404
-    dict pokud anything missing.
+    Phase 38.4 Krok 5.M-5 (17.5.2026, Marti's "core nenese entitu"):
+    simplified — use core_code directly jako map key. Map ma aliasy
+    (user_edit, core_design, comp_def_design, menu_node_design) plus
+    original entity keys (user, core, comp_def, menu_node). No DB read
+    needed pro entity_type lookup.
+
+    Returns (entity_config, child_config). Raises ValueError pokud anything
+    missing.
     """
     from sqlalchemy import text as _sql_text_rcc
+    # Just verify core exists (existence + form layout check)
     core_row = ds.execute(_sql_text_rcc("""
-        SELECT data_entity_type FROM fw.core
+        SELECT id FROM fw.core
         WHERE code = :code AND is_active = true AND layout_type = 'form'
     """), {"code": core_code}).mappings().one_or_none()
     if not core_row:
         raise ValueError(f"fw.core code='{core_code}' (form) nenalezen")
-    entity_type = core_row["data_entity_type"]
-    if entity_type not in _FW_FORM_ENTITY_MAP:
-        raise ValueError(f"Entity '{entity_type}' neni v _FW_FORM_ENTITY_MAP")
-    entity_config = _FW_FORM_ENTITY_MAP[entity_type]
+    # Use core_code directly jako map key (aliases handle user_edit→user, etc.)
+    if core_code not in _FW_FORM_ENTITY_MAP:
+        raise ValueError(
+            f"Core code='{core_code}' neni v _FW_FORM_ENTITY_MAP. "
+            f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+        )
+    entity_config = _FW_FORM_ENTITY_MAP[core_code]
     children = entity_config.get("children") or {}
     if child_key not in children:
         raise ValueError(
-            f"Child '{child_key}' neni v entity '{entity_type}' children. "
+            f"Child '{child_key}' neni v core '{core_code}' children. "
             f"Available: {list(children.keys())}"
         )
     return entity_config, children[child_key]
@@ -5487,7 +5503,10 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
     code = (body.get("code") or "").strip()
     label = (body.get("label") or "").strip()
     layout_type = (body.get("layout_type") or "list").strip() or "list"
-    data_entity_type = (body.get("data_entity_type") or "").strip() or None
+    # Phase 38.4 Krok 5.M-5 (17.5.2026): data_entity_type body field DROPPED
+    # (Krok 5.M-3+B frontend stopped sending it). Variable kept as None for
+    # backward compat s downstream code (insert dict construction).
+    data_entity_type = None  # legacy variable, no-op
     description_user = body.get("description_user") or None
 
     # Validation
@@ -5534,8 +5553,9 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
         "label": label,
         "layout_type": layout_type,
     }
-    if data_entity_type:
-        values["data_entity_type"] = data_entity_type
+    # Phase 38.4 Krok 5.M-5 (17.5.2026): data_entity_type INSERT DROPPED
+    # (Marti's "core nenese entitu" doctrine). Column will be removed v M-6.
+    # if data_entity_type: ... — block removed.
     if description_user:
         values["description_user"] = description_user
     # Audit fields — pokud columns existuji v fw.core (defensive vs schema drift)
@@ -8652,9 +8672,13 @@ async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
     # Pole + magic"): rozsireno o data_entity_type a code (drafted core
     # postupne nabira meta info — entity assignment je preconditie pro
     # ➕ Pole button visibility v DesignFwForm header).
+    # Phase 38.4 Krok 5.M-5 (17.5.2026): data_entity_type DROPPED z ALLOWED
+    # (Marti's "core nenese entitu" doctrine). After M-6 DDL drop column,
+    # any PATCH attempt would error. Plus form_core_id ADDED — explicit
+    # list→form pairing (M-5 FK).
     ALLOWED = (
         "label", "description_user", "description_system",
-        "data_entity_type", "code",
+        "code", "form_core_id",
     )
     update_vals = {}
     for k in ALLOWED:

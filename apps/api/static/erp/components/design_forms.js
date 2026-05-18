@@ -6308,14 +6308,18 @@
           // Phase 38.4 Krok 5.R-C+7 (18.5.2026 vecer pozde): coreInfo pill
           // vlevo dole v paticce. Format "coreId:rowId". Marti's "par malickosti
           // pro orientaci".
+          // Krok 5.R-C+7.5 (18.5.2026 vecer pozde): fix wrong field refs —
+          // DesignFwForm ma this.opts.coreId + this.opts.rowId, ne _coreId/_rowId.
           try {
-            var _ciCoreId = (this._coreId != null) ? this._coreId
-              : (this._core && this._core.id != null) ? this._core.id : null;
-            var _ciRowId = (this._rowId != null) ? this._rowId
-              : (this._row && this._row.id != null) ? this._row.id : null;
+            var _ciCoreId = (this.opts && this.opts.coreId != null) ? this.opts.coreId
+              : (this._spec && this._spec.core && this._spec.core.id != null) ? this._spec.core.id
+              : null;
+            var _ciRowId = (this.opts && this.opts.rowId != null) ? this.opts.rowId
+              : (this._spec && this._spec.data && this._spec.data.id != null) ? this._spec.data.id
+              : null;
             if (_ciCoreId != null) {
-              var _ciLabel = String(_ciCoreId);
-              if (_ciRowId != null) _ciLabel += ":" + String(_ciRowId);
+              var _ciLabel = String(_ciCoreId) + ":";
+              if (_ciRowId != null) _ciLabel += String(_ciRowId);
               var _ciPill = document.createElement("button");
               _ciPill.type = "button";
               _ciPill.className = "erp-form-coreinfo-pill";

@@ -1868,6 +1868,97 @@ def system_framework(
 # hardcoded Python query branches z router.py do fw.data_set.sql_text.
 # Parent gate + ALLOWED_KINDS whitelist (jen SELECT) drží defense.
 
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 5.R-D+1 (18.5.2026 rano, Marti's "refactor code na ID"):
+# ID-first endpoint parallel s /data/{code}. Marti's doctrine "ID je svaty"
+# (11.5. Krok 13.0) applied k data_source executor. /data/{code} zachovany
+# pro backward compat (Form 1 data source picker + jine callers).
+# ════════════════════════════════════════════════════════════════════════════
+
+@api_router.get("/data-by-id/{ds_id}")
+def data_source_execute_by_id(
+    ds_id: int,
+    req: Request,
+    variant: str = "default",
+) -> JSONResponse:
+    """Phase 38.4 Krok 5.R-D+1 — ID-first data executor.
+
+    URL: GET /api/v1/erp/data-by-id/{ds_id}?variant=default&limit=100&...
+
+    Lookup data_source.code by ds_id, delegate na run_data_source(code=...).
+    Pokud data_source.code je NULL nebo data_source neni found → 404.
+
+    Returns: identicky shape jako /data/{code} (run_data_source response).
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    from core.database_data import get_data_session as _gds_dbi
+    from sqlalchemy import text as _sql_dbi
+
+    session = _gds_dbi()
+    try:
+        # Lookup data_source.code by ID
+        ds_row = session.execute(_sql_dbi("""
+            SELECT id, code, name, status
+            FROM fw.data_source
+            WHERE id = :did
+        """), {"did": ds_id}).mappings().one_or_none()
+        if not ds_row:
+            return JSONResponse(
+                {"ok": False, "error": f"data_source id={ds_id} nenalezen"},
+                status_code=404,
+            )
+        ds_code = ds_row["code"]
+        if not ds_code:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"data_source id={ds_id} nema code (NULL). "
+                        f"Pragmatic fix: UPDATE fw.data_source SET code='{ds_id}' WHERE id={ds_id}"
+                    ),
+                },
+                status_code=404,
+            )
+
+        # Reuse existing run_data_source via code
+        raw_params = dict(req.query_params)
+        raw_params.pop("variant", None)
+        try:
+            result = ds_runner.run_data_source(
+                session,
+                code=ds_code,
+                raw_params=raw_params,
+                variant=variant,
+                kind="select",
+            )
+        except ds_runner.DataSourceNotFoundError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "data_source_not_found", "detail": str(exc)},
+                status_code=404,
+            )
+        except ds_runner.DataSourceOperationNotFoundError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "operation_not_found", "detail": str(exc)},
+                status_code=404,
+            )
+        except ds_runner.DataSourceExecuteError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
+                status_code=500,
+            )
+        except ds_runner.DataSourceError as exc:
+            return JSONResponse(
+                {"ok": False, "error": "data_source_error", "detail": str(exc)},
+                status_code=400,
+            )
+    finally:
+        session.close()
+
+    return JSONResponse(jsonable_encoder(result))
+
+
 @api_router.get("/data/{code}")
 def data_source_execute(
     code: str,

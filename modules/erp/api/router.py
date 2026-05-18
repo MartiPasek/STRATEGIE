@@ -10089,6 +10089,39 @@ _PREHLED_DEFAULT_LIMIT = 1000   # když přehled nemá MaxRecords ani user overr
 _PREHLED_HARD_CAP = 100_000     # absolutní strop "Vše" (B+8 server-side row model = lift)
 
 
+@api_router.get("/system-tree")
+def system_tree_json(req: Request) -> JSONResponse:
+    """Phase 2.B (18.5.2026 vecer): System-only tree.
+
+    Marti's direktiva 18.5. vecer: *„celej levej strom mimo STRATEGIE
+    Struktury SYSTEM je k nicemu a nikdo jej nikdy nepouzije..."*
+
+    Vraci jen System uzly + user-created top-level FW prehledy
+    (sibling System). Zadne EC_CentralaMenu reading.
+
+    Replaces /strom for production frontend lefttree. Old /strom
+    zachovan zatim jako rollback safety net — Phase 2.A drops po
+    stable smoke testem.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    db_roots = _build_system_root_from_db()
+
+    tree: list = []
+    if isinstance(db_roots, list):
+        # New multi-root format (Krok 14g-G2 15.5. rano): system root
+        # + user-created top-level (Marti's Novy soudecek button).
+        for r in db_roots:
+            if isinstance(r, dict):
+                tree.append(r)
+    elif isinstance(db_roots, dict):
+        # Legacy single-root format — wrap
+        tree.append(db_roots)
+
+    return JSONResponse({"ok": True, "tree": tree})
+
+
 @api_router.get("/prehled/{cislo}")
 def prehled_data_json(
     cislo: int,

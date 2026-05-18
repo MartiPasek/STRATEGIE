@@ -19,7 +19,7 @@
  *
  *   const tree = new ErpLeftPanelTree(treeRootEl, {
  *     dataSource: async () => {
- *       const r = await fetch("/api/v1/erp/strom");
+ *       const r = await fetch("/api/v1/erp/system-tree");
  *       const j = await r.json();
  *       return ErpLeftPanelTree.adaptServerTree(j.tree || []);
  *     },

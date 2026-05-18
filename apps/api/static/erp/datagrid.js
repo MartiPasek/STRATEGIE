@@ -2301,16 +2301,23 @@
     }
 
     _wireToolbar() {
-      // Phase 38.4 Krok 5.R-C+7: coreInfo pill click → drop-up menu
+      // Phase 38.4 Krok 5.R-C+8.1 hotfix (18.5.2026 vecer pozde): event
+      // delegation z toolbarEl parent. Direct ciBtn.addEventListener
+      // (Krok 5.R-C+7) nereagoval po deploy — pravdepodobne AG Grid CSS
+      // layer suppression nebo render race po _relocateToolbarToStatusBar.
+      // Delegation z parent je resilient k DOM moves + Enterprise layers.
       if (this.toolbarEl) {
-        var ciBtn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
-        if (ciBtn) {
-          var self = this;
-          ciBtn.addEventListener("click", function (ev) {
+        var selfPill = this;
+        this.toolbarEl.addEventListener("click", function (ev) {
+          var pillBtn = ev.target && ev.target.closest
+            ? ev.target.closest("[data-erp-coreinfo-btn]")
+            : null;
+          if (pillBtn) {
             ev.stopPropagation();
-            self._showCoreInfoMenu(ciBtn);
-          });
-        }
+            console.info("[ErpDataGrid pill] click delegated, opening menu");
+            selfPill._showCoreInfoMenu(pillBtn);
+          }
+        });
       }
       // Phase 38.4 Krok 5.R-C+7.2: cellFocused wire moved to onGridReady
       // (gridApi neexistuje yet v _wireToolbar — sync vola _init pred

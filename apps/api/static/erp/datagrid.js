@@ -1270,6 +1270,28 @@
         // Events
         onGridReady: (params) => {
           this.gridApi = params.api;
+          // Phase 38.4 Krok 5.R-C+7.2 (18.5.2026 vecer pozde): wire
+          // cellFocused listener PO gridApi init (sync _wireToolbar bylo
+          // pred onGridReady → gridApi null → listener se nezaregistroval).
+          // Marti's spec: "pri scrolovani :ID se musi menit podle aktualni vety".
+          if (this.options.coreInfo) {
+            var selfFocus = this;
+            try {
+              params.api.addEventListener("cellFocused", function () {
+                try {
+                  var focused = params.api.getFocusedCell();
+                  if (!focused) return;
+                  var node = params.api.getDisplayedRowAtIndex(focused.rowIndex);
+                  if (!node || !node.data) return;
+                  var rowId = (node.data.id != null) ? node.data.id
+                    : (node.data.ID != null) ? node.data.ID : null;
+                  selfFocus._updateCoreInfoPill(rowId);
+                } catch (e) { /* silent */ }
+              });
+            } catch (e) {
+              console.warn("[ErpDataGrid] cellFocused wire failed:", e);
+            }
+          }
           // B+5.2: setup dirty tracking + auto-load default
           this._setupDirtyTracking();
           // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): pockame na
@@ -2002,11 +2024,13 @@
       // B+6.3+ (5.5.2026): native <select> nahrazen ErpDropdown — wire-up
       // proběhne v _refreshToolbar (lazy create instance do .erp-layout-mount).
       // Phase 38.4 Krok 5.R-C+7 (18.5.2026): build coreInfo pill HTML pokud option set
+      // Krok 5.R-C+7.2 (18.5.2026 vecer pozde, Marti's "zadna dvojtecka"
+      // + "29 je matouci"): dvojtecka VZDY, initial refId vzdy prazdny.
+      // Po onCellFocused se refId update na row.id.
       var _ci = this.options.coreInfo;
       var _ciLabel = "";
       if (_ci && _ci.coreId != null) {
-        _ciLabel = String(_ci.coreId);
-        if (_ci.refId != null) _ciLabel += ":" + String(_ci.refId);
+        _ciLabel = String(_ci.coreId) + ":";
       }
       var _ciBtn = _ciLabel
         ? ('<button class="erp-toolbar-btn erp-toolbar-coreinfo" data-erp-coreinfo-btn ' +
@@ -2102,18 +2126,17 @@
     }
 
     _updateCoreInfoPill(newRefId) {
-      // Phase 38.4 Krok 5.R-C+7.1 (18.5.2026 vecer): dynamic update pill
-      // text pri cell focus change. Marti's "pri scrolovani gridem se musi
-      // to :ID v paticce menit podle aktualni vety".
+      // Phase 38.4 Krok 5.R-C+7.1+7.2 (18.5.2026 vecer): dynamic update
+      // pill text pri cell focus change. Dvojtecka VZDY, i bez rowId
+      // (Marti's "zadna dvojtecka" bug fix).
       if (!this.toolbarEl || !this.options.coreInfo) return;
       var btn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
       if (!btn) return;
       var ci = this.options.coreInfo;
       var coreId = ci.coreId;
       if (coreId == null) return;
-      var label = String(coreId);
-      if (newRefId != null) label += ":" + String(newRefId);
-      else if (ci.refId != null) label += ":" + String(ci.refId);
+      var label = String(coreId) + ":";
+      if (newRefId != null) label += String(newRefId);
       btn.textContent = label;
     }
 
@@ -2172,26 +2195,9 @@
           });
         }
       }
-      // Phase 38.4 Krok 5.R-C+7.1 (18.5.2026 vecer): wire cellFocused event
-      // pro dynamic pill update. Marti's "pri scrolovani :ID se musi menit".
-      if (this.gridApi && this.options.coreInfo) {
-        var selfFocus = this;
-        try {
-          this.gridApi.addEventListener("cellFocused", function (params) {
-            try {
-              var focused = selfFocus.gridApi.getFocusedCell();
-              if (!focused) return;
-              var node = selfFocus.gridApi.getDisplayedRowAtIndex(focused.rowIndex);
-              if (!node || !node.data) return;
-              var rowId = (node.data.id != null) ? node.data.id
-                : (node.data.ID != null) ? node.data.ID : null;
-              if (rowId != null) selfFocus._updateCoreInfoPill(rowId);
-            } catch (e) { /* silent */ }
-          });
-        } catch (e) {
-          console.warn("[ErpDataGrid] cellFocused wire failed:", e);
-        }
-      }
+      // Phase 38.4 Krok 5.R-C+7.2: cellFocused wire moved to onGridReady
+      // (gridApi neexistuje yet v _wireToolbar — sync vola _init pred
+      // async onGridReady callback).
       if (!this.toolbarEl) return;
       // Layout dropdown handler je přidán uvnitř _refreshToolbar při lazy
       // ErpDropdown create (B+6.3+ refactor).

@@ -4649,11 +4649,30 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
     id_column = entity_config["id_column"]
     allowed_columns = set(entity_config["select_columns"])
 
+    # Phase 38.4 Krok 5.R-D+3 extend (18.5.2026, Marti's "neni jej treba
+    # komplikovat"): universal optional fields — pokud v target table
+    # existuji, used/auto-filled; pokud ne, silent drop. Marti's FW save
+    # preprocessor doctrine (Centrála 1 19yr) napříč všemi entity_types.
+    #
+    # Bezpečnost: konstants definované server-side (no password_hash leak).
+    # Validation v allowed_columns expansion zachovává defense in depth.
+    UNIVERSAL_OPTIONAL_FIELDS = frozenset({
+        "description_user",   # User-edited memo (Krok 14b+21 doctrine)
+        "description_system", # System-edited memo (DESIGN mode only)
+        "updated_at",         # Auto-fill NOW() (5.R-D+3 doctrine)
+        "version",            # Optimistic lock alt
+    })
+
+    # Expand allowed_columns o universal fields kterých má target table —
+    # zjisti až po current_row load (line níže). Zatím defer validation.
+
     # Validate field_changes — jen sloupce v allowed list (defense in depth proti
     # ad-hoc UPDATE např. password_hash). id_column zakazat (immutable).
+    # Universal fields se kontrolují separátně po current_row load.
     invalid_fields = [
         f for f in field_changes
-        if f not in allowed_columns or f == id_column
+        if (f not in allowed_columns and f not in UNIVERSAL_OPTIONAL_FIELDS)
+            or f == id_column
     ]
     if invalid_fields:
         return JSONResponse(
@@ -4661,7 +4680,8 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 "ok": False,
                 "error": (
                     f"Sloupce {invalid_fields} nejsou povolene v PATCH "
-                    f"pro entity '{entity_type}'. Allowed: {sorted(allowed_columns - {id_column})}"
+                    f"pro entity '{entity_type}'. Allowed: {sorted(allowed_columns - {id_column})} "
+                    f"+ universal: {sorted(UNIVERSAL_OPTIONAL_FIELDS)}"
                 ),
             },
             status_code=400,

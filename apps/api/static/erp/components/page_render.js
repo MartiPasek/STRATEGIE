@@ -57,24 +57,93 @@
     }
 
     function _renderEmptyGrid(mainContent, tab, rootCd, coreId) {
+      // Phase 38.4 Krok 5.R-D (18.5.2026 rano, Marti's "zasadni posun v Gridu"):
+      // real ErpDataGrid s data_source rows. AG Grid autoColumns=true → sam
+      // detect columns z prvniho row keys (Marti's doctrine "nativni grid
+      // inteligentni sam od sebe").
       const dsInfo = rootCd.data_source_id
-        ? ' · data_source #' + rootCd.data_source_id
-        : ' · bez data_source (Krok 5.R-D)';
+        ? ' · data_source #' + rootCd.data_source_id +
+          (rootCd.data_source_code ? ' (' + _esc(rootCd.data_source_code) + ')' : '')
+        : ' · bez data_source';
+      const gridHostId = 'erp-page-grid-' + coreId;
       mainContent.innerHTML =
         '<div style="padding:20px;display:flex;flex-direction:column;height:100%;">' +
         '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +
         _esc(tab.label || "Přehled") + '</h2>' +
         '<p style="color:#7a8696;font-size:11px;margin:0 0 12px;font-style:italic;">' +
-        'Root: ' + _esc(rootCd.name || rootCd.code || '?') +
+        'Root: ' + _esc(rootCd.name || '?') +
         ' (' + _esc(rootCd.type_code) + ', comp_def #' + rootCd.id + ')' +
         _esc(dsInfo) +
         '</p>' +
-        '<div id="erp-page-grid-' + coreId + '" style="flex:1 1 auto;min-height:0;' +
-        'border:1px dashed #3a4754;border-radius:4px;background:#0f141a;' +
-        'display:flex;align-items:center;justify-content:center;' +
-        'color:#5d6975;font-style:italic;">' +
-        '(prázdný grid — column defs + rows přijde v Krok 5.R-C/D)' +
-        '</div></div>';
+        '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;' +
+        'border:1px solid #2a3340;border-radius:4px;background:#0f141a;' +
+        'overflow:hidden;">' +
+        '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
+        '⏳ Načítám rows…' +
+        '</div></div></div>';
+
+      const gridHost = document.getElementById(gridHostId);
+      if (!gridHost) {
+        console.error("[page_render] grid host element not found:", gridHostId);
+        return;
+      }
+
+      // No data_source → dashed placeholder
+      if (!rootCd.data_source_code) {
+        gridHost.style.border = '1px dashed #3a4754';
+        gridHost.innerHTML =
+          '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;' +
+          'display:flex;align-items:center;justify-content:center;height:100%;">' +
+          '(grid bez napojeneho data_source — design root v Krok 5.D root type picker)' +
+          '</div>';
+        return;
+      }
+
+      // ErpDataGrid neni nacten → fallback
+      if (typeof window.ErpDataGrid !== "function") {
+        gridHost.innerHTML =
+          '<div style="padding:20px;text-align:center;color:#d4a8a8;">' +
+          '⚠ ErpDataGrid komponenta neni nactena (datagrid.js missing).' +
+          '</div>';
+        return;
+      }
+
+      // Fetch rows + instantiate grid
+      fetch('/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) +
+            '?limit=500', { credentials: 'include' })
+        .then(r => r.json())
+        .then(data => {
+          if (!data || !data.ok) {
+            throw new Error((data && data.error) || 'data fetch failed');
+          }
+          const rows = Array.isArray(data.rows) ? data.rows : [];
+          gridHost.innerHTML = "";
+          try {
+            new window.ErpDataGrid(gridHost, {
+              rowData: rows,
+              autoColumns: true,
+              rowSelection: "single",
+            });
+          } catch (e) {
+            console.error("[page_render] ErpDataGrid init failed:", e);
+            gridHost.innerHTML =
+              '<div style="padding:20px;color:#d4a8a8;">' +
+              '⚠ Grid init failed: ' + _esc(String(e.message || e)) +
+              '</div>';
+          }
+        })
+        .catch(err => {
+          console.error("[page_render] data fetch failed:", err);
+          try {
+            _logger.error("page_render.js",
+              "data fetch failed: " + (err && err.message || err),
+              { extra: { core_id: coreId, ds_code: rootCd.data_source_code } });
+          } catch (e) {}
+          gridHost.innerHTML =
+            '<div style="padding:20px;color:#d4a8a8;">' +
+            '❌ Chyba načítání rows: ' + _esc(String(err.message || err)) +
+            '</div>';
+        });
     }
 
     function _renderFormPlaceholder(mainContent, tab, rootCd, coreCode, coreId) {

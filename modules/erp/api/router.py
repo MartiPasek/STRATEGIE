@@ -4610,14 +4610,16 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             {"ok": False, "error": "field_changes musi byt non-empty dict"},
             status_code=400,
         )
-    if not expected_updated_at:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": "expected_updated_at je povinne (optimistic lock)",
-            },
-            status_code=400,
-        )
+    # Phase 38.4 Krok 5.R-D+3 (18.5.2026, Marti's "FW save preprocessor"
+    # doctrine z Centrály 1 19yr expertise): drop hard requirement na
+    # expected_updated_at. Optimistic lock check (line ~4715) už správně
+    # skipne pokud current_updated_at je NULL (= never touched row).
+    # Client může neposlat expected_updated_at → service mode pro designery
+    # bez pojistek (Marti's 17.5. večer "bez pojistek zatim").
+    #
+    # Pokud client posílá + DB má hodnotu → optimistic lock proběhne.
+    # Pokud client neposílá → server-side auto-fill updated_at = NOW() v
+    # patch 2 níže.
 
     # Phase 38.4 Krok 5.N-2 (17.5.2026, Marti's "code je optional, ID je truth"):
     # entity_type może być numeric (URL /design/22/14 — ID-based) NEBO string
@@ -4756,6 +4758,16 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                     },
                     status_code=409,
                 )
+
+        # Phase 38.4 Krok 5.R-D+3 (18.5.2026, Marti's "FW save preprocessor"
+        # doctrine): introspect target table columns z current_row.keys()
+        # (SELECT * vrátil all). Auto-fill standardized fields:
+        #   - updated_at = NOW() ISO (pokud column exists, ne uz v field_changes)
+        # Centrála 1 19yr universal pattern — napříč všemi FW save endpointy.
+        # Plus optional pojistka pro field_changes mutace post-validation.
+        _table_cols = set(current_row.keys()) if current_row else set()
+        if "updated_at" in _table_cols and "updated_at" not in field_changes:
+            field_changes["updated_at"] = _dt_patch.now().astimezone().isoformat()
 
         # 2. Build UPDATE — explicit sloupce z field_changes + audit fields
         # Phase 38.4 Krok 14g-H+19 (15.5.2026 ~15:00, Marti's "permission

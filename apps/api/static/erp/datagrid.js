@@ -2023,25 +2023,37 @@
     _renderToolbarHtml() {
       // B+6.3+ (5.5.2026): native <select> nahrazen ErpDropdown — wire-up
       // proběhne v _refreshToolbar (lazy create instance do .erp-layout-mount).
-      // Phase 38.4 Krok 5.R-C+7 (18.5.2026): build coreInfo pill HTML pokud option set
-      // Krok 5.R-C+7.2 (18.5.2026 vecer pozde, Marti's "zadna dvojtecka"
-      // + "29 je matouci"): dvojtecka VZDY, initial refId vzdy prazdny.
-      // Po onCellFocused se refId update na row.id.
+      // Phase 38.4 Krok 5.R-C+7.3 (18.5.2026 vecer pozde, Marti's "pill
+      // sama meni velikost pri scrolovani, paticka se trese"): fixed
+      // min-width + borderless + zone separation + 24px gap.
       var _ci = this.options.coreInfo;
       var _ciLabel = "";
       if (_ci && _ci.coreId != null) {
         _ciLabel = String(_ci.coreId) + ":";
       }
+      // Pill: borderless, monospace, min-width 90px (drzi "-110:23" i "30:1234567"),
+      // tabular-nums (PROPORCIONALNI cislice — vzdy stejna sirka per digit).
       var _ciBtn = _ciLabel
-        ? ('<button class="erp-toolbar-btn erp-toolbar-coreinfo" data-erp-coreinfo-btn ' +
-           'title="Klik: info o jádru">' + _ciLabel + '</button>' +
-           '<span class="erp-toolbar-gap" style="display:inline-block;width:12px;"></span>')
+        ? ('<div class="erp-toolbar-coreinfo-zone" style="display:flex;align-items:center;">' +
+           '<button data-erp-coreinfo-btn ' +
+           'class="erp-toolbar-coreinfo" ' +
+           'title="Klik: info o jádru" ' +
+           'style="min-width:90px;padding:4px 8px;' +
+           'background:transparent;border:none;color:#a8b4c2;' +
+           'font-family:ui-monospace,Consolas,Monaco,monospace;' +
+           'font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;' +
+           'text-align:left;cursor:pointer;border-radius:3px;' +
+           'transition:background 0.15s,color 0.15s;">' +
+           _ciLabel + '</button></div>' +
+           '<div style="width:24px;flex:0 0 24px;"></div>')
         : "";
       return (
-        '<div class="erp-toolbar-left">' +
+        '<div class="erp-toolbar-left" style="display:flex;align-items:center;">' +
           _ciBtn +
-          '<div class="erp-layout-mount" data-erp-layout-mount></div>' +
-          '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
+          '<div class="erp-toolbar-layout-zone" style="display:flex;align-items:center;">' +
+            '<div class="erp-layout-mount" data-erp-layout-mount></div>' +
+            '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
+          '</div>' +
         '</div>' +
         '<div class="erp-toolbar-right">' +
           '<button class="erp-toolbar-btn" data-erp-fmt-btn ' +

@@ -15415,6 +15415,14 @@ def _render_workspace_page(user_id: int) -> str:
         console.warn("[Phase 2.E] openJadroInPane stub, formId=" + formId);
         return;
       }
+      function closeJadroPane() {
+        // Phase JS-cleanup hotfix (18.5.2026 ~00:15): no-op stub. Original
+        // closeJadroPane closed jadro pane DOM. Po Phase 2.A jadro endpoints
+        // dropped, pane never opens. Keep stub aby _renderTabIntoMain callsite
+        // neselhalo (defensive "if (currentJadro) closeJadroPane()").
+        currentJadro = null;
+        currentJadroForm = null;
+      }
 
       // ── DEAD CODE — B+6.4+ post-render hook nahrazen ErpForm
       // orchestratorem (B+6.6 6.5.2026). ErpForm staví ErpFormList

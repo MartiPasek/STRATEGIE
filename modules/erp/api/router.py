@@ -2395,7 +2395,7 @@ def _fetch_core(ds, where_sql: str, params: dict) -> dict | None:
 def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 200) -> list[dict]:
     """Phase 38.4 Krok 14a-fix3 (12.5.2026): 2-tier column lookup.
 
-    Primary: fw.comp_def WHERE parent_core_id = :core_id (Phase 38.4
+    Primary: fw.comp_def WHERE core_id = :core_id (Phase 38.4
     Krok 9-B uniform components doctrine — grid sloupec je typ komponenty).
 
     Fallback: fw.comp_grid_column JOIN fw.comp_grid_master ON code = :core_code
@@ -2413,9 +2413,9 @@ def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 
     try:
         sql_primary = _sql_text_fw("""
             SELECT id, code, label, field_name, comp_type_id, sort_order,
-                   parent_core_id
+                   core_id
             FROM fw.comp_def
-            WHERE parent_core_id = :core_id
+            WHERE core_id = :core_id
             ORDER BY COALESCE(sort_order, 0), id
             LIMIT :limit
         """)
@@ -2441,7 +2441,7 @@ def _fetch_columns_for_core(ds, core_id: int, core_code: str = "", limit: int = 
                 gc.column_name AS field_name,
                 COALESCE(gc.column_type, 'grid_column') AS comp_type_id,
                 gc.sort_order,
-                NULL::INTEGER AS parent_core_id
+                NULL::INTEGER AS core_id
             FROM fw.comp_grid_column gc
             JOIN fw.comp_grid_master gm ON gm.id = gc.grid_master_id
             WHERE gm.code = :core_code
@@ -3113,7 +3113,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
             # Plus check form comp_def (could be orphan po previous fail)
             existing_form = ds.execute(_sql_text_sff("""
                 SELECT id, name FROM fw.comp_def
-                WHERE parent_core_id = :core_id
+                WHERE core_id = :core_id
                   AND type_id = 302
                   AND is_active = true
                 ORDER BY id ASC LIMIT 1
@@ -3233,7 +3233,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
                 "type_id": 302,
                 "name": "main",
                 "caption": defaults["label"],
-                "parent_core_id": new_core_id,
+                "core_id": new_core_id,
                 "is_active": True,
                 "sort_order": 10,
                 "layout": default_layout_json,  # str → JSONB (PG auto-cast)
@@ -3300,7 +3300,7 @@ async def design_scaffold_form(req: Request) -> JSONResponse:
 #
 # Architektura:
 #   fw.core (kind='form', data_entity_type='user')
-#   └── fw.comp_def (type_id=302 form, parent_core_id=core.id)
+#   └── fw.comp_def (type_id=302 form, core_id=core.id)
 #         layout JSONB: {"panels": [{"slot": "x", "label": "...", "order": ...}, ...]}
 #         └── fw.comp_def (type_id=2/7 edit/combobox, parent_comp_def_id=form.id)
 #               region_slot='x' — určuje, do jakého panelu pole patří
@@ -3425,7 +3425,7 @@ _FW_FORM_ENTITY_MAP: dict = {
     # trigger fw.update_updated_at(). Optimistic lock funguje.
     #
     # Drop legacy `parent_id` (predchudce Krok 13.1 split na parent_comp_def_id
-    # + parent_core_id — zero references v code).
+    # + core_id — zero references v code).
     "comp_def": {
         "schema": "fw",
         "table": "comp_def",
@@ -3433,7 +3433,7 @@ _FW_FORM_ENTITY_MAP: dict = {
         "select_columns": [
             "id", "name", "caption",
             "type_id",
-            "parent_core_id", "parent_comp_def_id",
+            "core_id", "parent_comp_def_id",
             "region_slot", "sort_order", "is_active",
             "data_source_id", "layout",
             "container_template_id", "container_template_version",
@@ -3626,14 +3626,14 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
                 },
                 status_code=501,
             )
-        # 3. Load root form comp_def (type_id=302, parent_core_id=core.id)
+        # 3. Load root form comp_def (type_id=302, core_id=core.id)
         form_row = ds.execute(_sql_text_fwform("""
             SELECT cd.id, cd.name, cd.caption, cd.type_id, cd.layout,
                    cd.sort_order, cd.is_active,
                    ct.code AS comp_type_code, ct.label AS comp_type_label
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
-            WHERE cd.parent_core_id = :core_id
+            WHERE cd.core_id = :core_id
               AND cd.type_id = 302
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC
@@ -3901,7 +3901,7 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
                 status_code=404,
             )
 
-        # Root comp_def: parent_core_id = core.id, is_active=true, prvni dle
+        # Root comp_def: core_id = core.id, is_active=true, prvni dle
         # sort_order ASC + id ASC. Drafted core muze mit None (no root yet).
         # Phase 38.4 Krok 5.R-A hotfix (17.5.2026 vecer): drop cd.code —
         # fw.comp_def nema sloupec 'code', jen 'name'. Marti's traceback:
@@ -3919,7 +3919,7 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
             LEFT JOIN fw.data_source dsrc ON dsrc.id = cd.data_source_id
-            WHERE cd.parent_core_id = :cid
+            WHERE cd.core_id = :cid
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC
             LIMIT 1
@@ -4038,7 +4038,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
             LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
-            WHERE cd.parent_core_id = :cid
+            WHERE cd.core_id = :cid
               AND cd.parent_comp_def_id IS NULL
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC
@@ -5082,7 +5082,7 @@ async def design_create_comp_def(req: Request) -> JSONResponse:
         # Hierarchy:
         #   form root (302) > panel (13) > groupbox (12) > leaf field
         parent_row = ds.execute(_sql_text_cdc("""
-            SELECT id, type_id, parent_core_id
+            SELECT id, type_id, core_id
             FROM fw.comp_def
             WHERE id = :pid AND is_active = true
         """), {"pid": parent_id}).mappings().one_or_none()
@@ -5371,7 +5371,7 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
 
     Algorithm:
       1. Find comp_def (column name)
-      2. Walk parent_comp_def chain UP -> find parent_core_id (form root)
+      2. Walk parent_comp_def chain UP -> find core_id (form root)
       3. Get fw.core.data_entity_type
       4. Lookup _FW_FORM_ENTITY_MAP -> table name + whitelisted columns
       5. SELECT DISTINCT {column} FROM {table} WHERE {column} IS NOT NULL
@@ -5399,7 +5399,7 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
     try:
         # 1. Find comp_def + name
         cd = ds_dv.execute(_sql_text_dv("""
-            SELECT id, name, parent_comp_def_id, parent_core_id
+            SELECT id, name, parent_comp_def_id, core_id
             FROM fw.comp_def
             WHERE id = :id AND is_active = true
         """), {"id": comp_def_id}).mappings().one_or_none()
@@ -5415,18 +5415,18 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
             )
 
         # 2. Walk parent chain UP -> find core_id
-        core_id = cd["parent_core_id"]
+        core_id = cd["core_id"]
         current_parent = cd["parent_comp_def_id"]
         max_depth = 10
         while not core_id and current_parent and max_depth > 0:
             parent = ds_dv.execute(_sql_text_dv("""
-                SELECT id, parent_comp_def_id, parent_core_id
+                SELECT id, parent_comp_def_id, core_id
                 FROM fw.comp_def WHERE id = :id
             """), {"id": current_parent}).mappings().one_or_none()
             if not parent:
                 break
-            if parent["parent_core_id"]:
-                core_id = parent["parent_core_id"]
+            if parent["core_id"]:
+                core_id = parent["core_id"]
                 break
             current_parent = parent["parent_comp_def_id"]
             max_depth -= 1
@@ -6306,7 +6306,7 @@ async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
 
         existing_root = ds.execute(_sql_ir("""
             SELECT id FROM fw.comp_def
-            WHERE parent_core_id = :cid AND parent_comp_def_id IS NULL
+            WHERE core_id = :cid AND parent_comp_def_id IS NULL
             LIMIT 1
         """), {"cid": core_id}).mappings().one_or_none()
         if existing_root:
@@ -6358,7 +6358,7 @@ async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
     )
     import json as _json_ir
     comp_def_values = {
-        "parent_core_id": core_id,
+        "core_id": core_id,
         "type_id": type_id,
         "name": root_type + "_root",
         "caption": "",
@@ -6475,7 +6475,7 @@ async def design_clear_core_root(core_id: int, req: Request) -> JSONResponse:
     try:
         # Count comp_defs before delete (audit)
         count_row = ds.execute(_sql_cr("""
-            SELECT COUNT(*) AS cnt FROM fw.comp_def WHERE parent_core_id = :cid
+            SELECT COUNT(*) AS cnt FROM fw.comp_def WHERE core_id = :cid
         """), {"cid": core_id}).mappings().one()
         deleted_count = int(count_row["cnt"])
     finally:
@@ -6494,7 +6494,7 @@ async def design_clear_core_root(core_id: int, req: Request) -> JSONResponse:
         _eng_cr = _spg_eng_cr()
         with _eng_cr.begin() as _conn:
             _conn.execute(
-                _sql_text_de("DELETE FROM fw.comp_def WHERE parent_core_id = :cid"),
+                _sql_text_de("DELETE FROM fw.comp_def WHERE core_id = :cid"),
                 {"cid": core_id},
             )
     except Exception as _de:
@@ -6566,7 +6566,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         #   - ORDER BY c.id DESC (nejnovejsi draft prvni)
         # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
         # konzultace bod 4 z "Co nevidíte"): readiness_state computed.
-        #   drafted   = bez rootu (zadny comp_def s parent_core_id=core)
+        #   drafted   = bez rootu (zadny comp_def s core_id=core)
         #   has_root  = root exists, no children
         #   populated = root + alespon 1 child
         sql_cores = _sql_clst("""
@@ -6583,7 +6583,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                        ELSE 'populated'
                      END
                      FROM fw.comp_def cd
-                     WHERE cd.parent_core_id = c.id
+                     WHERE cd.core_id = c.id
                    ) AS _readiness_state
             FROM fw.core c
             LEFT JOIN fw.menu_node mn          ON mn.id  = c.origin_menu_node_id

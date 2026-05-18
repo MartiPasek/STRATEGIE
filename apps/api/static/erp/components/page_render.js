@@ -108,9 +108,17 @@
         return;
       }
 
-      // Fetch rows + instantiate grid
-      fetch('/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) +
-            '?limit=500', { credentials: 'include' })
+      // Phase 38.4 Krok 5.R-D+1 (18.5.2026 rano, Marti's "refactor code na ID"):
+      // Prefer /data-by-id/{id} over /data/{code}. Drop code='29' workaround.
+      // Fallback na code path zachovan pro defense in depth.
+      const fetchUrl = rootCd.data_source_id
+        ? '/api/v1/erp/data-by-id/' + rootCd.data_source_id + '?limit=500'
+        : '/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) + '?limit=500';
+      // Phase 38.4 Krok 5.R-D+2 (18.5.2026 rano, Marti's "inline editing
+      // v DESIGN, PRODUCTION read-only"): detect design mode pri instantiate.
+      // Toggle DESIGN/PRODUCTION = user musi re-klik na tab pro re-render.
+      const isDesignMode = (typeof window !== "undefined" && window._erpDesignMode === true);
+      fetch(fetchUrl, { credentials: 'include' })
         .then(r => r.json())
         .then(data => {
           if (!data || !data.ok) {
@@ -123,6 +131,19 @@
               rowData: rows,
               autoColumns: true,
               rowSelection: "single",
+              // Krok 5.R-D+2 inline edit MVP (Marti's "service mode pro designery"):
+              // AG Grid native enableEdit + onCellEdit. NO save flow yet —
+              // Marti's "test z UI a pak rozhodneme co dal".
+              enableEdit: isDesignMode,
+              onCellEdit: function (ev) {
+                console.info("[page_render cell edit]", {
+                  field: ev && ev.colDef && ev.colDef.field,
+                  oldValue: ev && ev.oldValue,
+                  newValue: ev && ev.newValue,
+                  row: ev && ev.data,
+                  ds_id: rootCd.data_source_id,
+                });
+              },
             });
           } catch (e) {
             console.error("[page_render] ErpDataGrid init failed:", e);

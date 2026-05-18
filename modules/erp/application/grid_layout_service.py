@@ -31,7 +31,10 @@ from sqlalchemy import and_, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from core.database_data import get_data_session
+# Phase 38.4 Krok 5.R-C+3 (18.5.2026 vecer): switch z get_data_session
+# (strategie role, public.*) na Marti-AI engine (db_owner fw.comp_grid).
+# Drzi doctrine: fw.* = Marti-AI's owned, strategie ma jen SELECT na fw.comp_grid.
+from modules.strategie_pg.application.service import get_session as _get_data_session_ctx
 from core.logging import get_logger
 from modules.core.infrastructure.models_data import ErpGridLayout
 from modules.thoughts.application.service import is_marti_parent
@@ -98,8 +101,7 @@ def list_layouts(core_id: int, user_id: int) -> dict:
             "effective_default": {...} | None,  # personal default OR shared default
         }
     """
-    ds = get_data_session()
-    try:
+    with _get_data_session_ctx() as ds:
         # Shared layouts (user_id IS NULL)
         shared_q = ds.query(ErpGridLayout).filter(
             ErpGridLayout.core_id == core_id,
@@ -137,8 +139,7 @@ def list_layouts(core_id: int, user_id: int) -> dict:
             "personal": personal,
             "effective_default": effective,
         }
-    finally:
-        ds.close()
+
 
 
 def get_layout(layout_id: int, user_id: int) -> dict | None:
@@ -146,16 +147,14 @@ def get_layout(layout_id: int, user_id: int) -> dict | None:
     Vrací jeden layout podle ID.
     Permission: shared = vidí každý, personal = jen vlastník nebo is_marti_parent.
     """
-    ds = get_data_session()
-    try:
+    with _get_data_session_ctx() as ds:
         l = ds.query(ErpGridLayout).filter_by(id=layout_id).first()
         if l is None:
             return None
         if l.user_id is not None and l.user_id != user_id and not is_marti_parent(user_id):
             raise GridLayoutError("Nemáš přístup k této personal sestavě.")
         return _serialize(l)
-    finally:
-        ds.close()
+
 
 
 # ── Write operations ───────────────────────────────────────────────────
@@ -187,8 +186,7 @@ def create_layout(
 
     target_user_id = None if scope == "shared" else user_id
 
-    ds = get_data_session()
-    try:
+    with _get_data_session_ctx() as ds:
         # Anti-spam check
         if scope == "user":
             count = ds.query(ErpGridLayout).filter(
@@ -243,8 +241,7 @@ def create_layout(
             f"scope={scope} name={name!r} default={is_default} by_user={user_id}"
         )
         return _serialize(layout)
-    finally:
-        ds.close()
+
 
 
 def update_layout(
@@ -263,8 +260,7 @@ def update_layout(
       - Personal: jen vlastník nebo is_marti_parent
       - Shared: jen is_marti_parent
     """
-    ds = get_data_session()
-    try:
+    with _get_data_session_ctx() as ds:
         layout = ds.query(ErpGridLayout).filter_by(id=layout_id).first()
         if layout is None:
             raise GridLayoutError(f"Sestava id={layout_id} neexistuje.")
@@ -311,8 +307,7 @@ def update_layout(
             f"changes={[k for k in ('name','description','layout_json','is_default') if locals().get(k) is not None]}"
         )
         return _serialize(layout)
-    finally:
-        ds.close()
+
 
 
 def set_default(layout_id: int, user_id: int) -> dict:
@@ -333,8 +328,7 @@ def delete_layout(layout_id: int, user_id: int) -> bool:
 
     Returns: True pokud smazáno, False pokud neexistuje.
     """
-    ds = get_data_session()
-    try:
+    with _get_data_session_ctx() as ds:
         layout = ds.query(ErpGridLayout).filter_by(id=layout_id).first()
         if layout is None:
             return False
@@ -353,8 +347,7 @@ def delete_layout(layout_id: int, user_id: int) -> bool:
         ds.commit()
         logger.info(f"delete_layout id={layout_id} by_user={user_id}")
         return True
-    finally:
-        ds.close()
+
 
 
 # ── Internal helpers ───────────────────────────────────────────────────

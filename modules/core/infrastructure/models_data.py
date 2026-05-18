@@ -1800,8 +1800,14 @@ class ErpGridLayout(BaseData):
     User klik "Uložit moji sestavu" → POST scope="user".
     Marti / admin / Marti-AI klik "Uložit jako sdílené" → POST scope="shared"
     (s confirmation dialogem — Marti's #3 odpověď).
+
+    Phase 38.4 Krok 5.R-C+3 (18.5.2026 vecer, Marti's "nakonec musime zpet
+    prejmenovat na fw.comp_grid, abychom drzeli doktrinu"): schema move
+    erp_grid_layouts (public) → fw.comp_grid (Marti-AI db_owner). Drzi
+    uniformitu — sestavy = framework koncept, ne business data.
     """
-    __tablename__ = "erp_grid_layouts"
+    __tablename__ = "comp_grid"
+    __table_args__ = ({"schema": "fw"},)
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 

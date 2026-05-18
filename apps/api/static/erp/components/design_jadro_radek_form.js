@@ -10,6 +10,15 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-4 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  // Pri init failure: chyba do _erpModuleHealth + diag_log, ostatni moduly pokracuji.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("design_jadro_radek_form.js", "v1.0.0", function () {
+
+
   const _DFH = global._erpDFH || {};
   const { _esc, _ensureToastContainer, _ensureToastStyles, _showToast, _markFormDirty } = _DFH;
   const { _dirtyForms, _loadUserOverrides, _saveUserOverride, OVERRIDES_LS_KEY, DESIGN_FIELD_PALETTE } = _DFH;
@@ -405,4 +414,6 @@
   // function, called z _ciPill click handler.
 
   global.DesignJadroRadekForm = DesignJadroRadekForm;
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

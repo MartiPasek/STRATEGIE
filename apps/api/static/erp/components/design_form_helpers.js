@@ -19,6 +19,15 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-4 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  // Pri init failure: chyba do _erpModuleHealth + diag_log, ostatni moduly pokracuji.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("design_form_helpers.js", "v1.0.0", function () {
+
+
 
   // Esc helper
   function _esc(s) {
@@ -2398,4 +2407,6 @@
     _sectionBuild: _sectionBuild,
     ENUM_ITEMS: ENUM_ITEMS,
   };
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

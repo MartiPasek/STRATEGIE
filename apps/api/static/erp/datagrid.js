@@ -2161,10 +2161,17 @@
       if (oldMenu) { oldMenu.remove(); return; }
       var rowId = this._currentRowId;
       var self = this;
+      // Phase 38.4 Krok 5.R-C+8.2 (18.5.2026 vecer): append na document.body
+      // s position:fixed — bypass AG Grid status bar overflow:hidden clipping.
+      // Pozice pres getBoundingClientRect(btn) — viewport relative.
+      var _btnRect = btn.getBoundingClientRect();
       var menu = document.createElement("div");
       menu.className = "erp-toolbar-coreinfo-menu";
       menu.style.cssText =
-        "position:absolute;bottom:32px;left:0;z-index:1000;" +
+        "position:fixed;" +
+        "bottom:" + (window.innerHeight - _btnRect.top + 4) + "px;" +
+        "left:" + _btnRect.left + "px;" +
+        "z-index:10000;" +
         "background:#1a2030;border:1px solid #3a4a6a;border-radius:4px;" +
         "padding:0;color:#e8eef5;font-size:11px;line-height:1.5;" +
         "box-shadow:0 -2px 8px rgba(0,0,0,0.4);min-width:260px;" +
@@ -2223,8 +2230,8 @@
         });
       });
 
-      btn.parentNode.style.position = "relative";
-      btn.parentNode.appendChild(menu);
+      // Append na document.body (bypass parent overflow clipping)
+      document.body.appendChild(menu);
       var closeFn = function (e) {
         if (!menu.contains(e.target) && e.target !== btn) {
           menu.remove();

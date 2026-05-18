@@ -13324,6 +13324,9 @@ def _render_workspace_page(user_id: int) -> str:
     <script src="/static/erp/components/design_db_connection_editor.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/design_data_set_editor.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/design_jadro_radek_form.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/design_soudecek_core_form.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/field_picker_modal.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/design_data_source_editor.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/design_forms.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa E (16.5.2026): fw_form_dispatcher.js po
          design_forms.js (potreba DesignFwForm class pred dispatch). -->
@@ -15143,120 +15146,7 @@ def _render_workspace_page(user_id: int) -> str:
         console.warn("[Phase 2.E] renderPrehledError stub, cislo=" + cislo);
         return;
       }
-      function _renderPrehledError_dead(cislo, item, msg) {
-        const itemId = item.getAttribute("data-id");
-        const breadcrumb = buildBreadcrumbHtml(itemId);
-        mainContent.innerHTML =
-          '<div class="erp-prehled-header"><div class="erp-bc-path">' + breadcrumb + '</div></div>' +
-          '<div class="erp-main-error">' +
-          'Přehled #' + cislo + ' nelze načíst: ' + escapeHtml(msg) +
-          '<button class="erp-retry-btn" id="erpPrehledRetry">Zkusit znovu</button>' +
-          '</div>';
-        const btn = document.getElementById("erpPrehledRetry");
-        if (btn) btn.addEventListener("click", () => loadPrehled(cislo, item));
-      }
 
-      async function renderPrehled(cislo, item, data, breadcrumb) {
-        // B+4.3: vše přes ErpDataGrid komponentu (AG Grid Enterprise wrapper)
-        if (activeErpDataGrid) {
-          try { activeErpDataGrid.destroy(); } catch (e) {}
-          activeErpDataGrid = null;
-        }
-
-        const cols = data.columns || [];
-        const rows = data.rows || [];
-
-        // B+10++ (Marti's drobnost 6.5.2026): limit options pro status bar.
-        // 4 hodnoty (1000, 10000, 50000, vše=100k). Limit selector v hlavičce
-        // smazán — celý <div class="erp-prehled-meta"> přesunut do footer
-        // gridu jako interaktivní "Celkem" v status baru. (limit, má víc)
-        // taky teď v status baru, oranžově zvýrazněno.
-        const appliedLimit = data.applied_limit || rows.length;
-        const limitOptions = [1000, 10000, 50000, 100000];
-
-        // B+10+++ (Marti's drobnost 6.5.2026): celá .erp-prehled-header
-        // smazána — název přehledu je v active tabu, breadcrumb v title
-        // (document.title = "STRATEGIE | <přehled>"). Tabs visually těsně
-        // nad gridem, žádný extra prostor.
-        let html = '';
-        if (data.warning) html += '<div class="erp-prehled-warning">⚠ ' + escapeHtml(data.warning) + '</div>';
-
-        if (rows.length === 0) {
-          html += '<div class="erp-prehled-empty">Přehled je prázdný.</div>';
-          mainContent.innerHTML = html;
-          return;
-        }
-
-        // ErpDataGrid komponenta (B+4 → default since B+4.3)
-        html += '<div id="erpDataGridContainer" class="erp-ag-grid ag-theme-quartz-dark"></div>';
-        mainContent.innerHTML = html;
-        if (typeof window.ErpDataGrid === "undefined") {
-          mainContent.innerHTML = html +
-            '<div class="erp-main-error">ErpDataGrid komponenta se nenačetla — refresh stránky.</div>';
-          return;
-        }
-        const container = document.getElementById("erpDataGridContainer");
-
-        // Krok C+ fix #8 (9.5.2026 vecer, AG Grid issue #7373): pre-fetch
-        // layout PRED ErpDataGrid create. Pass jako `initialLayout` -> AG
-        // Grid pouzije pres gridOptions.initialState pri prvnim render.
-        let initialLayout = null;
-        try {
-          const listRes = await fetch(
-            "/api/v1/erp/grid-layout/" + cislo + "/list",
-            { credentials: "include" }
-          );
-          if (listRes.ok) {
-            const listData = await listRes.json();
-            if (listData && listData.ok && listData.effective_default) {
-              initialLayout = listData.effective_default;
-            }
-          }
-        } catch (eFetch) {
-          console.warn("[ERP] pre-fetch layout failed:", eFetch);
-        }
-
-        activeErpDataGrid = new window.ErpDataGrid(container, {
-          rowData: rows,
-          columns: cols,
-          autoColumns: true,
-          layoutKey: "core_" + cislo,  // B+5 grid layout persistence (Krok 5.R-C+2 rename)
-          initialLayout: initialLayout,    // Krok C+ fix #8: no flicker
-          // B+10++ (Marti's drobnost 6.5.2026): limit context pro status bar.
-          // Status panel renderuje "Celkem" oranzove kdyz hasMore=true a klik
-          // otevre dropdown s options (1k/10k/50k/Vse). Stejny user flow jako
-          // header limit select, jen z paticky gridu.
-          limitContext: {
-            applied: appliedLimit,
-            hasMore: !!data.has_more,
-            options: limitOptions,
-            onChange: (newLimit) => {
-              if (!newLimit || newLimit <= 0) return;
-              savePrehledLimit(cislo, newLimit);
-              loadPrehled(cislo, item, newLimit);
-            },
-          },
-          // MVP standard 5.5.2026: single click = select (Ctrl/Shift multi),
-          // double click = open jádro detail. Šipky pouze navigují (Excel-like).
-          // Phase 38.4 Krok 14b (12.5.2026 vecer): Enter / dblclick → openFwFormForRow
-          // (fw-native form, např. user_edit). Pri 404 fallback openJadroInPane
-          // (legacy Centrála 1 jádro via data.id_edit).
-          onRowDoubleClick: (rowData) => {
-            const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
-            if (rowId == null) return;
-            openFwFormForRow("core_" + cislo, rowId, data.id_edit);
-          },
-          onRowEnter: (rowData) => {
-            const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
-            if (rowId == null) return;
-            openFwFormForRow("core_" + cislo, rowId, data.id_edit);
-          },
-        });
-
-        // B+10++ (6.5.2026 Marti's drobnost): limit selector v hlavičce
-        // smazán — interakce teď přes status bar Celkem (CzRowCountStatusPanel
-        // limitContext.onChange v ErpDataGrid options).
-      }
 
       // ── Phase 38.4 Krok 14b (12.5.2026 vecer): openFwFormForRow ───────
       // Marti's spec: dvojklik / Enter na radku gridu → fw-native form
@@ -15525,93 +15415,6 @@ def _render_workspace_page(user_id: int) -> str:
         console.warn("[Phase 2.E] openJadroInPane stub, formId=" + formId);
         return;
       }
-      async function _openJadroInPane_dead(formId, rowId) {
-        if (!jadroPane || !jadroContent) return;
-        currentJadro = { form_id: formId, row_id: rowId };
-        // Cleanup předchozí instance
-        if (currentJadroForm) {
-          try { currentJadroForm.destroy(); } catch (e) {}
-          currentJadroForm = null;
-        }
-        if (jadroBackdrop) jadroBackdrop.removeAttribute("hidden");
-        jadroPane.removeAttribute("hidden");
-        if (jadroTitle) jadroTitle.textContent = "Načítám jádro…";
-        if (jadroMeta) jadroMeta.textContent = "#" + formId + " / " + rowId;
-        jadroContent.innerHTML =
-          '<div class="erp-jadro-loading">' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line short"></div>' +
-          '</div>';
-        try {
-          const r = await fetch(
-            "/api/v1/erp/jadro/" + encodeURIComponent(formId) + "/" +
-              encodeURIComponent(rowId) + "/data",
-            { credentials: "include" }
-          );
-          if (!r.ok) {
-            const txt = await r.text().catch(() => "");
-            jadroContent.innerHTML =
-              '<div class="erp-jadro-error">' +
-              'Status ' + r.status +
-              (txt ? ' — ' + escapeHtml(txt.slice(0, 200)) : '') +
-              '</div>';
-            if (jadroTitle) jadroTitle.textContent = "Chyba";
-            return;
-          }
-          const meta = await r.json();
-          if (!meta || !meta.ok) {
-            jadroContent.innerHTML =
-              '<div class="erp-jadro-error">Backend vrátil ' +
-              'ok=false: ' + escapeHtml(JSON.stringify(meta).slice(0, 240)) +
-              '</div>';
-            if (jadroTitle) jadroTitle.textContent = "Chyba";
-            return;
-          }
-
-          // Title — preferuj FormSetting.FormCaption, pak FormDef.Nazev
-          let title = (meta.form && meta.form.nazev) || ("Jádro #" + formId);
-          if (Array.isArray(meta.components)) {
-            for (const c of meta.components) {
-              if (c.typ === 30 && c.properties && c.properties.FormCaption) {
-                const fc = String(c.properties.FormCaption).trim();
-                if (fc) { title = fc; break; }
-              }
-            }
-          }
-          if (jadroTitle) jadroTitle.textContent = title;
-
-          // Build form přes ErpForm orchestrator
-          if (typeof window.ErpForm !== "function") {
-            jadroContent.innerHTML =
-              '<div class="erp-jadro-error">' +
-              'ErpForm komponenta se nenačetla — refresh stránky.' +
-              '</div>';
-            return;
-          }
-          jadroContent.innerHTML = "";
-          currentJadroForm = new window.ErpForm(jadroContent, {
-            formId: meta.form_id,
-            formNazev: meta.form && meta.form.nazev,
-            components: meta.components || [],
-            data: meta.data || {},
-            readOnly: true,  // Phase A — Phase C otevře pro edit
-            onChange: (fieldName, newVal, oldVal) => {
-              // Per-field change — toast info pro Phase A
-              jadroToast(
-                "Změna " + fieldName + " lokálně. " +
-                "Uloží se s tlačítkem OK (Phase C)."
-              );
-            },
-            debugInfo: meta.debug,
-          });
-        } catch (e) {
-          jadroContent.innerHTML =
-            '<div class="erp-jadro-error">Nelze načíst: ' +
-            escapeHtml(e.message || String(e)) + '</div>';
-          if (jadroTitle) jadroTitle.textContent = "Chyba";
-        }
-      }
 
       // ── DEAD CODE — B+6.4+ post-render hook nahrazen ErpForm
       // orchestratorem (B+6.6 6.5.2026). ErpForm staví ErpFormList
@@ -15619,88 +15422,6 @@ def _render_workspace_page(user_id: int) -> str:
       // hide + FK sync. Tyto funkce nikdo nevolá; smaž v cleanup
       // commitu, zatím ponecháno pro reference.
       // ──────────────────────────────────────────────────────────────
-      function wireJadroLookups(rootEl) {
-        if (!rootEl || typeof window.ErpFormList !== "function") return;
-        const formEl = rootEl.querySelector(".erp-form[data-erp-form-id]");
-        if (!formEl) return;
-        const formId = formEl.dataset.erpFormId;
-        if (!formId) return;
-        const fields = rootEl.querySelectorAll('[data-erp-lookup]');
-        fields.forEach((fieldEl) => {
-          const fieldName = fieldEl.dataset.erpFieldName || "";
-          const currentFk = fieldEl.dataset.erpFkValue || "";
-          const currentDisplay = fieldEl.dataset.erpDisplay || "";
-          const labelEl = fieldEl.querySelector(".erp-field-label");
-          const labelText = labelEl ? labelEl.textContent : "";
-          if (!fieldName) return;
-          // Skrýt original label + input+button row, vložit ErpFormList mount
-          const innerEl = fieldEl.querySelector(".erp-formlist-inner");
-          if (innerEl) innerEl.style.display = "none";
-          if (labelEl) labelEl.style.display = "none";
-          const mount = document.createElement("div");
-          mount.className = "erp-lookup-mount";
-          fieldEl.appendChild(mount);
-
-          // B+6.4+++ (5.5.2026): schovat sourozenecký FK Edit field
-          // (pokud existuje). FK value je teď viditelně uvnitř ErpFormList,
-          // separátní Edit pole = duplikát. Heuristic: stejný .erp-fields
-          // grid container, .erp-field který není .erp-formlist, jehož
-          // input.value matchne FK string.
-          hideSiblingFkField(fieldEl, currentFk);
-
-          // Lazy load při prvním focus / open / browse
-          let loaded = false;
-          const loadItems = async () => {
-            if (loaded) return [];
-            loaded = true;
-            try {
-              const r = await fetch(
-                "/api/v1/erp/jadro/" + encodeURIComponent(formId) +
-                  "/lookup/" + encodeURIComponent(fieldName),
-                { credentials: "include" }
-              );
-              if (!r.ok) {
-                console.warn("Lookup options fetch", fieldName, r.status);
-                return [];
-              }
-              const j = await r.json();
-              if (!j.ok || !Array.isArray(j.items)) return [];
-              return j.items;
-            } catch (e) {
-              console.warn("Lookup load error", fieldName, e);
-              return [];
-            }
-          };
-
-          new window.ErpFormList(mount, {
-            label: labelText,  // re-render label uvnitř ErpFormList
-            value: currentFk || null,
-            displayValue: currentDisplay || "",
-            items: [],   // empty initial — onLoadItems naplní
-            placeholder: "Začni psát nebo klikni na ⋮",
-            onLoadItems: loadItems,
-            // B+6.4++ (5.5.2026): klíč (FK) viditelně uvnitř komponenty
-            // — Marti's spec, hodnota co se zapisuje do DB při Phase C OK
-            showValuePrefix: true,
-            valuePrefixWidth: "60px",
-            browseTitle: labelText
-              ? ("Vybrat hodnotu — " + labelText)
-              : "Vybrat hodnotu",
-            browseColumns: [
-              { field: "value", header: "Číslo", width: "100px" },
-              { field: "label", header: "Název", width: "auto" },
-            ],
-            onChange: (val, item) => {
-              fieldEl.dataset.erpFkValue = String(val);
-              const lbl = (item && item.label) ? item.label : String(val);
-              fieldEl.dataset.erpDisplay = lbl;
-              jadroToast(
-                "Hodnota změněna lokálně. Uloží se s tlačítkem OK (Phase C)."
-              );
-            },
-          });
-        });
-      }
 
       // B+6.4+++ (5.5.2026): schovat sourozenecký FK field
       function hideSiblingFkField(formListEl, fkValue) {
@@ -15742,18 +15463,6 @@ def _render_workspace_page(user_id: int) -> str:
         }, 2400);
       }
 
-      function closeJadroPane() {
-        // B+6.6c (6.5.2026): destroy ErpForm + uvolni FormList instances
-        if (currentJadroForm) {
-          try { currentJadroForm.destroy(); } catch (e) {}
-          currentJadroForm = null;
-        }
-        if (jadroPane) jadroPane.setAttribute("hidden", "");
-        if (jadroBackdrop) jadroBackdrop.setAttribute("hidden", "");
-        if (jadroContent) jadroContent.innerHTML = "";
-        currentJadro = null;
-        // B+2.2: workspace nemění layout (jádro je modal), žádný Tabulator redraw
-      }
 
       if (jadroCloseBtn) {
         jadroCloseBtn.addEventListener("click", closeJadroPane);
@@ -18188,12 +17897,10 @@ def _render_workspace_page(user_id: int) -> str:
             ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
           return;
         }
-        const data = tab.data;
-        if (!data) return;
-        const itemId = tab.itemId;
-        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
-        // Reuse existing renderPrehled logic (refactored)
-        renderPrehled(tab.cislo, { getAttribute: (k) => k === "data-id" ? itemId : null }, data, breadcrumb);
+        // Phase JS-cleanup (18.5.2026): renderPrehled call orphan (function dropped).
+        // Tab restore for positive cislo is unreachable (Phase 2.E stub returns earlier).
+        // Defensive return.
+        return;
         // Restore grid state pokud cached
         if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
           setTimeout(() => {

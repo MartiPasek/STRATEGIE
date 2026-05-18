@@ -15033,7 +15033,7 @@ def _render_workspace_page(user_id: int) -> str:
 
       // ── Phase 38.4 Krok 8 (10.5.2026): System tree cache + walkers ──
       //
-      // Frontend cache last-loaded System tree dat (z /api/v1/erp/strom).
+      // Frontend cache last-loaded System tree dat (z /api/v1/erp/system-tree).
       // Plněno v loadTree() dataSource callback. Walker helpers nahrazují
       // hardcoded if-else cascades v _systemModeFromCislo / _systemModeFromItemId
       // a SYSTEM_LAYOUT_CISLA dict.
@@ -15547,7 +15547,7 @@ def _render_workspace_page(user_id: int) -> str:
         if (!tree) {
           tree = new ErpLeftPanelTree(treeRoot, {
             dataSource: async () => {
-              const r = await fetch("/api/v1/erp/strom", { credentials: "include", cache: "no-store" });
+              const r = await fetch("/api/v1/erp/system-tree", { credentials: "include", cache: "no-store" });
               if (!r.ok) {
                 throw new Error("Strom nelze načíst (status " + r.status + ").");
               }

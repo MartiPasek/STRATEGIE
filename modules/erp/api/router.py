@@ -14691,6 +14691,27 @@ def _render_workspace_page(user_id: int) -> str:
         );
         return cols;
       }
+      // ── Phase 38.4 Krok 5.R-C+5 (18.5.2026 vecer pozde) ──
+      // Marti's doctrine: "my prece nepotrebujeme resit ty sloupce...
+      // Nam staci, aby se chovaly nativne. Tj defaultne aby zobrazovaly
+      // vsechny sloupce z datasetu, aniz by byly tabulky sloupcu definovany"
+      // ──
+      // gridColumns(mode) wrapper: pokud mode neni v explicit hardcoded
+      // switch (audited/all/stats only), vrati []. _sysCurrentGrid pak
+      // prepne na autoColumns:true → AG Grid si gene columns z rowData
+      // keys. Bez recreate fw.comp_grid_master schema.
+      const _hardcodedColumnModes = new Set([
+        "audited", "all", "stats",
+        "framework_menu_nodes",  // explicit case v gridColumns existuje
+      ]);
+      const _gridColumns_orig = gridColumns;
+      gridColumns = function _gridColumnsNativeWrapper(mode) {
+        if (!_hardcodedColumnModes.has(mode)) {
+          // Native autoColumns mode — frontend prepne na rowData-driven cols
+          return [];
+        }
+        return _gridColumns_orig(mode);
+      };
       // ── Phase 38.4 Krok 8 (10.5.2026): Async fetch z master schema ──
       //
       // gridColumnsResolved(mode) — async wrapper. Nejdřív zkusí
@@ -15225,9 +15246,14 @@ def _render_workspace_page(user_id: int) -> str:
         }
 
         try {
+          // Phase 38.4 Krok 5.R-C+5 (18.5.2026): native autoColumns gate
+          // Pokud columns prazdny ([] z gridColumns wrapper), AG Grid si
+          // gene columns z rowData keys. Bez hardcoded fw.comp_grid_master.
+          var _useAutoCols = (!columns || columns.length === 0);
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
-            columnDefs: columns,
+            columnDefs: _useAutoCols ? null : columns,
+            autoColumns: _useAutoCols,
             theme: "dark",
             height: "100%",
             compact: true,

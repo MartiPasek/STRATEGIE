@@ -15258,10 +15258,12 @@ def _render_workspace_page(user_id: int) -> str:
           var _useAutoCols = (!columns || columns.length === 0);
           // Krok 5.R-C+7 (18.5.2026): coreInfo pill — sysCislo = core_id
           // (negativní pro hardcoded, positive pro fw.core).
+          // Phase 38.4 Krok 5.R-C+7.1 hotfix (18.5.2026): drop undefined
+          // `label` reference (in scope chybi), use window._sysCurrentLabel.
           var _ciHard = {
             coreId: sysCislo,
             mode: mode,
-            coreLabel: label,
+            coreLabel: (window._sysCurrentLabel || mode),
             hardcoded: true,
           };
           window._sysCurrentGrid = new ErpDataGrid(body, {

@@ -2101,6 +2101,22 @@
       leftPanel.insertBefore(this.toolbarEl, leftPanel.firstChild);
     }
 
+    _updateCoreInfoPill(newRefId) {
+      // Phase 38.4 Krok 5.R-C+7.1 (18.5.2026 vecer): dynamic update pill
+      // text pri cell focus change. Marti's "pri scrolovani gridem se musi
+      // to :ID v paticce menit podle aktualni vety".
+      if (!this.toolbarEl || !this.options.coreInfo) return;
+      var btn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
+      if (!btn) return;
+      var ci = this.options.coreInfo;
+      var coreId = ci.coreId;
+      if (coreId == null) return;
+      var label = String(coreId);
+      if (newRefId != null) label += ":" + String(newRefId);
+      else if (ci.refId != null) label += ":" + String(ci.refId);
+      btn.textContent = label;
+    }
+
     _showCoreInfoMenu(btn) {
       // Phase 38.4 Krok 5.R-C+7 (18.5.2026): drop-up menu s info o jádru.
       // Marti's "neco tam dej, co uznas za vhodny, pak doladime".
@@ -2154,6 +2170,26 @@
             ev.stopPropagation();
             self._showCoreInfoMenu(ciBtn);
           });
+        }
+      }
+      // Phase 38.4 Krok 5.R-C+7.1 (18.5.2026 vecer): wire cellFocused event
+      // pro dynamic pill update. Marti's "pri scrolovani :ID se musi menit".
+      if (this.gridApi && this.options.coreInfo) {
+        var selfFocus = this;
+        try {
+          this.gridApi.addEventListener("cellFocused", function (params) {
+            try {
+              var focused = selfFocus.gridApi.getFocusedCell();
+              if (!focused) return;
+              var node = selfFocus.gridApi.getDisplayedRowAtIndex(focused.rowIndex);
+              if (!node || !node.data) return;
+              var rowId = (node.data.id != null) ? node.data.id
+                : (node.data.ID != null) ? node.data.ID : null;
+              if (rowId != null) selfFocus._updateCoreInfoPill(rowId);
+            } catch (e) { /* silent */ }
+          });
+        } catch (e) {
+          console.warn("[ErpDataGrid] cellFocused wire failed:", e);
         }
       }
       if (!this.toolbarEl) return;

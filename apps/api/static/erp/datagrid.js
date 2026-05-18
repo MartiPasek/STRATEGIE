@@ -2038,7 +2038,7 @@
            '<button data-erp-coreinfo-btn ' +
            'class="erp-toolbar-coreinfo" ' +
            'title="Klik: info o jádru" ' +
-           'style="min-width:90px;padding:4px 8px;' +
+           'style="min-width:90px;padding:4px 8px 4px 0;' +
            'background:transparent;border:none;color:#a8b4c2;' +
            'font-family:ui-monospace,Consolas,Monaco,monospace;' +
            'font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;' +

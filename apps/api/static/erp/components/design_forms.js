@@ -6321,17 +6321,24 @@
               _ciPill.className = "erp-form-coreinfo-pill";
               _ciPill.textContent = _ciLabel;
               _ciPill.title = "core_id:row_id  (klik: zatím no-op, drop-up menu příjde)";
+              // Phase 38.4 Krok 5.R-C+7.4 (18.5.2026 vecer): apply same design
+              // jako grid pill — borderless, monospace, tabular-nums, fixed
+              // min-width 90px, left-edge align (padding-left:0).
               _ciPill.style.cssText =
-                "background:#1a2030;border:1px solid #3a4a6a;color:#a8b4c2;" +
-                "padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;" +
-                "font-weight:600;font-family:monospace;margin-right:8px;";
+                "background:transparent;border:none;color:#a8b4c2;" +
+                "min-width:90px;padding:5px 12px 5px 0;border-radius:3px;" +
+                "cursor:pointer;font-size:11px;font-weight:600;" +
+                "font-family:ui-monospace,Consolas,Monaco,monospace;" +
+                "font-variant-numeric:tabular-nums;" +
+                "text-align:left;transition:background 0.15s,color 0.15s;" +
+                "margin-right:8px;";
               _ciPill.addEventListener("mouseenter", function () {
-                _ciPill.style.background = "#2a3040";
-                _ciPill.style.borderColor = "#5a6a8a";
+                _ciPill.style.background = "rgba(255,255,255,0.05)";
+                _ciPill.style.color = "#b8c4d2";
               });
               _ciPill.addEventListener("mouseleave", function () {
-                _ciPill.style.background = "#1a2030";
-                _ciPill.style.borderColor = "#3a4a6a";
+                _ciPill.style.background = "transparent";
+                _ciPill.style.color = "#a8b4c2";
               });
               sec.grid.appendChild(_ciPill);
             }

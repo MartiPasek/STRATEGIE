@@ -2856,9 +2856,11 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         # Primary: přímý match fw.core.code
         core = _fetch_core(ds, "c.code = :code", {"code": core_code})
 
-        # Fallback: System grid prefix `prehled_-{cislo}` -> cislo_def negative
+        # Fallback: System grid prefix `core_-{cislo}` -> cislo_def negative
+        # Phase 38.4 Krok 5.R-C+5.1 (18.5.2026 vecer): regex rename z
+        # `^prehled_` na `^core_` po Krok 5.R-C+2 layoutKey rename.
         if not core:
-            m = re.match(r"^prehled_(-?\d+)$", core_code)
+            m = re.match(r"^core_(-?\d+)$", core_code)
             if m:
                 cislo = int(m.group(1))
                 # Najdi menu_node s tim cislo_def, vezmi jeho core_id
@@ -2945,7 +2947,7 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
         # Pokud direct match fail, fallback přes menu_node.cislo_def → core_id.
         if not list_core:
             import re as _re_fcfg
-            m = _re_fcfg.match(r"^prehled_(-?\d+)$", grid_core_code)
+            m = _re_fcfg.match(r"^core_(-?\d+)$", grid_core_code)
             if m:
                 cislo = int(m.group(1))
                 mn_for_cislo = ds.execute(_sql_text_fcfg("""
@@ -2965,7 +2967,7 @@ def form_core_for_grid(grid_core_code: str, req: Request) -> JSONResponse:
             return JSONResponse(
                 {
                     "ok": False,
-                    "error": f"fw.core code='{grid_core_code}' nenalezen (vč. prehled_-{{cislo}} fallback)",
+                    "error": f"fw.core code='{grid_core_code}' nenalezen (vč. core_-{{cislo}} fallback)",
                 },
                 status_code=404,
             )
@@ -15910,12 +15912,12 @@ def _render_workspace_page(user_id: int) -> str:
           onRowDoubleClick: (rowData) => {
             const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
             if (rowId == null) return;
-            openFwFormForRow("prehled_" + cislo, rowId, data.id_edit);
+            openFwFormForRow("core_" + cislo, rowId, data.id_edit);
           },
           onRowEnter: (rowData) => {
             const rowId = rowData.ID != null ? rowData.ID : (rowData.id != null ? rowData.id : null);
             if (rowId == null) return;
-            openFwFormForRow("prehled_" + cislo, rowId, data.id_edit);
+            openFwFormForRow("core_" + cislo, rowId, data.id_edit);
           },
         });
 

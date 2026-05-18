@@ -56,7 +56,7 @@
         '</p></div>';
     }
 
-    function _renderEmptyGrid(mainContent, tab, rootCd, coreId) {
+    function _renderEmptyGrid(mainContent, tab, rootCd, coreId, specForRender) {
       // Phase 38.4 Krok 5.R-D (18.5.2026 rano, Marti's "zasadni posun v Gridu"):
       // real ErpDataGrid s data_source rows. AG Grid autoColumns=true → sam
       // detect columns z prvniho row keys (Marti's doctrine "nativni grid
@@ -221,10 +221,30 @@
           }
           const rows = Array.isArray(data.rows) ? data.rows : [];
           gridHost.innerHTML = "";
+          // Phase 38.4 Krok 5.R-C (18.5.2026): build columnDefs z spec.columns
+          // (self-healing column registry). Pokud chybí → fallback autoColumns.
+          const columnsSpec = (specForRender && specForRender.columns) || null;
+          let gridColumnDefs = null;
+          if (columnsSpec && columnsSpec.length > 0) {
+            gridColumnDefs = columnsSpec
+              .filter(c => c && c.is_visible !== false)
+              .map(c => {
+                const def = {
+                  field: c.column_name,
+                  headerName: c.label || c.column_name,
+                  sortable: c.is_sortable !== false,
+                };
+                if (c.default_width) def.width = c.default_width;
+                if (c.flex) def.flex = c.flex;
+                if (c.pinned) def.pinned = c.pinned;
+                return def;
+              });
+          }
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
               rowData: rows,
-              autoColumns: true,
+              autoColumns: gridColumnDefs ? false : true,
+              columnDefs: gridColumnDefs || undefined,
               rowSelection: "single",
               enableEdit: isDesignMode,
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
@@ -355,7 +375,7 @@
           }
           const typeCode = rootCd.type_code || '';
           if (typeCode === 'grid_modern' || typeCode === 'list' || typeCode === 'list_root') {
-            _renderEmptyGrid(mainContent, tab, rootCd, coreId);
+            _renderEmptyGrid(mainContent, tab, rootCd, coreId, spec);
             return;
           }
           if (typeCode === 'form' || typeCode === 'frameless_form') {

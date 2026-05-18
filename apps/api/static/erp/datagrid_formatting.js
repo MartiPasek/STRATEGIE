@@ -38,6 +38,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("datagrid_formatting.js", "v1.0.0", function () {
+
+
   // ── Operator definitions ────────────────────────────────────────────
 
   const OPERATORS = {
@@ -620,4 +628,6 @@
     compile,
     openEditor,
   };
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : globalThis);

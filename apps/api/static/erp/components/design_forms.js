@@ -30,6 +30,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-8 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("design_forms.js", "v1.0.0", function () {
+
+
   // Phase JS-2 (18.5.2026): pull helpers from design_form_helpers.js
   // Loaded as separate <script> BEFORE this file (router.py loader order).
   const _DFH = global._erpDFH || {};
@@ -7331,4 +7339,6 @@
 
   global.DesignFwForm = DesignFwForm;
 
+
+  }); // _erpLoadModule end
 })(window);

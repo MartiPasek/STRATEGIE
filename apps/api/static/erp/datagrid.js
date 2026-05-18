@@ -73,6 +73,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("datagrid.js", "v1.0.0", function () {
+
+
   // ── Czech localization ────────────────────────────────────────────────
   const CS_LOCALE = {
     // Generic
@@ -2907,4 +2915,6 @@
   global.ErpDataGrid = ErpDataGrid;
   global.ErpDataGrid_CS_LOCALE = CS_LOCALE;
   global.ErpDataGrid_buildAutoColumnDefs = buildAutoColumnDefs;
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

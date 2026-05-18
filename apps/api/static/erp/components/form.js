@@ -39,6 +39,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("form.js", "v1.0.0", function () {
+
+
   function _esc(s) {
     return String(s).replace(/[&<>"']/g, c =>
       ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])
@@ -336,4 +344,6 @@
   // (DROP 18.5.2026) ErpForm + ErpForm_TYP exports dropped — legacy
   // Centrála 1 form renderer unused. Pixel layout helpers above zachovány
   // (_erpApplyLayout, _erpFormDebug, dumpErpDebug) — used by formsection.js.
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

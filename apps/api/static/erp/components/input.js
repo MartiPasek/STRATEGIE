@@ -43,6 +43,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("input.js", "v1.0.0", function () {
+
+
   const TYPES = ["text", "phone", "ico", "dic", "date", "time", "number", "password", "email"];
 
   function _esc(s) {
@@ -566,4 +574,6 @@
   ErpInput.MASKS = MASKS;  // expose pro custom validation extending
 
   global.ErpInput = ErpInput;
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

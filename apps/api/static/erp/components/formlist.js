@@ -61,6 +61,14 @@
 (function (global) {
   "use strict";
 
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("formlist.js", "v1.0.0", function () {
+
+
   // Globální tracking — jen jeden panel otevřený naráz
   let _OPEN_PANEL_INSTANCE = null;
 
@@ -880,4 +888,6 @@
   };
 
   global.ErpFormList = ErpFormList;
+
+  }); // _erpLoadModule end
 })(typeof window !== "undefined" ? window : this);

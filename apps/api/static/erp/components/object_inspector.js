@@ -19,6 +19,13 @@
  */
 
 (function () {
+  // Phase JS-9 (18.5.2026): mutual immunity wrap pro Module Health visibility.
+  const _loader = (typeof window !== "undefined" && window._erpLoadModule)
+    ? window._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "] init failed:", e); } };
+
+  _loader("object_inspector.js", "v1.0.0", function () {
+
   "use strict";
 
   // ════════════════════════════════════════════════════════════════════════
@@ -681,4 +688,5 @@
   // Export
   window.ErpObjectInspector = ErpObjectInspector;
   console.log("[ErpObjectInspector] loaded — Phase 38.4 Krok 9-D");
+  }); // _erpLoadModule end
 })();

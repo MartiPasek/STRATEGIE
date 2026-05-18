@@ -1046,14 +1046,21 @@
         // B+10 (6.5.2026): row-level conditional formatting.
         // B+10+ (6.5.2026): merge heuristics (opt-in) + user rules (compiled).
         rowClassRules: initialRowRules,
-        // Default column behavior
-        defaultColDef: {
+        // Default column behavior — Phase 38.4 Krok 5.R-D+3 (18.5.2026):
+        // merge opts.defaultColDefExtra pro per-instance extension
+        // (e.g. cellClassRules pro dirty tracking v page_render.js).
+        defaultColDef: Object.assign({
           sortable: true,
           resizable: true,
           filter: opts.enableFilters !== false,
           floatingFilter: opts.enableFilters !== false,
           editable: opts.enableEdit === true,
-        },
+        }, opts.defaultColDefExtra || {}),
+        // Phase 38.4 Krok 5.R-D+3 (Marti's "UX delight zdarma"):
+        // native AG Grid Ctrl+Z/Y undo edited cells + commit on blur.
+        undoRedoCellEditing: true,
+        undoRedoCellEditingLimit: 50,
+        stopEditingWhenCellsLoseFocus: true,
         // Row height (compact = denser display)
         rowHeight: opts.compact ? 26 : 32,
         headerHeight: opts.compact ? 32 : 40,

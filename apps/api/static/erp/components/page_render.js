@@ -110,14 +110,98 @@
 
       // Phase 38.4 Krok 5.R-D+1 (18.5.2026 rano, Marti's "refactor code na ID"):
       // Prefer /data-by-id/{id} over /data/{code}. Drop code='29' workaround.
-      // Fallback na code path zachovan pro defense in depth.
       const fetchUrl = rootCd.data_source_id
         ? '/api/v1/erp/data-by-id/' + rootCd.data_source_id + '?limit=500'
         : '/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) + '?limit=500';
-      // Phase 38.4 Krok 5.R-D+2 (18.5.2026 rano, Marti's "inline editing
-      // v DESIGN, PRODUCTION read-only"): detect design mode pri instantiate.
-      // Toggle DESIGN/PRODUCTION = user musi re-klik na tab pro re-render.
       const isDesignMode = (typeof window !== "undefined" && window._erpDesignMode === true);
+
+      // Phase 38.4 Krok 5.R-D+3 (18.5.2026, Marti's "Stage 1 MVP, NIC VIC"):
+      // Per-grid dirty tracker Map(rowId → {field: newValue}). Visual yellow
+      // highlight + save button v meta area. Click → loop PATCH per dirty row.
+      const dirtyRows = new Map();
+
+      // Hardcoded entity_id mapping per data_source_id (pre-Stage 2 column
+      // fw.data_source.target_entity_type). CORE 30 (ds #29) fw.core entity
+      // = 23 (5.N-1 _FW_FORM_CORE_REGISTRY[23] → "core" config).
+      const DS_TO_ENTITY = { 29: "23" };
+      const entityForPatch = DS_TO_ENTITY[rootCd.data_source_id] || null;
+
+      // Save button helper
+      let saveBtn = null;
+      function _ensureSaveBtn() {
+        if (saveBtn) return saveBtn;
+        const metaP = mainContent.querySelector("p");
+        if (!metaP) return null;
+        saveBtn = document.createElement("button");
+        saveBtn.type = "button";
+        saveBtn.className = "erp-page-grid-save-btn";
+        saveBtn.style.cssText =
+          "margin-left:12px;padding:4px 12px;background:#3a5a3a;border:1px solid #4a7a4a;" +
+          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:11px;font-weight:600;" +
+          "display:none;";
+        saveBtn.addEventListener("click", _onSaveClick);
+        metaP.appendChild(saveBtn);
+        return saveBtn;
+      }
+      function _refreshSaveBtn() {
+        const btn = _ensureSaveBtn();
+        if (!btn) return;
+        const count = dirtyRows.size;
+        if (count > 0) {
+          btn.style.display = "";
+          btn.textContent = "💾 Uložit " + count;
+        } else {
+          btn.style.display = "none";
+        }
+      }
+      async function _onSaveClick() {
+        if (!entityForPatch) {
+          alert("Save flow nepripraven pro data_source #" + rootCd.data_source_id +
+                ". Long-term: fw.data_source.target_entity_type column.");
+          return;
+        }
+        saveBtn.disabled = true;
+        saveBtn.textContent = "⏳ Ukládám...";
+        const entries = Array.from(dirtyRows.entries());
+        let okCount = 0, failCount = 0;
+        for (const [rowId, changes] of entries) {
+          try {
+            const resp = await fetch(
+              "/api/v1/erp/design/" + entityForPatch + "/" + rowId,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({ field_changes: changes }),
+              }
+            );
+            const json = await resp.json();
+            if (resp.ok && json && json.ok) {
+              dirtyRows.delete(rowId);
+              okCount++;
+            } else {
+              failCount++;
+              console.error("[page_render save] row " + rowId + " failed:",
+                            json && json.error);
+            }
+          } catch (e) {
+            failCount++;
+            console.error("[page_render save] row " + rowId + " network:", e);
+          }
+        }
+        saveBtn.disabled = false;
+        if (failCount > 0) {
+          alert("Save: " + okCount + " OK, " + failCount + " FAIL — viz konzole.");
+        }
+        try {
+          const gridInst = gridHost.__erpGridInst;
+          if (gridInst && gridInst.gridApi) {
+            gridInst.gridApi.refreshCells({ force: true });
+          }
+        } catch (e) {}
+        _refreshSaveBtn();
+      }
+
       fetch(fetchUrl, { credentials: 'include' })
         .then(r => r.json())
         .then(data => {
@@ -127,24 +211,49 @@
           const rows = Array.isArray(data.rows) ? data.rows : [];
           gridHost.innerHTML = "";
           try {
-            new window.ErpDataGrid(gridHost, {
+            const gridInst = new window.ErpDataGrid(gridHost, {
               rowData: rows,
               autoColumns: true,
               rowSelection: "single",
-              // Krok 5.R-D+2 inline edit MVP (Marti's "service mode pro designery"):
-              // AG Grid native enableEdit + onCellEdit. NO save flow yet —
-              // Marti's "test z UI a pak rozhodneme co dal".
               enableEdit: isDesignMode,
-              onCellEdit: function (ev) {
-                console.info("[page_render cell edit]", {
-                  field: ev && ev.colDef && ev.colDef.field,
-                  oldValue: ev && ev.oldValue,
-                  newValue: ev && ev.newValue,
-                  row: ev && ev.data,
-                  ds_id: rootCd.data_source_id,
-                });
+              // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
+              // (datagrid.js pass-through z 5.R-D+3 P1 patch).
+              defaultColDefExtra: {
+                cellClassRules: {
+                  "erp-cell-dirty": function (params) {
+                    if (!params || !params.data || params.data.id == null) return false;
+                    const dirty = dirtyRows.get(params.data.id);
+                    if (!dirty) return false;
+                    const field = params.colDef && params.colDef.field;
+                    return field != null && Object.prototype.hasOwnProperty.call(dirty, field);
+                  },
+                },
+              },
+              // ErpDataGrid passes (rowData, fieldName, oldValue, newValue) — NOT event obj.
+              onCellEdit: function (rowData, fieldName, oldValue, newValue) {
+                if (!rowData || rowData.id == null) {
+                  console.warn("[page_render cell edit] row.id missing — skip dirty track");
+                  return;
+                }
+                const rowId = rowData.id;
+                let entry = dirtyRows.get(rowId);
+                if (!entry) {
+                  entry = {};
+                  dirtyRows.set(rowId, entry);
+                }
+                entry[fieldName] = newValue;
+                console.info("[page_render cell edit]",
+                  { field: fieldName, oldValue, newValue, rowId,
+                    ds_id: rootCd.data_source_id });
+                try {
+                  if (gridInst && gridInst.gridApi) {
+                    gridInst.gridApi.refreshCells({ force: true });
+                  }
+                } catch (e) {}
+                _refreshSaveBtn();
               },
             });
+            gridHost.__erpGridInst = gridInst;
           } catch (e) {
             console.error("[page_render] ErpDataGrid init failed:", e);
             gridHost.innerHTML =
@@ -251,6 +360,17 @@
           _renderFetchError(mainContent, err, coreCode, coreId);
         });
     }
+
+    // Phase 38.4 Krok 5.R-D+3 (18.5.2026): CSS injekt pro dirty cell visual.
+    (function _injectDirtyCss() {
+      const STYLE_ID = "erp-page-render-dirty-css";
+      if (document.getElementById(STYLE_ID)) return;
+      const style = document.createElement("style");
+      style.id = STYLE_ID;
+      style.textContent =
+        ".erp-cell-dirty { background: #3a3520 !important; }";
+      document.head.appendChild(style);
+    })();
 
     global.ErpPageRender = {
       dispatchPageRender: dispatchPageRender,

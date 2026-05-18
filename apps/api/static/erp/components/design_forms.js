@@ -6304,6 +6304,41 @@
             }
           });
           this._dirtyDiscardBtn = discardBtn;
+
+          // Phase 38.4 Krok 5.R-C+7 (18.5.2026 vecer pozde): coreInfo pill
+          // vlevo dole v paticce. Format "coreId:rowId". Marti's "par malickosti
+          // pro orientaci".
+          try {
+            var _ciCoreId = (this._coreId != null) ? this._coreId
+              : (this._core && this._core.id != null) ? this._core.id : null;
+            var _ciRowId = (this._rowId != null) ? this._rowId
+              : (this._row && this._row.id != null) ? this._row.id : null;
+            if (_ciCoreId != null) {
+              var _ciLabel = String(_ciCoreId);
+              if (_ciRowId != null) _ciLabel += ":" + String(_ciRowId);
+              var _ciPill = document.createElement("button");
+              _ciPill.type = "button";
+              _ciPill.className = "erp-form-coreinfo-pill";
+              _ciPill.textContent = _ciLabel;
+              _ciPill.title = "core_id:row_id  (klik: zatím no-op, drop-up menu příjde)";
+              _ciPill.style.cssText =
+                "background:#1a2030;border:1px solid #3a4a6a;color:#a8b4c2;" +
+                "padding:5px 12px;border-radius:3px;cursor:pointer;font-size:11px;" +
+                "font-weight:600;font-family:monospace;margin-right:8px;";
+              _ciPill.addEventListener("mouseenter", function () {
+                _ciPill.style.background = "#2a3040";
+                _ciPill.style.borderColor = "#5a6a8a";
+              });
+              _ciPill.addEventListener("mouseleave", function () {
+                _ciPill.style.background = "#1a2030";
+                _ciPill.style.borderColor = "#3a4a6a";
+              });
+              sec.grid.appendChild(_ciPill);
+            }
+          } catch (e) {
+            console.warn("[DesignFwForm coreInfo pill] failed:", e);
+          }
+
           sec.grid.appendChild(discardBtn);
 
           // Krok 14b+16.1: flex spacer aby OK+Storno drzela vpravo. Bez

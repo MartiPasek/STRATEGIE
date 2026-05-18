@@ -233,6 +233,16 @@
               layoutKey: "core_" + coreId,
               gridCode: rootCd.name || ("core_" + coreId),
               autoLoadDefault: true,
+              // Krok 5.R-C+7: coreInfo pill — fw.core context
+              coreInfo: {
+                coreId: coreId,
+                refId: rootCd.data_source_id,
+                coreCode: (specForRender && specForRender.core && specForRender.core.code) || null,
+                coreLabel: (specForRender && specForRender.core && specForRender.core.label) || (tab && tab.label) || null,
+                refCode: rootCd.data_source_code || null,
+                rootCompDefId: rootCd.id,
+                rootTypeCode: rootCd.type_code || null,
+              },
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
               // (datagrid.js pass-through z 5.R-D+3 P1 patch).
               defaultColDefExtra: {

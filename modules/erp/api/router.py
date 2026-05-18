@@ -15256,10 +15256,19 @@ def _render_workspace_page(user_id: int) -> str:
           // Pokud columns prazdny ([] z gridColumns wrapper), AG Grid si
           // gene columns z rowData keys. Bez hardcoded fw.comp_grid_master.
           var _useAutoCols = (!columns || columns.length === 0);
+          // Krok 5.R-C+7 (18.5.2026): coreInfo pill — sysCislo = core_id
+          // (negativní pro hardcoded, positive pro fw.core).
+          var _ciHard = {
+            coreId: sysCislo,
+            mode: mode,
+            coreLabel: label,
+            hardcoded: true,
+          };
           window._sysCurrentGrid = new ErpDataGrid(body, {
             rowData: rowData,
             columnDefs: _useAutoCols ? null : columns,
             autoColumns: _useAutoCols,
+            coreInfo: _ciHard,
             theme: "dark",
             height: "100%",
             compact: true,

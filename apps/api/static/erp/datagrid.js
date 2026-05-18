@@ -883,6 +883,11 @@
         // B+5.2: layout persistence
         layoutKey: null,          // string — identifikuje persistence scope, např. "core_30" (fw.core.id) / "core_-110" (System scope)
         autoLoadDefault: true,    // při init load effective_default ze server
+        // Phase 38.4 Krok 5.R-C+7 (18.5.2026 vecer): coreInfo pill v toolbar
+        // { coreId, refId?, coreCode?, coreLabel?, mode?, hardcoded?, extraInfo? }
+        // Render: button "coreId:refId" vlevo PRED layout dropdown.
+        // Klik → drop-up menu s informacemi (label, code, mode, ...).
+        coreInfo: null,
         // B+10++ (6.5.2026): limit context pro status bar Celkem
         // { applied: int, hasMore: bool, options: [int...], onChange: (newLimit) => void }
         // Pokud null → status panel renderuje běžný "Celkem: N" bez click handleru.
@@ -1996,8 +2001,21 @@
     _renderToolbarHtml() {
       // B+6.3+ (5.5.2026): native <select> nahrazen ErpDropdown — wire-up
       // proběhne v _refreshToolbar (lazy create instance do .erp-layout-mount).
+      // Phase 38.4 Krok 5.R-C+7 (18.5.2026): build coreInfo pill HTML pokud option set
+      var _ci = this.options.coreInfo;
+      var _ciLabel = "";
+      if (_ci && _ci.coreId != null) {
+        _ciLabel = String(_ci.coreId);
+        if (_ci.refId != null) _ciLabel += ":" + String(_ci.refId);
+      }
+      var _ciBtn = _ciLabel
+        ? ('<button class="erp-toolbar-btn erp-toolbar-coreinfo" data-erp-coreinfo-btn ' +
+           'title="Klik: info o jádru">' + _ciLabel + '</button>' +
+           '<span class="erp-toolbar-gap" style="display:inline-block;width:12px;"></span>')
+        : "";
       return (
         '<div class="erp-toolbar-left">' +
+          _ciBtn +
           '<div class="erp-layout-mount" data-erp-layout-mount></div>' +
           '<span class="erp-dirty-indicator" data-erp-dirty hidden>*</span>' +
         '</div>' +
@@ -2083,7 +2101,61 @@
       leftPanel.insertBefore(this.toolbarEl, leftPanel.firstChild);
     }
 
+    _showCoreInfoMenu(btn) {
+      // Phase 38.4 Krok 5.R-C+7 (18.5.2026): drop-up menu s info o jádru.
+      // Marti's "neco tam dej, co uznas za vhodny, pak doladime".
+      var ci = this.options.coreInfo || {};
+      // Close existing menu pokud open
+      var oldMenu = document.querySelector(".erp-toolbar-coreinfo-menu");
+      if (oldMenu) { oldMenu.remove(); return; }
+      var menu = document.createElement("div");
+      menu.className = "erp-toolbar-coreinfo-menu";
+      menu.style.cssText =
+        "position:absolute;bottom:32px;left:0;z-index:1000;" +
+        "background:#1a2030;border:1px solid #3a4a6a;border-radius:4px;" +
+        "padding:8px 12px;color:#e8eef5;font-size:11px;line-height:1.5;" +
+        "box-shadow:0 -2px 8px rgba(0,0,0,0.4);min-width:240px;";
+      var html = "";
+      if (ci.coreLabel) html += '<div style="font-weight:600;margin-bottom:4px;color:#a8b4c2;">' + this._escHtml(ci.coreLabel) + '</div>';
+      if (ci.coreCode) html += '<div>core.code: <code style="color:#7aa8d4;">' + this._escHtml(ci.coreCode) + '</code></div>';
+      if (ci.coreId != null) html += '<div>core.id: <code style="color:#7aa8d4;">' + ci.coreId + '</code></div>';
+      if (ci.refId != null) html += '<div>data_source.id: <code style="color:#7aa8d4;">' + ci.refId + '</code></div>';
+      if (ci.refCode) html += '<div>data_source.code: <code style="color:#7aa8d4;">' + this._escHtml(ci.refCode) + '</code></div>';
+      if (ci.rootCompDefId != null) html += '<div>root comp_def: <code style="color:#7aa8d4;">' + ci.rootCompDefId + (ci.rootTypeCode ? " (" + this._escHtml(ci.rootTypeCode) + ")" : "") + '</code></div>';
+      if (ci.mode) html += '<div>mode: <code style="color:#aaa;">' + this._escHtml(ci.mode) + '</code></div>';
+      if (ci.hardcoded) html += '<div style="color:#d4a878;margin-top:4px;font-style:italic;">⚙ hardcoded grid</div>';
+      if (!html) html = '<div style="color:#888;font-style:italic;">Bez dat</div>';
+      menu.innerHTML = html;
+      btn.parentNode.style.position = "relative";
+      btn.parentNode.appendChild(menu);
+      // Close on click outside
+      var closeFn = function (e) {
+        if (!menu.contains(e.target) && e.target !== btn) {
+          menu.remove();
+          document.removeEventListener("click", closeFn, true);
+        }
+      };
+      setTimeout(function () { document.addEventListener("click", closeFn, true); }, 0);
+    }
+
+    _escHtml(s) {
+      var div = document.createElement("div");
+      div.textContent = String(s == null ? "" : s);
+      return div.innerHTML;
+    }
+
     _wireToolbar() {
+      // Phase 38.4 Krok 5.R-C+7: coreInfo pill click → drop-up menu
+      if (this.toolbarEl) {
+        var ciBtn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
+        if (ciBtn) {
+          var self = this;
+          ciBtn.addEventListener("click", function (ev) {
+            ev.stopPropagation();
+            self._showCoreInfoMenu(ciBtn);
+          });
+        }
+      }
       if (!this.toolbarEl) return;
       // Layout dropdown handler je přidán uvnitř _refreshToolbar při lazy
       // ErpDropdown create (B+6.3+ refactor).

@@ -3631,11 +3631,19 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
         # Phase 38.4 Krok 5.R-A hotfix (17.5.2026 vecer): drop cd.code —
         # fw.comp_def nema sloupec 'code', jen 'name'. Marti's traceback:
         # ProgrammingError: column cd.code does not exist.
+        #
+        # Krok 5.R-D (18.5.2026 rano): LEFT JOIN fw.data_source ds pro
+        # data_source_code — frontend page_render.js volá /api/v1/erp/data/{code}
+        # pro fetch rows. Pragmatic — task #145 refactor na ID-first endpoint
+        # /data-by-id/{id} hned po LIVE smoke.
         root_row = ds.execute(_sql_psp("""
             SELECT cd.id, cd.name, cd.type_id, cd.data_source_id,
-                   ct.code AS type_code, ct.label AS type_label
+                   ct.code AS type_code, ct.label AS type_label,
+                   dsrc.code AS data_source_code,
+                   dsrc.name AS data_source_name
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
+            LEFT JOIN fw.data_source dsrc ON dsrc.id = cd.data_source_id
             WHERE cd.parent_core_id = :cid
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC

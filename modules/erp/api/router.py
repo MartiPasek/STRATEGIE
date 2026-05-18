@@ -4036,6 +4036,180 @@ def _sync_grid_columns(
     return [dict(r) for r in final]
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 5.R-C (18.5.2026, Marti's "self-healing column registry"
+# doctrine z Centrály 1 19yr): helpers pro fw.comp_grid_master ensure +
+# fw.comp_grid_column sync proti dataset truth source.
+# ════════════════════════════════════════════════════════════════════════════
+
+def _ensure_grid_master(
+    session, core_id: int, data_source_id: int | None,
+    data_source_code: str | None,
+) -> dict | None:
+    """Lookup nebo auto-create fw.comp_grid_master row pro grid core.
+
+    Marti's "first access creates default" pattern. Pokud master existuje,
+    vrátí ho; jinak INSERT s minimal default values.
+    """
+    from sqlalchemy import text as _sql_egm
+    if not core_id:
+        return None
+    existing = session.execute(_sql_egm("""
+        SELECT id, code, name, data_source_code, core_id
+        FROM fw.comp_grid_master
+        WHERE core_id = :cid
+        ORDER BY id ASC
+        LIMIT 1
+    """), {"cid": core_id}).mappings().one_or_none()
+    if existing:
+        return dict(existing)
+
+    # Auto-create default master (Marti's "nic nekomplikovat" — minimum cols)
+    ds_code_str = data_source_code or (str(data_source_id) if data_source_id else "unknown")
+    code = f"core_{core_id}_grid"
+    name = f"Grid CORE {core_id}"
+    try:
+        new_row = session.execute(_sql_egm("""
+            INSERT INTO fw.comp_grid_master (
+                code, config_version, name,
+                data_source_code, data_source_version,
+                default_record_limit, refresh_type, default_view_mode,
+                is_system, is_immutable, status, guid, core_id,
+                created_at, updated_at
+            ) VALUES (
+                :code, 1, :name,
+                :ds_code, 1,
+                100, 'manual', 'grid',
+                false, false, 'active', gen_random_uuid(), :cid,
+                NOW(), NOW()
+            )
+            RETURNING id, code, name, data_source_code, core_id
+        """), {
+            "code": code, "name": name,
+            "ds_code": ds_code_str, "cid": core_id,
+        }).mappings().one()
+        session.commit()
+        return dict(new_row)
+    except Exception as exc:
+        session.rollback()
+        import logging as _log_egm
+        _log_egm.getLogger(__name__).warning(
+            "_ensure_grid_master INSERT failed for core_id=%s: %s", core_id, exc,
+        )
+        return None
+
+
+def _sync_grid_columns(
+    session, grid_master_id: int, dataset_fields: list[str],
+) -> list[dict]:
+    """Sync fw.comp_grid_column rows vs dataset truth source.
+
+    Marti's doctrine:
+      - DELETE registry rows where column_name NOT IN dataset
+      - INSERT default rows for dataset fields NOT IN registry
+    Returns final columns list (post-sync).
+    """
+    from sqlalchemy import text as _sql_sgc
+    if not grid_master_id:
+        return []
+
+    existing_rows = session.execute(_sql_sgc("""
+        SELECT id, column_name, label, default_width, flex, pinned,
+               formatter, sort_order, is_visible, is_sortable
+        FROM fw.comp_grid_column
+        WHERE grid_master_id = :gmid
+        ORDER BY sort_order ASC, id ASC
+    """), {"gmid": grid_master_id}).mappings().all()
+    existing_by_name = {r["column_name"]: dict(r) for r in existing_rows}
+    existing_names = set(existing_by_name.keys())
+    dataset_set = set(dataset_fields or [])
+
+    # Drop rows not in dataset (Marti's auto-cleanup)
+    to_drop = existing_names - dataset_set
+    if to_drop:
+        try:
+            session.execute(_sql_sgc("""
+                DELETE FROM fw.comp_grid_column
+                WHERE grid_master_id = :gmid
+                  AND column_name = ANY(:names)
+            """), {"gmid": grid_master_id, "names": list(to_drop)})
+        except Exception as exc:
+            session.rollback()
+            import logging as _log_sgc
+            _log_sgc.getLogger(__name__).warning(
+                "_sync_grid_columns DELETE failed: %s", exc,
+            )
+
+    # Insert default rows for new dataset fields
+    # Marti's "blejsknem se" (18.5.2026): auto-pin ID column + sensible widths
+    # per field name heuristics (Centrála 1 19yr pattern).
+    _ID_NAMES = {"id", "Id", "ID"}
+    _DATETIME_HINTS = ("_at", "_date", "_time", "Date", "Time")
+    _NUMERIC_HINTS = ("_id", "_count", "version", "Cislo", "Poradi")
+    to_add = [f for f in (dataset_fields or []) if f not in existing_names]
+    if to_add:
+        next_sort = (
+            max((r["sort_order"] or 0) for r in existing_rows) if existing_rows else 0
+        ) + 10
+        for field in to_add:
+            label = field.replace("_", " ").title()
+            # Heuristic defaults
+            is_id = field in _ID_NAMES
+            is_datetime = any(field.endswith(h) or h in field for h in _DATETIME_HINTS)
+            is_numeric_fk = (not is_id) and any(
+                field.endswith(h) or field == h for h in _NUMERIC_HINTS
+            )
+            default_width = None
+            flex = None
+            pinned = None
+            if is_id:
+                default_width = 80
+                pinned = "left"  # Marti's "blejsknem" — ID auto-pinned left
+            elif is_numeric_fk:
+                default_width = 100
+            elif is_datetime:
+                default_width = 160
+            else:
+                flex = 1  # Variable width
+            try:
+                session.execute(_sql_sgc("""
+                    INSERT INTO fw.comp_grid_column (
+                        grid_master_id, column_name, label,
+                        sort_order, is_visible, is_sortable,
+                        default_width, flex, pinned,
+                        created_at, updated_at
+                    ) VALUES (
+                        :gmid, :col, :label,
+                        :sort, true, true,
+                        :w, :flex, :pinned,
+                        NOW(), NOW()
+                    )
+                """), {
+                    "gmid": grid_master_id, "col": field,
+                    "label": label, "sort": next_sort,
+                    "w": default_width, "flex": flex, "pinned": pinned,
+                })
+                next_sort += 10
+            except Exception as exc:
+                session.rollback()
+                import logging as _log_sgci
+                _log_sgci.getLogger(__name__).warning(
+                    "_sync_grid_columns INSERT failed for %s: %s", field, exc,
+                )
+
+    session.commit()
+
+    # Reload final state
+    final = session.execute(_sql_sgc("""
+        SELECT id, column_name, label, default_width, flex, pinned,
+               formatter, sort_order, is_visible, is_sortable
+        FROM fw.comp_grid_column
+        WHERE grid_master_id = :gmid
+        ORDER BY sort_order ASC, id ASC
+    """), {"gmid": grid_master_id}).mappings().all()
+    return [dict(r) for r in final]
+
+
 @api_router.get("/fw-core/{core_id}/page-spec")
 def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
     """Phase 38.4 Krok 5.R-A — generic page-spec pro fw.core kontejner.

@@ -66,21 +66,26 @@
           (rootCd.data_source_code ? ' (' + _esc(rootCd.data_source_code) + ')' : '')
         : ' · bez data_source';
       const gridHostId = 'erp-page-grid-' + coreId;
+      // Phase 38.4 Krok 5.R-C+6 (18.5.2026 vecer pozde, Marti's bug "ne pres
+      // celou plochu jako hardcoded gridy"): drop intermediate wrapper div.
+      // Header + grid host primo jako direct children mainContent — CSS
+      // .erp-main-content > .erp-ag-grid pak aplikuje flex:1 na grid host.
+      // Pattern analog hardcoded #erpSysGridBody (Uzivatele tab fullheight).
       mainContent.innerHTML =
-        '<div style="padding:20px;display:flex;flex-direction:column;height:100%;">' +
-        '<h2 style="margin:0 0 12px;font-weight:500;color:#e8eef5;">📊 ' +
+        '<div style="padding:8px 16px 4px;flex:0 0 auto;">' +
+        '<h2 style="margin:0 0 4px;font-weight:500;color:#e8eef5;font-size:16px;">📊 ' +
         _esc(tab.label || "Přehled") + '</h2>' +
-        '<p style="color:#7a8696;font-size:11px;margin:0 0 12px;font-style:italic;">' +
+        '<p style="color:#7a8696;font-size:11px;margin:0;font-style:italic;">' +
         'Root: ' + _esc(rootCd.name || '?') +
         ' (' + _esc(rootCd.type_code) + ', comp_def #' + rootCd.id + ')' +
         _esc(dsInfo) +
-        '</p>' +
-        '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;' +
-        'border:1px solid #2a3340;border-radius:4px;background:#0f141a;' +
+        '</p></div>' +
+        '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
+        'width:100%;border-top:1px solid #2a3340;background:#0f141a;' +
         'overflow:hidden;">' +
         '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
         '⏳ Načítám rows…' +
-        '</div></div></div>';
+        '</div></div>';
 
       const gridHost = document.getElementById(gridHostId);
       if (!gridHost) {

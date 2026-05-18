@@ -4323,6 +4323,94 @@
   // Read-only zatím (Phase 38.4 Krok 14b save flow ráno přes PATCH).
   // ────────────────────────────────────────────────────────────────────
 
+  // Phase 38.4 Krok 5.R-C+8 (18.5.2026 vecer pozde): form pill drop-up menu helper.
+  // Analog grid pill _showCoreInfoMenu (datagrid.js). Stand-alone IIFE-scoped
+  // function, called z _ciPill click handler.
+  function _showFormPillMenu(pillBtn, ctx) {
+    // Close existing
+    var old = document.querySelector(".erp-form-coreinfo-menu");
+    if (old) { old.remove(); return; }
+    function _esc(s) {
+      var d = document.createElement("div");
+      d.textContent = String(s == null ? "" : s);
+      return d.innerHTML;
+    }
+    var menu = document.createElement("div");
+    menu.className = "erp-form-coreinfo-menu";
+    menu.style.cssText =
+      "position:absolute;bottom:36px;left:0;z-index:10000;" +
+      "background:#1a2030;border:1px solid #3a4a6a;border-radius:4px;" +
+      "padding:0;color:#e8eef5;font-size:11px;line-height:1.5;" +
+      "box-shadow:0 -2px 8px rgba(0,0,0,0.4);min-width:260px;" +
+      "font-family:ui-monospace,Consolas,Monaco,monospace;";
+
+    var info = '<div style="padding:8px 12px;">';
+    if (ctx.coreLabel) info += '<div style="font-weight:600;margin-bottom:6px;color:#a8b4c2;font-family:system-ui,sans-serif;">' + _esc(ctx.coreLabel) + '</div>';
+    var rows = [];
+    if (ctx.coreId != null) rows.push(["Core ID", String(ctx.coreId)]);
+    if (ctx.rowId != null) rows.push(["Row ID", String(ctx.rowId)]);
+    if (ctx.coreCode) rows.push(["Code", ctx.coreCode]);
+    for (var i = 0; i < rows.length; i++) {
+      info += '<div style="display:flex;gap:8px;"><span style="color:#7a8696;min-width:70px;">' +
+        _esc(rows[i][0]) + ':</span><code style="color:#7aa8d4;font-variant-numeric:tabular-nums;">' +
+        _esc(rows[i][1]) + '</code></div>';
+    }
+    info += '</div>';
+
+    var pillText = String(ctx.coreId != null ? ctx.coreId : "?") + ":" + (ctx.rowId != null ? ctx.rowId : "");
+    var actions =
+      '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
+      '<button type="button" data-form-menu-action="design-core" ' +
+        'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+        '🎨 Otevřít Design jádra</button>' +
+      '<button type="button" data-form-menu-action="copy-id" ' +
+        'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+        '📋 Kopírovat <code style="color:#7aa8d4;">' + _esc(pillText) + '</code></button>' +
+      '</div>';
+    menu.innerHTML = info + actions;
+
+    menu.querySelectorAll("button[data-form-menu-action]").forEach(function (mb) {
+      mb.addEventListener("mouseenter", function () { mb.style.background = "rgba(122,168,212,0.1)"; });
+      mb.addEventListener("mouseleave", function () { mb.style.background = "transparent"; });
+      mb.addEventListener("click", function (ev) {
+        ev.stopPropagation();
+        var action = mb.getAttribute("data-form-menu-action");
+        if (action === "copy-id") {
+          try {
+            navigator.clipboard.writeText(pillText).then(function () {
+              var t = document.createElement("div");
+              t.style.cssText = "position:absolute;bottom:8px;right:8px;z-index:10001;background:#3a5a3a;color:#fff;padding:4px 10px;border-radius:3px;font-size:11px;";
+              t.textContent = "✓ Zkopírováno";
+              menu.appendChild(t);
+              setTimeout(function () { try { menu.remove(); } catch (e) {} }, 1200);
+            });
+          } catch (e) { menu.remove(); }
+          return;
+        }
+        if (action === "design-core") {
+          menu.remove();
+          if (ctx.coreId == null) return;
+          try {
+            var fwf = new DesignFwForm({ coreId: 23, rowId: ctx.coreId });
+            if (typeof fwf.open === "function") fwf.open();
+          } catch (e) {
+            console.error("[form pill menu] DesignFwForm failed:", e);
+          }
+          return;
+        }
+      });
+    });
+
+    pillBtn.appendChild(menu);
+    var closeFn = function (e) {
+      if (!menu.contains(e.target) && e.target !== pillBtn) {
+        try { menu.remove(); } catch (er) {}
+        document.removeEventListener("click", closeFn, true);
+      }
+    };
+    setTimeout(function () { document.addEventListener("click", closeFn, true); }, 0);
+  }
+
   class DesignFwForm {
     constructor(opts) {
       this.opts = opts || {};
@@ -6329,7 +6417,7 @@
               // jako grid pill — borderless, monospace, tabular-nums, fixed
               // min-width 90px, left-edge align (padding-left:0).
               _ciPill.style.cssText =
-                "background:transparent;border:none;color:#a8b4c2;" +
+                "position:relative;background:transparent;border:none;color:#a8b4c2;" +
                 "min-width:90px;padding:5px 12px 5px 0;border-radius:3px;" +
                 "cursor:pointer;font-size:11px;font-weight:600;" +
                 "font-family:ui-monospace,Consolas,Monaco,monospace;" +
@@ -6343,6 +6431,20 @@
               _ciPill.addEventListener("mouseleave", function () {
                 _ciPill.style.background = "transparent";
                 _ciPill.style.color = "#a8b4c2";
+              });
+              // Phase 38.4 Krok 5.R-C+8 (18.5.2026): click → drop-up menu
+              var _formCoreId = _ciCoreId;
+              var _formRowId = _ciRowId;
+              var _formCoreLabel = (this._spec && this._spec.core && this._spec.core.label) || null;
+              var _formCoreCode = (this._spec && this._spec.core && this._spec.core.code) || null;
+              _ciPill.addEventListener("click", function (ev) {
+                ev.stopPropagation();
+                _showFormPillMenu(_ciPill, {
+                  coreId: _formCoreId,
+                  rowId: _formRowId,
+                  coreLabel: _formCoreLabel,
+                  coreCode: _formCoreCode,
+                });
               });
               sec.grid.appendChild(_ciPill);
             }

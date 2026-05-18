@@ -2139,47 +2139,92 @@
 
     _updateCoreInfoPill(newRefId) {
       // Phase 38.4 Krok 5.R-C+7.1+7.2 (18.5.2026 vecer): dynamic update
-      // pill text pri cell focus change. Dvojtecka VZDY, i bez rowId
-      // (Marti's "zadna dvojtecka" bug fix).
+      // pill text pri cell focus change. Dvojtecka VZDY, i bez rowId.
+      // Krok 5.R-C+8: store rowId pro drop-up menu actions.
       if (!this.toolbarEl || !this.options.coreInfo) return;
       var btn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
       if (!btn) return;
       var ci = this.options.coreInfo;
       var coreId = ci.coreId;
       if (coreId == null) return;
+      this._currentRowId = newRefId;  // Krok 5.R-C+8: store for menu actions
       var label = String(coreId) + ":";
       if (newRefId != null) label += String(newRefId);
       btn.textContent = label;
     }
 
     _showCoreInfoMenu(btn) {
-      // Phase 38.4 Krok 5.R-C+7 (18.5.2026): drop-up menu s info o jádru.
-      // Marti's "neco tam dej, co uznas za vhodny, pak doladime".
+      // Phase 38.4 Krok 5.R-C+8 (18.5.2026 vecer pozde): rozsireny drop-up
+      // menu — info section + akce (Design jádra / Form řádku / Kopírovat).
       var ci = this.options.coreInfo || {};
-      // Close existing menu pokud open
       var oldMenu = document.querySelector(".erp-toolbar-coreinfo-menu");
       if (oldMenu) { oldMenu.remove(); return; }
+      var rowId = this._currentRowId;
+      var self = this;
       var menu = document.createElement("div");
       menu.className = "erp-toolbar-coreinfo-menu";
       menu.style.cssText =
         "position:absolute;bottom:32px;left:0;z-index:1000;" +
         "background:#1a2030;border:1px solid #3a4a6a;border-radius:4px;" +
-        "padding:8px 12px;color:#e8eef5;font-size:11px;line-height:1.5;" +
-        "box-shadow:0 -2px 8px rgba(0,0,0,0.4);min-width:240px;";
-      var html = "";
-      if (ci.coreLabel) html += '<div style="font-weight:600;margin-bottom:4px;color:#a8b4c2;">' + this._escHtml(ci.coreLabel) + '</div>';
-      if (ci.coreCode) html += '<div>core.code: <code style="color:#7aa8d4;">' + this._escHtml(ci.coreCode) + '</code></div>';
-      if (ci.coreId != null) html += '<div>core.id: <code style="color:#7aa8d4;">' + ci.coreId + '</code></div>';
-      if (ci.refId != null) html += '<div>data_source.id: <code style="color:#7aa8d4;">' + ci.refId + '</code></div>';
-      if (ci.refCode) html += '<div>data_source.code: <code style="color:#7aa8d4;">' + this._escHtml(ci.refCode) + '</code></div>';
-      if (ci.rootCompDefId != null) html += '<div>root comp_def: <code style="color:#7aa8d4;">' + ci.rootCompDefId + (ci.rootTypeCode ? " (" + this._escHtml(ci.rootTypeCode) + ")" : "") + '</code></div>';
-      if (ci.mode) html += '<div>mode: <code style="color:#aaa;">' + this._escHtml(ci.mode) + '</code></div>';
-      if (ci.hardcoded) html += '<div style="color:#d4a878;margin-top:4px;font-style:italic;">⚙ hardcoded grid</div>';
-      if (!html) html = '<div style="color:#888;font-style:italic;">Bez dat</div>';
-      menu.innerHTML = html;
+        "padding:0;color:#e8eef5;font-size:11px;line-height:1.5;" +
+        "box-shadow:0 -2px 8px rgba(0,0,0,0.4);min-width:260px;" +
+        "font-family:ui-monospace,Consolas,Monaco,monospace;";
+
+      // ── Info section
+      var info = '<div style="padding:8px 12px;">';
+      if (ci.coreLabel) info += '<div style="font-weight:600;margin-bottom:6px;color:#a8b4c2;font-family:system-ui,sans-serif;">' + this._escHtml(ci.coreLabel) + '</div>';
+      var rows = [];
+      if (ci.coreId != null) rows.push(["Core ID", String(ci.coreId)]);
+      if (rowId != null) rows.push(["Row ID", String(rowId)]);
+      if (ci.coreCode) rows.push(["Code", ci.coreCode]);
+      if (ci.refId != null) rows.push(["Data src", String(ci.refId) + (ci.refCode ? " (" + ci.refCode + ")" : "")]);
+      if (ci.rootCompDefId != null) rows.push(["Root cmp", String(ci.rootCompDefId) + (ci.rootTypeCode ? " (" + ci.rootTypeCode + ")" : "")]);
+      if (ci.mode) rows.push(["Mode", ci.mode]);
+      for (var i = 0; i < rows.length; i++) {
+        info += '<div style="display:flex;gap:8px;"><span style="color:#7a8696;min-width:70px;">' +
+          this._escHtml(rows[i][0]) + ':</span><code style="color:#7aa8d4;font-variant-numeric:tabular-nums;">' +
+          this._escHtml(rows[i][1]) + '</code></div>';
+      }
+      if (ci.hardcoded) info += '<div style="color:#d4a878;margin-top:6px;font-style:italic;font-family:system-ui,sans-serif;">⚙ hardcoded grid</div>';
+      info += '</div>';
+
+      // ── Akce section
+      var pillText = String(ci.coreId != null ? ci.coreId : "?") + ":" + (rowId != null ? rowId : "");
+      var actions =
+        '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
+        '<button type="button" data-erp-menu-action="design-core" ' +
+          'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+          '🎨 Otevřít Design jádra</button>' +
+        (ci.hardcoded || ci.coreId == null || ci.coreId < 0
+          ? ''
+          : '<button type="button" data-erp-menu-action="row-form" ' +
+            'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;' +
+            (rowId == null ? "opacity:0.4;cursor:not-allowed;" : "") + '" ' +
+            (rowId == null ? "disabled" : "") + '>' +
+            '🔗 Otevřít form řádku' + (rowId != null ? " #" + rowId : "") + '</button>') +
+        '<button type="button" data-erp-menu-action="copy-id" ' +
+          'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+          '📋 Kopírovat <code style="color:#7aa8d4;">' + this._escHtml(pillText) + '</code></button>' +
+        '</div>';
+
+      menu.innerHTML = info + actions;
+
+      // Hover effect for action buttons
+      var menuBtns = menu.querySelectorAll("button[data-erp-menu-action]");
+      menuBtns.forEach(function (mb) {
+        mb.addEventListener("mouseenter", function () {
+          if (!mb.disabled) mb.style.background = "rgba(122,168,212,0.1)";
+        });
+        mb.addEventListener("mouseleave", function () { mb.style.background = "transparent"; });
+        mb.addEventListener("click", function (ev) {
+          ev.stopPropagation();
+          var action = mb.getAttribute("data-erp-menu-action");
+          self._handleMenuAction(action, ci, rowId, pillText, menu);
+        });
+      });
+
       btn.parentNode.style.position = "relative";
       btn.parentNode.appendChild(menu);
-      // Close on click outside
       var closeFn = function (e) {
         if (!menu.contains(e.target) && e.target !== btn) {
           menu.remove();
@@ -2187,6 +2232,66 @@
         }
       };
       setTimeout(function () { document.addEventListener("click", closeFn, true); }, 0);
+    }
+
+    _handleMenuAction(action, ci, rowId, pillText, menu) {
+      // Phase 38.4 Krok 5.R-C+8 (18.5.2026): drop-up menu actions
+      if (action === "copy-id") {
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(pillText).then(function () {
+              // Toast feedback
+              var toast = document.createElement("div");
+              toast.style.cssText =
+                "position:absolute;bottom:8px;right:8px;z-index:1001;" +
+                "background:#3a5a3a;color:#fff;padding:4px 10px;border-radius:3px;font-size:11px;";
+              toast.textContent = "✓ Zkopírováno";
+              menu.appendChild(toast);
+              setTimeout(function () { try { toast.remove(); } catch (e) {} menu.remove(); }, 1200);
+            });
+          } else {
+            console.warn("clipboard API unavailable");
+            menu.remove();
+          }
+        } catch (e) { console.warn("clipboard write failed:", e); menu.remove(); }
+        return;
+      }
+      if (action === "design-core") {
+        // Otevřít DesignFwForm pro Krok 5.M-5 framework_core (CORE 23) edit fw.core row
+        // CORE 23 = "Framework: Desing Přehled" = meta-level core edit.
+        // rowId = current core_id (ne data row.id).
+        menu.remove();
+        if (ci.coreId == null) return;
+        if (typeof window.DesignFwForm === "function") {
+          try {
+            var fwf = new window.DesignFwForm({ coreId: 23, rowId: ci.coreId });
+            if (typeof fwf.open === "function") fwf.open();
+          } catch (e) {
+            console.error("[coreinfo menu] DesignFwForm failed:", e);
+            alert("Otevření Design jádra selhalo: " + (e.message || e));
+          }
+        } else {
+          alert("DesignFwForm třída není načtena.");
+        }
+        return;
+      }
+      if (action === "row-form") {
+        menu.remove();
+        if (rowId == null) return;
+        // Volat existing openFwFormForRow helper z router.py inline JS
+        if (typeof window._openFwFormForRow === "function" && ci.coreId != null) {
+          window._openFwFormForRow("core_" + ci.coreId, rowId, null);
+        } else if (typeof window.DesignFwForm === "function" && ci.coreId != null) {
+          // Fallback: direct DesignFwForm
+          try {
+            var fwf = new window.DesignFwForm({ coreId: ci.coreId, rowId: rowId });
+            if (typeof fwf.open === "function") fwf.open();
+          } catch (e) {
+            console.error("[coreinfo menu] row-form failed:", e);
+          }
+        }
+        return;
+      }
     }
 
     _escHtml(s) {

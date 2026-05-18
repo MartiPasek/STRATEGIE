@@ -4388,14 +4388,38 @@
           return;
         }
         if (action === "design-core") {
+          // Phase 38.4 Krok 5.R-C+9 (18.5.2026): resolve negative synthetic
+          // coreId → positive fw.core row via /design/core-by-code endpoint.
           menu.remove();
           if (ctx.coreId == null) return;
-          try {
-            var fwf = new DesignFwForm({ coreId: 23, rowId: ctx.coreId });
-            if (typeof fwf.open === "function") fwf.open();
-          } catch (e) {
-            console.error("[form pill menu] DesignFwForm failed:", e);
+          var _openDesignFwForm2 = function (resolvedCoreId) {
+            try {
+              var fwf = new DesignFwForm({ coreId: 23, rowId: resolvedCoreId });
+              if (typeof fwf.open === "function") fwf.open();
+            } catch (e) {
+              console.error("[form pill menu] DesignFwForm failed:", e);
+            }
+          };
+          if (ctx.coreId >= 0) {
+            _openDesignFwForm2(ctx.coreId);
+            return;
           }
+          fetch("/api/v1/erp/design/core-by-code/" + encodeURIComponent("core_" + ctx.coreId),
+                { credentials: "include" })
+            .then(function (res) {
+              if (!res.ok) throw new Error("HTTP " + res.status);
+              return res.json();
+            })
+            .then(function (data) {
+              if (data && data.core && data.core.id != null) {
+                _openDesignFwForm2(data.core.id);
+              } else {
+                alert("Tento hardcoded form (core " + ctx.coreId + ") nemá fw.core záznam.");
+              }
+            })
+            .catch(function (e) {
+              console.error("[form pill menu] core-by-code resolve failed:", e);
+            });
           return;
         }
       });

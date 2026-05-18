@@ -2264,22 +2264,49 @@
         return;
       }
       if (action === "design-core") {
-        // Otevřít DesignFwForm pro Krok 5.M-5 framework_core (CORE 23) edit fw.core row
-        // CORE 23 = "Framework: Desing Přehled" = meta-level core edit.
-        // rowId = current core_id (ne data row.id).
+        // Phase 38.4 Krok 5.R-C+9 (18.5.2026 vecer pozde): resolve negative
+        // synthetic coreId → positive fw.core row via /design/core-by-code
+        // endpoint (Krok 5.R-C+5.1 backend fallback pres fw.menu_node.cislo_def).
+        // Pro positive coreId (fw.core grid) — direct pass.
         menu.remove();
         if (ci.coreId == null) return;
-        if (typeof window.DesignFwForm === "function") {
+        if (typeof window.DesignFwForm !== "function") {
+          alert("DesignFwForm třída není načtena.");
+          return;
+        }
+        var _openDesignFwForm = function (resolvedCoreId) {
           try {
-            var fwf = new window.DesignFwForm({ coreId: 23, rowId: ci.coreId });
+            var fwf = new window.DesignFwForm({ coreId: 23, rowId: resolvedCoreId });
             if (typeof fwf.open === "function") fwf.open();
           } catch (e) {
             console.error("[coreinfo menu] DesignFwForm failed:", e);
             alert("Otevření Design jádra selhalo: " + (e.message || e));
           }
-        } else {
-          alert("DesignFwForm třída není načtena.");
+        };
+        if (ci.coreId >= 0) {
+          // Positive — direct pass, fw.core row existuje
+          _openDesignFwForm(ci.coreId);
+          return;
         }
+        // Negative synthetic — resolve via fw.menu_node.cislo_def
+        fetch("/api/v1/erp/design/core-by-code/" + encodeURIComponent("core_" + ci.coreId),
+              { credentials: "include" })
+          .then(function (res) {
+            if (!res.ok) throw new Error("HTTP " + res.status);
+            return res.json();
+          })
+          .then(function (data) {
+            if (data && data.core && data.core.id != null) {
+              _openDesignFwForm(data.core.id);
+            } else {
+              alert("Tento hardcoded grid (core " + ci.coreId + ") nemá fw.core záznam.\n" +
+                    "Synthetic ID by chtělo cleanup (task #18 — range conventions).");
+            }
+          })
+          .catch(function (e) {
+            console.error("[coreinfo menu] core-by-code resolve failed:", e);
+            alert("Resolve core_id selhalo: " + (e.message || e));
+          });
         return;
       }
       if (action === "row-form") {

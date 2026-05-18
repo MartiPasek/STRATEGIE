@@ -4841,7 +4841,11 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             params["updated_by_id"] = uid
             params["updated_by_text"] = caller_display
 
-            set_clauses.append("updated_at = NOW()")
+            # Phase 38.4 Krok 5.R-C+5.2 hotfix (18.5.2026 vecer): drop
+            # explicit "updated_at = NOW()" — FW save preprocessor
+            # (line 4775-4776) uz pridava updated_at do field_changes s ISO
+            # timestamp, takze loop (line 4831-4833) ho builduje. Bez drop
+            # PostgreSQL: SyntaxError multiple assignments to same column.
 
             update_sql = (
                 f'UPDATE "{schema_name}"."{table_name}" '

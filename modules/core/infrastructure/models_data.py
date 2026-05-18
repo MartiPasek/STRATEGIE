@@ -1778,7 +1778,7 @@ class ErpGridLayout(BaseData):
       - personal (user_id IS NOT NULL): user-specific override
 
     Schema:
-      - prehled_cislo: EC_DELPHI_TabObecnyPrehled.Cislo
+      - core_id: scope key (fw.core.id pro fw-driven grids, negative pro System hardcoded grids — Phase 38.4 Krok 5.R-C+2, drop legacy Centrala 1 prehled_cislo)
       - name: max 80 chars, unique per scope
       - is_default: max 1 default per scope (partial unique index)
       - layout_json: AG Grid column state + future style_rules
@@ -1806,7 +1806,7 @@ class ErpGridLayout(BaseData):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
 
     # Identifikace
-    prehled_cislo: Mapped[int] = mapped_column(Integer, nullable=False)
+    core_id: Mapped[int] = mapped_column(Integer, nullable=False)
     user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     name: Mapped[str] = mapped_column(String(80), nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)

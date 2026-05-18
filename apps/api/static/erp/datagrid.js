@@ -881,7 +881,7 @@
         enablePivot: false,
         enableRangeSelection: true,
         // B+5.2: layout persistence
-        layoutKey: null,          // string — identifikuje persistence scope, např. "prehled_103"
+        layoutKey: null,          // string — identifikuje persistence scope, např. "core_30" (fw.core.id) / "core_-110" (System scope)
         autoLoadDefault: true,    // při init load effective_default ze server
         // B+10++ (6.5.2026): limit context pro status bar Celkem
         // { applied: int, hasMore: bool, options: [int...], onChange: (newLimit) => void }
@@ -1474,17 +1474,21 @@
 
     /**
      * Vrací URL prefix pro grid-layout API endpointy. layoutKey ve formátu
-     * "prehled_<cislo>" — z toho extrahuje cislo. Pokud chybí, vrací null.
+     * "core_<id>" — z toho extrahuje core_id. Pokud chybí, vrací null.
+     *
+     * Phase 38.4 Krok 5.R-C+2 (18.5.2026 vecer, Marti's "prehled_cislo musi
+     * uplne zmizet"): rename z "prehled_<cislo>" → "core_<id>" — neutralni
+     * scope key, ne Centrala 1 reference.
      */
     _layoutApiBase() {
       const key = this.options.layoutKey;
       if (!key || typeof key !== "string") return null;
-      const m = key.match(/^prehled_(-?\d+)$/);
+      const m = key.match(/^core_(-?\d+)$/);
       if (!m) {
-        console.warn("ErpDataGrid: layoutKey expected 'prehled_<cislo>', got:", key);
+        console.warn("ErpDataGrid: layoutKey expected 'core_<id>', got:", key);
         return null;
       }
-      return { cislo: parseInt(m[1], 10) };
+      return { coreId: parseInt(m[1], 10) };
     }
 
     /**
@@ -1496,7 +1500,7 @@
       if (!base) return null;
       try {
         const r = await fetch(
-          "/api/v1/erp/grid-layout/" + base.cislo + "/list",
+          "/api/v1/erp/grid-layout/" + base.coreId + "/list",
           { credentials: "include" }
         );
         if (!r.ok) return null;
@@ -1684,7 +1688,7 @@
           heuristics_enabled: this._heuristicsEnabled === true,
         },
       };
-      const r = await fetch("/api/v1/erp/grid-layout/" + base.cislo, {
+      const r = await fetch("/api/v1/erp/grid-layout/" + base.coreId, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

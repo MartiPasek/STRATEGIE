@@ -129,105 +129,6 @@
       // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
       const dirtyRowData = new Map();
 
-      // Phase 38.4 Krok 5.R-C+1 Stage C (18.5.2026 vecer, Marti's
-      // "ulozit sestavu" pattern z Centraly 19yr):
-      // "💾 Uložit sestavu" button — DESIGN mode only, persistuje
-      // aktualni AG Grid columnState do fw.comp_grid_master + columns.
-      let saveSestavaBtn = null;
-      function _ensureSaveSestavaBtn() {
-        if (saveSestavaBtn) return saveSestavaBtn;
-        if (!isDesignMode) return null;
-        const metaP = mainContent.querySelector("p");
-        if (!metaP) return null;
-        saveSestavaBtn = document.createElement("button");
-        saveSestavaBtn.type = "button";
-        saveSestavaBtn.className = "erp-page-grid-savesestava-btn";
-        saveSestavaBtn.title = "Uložit aktuální sestavu sloupců (pořadí, šířky, pin, viditelnost) do fw.comp_grid_master.";
-        saveSestavaBtn.style.cssText =
-          "margin-left:8px;padding:4px 10px;background:#3a4a6a;border:1px solid #4a6a9a;" +
-          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:11px;font-weight:600;";
-        saveSestavaBtn.textContent = "💾 Uložit sestavu";
-        saveSestavaBtn.addEventListener("click", _onSaveSestavaClick);
-        metaP.appendChild(saveSestavaBtn);
-        return saveSestavaBtn;
-      }
-      async function _onSaveSestavaClick() {
-        const btn = saveSestavaBtn;
-        if (!btn) return;
-        const gridInst = gridHost.__erpGridInst;
-        if (!gridInst || !gridInst.gridApi) {
-          alert("Grid není inicializován.");
-          return;
-        }
-        // AG Grid native: getColumnState() vrátí array { colId, width, pinned, hide, sort, sortIndex, ... }
-        let colState = [];
-        try {
-          colState = gridInst.gridApi.getColumnState() || [];
-        } catch (e) {
-          console.error("[page_render save sestava] getColumnState failed:", e);
-          alert("Nepodařilo se získat stav sloupců: " + (e.message || e));
-          return;
-        }
-        if (!Array.isArray(colState) || colState.length === 0) {
-          alert("Žádné sloupce k uložení.");
-          return;
-        }
-        // Map AG Grid columnState → backend payload
-        const payloadColumns = colState.map(function (cs, idx) {
-          // AG Grid colId odpovídá field name (default)
-          const fieldName = cs.colId;
-          // Najdi headerName z aktivních columnDefs (fallback fieldName)
-          let label = fieldName;
-          try {
-            const colDef = gridInst.gridApi.getColumnDef
-              ? gridInst.gridApi.getColumnDef(fieldName)
-              : null;
-            if (colDef && colDef.headerName) label = colDef.headerName;
-          } catch (e) {}
-          return {
-            column_name: fieldName,
-            label: label,
-            default_width: (cs.width != null ? Number(cs.width) : null),
-            flex: (cs.flex != null ? Number(cs.flex) : null),
-            pinned: (cs.pinned === "left" || cs.pinned === "right") ? cs.pinned : null,
-            sort_order: (idx + 1) * 10,
-            is_visible: cs.hide !== true,
-            is_sortable: true,
-          };
-        });
-        btn.disabled = true;
-        btn.textContent = "⏳ Ukládám...";
-        try {
-          const resp = await fetch(
-            "/api/v1/erp/fw-core/" + coreId + "/grid-sestava",
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              credentials: "include",
-              body: JSON.stringify({ columns: payloadColumns }),
-            }
-          );
-          const json = await resp.json();
-          if (resp.ok && json && json.ok) {
-            btn.textContent = "✅ Uloženo (" + json.columns_inserted + ")";
-            setTimeout(function () {
-              btn.textContent = "💾 Uložit sestavu";
-              btn.disabled = false;
-            }, 1500);
-          } else {
-            btn.textContent = "❌ Chyba";
-            btn.disabled = false;
-            alert("Uložení selhalo: " + ((json && json.error) || "neznámá chyba"));
-            setTimeout(function () { btn.textContent = "💾 Uložit sestavu"; }, 2000);
-          }
-        } catch (e) {
-          btn.textContent = "❌ Síťová chyba";
-          btn.disabled = false;
-          console.error("[page_render save sestava] network:", e);
-          setTimeout(function () { btn.textContent = "💾 Uložit sestavu"; }, 2000);
-        }
-      }
-
       // Save button helper
       let saveBtn = null;
       function _ensureSaveBtn() {
@@ -320,32 +221,19 @@
           }
           const rows = Array.isArray(data.rows) ? data.rows : [];
           gridHost.innerHTML = "";
-          // Phase 38.4 Krok 5.R-C (18.5.2026): build columnDefs z spec.columns
-          // (self-healing column registry). Pokud chybí → fallback autoColumns.
-          const columnsSpec = (specForRender && specForRender.columns) || null;
-          let gridColumnDefs = null;
-          if (columnsSpec && columnsSpec.length > 0) {
-            gridColumnDefs = columnsSpec
-              .filter(c => c && c.is_visible !== false)
-              .map(c => {
-                const def = {
-                  field: c.column_name,
-                  headerName: c.label || c.column_name,
-                  sortable: c.is_sortable !== false,
-                };
-                if (c.default_width) def.width = c.default_width;
-                if (c.flex) def.flex = c.flex;
-                if (c.pinned) def.pinned = c.pinned;
-                return def;
-              });
-          }
+          // Phase 38.4 Krok 5.R-C+2 (18.5.2026 vecer, Marti's "prehled_cislo
+          // musi uplne zmizet"): native ErpDataGrid toolbar pres layoutKey
+          // = "core_<id>" — dropdown sestav + 🎨 Pravidla + + Uložit jako…
+          // + ⋮ Spravovat. Backend persistence pres /grid-layout/{core_id}.
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
               rowData: rows,
-              autoColumns: gridColumnDefs ? false : true,
-              columnDefs: gridColumnDefs || undefined,
+              autoColumns: true,
               rowSelection: "single",
               enableEdit: isDesignMode,
+              layoutKey: "core_" + coreId,
+              gridCode: rootCd.name || ("core_" + coreId),
+              autoLoadDefault: true,
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
               // (datagrid.js pass-through z 5.R-D+3 P1 patch).
               defaultColDefExtra: {
@@ -387,8 +275,6 @@
               },
             });
             gridHost.__erpGridInst = gridInst;
-            // Krok 5.R-C+1 Stage C: render "Uložit sestavu" button (DESIGN mode)
-            _ensureSaveSestavaBtn();
           } catch (e) {
             console.error("[page_render] ErpDataGrid init failed:", e);
             gridHost.innerHTML =

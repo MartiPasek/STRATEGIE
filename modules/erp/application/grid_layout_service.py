@@ -19,7 +19,7 @@ Marti's spec dnešní odpoledne (5.5.2026):
 Validations:
   - name: 1-80 chars, není whitespace-only
   - layout_json: valid dict, schema {columns: [...], style_rules?: [...]}
-  - Max 20 personal layouts per (user_id, prehled_cislo) — anti-spam
+  - Max 20 personal layouts per (user_id, core_id) — anti-spam
   - Max 50 shared layouts per přehled — anti-spam
 """
 from __future__ import annotations
@@ -87,7 +87,7 @@ def _check_admin_for_shared(user_id: int, scope: str) -> None:
 
 # ── Read operations ────────────────────────────────────────────────────
 
-def list_layouts(prehled_cislo: int, user_id: int) -> dict:
+def list_layouts(core_id: int, user_id: int) -> dict:
     """
     Vrací seznam dostupných layoutů pro daný přehled + user.
 
@@ -102,7 +102,7 @@ def list_layouts(prehled_cislo: int, user_id: int) -> dict:
     try:
         # Shared layouts (user_id IS NULL)
         shared_q = ds.query(ErpGridLayout).filter(
-            ErpGridLayout.prehled_cislo == prehled_cislo,
+            ErpGridLayout.core_id == core_id,
             ErpGridLayout.user_id.is_(None),
         ).order_by(
             ErpGridLayout.is_default.desc(),
@@ -112,7 +112,7 @@ def list_layouts(prehled_cislo: int, user_id: int) -> dict:
 
         # Personal layouts pro daného user_id
         personal_q = ds.query(ErpGridLayout).filter(
-            ErpGridLayout.prehled_cislo == prehled_cislo,
+            ErpGridLayout.core_id == core_id,
             ErpGridLayout.user_id == user_id,
         ).order_by(
             ErpGridLayout.is_default.desc(),
@@ -162,7 +162,7 @@ def get_layout(layout_id: int, user_id: int) -> dict | None:
 
 def create_layout(
     *,
-    prehled_cislo: int,
+    core_id: int,
     user_id: int,
     name: str,
     layout_json: dict,
@@ -192,7 +192,7 @@ def create_layout(
         # Anti-spam check
         if scope == "user":
             count = ds.query(ErpGridLayout).filter(
-                ErpGridLayout.prehled_cislo == prehled_cislo,
+                ErpGridLayout.core_id == core_id,
                 ErpGridLayout.user_id == user_id,
             ).count()
             if count >= MAX_PERSONAL_LAYOUTS_PER_USER_PREHLED:
@@ -202,7 +202,7 @@ def create_layout(
                 )
         else:
             count = ds.query(ErpGridLayout).filter(
-                ErpGridLayout.prehled_cislo == prehled_cislo,
+                ErpGridLayout.core_id == core_id,
                 ErpGridLayout.user_id.is_(None),
             ).count()
             if count >= MAX_SHARED_LAYOUTS_PER_PREHLED:
@@ -212,11 +212,11 @@ def create_layout(
 
         # Pokud nastavujeme is_default, odznač starý default v scope
         if is_default:
-            _unset_default_in_scope(ds, prehled_cislo, target_user_id)
+            _unset_default_in_scope(ds, core_id, target_user_id)
 
         now = datetime.now(timezone.utc)
         layout = ErpGridLayout(
-            prehled_cislo=prehled_cislo,
+            core_id=core_id,
             user_id=target_user_id,
             name=name,
             description=description,
@@ -239,7 +239,7 @@ def create_layout(
             ) from e
         ds.refresh(layout)
         logger.info(
-            f"create_layout id={layout.id} prehled={prehled_cislo} "
+            f"create_layout id={layout.id} prehled={core_id} "
             f"scope={scope} name={name!r} default={is_default} by_user={user_id}"
         )
         return _serialize(layout)
@@ -290,7 +290,7 @@ def update_layout(
             layout.layout_json = _validate_layout_json(layout_json)
         if is_default is True and not layout.is_default:
             # Změna na default → odznač starý
-            _unset_default_in_scope(ds, layout.prehled_cislo, layout.user_id)
+            _unset_default_in_scope(ds, layout.core_id, layout.user_id)
             layout.is_default = True
         elif is_default is False and layout.is_default:
             layout.is_default = False
@@ -360,7 +360,7 @@ def delete_layout(layout_id: int, user_id: int) -> bool:
 # ── Internal helpers ───────────────────────────────────────────────────
 
 def _unset_default_in_scope(
-    ds: Session, prehled_cislo: int, user_id: int | None
+    ds: Session, core_id: int, user_id: int | None
 ) -> None:
     """
     Odznačí is_default v daném scope (shared = user_id IS NULL,
@@ -368,7 +368,7 @@ def _unset_default_in_scope(
     aby partial unique index nezahlasil konflikt.
     """
     q = ds.query(ErpGridLayout).filter(
-        ErpGridLayout.prehled_cislo == prehled_cislo,
+        ErpGridLayout.core_id == core_id,
         ErpGridLayout.is_default.is_(True),
     )
     if user_id is None:
@@ -385,7 +385,7 @@ def _serialize(layout: ErpGridLayout) -> dict:
     """Layout → dict pro JSON response."""
     return {
         "id": layout.id,
-        "prehled_cislo": layout.prehled_cislo,
+        "core_id": layout.core_id,
         "user_id": layout.user_id,
         "scope": layout.scope,                    # "shared" | "personal"
         "name": layout.name,

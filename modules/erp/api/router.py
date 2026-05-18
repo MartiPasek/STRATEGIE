@@ -13305,6 +13305,10 @@ def _render_workspace_page(user_id: int) -> str:
     <!-- Phase 38.4 Krok 14a (12.5.2026 rano): Design forms — Form 1+2 konsolidace
          (Soudecek + Core pres TabSheet) + Form 3 (Jadro pro radek, 1 tab MVP).
          3 alert placeholdery (tree akce 1 + grid akce 2/3) volaji tyto formy. -->
+    <script src="/static/erp/components/design_form_helpers.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/design_db_connection_editor.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/design_data_set_editor.js?v=''' + _STATIC_VERSION + '''"></script>
+    <script src="/static/erp/components/design_jadro_radek_form.js?v=''' + _STATIC_VERSION + '''"></script>
     <script src="/static/erp/components/design_forms.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase 38.4 Krok 14g Etapa E (16.5.2026): fw_form_dispatcher.js po
          design_forms.js (potreba DesignFwForm class pred dispatch). -->
@@ -15110,38 +15114,21 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       async function loadPrehled(cislo, item, limitOverride) {
-        // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
-        if (currentJadro) closeJadroPane();
-        const itemId = item.getAttribute("data-id");
-        const breadcrumb = buildBreadcrumbHtml(itemId);
+        // Phase 2.E (18.5.2026): legacy /prehled dropped — FW přehledy go via /data-by-id endpoint.
         mainContent.innerHTML =
-          '<div class="erp-prehled-header">' +
-          '<div class="erp-bc-path">' + breadcrumb + '</div>' +
-          '<div class="erp-prehled-loading">' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line short"></div>' +
-          '</div>' +
-          '<div class="erp-prehled-loading-msg">Načítám přehled #' + cislo + '…</div>' +
+          '<div class="erp-prehled-error" style="padding:24px;color:#a09080;">' +
+          '<strong>📋 Centrála 1 přehledy odstraněny</strong><br><br>' +
+          'Použij <em>System tree</em> nebo <em>Soudeček picker</em> pro FW přehledy.<br>' +
+          '<small style="color:#807060;">Phase 2.E cleanup 18.5.2026 — legacy /prehled endpoint dropped.</small>' +
           '</div>';
-        // B+4.4: limit precedence — explicit override > localStorage > server default
-        const userLimit = (limitOverride != null && limitOverride > 0)
-          ? limitOverride
-          : loadPrehledLimit(cislo);
-        const url = userLimit
-          ? ("/api/v1/erp/prehled/" + cislo + "?limit=" + userLimit)
-          : ("/api/v1/erp/prehled/" + cislo);
-        try {
-          const r = await fetch(url, { credentials: "include" });
-          if (!r.ok) { renderPrehledError(cislo, item, "Status " + r.status); return; }
-          const data = await r.json();
-          renderPrehled(cislo, item, data, breadcrumb);
-        } catch (e) {
-          renderPrehledError(cislo, item, e.message || String(e));
-        }
       }
 
       function renderPrehledError(cislo, item, msg) {
+        // Phase 2.E (18.5.2026): legacy stub — never called (loadPrehled stubed).
+        console.warn("[Phase 2.E] renderPrehledError stub, cislo=" + cislo);
+        return;
+      }
+      function _renderPrehledError_dead(cislo, item, msg) {
         const itemId = item.getAttribute("data-id");
         const breadcrumb = buildBreadcrumbHtml(itemId);
         mainContent.innerHTML =
@@ -15517,6 +15504,11 @@ def _render_workspace_page(user_id: int) -> str:
       // (auto-render přes UI Kit komponenty, klient-side state pro Phase C)
       let currentJadroForm = null;  // ErpForm instance pro destroy na close
       async function openJadroInPane(formId, rowId) {
+        // Phase 2.E (18.5.2026): legacy /jadro dropped.
+        console.warn("[Phase 2.E] openJadroInPane stub, formId=" + formId);
+        return;
+      }
+      async function _openJadroInPane_dead(formId, rowId) {
         if (!jadroPane || !jadroContent) return;
         currentJadro = { form_id: formId, row_id: rowId };
         // Cleanup předchozí instance
@@ -18077,40 +18069,18 @@ def _render_workspace_page(user_id: int) -> str:
           if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
           return;
         }
-        const userLimit = loadPrehledLimit(tab.cislo);
-        const url = userLimit
-          ? ("/api/v1/erp/prehled/" + tab.cislo + "?limit=" + userLimit)
-          : ("/api/v1/erp/prehled/" + tab.cislo);
-        const itemId = tab.itemId;
-        const breadcrumb = itemId ? buildBreadcrumbHtml(itemId) : "";
+        // Phase 2.E (18.5.2026): legacy Centrála 1 /prehled dropped.
+        // Po Marti's DB cleanup (DELETE FROM erp_user_tabs WHERE cislo_def > 0)
+        // positive cislo tab restore je dead path. Stub pro safety —
+        // pokud někdo někdy vytvoří positive cislo entry, render notice.
+        console.warn("[Phase 2.E] Positive cislo tab restore stubbed:", tab.cislo);
         mainContent.innerHTML =
-          '<div class="erp-prehled-header">' +
-          '<div class="erp-bc-path">' + breadcrumb + '</div>' +
-          '<div class="erp-prehled-loading">' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line"></div>' +
-          '<div class="erp-skel-line short"></div>' +
-          '</div>' +
-          '<div class="erp-prehled-loading-msg">Načítám přehled #' + tab.cislo + '…</div>' +
+          '<div class="erp-prehled-error" style="padding:24px;color:#a09080;">' +
+          '<strong>📋 Legacy Centrála 1 přehled #' + tab.cislo + ' odstraněn</strong><br><br>' +
+          'Tento tab pochází z Centrály 1 a už není dostupný.<br>' +
+          'Zavři tab a otevři FW přehled přes <em>System tree</em>.<br>' +
+          '<small style="color:#807060;">Phase 2.E cleanup 18.5.2026.</small>' +
           '</div>';
-        try {
-          const r = await fetch(url, { credentials: "include" });
-          if (!r.ok) {
-            mainContent.innerHTML =
-              '<div class="erp-main-error">Přehled #' + tab.cislo +
-              ' nelze načíst: Status ' + r.status + '</div>';
-            return;
-          }
-          const data = await r.json();
-          tab.data = data;
-          // Phase 38.5: marknout grid jako fresh (ikona refreshe → neutral)
-          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
-          _renderTabIntoMain(tab);
-        } catch (e) {
-          mainContent.innerHTML =
-            '<div class="erp-main-error">Chyba: ' +
-            escapeHtml(e.message || String(e)) + '</div>';
-        }
       }
 
       function _renderTabIntoMain(tab) {

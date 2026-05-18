@@ -66,23 +66,14 @@
           (rootCd.data_source_code ? ' (' + _esc(rootCd.data_source_code) + ')' : '')
         : ' · bez data_source';
       const gridHostId = 'erp-page-grid-' + coreId;
-      // Phase 38.4 Krok 5.R-C+6 (18.5.2026 vecer pozde, Marti's bug "ne pres
-      // celou plochu jako hardcoded gridy"): drop intermediate wrapper div.
-      // Header + grid host primo jako direct children mainContent — CSS
-      // .erp-main-content > .erp-ag-grid pak aplikuje flex:1 na grid host.
-      // Pattern analog hardcoded #erpSysGridBody (Uzivatele tab fullheight).
+      // Phase 38.4 Krok 5.R-C+6.1 (18.5.2026 vecer pozde, Marti's "nadpis musi
+      // taky pryc"): drop header div uplne. Grid host = jediny direct child
+      // mainContent → max plochy. Parita s hardcoded #erpSysGridBody (Uzivatele
+      // tab) co taky nema header. Meta info (Root + data_source) bude pripadne
+      // budouci v patickce nebo title bar — pro ted plne native AG Grid.
       mainContent.innerHTML =
-        '<div style="padding:8px 16px 4px;flex:0 0 auto;">' +
-        '<h2 style="margin:0 0 4px;font-weight:500;color:#e8eef5;font-size:16px;">📊 ' +
-        _esc(tab.label || "Přehled") + '</h2>' +
-        '<p style="color:#7a8696;font-size:11px;margin:0;font-style:italic;">' +
-        'Root: ' + _esc(rootCd.name || '?') +
-        ' (' + _esc(rootCd.type_code) + ', comp_def #' + rootCd.id + ')' +
-        _esc(dsInfo) +
-        '</p></div>' +
         '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
-        'width:100%;border-top:1px solid #2a3340;background:#0f141a;' +
-        'overflow:hidden;">' +
+        'width:100%;background:#0f141a;overflow:hidden;">' +
         '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
         '⏳ Načítám rows…' +
         '</div></div>';
@@ -134,21 +125,24 @@
       // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
       const dirtyRowData = new Map();
 
-      // Save button helper
+      // Phase 38.4 Krok 5.R-C+6.1 (18.5.2026 vecer): save dirty button
+      // appendovan jako floating overlay (mainContent position:relative
+      // parent), drop <p> header reference. DESIGN mode only.
       let saveBtn = null;
       function _ensureSaveBtn() {
         if (saveBtn) return saveBtn;
-        const metaP = mainContent.querySelector("p");
-        if (!metaP) return null;
+        if (!isDesignMode) return null;
         saveBtn = document.createElement("button");
         saveBtn.type = "button";
         saveBtn.className = "erp-page-grid-save-btn";
         saveBtn.style.cssText =
-          "margin-left:12px;padding:4px 12px;background:#3a5a3a;border:1px solid #4a7a4a;" +
+          "position:absolute;top:8px;right:16px;z-index:10;" +
+          "padding:4px 12px;background:#3a5a3a;border:1px solid #4a7a4a;" +
           "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:11px;font-weight:600;" +
           "display:none;";
         saveBtn.addEventListener("click", _onSaveClick);
-        metaP.appendChild(saveBtn);
+        // Append to mainContent (parent has position:relative via .erp-main-content CSS)
+        mainContent.appendChild(saveBtn);
         return saveBtn;
       }
       function _refreshSaveBtn() {

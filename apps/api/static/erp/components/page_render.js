@@ -126,6 +126,9 @@
       const DS_TO_ENTITY = { 29: "23" };
       const entityForPatch = DS_TO_ENTITY[rootCd.data_source_id] || null;
 
+      // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
+      const dirtyRowData = new Map();
+
       // Save button helper
       let saveBtn = null;
       function _ensureSaveBtn() {
@@ -165,6 +168,10 @@
         const entries = Array.from(dirtyRows.entries());
         let okCount = 0, failCount = 0;
         for (const [rowId, changes] of entries) {
+          // Optimistic lock — expected_updated_at z row snapshot (5.M-5+1
+          // doctrine, 17.5.). Bez nej backend vraci 400.
+          const rowData = dirtyRowData.get(rowId) || {};
+          const expectedUpdatedAt = rowData.updated_at || null;
           try {
             const resp = await fetch(
               "/api/v1/erp/design/" + entityForPatch + "/" + rowId,
@@ -172,12 +179,16 @@
                 method: "PATCH",
                 headers: { "Content-Type": "application/json" },
                 credentials: "include",
-                body: JSON.stringify({ field_changes: changes }),
+                body: JSON.stringify({
+                  field_changes: changes,
+                  expected_updated_at: expectedUpdatedAt,
+                }),
               }
             );
             const json = await resp.json();
             if (resp.ok && json && json.ok) {
               dirtyRows.delete(rowId);
+              dirtyRowData.delete(rowId);
               okCount++;
             } else {
               failCount++;
@@ -242,6 +253,9 @@
                   dirtyRows.set(rowId, entry);
                 }
                 entry[fieldName] = newValue;
+                // Snapshot rowData pro expected_updated_at v PATCH payload
+                // (5.M-5+1 optimistic lock pattern z 17.5.).
+                dirtyRowData.set(rowId, rowData);
                 console.info("[page_render cell edit]",
                   { field: fieldName, oldValue, newValue, rowId,
                     ds_id: rootCd.data_source_id });

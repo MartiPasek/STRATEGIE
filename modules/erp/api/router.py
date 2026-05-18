@@ -2882,11 +2882,26 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         mn = _fetch_menu_node(ds, "n.core_id = :core_id", {"core_id": core["id"]})
         # Krok 14g-H+30 Etapa 2: data_source lookup via code
         data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
+
+        # Phase 2.A hotfix (18.5.2026): replace dropped form-core-for-grid
+        # endpoint — pokud list core má form_core_id FK, vrátí form_core
+        # data (used by openFwFormForRow pro grid double-click → open form).
+        form_core_data = None
+        form_core_id = core.get("form_core_id") if core else None
+        if form_core_id:
+            try:
+                form_core = _fetch_core(ds, "c.id = :id", {"id": form_core_id})
+                if form_core:
+                    form_core_data = _serialize_core(form_core)
+            except Exception:
+                pass  # graceful — form_core optional
+
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn) if mn else None,
             "core": _serialize_core(core),
             "columns": columns,
             "data_source": _serialize_data_source(data_source) if data_source else None,
+            "form_core": form_core_data,  # Phase 2.A hotfix
         }))
     finally:
         ds.close()
@@ -15253,13 +15268,15 @@ def _render_workspace_page(user_id: int) -> str:
       async function openFwFormForRow(gridCode, rowId, legacyFormId) {
         if (!gridCode || rowId == null) return;
         try {
+          // Phase 2.A hotfix (18.5.2026): /form-core-for-grid endpoint dropped,
+          // replaced by /design/core-by-code (which now returns form_core in response).
           const r = await fetch(
-            "/api/v1/erp/design/form-core-for-grid/" + encodeURIComponent(gridCode),
+            "/api/v1/erp/design/core-by-code/" + encodeURIComponent(gridCode),
             { credentials: "include" }
           );
           if (r.ok) {
             const d = await r.json();
-            if (d && d.ok && d.found && d.form_core && d.form_core.code) {
+            if (d && d.form_core && d.form_core.code) {
               if (typeof window.DesignFwForm !== "function") {
                 console.warn("[fw-form] DesignFwForm not loaded — fallback");
               } else {

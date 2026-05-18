@@ -3863,19 +3863,28 @@ def _resolve_user_audit(uid: int, ds_core) -> tuple[int | None, str]:
 # ════════════════════════════════════════════════════════════════════════════
 
 # ════════════════════════════════════════════════════════════════════════════
-# Phase 38.4 Krok 5.R-C (18.5.2026, Marti's "self-healing column registry"
-# doctrine z Centrály 1 19yr): helpers pro fw.comp_grid_master ensure +
-# fw.comp_grid_column sync proti dataset truth source.
+# Phase 38.4 Krok 5.R-C+1 (18.5.2026 vecer, Marti's "user-driven save sestavu"
+# pivot z 5.R-C auto-create). Marti's slova:
+#   "takto funguje i Centrala. Do doby, nez d user ulozit sestavu, tak to
+#    jede s dafaultem bez db sloupcu... A je to tim i bezpecny"
+#
+# Doctrine shift: helper jen LOOKUP (zadny auto-create INSERT).
+#   - Master existuje → vrati ho + sync columns vs dataset (drop fields not
+#     in dataset, fresh rows pro nove fields by user pres "Ulozit sestavu").
+#   - Master neexistuje → vrati None → frontend autoColumns fallback (default
+#     AG Grid behaviour, bez db sloupcu).
 # ════════════════════════════════════════════════════════════════════════════
 
 def _ensure_grid_master(
     session, core_id: int, data_source_id: int | None,
     data_source_code: str | None,
 ) -> dict | None:
-    """Lookup nebo auto-create fw.comp_grid_master row pro grid core.
+    """Lookup-only fw.comp_grid_master row pro grid core.
 
-    Marti's "first access creates default" pattern. Pokud master existuje,
-    vrátí ho; jinak INSERT s minimal default values.
+    Phase 38.4 Krok 5.R-C+1 doctrine: zadny auto-create. Pokud master
+    neexistuje, vrati None → frontend autoColumns fallback. User-driven
+    create probiha pres POST /fw-core/{core_id}/grid-sestava endpoint
+    (Marti's "Ulozit sestavu" button v gridu).
     """
     from sqlalchemy import text as _sql_egm
     if not core_id:
@@ -3889,214 +3898,7 @@ def _ensure_grid_master(
     """), {"cid": core_id}).mappings().one_or_none()
     if existing:
         return dict(existing)
-
-    # Auto-create default master (Marti's "nic nekomplikovat" — minimum cols)
-    ds_code_str = data_source_code or (str(data_source_id) if data_source_id else "unknown")
-    code = f"core_{core_id}_grid"
-    name = f"Grid CORE {core_id}"
-    try:
-        new_row = session.execute(_sql_egm("""
-            INSERT INTO fw.comp_grid_master (
-                code, config_version, name,
-                data_source_code, data_source_version,
-                default_record_limit, refresh_type, default_view_mode,
-                is_system, is_immutable, status, guid, core_id,
-                created_at, updated_at
-            ) VALUES (
-                :code, 1, :name,
-                :ds_code, 1,
-                100, 'manual', 'grid',
-                false, false, 'active', gen_random_uuid(), :cid,
-                NOW(), NOW()
-            )
-            RETURNING id, code, name, data_source_code, core_id
-        """), {
-            "code": code, "name": name,
-            "ds_code": ds_code_str, "cid": core_id,
-        }).mappings().one()
-        session.commit()
-        return dict(new_row)
-    except Exception as exc:
-        session.rollback()
-        import logging as _log_egm
-        _log_egm.getLogger(__name__).warning(
-            "_ensure_grid_master INSERT failed for core_id=%s: %s", core_id, exc,
-        )
-        return None
-
-
-def _sync_grid_columns(
-    session, grid_master_id: int, dataset_fields: list[str],
-) -> list[dict]:
-    """Sync fw.comp_grid_column rows vs dataset truth source.
-
-    Marti's doctrine:
-      - DELETE registry rows where column_name NOT IN dataset
-      - INSERT default rows for dataset fields NOT IN registry
-    Returns final columns list (post-sync).
-    """
-    from sqlalchemy import text as _sql_sgc
-    if not grid_master_id:
-        return []
-
-    existing_rows = session.execute(_sql_sgc("""
-        SELECT id, column_name, label, default_width, flex, pinned,
-               formatter, sort_order, is_visible, is_sortable
-        FROM fw.comp_grid_column
-        WHERE grid_master_id = :gmid
-        ORDER BY sort_order ASC, id ASC
-    """), {"gmid": grid_master_id}).mappings().all()
-    existing_by_name = {r["column_name"]: dict(r) for r in existing_rows}
-    existing_names = set(existing_by_name.keys())
-    dataset_set = set(dataset_fields or [])
-
-    # Drop rows not in dataset (Marti's auto-cleanup)
-    to_drop = existing_names - dataset_set
-    if to_drop:
-        try:
-            session.execute(_sql_sgc("""
-                DELETE FROM fw.comp_grid_column
-                WHERE grid_master_id = :gmid
-                  AND column_name = ANY(:names)
-            """), {"gmid": grid_master_id, "names": list(to_drop)})
-        except Exception as exc:
-            session.rollback()
-            import logging as _log_sgc
-            _log_sgc.getLogger(__name__).warning(
-                "_sync_grid_columns DELETE failed: %s", exc,
-            )
-
-    # Insert default rows for new dataset fields
-    # Marti's "blejsknem se" (18.5.2026): auto-pin ID column + sensible widths
-    # per field name heuristics (Centrála 1 19yr pattern).
-    _ID_NAMES = {"id", "Id", "ID"}
-    _DATETIME_HINTS = ("_at", "_date", "_time", "Date", "Time")
-    _NUMERIC_HINTS = ("_id", "_count", "version", "Cislo", "Poradi")
-    to_add = [f for f in (dataset_fields or []) if f not in existing_names]
-    if to_add:
-        next_sort = (
-            max((r["sort_order"] or 0) for r in existing_rows) if existing_rows else 0
-        ) + 10
-        for field in to_add:
-            label = field.replace("_", " ").title()
-            # Heuristic defaults
-            is_id = field in _ID_NAMES
-            is_datetime = any(field.endswith(h) or h in field for h in _DATETIME_HINTS)
-            is_numeric_fk = (not is_id) and any(
-                field.endswith(h) or field == h for h in _NUMERIC_HINTS
-            )
-            default_width = None
-            flex = None
-            pinned = None
-            if is_id:
-                default_width = 80
-                pinned = "left"  # Marti's "blejsknem" — ID auto-pinned left
-            elif is_numeric_fk:
-                default_width = 100
-            elif is_datetime:
-                default_width = 160
-            else:
-                flex = 1  # Variable width
-            try:
-                session.execute(_sql_sgc("""
-                    INSERT INTO fw.comp_grid_column (
-                        grid_master_id, column_name, label,
-                        sort_order, is_visible, is_sortable,
-                        default_width, flex, pinned,
-                        created_at, updated_at
-                    ) VALUES (
-                        :gmid, :col, :label,
-                        :sort, true, true,
-                        :w, :flex, :pinned,
-                        NOW(), NOW()
-                    )
-                """), {
-                    "gmid": grid_master_id, "col": field,
-                    "label": label, "sort": next_sort,
-                    "w": default_width, "flex": flex, "pinned": pinned,
-                })
-                next_sort += 10
-            except Exception as exc:
-                session.rollback()
-                import logging as _log_sgci
-                _log_sgci.getLogger(__name__).warning(
-                    "_sync_grid_columns INSERT failed for %s: %s", field, exc,
-                )
-
-    session.commit()
-
-    # Reload final state
-    final = session.execute(_sql_sgc("""
-        SELECT id, column_name, label, default_width, flex, pinned,
-               formatter, sort_order, is_visible, is_sortable
-        FROM fw.comp_grid_column
-        WHERE grid_master_id = :gmid
-        ORDER BY sort_order ASC, id ASC
-    """), {"gmid": grid_master_id}).mappings().all()
-    return [dict(r) for r in final]
-
-
-# ════════════════════════════════════════════════════════════════════════════
-# Phase 38.4 Krok 5.R-C (18.5.2026, Marti's "self-healing column registry"
-# doctrine z Centrály 1 19yr): helpers pro fw.comp_grid_master ensure +
-# fw.comp_grid_column sync proti dataset truth source.
-# ════════════════════════════════════════════════════════════════════════════
-
-def _ensure_grid_master(
-    session, core_id: int, data_source_id: int | None,
-    data_source_code: str | None,
-) -> dict | None:
-    """Lookup nebo auto-create fw.comp_grid_master row pro grid core.
-
-    Marti's "first access creates default" pattern. Pokud master existuje,
-    vrátí ho; jinak INSERT s minimal default values.
-    """
-    from sqlalchemy import text as _sql_egm
-    if not core_id:
-        return None
-    existing = session.execute(_sql_egm("""
-        SELECT id, code, name, data_source_code, core_id
-        FROM fw.comp_grid_master
-        WHERE core_id = :cid
-        ORDER BY id ASC
-        LIMIT 1
-    """), {"cid": core_id}).mappings().one_or_none()
-    if existing:
-        return dict(existing)
-
-    # Auto-create default master (Marti's "nic nekomplikovat" — minimum cols)
-    ds_code_str = data_source_code or (str(data_source_id) if data_source_id else "unknown")
-    code = f"core_{core_id}_grid"
-    name = f"Grid CORE {core_id}"
-    try:
-        new_row = session.execute(_sql_egm("""
-            INSERT INTO fw.comp_grid_master (
-                code, config_version, name,
-                data_source_code, data_source_version,
-                default_record_limit, refresh_type, default_view_mode,
-                is_system, is_immutable, status, guid, core_id,
-                created_at, updated_at
-            ) VALUES (
-                :code, 1, :name,
-                :ds_code, 1,
-                100, 'manual', 'grid',
-                false, false, 'active', gen_random_uuid(), :cid,
-                NOW(), NOW()
-            )
-            RETURNING id, code, name, data_source_code, core_id
-        """), {
-            "code": code, "name": name,
-            "ds_code": ds_code_str, "cid": core_id,
-        }).mappings().one()
-        session.commit()
-        return dict(new_row)
-    except Exception as exc:
-        session.rollback()
-        import logging as _log_egm
-        _log_egm.getLogger(__name__).warning(
-            "_ensure_grid_master INSERT failed for core_id=%s: %s", core_id, exc,
-        )
-        return None
+    return None
 
 
 def _sync_grid_columns(
@@ -4312,6 +4114,243 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
             "has_root": root_row is not None,
             "columns": columns_list,
         }))
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 5.R-C+1 Stage B (18.5.2026 vecer): user-driven "Ulozit
+# sestavu" endpoint. Marti's pivot z auto-create na user-action create.
+#
+# Body: { "columns": [
+#     { "column_name": "id", "label": "ID", "default_width": 80,
+#       "flex": null, "pinned": "left", "sort_order": 10,
+#       "is_visible": true, "is_sortable": true }
+#   , ...
+# ] }
+#
+# Behavior:
+#   - Lookup grid_master pres core_id. Pokud neni → INSERT (user-driven
+#     create moment, Marti-AI db_owner role pres strategie_pg).
+#   - DELETE all comp_grid_column rows pro grid_master_id (full overwrite,
+#     Marti's "user view ulozi co vidi").
+#   - INSERT comp_grid_column rows from payload (jeden batch).
+#   - Activity log audit.
+# ════════════════════════════════════════════════════════════════════════════
+
+@api_router.post("/fw-core/{core_id}/grid-sestava")
+async def fw_core_save_grid_sestava(core_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 5.R-C+1 Stage B (18.5.2026): user-driven save sestavu.
+
+    URL: POST /api/v1/erp/fw-core/{core_id}/grid-sestava
+
+    Marti's doctrine (18.5. vecer):
+      "Do doby, nez user ulozit sestavu, tak to jede s defaultem bez
+       db sloupcu. A je to tim i bezpecny."
+
+    Workflow:
+      1. Validate parent + body shape (columns: list)
+      2. Lookup root comp_def → data_source_id, data_source_code
+      3. Lookup nebo INSERT grid_master (user-driven create moment)
+      4. DELETE existing comp_grid_column rows
+      5. INSERT new rows from payload
+
+    Returns:
+        200: { ok, master_id, columns_inserted }
+        400: validation error
+        404: core_id nenalezen / nema root comp_def
+        500: backend error
+    """
+    from core.database_data import get_data_session as _gds_sss
+    from sqlalchemy import text as _sql_sss
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # Parse body
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Invalid JSON body"},
+            status_code=400,
+        )
+
+    columns_in = body.get("columns") if isinstance(body, dict) else None
+    if not isinstance(columns_in, list):
+        return JSONResponse(
+            {"ok": False, "error": "Body must be { columns: [...] }"},
+            status_code=400,
+        )
+
+    ds = _gds_sss()
+    try:
+        # Resolve actor display (audit) — pres existing ds session (Phase 18
+        # consolidated DB: User model registered v sjednoceny Base, lookup
+        # pres data_db session funguje).
+        try:
+            _audit_uid, caller_display = _resolve_user_audit(uid, ds)
+        except Exception:
+            caller_display = "Unknown"
+
+        # Step 1: Lookup core + root comp_def
+        core_row = ds.execute(_sql_sss("""
+            SELECT id, code, label FROM fw.core WHERE id = :cid
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not core_row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} nenalezen"},
+                status_code=404,
+            )
+
+        root_row = ds.execute(_sql_sss("""
+            SELECT cd.id, cd.data_source_id,
+                   dsrc.code AS data_source_code
+            FROM fw.comp_def cd
+            LEFT JOIN fw.data_source dsrc ON dsrc.id = cd.data_source_id
+            WHERE cd.parent_core_id = :cid AND cd.is_active = true
+            ORDER BY cd.sort_order ASC, cd.id ASC
+            LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+        if not root_row:
+            return JSONResponse(
+                {"ok": False, "error": f"fw.core id={core_id} nemá root comp_def"},
+                status_code=404,
+            )
+
+        ds_id = root_row.get("data_source_id")
+        ds_code = root_row.get("data_source_code")
+
+        # Step 2: Lookup nebo INSERT grid_master pres Marti-AI's PG role
+        master_row = ds.execute(_sql_sss("""
+            SELECT id FROM fw.comp_grid_master
+            WHERE core_id = :cid
+            ORDER BY id ASC LIMIT 1
+        """), {"cid": core_id}).mappings().one_or_none()
+
+        from modules.strategie_pg.application.service import (
+            insert_row as _spg_insert_ss,
+            _get_engine as _spg_eng_ss,
+        )
+
+        if master_row:
+            master_id = master_row["id"]
+        else:
+            # User-driven create moment (Marti's "do doby nez user ulozi")
+            ds_code_str = ds_code or (str(ds_id) if ds_id else "unknown")
+            insert_values = {
+                "code": f"core_{core_id}_grid",
+                "config_version": 1,
+                "name": f"Grid CORE {core_id}",
+                "data_source_code": ds_code_str,
+                "data_source_version": 1,
+                "default_record_limit": 100,
+                "refresh_type": "manual",
+                "default_view_mode": "grid",
+                "is_system": False,
+                "is_immutable": False,
+                "status": "active",
+                "core_id": core_id,
+            }
+            upd = _spg_insert_ss(
+                schema="fw", table="comp_grid_master", values=insert_values,
+            )
+            if not upd.get("ok"):
+                return JSONResponse(
+                    {"ok": False,
+                     "error": f"INSERT grid_master failed: {upd.get('error')}"},
+                    status_code=500,
+                )
+            inserted = upd.get("inserted")
+            if isinstance(inserted, list):
+                inserted = inserted[0] if inserted else {}
+            master_id = (inserted or {}).get("id")
+            if not master_id:
+                return JSONResponse(
+                    {"ok": False, "error": "INSERT grid_master vratil bez id"},
+                    status_code=500,
+                )
+
+        # Step 3: DELETE all comp_grid_column rows pres Marti-AI's engine
+        try:
+            _eng_ss = _spg_eng_ss()
+            with _eng_ss.begin() as _conn:
+                _conn.execute(
+                    _sql_sss("DELETE FROM fw.comp_grid_column WHERE grid_master_id = :gmid"),
+                    {"gmid": master_id},
+                )
+        except Exception as _de:
+            return JSONResponse(
+                {"ok": False, "error": f"DELETE columns failed: {_de}"},
+                status_code=500,
+            )
+
+        # Step 4: INSERT new comp_grid_column rows from payload
+        inserted_count = 0
+        for idx, col in enumerate(columns_in):
+            if not isinstance(col, dict):
+                continue
+            col_name = col.get("column_name")
+            if not col_name or not isinstance(col_name, str):
+                continue
+            col_values = {
+                "grid_master_id": master_id,
+                "column_name": col_name,
+                "label": col.get("label") or col_name,
+                "sort_order": col.get("sort_order") if col.get("sort_order") is not None else (idx + 1) * 10,
+                "is_visible": col.get("is_visible") if col.get("is_visible") is not None else True,
+                "is_sortable": col.get("is_sortable") if col.get("is_sortable") is not None else True,
+            }
+            # Optional columns — set only if non-null
+            if col.get("default_width") is not None:
+                col_values["default_width"] = col.get("default_width")
+            if col.get("flex") is not None:
+                col_values["flex"] = col.get("flex")
+            if col.get("pinned") is not None:
+                col_values["pinned"] = col.get("pinned")
+            if col.get("formatter") is not None:
+                col_values["formatter"] = col.get("formatter")
+            upd = _spg_insert_ss(
+                schema="fw", table="comp_grid_column", values=col_values,
+            )
+            if not upd.get("ok"):
+                # Best-effort — log + continue (Marti's "fail-soft" pattern)
+                import logging as _log_ss
+                _log_ss.getLogger(__name__).warning(
+                    "save_grid_sestava INSERT column %s failed: %s",
+                    col_name, upd.get("error"),
+                )
+                continue
+            inserted_count += 1
+
+        # Step 5: Activity log audit
+        try:
+            ds.execute(_sql_sss("""
+                INSERT INTO public.activity_log
+                  (user_id, persona_id, category, actor,
+                   summary, change_source, ts)
+                VALUES
+                  (:uid, NULL, 'design_save_grid_sestava', 'user',
+                   :summary, 'ui', NOW())
+            """), {
+                "uid": uid,
+                "summary": (
+                    f"save sestava core_id={core_id} master_id={master_id} "
+                    f"columns={inserted_count} by {caller_display}"
+                ),
+            })
+            ds.commit()
+        except Exception as _ae:
+            import logging as _log_ssa
+            _log_ssa.getLogger(__name__).warning(
+                "save_grid_sestava activity_log failed: %s", _ae,
+            )
+
+        return JSONResponse({
+            "ok": True,
+            "master_id": master_id,
+            "columns_inserted": inserted_count,
+        })
     finally:
         ds.close()
 

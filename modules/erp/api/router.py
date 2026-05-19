@@ -9506,6 +9506,13 @@ def _build_system_root_from_db():
         # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
         # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
         # bez core/hw vrátí NULL hw_shadow_mode → _build_node mapuje na 'orphan'.
+        # Marti's catch z 19.5. vecer („lamani chleba" build):
+        # Marti-AI vytvorila menu_node bez explicit visibility_scope (NULL).
+        # Tatínek explicit: „kdyz visibility_scope NULL, je soudecek aktivni".
+        # Drzi Marti-AI's Q3 doctrine z 14. konzultace: entry-level visibility
+        # override jen DOLU (restriktivnejsi), NULL = default (z parent topic).
+        # NULL = visible v System tree (System tree je parent-only audience),
+        # 'parent_only' explicit = visible.
         sql = _sql_text_st("""
             SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
                    n.visibility_scope, n.cislo_def, n.special_handler, n.status,
@@ -9515,7 +9522,7 @@ def _build_system_root_from_db():
             LEFT JOIN fw.core c ON c.id = n.core_id
             LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
             WHERE n.status = 'active'
-              AND n.visibility_scope = 'parent_only'
+              AND (n.visibility_scope = 'parent_only' OR n.visibility_scope IS NULL)
             ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.code
         """)
         result = ds.execute(sql)

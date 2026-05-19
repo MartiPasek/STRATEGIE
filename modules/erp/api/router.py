@@ -9741,6 +9741,39 @@ def grid_layout_get(layout_id: int, req: Request) -> JSONResponse:
         raise HTTPException(403, str(e))
 
 
+class GridLayoutCreate(BaseModel):
+    """Phase 38.4 Krok 5.R-C+1 (18.5.2026 — Krok 14g Etapa D fix 19.5.):
+    Pydantic schema pro POST /grid-layout/{core_id} body.
+
+    Frontend datagrid.js:1714 posila:
+      {name, scope: "user"|"shared", description, is_default, layout_json}
+    """
+    name: str = Field(..., min_length=1, max_length=80,
+                      description="Sestava name (1-80 chars).")
+    layout_json: dict = Field(...,
+                              description=(
+                                  "Layout payload: {columns: [...], "
+                                  "formatting_rules?: [...], heuristics_enabled?: bool}"
+                              ))
+    scope: str = Field("user",
+                       description="'user' (personal) nebo 'shared' (admin only).")
+    description: str | None = Field(None, max_length=500)
+    is_default: bool = Field(False,
+                             description=(
+                                 "Auto-load pri otevreni gridu. Max 1 default "
+                                 "per (core_id, user_id) scope."
+                             ))
+
+
+class GridLayoutUpdate(BaseModel):
+    """PATCH/PUT body pro grid-layout/item/{layout_id}. Vsechny pole optional —
+    update jen co je predane."""
+    name: str | None = Field(None, min_length=1, max_length=80)
+    description: str | None = Field(None, max_length=500)
+    layout_json: dict | None = None
+    is_default: bool | None = None
+
+
 @api_router.post("/grid-layout/{core_id}")
 def grid_layout_create(
     core_id: int,

@@ -160,6 +160,18 @@ def save_message(
         if conversation is not None:
             conversation.last_message_id = message.id
             conversation.last_message_at = now
+            # Phase 40 v2 r3 (19.5.2026): is_shared auto-detection.
+            # Pokud konverzace dostava cross-author human message (autor !=
+            # owner) a is_shared jeste False, set TRUE. Cache pattern Q2 B.
+            # Marti Q3 doctrine: shared chat = visible attribution per
+            # author. UI pak rendruje bold+color labels nikdy collapsed.
+            if (
+                not getattr(conversation, "is_shared", False)
+                and author_type == "human"
+                and author_user_id is not None
+                and author_user_id != conversation.user_id
+            ):
+                conversation.is_shared = True
 
         session.commit()
         session.refresh(message)
@@ -202,6 +214,34 @@ def get_active_persona_name(conversation_id: int) -> str:
         return persona.name if persona else "Marti-AI"
     finally:
         core_session.close()
+
+
+def _resolve_user_attribution(user_ids: set[int]) -> dict[int, dict]:
+    """Phase 40 v2 r3 (19.5.2026): bulk lookup author attribution pro shared chat.
+
+    Vraci {user_id: {"short_name": str, "label_color": str | None}} pro
+    vsechny existujici user_ids. Cache-friendly (jedna SQL query, no N+1).
+    NULL label_color -> frontend computes hue z user_id hash.
+    """
+    if not user_ids:
+        return {}
+    from modules.core.infrastructure.models_core import User
+    from core.database_core import get_core_session
+
+    out: dict[int, dict] = {}
+    session = get_core_session()
+    try:
+        rows = session.query(User).filter(User.id.in_(user_ids)).all()
+        for u in rows:
+            short = u.short_name or (
+                " ".join(filter(None, [u.first_name, u.last_name])).strip()
+                or f"#{u.id}"
+            )
+            color = getattr(u, "label_color", None)
+            out[u.id] = {"short_name": short, "label_color": color}
+    finally:
+        session.close()
+    return out
 
 
 def _resolve_persona_names(agent_ids: set[int]) -> dict[int, str]:
@@ -385,6 +425,12 @@ def _serialize_messages(
     """
     agent_ids = {m.agent_id for m in messages if m.agent_id}
     persona_names = _resolve_persona_names(agent_ids)
+    # Phase 40 v2 r3 (19.5.2026): bulk lookup author users pro shared chat
+    # attribution. JOIN messages s users na author_user_id, denormalize
+    # short_name + label_color. Marti Q1: Marti=green, Marti-AI=gold,
+    # Kristy=pink, Claude=teal. NULL label_color -> frontend hash from id.
+    author_user_ids = {m.author_user_id for m in messages if m.author_user_id}
+    user_attr_by_id = _resolve_user_attribution(author_user_ids)
     # Faze 9.2b: Bulk lookup llm_calls per message (Dev View dynamicke lupy).
     # Jedna lupa per call -- tool loop s 5 composer rounds = 5 lup.
     msg_ids = [m.id for m in messages]
@@ -469,6 +515,8 @@ def _serialize_messages(
         msg_cost_czk = costs_by_id.get(m.id, 0.0)
         cumulative_cost_czk += msg_cost_czk
 
+        # Phase 40 v2 r3: author attribution (shared chat labels)
+        author_attr = user_attr_by_id.get(m.author_user_id) if m.author_user_id else None
         out.append({
             # Faze 9.1c: message_id pro Dev View (lupy -> /messages/{id}/llm-calls).
             "id": m.id,
@@ -478,6 +526,10 @@ def _serialize_messages(
             "agent_id": m.agent_id,
             "persona_name": pname,
             "created_at": m.created_at.isoformat() if m.created_at else None,
+            # Phase 40 v2 r3 (19.5.2026): shared chat attribution
+            "author_user_id": m.author_user_id,
+            "author_short_name": author_attr["short_name"] if author_attr else None,
+            "author_color": author_attr["label_color"] if author_attr else None,
             # Faze 9.2b: llm_calls -- UI podle toho zobrazi lupu za kazdy call.
             # [{id, kind, latency_ms}, ...]
             "llm_calls": calls_by_id.get(m.id, []),
@@ -569,6 +621,8 @@ def get_last_conversation(user_id: int) -> dict | None:
     return {
         "conversation_id": conversation.id,
         "is_archived": bool(conversation.is_archived),
+        # Phase 40 v2 r3 (19.5.2026): shared chat detection cache
+        "is_shared": bool(getattr(conversation, "is_shared", False)),
         "my_role": "owner",    # /last vraci vzdy moji konverzaci
         "shares_count": shares_count,
         "messages": msg_rows,
@@ -907,6 +961,8 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         # Phase 19b polish: active_pack + custom flag pro UI badge
         conv_active_pack = getattr(conversation, "active_pack", None)
         conv_active_agent_id = getattr(conversation, "active_agent_id", None)
+        # Phase 40 v2 r3 (19.5.2026): is_shared snapshot pred close session
+        conv_is_shared = bool(getattr(conversation, "is_shared", False))
         # Phase 19c-d: predame conversation pro hidden block render v Personal.
         msg_rows = _serialize_messages(messages, conversation=conversation)
     finally:
@@ -949,4 +1005,6 @@ def load_conversation(user_id: int, conversation_id: int) -> dict | None:
         # Phase 19b polish: active_pack + custom flag
         "active_pack": conv_active_pack,
         "pack_overlay_custom": conv_pack_overlay_custom,
+        # Phase 40 v2 r3 (19.5.2026): shared chat detection cache
+        "is_shared": conv_is_shared,
     }

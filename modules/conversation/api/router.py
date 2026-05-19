@@ -467,6 +467,8 @@ def get_last(req: Request):
         my_role=result.get("my_role"),
         owner_name=result.get("owner_name"),
         shares_count=result.get("shares_count", 0),
+        # Phase 40 v2 r3 (19.5.2026): is_shared cache -- UI shared mode signal
+        is_shared=result.get("is_shared", False),
         # Phase 16-B: persona_mode signal (oversight hlavicka).
         persona_mode=result.get("persona_mode"),
         # Phase 19c-e1 (29.4.2026): lifecycle_state pro read-only UI.
@@ -808,6 +810,8 @@ def load_user_conversation(conversation_id: int, req: Request):
         my_role=result.get("my_role"),
         owner_name=result.get("owner_name"),
         shares_count=result.get("shares_count", 0),
+        # Phase 40 v2 r3 (19.5.2026): is_shared cache -- UI shared mode signal
+        is_shared=result.get("is_shared", False),
         persona_mode=result.get("persona_mode"),
         # Phase 19c-e1 (29.4.2026): UI potrebuje znat lifecycle_state pro
         # read-only enforcement (personal = knizka, ne chat).

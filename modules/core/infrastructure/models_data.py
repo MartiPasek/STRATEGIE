@@ -51,6 +51,11 @@ class Conversation(BaseData):
     # Archivace: konverzace zmizí ze sidebaru/dropdownu, ale zůstává v DB.
     # Přístup k archivním konverzacím bude přes samostatný 'archiv' (TBD).
     is_archived: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # Phase 40 v2 r3 (19.5.2026): is_shared cache pro shared chat detection.
+    # Marti Q2 volba B -- cache column, auto-update v save_message hook.
+    # TRUE = 2+ distinct human authoru NEBO existing share row. Frontend
+    # zapne shared mode (bold + barevny label per author).
+    is_shared: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
 
     # Phase 15c: Kustod / project triage -- Marti-AI navrhuje zmeny projektu,
     # Marti potvrzuje (suggestion-only, skutecny project_id update jde pres

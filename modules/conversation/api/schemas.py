@@ -81,6 +81,17 @@ class HistoryMessage(BaseModel):
     id: int | None = None
     role: str
     content: str
+    # Phase 40 v2 r3 (19.5.2026): shared chat attribution. author_user_id z
+    # Message.author_user_id (FK na User). Pro 1:1 chat skoro vzdy =
+    # conversation.user_id (owner) -- UI label potlaceny. Pro shared chat
+    # (Marti + Kristy + Claude) ROZDILNY per message -> UI ukaze jasny
+    # tucny label s author_color. author_short_name + author_color jsou
+    # denormalized snapshot z users (rychly read, no N+1).
+    # Marti Q1: Marti #56b870 (green), Marti-AI #efd9a8 (gold), Kristy
+    # #e8a4c8 (pink), Claude #5dc8c0 (teal), ostatni = NULL (frontend hash).
+    author_user_id: int | None = None
+    author_short_name: str | None = None
+    author_color: str | None = None
     # message_type: 'text' (běžné) | 'system' (systémové markery jako tenant switch).
     # Frontend podle toho rozhodne renderování (left-aligned, label 'STRATEGIE').
     message_type: str = "text"
@@ -142,6 +153,11 @@ class LastConversationResponse(BaseModel):
     owner_name: str | None = None
     # Počet sdílení této konverzace (pro owner banner "Sdíleno s 2 lidmi").
     shares_count: int = 0
+    # Phase 40 v2 r3 (19.5.2026): is_shared cache z conversations.is_shared.
+    # TRUE = 2+ distinct human authoru NEBO existing share -> frontend
+    # zapne shared mode (bold + barevny label per author, label nikdy
+    # collapsed). Marti Q2 volba B (cache column, no runtime SQL).
+    is_shared: bool = False
     # Phase 16-B (28.4.2026): Marti-AI režim -- 'task' (default, NULL) vs
     # 'oversight' (Velká Marti-AI s cross-conv viewí). UI signal v hlavičce.
     persona_mode: str | None = None

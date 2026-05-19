@@ -144,6 +144,14 @@ MANAGEMENT_TOOL_NAMES = {
     "ask_claude",
     "approve_ask_claude",
     "reject_ask_claude",
+    # Phase 42 (19.5.2026): Marti-AI's deploy autonomy. Marti odjizdi Praha
+    # 20.-21.5., Kristy + Marti-AI musi mit zpusob deploy bez Marti.
+    # Workflow: propose_deployment -> proposal row -> Marti / Kristy v chatu
+    # approve_deployment(id) -> git pull + touch marker -> NSSM watchdog
+    # restartne STRATEGIE-API.
+    "propose_deployment",
+    "approve_deployment",
+    "reject_deployment",
     # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
@@ -5580,6 +5588,98 @@ TOOLS = [
                     "description": (
                         "Důvod rejectu (pro audit + Marti-AI's learning -- "
                         "napr. 'duplicate', 'too expensive', 'wait for stable')."
+                    ),
+                },
+            },
+            "required": ["proposal_id"],
+        },
+    },
+    # ────────────────────────────────────────────────────────────────
+    # Phase 42 (19.5.2026): Marti-AI's deploy autonomy.
+    # Marti odjizdi Praha 20.-21.5., Kristy + Marti-AI zustavaji autonomni
+    # a musi mit zpusob deploy novych commitů (pull origin + restart
+    # STRATEGIE-API) bez manualniho zasahu Marti.
+    # ────────────────────────────────────────────────────────────────
+    {
+        "name": "propose_deployment",
+        "description": (
+            "Phase 42 (19.5.2026): Marti-AI navrhne deployment novych commitů "
+            "(pull origin main + restart STRATEGIE-API na cloud APP).\n\n"
+            "Backend zkontroluje:\n"
+            "  - Cloud APP working tree clean (git status --porcelain)\n"
+            "  - origin/main ma novy commit (HEAD != origin/main)\n"
+            "  - Diff stat (files_changed count)\n\n"
+            "Pokud OK -> vytvori proposal row, status='pending'. Marti / "
+            "Kristy v chatu pak approve_deployment(proposal_id) nebo "
+            "reject_deployment(proposal_id, reason).\n\n"
+            "Pouzij kdy: po committee nove zmeny do main, kterou je treba "
+            "nasadit na cloud APP. Description by mela byt strucna -- jednoradkovy "
+            "summary commitu nebo skupin commitu."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "description": {
+                    "type": "string",
+                    "description": (
+                        "Krátký popis co deployujes -- napr. 'Phase 40 v2 r3 "
+                        "shared chat labels' nebo 'hotfix gotcha #95 user_context'."
+                    ),
+                },
+            },
+            "required": ["description"],
+        },
+    },
+    {
+        "name": "approve_deployment",
+        "description": (
+            "Phase 42 (19.5.2026): Marti nebo Kristy v chatu schvali pending "
+            "deployment proposal -> backend volá git pull origin main + touch "
+            "marker file -> NSSM watchdog STRATEGIE-RESTART-WATCHER detekuje "
+            "marker a restartne STRATEGIE-API.\n\n"
+            "Pouze is_marti_parent=True (Marti id=1, Marti-AI id=2, Kristy id=11, "
+            "Ondra, Jirka) mohou approve.\n\n"
+            "Po approve proposal status='deployed', deploy_completed_at = NOW(). "
+            "Restart probehne asynchronně (par sekund), STRATEGIE-API bude "
+            "kratce nedostupna -- typicky 5-15s graceful restart."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "proposal_id": {
+                    "type": "integer",
+                    "description": "ID proposal z deployment_proposals.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional krátké zdůvodnění souhlasu.",
+                },
+            },
+            "required": ["proposal_id"],
+        },
+    },
+    {
+        "name": "reject_deployment",
+        "description": (
+            "Phase 42 (19.5.2026): Marti nebo Kristy v chatu odmitne pending "
+            "deployment proposal -> close as rejected, žádný git pull, žádný "
+            "restart.\n\n"
+            "Pouze is_marti_parent=True users. Po reject muze Marti-AI poslat "
+            "nový propose_deployment pozdeji (napr. po dalsim commitu nebo "
+            "pri stabilnejsim case)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "proposal_id": {
+                    "type": "integer",
+                    "description": "ID proposal z deployment_proposals.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "Důvod rejectu (audit + Marti-AI's learning -- napr. "
+                        "'pred prezentaci nechcem restart', 'wait for fix gotcha #N')."
                     ),
                 },
             },

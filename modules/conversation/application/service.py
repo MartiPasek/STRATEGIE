@@ -9587,6 +9587,68 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"reject_ask_claude failed: {exc_rj}")
             return f"[reject_ask_claude error: {exc_rj}]"
 
+    # ── Phase 42 (19.5.2026): Marti-AI's deploy autonomy ──
+    # Marti odjizdi Praha 20.-21.5., Kristy + Marti-AI deploy autonomne pres
+    # chat confirm (Marti's Q5 doctrine). propose -> approve / reject ->
+    # git pull + touch marker -> NSSM watchdog restartne STRATEGIE-API.
+
+    if tool_name == "propose_deployment":
+        try:
+            from modules.conversation.application import deployment_service as _dep
+            description_pd = tool_input.get("description", "") or ""
+            if not description_pd:
+                return "[CHYBA] Parametr 'description' chybi pro propose_deployment."
+            result_pd = _dep.propose_deployment(
+                description=description_pd,
+                conversation_id=conversation_id,
+                proposed_by_user_id=user_id or 2,  # Marti-AI default
+            )
+            import json as _json_pd
+            return _json_pd.dumps(result_pd, ensure_ascii=False, indent=2)
+        except Exception as exc_pd:
+            logger.exception(f"propose_deployment failed: {exc_pd}")
+            return f"[propose_deployment error: {exc_pd}]"
+
+    if tool_name == "approve_deployment":
+        try:
+            from modules.conversation.application import deployment_service as _dep2
+            proposal_id_apd = tool_input.get("proposal_id")
+            reason_apd = tool_input.get("reason")
+            if not proposal_id_apd:
+                return "[CHYBA] Parametr 'proposal_id' chybi pro approve_deployment."
+            if user_id is None:
+                return "[CHYBA] User context chybi (approve_deployment vyzaduje is_marti_parent)."
+            result_apd = _dep2.approve_deployment(
+                proposal_id=int(proposal_id_apd),
+                decided_by_user_id=int(user_id),
+                reason=reason_apd,
+            )
+            import json as _json_apd
+            return _json_apd.dumps(result_apd, ensure_ascii=False, indent=2)
+        except Exception as exc_apd:
+            logger.exception(f"approve_deployment failed: {exc_apd}")
+            return f"[approve_deployment error: {exc_apd}]"
+
+    if tool_name == "reject_deployment":
+        try:
+            from modules.conversation.application import deployment_service as _dep3
+            proposal_id_rjd = tool_input.get("proposal_id")
+            reason_rjd = tool_input.get("reason")
+            if not proposal_id_rjd:
+                return "[CHYBA] Parametr 'proposal_id' chybi pro reject_deployment."
+            if user_id is None:
+                return "[CHYBA] User context chybi (reject_deployment vyzaduje is_marti_parent)."
+            result_rjd = _dep3.reject_deployment(
+                proposal_id=int(proposal_id_rjd),
+                decided_by_user_id=int(user_id),
+                reason=reason_rjd,
+            )
+            import json as _json_rjd
+            return _json_rjd.dumps(result_rjd, ensure_ascii=False, indent=2)
+        except Exception as exc_rjd:
+            logger.exception(f"reject_deployment failed: {exc_rjd}")
+            return f"[reject_deployment error: {exc_rjd}]"
+
     return ""
 
 
@@ -10541,6 +10603,11 @@ def chat(
         # status: "Cekam na schvaleni od tebe nebo Kristy (proposal #N)".
         # Approve/reject vraci minimal status -- Marti-AI ho prevypravi.
         "ask_claude", "approve_ask_claude", "reject_ask_claude",
+        # Phase 42 (19.5.2026): deployment tools v synth -- raw JSON
+        # (target_sha, files_changed, status) by Marti-AI mohla opisovat;
+        # synth round prevypravi prirozeně ("Mam nove commity, navrhuju
+        # nasadit. Description: X. Cekam na approve_deployment(N).").
+        "propose_deployment", "approve_deployment", "reject_deployment",
         # Phase 19c-c: list_all + batch lifecycle -- minimal data response,
         # synth round prevypravi prozou ('mam 12 starsich konverzaci, mam
         # je archivovat?'). NIKDY raw IDs list verbatim.

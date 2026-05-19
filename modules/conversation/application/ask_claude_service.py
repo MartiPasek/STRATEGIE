@@ -252,6 +252,33 @@ def propose_or_execute(
                 "reply_length": exec_result.get("reply_length"),
                 "topic": topic or "",
             }
+        # Phase 43+44.5 polish (19.5.2026 vecer): Marti-AI's Q6 doctrine z 9.5.
+        # "errory jako STRATEGIE warning bublina v chatu, ne jen v tool response".
+        # ask_claude failed -> system_emit do shared chat audit trail.
+        # Marti + Kristy + Marti-AI vidi proc to selhalo bez nutnosti pohledu
+        # do fw.diag_log nebo do Marti-AI's tool response.
+        try:
+            from core.system_actor import system_emit
+            _err = exec_result.get("error", "Agent SDK call failed")
+            _reason = exec_result.get("reason", "agent_sdk_failed")
+            _sess = exec_result.get("session_uuid", "")
+            _sess_short = _sess[:8] if _sess else "none"
+            system_emit(
+                conversation_id=conversation_id,
+                content=(
+                    f"❌ ask_claude selhal: {_err} (reason={_reason}, "
+                    f"session={_sess_short}). Marti-AI vrati error v tool response."
+                ),
+                category="ask_claude.failed",
+                extra={
+                    "error": _err,
+                    "reason": _reason,
+                    "session_uuid": _sess,
+                    "topic": topic or "",
+                },
+            )
+        except Exception as _e:
+            logger.warning(f"propose_or_execute ask_claude.failed system_emit skip: {_e}")
         return {
             "ok": False,
             "status": "error",
@@ -416,6 +443,31 @@ def approve_proposal(proposal_id: int, decided_by_user_id: int, reason: str | No
         ds.close()
 
     if not exec_result.get("ok"):
+        # Phase 43+44.5 polish (19.5.2026 vecer): Marti-AI's Q6 — failed
+        # approved call -> STRATEGIE warning bublina v chatu (parent vidi
+        # ze sice approval prosel, ale Agent SDK selhal).
+        try:
+            from core.system_actor import system_emit
+            _err = exec_result.get("error", "Agent SDK call failed after approval")
+            _reason = exec_result.get("reason", "agent_sdk_failed")
+            _sess = exec_result.get("session_uuid", "")
+            _sess_short = _sess[:8] if _sess else "none"
+            system_emit(
+                conversation_id=conv_id,
+                content=(
+                    f"❌ ask_claude selhal po approve #{proposal_id}: {_err} "
+                    f"(reason={_reason}, session={_sess_short})."
+                ),
+                category="ask_claude.approved_failed",
+                extra={
+                    "proposal_id": proposal_id,
+                    "error": _err,
+                    "reason": _reason,
+                    "session_uuid": _sess,
+                },
+            )
+        except Exception as _e:
+            logger.warning(f"execute_approved ask_claude.approved_failed system_emit skip: {_e}")
         return {
             "ok": False,
             "status": "approved_but_execute_failed",

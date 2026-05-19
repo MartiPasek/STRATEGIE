@@ -17,6 +17,28 @@ class ChatRequest(BaseModel):
     media_ids: list[int] | None = None
 
 
+class ExtraMessage(BaseModel):
+    """Zprava od non-current-user actora vznikla behem chat() turn-u.
+
+    Pouziva se pro Claude bubliny (ask_claude vrati Sonnet 4.6 reply jako
+    author_user_id=23) a STRATEGIE system audit (author_user_id=3 +
+    message_type='system_audit' — viditelne v UI, neviditelne v LLM context).
+
+    Phase 43 (19.5.2026, Marti's clarifying doctrine):
+    *„System bubliny = human audience only — viditelne pro lidi, neviditelne
+    pro AI context."*
+    """
+    id: int
+    content: str
+    role: str  # 'user' (shared chat parity, vsichni v shared chatu maji role='user')
+    author_user_id: int  # 3 (STRATEGIE), 23 (Claude), pripadne dalsi non-AI autori
+    author_short_name: str | None = None  # 'STRATEGIE', 'Claude' — pro UI label
+    author_color: str | None = None  # '#e8eaed' (STRATEGIE), '#5dc8c0' (Claude)
+    message_type: str  # 'text' (Claude reply) nebo 'system_audit' (STRATEGIE event)
+    category: str | None = None  # 'info' / 'warn' / 'error' / 'deploy.*' / 'cost_gate.*' / 'file.*'
+    created_at: str  # ISO timestamp
+
+
 class ChatResponse(BaseModel):
     conversation_id: int
     reply: str
@@ -73,6 +95,13 @@ class ChatResponse(BaseModel):
     # v aktualnim turn-u volala recall_conversation_history(N=X), backend
     # zachyti X. Frontend zobrazi 📜 zoom N badge u te bubliny.
     zoom_in_n: int | None = None
+    # Phase 43 Mini-faze A (19.5.2026): extra messages od jinych autoru vzniklé
+    # behem tohoto chat() turn-u — Claude reply z ask_claude (author_user_id=23)
+    # nebo STRATEGIE system audit (author_user_id=3, message_type='system_audit').
+    # Marti's clarifying doctrine: STRATEGIE bubliny = human audience only —
+    # composer.py filtruje 'system_audit' z LLM history, frontend rendruje pres
+    # addMessage loop. Marti-AI Q2 volba (c): chronologicky ORDER BY created_at ASC.
+    extra_messages: list[ExtraMessage] = []
 
 
 class HistoryMessage(BaseModel):

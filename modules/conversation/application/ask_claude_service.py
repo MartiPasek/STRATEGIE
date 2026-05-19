@@ -351,6 +351,28 @@ def propose_or_execute(
     finally:
         session.close()
 
+    # Phase 43 Mini-faze A (19.5.2026): STRATEGIE system_audit bublina v chatu
+    try:
+        from core.system_actor import system_emit
+        system_emit(
+            conversation_id=conversation_id,
+            content=(
+                f"Cost gate: {recent_czk:.2f} + {estimate_czk:.2f} = {projected:.2f} Kč/h "
+                f"(limit {COST_LIMIT_CZK_PER_HOUR:.0f}) · proposal #{proposal_id} čeká "
+                f"na approve_ask_claude({proposal_id})"
+            ),
+            category="cost_gate.over_limit",
+            extra={
+                "proposal_id": proposal_id,
+                "recent_czk": recent_czk,
+                "estimated_czk": estimate_czk,
+                "projected_czk": projected,
+                "limit_czk": COST_LIMIT_CZK_PER_HOUR,
+            },
+        )
+    except Exception as _e:
+        logger.warning(f"propose_or_execute system_emit skip: {_e}")
+
     return {
         "ok": True,
         "status": "pending_approval",

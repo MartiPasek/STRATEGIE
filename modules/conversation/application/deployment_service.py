@@ -258,6 +258,22 @@ def propose_deployment(
     finally:
         session.close()
 
+    # Phase 43 Mini-faze A (19.5.2026): STRATEGIE system_audit bublina v chatu
+    try:
+        from core.system_actor import system_emit
+        if conversation_id is not None:
+            system_emit(
+                conversation_id=conversation_id,
+                content=(
+                    f"git fetch OK · target {origin_sha[:7]} '{(commit_msg or '')[:60]}' · "
+                    f"{files_count} souborů změněno · proposal #{proposal_id} pending"
+                ),
+                category="deploy.proposed",
+                extra={"proposal_id": proposal_id, "target_sha": origin_sha, "files_changed": files_count},
+            )
+    except Exception as _e:
+        logger.warning(f"propose_deployment system_emit skip: {_e}")
+
     return {
         "ok": True,
         "status": "pending",
@@ -282,12 +298,12 @@ def _execute_deployment(proposal_id: int) -> dict:
     from core.database_data import get_data_session
     from sqlalchemy import text
 
-    # Load proposal
+    # Load proposal (vc. conversation_id pro system_emit)
     ds = get_data_session()
     try:
         row = ds.execute(
             text(
-                "SELECT id, commit_sha, status, proposed_by_user_id "
+                "SELECT id, commit_sha, status, proposed_by_user_id, conversation_id "
                 "FROM public.deployment_proposals WHERE id = :id"
             ),
             {"id": proposal_id},
@@ -297,6 +313,7 @@ def _execute_deployment(proposal_id: int) -> dict:
         target_sha = row[1]
         status = row[2]
         proposer = row[3]
+        conv_id = row[4]
         if status not in ("pending", "approved"):
             return {
                 "ok": False,
@@ -305,6 +322,16 @@ def _execute_deployment(proposal_id: int) -> dict:
             }
     finally:
         ds.close()
+
+    # Phase 43 Mini-faze A: system_emit helper (used pres celou flow)
+    def _emit(content: str, category: str, extra: dict | None = None) -> None:
+        if conv_id is None:
+            return
+        try:
+            from core.system_actor import system_emit as _se
+            _se(conversation_id=conv_id, content=content, category=category, extra=extra)
+        except Exception as _e:
+            logger.warning(f"_execute_deployment system_emit skip: {_e}")
 
     # Mark as 'deploying' + record start time
     ds = get_data_session()
@@ -337,7 +364,20 @@ def _execute_deployment(proposal_id: int) -> dict:
             ds.commit()
         finally:
             ds.close()
+        _emit(
+            f"git pull SELHAL · proposal #{proposal_id} status='failed' · "
+            f"detail: {pull_output[:200]}",
+            "deploy.failed",
+            {"proposal_id": proposal_id, "error": pull_output[:500]},
+        )
         return {"ok": False, "status": "failed", "error": pull_output[:500]}
+
+    # Phase 43: git pull OK -> emit
+    _emit(
+        f"git pull origin main: {pull_output.strip().split(chr(10))[-1][:120] if pull_output else 'OK'}",
+        "deploy.executed",
+        {"proposal_id": proposal_id, "target_sha": target_sha[:12] if target_sha else ""},
+    )
 
     # Touch marker (NSSM watchdog will restart STRATEGIE-API)
     proposer_label = f"user_{proposer}" if proposer else "unknown"
@@ -345,6 +385,18 @@ def _execute_deployment(proposal_id: int) -> dict:
     if not marker_ok:
         # git pull succeeded but marker failed -- ne fatal, jen warning
         logger.warning(f"deployment #{proposal_id}: marker file failed: {marker_info}")
+        _emit(
+            f"⚠ marker file failed: {marker_info[:200]} · restart manualne",
+            "deploy.failed",
+            {"proposal_id": proposal_id, "marker_error": marker_info[:500]},
+        )
+    else:
+        _emit(
+            f"marker file touched · STRATEGIE-RESTART-WATCHER detekuje · "
+            f"STRATEGIE-API restart pending (~2-5s)",
+            "deploy.executed",
+            {"proposal_id": proposal_id, "marker_file": marker_info},
+        )
 
     # Mark as deployed (marker triggered restart -- service restart pending)
     ds = get_data_session()
@@ -454,6 +506,7 @@ def reject_deployment(proposal_id: int, decided_by_user_id: int, reason: str | N
         cs.close()
 
     ds = get_data_session()
+    conv_id_for_emit: int | None = None
     try:
         row = ds.execute(
             text(
@@ -463,7 +516,7 @@ def reject_deployment(proposal_id: int, decided_by_user_id: int, reason: str | N
                 "  decided_at=NOW(), "
                 "  decision_reason=:reason "
                 "WHERE id=:id AND status='pending' "
-                "RETURNING id"
+                "RETURNING id, conversation_id"
             ),
             {"id": proposal_id, "dby": decided_by_user_id, "reason": reason},
         ).first()
@@ -473,8 +526,24 @@ def reject_deployment(proposal_id: int, decided_by_user_id: int, reason: str | N
                 "error": f"Proposal #{proposal_id} nenalezen nebo neni pending.",
                 "reason": "not_pending",
             }
+        conv_id_for_emit = row[1]
         ds.commit()
     finally:
         ds.close()
+
+    # Phase 43 Mini-faze A: STRATEGIE system_audit bublina v chatu
+    try:
+        if conv_id_for_emit is not None:
+            from core.system_actor import system_emit
+            system_emit(
+                conversation_id=conv_id_for_emit,
+                content=(
+                    f"Proposal #{proposal_id} rejected" + (f" · reason: {reason}" if reason else "")
+                ),
+                category="deploy.rejected",
+                extra={"proposal_id": proposal_id, "decided_by_user_id": decided_by_user_id, "reason": reason},
+            )
+    except Exception as _e:
+        logger.warning(f"reject_deployment system_emit skip: {_e}")
 
     return {"ok": True, "status": "rejected", "proposal_id": proposal_id, "reason": reason or ""}

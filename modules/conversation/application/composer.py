@@ -996,6 +996,12 @@ def _get_messages(conversation_id: int, after_id: int | None = None) -> list[dic
         query = session.query(Message).filter_by(conversation_id=conversation_id)
         if after_id is not None:
             query = query.filter(Message.id > after_id)
+        # Phase 43 Mini-faze A (19.5.2026): STRATEGIE system_audit bubliny
+        # viditelne JEN pro lidi v UI (frontend pres ChatResponse.extra_messages).
+        # Marti's clarifying doctrine: "System bubliny = human audience only —
+        # neviditelne pro AI context". Composer filtruje 'system_audit' z LLM
+        # history, plus zachovava existing 'system' filter (tenant switch markers).
+        query = query.filter(Message.message_type.notin_(["system", "system_audit"]))
         messages = query.order_by(Message.id.desc()).all()
 
         # Sliding window: token-based limit (image tokeny se nepocitaji do MAX_TOKENS,

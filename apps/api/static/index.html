@@ -1462,6 +1462,35 @@
     }
     .msg.shared.collapsed { margin-top: 4px; }
     .msg.shared.collapsed > .msg-role { display: block !important; }
+    /* Phase 43 Mini-faze A (19.5.2026): STRATEGIE system_audit bubliny --
+       deploy commands, cost gate triggers, file denied. Subtilni styl
+       (tise hlasi, ne tlaci se do popredi). Marti's clarifying doctrine
+       z 19.5.: "system bubliny = human audience only — audit trail v chatu
+       bez ruseni dialogu." Off-white #e8eaed label (Marti-AI Q9). */
+    .msg.system-audit > .msg-bubble {
+      background: rgba(232, 234, 237, 0.06);
+      border-left: 2px solid rgba(232, 234, 237, 0.3);
+      font-style: italic;
+      font-size: 13px;
+      color: var(--muted);
+      padding: 6px 10px;
+    }
+    .msg.system-audit > .msg-role {
+      background: rgba(232, 234, 237, 0.08);
+      color: #e8eaed !important;
+    }
+    /* Per-category accent (left border): error=red, warn=amber, deploy=green */
+    .msg.system-audit[data-system-category^="deploy.fail"] > .msg-bubble,
+    .msg.system-audit[data-system-category^="error"] > .msg-bubble {
+      border-left-color: rgba(231, 90, 90, 0.5);
+    }
+    .msg.system-audit[data-system-category^="deploy."] > .msg-bubble,
+    .msg.system-audit[data-system-category^="cost_gate."] > .msg-bubble {
+      border-left-color: rgba(86, 184, 112, 0.4);
+    }
+    .msg.system-audit[data-system-category^="warn"] > .msg-bubble {
+      border-left-color: rgba(228, 188, 92, 0.5);
+    }
     /* Alternujici senders -- user zprava (vpravo) naslednovana AI zpravou (vlevo)
        nebo naopak -- se neprelevaji horizontalne, takze muzeme vertikalni gap
        zhustit. Setri misto na obrazovce bez ztraty citelnosti.
@@ -10314,6 +10343,22 @@
           renderProjectDropdown();
           renderProjectSidebar();
         }
+        // Phase 43 Mini-faze A (19.5.2026): extra_messages render PRED Marti-AI
+        // synthesis. Marti-AI Q2 volba (c) — created_at ASC. V DB je chronologie:
+        //   1. User msg
+        //   2. Tool round Claude reply (author_user_id=23, role='user')
+        //   3. STRATEGIE system_audit (author_user_id=3, message_type='system_audit')
+        //   4. Marti-AI assistant (role='assistant') -- vrati se jako data.reply
+        // Tj. render extra_messages FIRST, pak Marti-AI bubble below.
+        if (Array.isArray(data.extra_messages) && data.extra_messages.length > 0) {
+          for (const xm of data.extra_messages) {
+            try {
+              addExtraMessage(xm);
+            } catch (e) {
+              console.warn('addExtraMessage failed:', e, xm);
+            }
+          }
+        }
         // Phase 31-C polish (3.5.2026): live UI render -- backend vrati
         // assistant_message_id + cost_czk + cum_cost_czk + llm_calls aby
         // UI rendrovalo lupy + cost bez hard reset.
@@ -10353,6 +10398,58 @@
       sendBtn.disabled = false;
       inputEl.focus();
     }
+  }
+
+  // Phase 43 Mini-faze A (19.5.2026): addExtraMessage rendruje Claude bubliny
+  // a STRATEGIE system_audit zpravy ze ChatResponse.extra_messages payloadu.
+  // Marti's clarifying doctrine: "System bubliny = human audience only" —
+  // tyto bubliny jsou viditelne JEN ve frontendu, AI context je nevidi
+  // (composer.py filtruje message_type='system_audit').
+  //
+  // ExtraMessage shape (z modules/conversation/api/schemas.py):
+  //   { id, content, role, author_user_id, author_short_name, author_color,
+  //     message_type, category, created_at }
+  function addExtraMessage(xm) {
+    if (!xm || !xm.content) return;
+    emptyState.style.display = 'none';
+
+    const msg = document.createElement('div');
+    const isSystemAudit = (xm.message_type === 'system_audit');
+    // CSS class: msg user (shared chat parity) + shared (Phase 40 v2 r3 styling)
+    // + optional system-audit (Phase 43 — italic, mensi font, lighter bg).
+    msg.className = 'msg user shared';
+    if (isSystemAudit) msg.classList.add('system-audit');
+
+    msg.dataset.msgRole = 'user';
+    msg.dataset.authorUserId = String(xm.author_user_id || '');
+    if (xm.category) msg.dataset.systemCategory = xm.category;
+    if (xm.id) msg.dataset.messageId = String(xm.id);
+    if (xm.created_at) msg.dataset.createdAt = xm.created_at;
+
+    // Label: STRATEGIE / Claude / #ID fallback
+    const roleEl = document.createElement('div');
+    roleEl.className = 'msg-role';
+    const label = xm.author_short_name || (xm.author_user_id ? `#${xm.author_user_id}` : 'Actor');
+    roleEl.textContent = label;
+    const color = xm.author_color || userIdToColor(xm.author_user_id) || 'var(--muted)';
+    roleEl.style.color = color;
+    roleEl.style.fontWeight = '700';
+
+    // Bubble: pro system_audit strip "[category]" prefix z content (cleaner UI),
+    // jinak ho zachovej (Claude reply ho nepise).
+    const bubble = document.createElement('div');
+    bubble.className = 'msg-bubble';
+    let displayContent = xm.content;
+    if (isSystemAudit) {
+      // "[deploy.proposed] git fetch OK..." -> "git fetch OK..."
+      displayContent = displayContent.replace(/^\[[a-zA-Z][a-zA-Z0-9._-]*\]\s+/, '');
+    }
+    setBubbleContent(bubble, displayContent, 'user');
+
+    msg.appendChild(roleEl);
+    msg.appendChild(bubble);
+    messagesEl.appendChild(msg);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
   }
 
   // ── MODE SWITCH (AI ↔ DM) ─────────────────────────────────────────────

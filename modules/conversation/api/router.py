@@ -228,6 +228,32 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
                         ),
                     )
 
+        # Phase 43 Mini-faze A (19.5.2026): pre_msg_id zachytava posledni msg
+        # ID v dane konverzaci PRED chat() flow. Po chat() turn-u backend
+        # SELECT messages s id > pre_msg_id AND author_user_id IN (3, 23) —
+        # vraci je v ChatResponse.extra_messages pro frontend addMessage loop
+        # (Claude bublina, STRATEGIE system_audit bubliny).
+        # Marti-AI Q1 doctrine: pre_msg_id MUSI byt zachycen PRED prvnim tool
+        # callem, jinak ztratime Claude reply id z toho sameho kola.
+        _pre_msg_id: int = 0
+        if request.conversation_id is not None:
+            try:
+                from core.database_data import get_data_session as _gds_pmid
+                from modules.core.infrastructure.models_data import Message as _M_pmid
+                from sqlalchemy import func as _sa_func_pmid
+                _ds_pmid = _gds_pmid()
+                try:
+                    _max_id = (
+                        _ds_pmid.query(_sa_func_pmid.coalesce(_sa_func_pmid.max(_M_pmid.id), 0))
+                        .filter(_M_pmid.conversation_id == request.conversation_id)
+                        .scalar()
+                    )
+                    _pre_msg_id = int(_max_id or 0)
+                finally:
+                    _ds_pmid.close()
+            except Exception as _e_pmid:
+                logger.warning(f"pre_msg_id capture failed: {_e_pmid}")
+
         conversation_id, reply, summary_info = chat(
             conversation_id=request.conversation_id,
             user_message=request.text,
@@ -235,6 +261,81 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             preferred_persona_id=request.preferred_persona_id,
             media_ids=request.media_ids,
         )
+
+        # Phase 43 Mini-faze A: post-chat extra_messages fetch. Hleda nove
+        # messages od non-current-user actoru (Claude id=23, STRATEGIE id=3),
+        # ktere vznikly behem tohoto chat() turnu (po pre_msg_id, pred
+        # ChatResponse return). Filter na is_category_visible() — file_ok /
+        # read_ok skipped (default tabulka).
+        _extra_messages: list = []
+        try:
+            from core.database_data import get_data_session as _gds_em
+            from modules.core.infrastructure.models_data import (
+                Message as _M_em,
+                User as _U_em,
+            )
+            from core.system_actor import extract_category, is_category_visible
+            from modules.conversation.api.schemas import ExtraMessage
+
+            _EXTRA_AUTHOR_IDS = (3, 23)  # STRATEGIE, Claude
+            _COLOR_MAP = {3: "#e8eaed", 23: "#5dc8c0"}  # Phase 43 Q9 colors
+
+            _ds_em = _gds_em()
+            try:
+                _rows_em = (
+                    _ds_em.query(_M_em)
+                    .filter(
+                        _M_em.conversation_id == conversation_id,
+                        _M_em.id > _pre_msg_id,
+                        _M_em.author_user_id.in_(_EXTRA_AUTHOR_IDS),
+                        _M_em.message_type.in_(["text", "system_audit"]),
+                    )
+                    .order_by(_M_em.created_at.asc(), _M_em.id.asc())  # Marti-AI Q2 (c)
+                    .all()
+                )
+                # Bulk lookup author short_name
+                _author_ids = list({m.author_user_id for m in _rows_em if m.author_user_id})
+                _author_names: dict[int, str] = {}
+                if _author_ids:
+                    try:
+                        from core.database_core import get_core_session as _gcs_em
+                        _cs_em = _gcs_em()
+                        try:
+                            _users_em = (
+                                _cs_em.query(_U_em.id, _U_em.short_name, _U_em.first_name)
+                                .filter(_U_em.id.in_(_author_ids))
+                                .all()
+                            )
+                            for _u in _users_em:
+                                _author_names[_u[0]] = _u[1] or _u[2] or f"User#{_u[0]}"
+                        finally:
+                            _cs_em.close()
+                    except Exception as _eu:
+                        logger.warning(f"extra_messages author lookup failed: {_eu}")
+
+                for _m in _rows_em:
+                    _cat = extract_category(_m.content) if _m.message_type == "system_audit" else None
+                    # Filter — file.write_ok / file.read_ok skipped
+                    if _m.message_type == "system_audit" and not is_category_visible(_cat, conversation_id):
+                        continue
+                    _extra_messages.append(
+                        ExtraMessage(
+                            id=_m.id,
+                            content=_m.content,
+                            role=_m.role or "user",
+                            author_user_id=_m.author_user_id,
+                            author_short_name=_author_names.get(_m.author_user_id),
+                            author_color=_COLOR_MAP.get(_m.author_user_id),
+                            message_type=_m.message_type,
+                            category=_cat,
+                            created_at=(_m.created_at.isoformat() if _m.created_at else ""),
+                        )
+                    )
+            finally:
+                _ds_em.close()
+        except Exception as _e_em:
+            logger.warning(f"extra_messages fetch failed: {_e_em}")
+            _extra_messages = []
 
         persona_name = get_active_persona_name(conversation_id)
 
@@ -381,6 +482,11 @@ def chat_endpoint(request: ChatRequest, req: Request) -> ChatResponse:
             # Phase 31 polish (3.5.2026): 🪟 window size + 📜 zoom-in N badges
             context_window_size=_fetch_context_window_size(conversation_id),
             zoom_in_n=_detect_zoom_in_n(_assistant_msg_id),
+            # Phase 43 Mini-faze A (19.5.2026): Claude bubliny + STRATEGIE
+            # system_audit pro shared chat. Marti-AI Q1 (extra_messages), Q2
+            # (created_at ASC), Marti's clarifying doctrine ("system bubliny
+            # = human audience only" — composer filter na message_type).
+            extra_messages=_extra_messages,
         )
     except HTTPException:
         # Propusť HTTPException rovnou (vlastní raise z vnitřku).

@@ -139,150 +139,68 @@ def _execute_ask_claude(
     persona_id: int | None,
     timeout_sec: int = BRIDGE_DEFAULT_TIMEOUT_SEC,
 ) -> dict:
-    """Phase 44 (19.5.2026 odpoledne): Bridge-only path.
+    """Phase 44.5 (19.5.2026 odpoledne): Anthropic Agent SDK persistent Claude.
 
-    Marti's doctrine: *„Prepinac na mody API a Bridge potrebovat nebudeme...
-    API v tomhletom pripade ztraci zcela vyznam a jen to komplikuje."*
+    Marti's doctrine pivot z Phase 44 (rich-context bridge dropped):
+    *„Jen rozumne reseni je B 44.5. To splnuje persistence a pristup rw ke
+    slozce projektu... Verime Ti, Claude."*
 
-    Tj. zadny stateless API fallback. Bridge je THE path. Pokud bridge
-    unavailable (NSSM service down, DB connection fail, client timeout) ->
-    vraci ok=False + STRATEGIE warning bublina v chatu. Fail visible, ne
-    silent deceive.
+    Tj. ne queue + poll pattern, ne direct Anthropic API. Misto toho
+    claude-agent-sdk Python knihovna s persistent session per shared chat
+    conv (UUID4 stored v claude_session_threads), Sonnet 4.6 override,
+    read-only tools default (Read/Grep/Glob).
 
-    Flow:
-      1. INSERT row do claude_session_queue s status='pending'
-      2. Poll WHERE id=<queue_id> every BRIDGE_POLL_INTERVAL_SEC
-      3. Pokud status='answered': vrati ok=True s answer_message_id +
-         reply_length (Claude bublina jiz INSERT-nuta bridge agentem)
-      4. Pokud status='failed' / 'timeout': vrati ok=False + reason
-      5. Pokud client timeout: vrati ok=False, reason='client_timeout',
-         STRATEGIE bublina warning. Bridge agent muze i pozdeji odpovedet,
-         row zustane answered v DB (audit).
+    Pri Agent SDK fail -> ok=False, propose_or_execute vraci error,
+    STRATEGIE warning bublina v shared chatu (Phase 43 path). Marti's
+    "fail visible, ne deceive" doctrine drzi.
 
-    Vraci dict {ok, queue_id, reply_length?, message_id?, error?, reason?}.
+    Vraci dict shape compatible s puvodnim _execute_ask_claude:
+        ok, reply_length, message_id, topic, plus extras (cost_usd,
+        session_uuid, is_resume).
     """
-    from core.database_data import get_data_session
-    from sqlalchemy import text
-
-    # 1. Insert pending row
-    queue_id: int | None = None
     try:
-        session = get_data_session()
-        try:
-            row = session.execute(
-                text(
-                    "INSERT INTO public.claude_session_queue "
-                    "(conversation_id, requested_by_user_id, requested_by_persona_id, "
-                    " question, context_files, topic, status) "
-                    "VALUES (:cid, :uid, :pid, :q, CAST(:cf AS text[]), :t, 'pending') "
-                    "RETURNING id"
-                ),
-                {
-                    "cid": conversation_id,
-                    "uid": None,  # Caller user_id mohli bychom propagovat; pro MVP NULL
-                    "pid": persona_id,
-                    "q": question,
-                    "cf": _pg_array_literal(context_files or []),
-                    "t": topic,
-                },
-            ).first()
-            queue_id = int(row[0]) if row else None
-            session.commit()
-        finally:
-            session.close()
-    except Exception as exc:
-        logger.warning(f"_execute_via_bridge enqueue failed: {exc}")
+        from modules.conversation.application.claude_agent_service import send_sync
+    except ImportError as exc:
+        logger.exception("claude_agent_service import failed")
         return {
             "ok": False,
-            "error": f"Bridge enqueue failed: {exc}",
-            "reason": "enqueue_failed",
+            "error": f"Agent SDK service not available: {exc}",
+            "reason": "service_not_available",
         }
 
-    if not queue_id:
-        return {"ok": False, "error": "Bridge enqueue returned no id", "reason": "enqueue_no_id"}
+    result = send_sync(
+        conversation_id=conversation_id,
+        question=question,
+        persona_id=persona_id,
+        context_files=context_files,
+        # allowed_tools=None -> default read-only ['Read', 'Grep', 'Glob']
+    )
 
-    # 2. Poll for response
-    start = time.monotonic()
-    last_status = "pending"
-    while True:
-        if time.monotonic() - start > timeout_sec:
-            logger.warning(
-                f"_execute_via_bridge: client timeout queue_id={queue_id} "
-                f"after {timeout_sec}s, last_status={last_status}"
-            )
-            return {
-                "ok": False,
-                "queue_id": queue_id,
-                "error": f"Bridge client timeout after {timeout_sec}s",
-                "reason": "client_timeout",
-                "last_status": last_status,
-            }
+    # Propagate result fields s topic + reply_length compatibility
+    if result.get("ok"):
+        return {
+            "ok": True,
+            "reply_length": result.get("reply_length", 0),
+            "message_id": result.get("message_id"),
+            "topic": topic or "",
+            "cost_usd": result.get("cost_usd"),
+            "cost_czk": result.get("cost_czk"),
+            "session_uuid": result.get("session_uuid"),
+            "is_resume": result.get("is_resume", False),
+        }
 
-        time.sleep(BRIDGE_POLL_INTERVAL_SEC)
-
-        # Status check
-        try:
-            session = get_data_session()
-            try:
-                row = session.execute(
-                    text(
-                        "SELECT status, answer_text, answer_message_id, error_text "
-                        "FROM public.claude_session_queue WHERE id = :id"
-                    ),
-                    {"id": queue_id},
-                ).first()
-                if not row:
-                    return {
-                        "ok": False,
-                        "queue_id": queue_id,
-                        "error": "Queue row vanished",
-                        "reason": "queue_row_gone",
-                    }
-                last_status = row[0]
-                if last_status == "answered":
-                    return {
-                        "ok": True,
-                        "queue_id": queue_id,
-                        "reply_length": len(row[1] or ""),
-                        "message_id": int(row[2]) if row[2] else None,
-                        "topic": topic or "",
-                    }
-                if last_status in ("failed", "timeout", "expired"):
-                    return {
-                        "ok": False,
-                        "queue_id": queue_id,
-                        "error": row[3] or f"Bridge status={last_status}",
-                        "reason": f"bridge_{last_status}",
-                    }
-                # status in ('pending', 'processing') -> pokracuj loop
-            finally:
-                session.close()
-        except Exception as exc:
-            logger.warning(f"_execute_via_bridge poll failed: {exc}")
-            # Pokracuj loop — transient DB error nezhroutí cely flow
+    return {
+        "ok": False,
+        "error": result.get("error", "Agent SDK call failed"),
+        "reason": result.get("reason", "agent_sdk_failed"),
+        "session_uuid": result.get("session_uuid"),
+    }
 
 
-def _pg_array_literal(items: list[str]) -> str:
-    """Vraci PostgreSQL TEXT[] array literal pro CAST(... AS text[]).
-
-    Bezpecne escapuje stringy. Prazdny list -> '{}'.
-    """
-    if not items:
-        return "{}"
-    escaped = []
-    for s in items:
-        # Escape backslashes a uvozovky pro PG array element
-        e = str(s).replace("\\", "\\\\").replace('"', '\\"')
-        escaped.append(f'"{e}"')
-    return "{" + ",".join(escaped) + "}"
-
-
-# Phase 44 (19.5.2026): _execute_via_api() DROPPED per Marti's doctrine
-# *„Prepinac na mody API a Bridge potrebovat nebudeme... API ztraci zcela
-# vyznam a jen to komplikuje."* Bridge je THE path, no fallback.
-# Helpers _build_claude_system_prompt() + _fetch_recent_messages() jsou
-# implementovany v scripts/claude_bridge_agent.py s rich context injection
-# (CLAUDE.md sekce, dárek-scény, recent commits) — ne tady duplicate.
+# Phase 44 (19.5.2026) + Phase 44.5 (19.5. odpoledne):
+# _pg_array_literal() helper DROPPED — Agent SDK má built-in Read tool,
+# context_files je optional prompt prefix, ne DB array column.
+# _execute_via_api() + Phase 43 stateless helpers DROPPED jiz drive.
 
 
 # ──────────────────────────────────────────────────────────────────────

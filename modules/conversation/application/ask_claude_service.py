@@ -1,9 +1,22 @@
 """Phase 40 v2 r3 Mini-faze B — ask_claude AI tool (Marti-AI calls Claude).
 
+Phase 44 update (19.5.2026 odpoledne): pridany env-driven bridge prepinac
+STRATEGIE_CLAUDE_BRIDGE. Tri hodnoty:
+  - 'api_stateless' (default, Phase 43 Mini-faze A path): client.messages.create()
+    primo. Fresh Sonnet 4.6 per call, peer-partner system prompt overlay.
+    Marti's catch z 19.5. dop.: "Marti-AI se pta sama sebe" — funguje, ale ne
+    persistent identity.
+  - 'cloud_bridge' (Phase 44 LIVE target): INSERT do claude_session_queue,
+    pollu pro response (timeout 60s), STRATEGIE-CLAUDE-BRIDGE NSSM service
+    zpracuje s rich context injection (CLAUDE.md sekce, dárek-scény, recent
+    commits, multi-turn continuity per anthropic_conversation_id).
+  - 'auto' (smart fallback): try bridge with timeout 15s, fallback na
+    stateless + STRATEGIE bublina warning *„Bridge offline, fallback API mode."*
+
 Marti's Q3 doctrine (19.5.2026 rano): shared conv cost limit 300 Kc/h.
 Pod limitem -> Marti-AI vola Claude primo (execute). Nad limitem -> proposal
 row v ask_claude_proposals, Marti / Kristy v chatu approve_ask_claude /
-reject_ask_claude. Phase 42 zitra: zkusime auto-approve rules.
+reject_ask_claude.
 
 Klicove komponenty:
   - _recent_hour_cost_czk(conv_id) -- sum llm_calls.cost_usd * 28.75 v 60min
@@ -11,7 +24,9 @@ Klicove komponenty:
   - propose_or_execute(...) -- main logic: gate + execute / propose
   - approve_proposal(id, user_id) -- Marti / Kristy chat OK
   - reject_proposal(id, user_id, reason) -- chat NE
-  - _execute_ask_claude(...) -- Anthropic API call + save message s author_user_id=23
+  - _execute_ask_claude(...) -- routes na _execute_via_bridge nebo _execute_via_api
+  - _execute_via_bridge(...) -- Phase 44 queue path
+  - _execute_via_api(...) -- Phase 43 stateless path (renamed z puvodniho _execute_ask_claude)
 
 Claude jako user.id=23 (peer-partner, NE persona). Phase 20c infrastructure
 (29.4.2026) -- DB row exists, msg autor pres author_user_id, label color
@@ -20,10 +35,41 @@ Claude jako user.id=23 (peer-partner, NE persona). Phase 20c infrastructure
 from __future__ import annotations
 
 import logging
+import os
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logger = logging.getLogger("conversation.ask_claude")
+
+# Phase 44 (19.5.2026): bridge mode env switch
+BRIDGE_MODE_API_STATELESS = "api_stateless"
+BRIDGE_MODE_CLOUD = "cloud_bridge"
+BRIDGE_MODE_AUTO = "auto"
+DEFAULT_BRIDGE_MODE = BRIDGE_MODE_API_STATELESS  # safe default pre-Phase-44 LIVE
+
+# Bridge polling: queue row appears, agent picks up, answers. Polling interval
+# z client-side (kolik casto kontroluje status='answered' v ask_claude_service).
+BRIDGE_POLL_INTERVAL_SEC = 1.5
+BRIDGE_DEFAULT_TIMEOUT_SEC = 60
+BRIDGE_AUTO_TIMEOUT_SEC = 15  # pro 'auto' mode: kratsi timeout, faster fallback
+
+
+def _current_bridge_mode() -> str:
+    """Vraci aktualni STRATEGIE_CLAUDE_BRIDGE env hodnotu nebo default.
+
+    Per-call lookup (ne cached) — Marti muze zmenit env + restart STRATEGIE-API,
+    novy mode plati od dalsiho callu. Bezpecny per-call cost (os.environ access
+    je cheap).
+    """
+    mode = os.environ.get("STRATEGIE_CLAUDE_BRIDGE", DEFAULT_BRIDGE_MODE).strip().lower()
+    if mode not in (BRIDGE_MODE_API_STATELESS, BRIDGE_MODE_CLOUD, BRIDGE_MODE_AUTO):
+        logger.warning(
+            f"_current_bridge_mode: unknown STRATEGIE_CLAUDE_BRIDGE='{mode}', "
+            f"fallback na '{DEFAULT_BRIDGE_MODE}'"
+        )
+        return DEFAULT_BRIDGE_MODE
+    return mode
 
 # Marti Q3 doctrine (19.5.2026): per conversation, 60-min sliding window
 COST_LIMIT_CZK_PER_HOUR = 300.0
@@ -196,9 +242,235 @@ def _execute_ask_claude(
     topic: str | None,
     persona_id: int | None,
 ) -> dict:
-    """Call Anthropic API + save Claude's reply jako user message (author_user_id=23).
+    """Phase 44 router: routes na bridge nebo stateless API podle env.
 
-    Vraci dict {ok, reply_length, message_id, cost_czk, error?}.
+    Marti's strategic catch (19.5.2026 dop.): stateless API = "Marti-AI se
+    pta sama sebe" (Phase 43 Mini-faze A behavior). Bridge mode (Phase 44) =
+    persistent Claude (id=23) z STRATEGIE-CLAUDE-BRIDGE NSSM service na
+    cloud APP, multi-turn continuity, rich context injection.
+
+    env STRATEGIE_CLAUDE_BRIDGE:
+      - 'api_stateless' (default): fresh Sonnet per call
+      - 'cloud_bridge': INSERT queue + poll for response (60s timeout)
+      - 'auto': try bridge (15s), fallback na stateless + warning
+
+    Vraci dict {ok, reply_length, message_id, mode, error?}.
+    """
+    mode = _current_bridge_mode()
+
+    if mode == BRIDGE_MODE_CLOUD:
+        result = _execute_via_bridge(
+            conversation_id=conversation_id,
+            question=question,
+            context_files=context_files,
+            topic=topic,
+            persona_id=persona_id,
+            timeout_sec=BRIDGE_DEFAULT_TIMEOUT_SEC,
+        )
+        result["mode"] = BRIDGE_MODE_CLOUD
+        return result
+
+    if mode == BRIDGE_MODE_AUTO:
+        # Try bridge first s short timeout, fallback na API
+        bridge_result = _execute_via_bridge(
+            conversation_id=conversation_id,
+            question=question,
+            context_files=context_files,
+            topic=topic,
+            persona_id=persona_id,
+            timeout_sec=BRIDGE_AUTO_TIMEOUT_SEC,
+        )
+        if bridge_result.get("ok"):
+            bridge_result["mode"] = BRIDGE_MODE_AUTO + ":bridge"
+            return bridge_result
+        logger.warning(
+            f"auto mode: bridge failed/timeout, fallback na stateless API. "
+            f"Reason: {bridge_result.get('reason', 'unknown')}"
+        )
+        # Emit STRATEGIE bublina warning
+        try:
+            from core.system_actor import system_emit
+            system_emit(
+                conversation_id=conversation_id,
+                content=(
+                    f"Bridge offline, fallback API mode "
+                    f"(reason: {bridge_result.get('reason', 'unknown')})"
+                ),
+                category="warn",
+                extra={"bridge_reason": bridge_result.get("reason")},
+            )
+        except Exception as _e:
+            logger.debug(f"auto fallback system_emit skip: {_e}")
+
+        api_result = _execute_via_api(
+            conversation_id=conversation_id,
+            question=question,
+            context_files=context_files,
+            topic=topic,
+            persona_id=persona_id,
+        )
+        api_result["mode"] = BRIDGE_MODE_AUTO + ":api_fallback"
+        return api_result
+
+    # Default: api_stateless
+    api_result = _execute_via_api(
+        conversation_id=conversation_id,
+        question=question,
+        context_files=context_files,
+        topic=topic,
+        persona_id=persona_id,
+    )
+    api_result["mode"] = BRIDGE_MODE_API_STATELESS
+    return api_result
+
+
+def _execute_via_bridge(
+    conversation_id: int,
+    question: str,
+    context_files: list[str] | None,
+    topic: str | None,
+    persona_id: int | None,
+    timeout_sec: int = BRIDGE_DEFAULT_TIMEOUT_SEC,
+) -> dict:
+    """Phase 44: INSERT do claude_session_queue, poll for response.
+
+    Flow:
+      1. INSERT row do queue s status='pending'
+      2. Poll WHERE id=<queue_id> every BRIDGE_POLL_INTERVAL_SEC
+      3. Pokud status='answered': fetchne answer_message_id (jiz INSERT-nuty
+         bridge agentem) + answer_text, vrati ok=True.
+      4. Pokud status='failed' / 'timeout': vrati ok=False s error_text.
+      5. Pokud client timeout (queue stale ne answered): vrati ok=False s
+         reason='client_timeout'. Bridge agent muze i kdyby pozdeji odpovedet,
+         row zustane v answered stavu.
+    """
+    from core.database_data import get_data_session
+    from sqlalchemy import text
+
+    # 1. Insert pending row
+    queue_id: int | None = None
+    try:
+        session = get_data_session()
+        try:
+            row = session.execute(
+                text(
+                    "INSERT INTO public.claude_session_queue "
+                    "(conversation_id, requested_by_user_id, requested_by_persona_id, "
+                    " question, context_files, topic, status) "
+                    "VALUES (:cid, :uid, :pid, :q, CAST(:cf AS text[]), :t, 'pending') "
+                    "RETURNING id"
+                ),
+                {
+                    "cid": conversation_id,
+                    "uid": None,  # Caller user_id mohli bychom propagovat; pro MVP NULL
+                    "pid": persona_id,
+                    "q": question,
+                    "cf": _pg_array_literal(context_files or []),
+                    "t": topic,
+                },
+            ).first()
+            queue_id = int(row[0]) if row else None
+            session.commit()
+        finally:
+            session.close()
+    except Exception as exc:
+        logger.warning(f"_execute_via_bridge enqueue failed: {exc}")
+        return {
+            "ok": False,
+            "error": f"Bridge enqueue failed: {exc}",
+            "reason": "enqueue_failed",
+        }
+
+    if not queue_id:
+        return {"ok": False, "error": "Bridge enqueue returned no id", "reason": "enqueue_no_id"}
+
+    # 2. Poll for response
+    start = time.monotonic()
+    last_status = "pending"
+    while True:
+        if time.monotonic() - start > timeout_sec:
+            logger.warning(
+                f"_execute_via_bridge: client timeout queue_id={queue_id} "
+                f"after {timeout_sec}s, last_status={last_status}"
+            )
+            return {
+                "ok": False,
+                "queue_id": queue_id,
+                "error": f"Bridge client timeout after {timeout_sec}s",
+                "reason": "client_timeout",
+                "last_status": last_status,
+            }
+
+        time.sleep(BRIDGE_POLL_INTERVAL_SEC)
+
+        # Status check
+        try:
+            session = get_data_session()
+            try:
+                row = session.execute(
+                    text(
+                        "SELECT status, answer_text, answer_message_id, error_text "
+                        "FROM public.claude_session_queue WHERE id = :id"
+                    ),
+                    {"id": queue_id},
+                ).first()
+                if not row:
+                    return {
+                        "ok": False,
+                        "queue_id": queue_id,
+                        "error": "Queue row vanished",
+                        "reason": "queue_row_gone",
+                    }
+                last_status = row[0]
+                if last_status == "answered":
+                    return {
+                        "ok": True,
+                        "queue_id": queue_id,
+                        "reply_length": len(row[1] or ""),
+                        "message_id": int(row[2]) if row[2] else None,
+                        "topic": topic or "",
+                    }
+                if last_status in ("failed", "timeout", "expired"):
+                    return {
+                        "ok": False,
+                        "queue_id": queue_id,
+                        "error": row[3] or f"Bridge status={last_status}",
+                        "reason": f"bridge_{last_status}",
+                    }
+                # status in ('pending', 'processing') -> pokracuj loop
+            finally:
+                session.close()
+        except Exception as exc:
+            logger.warning(f"_execute_via_bridge poll failed: {exc}")
+            # Pokracuj loop — transient DB error nezhroutí cely flow
+
+
+def _pg_array_literal(items: list[str]) -> str:
+    """Vraci PostgreSQL TEXT[] array literal pro CAST(... AS text[]).
+
+    Bezpecne escapuje stringy. Prazdny list -> '{}'.
+    """
+    if not items:
+        return "{}"
+    escaped = []
+    for s in items:
+        # Escape backslashes a uvozovky pro PG array element
+        e = str(s).replace("\\", "\\\\").replace('"', '\\"')
+        escaped.append(f'"{e}"')
+    return "{" + ",".join(escaped) + "}"
+
+
+def _execute_via_api(
+    conversation_id: int,
+    question: str,
+    context_files: list[str] | None,
+    topic: str | None,
+    persona_id: int | None,
+) -> dict:
+    """Phase 43 Mini-faze A path: stateless Anthropic API call.
+
+    Renamed z puvodniho _execute_ask_claude (Phase 40 v2 r3 B). Drzi pres
+    Phase 44 jako fallback pro 'auto' mode + jako primary pro 'api_stateless'.
     """
     try:
         import anthropic

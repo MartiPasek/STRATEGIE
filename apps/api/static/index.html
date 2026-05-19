@@ -1447,6 +1447,21 @@
        blok" (ne 5 nezavislych zprav s 5 ruznymi labely). */
     .msg.collapsed { margin-top: -6px; }
     .msg.collapsed > .msg-role { display: none; }
+    /* Phase 40 v2 r3 (19.5.2026): shared chat mode -- label NIKDY collapsed,
+       tucny + barevny per author (Marti green / Marti-AI gold / Kristy pink /
+       Claude teal). Marti's Q1: 1:1 = potlaceny, shared = jasne patrny. */
+    .msg.shared > .msg-role {
+      display: block !important;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .05em;
+      padding: 2px 6px;
+      margin-bottom: 2px;
+      border-radius: 4px;
+      background: rgba(255, 255, 255, 0.04);
+    }
+    .msg.shared.collapsed { margin-top: 4px; }
+    .msg.shared.collapsed > .msg-role { display: block !important; }
     /* Alternujici senders -- user zprava (vpravo) naslednovana AI zpravou (vlevo)
        nebo naopak -- se neprelevaji horizontalne, takze muzeme vertikalni gap
        zhustit. Setri misto na obrazovce bez ztraty citelnosti.
@@ -2882,6 +2897,21 @@
   // Phase 19c-e1 (29.4.2026): lifecycle_state aktualni konverzace.
   // 'personal' -> input disabled, krémová UI (knizka, ne chat).
   let currentLifecycleState = null;
+  // Phase 40 v2 r3 (19.5.2026): is_shared flag aktualni konverzace.
+  // TRUE = shared chat (2+ human authoru) -> UI rendruje bold + barevny
+  // label per autor (nikdy collapsed). FALSE = 1:1 chat -> potlaceny styl.
+  // Marti's Q2 volba B (cache column z conversations.is_shared).
+  let currentConvIsShared = false;
+
+  // Phase 40 v2 r3: fallback color hash pro usery bez explicit label_color.
+  // Deterministicka hue 0-360 z user_id (HSL 55% sat, 55% light = viditelne
+  // na dark backgroundu). Explicit colors: Marti=green #56b870, Marti-AI=
+  // gold #efd9a8, Kristy=pink #e8a4c8, Claude=teal #5dc8c0 (Q1 volba).
+  function userIdToColor(uid) {
+    if (!uid || typeof uid !== 'number') return 'var(--muted)';
+    const hue = (uid * 137) % 360;
+    return `hsl(${hue}, 55%, 55%)`;
+  }
 
   const inviteScreen = document.getElementById('inviteScreen');
   const loginScreen  = document.getElementById('loginScreen');
@@ -3529,6 +3559,8 @@
       currentConvRole = data.my_role || 'owner';
       // Phase 19c-e1 (29.4.2026): Personal je read-only (knizka, ne chat).
       currentLifecycleState = data.lifecycle_state || null;
+      // Phase 40 v2 r3 (19.5.2026): shared chat detection (Q2 cache).
+      currentConvIsShared = !!data.is_shared;
       convIdLabel.textContent = `#${conversationId}`;
       if (data.active_persona) {
         document.getElementById('agentName').textContent = data.active_persona;
@@ -3548,7 +3580,7 @@
         } else {
           // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI
           // kotva indicator a cost transparency.
-          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media, msg.is_anchored, msg.cost_czk, msg.cum_cost_czk, msg.zoom_in_n, msg.window_size_at_send, msg.notebook_count_at_send);
+          renderMessage(msg.role, msg.content, msg.message_type, msg.persona_name, msg.created_at, msg.id, msg.llm_calls, msg.media, msg.is_anchored, msg.cost_czk, msg.cum_cost_czk, msg.zoom_in_n, msg.window_size_at_send, msg.notebook_count_at_send, msg.author_user_id, msg.author_short_name, msg.author_color);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -5835,6 +5867,8 @@
       currentConvRole = data.my_role || 'owner';
       // Phase 19c-e1 (29.4.2026): Personal je read-only (knizka, ne chat).
       currentLifecycleState = data.lifecycle_state || null;
+      // Phase 40 v2 r3 (19.5.2026): shared chat detection (Q2 cache).
+      currentConvIsShared = !!data.is_shared;
       convIdLabel.textContent = `#${conversationId}`;
       messagesEl.innerHTML = '';
       emptyState.style.display = 'none';
@@ -5854,7 +5888,7 @@
           renderHiddenDivider(m.n_hidden);
         } else {
           // Phase 31 (3.5.2026): is_anchored + cost_czk + cum_cost_czk pro UI.
-          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n, m.window_size_at_send, m.notebook_count_at_send);
+          renderMessage(m.role, m.content, m.message_type, m.persona_name, m.created_at, m.id, m.llm_calls, m.media, m.is_anchored, m.cost_czk, m.cum_cost_czk, m.zoom_in_n, m.window_size_at_send, m.notebook_count_at_send, m.author_user_id, m.author_short_name, m.author_color);
         }
       });
       messagesEl.scrollTop = messagesEl.scrollHeight;
@@ -9644,6 +9678,10 @@
   // sebou pres loading mezi nima -- oba bubliny by mely klastrovat).
   function _shouldCollapseLabel(role, personaName, messageType, createdAt) {
     if (messageType === 'system') return false;
+    // Phase 40 v2 r3 (19.5.2026): shared chat = labels NIKDY collapsed.
+    // Marti's Q1 doctrine -- "label musi byt jasne patrny" pro identifikaci
+    // autora (Marti / Kristy / Claude). 1:1 chat zachovava cluster-collapse.
+    if (currentConvIsShared && role === 'user') return false;
     // Najdi posledni RELEVANTNI msg (preskoc loading/error/system/non-msg)
     let prev = messagesEl.lastElementChild;
     while (prev) {
@@ -9713,15 +9751,23 @@
     msg.appendChild(row);
   }
 
-  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media, isAnchored, costCzk, cumCostCzk, zoomInN, windowSizeAtSend, notebookCountAtSend) {
+  function renderMessage(role, content, messageType, personaName, createdAt, messageId, llmCalls, media, isAnchored, costCzk, cumCostCzk, zoomInN, windowSizeAtSend, notebookCountAtSend, authorUserId, authorShortName, authorColor) {
     emptyState.style.display = 'none';
     const msg = document.createElement('div');
     // Cluster-collapse: pokud predchozi zprava ma stejneho odesilatele, schovame label
     const collapsed = _shouldCollapseLabel(role, personaName, messageType, createdAt);
     if (collapsed) msg.classList.add('collapsed');
+    // Phase 40 v2 r3 (19.5.2026): shared chat marker -- CSS bold+color label.
+    // Pokud shared mode + user role + ma author_user_id -> trida .shared
+    // (CSS prebije .collapsed, label se vzdy zobrazi tucnym fontem v barve
+    // autora). 1:1 chat zachovava current behavior.
+    if (currentConvIsShared && role === 'user' && authorUserId) {
+      msg.classList.add('shared');
+    }
     // Metadata pro budouci cluster-comparison
     msg.dataset.msgRole = role;
     msg.dataset.personaName = personaName || '';
+    if (authorUserId) msg.dataset.authorUserId = authorUserId;
     if (createdAt) msg.dataset.createdAt = createdAt;
     // Faze 9.1c: messageId pro Dev View lupy -> /messages/{id}/llm-calls.
     if (messageId) msg.dataset.messageId = messageId;
@@ -9746,7 +9792,17 @@
     if (messageType === 'system') {
       roleEl.textContent = 'STRATEGIE';
     } else if (role === 'user') {
-      roleEl.textContent = currentUserLabel();
+      // Phase 40 v2 r3 (19.5.2026): shared chat attribution.
+      // Shared mode + author_user_id existuje -> ukaz REAL author_short_name
+      // s author_color (Marti green / Marti-AI gold / Kristy pink / Claude teal).
+      // 1:1 chat fallback na current behavior (currentUserLabel = aktualni viewer).
+      if (currentConvIsShared && authorUserId) {
+        roleEl.textContent = authorShortName || `#${authorUserId}`;
+        roleEl.style.color = authorColor || userIdToColor(authorUserId);
+        roleEl.style.fontWeight = '700';
+      } else {
+        roleEl.textContent = currentUserLabel();
+      }
     } else {
       // AI zprava -- preferuj predanou persona_name (historicky autor).
       // Fallback je NEUTRALNI 'AI' -- NE currentAgentLabel(), jinak stare
@@ -9938,12 +9994,30 @@
       msg.dataset.msgRole = role;
       msg.dataset.personaName = (role === 'assistant') ? currentAgentLabel() : '';
       msg.dataset.createdAt = liveCreatedAt;
+      // Phase 40 v2 r3 (19.5.2026): live odeslana user zprava ve shared chatu
+      // = currentUser je author -> shared class + jeho color (z labelColor
+      // pripadne hash z user_id). Konzistentni s historic render.
+      if (currentConvIsShared && role === 'user' && currentUser && currentUser.user_id) {
+        msg.classList.add('shared');
+        msg.dataset.authorUserId = currentUser.user_id;
+      }
     }
     const roleEl = document.createElement('div');
     roleEl.className = 'msg-role';
-    roleEl.textContent = role === 'user'
-      ? currentUserLabel()
-      : role === 'loading' ? '' : currentAgentLabel();
+    if (role === 'user') {
+      // Phase 40 v2 r3: shared mode = currentUser's color + bold (CSS class).
+      // currentUser.label_color naset v currentUser.* objektu pri login (TODO
+      // Phase 40 v2 r3.B: backend /me endpoint vrati label_color z DB).
+      // Pro teď fallback na hash z user_id pokud label_color chybi.
+      roleEl.textContent = currentUserLabel();
+      if (currentConvIsShared && currentUser && currentUser.user_id) {
+        const userColor = currentUser.label_color || userIdToColor(currentUser.user_id);
+        roleEl.style.color = userColor;
+        roleEl.style.fontWeight = '700';
+      }
+    } else {
+      roleEl.textContent = role === 'loading' ? '' : currentAgentLabel();
+    }
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';
     if (type === 'loading') {

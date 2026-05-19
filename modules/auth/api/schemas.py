@@ -31,6 +31,10 @@ class LoginResponse(BaseModel):
     # Gender — pro UI editor v profilu (volitelné).
     gender: str | None = None
     short_name: str | None = None
+    # Phase 40 v2 r3 (19.5.2026): label_color pro shared chat attribution.
+    # UI live-render Marti's own messages s touto barvou. NULL = frontend
+    # fallback na userIdToColor(user_id) hash.
+    label_color: str | None = None
 
     # Identity refactor v2 — rozšíření o tenantový kontext.
     # Frontend tyto fieldy zobrazuje v UI hlavičce a používá je jako

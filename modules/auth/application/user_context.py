@@ -147,6 +147,10 @@ def get_user_context(user_id: int) -> dict | None:
             "tenant_id": tenant_id,
             "gender": user.gender,
             "short_name": user.short_name,
+            # Phase 40 v2 r3 (19.5.2026): label_color pro shared chat
+            # attribution v UI (live render Marti's own messages). NULL =
+            # frontend computes hue z user_id hash.
+            "label_color": getattr(user, "label_color", None),
             "display_name": display_name or user.first_name,    # fallback
             "tenant_name": tenant_name,
             "tenant_code": tenant_code,

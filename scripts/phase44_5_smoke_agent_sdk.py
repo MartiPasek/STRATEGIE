@@ -73,21 +73,21 @@ async def main():
         print(f"FAIL: first call failed: {type(e).__name__}: {e}")
         sys.exit(1)
 
-    # 4. Resume call — try several resume patterns
-    # Predchozi run: resume=True bool -> "expected str, bytes or os.PathLike object, not bool"
-    # Tj. resume je pravdepodobne path/string, ne boolean
+    # 4. Resume call — Agent SDK 0.2.82 error explanation:
+    # "--session-id can only be used with --continue or --resume if --fork-session is also specified"
+    # Tj. trojice: session_id + (continue_conversation OR resume) + fork_session=True
     print("[4/4] Resume call (verify session persistence)...")
-    print(f"  Attempting resume with session_id={first_session_uuid} as resume param...")
+    print(f"  Pattern: session_id={first_session_uuid[:13]}... + resume + fork_session=True")
     try:
-        # Try 1: resume jako session_id string
         options_resume = ClaudeAgentOptions(
             session_id=first_session_uuid,
-            resume=first_session_uuid,  # session_id string místo bool
+            resume=first_session_uuid,
+            fork_session=True,
             model="claude-sonnet-4-6",
         )
         resume_reply_chunks = []
         async for msg in query(
-            prompt="Pamatujes na predchozi prompt? Zopakuj prosim presne co jsi mi odpovedel.",
+            prompt="Pamatujes na predchozi prompt? Co jsi mi odpovedel? Strucne v jedne vete.",
             options=options_resume,
         ):
             resume_reply_chunks.append(str(msg))
@@ -95,29 +95,28 @@ async def main():
             print(f"  msg: {preview}")
 
         print(f"  Reply chunks: {len(resume_reply_chunks)}")
-        print("  [OK] Resume call succeeded\n")
+        print("  [OK] Resume call succeeded — Claude mention previous = persistence!\n")
     except Exception as e:
-        print(f"WARN: resume call failed (resume=session_id string): "
-              f"{type(e).__name__}: {e}")
+        print(f"WARN: resume call failed: {type(e).__name__}: {e}")
 
-        # Try 2: continue (alternativni param name)
-        print("\n  Retry s 'continue_conversation=True'...")
+        # Try fallback — continue_conversation + fork_session
+        print("\n  Retry s 'continue_conversation=True + fork_session=True'...")
         try:
             options_continue = ClaudeAgentOptions(
                 session_id=first_session_uuid,
                 continue_conversation=True,
+                fork_session=True,
                 model="claude-sonnet-4-6",
             )
             async for msg in query(
-                prompt="Test 2: pamatujes predchozi?",
+                prompt="Test continue: pamatujes predchozi prompt?",
                 options=options_continue,
             ):
                 preview = str(msg)[:300].replace("\n", " ")
                 print(f"  msg: {preview}")
-            print("  [OK] Continue call succeeded\n")
+            print("  [OK] Continue+fork call succeeded\n")
         except Exception as e2:
-            print(f"WARN: continue call failed: {type(e2).__name__}: {e2}")
-            print("  -> Pojde se podivat do persistence dir co tam je za soubory")
+            print(f"WARN: continue+fork call failed: {type(e2).__name__}: {e2}")
 
     # 5. Session storage location + recursive inspection
     sessions_dir = os.path.expanduser("~/.claude/projects")

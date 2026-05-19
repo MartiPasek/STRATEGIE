@@ -18,7 +18,13 @@
 
 param(
     [int]$RetentionDays = 30,
-    [string]$SessionDir = "$env:USERPROFILE\.claude\projects",
+    # Hardcoded Administrator profile path — STRATEGIE-API service runs as
+    # Administrator po Phase 44.5 deploy (19.5. odpoledne), Agent SDK pise
+    # do C:\Users\Administrator\.claude\projects. SYSTEM principal v scheduled
+    # tasku ma $env:USERPROFILE = C:\WINDOWS\system32\config\systemprofile,
+    # ne Administrator. Hardcoded path drzi konzistenci napric service +
+    # scheduled task contexts. Pokud Marti zmeni service user, pass -SessionDir.
+    [string]$SessionDir = "C:\Users\Administrator\.claude\projects",
     [string]$LogFile = "C:\Logs\STRATEGIE\claude_session_retention.log"
 )
 

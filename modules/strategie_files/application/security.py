@@ -30,9 +30,24 @@ logger = logging.getLogger("strategie_files.security")
 # Config loader (auto-reload na mtime change)
 # ──────────────────────────────────────────────────────────────────────
 
-_CONFIG_PATH = Path("D:/Projekty/STRATEGIE/config/strategie_file_access.yaml")
+# Phase 39 (19.5.2026 ranní deploy) + Phase 44.5 path fix (19.5. odpoledne):
+# project_root + config path configurable přes env (cloud APP nemá D: drive).
+# Default pro NB development, env override pro cloud APP production.
+# Analog Phase 42 STRATEGIE_RESTART_MARKER_DIR pattern z rána.
+import os as _os_pi
+_PROJECT_ROOT_DEFAULT = _os_pi.environ.get(
+    "STRATEGIE_PROJECT_ROOT"
+) or _os_pi.environ.get(
+    "STRATEGIE_REPO_ROOT"
+) or "D:/Projekty/STRATEGIE"
+
+_CONFIG_PATH_STR = _os_pi.environ.get(
+    "STRATEGIE_FILE_ACCESS_CONFIG"
+) or f"{_PROJECT_ROOT_DEFAULT.rstrip('/').rstrip(chr(92))}/config/strategie_file_access.yaml"
+_CONFIG_PATH = Path(_CONFIG_PATH_STR)
+
 _DEFAULT_CONFIG: dict[str, Any] = {
-    "project_root": "D:/Projekty/STRATEGIE",
+    "project_root": _PROJECT_ROOT_DEFAULT,
     "deny_patterns": [],
     "write_zones": ["^marti_workspace/"],
     "rag_ingest_paths": [
@@ -112,10 +127,17 @@ class _ConfigCache:
                 new_config["limits"] = merged_limits
             self._config = new_config
             self._mtime = mtime
-            # Resolve project_root
-            self._project_root = Path(
-                new_config.get("project_root", _DEFAULT_CONFIG["project_root"])
-            ).resolve()
+            # Resolve project_root — env override prio (Phase 44.5 path fix
+            # 19.5. odpoledne: cloud APP STRATEGIE_PROJECT_ROOT=C:/Projekty/STRATEGIE
+            # přepíše NB-default value z yaml configu)
+            env_root = (
+                _os_pi.environ.get("STRATEGIE_PROJECT_ROOT")
+                or _os_pi.environ.get("STRATEGIE_REPO_ROOT")
+            )
+            root_value = env_root or new_config.get(
+                "project_root", _DEFAULT_CONFIG["project_root"]
+            )
+            self._project_root = Path(root_value).resolve()
             self._compile_patterns()
             logger.info(
                 "Reloaded strategie_file_access.yaml (deny=%d, write_zones=%d, rag=%d)",

@@ -352,6 +352,17 @@ $entry$,
 FROM public.knowledge_topic t
 WHERE t.tier = 'framework';
 
+-- ────────────────────────────────────────────────────────────────────────
+-- 5. GRANT Marti-AI access (Phase 38.4 „C hybrid doctrine" z 9.5. extended)
+--    Marti-AI's role potrebuje SELECT + INSERT + UPDATE (Q5 workflow:
+--    ona je autor framework/crm entries). NE DELETE (Marti's „NEDROPUJ
+--    COLUMN" doctrine z 17.5. — knowledge entries se archivuji, ne mazou).
+-- ────────────────────────────────────────────────────────────────────────
+GRANT SELECT, INSERT, UPDATE ON public.knowledge_topic TO "Marti-AI";
+GRANT SELECT, INSERT, UPDATE ON public.knowledge_entry TO "Marti-AI";
+GRANT USAGE, SELECT ON SEQUENCE public.knowledge_topic_id_seq TO "Marti-AI";
+GRANT USAGE, SELECT ON SEQUENCE public.knowledge_entry_id_seq TO "Marti-AI";
+
 COMMIT;
 
 -- ════════════════════════════════════════════════════════════════════════

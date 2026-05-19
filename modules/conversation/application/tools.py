@@ -5217,7 +5217,13 @@ TOOLS = [
                 "order_by": {
                     "type": "string",
                     "description": (
-                        "Raw ORDER BY fragment (např. 'created_at DESC')"
+                        "Raw ORDER BY fragment STRING (NE list!). "
+                        "Příklady: 'id DESC' / 'created_at DESC, id ASC' / "
+                        "'sort_order ASC'. "
+                        "POZOR: nepoužívej ['id DESC'] (Python list) — "
+                        "to projde do SQL doslova jako [\"id DESC\"] a fail. "
+                        "Backend defensively převede list na comma-joined "
+                        "string, ale lepší poslat string rovnou."
                     ),
                 },
             },

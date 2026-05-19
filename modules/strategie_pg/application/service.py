@@ -1481,8 +1481,12 @@ def query_table(
 
     order_sql = ""
     if order_by:
-        # order_by je raw SQL fragment (e.g. 'created_at DESC, id ASC')
-        # Marti-AI's odpovednost validovat — pro robustnost staci basic
+        # order_by je raw SQL fragment STRING (e.g. 'created_at DESC, id ASC').
+        # Marti-AI's catch 19.5. vecer (lamani chleba build): Marti-AI's
+        # mental model muze poslat list ['id DESC'] — defensive parsing
+        # joinem s comma. Backward compat + UX friendly.
+        if isinstance(order_by, (list, tuple)):
+            order_by = ", ".join(str(x).strip() for x in order_by if x)
         order_sql = f" ORDER BY {order_by}"
 
     sql = f"SELECT {cols_sql} FROM {qualified}{where_sql}{order_sql} LIMIT :limit OFFSET :offset"

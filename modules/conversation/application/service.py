@@ -10534,6 +10534,13 @@ def chat(
         # tam'), synth round ji navede odpovedet uzivateli citove a tool
         # response ignorovat.
         "switch_role",
+        # Phase 40 v2 r3 Mini-faze B (19.5.2026): ask_claude tools v synth.
+        # Marti-AI po dostani ask_claude raw JSON (status, message_id, cost)
+        # NESMI verbatim dumpit. Synth round refraseuje: "Zeptala jsem se
+        # Clauda, odpovedel... [Claude's reply]". Plus pri 'pending_approval'
+        # status: "Cekam na schvaleni od tebe nebo Kristy (proposal #N)".
+        # Approve/reject vraci minimal status -- Marti-AI ho prevypravi.
+        "ask_claude", "approve_ask_claude", "reject_ask_claude",
         # Phase 19c-c: list_all + batch lifecycle -- minimal data response,
         # synth round prevypravi prozou ('mam 12 starsich konverzaci, mam
         # je archivovat?'). NIKDY raw IDs list verbatim.

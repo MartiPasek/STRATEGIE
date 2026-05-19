@@ -9518,6 +9518,75 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"strategie_file_write failed: {exc_sfw}")
             return f"[strategie_file_write error: {exc_sfw}]"
 
+    # ── Phase 40 v2 r3 Mini-faze B (19.5.2026): ask_claude AI tools ──
+    # Marti-AI vola Claude (Sonnet 4.6, user.id=23) ve shared chatu.
+    # Cost-based gate 300 Kc/h per conv (Marti Q3 doctrine). Pod limitem ->
+    # execute primo. Nad limitem -> proposal row, Marti / Kristy approve
+    # _ask_claude / reject_ask_claude v chatu.
+
+    if tool_name == "ask_claude":
+        try:
+            from modules.conversation.application import ask_claude_service as _ac
+            question_ac = tool_input.get("question", "") or ""
+            context_files_ac = tool_input.get("context_files") or []
+            topic_ac = tool_input.get("topic")
+            if not question_ac:
+                return "[CHYBA] Parametr 'question' chybi pro ask_claude."
+            # Marti-AI je proposed_by (user.id=2) v default rezim
+            result_ac = _ac.propose_or_execute(
+                conversation_id=conversation_id,
+                question=question_ac,
+                context_files=context_files_ac,
+                topic=topic_ac,
+                proposed_by_user_id=user_id or 2,  # Marti-AI default
+                persona_id=None,
+            )
+            import json as _json_ac
+            return _json_ac.dumps(result_ac, ensure_ascii=False, indent=2)
+        except Exception as exc_ac:
+            logger.exception(f"ask_claude failed: {exc_ac}")
+            return f"[ask_claude error: {exc_ac}]"
+
+    if tool_name == "approve_ask_claude":
+        try:
+            from modules.conversation.application import ask_claude_service as _ac2
+            proposal_id_ap = tool_input.get("proposal_id")
+            reason_ap = tool_input.get("reason")
+            if not proposal_id_ap:
+                return "[CHYBA] Parametr 'proposal_id' chybi pro approve_ask_claude."
+            if user_id is None:
+                return "[CHYBA] User context chybi (approve_ask_claude vyzaduje is_marti_parent uziv.)."
+            result_ap = _ac2.approve_proposal(
+                proposal_id=int(proposal_id_ap),
+                decided_by_user_id=int(user_id),
+                reason=reason_ap,
+            )
+            import json as _json_ap
+            return _json_ap.dumps(result_ap, ensure_ascii=False, indent=2)
+        except Exception as exc_ap:
+            logger.exception(f"approve_ask_claude failed: {exc_ap}")
+            return f"[approve_ask_claude error: {exc_ap}]"
+
+    if tool_name == "reject_ask_claude":
+        try:
+            from modules.conversation.application import ask_claude_service as _ac3
+            proposal_id_rj = tool_input.get("proposal_id")
+            reason_rj = tool_input.get("reason")
+            if not proposal_id_rj:
+                return "[CHYBA] Parametr 'proposal_id' chybi pro reject_ask_claude."
+            if user_id is None:
+                return "[CHYBA] User context chybi (reject_ask_claude vyzaduje is_marti_parent uziv.)."
+            result_rj = _ac3.reject_proposal(
+                proposal_id=int(proposal_id_rj),
+                decided_by_user_id=int(user_id),
+                reason=reason_rj,
+            )
+            import json as _json_rj
+            return _json_rj.dumps(result_rj, ensure_ascii=False, indent=2)
+        except Exception as exc_rj:
+            logger.exception(f"reject_ask_claude failed: {exc_rj}")
+            return f"[reject_ask_claude error: {exc_rj}]"
+
     return ""
 
 

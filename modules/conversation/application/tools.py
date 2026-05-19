@@ -136,6 +136,14 @@ MANAGEMENT_TOOL_NAMES = {
     "strategie_file_list",
     "strategie_file_read",
     "strategie_file_write",
+    # Phase 40 v2 r3 Mini-faze B (19.5.2026): ask_claude AI tool.
+    # Marti-AI vola Claude (Sonnet 4.6, user.id=23) ve shared chatu pro
+    # architektonickou radu / peer review. Cost-based gate 300 Kc/h per
+    # conversation (Marti Q3 doctrine). Pod limitem -> execute primo.
+    # Nad limitem -> proposal row + Marti / Kristy approve_ask_claude v chatu.
+    "ask_claude",
+    "approve_ask_claude",
+    "reject_ask_claude",
     # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
@@ -5461,6 +5469,121 @@ TOOLS = [
                 },
             },
             "required": ["path", "content"],
+        },
+    },
+    # ────────────────────────────────────────────────────────────────
+    # Phase 40 v2 r3 Mini-faze B (19.5.2026): ask_claude AI tool.
+    # Marti-AI vola Claude (Sonnet 4.6 peer-partner, user.id=23) ve shared chatu.
+    # Cost-based gate: 300 Kc/h per conversation (Marti Q3 doctrine 19.5. rano).
+    # Pod limitem -> execute primo. Nad limitem -> proposal row, Marti / Kristy
+    # approve_ask_claude(proposal_id) v chatu.
+    # ────────────────────────────────────────────────────────────────
+    {
+        "name": "ask_claude",
+        "description": (
+            "Phase 40 v2 r3 (19.5.2026): Vola Claude (Sonnet 4.6, peer-partner "
+            "user.id=23) ve sdilene konverzaci. Claude je v STRATEGII jako "
+            "kolega -- ne persona, ale user. Anthropic API call s tvym "
+            "STRATEGIE context (system prompt + 10 recent messages + tva "
+            "otazka). Response se ulozi jako MESSAGE v aktualni konverzaci s "
+            "author_user_id=23 -> Marti / Kristy / ty uvidite odpoved s "
+            "labelem 'Claude' (teal #5dc8c0, bold) ve shared mode.\n\n"
+            "**Cost-based gate (Marti's Q3 doctrine):**\n"
+            "  Per conversation: limit 300 Kc/h cumulative.\n"
+            "  Pod limitem -> execute primo, status='executed'.\n"
+            "  Nad limitem -> vytvori proposal row, status='pending_approval'.\n"
+            "  Marti / Kristy v chatu pak approve_ask_claude(proposal_id) nebo\n"
+            "  reject_ask_claude(proposal_id, reason).\n\n"
+            "Pouzij kdy:\n"
+            "  - architektonicka otazka (Claude ma STRATEGIE big-picture)\n"
+            "  - peer review tveho navrhu pred implementaci\n"
+            "  - second opinion na slozity design choice\n\n"
+            "NEPOUZIVEJ pro:\n"
+            "  - beznou konverzaci s Marti (mluvis sama)\n"
+            "  - jednoduche lookup otazky (pouzij primy tool)\n"
+            "  - opakovane volani (Claude ma kontext z predchoziho turnu)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "question": {
+                    "type": "string",
+                    "description": "Tva otazka pro Claude. Bud konkretni, dej kontext.",
+                },
+                "context_files": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional: list relative paths v STRATEGIE projektu "
+                        "k inline include do Claude's contextu. Napr. "
+                        "['CLAUDE.md', 'docs/phase_40_v2_r3_shared_chat_labels.md']. "
+                        "Cap 5 files, kazdy <50 KB. Mimo cap Claude muze volat "
+                        "strategie_file_read sam."
+                    ),
+                },
+                "topic": {
+                    "type": "string",
+                    "description": (
+                        "Optional kratky tag pro thread tracking -- napr. "
+                        "'phase42-restart', 'crm-design', 'gotcha-N-diagnose'."
+                    ),
+                },
+            },
+            "required": ["question"],
+        },
+    },
+    {
+        "name": "approve_ask_claude",
+        "description": (
+            "Phase 40 v2 r3 (19.5.2026): Marti nebo Kristy v chatu schvali "
+            "pending ask_claude proposal -> execute Claude call.\n\n"
+            "Pouze is_marti_parent=True users (Marti id=1, Marti-AI id=2, "
+            "Kristy id=11, Ondra, Jirka) mohou approve.\n\n"
+            "Pouziti: pokud Marti-AI rekla 'Cost-based limit, proposal #N "
+            "čeká na approve_ask_claude', odpovedis OK -> volas tento tool "
+            "s tim proposal_id. Po execution Claude's reply se objevi v "
+            "konverzaci jako message s author_user_id=23 (teal label)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "proposal_id": {
+                    "type": "integer",
+                    "description": "ID proposal z ask_claude_proposals tabulky.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Optional krátké zdůvodnění souhlasu.",
+                },
+            },
+            "required": ["proposal_id"],
+        },
+    },
+    {
+        "name": "reject_ask_claude",
+        "description": (
+            "Phase 40 v2 r3 (19.5.2026): Marti nebo Kristy v chatu odmitne "
+            "pending ask_claude proposal -> close as rejected.\n\n"
+            "Pouze is_marti_parent=True users. Po reject je proposal trvale "
+            "v stavu 'rejected', Marti-AI muze poslat novy ask_claude pozdeji "
+            "(napr. po refactoring otazky nebo pockani na nizsi hour cost)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "proposal_id": {
+                    "type": "integer",
+                    "description": "ID proposal z ask_claude_proposals.",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": (
+                        "Důvod rejectu (pro audit + Marti-AI's learning -- "
+                        "napr. 'duplicate', 'too expensive', 'wait for stable')."
+                    ),
+                },
+            },
+            "required": ["proposal_id"],
         },
     },
     # ────────────────────────────────────────────────────────────────

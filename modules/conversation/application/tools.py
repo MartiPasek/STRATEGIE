@@ -129,6 +129,13 @@ MANAGEMENT_TOOL_NAMES = {
     "strategie_pg_query_raw",
     "strategie_pg_insert_row",
     "strategie_pg_update_row",
+    # Phase 39 (19.5.2026): Marti-AI's filesystem access do STRATEGIE projektu.
+    # Read everywhere (project root \ deny list), Write only marti_workspace/**.
+    # 4-vrstva bezpecnost: path traversal + deny list YAML + write zone + size caps.
+    # Auto-RAG ingest po write do output/, analysis/, claude_chats/ (Phase 39b TODO).
+    "strategie_file_list",
+    "strategie_file_read",
+    "strategie_file_write",
     # Phase 27a (1.5.2026): Excel reader -- Marti-AI's feature request
     # (rozvrh pro Klarku). Strukturovane cteni xlsx jako tabulka.
     "list_excel_sheets",
@@ -5317,6 +5324,143 @@ TOOLS = [
                 },
             },
             "required": ["schema", "table", "values", "where"],
+        },
+    },
+    # ────────────────────────────────────────────────────────────────
+    # Phase 39 (19.5.2026): Marti-AI's STRATEGIE filesystem access.
+    # Read everywhere (project root \ deny list), Write only marti_workspace/**.
+    # Marti's slova 19.5. 02:30 chat: "Pro mne by bylo nejlepsi abys mela RO
+    # pristup primo do projektove slozky". Marti-AI's 4 corrections drive design:
+    #   - notes/ scratch pad (NE intim diary)
+    #   - RAG ingest jen output/ + analysis/ + claude_chats/ (drafts/notes NE)
+    #   - zadny lock (last-write-wins)
+    #   - deny list konfigurovatelny bez deploye (YAML auto-reload)
+    # ────────────────────────────────────────────────────────────────
+    {
+        "name": "strategie_file_list",
+        "description": (
+            "Phase 39: Vypise obsah adresare v STRATEGIE projektu "
+            "(D:/Projekty/STRATEGIE/). Read everywhere -- vidis vsechno krome "
+            "deny list patternu (.env, .git/, secrets/, *.key, node_modules/, "
+            "build/, dist/, __pycache__/ a podobne).\n\n"
+            "path='' (default) = project root. path='modules/erp/' = subadresar.\n"
+            "recursive=True = walk celym stromem (max 1000 entries, truncated "
+            "flag pri prekroceni).\n\n"
+            "Vraci items: [{name, type: 'dir'|'file', size, modified, rel_path}].\n"
+            "Pouzij na zacatku navigace projektem nebo pro orientaci v "
+            "marti_workspace/ pri vyzvedavani draftu/analysis."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Relative path uvnitr project_root. '' (default) = "
+                        "root. Akceptuje '/' i '\\' separator. Path traversal "
+                        "(..) blokovan."
+                    ),
+                    "default": "",
+                },
+                "recursive": {
+                    "type": "boolean",
+                    "description": (
+                        "True = rekurzivni walk subtree. False (default) = "
+                        "jen primy obsah adresare."
+                    ),
+                    "default": False,
+                },
+            },
+        },
+    },
+    {
+        "name": "strategie_file_read",
+        "description": (
+            "Phase 39: Precte obsah souboru v STRATEGIE projektu. "
+            "Read everywhere (deny list applied -- secrets blokovane).\n\n"
+            "Limit: 10 MB (vetsi soubory -> error size_cap, pouzij specializovany "
+            "tool nebo split).\n\n"
+            "encoding='utf-8' (default) -> text content + lines count.\n"
+            "encoding='cp1250' -> Windows legacy text (Marti-AI's gotcha #80).\n"
+            "encoding='base64' -> binary (obrazky, exe -- vraci base64 string).\n\n"
+            "Pouziti: precti CLAUDE.md pro orient po amnesii, modules/erp/api/router.py "
+            "pro audit logiky, docs/CLAUDE_TECH.md pro gotcha lookup, "
+            "marti_workspace/drafts/ pro pokracovani v rozdelane praci."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Relative path k souboru uvnitr project_root. "
+                        "Path traversal + deny list enforced."
+                    ),
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": (
+                        "'utf-8' (default text), 'cp1250' (Windows legacy), "
+                        "'base64' (binary)."
+                    ),
+                    "default": "utf-8",
+                },
+            },
+            "required": ["path"],
+        },
+    },
+    {
+        "name": "strategie_file_write",
+        "description": (
+            "Phase 39: Zapise soubor do marti_workspace/** (write zone whitelist). "
+            "Mimo marti_workspace/ -> 403 write_zone_violation.\n\n"
+            "Limit: 5 MB per call (pro vetsi obsah split na vice souboru).\n\n"
+            "Doctrine (Marti-AI's chat 19.5. 02:30):\n"
+            "  - marti_workspace/drafts/ -- rozepsane myslenky (NE RAG ingest)\n"
+            "  - marti_workspace/analysis/ -- hotove analyzy (auto-RAG ingest)\n"
+            "  - marti_workspace/output/ -- hotove vystupy k presunu/commit (auto-RAG)\n"
+            "  - marti_workspace/notes/ -- scratch pad 'pokracuj od radku 847' (NE RAG)\n"
+            "  - marti_workspace/claude_chats/ -- Phase 40 v2 transcripty (auto-RAG)\n\n"
+            "Naming convention: _vN pro versions (foo_v1.txt, foo_v2.txt) -- "
+            "last-write-wins, no lock.\n\n"
+            "mode='overwrite' (default), 'append', 'fail_if_exists'.\n"
+            "encoding='utf-8' (default), 'base64' (binary)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "path": {
+                    "type": "string",
+                    "description": (
+                        "Relative path UVNITR marti_workspace/. Path traversal "
+                        "+ deny list + write zone enforced."
+                    ),
+                },
+                "content": {
+                    "type": "string",
+                    "description": (
+                        "Obsah souboru. Pro text encoding='utf-8' default, "
+                        "pro binary encoding='base64' a content = base64 string."
+                    ),
+                },
+                "mode": {
+                    "type": "string",
+                    "enum": ["overwrite", "append", "fail_if_exists"],
+                    "description": (
+                        "'overwrite' (default) = replace existing. "
+                        "'append' = add to end (vytvori pokud neexistuje). "
+                        "'fail_if_exists' = error pokud target uz existuje "
+                        "(safety pro draft preservation)."
+                    ),
+                    "default": "overwrite",
+                },
+                "encoding": {
+                    "type": "string",
+                    "description": "'utf-8' (default text) nebo 'base64' (binary).",
+                    "default": "utf-8",
+                },
+            },
+            "required": ["path", "content"],
         },
     },
     # ────────────────────────────────────────────────────────────────

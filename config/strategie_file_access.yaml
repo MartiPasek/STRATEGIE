@@ -1,0 +1,102 @@
+# Phase 39 — Marti-AI file access config
+#
+# 4-vrstvá bezpečnost:
+#   1) Path traversal guard (resolved abs path MUSÍ startsWith project_root)
+#   2) Deny patterns (regex match → 403 access_denied, audit log)
+#   3) Write zone whitelist (jen marti_workspace/** může být psáno)
+#   4) Size caps (read max 10 MB, write max 5 MB per call)
+#
+# Per Marti-AI's Q3 doctrine (19.5. 02:30 chat):
+#   "Conservative — jen CSS + notes, postupně rozšířit deny list dle praxe."
+#   "Konfigurovatelný bez deploye" — auto-reload při změně mtime.
+#
+# Last modified: 2026-05-19 (Phase 39 init)
+
+# ─────────────────────────────────────────────────────────────
+# PROJECT ROOT (anchor pro path traversal guard)
+# ─────────────────────────────────────────────────────────────
+project_root: "D:/Projekty/STRATEGIE"
+
+# ─────────────────────────────────────────────────────────────
+# DENY LIST (regex patterns, matched proti relative path)
+# Cokoliv match → 403 access_denied + audit log entry
+# ─────────────────────────────────────────────────────────────
+deny_patterns:
+  # Secrets & credentials
+  - "^\\.env(\\..*)?$"           # .env, .env.production, .env.local
+  - "^\\.env\\..*"
+  - ".*\\.key$"                   # *.key (SSH, certificates)
+  - ".*\\.pem$"                   # *.pem
+  - ".*\\.pfx$"                   # *.pfx
+  - "^secrets/"                   # secrets/ directory
+  - "^credentials/"               # credentials/ directory
+  - ".*credentials.*\\.json$"     # *credentials*.json
+  - ".*token.*\\.json$"           # *token*.json (oauth, api)
+
+  # Git internals
+  - "^\\.git/"                    # .git/ directory (objects, refs, index)
+  - "^\\.gitconfig$"              # .gitconfig (per-repo config)
+
+  # Node / Python build artifacts (huge, slow, RAG-toxic)
+  - "^node_modules/"
+  - "^__pycache__/"
+  - ".*\\.pyc$"
+  - ".*\\.pyo$"
+  - "^\\.venv/"
+  - "^venv/"
+  - "^dist/"
+  - "^build/"
+
+  # IDE / OS
+  - "^\\.idea/"                   # JetBrains
+  - "^\\.vscode/settings\\.json$" # VSCode user settings (per-user)
+  - "^\\.DS_Store$"               # macOS
+  - "Thumbs\\.db$"                # Windows
+
+  # Backup files (per-user history, ne project file)
+  - ".*\\.bak$"
+  - ".*\\.tmp$"
+  - ".*~$"                        # vim/emacs backup
+  - ".*\\.swp$"                   # vim swap
+
+  # CLAUDE.md privát (Claude's krabicka, ale Marti-AI by tam neměla zapisovat)
+  # Read OK (informational), write DENY (Claude's own append-only)
+  # NOTE: Phase 39 default = read-only WRITE deny enforced jinde (write zone)
+
+# ─────────────────────────────────────────────────────────────
+# WRITE ZONE (whitelist — jen tam smí strategie_file_write)
+# Per Marti-AI's Q1 (19.5. 02:30 chat):
+#   "Write only v marti_workspace/** — to je její doctrine."
+# ─────────────────────────────────────────────────────────────
+write_zones:
+  - "^marti_workspace/"
+
+# ─────────────────────────────────────────────────────────────
+# RAG AUTO-INGEST (po strategie_file_write, ingest do search_documents)
+# Per Marti-AI's Q2 (19.5. 02:30 chat):
+#   "Ingest při zápisu do output/ — to je přirozená hranice 'tohle je hotové'."
+#   "drafts/ nechci ingestovat — drafty jsou rozepsané myšlenky."
+#   "notes/ NE — Praktické, ne intimní; nedávat tam diary thoughts."
+#   "claude_chats/ ANO — Phase 40 v2 transcripty pro budoucí Marti's vyhledávání."
+# ─────────────────────────────────────────────────────────────
+rag_ingest_paths:
+  - "^marti_workspace/output/"
+  - "^marti_workspace/analysis/"
+  - "^marti_workspace/claude_chats/"
+
+# ─────────────────────────────────────────────────────────────
+# SIZE LIMITS (per-call)
+# Ochrana proti DOS (Marti-AI volá tool, nešetří tokeny)
+# ─────────────────────────────────────────────────────────────
+limits:
+  read_max_bytes: 10485760        # 10 MB read cap
+  write_max_bytes: 5242880        # 5 MB write cap
+  list_max_entries: 1000          # max files v jednom strategie_file_list response
+
+# ─────────────────────────────────────────────────────────────
+# CONFIG META (auto-reload guard)
+# ─────────────────────────────────────────────────────────────
+meta:
+  version: "1.0"
+  last_modified_by: "Claude (Phase 39 init)"
+  reload_on_change: true          # security.py sleduje mtime, reloadne při změně

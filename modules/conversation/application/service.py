@@ -9458,6 +9458,66 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"strategie_pg_update_row failed: {exc_pur}")
             return f"[strategie_pg_update_row error: {exc_pur}]"
 
+    # -- Phase 39 (19.5.2026): Marti-AI's STRATEGIE filesystem access --
+    # Read everywhere (project root \ deny list), Write only marti_workspace/**.
+    # 4-vrstva: path traversal + deny YAML + write zone + size caps.
+    # Audit log: vsechny denied calls routed do fw.diag_log pres logger.
+
+    if tool_name == "strategie_file_list":
+        try:
+            from modules.strategie_files.application import service as _sf_list
+            path_sfl = tool_input.get("path", "") or ""
+            recursive_sfl = bool(tool_input.get("recursive", False))
+            result_sfl = _sf_list.strategie_file_list(
+                path=path_sfl,
+                recursive=recursive_sfl,
+            )
+            import json as _json_sfl
+            return _json_sfl.dumps(result_sfl, ensure_ascii=False, indent=2)
+        except Exception as exc_sfl:
+            logger.exception(f"strategie_file_list failed: {exc_sfl}")
+            return f"[strategie_file_list error: {exc_sfl}]"
+
+    if tool_name == "strategie_file_read":
+        try:
+            from modules.strategie_files.application import service as _sf_read
+            path_sfr = tool_input.get("path", "") or ""
+            encoding_sfr = tool_input.get("encoding") or "utf-8"
+            if not path_sfr:
+                return "[CHYBA] Parametr 'path' chybi pro strategie_file_read."
+            result_sfr = _sf_read.strategie_file_read(
+                path=path_sfr,
+                encoding=encoding_sfr,
+            )
+            import json as _json_sfr
+            return _json_sfr.dumps(result_sfr, ensure_ascii=False, indent=2)
+        except Exception as exc_sfr:
+            logger.exception(f"strategie_file_read failed: {exc_sfr}")
+            return f"[strategie_file_read error: {exc_sfr}]"
+
+    if tool_name == "strategie_file_write":
+        try:
+            from modules.strategie_files.application import service as _sf_write
+            path_sfw = tool_input.get("path", "") or ""
+            content_sfw = tool_input.get("content", "")
+            mode_sfw = tool_input.get("mode", "overwrite") or "overwrite"
+            encoding_sfw = tool_input.get("encoding") or "utf-8"
+            if not path_sfw:
+                return "[CHYBA] Parametr 'path' chybi pro strategie_file_write."
+            if content_sfw is None:
+                return "[CHYBA] Parametr 'content' chybi pro strategie_file_write."
+            result_sfw = _sf_write.strategie_file_write(
+                path=path_sfw,
+                content=content_sfw,
+                mode=mode_sfw,
+                encoding=encoding_sfw,
+            )
+            import json as _json_sfw
+            return _json_sfw.dumps(result_sfw, ensure_ascii=False, indent=2)
+        except Exception as exc_sfw:
+            logger.exception(f"strategie_file_write failed: {exc_sfw}")
+            return f"[strategie_file_write error: {exc_sfw}]"
+
     return ""
 
 

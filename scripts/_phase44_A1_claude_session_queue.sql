@@ -101,17 +101,31 @@ CREATE TABLE IF NOT EXISTS public.claude_session_threads (
     turn_count INTEGER NOT NULL DEFAULT 0,
     last_question_at TIMESTAMPTZ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours')
+    -- expires_at semantic (Phase 44 fix 19.5.2026):
+    --   NULL = active thread (bridge agent ho pouzije pro multi-turn continuity)
+    --   set timestamp = expired thread (kdy byl explicit ukoncen)
+    -- Bridge agent periodicky UPDATE expires_at = NOW() pro entries kde
+    -- last_question_at < NOW() - INTERVAL '24 hours' (cleanup logic in agent).
+    -- IMMUTABLE-friendly: NOW() v WHERE NULL check is deterministic,
+    -- NOW() v WHERE expires_at > NOW() je volatile -> PG odmita partial index.
+    expires_at TIMESTAMPTZ NULL
 );
 
--- Per conversation jen 1 active (non-expired) thread
+-- Per conversation jen 1 active thread (expires_at IS NULL je IMMUTABLE check)
 CREATE UNIQUE INDEX IF NOT EXISTS ix_claude_session_threads_conv_active
     ON public.claude_session_threads (conversation_id)
-    WHERE expires_at > NOW();
+    WHERE expires_at IS NULL;
 
+-- Pro cleanup audit / drill-down
 CREATE INDEX IF NOT EXISTS ix_claude_session_threads_expired
-    ON public.claude_session_threads (expires_at)
-    WHERE expires_at <= NOW();
+    ON public.claude_session_threads (expires_at DESC)
+    WHERE expires_at IS NOT NULL;
+
+-- Pro stale detection: agent SELECT id FROM claude_session_threads
+-- WHERE expires_at IS NULL AND last_question_at < NOW() - INTERVAL '24 hours'
+CREATE INDEX IF NOT EXISTS ix_claude_session_threads_active_lastq
+    ON public.claude_session_threads (last_question_at)
+    WHERE expires_at IS NULL;
 
 COMMENT ON TABLE public.claude_session_threads IS
     'Phase 44 (19.5.2026): Multi-turn mapping pro persistent Claude bridge. '

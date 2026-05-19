@@ -275,19 +275,22 @@ def _fetch_recent_shared_chat_messages(conversation_id: int, limit: int = 10) ->
 
 def _get_or_create_thread(conversation_id: int) -> str:
     """Vrati anthropic_conversation_id pro danou shared chat conv. Vytvori
-    novy thread pokud zadny aktivni neexistuje."""
+    novy thread pokud zadny aktivni neexistuje.
+
+    Phase 44 fix 19.5.2026: 'active' marker je expires_at IS NULL (ne
+    expires_at > NOW(), PG nepodporuje volatile NOW() v partial index).
+    Stale detection se dela v _expire_stale_threads() (periodic cleanup)."""
     if not conversation_id:
         return f"oneshot-{uuid.uuid4().hex[:12]}"
 
     try:
-        import psycopg2
         conn = _pg_connect()
         try:
             with conn.cursor() as cur:
-                # Existing active?
+                # Existing active? (expires_at IS NULL znamena live multi-turn thread)
                 cur.execute(
                     "SELECT anthropic_conversation_id FROM public.claude_session_threads "
-                    "WHERE conversation_id = %s AND expires_at > NOW() "
+                    "WHERE conversation_id = %s AND expires_at IS NULL "
                     "ORDER BY id DESC LIMIT 1",
                     (conversation_id,),
                 )
@@ -295,15 +298,15 @@ def _get_or_create_thread(conversation_id: int) -> str:
                 if row:
                     return row[0]
 
-                # Create new
+                # Create new - expires_at zustava NULL dokud nestane stale
                 new_id = f"conv-{conversation_id}-{uuid.uuid4().hex[:12]}"
                 cur.execute(
                     "INSERT INTO public.claude_session_threads "
                     "(conversation_id, anthropic_conversation_id, turn_count, "
                     " last_question_at, expires_at) "
-                    "VALUES (%s, %s, 0, NOW(), NOW() + INTERVAL %s) "
+                    "VALUES (%s, %s, 0, NOW(), NULL) "
                     "RETURNING anthropic_conversation_id",
-                    (conversation_id, new_id, f"{THREAD_EXPIRY_HOURS} hours"),
+                    (conversation_id, new_id),
                 )
                 created = cur.fetchone()[0]
                 conn.commit()
@@ -316,24 +319,55 @@ def _get_or_create_thread(conversation_id: int) -> str:
 
 
 def _bump_thread_turn(anthropic_conversation_id: str) -> None:
+    """UPDATE turn_count + last_question_at na zive thread. expires_at zustava
+    NULL (active) - stale detection oddelena v _expire_stale_threads()."""
     try:
-        import psycopg2
         conn = _pg_connect()
         try:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE public.claude_session_threads SET "
                     "  turn_count = turn_count + 1, "
-                    "  last_question_at = NOW(), "
-                    "  expires_at = NOW() + INTERVAL %s "
+                    "  last_question_at = NOW() "
                     "WHERE anthropic_conversation_id = %s",
-                    (f"{THREAD_EXPIRY_HOURS} hours", anthropic_conversation_id),
+                    (anthropic_conversation_id,),
                 )
                 conn.commit()
         finally:
             conn.close()
     except Exception as exc:
         logger.debug(f"_bump_thread_turn skip: {exc}")
+
+
+def _expire_stale_threads() -> int:
+    """Phase 44 fix (19.5.2026): periodic cleanup. Marks expires_at = NOW()
+    pro thready kde last_question_at < NOW() - INTERVAL <THREAD_EXPIRY_HOURS>.
+
+    Volane jednou za N minut z main loop (analog _recover_orphans). Vraci
+    count expired. Pri dalsim ask_claude na te konv. bridge agent zacne
+    fresh anthropic_conversation_id."""
+    try:
+        conn = _pg_connect()
+        try:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE public.claude_session_threads SET "
+                    "  expires_at = NOW() "
+                    "WHERE expires_at IS NULL "
+                    "  AND last_question_at < NOW() - INTERVAL %s "
+                    "RETURNING id",
+                    (f"{THREAD_EXPIRY_HOURS} hours",),
+                )
+                ids = [int(r[0]) for r in cur.fetchall()]
+                conn.commit()
+                if ids:
+                    logger.info(f"thread expiry: {len(ids)} stale threads marked: {ids}")
+                return len(ids)
+        finally:
+            conn.close()
+    except Exception as exc:
+        logger.warning(f"_expire_stale_threads failed: {exc}")
+        return 0
 
 
 def _anthropic_call(
@@ -625,9 +659,10 @@ def main() -> None:
             except Exception as exc:
                 logger.warning(f"main loop iteration failed: {exc}")
 
-            # Orphan check (kazdou minutu)
+            # Orphan check + stale thread expiry (kazdou minutu)
             if time.monotonic() - last_orphan_check > 60:
                 _recover_orphans()
+                _expire_stale_threads()
                 last_orphan_check = time.monotonic()
 
             # Health write (kazdych HEALTH_INTERVAL_SEC)

@@ -846,6 +846,15 @@
     .msg-audit-snapshot .audit-item { white-space: nowrap; }
     .msg-audit-snapshot .audit-item.expanded { color: #b8d4ec; }   /* okno > 5 */
     .msg-audit-snapshot .audit-item.zoom { color: #8eb6da; }        /* zoom-in */
+    /* Phase X (19.5.2026 vecer): clickable audit items — 📓 → Notebook modal */
+    .msg-audit-snapshot .audit-item.audit-clickable {
+      cursor: pointer;
+      transition: color 120ms ease, text-shadow 120ms ease;
+    }
+    .msg-audit-snapshot .audit-item.audit-clickable:hover {
+      color: #d4b88a;
+      text-shadow: 0 0 4px rgba(212, 184, 138, 0.35);
+    }
     .active-pack-badge-marker {
       font-size: 9px;
       opacity: 0.8;
@@ -5842,6 +5851,18 @@
       badge.dataset.wired = '1';
       badge.addEventListener('click', openNotebookModal);
     }
+    // Delegated click pro per-message 📓 audit-snapshot položku
+    // (msg-audit-snapshot → .audit-item[data-audit-kind="notebook"])
+    if (!document.body.dataset.notebookAuditWired) {
+      document.body.dataset.notebookAuditWired = '1';
+      document.body.addEventListener('click', (e) => {
+        const tgt = e.target && e.target.closest && e.target.closest('.audit-item[data-audit-kind="notebook"]');
+        if (!tgt) return;
+        e.preventDefault();
+        e.stopPropagation();
+        openNotebookModal();
+      });
+    }
     const closeBtn = document.getElementById('notebookModalClose');
     if (closeBtn && !closeBtn.dataset.wired) {
       closeBtn.dataset.wired = '1';
@@ -9767,11 +9788,11 @@
     row.className = 'msg-audit-snapshot';
     row.title = 'Audit snapshot v okamžiku tohoto turnu (s čím Marti-AI šla do tohoto kroku).';
     const items = [];
-    // 📓 notebook count
+    // 📓 notebook count (clickable → otevře Notebook modal)
     if (typeof notebookCount === 'number') {
-      items.push(`<span class="audit-item">📓 ${notebookCount}</span>`);
+      items.push(`<span class="audit-item audit-clickable" data-audit-kind="notebook" title="Otevřít zápisník konverzace (📓 ${notebookCount} poznámek)" style="cursor:pointer">📓 ${notebookCount}</span>`);
     } else {
-      items.push('<span class="audit-item" title="Notebook snapshot nezachycený (zpráva před fixem)">📓 —</span>');
+      items.push('<span class="audit-item audit-clickable" data-audit-kind="notebook" title="Otevřít zápisník konverzace (snapshot nezachycený, zpráva před fixem)" style="cursor:pointer">📓 —</span>');
     }
     // 🪟 window size
     if (typeof windowSize === 'number') {

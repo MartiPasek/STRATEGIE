@@ -20,13 +20,16 @@ Workflow:
   5. Po restartu STRATEGIE-API: pull novy kod uz funguje
 
 NSSM install (jednorazove na cloud APP):
+  # Vytvorit marker dir pokud neexistuje
+  New-Item -ItemType Directory -Path "C:\\Data\\STRATEGIE\\restart_markers" -Force
+
   C:\\Tools\\nssm.exe install STRATEGIE-RESTART-WATCHER python ^
     "C:\\Projekty\\STRATEGIE\\scripts\\restart_watcher.py"
   C:\\Tools\\nssm.exe set STRATEGIE-RESTART-WATCHER AppDirectory C:\\Projekty\\STRATEGIE
   C:\\Tools\\nssm.exe set STRATEGIE-RESTART-WATCHER AppStdout ^
-    D:\\Data\\STRATEGIE\\restart_markers\\watcher.log
+    C:\\Data\\STRATEGIE\\restart_markers\\watcher.log
   C:\\Tools\\nssm.exe set STRATEGIE-RESTART-WATCHER AppStderr ^
-    D:\\Data\\STRATEGIE\\restart_markers\\watcher.log
+    C:\\Data\\STRATEGIE\\restart_markers\\watcher.log
   C:\\Tools\\nssm.exe set STRATEGIE-RESTART-WATCHER Start SERVICE_AUTO_START
   C:\\Tools\\nssm.exe start STRATEGIE-RESTART-WATCHER
 
@@ -37,6 +40,7 @@ Usage manual (development / debug):
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import time
@@ -44,7 +48,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 # Configuration
-MARKER_DIR = Path(r"D:\Data\STRATEGIE\restart_markers")
+# Cloud APP nema D: drive (gotcha 19.5.2026). Default je C:\Data\STRATEGIE\restart_markers.
+# Configurable: nastavit env STRATEGIE_RESTART_MARKER_DIR pokud chces jinde.
+MARKER_DIR = Path(
+    os.environ.get("STRATEGIE_RESTART_MARKER_DIR")
+    or r"C:\Data\STRATEGIE\restart_markers"
+)
 PROCESSED_DIR = MARKER_DIR / "processed"
 LOG_FILE = MARKER_DIR / "watcher.log"
 SCAN_INTERVAL_SEC = 2.0

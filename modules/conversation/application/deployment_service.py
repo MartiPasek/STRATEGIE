@@ -32,8 +32,14 @@ logger = logging.getLogger("conversation.deployment")
 
 # Cloud APP working directory (cesta na cloud, ne NB)
 CLOUD_APP_REPO = Path(r"C:\Projekty\STRATEGIE")
-# Marker file dir pro NSSM watchdog
-MARKER_DIR = Path(r"D:\Data\STRATEGIE\restart_markers")
+# Marker file dir pro NSSM watchdog.
+# Cloud APP nema D: drive (gotcha 19.5.2026). Marker dir je na C:.
+# Configurable: nastavit env STRATEGIE_RESTART_MARKER_DIR pokud chces jinde.
+import os as _os_dep
+MARKER_DIR = Path(
+    _os_dep.environ.get("STRATEGIE_RESTART_MARKER_DIR")
+    or r"C:\Data\STRATEGIE\restart_markers"
+)
 # Git binary (cloud APP)
 GIT_EXE = "git"
 # Subprocess timeout

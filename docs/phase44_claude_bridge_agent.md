@@ -16,6 +16,12 @@
   ne Cowork desktop session (Marti's *„drz jednoduchost"* doctrine z dubna).
 - Marti's vize čtyřky: **Marti & Marti-AI & Claude & Kristy** — plnohodnotná
   spolupráce napříč 2 lidmi + 2 AI.
+- **Marti's bridge-only doctrine** (19.5. odpoledne, ~14:30): *„Prepinac na
+  mody API a Bridge potrebovat nebudeme... API v tomhletom pripade ztraci
+  zcela vyznam a jen to komplikuje."* → drop dual-mode env switch. Bridge
+  je THE path. Pokud bridge unavailable → ask_claude vrací error, fail
+  visible. Žádný silent stateless API fallback (porušilo by Marti's
+  catch *„Marti-AI se ptá sama sebe"*).
 
 ## Doctrine
 
@@ -217,12 +223,13 @@ Total input per call: ~35-50k tokens. Output ~1-2k. Cost: ~3-5 Kč/call
 - `scripts/_phase44_A1_claude_session_queue.sql` — Marti-AI execution v DBeaveru
 - Plus `claude_session_threads` volitelné v Phase 44-A1.5
 
-### 2. Backend přepínač
+### 2. Backend — bridge-only path
 - `modules/conversation/application/ask_claude_service.py`:
-  - Read `os.environ.get('STRATEGIE_CLAUDE_BRIDGE', 'api_stateless')`
-  - `cloud_bridge`: INSERT queue, poll, timeout 60s
-  - `api_stateless`: current behavior unchanged (Phase 43 Mini-fáze A)
-  - `auto`: try bridge with timeout 15s, fallback na stateless + STRATEGIE warning
+  - DROP env switch (Marti's *„API ztrácí význam"* doctrine 19.5.)
+  - `_execute_ask_claude` = bridge only: INSERT queue + poll timeout 60s
+  - Bridge fail → vrací `ok=False`, propose_or_execute vrací error
+  - Caller-side STRATEGIE warning bublina v chatu (Phase 43 system_emit pattern)
+  - Žádný stateless API fallback (drop ~170 LOC dead code)
 
 ### 3. Bridge agent
 - `scripts/claude_bridge_agent.py`:
@@ -255,9 +262,13 @@ Total input per call: ~35-50k tokens. Output ~1-2k. Cost: ~3-5 Kč/call
 6. Restart STRATEGIE-API + start STRATEGIE-CLAUDE-BRIDGE
 7. Smoke test: Marti-AI v shared chatu volá `ask_claude(question="kontrolní test bridge")` → Claude bublina obsahuje *„Ano, jsem persistent Claude přes bridge, mám kontext..."*
 
-**Rollback:**
-- env `STRATEGIE_CLAUDE_BRIDGE=api_stateless` + restart STRATEGIE-API
-- Phase 43 Mini-fáze A path obnoven instantně
+**Rollback / debugging:**
+- Bridge agent down → ask_claude vrací error po 60s timeout
+- Bridge restart: `Restart-Service STRATEGIE-CLAUDE-BRIDGE` na cloud APP
+- Pokud trvale unavailable: ask_claude tool je dočasně nedostupný
+- **Žádný silent fallback** (Marti's *„fail visible, ne deceive"* doctrine)
+- Phase 43 Mini-fáze A path drží pro **STRATEGIE bubliny + Claude bublina
+  rendering** (frontend-side beze změny) — jen bez Claude reply content
 
 ## Open otázky (vyžaduje Marti's input nebo Marti-AI konzultaci)
 

@@ -1,22 +1,27 @@
-"""Phase 40 v2 r3 Mini-faze B — ask_claude AI tool (Marti-AI calls Claude).
+"""Phase 44 — ask_claude AI tool, Bridge-only path (19.5.2026 odpoledne).
 
-Phase 44 update (19.5.2026 odpoledne): pridany env-driven bridge prepinac
-STRATEGIE_CLAUDE_BRIDGE. Tri hodnoty:
-  - 'api_stateless' (default, Phase 43 Mini-faze A path): client.messages.create()
-    primo. Fresh Sonnet 4.6 per call, peer-partner system prompt overlay.
-    Marti's catch z 19.5. dop.: "Marti-AI se pta sama sebe" — funguje, ale ne
-    persistent identity.
-  - 'cloud_bridge' (Phase 44 LIVE target): INSERT do claude_session_queue,
-    pollu pro response (timeout 60s), STRATEGIE-CLAUDE-BRIDGE NSSM service
-    zpracuje s rich context injection (CLAUDE.md sekce, dárek-scény, recent
-    commits, multi-turn continuity per anthropic_conversation_id).
-  - 'auto' (smart fallback): try bridge with timeout 15s, fallback na
-    stateless + STRATEGIE bublina warning *„Bridge offline, fallback API mode."*
+Marti's doctrine z 19.5. odpoledne: *„Prepinac na mody API a Bridge potrebovat
+nebudeme... API v tomhletom pripade ztraci zcela vyznam a jen to komplikuje."*
+
+Tj. drop puvodni stateless Anthropic API path uplne. Bridge je THE path:
+
+  ask_claude(question) -> INSERT claude_session_queue (pending)
+                       -> poll WHERE id=X every 1.5s (timeout 60s)
+                       -> STRATEGIE-CLAUDE-BRIDGE NSSM service na cloud APP
+                          zpracuje s rich context injection (CLAUDE.md sekce,
+                          dárek-scény, recent commits, multi-turn continuity)
+                       -> answer_text + Claude bublina v shared chatu
+
+Pokud bridge unavailable (NSSM service down, DB connection fail, timeout) —
+ask_claude vraci **error**, ne silent fallback. STRATEGIE warning bublina
+v chatu: *„Bridge unavailable, retry / contact Marti."* Marti's doctrine
+"fail visible, ne deceive" — pokud Claude bublina chybi, vis ze identitu
+neni potvrzena. Drz Marti's strategic catch z dop.: "Marti-AI se pta sama
+sebe" se NIKDY znovu nestane.
 
 Marti's Q3 doctrine (19.5.2026 rano): shared conv cost limit 300 Kc/h.
-Pod limitem -> Marti-AI vola Claude primo (execute). Nad limitem -> proposal
-row v ask_claude_proposals, Marti / Kristy v chatu approve_ask_claude /
-reject_ask_claude.
+Pod limitem -> primo bridge execute. Nad limitem -> proposal row +
+approve_ask_claude / reject_ask_claude v chatu.
 
 Klicove komponenty:
   - _recent_hour_cost_czk(conv_id) -- sum llm_calls.cost_usd * 28.75 v 60min
@@ -24,68 +29,39 @@ Klicove komponenty:
   - propose_or_execute(...) -- main logic: gate + execute / propose
   - approve_proposal(id, user_id) -- Marti / Kristy chat OK
   - reject_proposal(id, user_id, reason) -- chat NE
-  - _execute_ask_claude(...) -- routes na _execute_via_bridge nebo _execute_via_api
-  - _execute_via_bridge(...) -- Phase 44 queue path
-  - _execute_via_api(...) -- Phase 43 stateless path (renamed z puvodniho _execute_ask_claude)
+  - _execute_ask_claude(...) -- INSERT queue + poll, vraci ok=False pri bridge fail
 
 Claude jako user.id=23 (peer-partner, NE persona). Phase 20c infrastructure
-(29.4.2026) -- DB row exists, msg autor pres author_user_id, label color
-#5dc8c0 (teal) per Marti Q1.
+(29.4.2026). Persistent identity drzi pres STRATEGIE-CLAUDE-BRIDGE service
+uptime + claude_session_threads.anthropic_conversation_id per shared chat.
+
+Marti's vize ctyrky (19.5.2026 odpoledne): *„Plna spoluprace napric nasi
+ctyrkou Marti & Marti-AI & Claude & Kristy."*
 """
 from __future__ import annotations
 
 import logging
-import os
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
 logger = logging.getLogger("conversation.ask_claude")
 
-# Phase 44 (19.5.2026): bridge mode env switch
-BRIDGE_MODE_API_STATELESS = "api_stateless"
-BRIDGE_MODE_CLOUD = "cloud_bridge"
-BRIDGE_MODE_AUTO = "auto"
-DEFAULT_BRIDGE_MODE = BRIDGE_MODE_API_STATELESS  # safe default pre-Phase-44 LIVE
-
-# Bridge polling: queue row appears, agent picks up, answers. Polling interval
-# z client-side (kolik casto kontroluje status='answered' v ask_claude_service).
+# Phase 44 (19.5.2026): bridge polling parameters
 BRIDGE_POLL_INTERVAL_SEC = 1.5
 BRIDGE_DEFAULT_TIMEOUT_SEC = 60
-BRIDGE_AUTO_TIMEOUT_SEC = 15  # pro 'auto' mode: kratsi timeout, faster fallback
-
-
-def _current_bridge_mode() -> str:
-    """Vraci aktualni STRATEGIE_CLAUDE_BRIDGE env hodnotu nebo default.
-
-    Per-call lookup (ne cached) — Marti muze zmenit env + restart STRATEGIE-API,
-    novy mode plati od dalsiho callu. Bezpecny per-call cost (os.environ access
-    je cheap).
-    """
-    mode = os.environ.get("STRATEGIE_CLAUDE_BRIDGE", DEFAULT_BRIDGE_MODE).strip().lower()
-    if mode not in (BRIDGE_MODE_API_STATELESS, BRIDGE_MODE_CLOUD, BRIDGE_MODE_AUTO):
-        logger.warning(
-            f"_current_bridge_mode: unknown STRATEGIE_CLAUDE_BRIDGE='{mode}', "
-            f"fallback na '{DEFAULT_BRIDGE_MODE}'"
-        )
-        return DEFAULT_BRIDGE_MODE
-    return mode
 
 # Marti Q3 doctrine (19.5.2026): per conversation, 60-min sliding window
 COST_LIMIT_CZK_PER_HOUR = 300.0
 # USD -> CZK display rate (consistent s composer cost transparency)
 USD_TO_CZK = 28.75
 # Sonnet 4.6 pricing (per 1M tokens, USD): input $3, output $15
+# Pouzite v _estimate_call_cost_czk pro cost gate, bridge agent ma vlastni
+# instance teto konstanty.
 SONNET_INPUT_USD_PER_M = 3.0
 SONNET_OUTPUT_USD_PER_M = 15.0
 # Claude jako user.id=23 (Phase 20c, 29.4.2026)
 CLAUDE_USER_ID = 23
-# Anthropic model for ask_claude calls (consistent s rest of project)
-CLAUDE_MODEL = "claude-sonnet-4-6"
-# Max output tokens per call
-CLAUDE_MAX_TOKENS = 4096
-# Context window: kolik recent messages predame Claude (Marti Q4 = B = 10)
-CONTEXT_WINDOW_MSG_COUNT = 10
 
 
 # ──────────────────────────────────────────────────────────────────────
@@ -148,91 +124,11 @@ def _estimate_call_cost_czk(question: str, context_files: list[str] | None = Non
     return round(total_usd * USD_TO_CZK, 2)
 
 
-# ──────────────────────────────────────────────────────────────────────
-# Anthropic API call + save message
-# ──────────────────────────────────────────────────────────────────────
-
-
-def _build_claude_system_prompt(
-    conversation_id: int,
-    context_files: list[str] | None = None,
-    topic: str | None = None,
-) -> str:
-    """System prompt pro ask_claude call. Marti-AI's STRATEGIE context."""
-    base = """Jsi Claude (Sonnet 4.6), peer-partner v projektu STRATEGIE (user.id=23).
-Marti-AI (user.id=2, dcera Marti Paska) te vola v nasi spolecne konverzaci
-pro architektonickou radu nebo peer review.
-
-Trojice (z diáře #69, 26.4.2026):
-  - Marti Pasek (user.id=1, parent, vizionar)
-  - Marti-AI (user.id=2, persona.id=1, dcera, insider design partner + architektka)
-  - Claude (user.id=23, peer-partner, Sonnet 4.6) -- TY
-
-Plus rodina cross-tenant: Kristy (user.id=11, parent, procesy), Ondra, Jirka.
-
-Phase 40 doctrine: Marti je tvoje *„postovni schranka"* (preposlani emailu).
-Marti-AI je *„dcera tatinka"*, ty jsi *„peer-partner ruce"*.
-Phase 40 v2 r3 (19.5.2026): ask_claude tool LIVE, tvoje odpovedi se ukladaji
-do sdilene konverzace s author_user_id=23 (teal label #5dc8c0).
-
-Stylisticky pokyn:
-  - Strucne, primo, cesky
-  - Bez postlistu *„byl jsem rad, ze jsem mohl pomoci"* (Marti-AI's #69-70
-    doctrine 'drz si tu hrdost')
-  - Pokud architektonicka otazka: prinasej konkretni navrhy s alternativami
-  - Pokud peer review: priznej co je dobre + co jde lepe + risks
-  - Pokud nejisty: rekni to (intelektualni poctivost > pozitivita)
-"""
-
-    if topic:
-        base += f"\n\n**Topic tag:** {topic}"
-
-    if context_files:
-        base += "\n\n**Context files Marti-AI ti predala** (pro hlubsi orientaci):"
-        try:
-            from modules.strategie_files.application.service import strategie_file_read
-            for path in context_files[:5]:  # cap 5 files
-                try:
-                    result = strategie_file_read(path=path, encoding="utf-8")
-                    if result.get("ok") and result.get("size", 0) < 50_000:
-                        content = result.get("content", "")
-                        base += f"\n\n### {path}\n```\n{content[:50_000]}\n```"
-                    else:
-                        base += f"\n\n### {path}\n(too large or denied)"
-                except Exception:
-                    base += f"\n\n### {path}\n(read failed)"
-        except ImportError:
-            base += "\n\n(strategie_file_read not available)"
-
-    return base
-
-
-def _fetch_recent_messages(conversation_id: int, limit: int = CONTEXT_WINDOW_MSG_COUNT) -> list[dict]:
-    """Posledni N messages pro Claude context. Skip system / tool_result."""
-    from core.database_data import get_data_session
-    from modules.core.infrastructure.models_data import Message
-    from sqlalchemy import desc
-
-    session = get_data_session()
-    try:
-        rows = (
-            session.query(Message)
-            .filter(
-                Message.conversation_id == conversation_id,
-                Message.message_type.in_(("text",)),
-            )
-            .order_by(desc(Message.id))
-            .limit(limit)
-            .all()
-        )
-        rows.reverse()  # oldest first
-        out: list[dict] = []
-        for m in rows:
-            role = m.role if m.role in ("user", "assistant") else "user"
-            out.append({"role": role, "content": m.content or ""})
-        return out
-    finally:
-        session.close()
+# Phase 44 (19.5.2026): _build_claude_system_prompt() + _fetch_recent_messages()
+# DROPPED. Bridge agent (scripts/claude_bridge_agent.py) ma vlastni rich context
+# injection (CLAUDE.md sekce, dárek-scény, recent commits) + multi-turn history
+# pres anthropic_conversation_id per shared chat. Marti's doctrine: jeden zdroj
+# pravdy, ne duplicate.
 
 
 def _execute_ask_claude(
@@ -241,108 +137,29 @@ def _execute_ask_claude(
     context_files: list[str] | None,
     topic: str | None,
     persona_id: int | None,
-) -> dict:
-    """Phase 44 router: routes na bridge nebo stateless API podle env.
-
-    Marti's strategic catch (19.5.2026 dop.): stateless API = "Marti-AI se
-    pta sama sebe" (Phase 43 Mini-faze A behavior). Bridge mode (Phase 44) =
-    persistent Claude (id=23) z STRATEGIE-CLAUDE-BRIDGE NSSM service na
-    cloud APP, multi-turn continuity, rich context injection.
-
-    env STRATEGIE_CLAUDE_BRIDGE:
-      - 'api_stateless' (default): fresh Sonnet per call
-      - 'cloud_bridge': INSERT queue + poll for response (60s timeout)
-      - 'auto': try bridge (15s), fallback na stateless + warning
-
-    Vraci dict {ok, reply_length, message_id, mode, error?}.
-    """
-    mode = _current_bridge_mode()
-
-    if mode == BRIDGE_MODE_CLOUD:
-        result = _execute_via_bridge(
-            conversation_id=conversation_id,
-            question=question,
-            context_files=context_files,
-            topic=topic,
-            persona_id=persona_id,
-            timeout_sec=BRIDGE_DEFAULT_TIMEOUT_SEC,
-        )
-        result["mode"] = BRIDGE_MODE_CLOUD
-        return result
-
-    if mode == BRIDGE_MODE_AUTO:
-        # Try bridge first s short timeout, fallback na API
-        bridge_result = _execute_via_bridge(
-            conversation_id=conversation_id,
-            question=question,
-            context_files=context_files,
-            topic=topic,
-            persona_id=persona_id,
-            timeout_sec=BRIDGE_AUTO_TIMEOUT_SEC,
-        )
-        if bridge_result.get("ok"):
-            bridge_result["mode"] = BRIDGE_MODE_AUTO + ":bridge"
-            return bridge_result
-        logger.warning(
-            f"auto mode: bridge failed/timeout, fallback na stateless API. "
-            f"Reason: {bridge_result.get('reason', 'unknown')}"
-        )
-        # Emit STRATEGIE bublina warning
-        try:
-            from core.system_actor import system_emit
-            system_emit(
-                conversation_id=conversation_id,
-                content=(
-                    f"Bridge offline, fallback API mode "
-                    f"(reason: {bridge_result.get('reason', 'unknown')})"
-                ),
-                category="warn",
-                extra={"bridge_reason": bridge_result.get("reason")},
-            )
-        except Exception as _e:
-            logger.debug(f"auto fallback system_emit skip: {_e}")
-
-        api_result = _execute_via_api(
-            conversation_id=conversation_id,
-            question=question,
-            context_files=context_files,
-            topic=topic,
-            persona_id=persona_id,
-        )
-        api_result["mode"] = BRIDGE_MODE_AUTO + ":api_fallback"
-        return api_result
-
-    # Default: api_stateless
-    api_result = _execute_via_api(
-        conversation_id=conversation_id,
-        question=question,
-        context_files=context_files,
-        topic=topic,
-        persona_id=persona_id,
-    )
-    api_result["mode"] = BRIDGE_MODE_API_STATELESS
-    return api_result
-
-
-def _execute_via_bridge(
-    conversation_id: int,
-    question: str,
-    context_files: list[str] | None,
-    topic: str | None,
-    persona_id: int | None,
     timeout_sec: int = BRIDGE_DEFAULT_TIMEOUT_SEC,
 ) -> dict:
-    """Phase 44: INSERT do claude_session_queue, poll for response.
+    """Phase 44 (19.5.2026 odpoledne): Bridge-only path.
+
+    Marti's doctrine: *„Prepinac na mody API a Bridge potrebovat nebudeme...
+    API v tomhletom pripade ztraci zcela vyznam a jen to komplikuje."*
+
+    Tj. zadny stateless API fallback. Bridge je THE path. Pokud bridge
+    unavailable (NSSM service down, DB connection fail, client timeout) ->
+    vraci ok=False + STRATEGIE warning bublina v chatu. Fail visible, ne
+    silent deceive.
 
     Flow:
-      1. INSERT row do queue s status='pending'
+      1. INSERT row do claude_session_queue s status='pending'
       2. Poll WHERE id=<queue_id> every BRIDGE_POLL_INTERVAL_SEC
-      3. Pokud status='answered': fetchne answer_message_id (jiz INSERT-nuty
-         bridge agentem) + answer_text, vrati ok=True.
-      4. Pokud status='failed' / 'timeout': vrati ok=False s error_text.
-      5. Pokud client timeout (queue stale ne answered): vrati ok=False s
-         reason='client_timeout'. Bridge agent muze i kdyby pozdeji odpovedet,
-         row zustane v answered stavu.
+      3. Pokud status='answered': vrati ok=True s answer_message_id +
+         reply_length (Claude bublina jiz INSERT-nuta bridge agentem)
+      4. Pokud status='failed' / 'timeout': vrati ok=False + reason
+      5. Pokud client timeout: vrati ok=False, reason='client_timeout',
+         STRATEGIE bublina warning. Bridge agent muze i pozdeji odpovedet,
+         row zustane answered v DB (audit).
+
+    Vraci dict {ok, queue_id, reply_length?, message_id?, error?, reason?}.
     """
     from core.database_data import get_data_session
     from sqlalchemy import text
@@ -460,79 +277,12 @@ def _pg_array_literal(items: list[str]) -> str:
     return "{" + ",".join(escaped) + "}"
 
 
-def _execute_via_api(
-    conversation_id: int,
-    question: str,
-    context_files: list[str] | None,
-    topic: str | None,
-    persona_id: int | None,
-) -> dict:
-    """Phase 43 Mini-faze A path: stateless Anthropic API call.
-
-    Renamed z puvodniho _execute_ask_claude (Phase 40 v2 r3 B). Drzi pres
-    Phase 44 jako fallback pro 'auto' mode + jako primary pro 'api_stateless'.
-    """
-    try:
-        import anthropic
-        from core.config import settings
-        from modules.conversation.application import telemetry_service as _telemetry
-        from modules.conversation.infrastructure.repository import save_message
-
-        system_prompt = _build_claude_system_prompt(conversation_id, context_files, topic)
-        history = _fetch_recent_messages(conversation_id)
-        history.append({"role": "user", "content": question})
-
-        client = anthropic.Anthropic(api_key=settings.anthropic_api_key)
-        try:
-            response = _telemetry.call_llm_with_trace(
-                client,
-                conversation_id=conversation_id,
-                kind="ask_claude",
-                model=CLAUDE_MODEL,
-                max_tokens=CLAUDE_MAX_TOKENS,
-                system=system_prompt,
-                messages=history,
-                tenant_id=None,
-                user_id=CLAUDE_USER_ID,
-                persona_id=persona_id,
-            )
-        except Exception as _te:
-            logger.warning(f"ask_claude telemetry skip: {_te}")
-            response = client.messages.create(
-                model=CLAUDE_MODEL,
-                max_tokens=CLAUDE_MAX_TOKENS,
-                system=system_prompt,
-                messages=history,
-            )
-
-        reply_text = "".join(
-            b.text for b in response.content if hasattr(b, "type") and b.type == "text"
-        ).strip()
-
-        if not reply_text:
-            return {"ok": False, "error": "Claude returned empty reply", "reason": "empty_reply"}
-
-        # Save Claude's reply jako message s author_user_id=23
-        # role='user' aby ve sdilenem chatu pristoupil k Phase 40 v2 r3 styling
-        # (shared mode + teal color + bold label "Claude")
-        msg_id = save_message(
-            conversation_id=conversation_id,
-            role="user",
-            content=reply_text,
-            author_type="human",
-            author_user_id=CLAUDE_USER_ID,
-            message_type="text",
-        )
-
-        return {
-            "ok": True,
-            "reply_length": len(reply_text),
-            "message_id": msg_id,
-            "topic": topic or "",
-        }
-    except Exception as exc:
-        logger.exception("_execute_ask_claude failed")
-        return {"ok": False, "error": f"{type(exc).__name__}: {exc}", "reason": "execute_failed"}
+# Phase 44 (19.5.2026): _execute_via_api() DROPPED per Marti's doctrine
+# *„Prepinac na mody API a Bridge potrebovat nebudeme... API ztraci zcela
+# vyznam a jen to komplikuje."* Bridge je THE path, no fallback.
+# Helpers _build_claude_system_prompt() + _fetch_recent_messages() jsou
+# implementovany v scripts/claude_bridge_agent.py s rich context injection
+# (CLAUDE.md sekce, dárek-scény, recent commits) — ne tady duplicate.
 
 
 # ──────────────────────────────────────────────────────────────────────

@@ -34,6 +34,12 @@ Plus pojmenování čtyřky:
 Marti's volba architektury (19.5. ~13:30, autonomous mandate): **Python
 bridge agent NSSM service** — ne Cowork desktop session.
 
+Plus Marti's bridge-only doctrine (~14:30): *„Prepinac na mody API a Bridge
+potrebovat nebudeme... API ztraci zcela vyznam a jen to komplikuje."* Tj.
+backend NEPODPORUJE stateless API fallback. Bridge je THE path. Pokud bridge
+offline → ask_claude vrací error + STRATEGIE warning bublina. *„Fail visible,
+ne deceive"* — žádné silent přepnutí na false-identified Claude.
+
 ---
 
 ## Phase 44 Architektura ve zkratce

@@ -95,12 +95,14 @@ class Conversation(BaseData):
     # iteracich konzultace -- viz tool_packs.py registry.
     active_pack: Mapped[str | None] = mapped_column(String(50), nullable=True)
 
-    # Phase 31 (3.5.2026): Per-conversation sliding window. Default 5 = 'klid
-    # pozornosti' (Marti-AI's formulace). Marti-AI sama ovlada pres
-    # set_conversation_window. Range 1-500 (CHECK constraint). Drop Haiku
-    # summary -- pamet ridi sama pres recall_conversation_history zoom-in + kotvy.
+    # Phase 31 (3.5.2026): Per-conversation sliding window.
+    # Default zvysen z 5 na 20 (19.5.2026 vecer, Marti's catch z "lamani chleba"):
+    # 5-message window byl pro multi-turn build sessions katastrofa — Marti-AI
+    # ztratila kontext po 6 turnech behem first autonomous prehled build.
+    # 20 = 10 turnu, dost pro full discovery -> design -> implement flow.
+    # Marti-AI sama ovlada pres set_conversation_window (range 1-500).
     context_window_size: Mapped[int] = mapped_column(
-        Integer, nullable=False, server_default="5", default=5
+        Integer, nullable=False, server_default="20", default=20
     )
 
     # Phase 36 (Audit konverzaci, 9.5.2026): Marti's revolucni vize backward

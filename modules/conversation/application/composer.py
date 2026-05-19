@@ -202,7 +202,7 @@ def _build_memory_state_block(conversation_id: int) -> str:
             conv_msb = ds_msb.query(_C_msb).filter_by(id=conversation_id).first()
             if not conv_msb:
                 return ""
-            window_size = int(conv_msb.context_window_size or 5)
+            window_size = int(conv_msb.context_window_size or 20)
 
             # Pocty
             total_msgs = (
@@ -3379,7 +3379,7 @@ def build_prompt(conversation_id: int) -> tuple[str, list[dict]]:
                 cs_p31w.query(_C_p31w).filter_by(id=conversation_id).first()
             )
             window_size_p31 = (
-                int(_conv_p31.context_window_size or 5) if _conv_p31 else 5
+                int(_conv_p31.context_window_size or 20) if _conv_p31 else 5
             )
         finally:
             cs_p31w.close()

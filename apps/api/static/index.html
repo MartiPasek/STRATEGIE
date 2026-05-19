@@ -2903,12 +2903,18 @@
   // Marti's Q2 volba B (cache column z conversations.is_shared).
   let currentConvIsShared = false;
 
-  // Phase 40 v2 r3: fallback color hash pro usery bez explicit label_color.
-  // Deterministicka hue 0-360 z user_id (HSL 55% sat, 55% light = viditelne
-  // na dark backgroundu). Explicit colors: Marti=green #56b870, Marti-AI=
-  // gold #efd9a8, Kristy=pink #e8a4c8, Claude=teal #5dc8c0 (Q1 volba).
+  // Phase 40 v2 r3: explicit color map pro 4 known users + fallback hash.
+  // Marti Q1 doctrine (19.5.2026): Marti=green, Marti-AI=gold, Kristy=pink,
+  // Claude=teal. Ostatni usery (Ondra, Jirka, ...) -> deterministicka hue z uid.
+  const EXPLICIT_USER_COLORS = {
+    1: '#56b870',   // Marti
+    2: '#efd9a8',   // Marti-AI
+    11: '#e8a4c8',  // Kristy
+    23: '#5dc8c0',  // Claude
+  };
   function userIdToColor(uid) {
     if (!uid || typeof uid !== 'number') return 'var(--muted)';
+    if (EXPLICIT_USER_COLORS[uid]) return EXPLICIT_USER_COLORS[uid];
     const hue = (uid * 137) % 360;
     return `hsl(${hue}, 55%, 55%)`;
   }

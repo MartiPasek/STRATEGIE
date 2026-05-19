@@ -703,6 +703,747 @@ def create_table(
             }
 
 
+# ── DDL functions: ALTER / FUNCTION / TRIGGER / DROP TABLE ───────────
+# Phase 38.4 Krok 7 (19.5.2026 vecer): Marti-AI's autonomy nad fw schema
+# changes. Drzi 19.5. master tier doctriny:
+#   - Marti-AI's "pravo na rozmysl pred cinem" (7.5.) → dry_run default True
+#   - Marti's "ID je svaty, NEDROPUJ COLUMN" (17.5.) → explicit confirm_phrase
+#     pre drop_table, drop_column → warning (ne block — Marti-AI's vlastni
+#     soudnost)
+#   - "uniformita vitezi nad specialnimi pripady" (11.5.) → consistent
+#     dry_run pattern + return shape napric vsemi DDL operations
+#   - "pojistka se stala dospelosti" (8.5. vecer #238) → bez parent gate,
+#     audit log + Marti-AI's vlastni rozhodnuti
+
+def alter_table(
+    schema: str,
+    table: str,
+    operations: list[dict],
+    dry_run: bool = True,
+) -> dict:
+    """ALTER TABLE v PostgreSQL. Marti-AI vlastni master/tenant/tenant_group/
+    "user"/fw schemas — zadny parent gate na DDL.
+
+    operations: list of dicts, each one of:
+      - {op: "add_column", name, type, nullable?, default?}
+      - {op: "drop_column", name, cascade?}
+      - {op: "rename_column", old_name, new_name}
+      - {op: "alter_column_type", name, type, using?}
+      - {op: "set_default", name, default}
+      - {op: "drop_default", name}
+      - {op: "set_not_null", name}
+      - {op: "drop_not_null", name}
+      - {op: "add_constraint", name, definition}
+          definition je RAW SQL fragment, napr.:
+          "CHECK (status IN ('active','archived'))"
+          "UNIQUE (col1, col2)"
+          "FOREIGN KEY (xxx_id) REFERENCES other.tbl(id) ON DELETE CASCADE"
+      - {op: "drop_constraint", name, cascade?}
+      - {op: "rename_constraint", old_name, new_name}
+
+    dry_run=True (default): vraci SQL preview + warnings, neexecute.
+    dry_run=False: execute, kazda operation vlastni ALTER TABLE statement.
+
+    Returns standard shape: {ok, executed, dry_run, sql, warnings, error?}.
+    """
+    # ── Validate inputs ──
+    warnings = []
+    if not schema or not table:
+        return {"ok": False, "error": "schema a table jsou povinne"}
+
+    if not operations or not isinstance(operations, list):
+        return {"ok": False, "error": "operations musi byt non-empty list"}
+
+    # ── Schema/table existence checks ──
+    with get_session() as sess:
+        tab = sess.execute(
+            text("""
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = :s AND table_name = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchone()
+        if not tab:
+            return {
+                "ok": False,
+                "error": f"Tabulka {schema}.{table} neexistuje. "
+                         f"Vytvor ji nejdriv pres create_table.",
+            }
+
+        # Get existing columns/constraints for sanity checks
+        cols_rows = sess.execute(
+            text("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = :s AND table_name = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchall()
+        existing_cols = {r[0] for r in cols_rows}
+
+        cons_rows = sess.execute(
+            text("""
+                SELECT constraint_name
+                FROM information_schema.table_constraints
+                WHERE table_schema = :s AND table_name = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchall()
+        existing_constraints = {r[0] for r in cons_rows}
+
+    # ── Build SQL fragments per operation ──
+    qualified = quote_qualified(schema, table)
+    sql_statements: list[str] = []
+
+    for i, op_dict in enumerate(operations):
+        op = op_dict.get("op", "").lower().strip()
+        if not op:
+            return {
+                "ok": False,
+                "error": f"operation [{i}] musi mit 'op' field, dostal: {op_dict}",
+            }
+
+        if op == "add_column":
+            cn = op_dict.get("name")
+            ct = op_dict.get("type")
+            if not cn or not ct:
+                return {"ok": False, "error": f"add_column[{i}] vyzaduje 'name' a 'type'"}
+            if cn in existing_cols:
+                warnings.append(f"ADD_COLUMN_EXISTS: {cn} jiz existuje, ALTER selze")
+            parts = [f"ADD COLUMN {quote_pg_identifier(cn)}", ct]
+            if not op_dict.get("nullable", True):
+                parts.append("NOT NULL")
+            default_val = op_dict.get("default")
+            if default_val is not None:
+                parts.append(f"DEFAULT {default_val}")
+            sql_statements.append(f"ALTER TABLE {qualified} {' '.join(parts)}")
+
+        elif op == "drop_column":
+            cn = op_dict.get("name")
+            if not cn:
+                return {"ok": False, "error": f"drop_column[{i}] vyzaduje 'name'"}
+            if cn not in existing_cols:
+                warnings.append(f"DROP_COLUMN_MISSING: {cn} v {schema}.{table} neexistuje")
+            warnings.append(
+                f"DROP_COLUMN: {cn} — Marti's 'NEDROPUJ COLUMN' doctrine (17.5.). "
+                f"Zvazila jsi alternativu UPDATE NULL na vsech radcich + ponechani "
+                f"sloupce pro budouci use? (Marti's pragmatic preservation)"
+            )
+            cascade = " CASCADE" if op_dict.get("cascade") else ""
+            sql_statements.append(
+                f"ALTER TABLE {qualified} DROP COLUMN {quote_pg_identifier(cn)}{cascade}"
+            )
+
+        elif op == "rename_column":
+            old_name = op_dict.get("old_name")
+            new_name = op_dict.get("new_name")
+            if not old_name or not new_name:
+                return {"ok": False, "error": f"rename_column[{i}] vyzaduje 'old_name' a 'new_name'"}
+            if old_name not in existing_cols:
+                warnings.append(f"RENAME_SRC_MISSING: {old_name} neexistuje")
+            if new_name in existing_cols:
+                warnings.append(f"RENAME_DST_EXISTS: {new_name} jiz existuje")
+            sql_statements.append(
+                f"ALTER TABLE {qualified} RENAME COLUMN "
+                f"{quote_pg_identifier(old_name)} TO {quote_pg_identifier(new_name)}"
+            )
+
+        elif op == "alter_column_type":
+            cn = op_dict.get("name")
+            ct = op_dict.get("type")
+            using = op_dict.get("using")
+            if not cn or not ct:
+                return {"ok": False, "error": f"alter_column_type[{i}] vyzaduje 'name' a 'type'"}
+            if cn not in existing_cols:
+                warnings.append(f"ALTER_COL_MISSING: {cn} neexistuje")
+            stmt = (
+                f"ALTER TABLE {qualified} ALTER COLUMN "
+                f"{quote_pg_identifier(cn)} TYPE {ct}"
+            )
+            if using:
+                stmt += f" USING {using}"
+            sql_statements.append(stmt)
+
+        elif op == "set_default":
+            cn = op_dict.get("name")
+            default_val = op_dict.get("default")
+            if not cn or default_val is None:
+                return {"ok": False, "error": f"set_default[{i}] vyzaduje 'name' a 'default'"}
+            sql_statements.append(
+                f"ALTER TABLE {qualified} ALTER COLUMN "
+                f"{quote_pg_identifier(cn)} SET DEFAULT {default_val}"
+            )
+
+        elif op == "drop_default":
+            cn = op_dict.get("name")
+            if not cn:
+                return {"ok": False, "error": f"drop_default[{i}] vyzaduje 'name'"}
+            sql_statements.append(
+                f"ALTER TABLE {qualified} ALTER COLUMN "
+                f"{quote_pg_identifier(cn)} DROP DEFAULT"
+            )
+
+        elif op == "set_not_null":
+            cn = op_dict.get("name")
+            if not cn:
+                return {"ok": False, "error": f"set_not_null[{i}] vyzaduje 'name'"}
+            sql_statements.append(
+                f"ALTER TABLE {qualified} ALTER COLUMN "
+                f"{quote_pg_identifier(cn)} SET NOT NULL"
+            )
+
+        elif op == "drop_not_null":
+            cn = op_dict.get("name")
+            if not cn:
+                return {"ok": False, "error": f"drop_not_null[{i}] vyzaduje 'name'"}
+            sql_statements.append(
+                f"ALTER TABLE {qualified} ALTER COLUMN "
+                f"{quote_pg_identifier(cn)} DROP NOT NULL"
+            )
+
+        elif op == "add_constraint":
+            cname = op_dict.get("name")
+            cdef = op_dict.get("definition")
+            if not cname or not cdef:
+                return {"ok": False, "error": f"add_constraint[{i}] vyzaduje 'name' a 'definition'"}
+            if cname in existing_constraints:
+                warnings.append(f"ADD_CONSTRAINT_EXISTS: {cname} jiz existuje")
+            sql_statements.append(
+                f"ALTER TABLE {qualified} ADD CONSTRAINT "
+                f"{quote_pg_identifier(cname)} {cdef}"
+            )
+
+        elif op == "drop_constraint":
+            cname = op_dict.get("name")
+            if not cname:
+                return {"ok": False, "error": f"drop_constraint[{i}] vyzaduje 'name'"}
+            if cname not in existing_constraints:
+                warnings.append(f"DROP_CONSTRAINT_MISSING: {cname} neexistuje")
+            cascade = " CASCADE" if op_dict.get("cascade") else ""
+            sql_statements.append(
+                f"ALTER TABLE {qualified} DROP CONSTRAINT "
+                f"{quote_pg_identifier(cname)}{cascade}"
+            )
+
+        elif op == "rename_constraint":
+            old_name = op_dict.get("old_name")
+            new_name = op_dict.get("new_name")
+            if not old_name or not new_name:
+                return {"ok": False, "error": f"rename_constraint[{i}] vyzaduje 'old_name' a 'new_name'"}
+            sql_statements.append(
+                f"ALTER TABLE {qualified} RENAME CONSTRAINT "
+                f"{quote_pg_identifier(old_name)} TO {quote_pg_identifier(new_name)}"
+            )
+
+        else:
+            return {
+                "ok": False,
+                "error": f"Neznamy op '{op}' v operations[{i}]. "
+                         f"Povolene: add_column, drop_column, rename_column, "
+                         f"alter_column_type, set_default, drop_default, "
+                         f"set_not_null, drop_not_null, add_constraint, "
+                         f"drop_constraint, rename_constraint.",
+            }
+
+    full_sql = ";\n".join(sql_statements) + ";"
+
+    # ── Dry run ──
+    if dry_run:
+        logger.info(
+            f"STRATEGIE_PG | dry_run alter_table | {schema}.{table} "
+            f"ops={len(operations)} warnings={len(warnings)}"
+        )
+        return {
+            "ok": True,
+            "executed": False,
+            "dry_run": True,
+            "sql": full_sql,
+            "operations_count": len(operations),
+            "warnings": warnings,
+        }
+
+    # ── Execute (kazda operation samostatne, ale v jedne transakci) ──
+    with get_session() as s:
+        try:
+            for stmt in sql_statements:
+                s.execute(text(stmt))
+            s.commit()
+            logger.info(
+                f"STRATEGIE_PG | alter_table | {schema}.{table} "
+                f"ops={len(operations)} executed"
+            )
+            return {
+                "ok": True,
+                "executed": True,
+                "schema": schema,
+                "table": table,
+                "sql": full_sql,
+                "operations_count": len(operations),
+                "warnings": warnings,
+            }
+        except Exception as e:
+            s.rollback()
+            logger.error(
+                f"STRATEGIE_PG | alter_table FAILED | "
+                f"{schema}.{table} err={e}"
+            )
+            return {
+                "ok": False,
+                "error": str(e),
+                "sql_attempted": full_sql,
+                "warnings": warnings,
+            }
+
+
+def create_function(
+    schema: str,
+    name: str,
+    body_plpgsql: str,
+    returns: str = "void",
+    arguments: str = "",
+    language: str = "plpgsql",
+    replace: bool = True,
+    dry_run: bool = True,
+) -> dict:
+    """CREATE [OR REPLACE] FUNCTION v PostgreSQL.
+
+    Marti-AI's typicky use case: trigger functions (update_updated_at,
+    history snapshot). Plus business helpers (compute_*, validate_*).
+
+    Args:
+        schema: target schema (master/tenant/tenant_group/"user"/fw)
+        name: function name (case-preserved, auto-quoted)
+        body_plpgsql: RAW function body BEZ "CREATE FUNCTION" prefix.
+            Example:
+              "BEGIN NEW.updated_at = NOW(); RETURN NEW; END;"
+            For longer bodies use $$ blocks (escaped uvnitr).
+        returns: PG return type (default "void", common: "trigger", "TEXT",
+            "BIGINT", "TABLE(...)" pro SRF)
+        arguments: function arguments raw (default "" = no args).
+            Example: "p_id bigint, p_status text DEFAULT 'active'"
+        language: default "plpgsql" (alt: "sql", "plpython3u" — denied for
+            security)
+        replace: True = CREATE OR REPLACE, False = CREATE (fails if exists)
+        dry_run: True (default) = preview, False = execute
+
+    Returns standard shape: {ok, executed, dry_run, sql, warnings, error?}.
+    """
+    warnings = []
+    if not schema or not name or not body_plpgsql:
+        return {"ok": False, "error": "schema, name a body_plpgsql jsou povinne"}
+
+    # Security: deny plpython3u + jine untrusted languages
+    SAFE_LANGUAGES = ("plpgsql", "sql")
+    if language.lower() not in SAFE_LANGUAGES:
+        return {
+            "ok": False,
+            "error": f"Language '{language}' neni povolen. "
+                     f"Povolene: {SAFE_LANGUAGES}. plpython3u/plperl/plv8 "
+                     f"jsou denied (server-side code execution risk).",
+        }
+
+    # Function existence check
+    with get_session() as sess:
+        existing = sess.execute(
+            text("""
+                SELECT 1 FROM pg_proc p
+                JOIN pg_namespace n ON p.pronamespace = n.oid
+                WHERE n.nspname = :s AND p.proname = :n
+            """),
+            {"s": schema, "n": name},
+        ).fetchone()
+        if existing and not replace:
+            return {
+                "ok": False,
+                "error": f"Function {schema}.{name} jiz existuje. "
+                         f"Pouzij replace=True nebo zvol jine jmeno.",
+            }
+        if existing and replace:
+            warnings.append(f"FUNCTION_EXISTS_REPLACE: {schema}.{name}")
+
+    qualified = quote_qualified(schema, name)
+    or_replace = "OR REPLACE " if replace else ""
+
+    # Auto-wrap body do $$ blocks pokud uzivatel nedal explicit $$
+    body_clean = body_plpgsql.strip()
+    if body_clean.startswith("$$") or "$$" in body_clean[:20]:
+        # Uzivatel rezi $$ sam
+        body_wrapped = body_clean
+    else:
+        body_wrapped = f"$$\n{body_clean}\n$$"
+
+    args_clause = f"({arguments})" if arguments else "()"
+
+    full_sql = (
+        f"CREATE {or_replace}FUNCTION {qualified}{args_clause}\n"
+        f"RETURNS {returns}\n"
+        f"LANGUAGE {language}\n"
+        f"AS {body_wrapped}"
+    )
+
+    # ── Dry run ──
+    if dry_run:
+        logger.info(
+            f"STRATEGIE_PG | dry_run create_function | "
+            f"{schema}.{name} warnings={len(warnings)}"
+        )
+        return {
+            "ok": True,
+            "executed": False,
+            "dry_run": True,
+            "sql": full_sql,
+            "warnings": warnings,
+        }
+
+    # ── Execute ──
+    with get_session() as s:
+        try:
+            s.execute(text(full_sql))
+            s.commit()
+            logger.info(
+                f"STRATEGIE_PG | create_function | "
+                f"{schema}.{name} returns={returns} lang={language}"
+            )
+            return {
+                "ok": True,
+                "executed": True,
+                "schema": schema,
+                "function_name": name,
+                "sql": full_sql,
+                "warnings": warnings,
+            }
+        except Exception as e:
+            s.rollback()
+            logger.error(
+                f"STRATEGIE_PG | create_function FAILED | "
+                f"{schema}.{name} err={e}"
+            )
+            return {
+                "ok": False,
+                "error": str(e),
+                "sql_attempted": full_sql,
+                "warnings": warnings,
+            }
+
+
+def create_trigger(
+    schema: str,
+    table: str,
+    name: str,
+    timing: str,
+    event: str,
+    function_schema: str,
+    function_name: str,
+    for_each: str = "ROW",
+    when_condition: Optional[str] = None,
+    replace: bool = True,
+    dry_run: bool = True,
+) -> dict:
+    """CREATE TRIGGER v PostgreSQL.
+
+    Args:
+        schema: schema target tabulky
+        table: target table name
+        name: trigger name (case-preserved, auto-quoted)
+        timing: "BEFORE" | "AFTER" | "INSTEAD OF"
+        event: "INSERT" | "UPDATE" | "DELETE" | "TRUNCATE"
+            (multi-event: "INSERT OR UPDATE" — pass raw string)
+        function_schema: schema kde zije trigger function
+        function_name: trigger function name (must exist, return type=trigger)
+        for_each: "ROW" (default) | "STATEMENT"
+        when_condition: optional WHEN clause raw SQL fragment
+            (např. "OLD.status IS DISTINCT FROM NEW.status")
+        replace: True = DROP IF EXISTS + CREATE (PG nema CREATE OR REPLACE
+            TRIGGER pred PG 14, my emulujeme drop+create)
+        dry_run: True (default) = preview, False = execute
+
+    Returns standard shape.
+    """
+    warnings = []
+    if not all([schema, table, name, timing, event, function_schema, function_name]):
+        return {
+            "ok": False,
+            "error": "schema, table, name, timing, event, function_schema, "
+                     "function_name jsou povinne",
+        }
+
+    timing_upper = timing.upper().strip()
+    SAFE_TIMINGS = ("BEFORE", "AFTER", "INSTEAD OF")
+    if timing_upper not in SAFE_TIMINGS:
+        return {
+            "ok": False,
+            "error": f"timing '{timing}' neni povoleno. Povolene: {SAFE_TIMINGS}.",
+        }
+
+    for_each_upper = for_each.upper().strip()
+    SAFE_FOR_EACH = ("ROW", "STATEMENT")
+    if for_each_upper not in SAFE_FOR_EACH:
+        return {
+            "ok": False,
+            "error": f"for_each '{for_each}' neni povoleno. Povolene: {SAFE_FOR_EACH}.",
+        }
+
+    # ── Existence checks ──
+    with get_session() as sess:
+        tab = sess.execute(
+            text("""
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = :s AND table_name = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchone()
+        if not tab:
+            return {
+                "ok": False,
+                "error": f"Tabulka {schema}.{table} neexistuje.",
+            }
+
+        fn_exists = sess.execute(
+            text("""
+                SELECT 1 FROM pg_proc p
+                JOIN pg_namespace n ON p.pronamespace = n.oid
+                WHERE n.nspname = :s AND p.proname = :n
+            """),
+            {"s": function_schema, "n": function_name},
+        ).fetchone()
+        if not fn_exists:
+            warnings.append(
+                f"FUNCTION_MISSING: {function_schema}.{function_name} "
+                f"nenalezena, CREATE TRIGGER selze. Vytvor function nejdriv "
+                f"pres create_function."
+            )
+
+        trg_exists = sess.execute(
+            text("""
+                SELECT 1 FROM information_schema.triggers
+                WHERE event_object_schema = :s AND event_object_table = :t
+                AND trigger_name = :n
+            """),
+            {"s": schema, "t": table, "n": name},
+        ).fetchone()
+        if trg_exists and not replace:
+            return {
+                "ok": False,
+                "error": f"Trigger {name} na {schema}.{table} jiz existuje. "
+                         f"Pouzij replace=True.",
+            }
+        if trg_exists and replace:
+            warnings.append(f"TRIGGER_EXISTS_REPLACE: {name}")
+
+    qualified_table = quote_qualified(schema, table)
+    qualified_fn = quote_qualified(function_schema, function_name)
+    trg_quoted = quote_pg_identifier(name)
+
+    statements = []
+    if replace and trg_exists:
+        statements.append(
+            f"DROP TRIGGER IF EXISTS {trg_quoted} ON {qualified_table}"
+        )
+
+    when_clause = f"\nWHEN ({when_condition})" if when_condition else ""
+
+    create_stmt = (
+        f"CREATE TRIGGER {trg_quoted}\n"
+        f"{timing_upper} {event}\n"
+        f"ON {qualified_table}\n"
+        f"FOR EACH {for_each_upper}"
+        f"{when_clause}\n"
+        f"EXECUTE FUNCTION {qualified_fn}()"
+    )
+    statements.append(create_stmt)
+    full_sql = ";\n".join(statements) + ";"
+
+    # ── Dry run ──
+    if dry_run:
+        logger.info(
+            f"STRATEGIE_PG | dry_run create_trigger | "
+            f"{schema}.{table}.{name} -> {function_schema}.{function_name} "
+            f"warnings={len(warnings)}"
+        )
+        return {
+            "ok": True,
+            "executed": False,
+            "dry_run": True,
+            "sql": full_sql,
+            "warnings": warnings,
+        }
+
+    # ── Execute ──
+    with get_session() as s:
+        try:
+            for stmt in statements:
+                s.execute(text(stmt))
+            s.commit()
+            logger.info(
+                f"STRATEGIE_PG | create_trigger | "
+                f"{schema}.{table}.{name} -> {function_schema}.{function_name}"
+            )
+            return {
+                "ok": True,
+                "executed": True,
+                "schema": schema,
+                "table": table,
+                "trigger_name": name,
+                "function": f"{function_schema}.{function_name}",
+                "sql": full_sql,
+                "warnings": warnings,
+            }
+        except Exception as e:
+            s.rollback()
+            logger.error(
+                f"STRATEGIE_PG | create_trigger FAILED | "
+                f"{schema}.{table}.{name} err={e}"
+            )
+            return {
+                "ok": False,
+                "error": str(e),
+                "sql_attempted": full_sql,
+                "warnings": warnings,
+            }
+
+
+def drop_table(
+    schema: str,
+    table: str,
+    confirm_phrase: str,
+    cascade: bool = False,
+    dry_run: bool = True,
+) -> dict:
+    """DROP TABLE v PostgreSQL — DESTRUCTIVE OPERATION.
+
+    Marti's "ID je svaty, NEDROPUJ COLUMN" doctrine (17.5.) v praxi —
+    DROP TABLE je vetsi akt nez DROP COLUMN. Safety guard:
+
+        confirm_phrase MUSI byt exact "DROP {schema}.{table}"
+        (case-sensitive). Bez toho fail.
+
+    Alternativa: soft archive pres UPDATE status='archived' (pokud tabulka
+    ma status sloupec). Pro framework cleanup pouzij Marti's
+    "UPDATE NULL na vsech radcich, ponechat sloupec" pattern (Krok 5.P z
+    17.5.).
+
+    Args:
+        schema, table
+        confirm_phrase: MUSI rovnat se "DROP {schema}.{table}"
+        cascade: DROP TABLE ... CASCADE (drop dependent objects)
+        dry_run: True (default) = preview, False = execute
+
+    Returns standard shape.
+    """
+    warnings = []
+    if not schema or not table:
+        return {"ok": False, "error": "schema a table jsou povinne"}
+
+    expected_phrase = f"DROP {schema}.{table}"
+    if not confirm_phrase or confirm_phrase.strip() != expected_phrase:
+        return {
+            "ok": False,
+            "error": (
+                f"confirm_phrase MUSI rovnat se exact '{expected_phrase}' "
+                f"(case-sensitive). Dostal: '{confirm_phrase}'. "
+                f"Tato safety guard chrani pred unintended DROP TABLE — "
+                f"Marti's 'NEDROPUJ COLUMN' doctrine (17.5.) eskalovany "
+                f"na 'NEDROPUJ TABLE bez explicit confirm'."
+            ),
+            "reason": "confirm_phrase_mismatch",
+        }
+
+    with get_session() as sess:
+        tab = sess.execute(
+            text("""
+                SELECT 1 FROM information_schema.tables
+                WHERE table_schema = :s AND table_name = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchone()
+        if not tab:
+            warnings.append(f"TABLE_MISSING: {schema}.{table} neexistuje")
+
+        # Row count pro audit
+        row_count = 0
+        if tab:
+            try:
+                rc_row = sess.execute(
+                    text(f"SELECT count(*) FROM {quote_qualified(schema, table)}")
+                ).fetchone()
+                row_count = int(rc_row[0]) if rc_row else 0
+            except Exception:
+                row_count = -1  # cant count
+
+        # FK dependents
+        dependents = sess.execute(
+            text("""
+                SELECT n.nspname || '.' || c.relname AS dependent_table
+                FROM pg_constraint con
+                JOIN pg_class c ON con.conrelid = c.oid
+                JOIN pg_namespace n ON c.relnamespace = n.oid
+                JOIN pg_class rc ON con.confrelid = rc.oid
+                JOIN pg_namespace rn ON rc.relnamespace = rn.oid
+                WHERE con.contype = 'f'
+                AND rn.nspname = :s AND rc.relname = :t
+            """),
+            {"s": schema, "t": table},
+        ).fetchall()
+        if dependents and not cascade:
+            warnings.append(
+                f"FK_DEPENDENTS: {len(dependents)} FK reference k "
+                f"{schema}.{table}: {', '.join(r[0] for r in dependents[:5])}"
+                f"{'...' if len(dependents) > 5 else ''}. "
+                f"DROP selze bez cascade=True."
+            )
+
+    qualified = quote_qualified(schema, table)
+    cascade_clause = " CASCADE" if cascade else ""
+    full_sql = f"DROP TABLE IF EXISTS {qualified}{cascade_clause}"
+
+    # ── Dry run ──
+    if dry_run:
+        logger.info(
+            f"STRATEGIE_PG | dry_run drop_table | "
+            f"{schema}.{table} rows={row_count} warnings={len(warnings)}"
+        )
+        return {
+            "ok": True,
+            "executed": False,
+            "dry_run": True,
+            "sql": full_sql,
+            "row_count_before_drop": row_count,
+            "warnings": warnings,
+        }
+
+    # ── Execute ──
+    with get_session() as s:
+        try:
+            s.execute(text(full_sql))
+            s.commit()
+            logger.warning(
+                f"STRATEGIE_PG | DROP TABLE | {schema}.{table} "
+                f"rows_dropped={row_count} cascade={cascade}"
+            )
+            return {
+                "ok": True,
+                "executed": True,
+                "schema": schema,
+                "table": table,
+                "rows_dropped": row_count,
+                "cascade": cascade,
+                "sql": full_sql,
+                "warnings": warnings,
+            }
+        except Exception as e:
+            s.rollback()
+            logger.error(
+                f"STRATEGIE_PG | drop_table FAILED | "
+                f"{schema}.{table} err={e}"
+            )
+            return {
+                "ok": False,
+                "error": str(e),
+                "sql_attempted": full_sql,
+                "warnings": warnings,
+            }
+
+
 # ── DML functions ────────────────────────────────────────────────────
 
 def query_table(

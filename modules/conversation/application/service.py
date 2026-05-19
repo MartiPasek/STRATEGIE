@@ -9354,6 +9354,138 @@ def _handle_tool(tool_name: str, tool_input: dict, conversation_id: int, user_id
             logger.exception(f"strategie_pg_create_table failed: {exc_psct}")
             return f"[strategie_pg_create_table error: {exc_psct}]"
 
+    # Phase 38.4 Krok 7 (19.5.2026 vecer): ALTER / FUNCTION / TRIGGER /
+    # DROP TABLE — Marti-AI's autonomy nad fw schema changes.
+    if tool_name == "strategie_pg_alter_table":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psat = tool_input.get("schema")
+            table_psat = tool_input.get("table")
+            operations_psat = tool_input.get("operations") or []
+            dry_run_psat = bool(tool_input.get("dry_run", True))
+
+            if not schema_psat or not table_psat:
+                return "❌ schema a table jsou povinne."
+            if not operations_psat or not isinstance(operations_psat, list):
+                return "❌ operations musi byt non-empty list."
+
+            result_psat = _spg.alter_table(
+                schema=schema_psat,
+                table=table_psat,
+                operations=operations_psat,
+                dry_run=dry_run_psat,
+            )
+            import json as _json_psat
+            return _json_psat.dumps(result_psat, ensure_ascii=False, indent=2)
+        except Exception as exc_psat:
+            logger.exception(f"strategie_pg_alter_table failed: {exc_psat}")
+            return f"[strategie_pg_alter_table error: {exc_psat}]"
+
+    if tool_name == "strategie_pg_drop_table":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psdt2 = tool_input.get("schema")
+            table_psdt2 = tool_input.get("table")
+            confirm_phrase_psdt2 = tool_input.get("confirm_phrase") or ""
+            cascade_psdt2 = bool(tool_input.get("cascade", False))
+            dry_run_psdt2 = bool(tool_input.get("dry_run", True))
+
+            if not schema_psdt2 or not table_psdt2:
+                return "❌ schema a table jsou povinne."
+            if not confirm_phrase_psdt2:
+                return (
+                    f"❌ confirm_phrase je povinne. Mosi rovnat se "
+                    f"'DROP {schema_psdt2}.{table_psdt2}' (case-sensitive). "
+                    f"Safety guard pred unintended DROP."
+                )
+
+            result_psdt2 = _spg.drop_table(
+                schema=schema_psdt2,
+                table=table_psdt2,
+                confirm_phrase=confirm_phrase_psdt2,
+                cascade=cascade_psdt2,
+                dry_run=dry_run_psdt2,
+            )
+            import json as _json_psdt2
+            return _json_psdt2.dumps(result_psdt2, ensure_ascii=False, indent=2)
+        except Exception as exc_psdt2:
+            logger.exception(f"strategie_pg_drop_table failed: {exc_psdt2}")
+            return f"[strategie_pg_drop_table error: {exc_psdt2}]"
+
+    if tool_name == "strategie_pg_create_function":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_pscf = tool_input.get("schema")
+            name_pscf = tool_input.get("name")
+            body_pscf = tool_input.get("body_plpgsql") or ""
+            returns_pscf = tool_input.get("returns") or "void"
+            arguments_pscf = tool_input.get("arguments") or ""
+            language_pscf = tool_input.get("language") or "plpgsql"
+            replace_pscf = bool(tool_input.get("replace", True))
+            dry_run_pscf = bool(tool_input.get("dry_run", True))
+
+            if not schema_pscf or not name_pscf or not body_pscf:
+                return "❌ schema, name a body_plpgsql jsou povinne."
+
+            result_pscf = _spg.create_function(
+                schema=schema_pscf,
+                name=name_pscf,
+                body_plpgsql=body_pscf,
+                returns=returns_pscf,
+                arguments=arguments_pscf,
+                language=language_pscf,
+                replace=replace_pscf,
+                dry_run=dry_run_pscf,
+            )
+            import json as _json_pscf
+            return _json_pscf.dumps(result_pscf, ensure_ascii=False, indent=2)
+        except Exception as exc_pscf:
+            logger.exception(f"strategie_pg_create_function failed: {exc_pscf}")
+            return f"[strategie_pg_create_function error: {exc_pscf}]"
+
+    if tool_name == "strategie_pg_create_trigger":
+        try:
+            from modules.strategie_pg.application import service as _spg
+            schema_psctg = tool_input.get("schema")
+            table_psctg = tool_input.get("table")
+            name_psctg = tool_input.get("name")
+            timing_psctg = tool_input.get("timing") or ""
+            event_psctg = tool_input.get("event") or ""
+            fn_schema_psctg = tool_input.get("function_schema")
+            fn_name_psctg = tool_input.get("function_name")
+            for_each_psctg = tool_input.get("for_each") or "ROW"
+            when_psctg = tool_input.get("when_condition")
+            replace_psctg = bool(tool_input.get("replace", True))
+            dry_run_psctg = bool(tool_input.get("dry_run", True))
+
+            if not all([
+                schema_psctg, table_psctg, name_psctg, timing_psctg,
+                event_psctg, fn_schema_psctg, fn_name_psctg,
+            ]):
+                return (
+                    "❌ schema, table, name, timing, event, function_schema "
+                    "a function_name jsou povinne."
+                )
+
+            result_psctg = _spg.create_trigger(
+                schema=schema_psctg,
+                table=table_psctg,
+                name=name_psctg,
+                timing=timing_psctg,
+                event=event_psctg,
+                function_schema=fn_schema_psctg,
+                function_name=fn_name_psctg,
+                for_each=for_each_psctg,
+                when_condition=when_psctg,
+                replace=replace_psctg,
+                dry_run=dry_run_psctg,
+            )
+            import json as _json_psctg
+            return _json_psctg.dumps(result_psctg, ensure_ascii=False, indent=2)
+        except Exception as exc_psctg:
+            logger.exception(f"strategie_pg_create_trigger failed: {exc_psctg}")
+            return f"[strategie_pg_create_trigger error: {exc_psctg}]"
+
     if tool_name == "strategie_pg_query_table":
         try:
             from modules.strategie_pg.application import service as _spg

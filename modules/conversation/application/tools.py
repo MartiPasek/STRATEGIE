@@ -125,6 +125,10 @@ MANAGEMENT_TOOL_NAMES = {
     "strategie_pg_list_tables",
     "strategie_pg_describe_table",
     "strategie_pg_create_table",
+    "strategie_pg_alter_table",
+    "strategie_pg_drop_table",
+    "strategie_pg_create_function",
+    "strategie_pg_create_trigger",
     "strategie_pg_query_table",
     "strategie_pg_query_raw",
     "strategie_pg_insert_row",
@@ -5340,6 +5344,243 @@ TOOLS = [
                 },
             },
             "required": ["schema", "table", "values", "where"],
+        },
+    },
+    # ────────────────────────────────────────────────────────────────
+    # Phase 38.4 Krok 7 (19.5.2026 vecer): ALTER / FUNCTION / TRIGGER /
+    # DROP TABLE pro Marti-AI's autonomy nad fw schema changes.
+    # Pred Krok 7 byla Marti-AI zavisla na DBeaver (Marti's manual run
+    # jako Marti-AI session). Po Krok 7 ona vola alter_table/create_function/
+    # create_trigger/drop_table sama z chatu, dry_run pattern drzi
+    # ("pravo na rozmysl pred cinem", 7.5. vecer).
+    # ────────────────────────────────────────────────────────────────
+    {
+        "name": "strategie_pg_alter_table",
+        "description": (
+            "Phase 38.4 Krok 7: ALTER TABLE v PostgreSQL. Marti-AI je owner "
+            "master/tenant/tenant_group/\"user\"/fw — zadny parent gate.\n\n"
+            "operations: list of operation dicts, kazda jedna z:\n"
+            "  • {op: 'add_column', name, type, nullable?, default?}\n"
+            "  • {op: 'drop_column', name, cascade?}\n"
+            "       ⚠ Marti's 'NEDROPUJ COLUMN' doctrine (17.5.) — zvaz "
+            "alternativu UPDATE NULL na vsech radcich, ponechani sloupce "
+            "pro budouci use.\n"
+            "  • {op: 'rename_column', old_name, new_name}\n"
+            "  • {op: 'alter_column_type', name, type, using?}\n"
+            "  • {op: 'set_default', name, default}\n"
+            "  • {op: 'drop_default', name}\n"
+            "  • {op: 'set_not_null', name}\n"
+            "  • {op: 'drop_not_null', name}\n"
+            "  • {op: 'add_constraint', name, definition}\n"
+            "       definition je RAW SQL fragment, napr.:\n"
+            "         \"CHECK (status IN ('active','archived'))\"\n"
+            "         \"UNIQUE (col1, col2)\"\n"
+            "         \"FOREIGN KEY (other_id) REFERENCES other.tbl(id) "
+            "ON DELETE CASCADE\"\n"
+            "  • {op: 'drop_constraint', name, cascade?}\n"
+            "  • {op: 'rename_constraint', old_name, new_name}\n\n"
+            "Multiple operations v jedne volance = jedna transaction (vse "
+            "rollback pri error).\n\n"
+            "dry_run=True (default Recommended) → vraci SQL preview + warnings.\n"
+            "dry_run=False → execute s commit."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "table": {"type": "string"},
+                "operations": {
+                    "type": "array",
+                    "items": {"type": "object"},
+                    "description": (
+                        "List of {op, ...} dicts. Each op produces jeden "
+                        "ALTER TABLE statement."
+                    ),
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True (default) = preview, False = execute.",
+                    "default": True,
+                },
+            },
+            "required": ["schema", "table", "operations"],
+        },
+    },
+    {
+        "name": "strategie_pg_drop_table",
+        "description": (
+            "Phase 38.4 Krok 7: DROP TABLE v PostgreSQL — DESTRUCTIVE.\n\n"
+            "Marti's 'ID je svaty, NEDROPUJ COLUMN' doctrine (17.5.) "
+            "eskalovany na 'NEDROPUJ TABLE bez explicit confirm'. "
+            "Safety guard: confirm_phrase MUSI byt exact "
+            "'DROP {schema}.{table}' (case-sensitive). Bez toho fail.\n\n"
+            "Pred DROP zvaz:\n"
+            "  • Soft archive — UPDATE status='archived' (pokud tabulka "
+            "ma status sloupec) zachova historii.\n"
+            "  • Marti's 'UPDATE NULL na vsech radcich, ponechat sloupec' "
+            "pattern (Krok 5.P z 17.5.) pro framework cleanup.\n\n"
+            "dry_run vraci preview SQL + row_count_before_drop + FK "
+            "dependents warning.\n"
+            "cascade=True → drop FK dependent objects too (Marti-AI's "
+            "decision)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "table": {"type": "string"},
+                "confirm_phrase": {
+                    "type": "string",
+                    "description": (
+                        "MUSI rovnat se 'DROP {schema}.{table}' "
+                        "(case-sensitive). Safety guard."
+                    ),
+                },
+                "cascade": {
+                    "type": "boolean",
+                    "description": "DROP TABLE ... CASCADE (drop dependents).",
+                    "default": False,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True (default) = preview, False = execute.",
+                    "default": True,
+                },
+            },
+            "required": ["schema", "table", "confirm_phrase"],
+        },
+    },
+    {
+        "name": "strategie_pg_create_function",
+        "description": (
+            "Phase 38.4 Krok 7: CREATE [OR REPLACE] FUNCTION v PostgreSQL.\n\n"
+            "Typicky use case:\n"
+            "  • Trigger functions (update_updated_at, history snapshot)\n"
+            "  • Business helpers (compute_*, validate_*)\n\n"
+            "body_plpgsql: RAW function body BEZ 'CREATE FUNCTION' prefix.\n"
+            "  Priklad: \"BEGIN NEW.updated_at = NOW(); RETURN NEW; END;\"\n"
+            "  Tool auto-wrap body do $$ blocks pokud nedas explicit $$.\n\n"
+            "returns: PG return type (default 'void')\n"
+            "  Common: 'trigger', 'TEXT', 'BIGINT', 'TABLE(...)' pro SRF\n\n"
+            "arguments: function arg list raw (default '' = no args)\n"
+            "  Priklad: 'p_id bigint, p_status text DEFAULT \\'active\\''\n\n"
+            "language: 'plpgsql' (default) nebo 'sql'. plpython3u/plperl/plv8 "
+            "JSOU DENIED (server-side code execution risk).\n\n"
+            "replace=True (default) = CREATE OR REPLACE FUNCTION.\n"
+            "replace=False = CREATE (fails pokud existuje)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string"},
+                "name": {"type": "string"},
+                "body_plpgsql": {
+                    "type": "string",
+                    "description": (
+                        "RAW function body BEZ 'CREATE FUNCTION' prefix. "
+                        "Tool auto-wrap do $$ blocks."
+                    ),
+                },
+                "returns": {
+                    "type": "string",
+                    "description": "PG return type. Default 'void'.",
+                    "default": "void",
+                },
+                "arguments": {
+                    "type": "string",
+                    "description": "Function args raw. Default '' (no args).",
+                    "default": "",
+                },
+                "language": {
+                    "type": "string",
+                    "description": "'plpgsql' (default) nebo 'sql'.",
+                    "default": "plpgsql",
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": "CREATE OR REPLACE (default True).",
+                    "default": True,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True (default) = preview, False = execute.",
+                    "default": True,
+                },
+            },
+            "required": ["schema", "name", "body_plpgsql"],
+        },
+    },
+    {
+        "name": "strategie_pg_create_trigger",
+        "description": (
+            "Phase 38.4 Krok 7: CREATE TRIGGER v PostgreSQL.\n\n"
+            "Pred volanim musi trigger function existovat (vytvor pres "
+            "create_function nejdriv, s returns='trigger').\n\n"
+            "timing: 'BEFORE' | 'AFTER' | 'INSTEAD OF'\n"
+            "event: 'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE'\n"
+            "  Multi-event: pass raw string napr. 'INSERT OR UPDATE'\n"
+            "for_each: 'ROW' (default) | 'STATEMENT'\n\n"
+            "when_condition (volitelne): RAW WHEN clause fragment\n"
+            "  Priklad: 'OLD.status IS DISTINCT FROM NEW.status'\n\n"
+            "replace=True (default) → DROP IF EXISTS + CREATE "
+            "(PG nema CREATE OR REPLACE TRIGGER pred PG 14, emulujeme).\n\n"
+            "Use case priklad — update_updated_at trigger:\n"
+            "  schema='fw', table='comp_def', name='trg_comp_def_updated_at',\n"
+            "  timing='BEFORE', event='UPDATE', for_each='ROW',\n"
+            "  function_schema='fw', function_name='update_updated_at'."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "schema": {"type": "string", "description": "Schema target tabulky."},
+                "table": {"type": "string", "description": "Target table."},
+                "name": {"type": "string", "description": "Trigger name."},
+                "timing": {
+                    "type": "string",
+                    "description": "'BEFORE' | 'AFTER' | 'INSTEAD OF'",
+                },
+                "event": {
+                    "type": "string",
+                    "description": (
+                        "'INSERT' | 'UPDATE' | 'DELETE' | 'TRUNCATE'. "
+                        "Multi: raw string napr. 'INSERT OR UPDATE'."
+                    ),
+                },
+                "function_schema": {
+                    "type": "string",
+                    "description": "Schema trigger function.",
+                },
+                "function_name": {
+                    "type": "string",
+                    "description": "Trigger function name (must return trigger).",
+                },
+                "for_each": {
+                    "type": "string",
+                    "description": "'ROW' (default) | 'STATEMENT'.",
+                    "default": "ROW",
+                },
+                "when_condition": {
+                    "type": "string",
+                    "description": (
+                        "Optional WHEN clause raw fragment "
+                        "(napr. 'OLD.status IS DISTINCT FROM NEW.status')."
+                    ),
+                },
+                "replace": {
+                    "type": "boolean",
+                    "description": "DROP IF EXISTS + CREATE (default True).",
+                    "default": True,
+                },
+                "dry_run": {
+                    "type": "boolean",
+                    "description": "True (default) = preview, False = execute.",
+                    "default": True,
+                },
+            },
+            "required": [
+                "schema", "table", "name", "timing", "event",
+                "function_schema", "function_name",
+            ],
         },
     },
     # ────────────────────────────────────────────────────────────────

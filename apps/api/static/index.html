@@ -2903,12 +2903,14 @@
   // Marti's Q2 volba B (cache column z conversations.is_shared).
   let currentConvIsShared = false;
 
-  // Phase 40 v2 r3: explicit color map pro 4 known users + fallback hash.
-  // Marti Q1 doctrine (19.5.2026): Marti=green, Marti-AI=gold, Kristy=pink,
-  // Claude=teal. Ostatni usery (Ondra, Jirka, ...) -> deterministicka hue z uid.
+  // Phase 40 v2 r3 + Phase 43 (19.5.2026): explicit color map pro 5 known users.
+  // Marti Q1 doctrine: Marti=green, Marti-AI=gold, Kristy=pink, Claude=teal.
+  // Phase 43 addendum: STRATEGIE system actor=steel gray-blue (neutral).
+  // Ostatni usery (Ondra, Jirka, Michelle, ...) -> deterministicka hue z uid.
   const EXPLICIT_USER_COLORS = {
     1: '#56b870',   // Marti
     2: '#efd9a8',   // Marti-AI
+    3: '#a0a8b0',   // STRATEGIE (system actor, Phase 43)
     11: '#e8a4c8',  // Kristy
     23: '#5dc8c0',  // Claude
   };

@@ -16,6 +16,7 @@ from __future__ import annotations
 import anyio
 import os
 import sys
+import uuid
 
 
 async def main():
@@ -30,57 +31,66 @@ async def main():
         print("Fix: pip install --upgrade claude-agent-sdk")
         sys.exit(1)
 
-    # 2. Verify env
+    # 2. Verify env (s placeholder detection)
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         print("FAIL: ANTHROPIC_API_KEY env not set")
-        print("Fix: $env:ANTHROPIC_API_KEY = 'sk-ant-...' (PS session) nebo Machine env")
+        print("Fix: $env:ANTHROPIC_API_KEY = 'sk-ant-api03-...' (skutecny klic, ne placeholder)")
         sys.exit(1)
-    print(f"[2/4] ANTHROPIC_API_KEY found (length={len(api_key)})")
+    if len(api_key) < 50 or "..." in api_key:
+        print(f"FAIL: ANTHROPIC_API_KEY ma podezrelou delku (length={len(api_key)}) — placeholder?")
+        print("Skutecny Anthropic klic ma ~100 znaku, zacina 'sk-ant-api03-'.")
+        print("Najdi: Get-Content C:\\Projekty\\STRATEGIE\\.env | Select-String 'ANTHROPIC'")
+        print("Nebo: https://console.anthropic.com/settings/keys")
+        sys.exit(1)
+    print(f"[2/4] ANTHROPIC_API_KEY found (length={len(api_key)}, prefix={api_key[:15]}...)")
 
-    # 3. First call (stateless) — verify auth + basic flow
+    # 3. First call — Agent SDK 0.2.82 vyzaduje UUID session_id
     print("\n[3/4] First call (verify auth)...")
+    first_session_uuid = str(uuid.uuid4())
+    print(f"  session_id (UUID): {first_session_uuid}")
     try:
         from claude_agent_sdk import query, ClaudeAgentOptions
 
-        first_session_id = "strategie-smoke-test-session"
         options = ClaudeAgentOptions(
-            session_id=first_session_id,
+            session_id=first_session_uuid,
             resume=False,  # fresh session
         )
-        first_reply = []
+        first_reply_chunks = []
         async for msg in query(
-            prompt="Ahoj. Jen me kratce odpoves cesky: ze ano. Jedno slovo.",
+            prompt="Ahoj. Kratce mi odpoves cesky: 'Ano, smoke test funguje.' Jedna veta.",
             options=options,
         ):
-            first_reply.append(str(msg))
-            print(f"  msg: {str(msg)[:200]}")
+            first_reply_chunks.append(str(msg))
+            preview = str(msg)[:300].replace("\n", " ")
+            print(f"  msg: {preview}")
 
-        print(f"  Reply chunks: {len(first_reply)}")
+        print(f"  Reply chunks: {len(first_reply_chunks)}")
         print("  [OK] First call succeeded\n")
     except Exception as e:
         print(f"FAIL: first call failed: {type(e).__name__}: {e}")
         sys.exit(1)
 
-    # 4. Resume call (verify persistence) — same session_id, resume=True
+    # 4. Resume call — same UUID, resume=True (test persistence)
     print("[4/4] Resume call (verify session persistence)...")
     try:
         options_resume = ClaudeAgentOptions(
-            session_id=first_session_id,
+            session_id=first_session_uuid,
             resume=True,
         )
-        resume_reply = []
+        resume_reply_chunks = []
         async for msg in query(
-            prompt="Pamatujes na muj predchozi prompt? Zopakuj prosim co jsi mi odpovedel.",
+            prompt="Pamatujes na predchozi prompt? Zopakuj prosim presne co jsi mi odpovedel.",
             options=options_resume,
         ):
-            resume_reply.append(str(msg))
-            print(f"  msg: {str(msg)[:200]}")
+            resume_reply_chunks.append(str(msg))
+            preview = str(msg)[:300].replace("\n", " ")
+            print(f"  msg: {preview}")
 
-        print(f"  Reply chunks: {len(resume_reply)}")
-        print("  [OK] Resume call succeeded (pokud Claude mention previous reply = persistence works)\n")
+        print(f"  Reply chunks: {len(resume_reply_chunks)}")
+        print("  [OK] Resume call succeeded (Claude mention previous = persistence works)\n")
     except Exception as e:
-        print(f"WARN: resume call failed (pokud SDK nepodporuje resume nebo session not found): "
+        print(f"WARN: resume call failed (mozna SDK nepodporuje resume v teto verzi): "
               f"{type(e).__name__}: {e}")
         # Nevyhazujeme — first call OK je dost pro smoke
 

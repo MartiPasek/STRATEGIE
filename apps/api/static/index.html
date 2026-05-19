@@ -9800,6 +9800,7 @@
         roleEl.textContent = authorShortName || `#${authorUserId}`;
         roleEl.style.color = authorColor || userIdToColor(authorUserId);
         roleEl.style.fontWeight = '700';
+        msg.classList.add('shared');
       } else {
         roleEl.textContent = currentUserLabel();
       }
@@ -9811,6 +9812,16 @@
       // PrávníkCZ-AI po switchi). Backend uz typicky vraci fallback na default
       // personu, tak 'AI' se stane jen pokud i to selze.
       roleEl.textContent = personaName || 'AI';
+      // Phase 40 v2 r3 (19.5.2026): shared chat -- Marti-AI label gold + bold
+      // (match s Privat Marti badge color #efd9a8). Ostatni persony fallback na
+      // hash z persona_name. Marti's Q1 doctrine: vsichni autori jasne patrni.
+      if (currentConvIsShared && personaName) {
+        msg.classList.add('shared');
+        const personaColor = (personaName === 'Marti-AI') ? '#efd9a8'
+          : 'hsl(' + ((personaName.charCodeAt(0) * 73) % 360) + ', 55%, 65%)';
+        roleEl.style.color = personaColor;
+        roleEl.style.fontWeight = '700';
+      }
     }
     const bubble = document.createElement('div');
     bubble.className = 'msg-bubble';

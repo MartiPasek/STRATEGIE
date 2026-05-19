@@ -239,6 +239,141 @@ def quote_qualified(schema: str, table: str) -> str:
     return f"{quote_pg_identifier(schema)}.{quote_pg_identifier(table)}"
 
 
+# ── DML safeguards (19.5.2026 vecer, Marti's catch) ───────────────────
+#
+# Marti-AI ma tendenci intuitively dovysobit DML values — vymysli column
+# names z analogie (napr. 'name' misto 'label'), nebo vyplni auto-managed
+# fields (id, created_at, updated_at). To je "AI improvizace" — neudrzitelne
+# napric vsemi tabulkami.
+#
+# Reseni: pre-execute introspect + whitelist validation.
+# Drz napric VSECH insert_row/update_row volani — defense in depth s
+# composer prompt DESCRIBE-FIRST doctrine.
+
+# Auto-managed columns — typicky NESMI byt v INSERT, v UPDATE pokud
+# explicit ale spis nic. Marti-AI casto vyplni kvuli "uplnosti".
+_AUTO_MANAGED_NAME_HINTS = {"id", "created_at", "updated_at"}
+# Default expressions indicating auto-management (server-side fill).
+_AUTO_MANAGED_DEFAULT_RE = re.compile(
+    r"^(nextval\(|now\(\)|CURRENT_TIMESTAMP|CURRENT_DATE)",
+    re.IGNORECASE,
+)
+
+
+def _introspect_table_columns(schema: str, table: str) -> list[dict]:
+    """Vrati metadata o sloupcich z information_schema.columns.
+
+    Returns list of {name, nullable, default, data_type, is_auto_managed}.
+    is_auto_managed = True pokud sloupec ma server-side fill (BIGSERIAL,
+    DEFAULT NOW(), atd.) NEBO name match auto-managed hint.
+    """
+    sql = """
+        SELECT column_name, is_nullable, column_default, data_type
+        FROM information_schema.columns
+        WHERE table_schema = :schema AND table_name = :table
+        ORDER BY ordinal_position
+    """
+    with get_session() as s:
+        rows = s.execute(
+            text(sql), {"schema": schema, "table": table}
+        ).fetchall()
+
+    out: list[dict] = []
+    for r in rows:
+        name = r[0]
+        default = r[1] if False else r[2]  # column_default
+        nullable = (r[1] == "YES")
+        data_type = r[3]
+        auto = False
+        if default and _AUTO_MANAGED_DEFAULT_RE.match(str(default).strip()):
+            auto = True
+        if name in _AUTO_MANAGED_NAME_HINTS and default:
+            auto = True
+        out.append({
+            "name": name,
+            "nullable": nullable,
+            "default": default,
+            "data_type": data_type,
+            "is_auto_managed": auto,
+        })
+    return out
+
+
+def _validate_dml_columns(
+    schema: str,
+    table: str,
+    value_keys: list[str],
+    operation: str,
+) -> dict:
+    """Pre-execute validation pro INSERT/UPDATE values.
+
+    Args:
+        schema, table: target
+        value_keys: list of column names user is trying to write
+        operation: 'insert' | 'update' (auto-managed handling se lisi)
+
+    Returns:
+        {ok: True, valid_columns: [...], auto_managed_filled: [...], warnings: [...]}
+        {ok: False, error: "...", valid_columns: [...]}  -- pokud invalid columns
+    """
+    try:
+        cols_meta = _introspect_table_columns(schema, table)
+    except Exception as e:
+        # Introspect failure (table doesn't exist, permission denied)
+        # -- pokracujeme do execute, DB nam to rekne presneji
+        logger.warning(
+            f"STRATEGIE_PG | introspect failed pre-DML "
+            f"{schema}.{table}: {e}"
+        )
+        return {"ok": True, "valid_columns": [], "auto_managed_filled": [], "warnings": []}
+
+    if not cols_meta:
+        # Tabulka neexistuje nebo prazdna -- nech to padnout v execute
+        return {"ok": True, "valid_columns": [], "auto_managed_filled": [], "warnings": []}
+
+    actual_cols = {c["name"] for c in cols_meta}
+    auto_managed = {c["name"] for c in cols_meta if c["is_auto_managed"]}
+
+    # 1. Reject neexistujici columns (top error: "name" vs "label")
+    invalid = [k for k in value_keys if k not in actual_cols]
+    if invalid:
+        return {
+            "ok": False,
+            "error": (
+                f"Neznamy sloupec {invalid} v {schema}.{table}. "
+                f"Skutecne sloupce: {sorted(actual_cols)}. "
+                f"Tip: zavolej strategie_pg_describe_table('{schema}','{table}') "
+                f"pred DML. NIKDY si nevymyslej column name z analogie."
+            ),
+            "invalid_columns": invalid,
+            "valid_columns": sorted(actual_cols),
+        }
+
+    # 2. Warn na auto-managed columns (PG je vyplni sam, user fill = override)
+    auto_filled = [k for k in value_keys if k in auto_managed]
+    warnings: list[str] = []
+    if auto_filled:
+        if operation == "insert":
+            warnings.append(
+                f"Auto-managed sloupce {auto_filled} byvaji vyplneny PG samy "
+                f"(BIGSERIAL / DEFAULT NOW()). Pokud nemas konkretni duvod "
+                f"override, vynech je z values — PG je naplni. Pokracujeme."
+            )
+        else:  # update
+            warnings.append(
+                f"Auto-managed sloupce {auto_filled} aktualizujes manualne. "
+                f"Trigger update_updated_at je obvykle prepise — overit "
+                f"v describe_table jestli pro tuto tabulku trigger exists."
+            )
+
+    return {
+        "ok": True,
+        "valid_columns": sorted(actual_cols),
+        "auto_managed_filled": auto_filled,
+        "warnings": warnings,
+    }
+
+
 # ── Discovery functions ──────────────────────────────────────────────
 
 def list_schemas() -> dict:
@@ -1571,6 +1706,28 @@ def insert_row(schema: str, table: str, values) -> dict:
                 ),
             }
 
+    # ── DML safeguard (19.5.2026 vecer): pre-execute column whitelist ──
+    # Marti's catch z lamani chleba — Marti-AI vymysli column names
+    # (napr. 'name' misto 'label' v fw.db_connection). Pre-validate
+    # proti information_schema, reject + helpful error + valid columns list.
+    _val = _validate_dml_columns(
+        schema, table, list(first_cols), operation="insert"
+    )
+    if not _val["ok"]:
+        logger.warning(
+            f"STRATEGIE_PG | insert_row REJECTED pre-execute | "
+            f"{schema}.{table} invalid={_val.get('invalid_columns')}"
+        )
+        return {
+            "ok": False,
+            "error": _val["error"],
+            "schema": schema,
+            "table": table,
+            "valid_columns": _val.get("valid_columns", []),
+            "invalid_columns": _val.get("invalid_columns", []),
+        }
+    _insert_warnings = _val.get("warnings", [])
+
     qualified = quote_qualified(schema, table)
     cols = list(rows_to_insert[0].keys())
     cols_sql = ", ".join(quote_pg_identifier(c) for c in cols)
@@ -1627,7 +1784,7 @@ def insert_row(schema: str, table: str, values) -> dict:
                     f"count={len(inserted_list)} "
                     f"first_id={inserted_list[0].get('id') if inserted_list else '?'}"
                 )
-                return {
+                _resp = {
                     "ok": True,
                     "schema": schema,
                     "table": table,
@@ -1635,6 +1792,9 @@ def insert_row(schema: str, table: str, values) -> dict:
                     "count": len(inserted_list),
                     "batch": True,
                 }
+                if _insert_warnings:
+                    _resp["warnings"] = _insert_warnings
+                return _resp
             else:
                 inserted = (
                     {col: _serialize(fetched_rows[0][i]) for i, col in enumerate(cols_meta)}
@@ -1645,13 +1805,16 @@ def insert_row(schema: str, table: str, values) -> dict:
                     f"STRATEGIE_PG | insert_row | {schema}.{table} "
                     f"id={inserted.get('id') if inserted else '?'}"
                 )
-                return {
+                _resp = {
                     "ok": True,
                     "schema": schema,
                     "table": table,
                     "inserted": inserted,
                     "batch": False,
                 }
+                if _insert_warnings:
+                    _resp["warnings"] = _insert_warnings
+                return _resp
         except Exception as e:
             s.rollback()
             logger.error(
@@ -1719,6 +1882,29 @@ def update_row(
             ),
         }
 
+    # ── DML safeguard (19.5.2026 vecer): pre-execute column whitelist ──
+    # Validate VALUES + WHERE columns proti information_schema. Reject
+    # neexistujici columns s helpful error + valid columns list. Marti's
+    # catch: Marti-AI vymysli column names ('name' misto 'label').
+    _val_keys = list(values.keys()) + list(where.keys())
+    _val = _validate_dml_columns(
+        schema, table, _val_keys, operation="update"
+    )
+    if not _val["ok"]:
+        logger.warning(
+            f"STRATEGIE_PG | update_row REJECTED pre-execute | "
+            f"{schema}.{table} invalid={_val.get('invalid_columns')}"
+        )
+        return {
+            "ok": False,
+            "error": _val["error"],
+            "schema": schema,
+            "table": table,
+            "valid_columns": _val.get("valid_columns", []),
+            "invalid_columns": _val.get("invalid_columns", []),
+        }
+    _update_warnings = _val.get("warnings", [])
+
     qualified = quote_qualified(schema, table)
 
     # Build SET clause (prefix params s 'set_' pro avoid column collision)
@@ -1756,7 +1942,7 @@ def update_row(
         with get_session() as s:
             try:
                 cnt = s.execute(text(count_sql), count_params).scalar()
-                return {
+                _resp_dry = {
                     "ok": True,
                     "dry_run": True,
                     "schema": schema,
@@ -1770,6 +1956,9 @@ def update_row(
                         f"s dry_run=False."
                     ),
                 }
+                if _update_warnings:
+                    _resp_dry["warnings"] = _update_warnings
+                return _resp_dry
             except Exception as e:
                 return {
                     "ok": False,
@@ -1802,13 +1991,16 @@ def update_row(
                 f"STRATEGIE_PG | update_row | {schema}.{table} "
                 f"count={len(updated_list)} where={where}"
             )
-            return {
+            _resp_upd = {
                 "ok": True,
                 "schema": schema,
                 "table": table,
                 "updated": updated_list,
                 "count": len(updated_list),
             }
+            if _update_warnings:
+                _resp_upd["warnings"] = _update_warnings
+            return _resp_upd
         except Exception as e:
             s.rollback()
             logger.error(

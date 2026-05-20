@@ -94,6 +94,23 @@ async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
     request.state.request_id = request_id
     set_request_id(request_id)
+
+    # Fix E+ (20.5. vecer): capture request body PRED call_next + replay
+    # receive() aby handler mohl re-read.
+    _mw_request_body = b""
+    if request.method in ("POST", "PUT", "PATCH"):
+        try:
+            _mw_request_body = await request.body()
+            async def _mw_receive():
+                return {
+                    "type": "http.request",
+                    "body": _mw_request_body,
+                    "more_body": False,
+                }
+            request._receive = _mw_receive
+        except Exception:
+            _mw_request_body = b"<body read failed>"
+
     response = None
     try:
         response = await call_next(request)
@@ -149,6 +166,37 @@ async def request_id_middleware(request: Request, call_next):
     finally:
         set_request_id(None)
 
+    # Fix E+ — capture response body pro 4xx/5xx (rebuild Response).
+    _mw_response_body_preview = ""
+    _mw_response_body_size = 0
+    try:
+        _status_pre = getattr(response, "status_code", 0) or 0
+        if _status_pre >= 400 and hasattr(response, "body_iterator"):
+            _mw_response_chunks = []
+            _mw_acc_size = 0
+            async for _chunk in response.body_iterator:
+                _mw_response_chunks.append(_chunk)
+                _mw_acc_size += len(_chunk)
+                if _mw_acc_size > 20000:
+                    break
+            _mw_response_bytes = b"".join(_mw_response_chunks)
+            _mw_response_body_size = len(_mw_response_bytes)
+            try:
+                _mw_response_body_preview = _mw_response_bytes[:5000].decode(
+                    "utf-8", errors="replace"
+                )
+            except Exception:
+                _mw_response_body_preview = "<decode failed>"
+            from starlette.responses import Response as _MwResponse
+            response = _MwResponse(
+                content=_mw_response_bytes,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=response.media_type,
+            )
+    except Exception:
+        pass
+
     # Fix E (20.5. vecer, extends Fix C): 4xx+5xx response logger.
     # Controlled responses (FastAPI Pydantic 422, sql_execute_failed
     # JSONResponse(500), 404 stub) procházejí jako successful response
@@ -181,7 +229,14 @@ async def request_id_middleware(request: Request, call_next):
                                 request.client.host if request.client else None
                             ),
                             "response_status": _status,
-                            "trigger": "fix_e_status_code_check",
+                            "trigger": "fix_e_plus_body_capture",
+                            "request_body_preview": (
+                                _mw_request_body[:5000].decode("utf-8", errors="replace")
+                                if _mw_request_body else ""
+                            ),
+                            "request_body_size": len(_mw_request_body or b""),
+                            "response_body_preview": _mw_response_body_preview,
+                            "response_body_size": _mw_response_body_size,
                         },
                     )
                 except Exception:

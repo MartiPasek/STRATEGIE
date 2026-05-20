@@ -9464,6 +9464,26 @@ def _disabled_object_inspector_unused_marker():
 # 4 endpoints DROPPED — ráno refactor pro grid-column scope.
 
 
+# Fix F (20.5. vecer, Marti's diagnostika po Fix E LIVE):
+# _CisloBody type hint byl used 3x (user_tabs_open, user_favorites_add,
+# user_recent_track), 0x definovany — dead reference po commit cc11689
+# ("VELKY DROP Centrála 1 reading"). FastAPI/Pydantic nemohlo resolve →
+# 422 Unprocessable Content pro VSE 3 endpointy. Fix: restore class def.
+class _CisloBody(BaseModel):
+    """Phase B+8.1c (restored 20.5.): body schema pro endpointy s cislo + label.
+
+    Used by:
+      - POST /api/v1/erp/tabs (user_tabs_open)
+      - POST /api/v1/erp/favorites (user_favorites_add)
+      - POST /api/v1/erp/recent (user_recent_track)
+
+    Frontend payload shape (from trackTreeRecent / openTab / favoriteAdd):
+        { "cislo": int, "label": str | null }
+    """
+    cislo: int
+    label: str | None = None
+
+
 # TABS
 
 @api_router.get("/tabs")

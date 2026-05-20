@@ -176,21 +176,12 @@ async def request_id_middleware(request: Request, call_next):
     request.state.request_id = request_id
     set_request_id(request_id)
 
-    # Fix E+ (20.5. vecer): capture request body PRED call_next + replay
-    # receive() aby handler mohl re-read.
-    _mw_request_body = b""
-    if request.method in ("POST", "PUT", "PATCH"):
-        try:
-            _mw_request_body = await request.body()
-            async def _mw_receive():
-                return {
-                    "type": "http.request",
-                    "body": _mw_request_body,
-                    "more_body": False,
-                }
-            request._receive = _mw_receive
-        except Exception:
-            _mw_request_body = b"<body read failed>"
+    # EMERGENCY (20.5. vecer, Marti's HTTP/2 protocol error po Fix J deploy):
+    # Drop Fix E+ request body capture — request._receive override pattern
+    # je nestabilni s Starlette BaseHTTPMiddleware (raises "Unexpected
+    # message received: http.request"). Response body capture (post call_next)
+    # zustava — safe read-only iterator consume.
+    _mw_request_body = b""  # placeholder pro Fix E+ extra dict refs
 
     response = None
     try:
@@ -334,12 +325,8 @@ async def request_id_middleware(request: Request, call_next):
                                 request.client.host if request.client else None
                             ),
                             "response_status": _status,
-                            "trigger": "fix_e_plus_body_capture",
-                            "request_body_preview": (
-                                _mw_request_body[:5000].decode("utf-8", errors="replace")
-                                if _mw_request_body else ""
-                            ),
-                            "request_body_size": len(_mw_request_body or b""),
+                            "trigger": "fix_e_response_body_only",
+                            # EMERGENCY drop request_body — Starlette ASGI incompat
                             "response_body_preview": _mw_response_body_preview,
                             "response_body_size": _mw_response_body_size,
                         },

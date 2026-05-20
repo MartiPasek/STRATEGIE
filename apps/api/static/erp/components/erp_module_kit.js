@@ -197,6 +197,15 @@
       extra: opts.extra || null,
       dom_state: opts.dom_state || null,
       design_mode: typeof window !== "undefined" && window._erpDesignMode === true,
+      // Fix J Vrstva 5 (20.5. vecer): grid/form attribution z window context.
+      // JS rows (info/warn/error) dostanou core_id + comp_def_id → fw.diag_log
+      // → filter "vsechny errory pro core 22" v master gridu instant.
+      core_id: opts.core_id != null
+        ? opts.core_id
+        : (typeof window !== "undefined" ? (window._erpActiveCoreId || null) : null),
+      comp_def_id: opts.comp_def_id != null
+        ? opts.comp_def_id
+        : (typeof window !== "undefined" ? (window._erpActiveCompDefId || null) : null),
       ...((opts.overrides && typeof opts.overrides === "object") ? opts.overrides : {}),
     };
 

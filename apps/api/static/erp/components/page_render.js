@@ -356,6 +356,13 @@
         console.error("[page_render] dispatchPageRender: missing coreId/mainContent");
         return;
       }
+      // Fix J Vrstva 5 (20.5. vecer): set window context PRED page-spec fetch.
+      // _apiCall + _erpLogToDb pak auto-add core_id do headers + event body →
+      // fw.diag_log row dostane grid/form attribution.
+      try {
+        window._erpActiveCoreId = coreId;
+        window._erpActiveCompDefId = null; // reset comp_def — page-spec start
+      } catch (_e) { /* never crash dispatchPageRender */ }
       fetch('/api/v1/erp/fw-core/' + coreId + '/page-spec', {
         credentials: 'include'
       })

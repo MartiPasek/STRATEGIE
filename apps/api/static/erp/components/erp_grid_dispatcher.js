@@ -190,6 +190,13 @@
         throw err;
       }
 
+      // Fix J Vrstva 5 (20.5. vecer): reset comp_def_id pri grid open
+      // (grid context nema komponentu — comp_def je relevant jen pro form
+      // fields). core_id nastavuje dispatchPageRender PRED tim, tady jen clear.
+      try {
+        global._erpActiveCompDefId = null;
+      } catch (_e) { /* never crash dispatcher */ }
+
       const hwCode = _modeToHwCode(mode);
       _logger.info(MODULE_ID,
         "dispatchGridData start: mode=" + mode + ", hw_code=" + hwCode, {

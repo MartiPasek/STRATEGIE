@@ -7814,6 +7814,27 @@ async def diag_log_post_event(req: Request) -> JSONResponse:
         dom_state=body.get("dom_state"),
         created_by_id=user_id,
         created_by_text=login_name,
+        # Fix J Vrstva 5 (20.5. vecer): JS posila core_id + comp_def_id z window
+        # context. Backend log_event() pass do _insert_to_db → fw.diag_log.
+        # Per-request fallback na X-Erp-Core-Id header (pokud body neobsahuje).
+        core_id=(
+            body.get("core_id")
+            if body.get("core_id") is not None
+            else (
+                int(req.headers.get("X-Erp-Core-Id"))
+                if req.headers.get("X-Erp-Core-Id", "").lstrip("-").isdigit()
+                else None
+            )
+        ),
+        comp_def_id=(
+            body.get("comp_def_id")
+            if body.get("comp_def_id") is not None
+            else (
+                int(req.headers.get("X-Erp-Comp-Def-Id"))
+                if req.headers.get("X-Erp-Comp-Def-Id", "").lstrip("-").isdigit()
+                else None
+            )
+        ),
     )
     return JSONResponse({"ok": True, "id": diag_id})
 
@@ -15904,6 +15925,20 @@ def _render_workspace_page(user_id: int) -> str:
             credentials: "include",
             headers: { "Content-Type": "application/json" },
           };
+          // Fix J Vrstva 5 (20.5. vecer): auto-add X-Erp-Core-Id +
+          // X-Erp-Comp-Def-Id headers z window context. Backend middleware
+          // (Fix J) cte tyto headery → log_event(core_id, comp_def_id) →
+          // fw.diag_log row dostane grid/form attribution.
+          try {
+            const _coreId = window._erpActiveCoreId;
+            if (_coreId !== undefined && _coreId !== null) {
+              opts.headers["X-Erp-Core-Id"] = String(_coreId);
+            }
+            const _compDefId = window._erpActiveCompDefId;
+            if (_compDefId !== undefined && _compDefId !== null) {
+              opts.headers["X-Erp-Comp-Def-Id"] = String(_compDefId);
+            }
+          } catch (_e) { /* never crash _apiCall */ }
           if (body !== undefined && body !== null) {
             opts.body = JSON.stringify(body);
           }

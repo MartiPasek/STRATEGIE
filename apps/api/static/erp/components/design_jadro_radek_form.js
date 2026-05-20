@@ -259,10 +259,7 @@
         idSec.grid.appendChild(_f("ID", formCore.id, "form_core.id", { mono: true, readonly: true }));
         idSec.grid.appendChild(_f("Code", formCore.code, "form_core.code", { mono: true }));
         idSec.grid.appendChild(_f("Label", formCore.label, "form_core.label"));
-        idSec.grid.appendChild(_d("Layout type", formCore.layout_type, "layout_type", "form_core.layout_type"));
-        // Phase 38.4 Krok 5.M-3+B (17.5.2026): "Data entity type" field DROPPED
-        // (Krok 5.M doctrine "core nenese entitu").
-        idSec.grid.appendChild(_f("Layout template", formCore.layout_template, "form_core.layout_template", { mono: true }));
+        // Phase fw.core slim 20.5.2026: layout_type + layout_template DROPPED
         idSec.grid.appendChild(_f("Version", formCore.version, "form_core.version", { mono: true, readonly: true }));
         root.appendChild(idSec.wrap);
 
@@ -322,12 +319,11 @@
                 list_core_id: listCore ? listCore.id : null,
                 list_core_code: listCore ? listCore.code : null,
               };
-              const resp = await fetch("/api/v1/erp/design/scaffold-form", {
-                method: "POST",
-                credentials: "same-origin",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify(payload),
-              });
+              // Phase fw.core slim 20.5.2026 (Marti's Decision 2A):
+              // /scaffold-form endpoint DROPPED. Marti-AI manualne vytvori comp_def.
+              console.warn("[design_jadro_radek_form] /scaffold-form endpoint dropped");
+              alert("Scaffold form endpoint odstranen (Phase fw.core slim).\nPoradej Marti-AI vytvorit form core + comp_def pres knowledge_entry postup.");
+              const resp = { ok: false, status: 410, statusText: "Gone", json: function() { return Promise.resolve({ ok: false, error: "scaffold-form dropped" }); } };
               if (!resp.ok) {
                 const errBody = await resp.json().catch(() => ({}));
                 throw new Error("HTTP " + resp.status + ": " + (errBody.error || resp.statusText));

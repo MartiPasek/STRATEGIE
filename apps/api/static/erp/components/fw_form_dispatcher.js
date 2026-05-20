@@ -242,15 +242,16 @@
           card.style.background = "rgba(139,115,85,0.15)";
           card.style.borderColor = rt.accent;
           try {
-            const r = await fetch(
-              "/api/v1/erp/design/fw-core/" + encodeURIComponent(coreId) + "/init-root",
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({ root_type: rt.code }),
-              }
-            ).then(function (rr) { return rr.json(); });
+            // Phase fw.core slim 20.5.2026 (Marti's Decision 2A):
+            // /init-root endpoint DROPPED. Marti-AI dela root comp_def
+            // pres strategie_pg_insert_row (autonomni 8-step build).
+            console.warn("[fw_form_dispatcher] /init-root endpoint dropped — open chat to ask Marti-AI to create root comp_def");
+            alert("Init root endpoint odstranen (Phase fw.core slim).\nPoradej Marti-AI vytvorit root comp_def manualne pres strategie_pg_insert_row.");
+            _busy = false;
+            card.style.background = "#0f1419";
+            card.style.borderColor = "#2a3340";
+            return;
+            const r = { ok: false, error: "init-root dropped" };
             if (r && r.ok) {
               try {
                 _logger.info("fw_form_dispatcher.js",
@@ -401,7 +402,7 @@
             },
             { headerName: "Code", field: "code", width: 180 },
             { headerName: "Label", field: "label", flex: 1, minWidth: 140 },
-            { headerName: "Layout", field: "layout_type", width: 80 },
+            // Phase fw.core slim 20.5.2026: layout_type column DROPPED
             { headerName: "📁 Z menu", field: "origin_menu_node_label", width: 150 },
             { headerName: "📋 Z položky", field: "origin_cmi_label", width: 150 },
             { headerName: "Použito ×", field: "is_used_count", width: 90, type: "numericColumn" },
@@ -468,10 +469,8 @@
                   method: "POST",
                   headers: { "Content-Type": "application/json" },
                   credentials: "include",
-                  body: JSON.stringify({
-                    origin_menu_node_id: (ctx && ctx.menu_node_pk) || null,
-                    origin_cmi_id: cmiId || null,
-                  }),
+                  body: JSON.stringify({}),
+                  // Phase fw.core slim 20.5.2026: origin_* fields DROPPED
                 }
               ).then(function (r) { return r.json(); });
               if (_resp && _resp.ok && _resp.core && _resp.core.id) {
@@ -558,8 +557,7 @@
             "Otevreni FW formu '" + formArgs.coreCode +
             "' selhalo:\n" + (e && e.message ? e.message : e) +
             "\n\nMozne priciny:\n" +
-            "1. fw.core ma layout_type != 'form' (potreba ALTER nebo " +
-            "scaffold form template)\n" +
+            "1. fw.core neexistuje nebo ma jiny problem\n" +
             "2. Endpoint /api/v1/erp/fw-form/{code}/{rowId} vratil 404 " +
             "(form_core nenalezen)\n\n" +
             "Pouzij Design akci pro scaffold form template."

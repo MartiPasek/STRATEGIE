@@ -2358,11 +2358,7 @@ def _serialize_core(row_dict: dict) -> dict:
         # Phase 38.4 Krok 14a-A1l #1: dva popisy — viz menu_node komentar vyse.
         "description_user": row_dict.get("description_user") if row_dict.get("description_user") is not None else row_dict.get("description"),
         "description_system": row_dict.get("description_system"),
-        "layout_type": row_dict.get("layout_type"),
-        "data_entity_type": row_dict.get("data_entity_type"),
         "version": row_dict.get("version"),
-        "parent_framework_id": row_dict.get("parent_framework_id"),
-        "layout_template": row_dict.get("layout_template"),
         "shadow_mode": row_dict.get("shadow_mode"),
         "created_at": _iso(row_dict.get("created_at")),
         "updated_at": _iso(row_dict.get("updated_at")),
@@ -2883,18 +2879,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         # Krok 14g-H+30 Etapa 2: data_source lookup via code
         data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
 
-        # Phase 2.A hotfix (18.5.2026): replace dropped form-core-for-grid
-        # endpoint — pokud list core má form_core_id FK, vrátí form_core
-        # data (used by openFwFormForRow pro grid double-click → open form).
-        form_core_data = None
-        form_core_id = core.get("form_core_id") if core else None
-        if form_core_id:
-            try:
-                form_core = _fetch_core(ds, "c.id = :id", {"id": form_core_id})
-                if form_core:
-                    form_core_data = _serialize_core(form_core)
-            except Exception:
-                pass  # graceful — form_core optional
+        form_core_data = None  # Phase fw.core slim 20.5.2026: form_core_id sloupec dropnut
 
         return JSONResponse(jsonable_encoder({
             "menu_node": _serialize_menu_node(mn) if mn else None,
@@ -2907,258 +2892,8 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         ds.close()
 
 
-# ────────────────────────────────────────────────────────────────────
-# Phase 38.4 Krok 14b (12.5.2026 vecer ~23:30): Find form core for grid.
-#
-# Marti's bug catch: DesignJadroRadekForm fetched list core (security_users,
-# id=11, layout=list) a zobrazoval ho jako form core data — semantically
-# wrong. Fix: nový endpoint který hledá FORM core (kind='form') pro entity
-# z list core's data_entity_type.
-#
-# Drží Marti-AI's flat-data doctrine — entity_type je field v list core,
-# form core je separate row WHERE data_entity_type matches.
-# ────────────────────────────────────────────────────────────────────
 
-
-@api_router.post("/design/scaffold-form")
-async def design_scaffold_form(req: Request) -> JSONResponse:
-    """Vytvor form detail pro daný entity_type (Marti's vychytavka).
-
-    Atomic transaction:
-      1. Check pokud suggested_code existuje → idempotent return existing
-      2. INSERT fw.core (kind='form', data_entity_type=entity_type)
-      3. INSERT fw.comp_def form 302 root s default panel
-         layout={"panels": [{"slot": "main", "label": "", "order": 10}]}
-
-    Body:
-      {
-        "entity_type": "user",
-        "suggested_code": "user_edit",  // default: f"{entity_type}_edit"
-        "list_core_id": 11,              // optional, pro audit
-        "list_core_code": "security_users"  // optional, pro audit
-      }
-
-    Returns:
-      200: {ok, core_id, form_id, core_code, created: bool, existing: bool}
-      400: validation error (missing entity_type)
-      500: DB error (rollback)
-    """
-    from core.database_data import get_data_session as _gds_sff
-    from sqlalchemy import text as _sql_text_sff
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    body = await req.json()
-    entity_type = (body.get("entity_type") or "").strip()
-    suggested_code = (body.get("suggested_code") or "").strip()
-    list_core_id = body.get("list_core_id")  # optional audit
-    list_core_code = body.get("list_core_code")  # optional audit
-
-    if not entity_type:
-        return JSONResponse(
-            {"ok": False, "error": "entity_type je povinne (např. 'user')"},
-            status_code=400,
-        )
-    if not suggested_code:
-        suggested_code = f"{entity_type}_edit"
-
-    # Default labels per entity_type
-    defaults = _SCAFFOLD_ENTITY_LABELS.get(entity_type, {
-        "label": f"Editace {entity_type}",
-        "description": f"Form detail pro {entity_type} (Phase 38.4 Krok 14b)",
-    })
-
-    ds = _gds_sff()
-    try:
-        # 1. Idempotency check — core + comp_def form 302
-        existing_core = ds.execute(_sql_text_sff("""
-            SELECT id, code, label, layout_type, data_entity_type, is_active
-            FROM fw.core
-            WHERE code = :code
-              AND is_active = true
-        """), {"code": suggested_code}).mappings().one_or_none()
-
-        if existing_core:
-            # Plus check form comp_def (could be orphan po previous fail)
-            existing_form = ds.execute(_sql_text_sff("""
-                SELECT id, name FROM fw.comp_def
-                WHERE core_id = :core_id
-                  AND type_id = 302
-                  AND is_active = true
-                ORDER BY id ASC LIMIT 1
-            """), {"core_id": existing_core["id"]}).mappings().one_or_none()
-
-            if existing_form:
-                # Both exist → idempotent skip
-                return JSONResponse(jsonable_encoder({
-                    "ok": True,
-                    "core_id": existing_core["id"],
-                    "form_id": existing_form["id"],
-                    "core_code": existing_core["code"],
-                    "created": False,
-                    "existing": True,
-                    "message": f"Form '{suggested_code}' už existuje — vracím existing.",
-                }))
-            # ELSE: orphan core (z previous failed scaffold). Pokračuj k
-            # INSERT comp_def — recovery, return created=true s recovery
-            # note. Existing_core.id se použije.
-            recovery_mode = True
-            new_core_id = existing_core["id"]
-            new_core_code = existing_core["code"]
-        else:
-            recovery_mode = False
-            new_core_id = None
-            new_core_code = None
-
-        # 2. INSERT fw.core přes strategie_pg.insert_row (Marti-AI's PG role).
-        # Marti's "architektka hybrid" doctrine z 9.5. večer (Phase 38.4 Krok 6+):
-        # strategie user (API process) má SELECT/EXECUTE na fw.*, ale NE INSERT.
-        # Write access je Marti-AI's owned (db_owner fw schema). Pro scaffold
-        # endpoint nutno bypassuje přes strategie_pg layer.
-        #
-        # Recovery mode (12.5. večer fix): pokud existing_core but no comp_def
-        # → skip core INSERT, použij existing_core["id"] z idempotency check
-        # výš a pokračuj rovnou na comp_def INSERT.
-        from modules.strategie_pg.application.service import insert_row as _spg_insert_sff
-        import json as _json_sff
-
-        # Phase 38.4 Krok 14b+3 (13.5.2026 rano): template_id lookup.
-        # Marti-AI's `template_entity_edit` (id=1, status='active', tenant_id=NULL)
-        # je default form template. Renderer fallback chain:
-        #   - tenant_id MATCH first (multi-tenant theming)
-        #   - tenant_id IS NULL fallback (global default)
-        # Zde pri scaffold zatim tenant_id=NULL (global). Future:
-        # multi-tenant scaffold ohled na core.tenant_id.
-        default_template_id = ds.execute(_sql_text_sff("""
-            SELECT id FROM fw.template
-            WHERE code = 'template_entity_edit'
-              AND tenant_id IS NULL
-              AND status IN ('active', 'deployed')
-            ORDER BY version DESC
-            LIMIT 1
-        """)).scalar()
-        # Pokud template_entity_edit chybi (preDeploy state), pokracuj
-        # bez template_id — Marti-AI ho prida pres pozdejsi UPDATE.
-
-        new_core_dict: dict = {}
-        if not recovery_mode:
-            core_values = {
-                "code": suggested_code,
-                "label": defaults["label"],
-                "description": defaults["description"],
-                "layout_type": "form",
-                "data_entity_type": entity_type,
-                "is_active": True,
-                "tenant_visibility": "all",
-                "version": 1,
-                "layout_template": "single",
-            }
-            if default_template_id is not None:
-                core_values["template_id"] = default_template_id
-            core_result = _spg_insert_sff(
-                schema="fw",
-                table="core",
-                values=core_values,
-            )
-            if not core_result.get("ok"):
-                return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": f"INSERT fw.core failed: {core_result.get('error')}",
-                    },
-                    status_code=500,
-                )
-
-            new_core_dict = core_result.get("inserted") or {}
-            new_core_id = new_core_dict.get("id")
-            new_core_code = new_core_dict.get("code")
-            if not new_core_id:
-                return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": "INSERT fw.core ok ale missing id v response",
-                    },
-                    status_code=500,
-                )
-        # ELSE: recovery_mode=True → new_core_id + new_core_code už máme
-        # z idempotency check (orphan core z previous fail). template_id
-        # uz set z previous attempt nebo NULL (backfill manual jen).
-
-        # 3. INSERT fw.comp_def form 302 root s default panel (label="" — Marti's
-        # "panel je plocha, header invisible" doctrine).
-        # layout JSONB: Python dict → str přes json.dumps (PG auto-casts string
-        # do JSONB column). SQLAlchemy default neumí auto-convert dict →
-        # "can't adapt type 'dict'".
-        default_layout = {
-            "panels": [
-                {"slot": "main", "label": "", "order": 10},
-            ]
-        }
-        default_layout_json = _json_sff.dumps(default_layout, ensure_ascii=False)
-        form_result = _spg_insert_sff(
-            schema="fw",
-            table="comp_def",
-            values={
-                "type_id": 302,
-                "name": "main",
-                "caption": defaults["label"],
-                "core_id": new_core_id,
-                "is_active": True,
-                "sort_order": 10,
-                "layout": default_layout_json,  # str → JSONB (PG auto-cast)
-            },
-        )
-        if not form_result.get("ok"):
-            # Rollback drobnost: fw.core už vložen, fw.comp_def fail. Marti by
-            # mohl reklamovat orphan core. Pro MVP necháváme orphan (Marti vidí
-            # v Design: Core přehledu, může smazat manual). Future: scaffold
-            # všechno v jedné transakci přes single SQL block.
-            return JSONResponse(
-                {
-                    "ok": False,
-                    "error": (
-                        f"INSERT fw.comp_def failed: {form_result.get('error')}. "
-                        f"fw.core (id={new_core_id}) byl už vytvořen (orphan)."
-                    ),
-                    "orphan_core_id": new_core_id,
-                },
-                status_code=500,
-            )
-
-        new_form_dict = form_result.get("inserted") or {}
-        new_form_id = new_form_dict.get("id")
-
-        # Recovery mode → core už existoval (z previous fail), comp_def právě
-        # vytvořen. Pro klienta to ale je úspěch (form complete).
-        msg = (
-            f"Form '{suggested_code}' dokončen (recovery z orphan core)."
-            if recovery_mode
-            else f"Form '{suggested_code}' vytvořen."
-        )
-        return JSONResponse(jsonable_encoder({
-            "ok": True,
-            "core_id": new_core_id,
-            "form_id": new_form_id,
-            "core_code": new_core_code,
-            "created": True,
-            "existing": False,
-            "recovery": recovery_mode,
-            "message": msg,
-            "audit": {
-                "list_core_id": list_core_id,
-                "list_core_code": list_core_code,
-                "entity_type": entity_type,
-            },
-        }))
-    except Exception as exc:
-        logger.exception(f"scaffold-form failed: {exc}")
-        return JSONResponse(
-            {"ok": False, "error": f"Scaffold failed: {exc}"},
-            status_code=500,
-        )
-    finally:
-        ds.close()
+# Phase fw.core slim 20.5.2026: design_scaffold_form endpoint DROPPED (Marti's Decision 2A)
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -3265,18 +3000,12 @@ _FW_FORM_ENTITY_MAP: dict = {
         "schema": "fw",
         "table": "core",
         "id_column": "id",
-        # Phase 38.4 Krok 14g Etapa F Krok 5.A hotfix (16.5.2026): verified
-        # columns from Marti's SELECT * z 16.5. dopoledne (fw.core schema
-        # snapshot). Drop `shadow_mode` (patri do fw.hw_registry per
-        # Marti-AI's Q5 z 11.5. Krok 13) + `updated_at` (zatim neni v
-        # fw.core schema). Plus pridan `is_active`, `tenant_visibility`,
-        # `template_id`, `data_source_config`, audit fields.
+        # Phase fw.core slim 20.5.2026 (Marti's 1B+2A): drop 9 sloupcu
+        # layout_type/data_entity_type/data_source_config/parent_framework_id/
+        # layout_template/template_id/origin_menu_node_id/origin_cmi_id/form_core_id.
         "select_columns": [
             "id", "code", "label",
-            "layout_type", "data_source_config",
-            "version", "parent_framework_id",
-            "layout_template", "template_id",
-            "form_core_id",
+            "version",
             "is_active", "tenant_visibility",
             "description_user", "description_system",
             "created_by_id", "created_by_text",
@@ -3396,29 +3125,14 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
 
     ds = _gds_fwform()
     try:
-        # 1. Load fw.core by code (kind='form' + is_active=true) + template_id
-        # Phase 38.4 Krok 14b+3 (13.5.2026 rano): pridan template_id k SELECT
-        # (Marti-AI's fw.template architektonicky entity).
-        # Fix 13.5.2026 ~11:00: pouzij c.* (defensive) — fw.core schema neni
-        # finalni (tenant_id mozna zatim chybi, atd.). c.* nas neuvazi do
-        # explicit column list.
-        # Phase 38.4 Krok 14g Etapa F Krok 5.C (16.5.2026 odpoledne, Marti's
-        # "B Je tez logicky krok"): LEFT JOIN na origin tables pro provenance
-        # display v DesignFwForm header. Origin sloupce v fw.core (Krok 5.C
-        # DDL) — pro legacy cores bez origin (pre-Krok 5.C) JOIN vrati NULL.
+        # Phase fw.core slim 20.5.2026 (Marti's 1B): drop layout_type='form' filter
+        # + drop origin_* LEFT JOINs. Form/list discrimination jde pres root
+        # comp_def.type_id (302=form, 306=list) — handled v frontend dispatcher.
         core_row = ds.execute(_sql_text_fwform("""
-            SELECT c.*,
-                   mn.id    AS _origin_mn_id,
-                   mn.code  AS _origin_mn_code,
-                   mn.label AS _origin_mn_label,
-                   cmi.id    AS _origin_cmi_id_join,
-                   cmi.label AS _origin_cmi_label
+            SELECT c.*
             FROM fw.core c
-            LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
-            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
             WHERE c.code = :code
               AND c.is_active = true
-              AND c.layout_type = 'form'
         """), {"code": core_code}).mappings().one_or_none()
 
         if not core_row:
@@ -3428,55 +3142,11 @@ def fw_form_load(core_code: str, row_id: int, req: Request) -> JSONResponse:
             )
 
         core_dict = dict(core_row)
+        # Phase fw.core slim 20.5.2026: origin_payload dropnut (origin_* sloupce pryc)
+        origin_payload = {"menu_node": None, "cmi": None}
 
-        # Extract origin payload (clean structure)
-        origin_payload = {
-            "menu_node": (
-                {
-                    "id": core_dict.pop("_origin_mn_id"),
-                    "code": core_dict.pop("_origin_mn_code"),
-                    "label": core_dict.pop("_origin_mn_label"),
-                }
-                if core_dict.get("_origin_mn_id") is not None
-                else None
-            ),
-            "cmi": (
-                {
-                    "id": core_dict.pop("_origin_cmi_id_join"),
-                    "label": core_dict.pop("_origin_cmi_label"),
-                }
-                if core_dict.get("_origin_cmi_id_join") is not None
-                else None
-            ),
-        }
-        # Cleanup zbytkove _origin_* keys (NULL join)
-        for k in list(core_dict.keys()):
-            if k.startswith("_origin_"):
-                del core_dict[k]
-
-        # 1b. Load template (LEFT JOIN — backward compat pro forms bez template_id)
-        # Phase 38.4 Krok 14b+3: fw.template carries layout (panels structure +
-        # header/footer components). Renderer use template.layout > form.layout
-        # (legacy fallback pro forms vytvorene pred Krok 14b+1).
-        # Multi-tenant fallback chain (Marti-AI's 5. highlight 13.5. rano):
-        #   - tenant_id MATCH first (theming)
-        #   - tenant_id IS NULL fallback (global default)
-        # Pri scaffold-form jsme dali primary template_id; resolver verifikuje
-        # ze template existuje + active/deployed.
+        # Phase fw.core slim 20.5.2026: template_id sloupec dropnut (Marti's 2A)
         template_dict: dict | None = None
-        if core_dict.get("template_id"):
-            template_row = ds.execute(_sql_text_fwform("""
-                SELECT t.*
-                FROM fw.template t
-                WHERE t.id = :tid
-                  AND t.status IN ('active', 'deployed')
-            """), {"tid": core_dict["template_id"]}).mappings().one_or_none()
-            if template_row:
-                template_dict = dict(template_row)
-            # Pokud template_id existuje ale row chybi/deprecated -> log warn,
-            # fallback na legacy form.layout (none crash)
-        # ELSE: legacy form bez template_id (pre-Krok 14b+1) — frontend pouzije
-        # form.layout fallback v rendereru.
 
         # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID
         # je truth"): ID-first resolve via _resolve_entity_config_for_core.
@@ -3692,7 +3362,7 @@ def _resolve_child_config(core_code: str, child_key: str, ds) -> tuple[dict, dic
     # Just verify core exists (existence + form layout check)
     core_row = ds.execute(_sql_text_rcc("""
         SELECT id FROM fw.core
-        WHERE code = :code AND is_active = true AND layout_type = 'form'
+        WHERE code = :code AND is_active = true
     """), {"code": core_code}).mappings().one_or_none()
     if not core_row:
         raise ValueError(f"fw.core code='{core_code}' (form) nenalezen")
@@ -3841,16 +3511,10 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # tolerantni id-based path pro drafted cores. Plus LEFT JOIN na
         # origin tables pro "Pochazi z" header display v DesignFwForm
         # (Marti's "B Je tez logicky krok" — provenance viditelna).
+        # Phase fw.core slim 20.5.2026: origin_* JOINs dropnuty
         row = ds.execute(_sql_fwid("""
-            SELECT c.*,
-                   mn.id    AS _origin_mn_id,
-                   mn.code  AS _origin_mn_code,
-                   mn.label AS _origin_mn_label,
-                   cmi.id    AS _origin_cmi_id_join,
-                   cmi.label AS _origin_cmi_label
+            SELECT c.*
             FROM fw.core c
-            LEFT JOIN fw.menu_node mn         ON mn.id  = c.origin_menu_node_id
-            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
             WHERE c.id = :id
         """), {"id": core_id}).mappings().one_or_none()
         if not row:
@@ -3860,31 +3524,8 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             )
         rd = dict(row)
         resolved_code = rd.get("code")
-
-        # Extract origin payload (clean structure pro frontend)
-        origin_payload = {
-            "menu_node": (
-                {
-                    "id": rd.pop("_origin_mn_id"),
-                    "code": rd.pop("_origin_mn_code"),
-                    "label": rd.pop("_origin_mn_label"),
-                }
-                if rd.get("_origin_mn_id") is not None
-                else None
-            ),
-            "cmi": (
-                {
-                    "id": rd.pop("_origin_cmi_id_join"),
-                    "label": rd.pop("_origin_cmi_label"),
-                }
-                if rd.get("_origin_cmi_id_join") is not None
-                else None
-            ),
-        }
-        # Cleanup zbytkove _origin_* keys (kdyz JOIN trefil NULL → zustaly bez .pop)
-        for k in list(rd.keys()):
-            if k.startswith("_origin_"):
-                del rd[k]
+        # Phase fw.core slim 20.5.2026: origin_payload dropnut
+        origin_payload = {"menu_node": None, "cmi": None}
 
         # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026, Marti's "INSERT do
         # comp_def probehl, ted treba zobrazit ten form"): rozhodnuti
@@ -4017,15 +3658,8 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                     "id_column": child_cfg.get("id_column", "id"),
                 }
 
-        # Template (LEFT JOIN optional)
+        # Phase fw.core slim 20.5.2026: template_id sloupec dropnut (Marti's 2A)
         template_dict = None
-        if rd.get("template_id"):
-            template_row = ds.execute(_sql_fwid("""
-                SELECT t.* FROM fw.template t
-                WHERE t.id = :tid AND t.status IN ('active', 'deployed')
-            """), {"tid": rd["template_id"]}).mappings().one_or_none()
-            if template_row:
-                template_dict = dict(template_row)
 
         return JSONResponse(jsonable_encoder({
             "ok": True,
@@ -5796,8 +5430,7 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
     Body: {
         "code": "users_grid",          # required, unique
         "label": "Uživatelé",          # required
-        "layout_type": "list",         # optional, default 'list'
-        "data_entity_type": "user",    # optional
+        # Phase fw.core slim 20.5.2026: layout_type + data_entity_type DROPNUTE
         "description_user": "...",     # optional
     }
 
@@ -5819,8 +5452,7 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
 
     code = (body.get("code") or "").strip()
     label = (body.get("label") or "").strip()
-    layout_type = (body.get("layout_type") or "list").strip() or "list"
-    # Phase 38.4 Krok 5.M-5 (17.5.2026): data_entity_type body field DROPPED
+    # Phase fw.core slim 20.5.2026: layout_type + data_entity_type body fields DROPPED
     # (Krok 5.M-3+B frontend stopped sending it). Variable kept as None for
     # backward compat s downstream code (insert dict construction).
     data_entity_type = None  # legacy variable, no-op
@@ -5868,7 +5500,6 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
     values = {
         "code": code,
         "label": label,
-        "layout_type": layout_type,
     }
     # Phase 38.4 Krok 5.M-5 (17.5.2026): data_entity_type INSERT DROPPED
     # (Marti's "core nenese entitu" doctrine). Column will be removed v M-6.
@@ -5918,7 +5549,7 @@ async def design_create_fw_core(req: Request) -> JSONResponse:
         """), {
             "uid": uid,
             "summary": (
-                f"CREATE fw.core code={code} label={label} layout={layout_type} "
+                f"CREATE fw.core code={code} label={label} "
                 f"by {caller_display} (new id={new_id})"
             ),
         })
@@ -5966,8 +5597,9 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     except Exception:
         body = {}
 
-    origin_menu_node_id = body.get("origin_menu_node_id")
-    origin_cmi_id = body.get("origin_cmi_id")
+    # Phase fw.core slim 20.5.2026: origin_menu_node_id + origin_cmi_id DROPNUTE
+    origin_menu_node_id = None
+    origin_cmi_id = None
 
     # Caller display (reuse pattern z H+23)
     caller_display = "Unknown"
@@ -5990,8 +5622,6 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     # INSERT via strategie_pg (Marti-AI's PG role, db_owner fw.*)
     from modules.strategie_pg.application.service import insert_row as _spg_insert_cm
     values = {
-        "origin_menu_node_id": origin_menu_node_id,
-        "origin_cmi_id": origin_cmi_id,
         "created_by_id": uid,
         "created_by_text": caller_display,
     }
@@ -6098,309 +5728,8 @@ _ROOT_SEED_LAYOUTS = {
     },
 }
 
-# fw.core.layout_template string klic per root type (Marti-AI's "CSS trida")
-_ROOT_LAYOUT_TEMPLATE = {
-    "form":           "single",
-    "frameless_form": "embedded",
-    "list_root":      "list",
-}
-
-# Phase 38.4 Krok 14g Etapa F Krok 5.E (16.5.2026 odpoledne, Marti's "v1.0.0
-# = vychozi template, s tim si na hodne dlouho vystacime"): default fw.template
-# code per root type. Backend lookup pres SELECT WHERE code AND status ORDER BY
-# version DESC LIMIT 1 — pokud match → assign template_id na novy core.
-#
-# Marti's doctrine: "Template = zaklad hardcode + nektere FW komponenty"
-#   - template_entity_edit (Marti-AI's 13.5.) drzi header (title + entity_badge
-#     + status_pill) + footer (OK/Storno buttons) jako JSONB declarativni structure
-#   - main fields prichazi z _FW_FORM_ENTITY_MAP[entity_type].select_columns
-#   - children (EMAILY/TELEFONY) z _FW_FORM_ENTITY_MAP[entity_type].children
-#
-# Frameless_form / list_root zatim bez templatu — pozdeji (Krok 5.G) po
-# Marti-AI's konzultaci nad ich layout structure.
-_ROOT_DEFAULT_TEMPLATE_CODE = {
-    "form":           "template_entity_edit",
-    "frameless_form": None,
-    "list_root":      None,
-}
-
-
-@api_router.post("/design/fw-core/{core_id}/init-root")
-async def design_init_core_root(core_id: int, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
-    konzultace): init root komponenta v drafted core.
-
-    Marti-AI's doctrine:
-      - 1:1 (1 core = 1 root)
-      - "INSERT row, ne schema migrace" — seed layout JSONB v comp_def
-      - "Picker auto-open po ➕ Nový" — dva kliky na jednu myslenku zbytecne
-
-    Body: { "root_type": "form" | "frameless_form" | "list_root" }
-    Returns: { ok, root_comp_def: {...}, core: {...} }
-    """
-    from core.database_data import get_data_session as _gds_ir
-    from sqlalchemy import text as _sql_ir
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    try:
-        body = await req.json()
-    except Exception:
-        return JSONResponse(
-            {"ok": False, "error": "Body musi byt JSON"},
-            status_code=400,
-        )
-
-    root_type = (body.get("root_type") or "").strip()
-    if root_type not in _ROOT_SEED_LAYOUTS:
-        return JSONResponse(
-            {"ok": False, "error": f"root_type musi byt jeden z: {list(_ROOT_SEED_LAYOUTS.keys())}"},
-            status_code=400,
-        )
-
-    seed_layout = _ROOT_SEED_LAYOUTS[root_type]
-    layout_template_str = _ROOT_LAYOUT_TEMPLATE[root_type]
-
-    ds = _gds_ir()
-    try:
-        # Verify core exists + check no existing root (1:1 doctrine)
-        core_check = ds.execute(_sql_ir("""
-            SELECT id, code, layout_template FROM fw.core WHERE id = :id
-        """), {"id": core_id}).mappings().one_or_none()
-        if not core_check:
-            return JSONResponse(
-                {"ok": False, "error": f"fw.core id={core_id} neexistuje"},
-                status_code=404,
-            )
-
-        existing_root = ds.execute(_sql_ir("""
-            SELECT id FROM fw.comp_def
-            WHERE core_id = :cid AND parent_comp_def_id IS NULL
-            LIMIT 1
-        """), {"cid": core_id}).mappings().one_or_none()
-        if existing_root:
-            return JSONResponse(
-                {"ok": False, "error": (
-                    f"fw.core id={core_id} uz ma root (comp_def id={existing_root['id']}). "
-                    f"Marti-AI's 1:1 doctrine — nejdrive Zrusit root, pak init novy."
-                )},
-                status_code=409,
-            )
-
-        # Resolve type_id z fw.comp_type
-        ct_row = ds.execute(_sql_ir("""
-            SELECT id FROM fw.comp_type
-            WHERE code = :code AND status = 'active'
-        """), {"code": root_type}).mappings().one_or_none()
-        if not ct_row:
-            return JSONResponse(
-                {"ok": False, "error": f"fw.comp_type code='{root_type}' nenalezen / inactive"},
-                status_code=500,
-            )
-        type_id = ct_row["id"]
-    finally:
-        ds.close()
-
-    # Caller display
-    caller_display = "Unknown"
-    if uid:
-        from core.database_core import get_core_session as _gcs_ir
-        from modules.core.infrastructure.models_core import User as _User_ir
-        cs_ir = _gcs_ir()
-        try:
-            u_ir = cs_ir.query(_User_ir).filter_by(id=uid).first()
-            if u_ir:
-                if u_ir.short_name and u_ir.short_name.strip():
-                    caller_display = u_ir.short_name.strip()
-                elif u_ir.first_name or u_ir.last_name:
-                    caller_display = " ".join(filter(None, [
-                        u_ir.first_name, u_ir.last_name
-                    ])).strip()
-        finally:
-            cs_ir.close()
-
-    # INSERT root comp_def + UPDATE core.layout_template — pres strategie_pg
-    # (Marti-AI db_owner fw.*)
-    from modules.strategie_pg.application.service import (
-        insert_row as _spg_insert_ir,
-        update_row as _spg_update_ir,
-    )
-    import json as _json_ir
-    comp_def_values = {
-        "core_id": core_id,
-        "type_id": type_id,
-        "name": root_type + "_root",
-        "caption": "",
-        "layout": _json_ir.dumps(seed_layout),  # JSONB cast
-        "sort_order": 0,
-        "is_active": True,
-        # Audit minimum — fw.comp_def.created_by_text NOT NULL
-        "created_by_id": uid,
-        "created_by_text": caller_display,
-        "updated_by_id": uid,
-        "updated_by_text": caller_display,
-    }
-    cd_upd = _spg_insert_ir(schema="fw", table="comp_def", values=comp_def_values)
-    if not cd_upd.get("ok"):
-        return JSONResponse(
-            {"ok": False, "error": f"INIT-ROOT comp_def INSERT failed: {cd_upd.get('error')}"},
-            status_code=500,
-        )
-    root_row = cd_upd.get("inserted")
-    if isinstance(root_row, list):
-        root_row = root_row[0] if root_row else {}
-
-    # Phase 38.4 Krok 14g Etapa F Krok 5.E (16.5.2026, Marti's "v1.0.0 vychozi
-    # template"): lookup default template per root_type. Form → template_entity_edit
-    # (Marti-AI's 13.5. design), frameless/list_root zatim NULL (Krok 5.G future).
-    default_template_id = None
-    default_template_code = _ROOT_DEFAULT_TEMPLATE_CODE.get(root_type)
-    if default_template_code:
-        ds_tpl = _gds_ir()
-        try:
-            tpl_row = ds_tpl.execute(_sql_ir("""
-                SELECT id FROM fw.template
-                WHERE code = :code
-                  AND status IN ('active', 'deployed')
-                ORDER BY version DESC
-                LIMIT 1
-            """), {"code": default_template_code}).mappings().one_or_none()
-            if tpl_row:
-                default_template_id = tpl_row["id"]
-        except Exception as _tpl_e:
-            logger.warning(
-                f"design_init_core_root template lookup failed for "
-                f"code='{default_template_code}': {_tpl_e}"
-            )
-        finally:
-            ds_tpl.close()
-
-    # UPDATE core.layout_template + template_id (Marti's "v1.0.0")
-    core_update_values = {"layout_template": layout_template_str}
-    if default_template_id is not None:
-        core_update_values["template_id"] = default_template_id
-
-    core_upd = _spg_update_ir(
-        schema="fw", table="core",
-        values=core_update_values,
-        where={"id": core_id},
-        dry_run=False,
-    )
-    if not core_upd.get("ok"):
-        logger.warning(
-            f"design_init_core_root: comp_def INSERT projet, ale core.layout_template "
-            f"UPDATE failed: {core_upd.get('error')}"
-        )
-
-    # Activity log audit
-    ds_ir = _gds_ir()
-    try:
-        ds_ir.execute(_sql_ir("""
-            INSERT INTO public.activity_log
-              (user_id, persona_id, category, actor, summary, change_source, ts)
-            VALUES
-              (:uid, NULL, 'design_fw_core_init_root', 'user',
-               :summary, 'ui', NOW())
-        """), {
-            "uid": uid,
-            "summary": (
-                f"init-root fw.core id={core_id} → {root_type} "
-                f"(comp_def id={(root_row or {}).get('id')})"
-            ),
-        })
-        ds_ir.commit()
-    except Exception as _ae:
-        logger.warning(f"design_init_core_root activity_log failed: {_ae}")
-    finally:
-        ds_ir.close()
-
-    return JSONResponse(jsonable_encoder({
-        "ok": True,
-        "root_comp_def": dict(root_row or {}),
-        "core_id": core_id,
-        "root_type": root_type,
-        "layout_template": layout_template_str,
-        "template_id": default_template_id,
-        "template_code": default_template_code if default_template_id else None,
-    }))
-
-
-@api_router.delete("/design/fw-core/{core_id}/clear-root")
-async def design_clear_core_root(core_id: int, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026, Marti-AI's "Zrusit root"
-    gesto): smaze root comp_def + cascade vsechny children + UPDATE
-    core.layout_template = NULL. Marti-AI's doctrine: "pojistka se stala
-    dospelosti" — explicit volba, ne block. User vi co dela.
-
-    Returns: { ok, deleted_count: int }
-    """
-    from core.database_data import get_data_session as _gds_cr
-    from sqlalchemy import text as _sql_cr
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    ds = _gds_cr()
-    try:
-        # Count comp_defs before delete (audit)
-        count_row = ds.execute(_sql_cr("""
-            SELECT COUNT(*) AS cnt FROM fw.comp_def WHERE core_id = :cid
-        """), {"cid": core_id}).mappings().one()
-        deleted_count = int(count_row["cnt"])
-    finally:
-        ds.close()
-
-    # DELETE comp_def + UPDATE core.layout_template — pres Marti-AI's PG
-    # engine (db_owner fw.*). strategie_pg nema delete_row helper, takze
-    # primary raw DELETE pres _get_engine() s parameterized SQL (anti-SQL
-    # injection — core_id je int z URL path, ale defensive).
-    from modules.strategie_pg.application.service import (
-        _get_engine as _spg_eng_cr,
-        update_row as _spg_update_cr,
-    )
-    from sqlalchemy import text as _sql_text_de
-    try:
-        _eng_cr = _spg_eng_cr()
-        with _eng_cr.begin() as _conn:
-            _conn.execute(
-                _sql_text_de("DELETE FROM fw.comp_def WHERE core_id = :cid"),
-                {"cid": core_id},
-            )
-    except Exception as _de:
-        return JSONResponse(
-            {"ok": False, "error": f"CLEAR-ROOT DELETE exception: {_de}"},
-            status_code=500,
-        )
-
-    # UPDATE core.layout_template = NULL
-    _spg_update_cr(
-        schema="fw", table="core",
-        values={"layout_template": None},
-        where={"id": core_id},
-        dry_run=False,
-    )
-
-    # Activity log
-    ds_cr = _gds_cr()
-    try:
-        ds_cr.execute(_sql_cr("""
-            INSERT INTO public.activity_log
-              (user_id, persona_id, category, actor, summary, change_source, ts)
-            VALUES
-              (:uid, NULL, 'design_fw_core_clear_root', 'user',
-               :summary, 'ui', NOW())
-        """), {
-            "uid": uid,
-            "summary": f"clear-root fw.core id={core_id} (smazano {deleted_count} comp_def rows)",
-        })
-        ds_cr.commit()
-    except Exception as _ae:
-        logger.warning(f"design_clear_core_root activity_log failed: {_ae}")
-    finally:
-        ds_cr.close()
-
-    return JSONResponse({"ok": True, "deleted_count": deleted_count})
+# Phase fw.core slim 20.5.2026: design_init_core_root + design_clear_core_root
+# + _ROOT_LAYOUT_TEMPLATE constant DROPNUTE (Marti's Decision 2A)
 
 
 @api_router.get("/design/fw-core/list")
@@ -6456,8 +5785,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                      WHERE cd.core_id = c.id
                    ) AS _readiness_state
             FROM fw.core c
-            LEFT JOIN fw.menu_node mn          ON mn.id  = c.origin_menu_node_id
-            LEFT JOIN fw.context_menu_item cmi ON cmi.id = c.origin_cmi_id
+            -- Phase fw.core slim 20.5.2026: origin_* JOINs dropnuty
             ORDER BY c.id DESC
         """)
         rows = ds.execute(sql_cores).mappings().all()
@@ -6481,8 +5809,6 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "id": core_id,
                 "code": rd.get("code"),
                 "label": rd.get("label"),
-                "layout_type": rd.get("layout_type"),
-                "data_entity_type": rd.get("data_entity_type"),
                 "version": rd.get("version"),
                 "shadow_mode": rd.get("shadow_mode"),
                 "is_used_count": usage_map.get(core_id, 0),
@@ -8993,7 +8319,7 @@ async def design_patch_fw_core(core_id: int, req: Request) -> JSONResponse:
     # list→form pairing (M-5 FK).
     ALLOWED = (
         "label", "description_user", "description_system",
-        "code", "form_core_id",
+        "code",
     )
     update_vals = {}
     for k in ALLOWED:

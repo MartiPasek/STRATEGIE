@@ -1696,9 +1696,7 @@
     "mn.description_user": "Popis uzlu (pro uživatele)",
     "mn.description_system": "Popis uzlu (pro vývojáře)",
     // fw.core
-    "core.layout_type": "Typ rozložení",
-    "core.layout_template": "Šablona rozložení",
-    "core.parent_framework_id": "Nadřazené jádro (lineage)",
+    // Phase fw.core slim 20.5.2026: layout_type + layout_template + parent_framework_id DROPPED
     "core.version": "Verze",
     // Krok 14a-A1l #1 — dva popisy
     "core.description_user": "Popis core (pro uživatele)",
@@ -1734,10 +1732,9 @@
     "core.id": "Primární klíč v fw.core (read-only).",
     "core.code": "Unikátní textový identifikátor core (např. framework_menu_nodes).",
     "core.label": "Lidsky čitelný název core zobrazený jako title přehledu / formu.",
-    "core.layout_type": "list = grid view (přehled řádků), form = single record (jádro), special = hardcoded.",
-    "core.layout_template": "Volitelná šablona pro pixel-aware layout (single, multi-pane).",
+    // Phase fw.core slim 20.5.2026: layout_type + layout_template hints DROPPED
     "core.version": "Phase 8.5. Marti-AI's Q6 — verze pro lineage bez history tabulky.",
-    "core.parent_framework_id": "Phase 8.5. Marti-AI's Q6 — FK na předchozí verzi (self-FK pro lineage).",
+    // Phase fw.core slim 20.5.2026: parent_framework_id hint DROPPED
     "core.description": "Popis core — co reprezentuje, kdy byl vytvořen, kdo je tvůrce.",
     // Krok 14a-A1l #1 — dva popisy
     "core.description_user": "K čemu jádro / přehled slouží z pohledu uživatele. Co tam najde, jak s tím pracuje.",

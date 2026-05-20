@@ -203,7 +203,7 @@
         columns: [
           { headerName: "Code", field: "code", width: 220, filter: "agTextColumnFilter", sortable: true },
           { headerName: "Label", field: "label", flex: 1, minWidth: 200, filter: "agTextColumnFilter", sortable: true },
-          { headerName: "Layout", field: "layout_type", width: 130, filter: "agTextColumnFilter", sortable: true },
+          // Phase fw.core slim 20.5.2026: layout_type column DROPPED
           { headerName: "v", field: "version", width: 60, type: "numericColumn", sortable: true },
           { headerName: "Použit ×", field: "is_used_count", width: 110, type: "numericColumn", sortable: true, cellRenderer: usedRenderer },
         ],
@@ -364,9 +364,7 @@
             body: JSON.stringify({
               code: code,
               label: label,
-              layout_type: layoutType,
-              // Phase 38.4 Krok 5.M-3+B: data_entity_type omitted from POST.
-              // Backend defaults na NULL (drafted core, Krok 5.A doctrine).
+              // Phase fw.core slim 20.5.2026: layout_type + data_entity_type DROPPED
             }),
           });
           const data = await r.json().catch(() => ({}));
@@ -1514,7 +1512,7 @@
               filter: "agTextColumnFilter", sortable: true },
             { headerName: "Label", field: "label", flex: 1, minWidth: 200,
               filter: "agTextColumnFilter", sortable: true },
-            { headerName: "Layout", field: "layout_type", width: 130,
+            { headerName: "Layout", field: "_layout_type_dropped", width: 0, hide: true,  // Phase fw.core slim 20.5.2026
               filter: "agTextColumnFilter", sortable: true },
             { headerName: "v", field: "version", width: 60,
               type: "numericColumn", sortable: true },

@@ -9309,6 +9309,29 @@ def grid_columns_json(code: str, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
 
+    # Fix D (20.5. vecer, Marti's diagnostika po Fix C LIVE):
+    # fw.comp_grid_master/column dropnute v Krok 5.R-C+2 (13.5. revert + AG
+    # Grid native autocolumns doctrine). Endpoint je dead code, frontend ma
+    # fallback na autoColumns z response rows. Vracime 404 informativni
+    # misto crash → middleware log noise zmizí, frontend fallback pokracuje.
+    # Plne drop endpoint (D1) odlozeno do cleanup PR (vyzaduje i frontend
+    # callsite v inline JS).
+    return JSONResponse(
+        {
+            "ok": False,
+            "error": "grid_registry_deprecated",
+            "detail": (
+                "fw.comp_grid_master/column tabulky byly dropnute v Krok 5.R-C+2 "
+                "(13.5.2026, Marti's 'AG Grid native autocolumns' doctrine). "
+                "Frontend ma fallback na autoColumns z response rows. "
+                "Endpoint zustava jako 404 stub do cleanup PR."
+            ),
+            "code": code,
+        },
+        status_code=404,
+    )
+
+    # Dead code below (zachovano pro context, never reached) ─────────────
     from core.database_data import get_data_session as _gds_grid
     from sqlalchemy import text as _sql_text
 

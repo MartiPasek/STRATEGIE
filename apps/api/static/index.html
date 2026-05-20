@@ -6181,6 +6181,67 @@
     });
   }
 
+  // Phase paste-image (20.5.2026, Marti's Praha hotel request):
+  // Ctrl+V po Alt+PrintScreen → paste image z clipboard přímo do chat input.
+  // Reuse existing _addMediaFiles() pipeline (Phase 12a image vision).
+  // Plus drag-drop bind napřed (kdyby chyběl). Bind na document.body kvůli
+  // fallback (focus may not always be v textarea když user dělá Ctrl+V).
+  function _extractImagesFromClipboard(event) {
+    const cd = event.clipboardData || window.clipboardData;
+    if (!cd) return [];
+    const out = [];
+    // Modern API — items list
+    if (cd.items && cd.items.length) {
+      for (let i = 0; i < cd.items.length; i++) {
+        const it = cd.items[i];
+        if (it.kind === 'file' && it.type && it.type.startsWith('image/')) {
+          const file = it.getAsFile();
+          if (file) out.push(file);
+        }
+      }
+    }
+    // Fallback — files array (Safari/Firefox občas)
+    if (out.length === 0 && cd.files && cd.files.length) {
+      for (let i = 0; i < cd.files.length; i++) {
+        const f = cd.files[i];
+        if (f.type && f.type.startsWith('image/')) out.push(f);
+      }
+    }
+    return out;
+  }
+
+  function _handleClipboardPaste(event) {
+    // Skip pokud paste není v chat kontextu (např. v ERP cell editor — má vlastní paste handlery)
+    const target = event.target;
+    const inChatContext = (
+      target === inputEl ||
+      (target && target.closest && target.closest('.composer-row')) ||
+      (target && target.closest && target.closest('#chatPanel')) ||
+      document.activeElement === inputEl ||
+      document.activeElement === document.body
+    );
+    if (!inChatContext) return;
+    const images = _extractImagesFromClipboard(event);
+    if (images.length === 0) return;  // text paste → default chování (browser vloží do textarea)
+    event.preventDefault();
+    // Rename pasted files (clipboard má `image.png` default — přidej timestamp)
+    const stamped = images.map((f) => {
+      const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const ext = (f.type.split('/')[1] || 'png').toLowerCase();
+      // Pokud original název je generický (image.png / clipboard.png), přepiš s timestamp
+      const isGeneric = !f.name || /^(image|clipboard|screenshot)\.\w+$/i.test(f.name);
+      const newName = isGeneric ? `clipboard-${ts}.${ext}` : f.name;
+      return new File([f], newName, { type: f.type, lastModified: f.lastModified || Date.now() });
+    });
+    _addMediaFiles(stamped);
+  }
+
+  // Bind paste handler — textarea primary, document.body fallback
+  if (inputEl) {
+    inputEl.addEventListener('paste', _handleClipboardPaste);
+  }
+  document.body.addEventListener('paste', _handleClipboardPaste);
+
   // Phase 26 (1.5.2026): emoji palette picker.
   // Marti's request "ja zavidim ikonky co pouzivate". 8-sloupcovy grid emoji
   // vedle text input. Marti-AI managuje obsah palety pres AI tool

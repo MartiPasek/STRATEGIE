@@ -1941,6 +1941,18 @@ def data_source_execute_by_id(
                 status_code=404,
             )
         except ds_runner.DataSourceExecuteError as exc:
+            # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
+            # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
+            # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            logger.error(
+                "data_source SQL execute FAILED",
+                exc_info=exc,
+                extra={
+                    "endpoint_context": "ds_runner.run_data_source",
+                    "exception_type": type(exc).__name__,
+                    "exception_str": str(exc)[:500],
+                },
+            )
             return JSONResponse(
                 {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
                 status_code=500,
@@ -2032,6 +2044,18 @@ def data_source_execute_by_id(
                 status_code=404,
             )
         except ds_runner.DataSourceExecuteError as exc:
+            # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
+            # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
+            # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            logger.error(
+                "data_source SQL execute FAILED",
+                exc_info=exc,
+                extra={
+                    "endpoint_context": "ds_runner.run_data_source",
+                    "exception_type": type(exc).__name__,
+                    "exception_str": str(exc)[:500],
+                },
+            )
             return JSONResponse(
                 {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
                 status_code=500,
@@ -2123,6 +2147,18 @@ def data_source_execute_by_id(
                 status_code=404,
             )
         except ds_runner.DataSourceExecuteError as exc:
+            # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
+            # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
+            # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            logger.error(
+                "data_source SQL execute FAILED",
+                exc_info=exc,
+                extra={
+                    "endpoint_context": "ds_runner.run_data_source",
+                    "exception_type": type(exc).__name__,
+                    "exception_str": str(exc)[:500],
+                },
+            )
             return JSONResponse(
                 {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
                 status_code=500,
@@ -2183,6 +2219,18 @@ def data_source_execute(
                 status_code=404,
             )
         except ds_runner.DataSourceExecuteError as exc:
+            # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
+            # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
+            # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            logger.error(
+                "data_source SQL execute FAILED",
+                exc_info=exc,
+                extra={
+                    "endpoint_context": "ds_runner.run_data_source",
+                    "exception_type": type(exc).__name__,
+                    "exception_str": str(exc)[:500],
+                },
+            )
             return JSONResponse(
                 {"ok": False, "error": "sql_execute_failed", "detail": str(exc)},
                 status_code=500,

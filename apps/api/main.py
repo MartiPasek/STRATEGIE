@@ -132,6 +132,21 @@ def _fi_user_context(user_id: int) -> tuple[str | None, int | None, str | None]:
         return (None, None, None)
 
 
+def _fj_parse_int_header(request: Request, name: str) -> int | None:
+    """Fix J (20.5. vecer): parse X-Erp-Core-Id / X-Erp-Comp-Def-Id headers.
+
+    Frontend posila per-fetch context z window._erpActiveCoreId / _erpActiveCompDefId.
+    Returns None pri ANY chybe (header missing, not int, etc.).
+    """
+    try:
+        raw = request.headers.get(name)
+        if not raw:
+            return None
+        return int(raw)
+    except Exception:
+        return None
+
+
 def _fi_extract_user_context(request: Request) -> dict[str, object | None]:
     """Extract user identity z request cookie. Vraci dict pro log_event kwargs.
 
@@ -194,6 +209,9 @@ async def request_id_middleware(request: Request, call_next):
             while getattr(_root_mw, "__cause__", None) is not None:
                 _root_mw = _root_mw.__cause__
             _fi_ctx = _fi_extract_user_context(request)
+            # Fix J (20.5. vecer): read X-Erp-Core-Id + X-Erp-Comp-Def-Id headers
+            _fj_core_id = _fj_parse_int_header(request, "X-Erp-Core-Id")
+            _fj_comp_def_id = _fj_parse_int_header(request, "X-Erp-Comp-Def-Id")
             _log_event_mw(
                 level="error",
                 source="py",
@@ -213,6 +231,9 @@ async def request_id_middleware(request: Request, call_next):
                 user_id=_fi_ctx["user_id"],
                 tenant_name=_fi_ctx["tenant_name"],
                 tenant_id=_fi_ctx["tenant_id"],
+                # Fix J (20.5. vecer): grid/form attribution z headers
+                core_id=_fj_core_id,
+                comp_def_id=_fj_comp_def_id,
                 extra={
                     "wrapper_exception_type": type(_mw_exc).__name__,
                     "wrapper_exception_str": str(_mw_exc)[:500],
@@ -284,6 +305,9 @@ async def request_id_middleware(request: Request, call_next):
                 try:
                     from core.log_queue import log_event as _log_event_fe
                     _fi_ctx_e = _fi_extract_user_context(request)
+                    # Fix J (20.5. vecer): read X-Erp-Core-Id headers
+                    _fj_core_e = _fj_parse_int_header(request, "X-Erp-Core-Id")
+                    _fj_comp_e = _fj_parse_int_header(request, "X-Erp-Comp-Def-Id")
                     _log_event_fe(
                         level="error" if _status >= 500 else "warn",
                         source="py",
@@ -301,6 +325,9 @@ async def request_id_middleware(request: Request, call_next):
                         user_id=_fi_ctx_e["user_id"],
                         tenant_name=_fi_ctx_e["tenant_name"],
                         tenant_id=_fi_ctx_e["tenant_id"],
+                        # Fix J (20.5. vecer): grid/form attribution z headers
+                        core_id=_fj_core_e,
+                        comp_def_id=_fj_comp_e,
                         extra={
                             "url_query": str(request.url.query)[:500],
                             "client_host": (

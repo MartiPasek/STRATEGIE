@@ -169,7 +169,8 @@ def _insert_to_db(event: dict[str, Any]) -> int | None:
                 :request_id, :fastapi_endpoint, :http_method, :http_status, :response_time_ms,
                 :persona_id, :tenant_id, :conversation_id, :design_mode,
                 CAST(:extra AS JSONB), CAST(:dom_state AS JSONB),
-                :created_by_id, :created_by_text
+                :created_by_id, :created_by_text,
+                :core_id, :comp_def_id
             ) AS id
         """)
         params = {
@@ -218,6 +219,9 @@ def _insert_to_db(event: dict[str, Any]) -> int | None:
             # Audit
             "created_by_id": event.get("created_by_id"),
             "created_by_text": event.get("created_by_text"),
+            # Fix J (20.5. vecer): grid/form attribution
+            "core_id": event.get("core_id"),
+            "comp_def_id": event.get("comp_def_id"),
         }
         result = session.execute(sql, params).scalar()
         session.commit()
@@ -495,6 +499,9 @@ def log_event(
     # Audit
     created_by_id: int | None = None,
     created_by_text: str | None = None,
+    # Fix J (20.5. vecer, Marti's grid/form attribution):
+    core_id: int | None = None,
+    comp_def_id: int | None = None,
 ) -> int | None:
     """Log a diagnostic event with 3-layer fallback (DB → file → memory).
 
@@ -557,6 +564,9 @@ def log_event(
         # Audit
         "created_by_id": created_by_id,
         "created_by_text": created_by_text,
+        # Fix J (20.5. vecer): grid/form attribution
+        "core_id": core_id,
+        "comp_def_id": comp_def_id,
     }
 
     # Layer 1: DB

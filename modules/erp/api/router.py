@@ -7909,9 +7909,11 @@ def diag_log_get_events(req: Request) -> JSONResponse:
     where_sql = " AND ".join(where_parts)
 
     # MASTER view fields (Marti's high-level)
+    # Fix J (20.5. vecer): + core_id, comp_def_id pro grid/form attribution
     master_cols = (
         "id, created_at, user_login_name, user_id, tenant_name, "
-        "level, source, module_id, message, status, occurrences, last_seen_at"
+        "level, source, module_id, message, status, occurrences, last_seen_at, "
+        "core_id, comp_def_id"
     )
     # DETAIL view fields (Claude's full forensic) — vse + JSON blobs
     detail_cols = "*"

@@ -19,6 +19,7 @@ Marti-AI's diář pattern drží: SQL žije v DB (její doména), Python jen vyk
 from __future__ import annotations
 
 import logging
+import re
 from typing import Any
 
 from sqlalchemy import text as _sql_text
@@ -150,16 +151,24 @@ def _resolve_operation(
 # Param binding
 # ════════════════════════════════════════════════════════════════════════
 
+_BIND_PARAM_RE = re.compile(r":([a-zA-Z_][a-zA-Z0-9_]*)")
+
+
 def _normalize_params(
     raw_params: dict[str, Any] | None,
     limit_default: int,
     limit_cap: int = HARD_LIMIT_CAP,
+    sql_text: str | None = None,
 ) -> dict[str, Any]:
     """Normalize URL query params do SQLAlchemy bind dict.
 
     - Empty strings → None (NULL v SQL CAST patterns)
     - `limit` clamped na (1, min(provided, limit_cap)), default = limit_default
     - Vše ostatní pass-through (SQLAlchemy text() ignoruje nadbytečné binds)
+    - Fix H (20.5. vecer, Marti's #203 audit_stats InvalidRequestError):
+      pokud sql_text obsahuje :param_name a raw_params ho neposila, default
+      na None (SQL pak CAST AS bigint IS NULL OR ... handluje gracefully).
+      Bez tohoto SQLAlchemy padne "value is required for bind parameter".
     """
     params: dict[str, Any] = {}
 
@@ -180,6 +189,12 @@ def _normalize_params(
             params["limit"] = max(1, min(limit_int, limit_cap))
         except (ValueError, TypeError):
             params["limit"] = limit_default
+
+    # Fix H — auto-default missing bind params na None
+    if sql_text:
+        for bind_name in set(_BIND_PARAM_RE.findall(sql_text)):
+            if bind_name not in params:
+                params[bind_name] = None
 
     return params
 
@@ -219,10 +234,11 @@ def run_data_source(
     # 1) Lookup chain
     op_info = _resolve_operation(session, code, variant=variant, kind=kind)
 
-    # 2) Normalize params
+    # 2) Normalize params (Fix H: pass sql_text pro auto-default missing binds)
     params = _normalize_params(
         raw_params,
         limit_default=op_info["default_record_limit"] or 1000,
+        sql_text=op_info["sql_text"],
     )
 
     # 3) Execute SQL

@@ -9478,10 +9478,14 @@ class _CisloBody(BaseModel):
       - POST /api/v1/erp/recent (user_recent_track)
 
     Frontend payload shape (from trackTreeRecent / openTab / favoriteAdd):
-        { "cislo": int, "label": str | null }
+        { "cislo": int, "label": str | null, "item_id": str | null }
+
+    item_id pridan ve Fix G (20.5. vecer, after Marti's #194 retest):
+    user_tabs_open vola body.item_id, frontend tabs send {cislo, label, item_id}.
     """
     cislo: int
     label: str | None = None
+    item_id: str | None = None
 
 
 # TABS

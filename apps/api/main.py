@@ -148,6 +148,55 @@ async def request_id_middleware(request: Request, call_next):
         raise
     finally:
         set_request_id(None)
+
+    # Fix E (20.5. vecer, extends Fix C): 4xx+5xx response logger.
+    # Controlled responses (FastAPI Pydantic 422, sql_execute_failed
+    # JSONResponse(500), 404 stub) procházejí jako successful response
+    # nikoli Exception → Fix C je nechytl. Tady checkneme status_code
+    # po call_next a logujeme každý non-2xx (skip auth gate noise).
+    try:
+        _status = getattr(response, "status_code", 0) or 0
+        if _status >= 400:
+            # Skip auth gate 401 (login flow expected, noise)
+            _path = request.url.path
+            _skip = _status == 401 and _path.startswith("/api/v1/auth/")
+            if not _skip:
+                try:
+                    from core.log_queue import log_event as _log_event_fe
+                    _log_event_fe(
+                        level="error" if _status >= 500 else "warn",
+                        source="py",
+                        module_id=f"middleware:{_path}",
+                        message=(
+                            f"HTTP {_status} response from "
+                            f"{request.method} {_path}"
+                        ),
+                        request_id=request_id,
+                        fastapi_endpoint=_path,
+                        http_method=request.method,
+                        http_status=_status,
+                        extra={
+                            "url_query": str(request.url.query)[:500],
+                            "client_host": (
+                                request.client.host if request.client else None
+                            ),
+                            "response_status": _status,
+                            "trigger": "fix_e_status_code_check",
+                        },
+                    )
+                except Exception:
+                    import sys as _sys_fe
+                    import traceback as _tb_fe
+                    try:
+                        _sys_fe.stderr.write(
+                            f"[Fix E middleware] log_event failed: "
+                            f"{_tb_fe.format_exc()}\n"
+                        )
+                    except Exception:
+                        pass
+    except Exception:
+        pass  # never crash middleware
+
     try:
         response.headers["X-Request-Id"] = request_id
     except Exception:

@@ -691,10 +691,44 @@ class DiagLogHandler(logging.Handler):
             traceback_str = None
             exception_type = None
             if record.exc_info:
-                exception_type = (
-                    record.exc_info[0].__name__ if record.exc_info[0] else None
-                )
+                # Phase Etapa A+ fix #2.5 (20.5. vecer): walk __cause__ chain
+                # pro root cause exception_type. Bez tohoto by exception_type
+                # bylo jen "DataSourceExecuteError" (wrapper) misto napr.
+                # "InsufficientPrivilege" (real root z psycopg2). Pro audit
+                # forensic chceme root, ne wrapper.
+                _exc = record.exc_info[1]
+                if _exc is not None:
+                    _root = _exc
+                    while _root.__cause__ is not None:
+                        _root = _root.__cause__
+                    exception_type = type(_root).__name__
+                elif record.exc_info[0] is not None:
+                    exception_type = record.exc_info[0].__name__
                 traceback_str = "".join(traceback.format_exception(*record.exc_info))
+
+            # Phase Etapa A+ fix #1 (20.5.2026 vecer, Marti's "musime videt
+            # vic"): extract custom extra dict z record.__dict__. Python
+            # logging.Logger.makeRecord() merguje user's extra={...} primo
+            # do record __dict__, ne jako record.extra. Standard LogRecord
+            # attrs ignoruj, vse ostatni = user extra.
+            _STD_LOGRECORD_ATTRS = {
+                "args", "asctime", "created", "exc_info", "exc_text",
+                "filename", "funcName", "levelname", "levelno", "lineno",
+                "message", "module", "msecs", "msg", "name", "pathname",
+                "process", "processName", "relativeCreated", "stack_info",
+                "thread", "threadName", "taskName",
+            }
+            custom_extra = {
+                k: v for k, v in record.__dict__.items()
+                if k not in _STD_LOGRECORD_ATTRS and not k.startswith("_")
+            }
+            # Always-included context (overridable pres record's extra)
+            merged_extra = {
+                "logger_name": record.name,
+                "thread_name": record.threadName,
+                "process_id": record.process,
+                **custom_extra,  # User extra wins over default
+            }
 
             log_event(
                 level=level,
@@ -705,11 +739,21 @@ class DiagLogHandler(logging.Handler):
                 line_number=record.lineno,
                 exception_type=exception_type,
                 traceback_str=traceback_str,
-                extra={
-                    "logger_name": record.name,
-                    "thread_name": record.threadName,
-                    "process_id": record.process,
-                },
+                # Phase Etapa A+ fix #1: extract structured fields ze
+                # record's extra dict (pokud user predal). Fallback na
+                # None pokud chybi.
+                user_login_name=custom_extra.get("user_login_name"),
+                user_id=custom_extra.get("user_id"),
+                tenant_name=custom_extra.get("tenant_name"),
+                request_id=custom_extra.get("request_id"),
+                fastapi_endpoint=custom_extra.get("fastapi_endpoint"),
+                http_method=custom_extra.get("http_method"),
+                http_status=custom_extra.get("http_status"),
+                response_time_ms=custom_extra.get("response_time_ms"),
+                tenant_id=custom_extra.get("tenant_id"),
+                persona_id=custom_extra.get("persona_id"),
+                conversation_id=custom_extra.get("conversation_id"),
+                extra=merged_extra,
             )
         except Exception:
             # Last resort — write to stderr (nikdy nepada handler emit)

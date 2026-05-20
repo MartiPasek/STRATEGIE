@@ -1944,6 +1944,11 @@ def data_source_execute_by_id(
             # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
             # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
             # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            # Fix #2 (20.5. vecer, Marti's "musime videt vic"): expanded context —
+            # data_source_code/id, variant, fastapi_endpoint, user_id, raw_params.
+            # `locals().get(...)` pattern protoze 3 endpointy maji `ds_code` + `ds_id`,
+            # 4. (data_source_execute) ma jen `code` z path param.
+            _locals_snapshot = locals()
             logger.error(
                 "data_source SQL execute FAILED",
                 exc_info=exc,
@@ -1951,6 +1956,15 @@ def data_source_execute_by_id(
                     "endpoint_context": "ds_runner.run_data_source",
                     "exception_type": type(exc).__name__,
                     "exception_str": str(exc)[:500],
+                    # Fix #2 — rich context pre drill-down:
+                    "data_source_code": _locals_snapshot.get("ds_code") or _locals_snapshot.get("code"),
+                    "data_source_id": _locals_snapshot.get("ds_id"),
+                    "variant": variant,
+                    "fastapi_endpoint": req.url.path,
+                    "http_method": req.method,
+                    "user_id": uid,
+                    "raw_params_keys": list(raw_params.keys()) if raw_params else [],
+                    "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
             return JSONResponse(
@@ -2047,6 +2061,11 @@ def data_source_execute_by_id(
             # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
             # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
             # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            # Fix #2 (20.5. vecer, Marti's "musime videt vic"): expanded context —
+            # data_source_code/id, variant, fastapi_endpoint, user_id, raw_params.
+            # `locals().get(...)` pattern protoze 3 endpointy maji `ds_code` + `ds_id`,
+            # 4. (data_source_execute) ma jen `code` z path param.
+            _locals_snapshot = locals()
             logger.error(
                 "data_source SQL execute FAILED",
                 exc_info=exc,
@@ -2054,6 +2073,15 @@ def data_source_execute_by_id(
                     "endpoint_context": "ds_runner.run_data_source",
                     "exception_type": type(exc).__name__,
                     "exception_str": str(exc)[:500],
+                    # Fix #2 — rich context pre drill-down:
+                    "data_source_code": _locals_snapshot.get("ds_code") or _locals_snapshot.get("code"),
+                    "data_source_id": _locals_snapshot.get("ds_id"),
+                    "variant": variant,
+                    "fastapi_endpoint": req.url.path,
+                    "http_method": req.method,
+                    "user_id": uid,
+                    "raw_params_keys": list(raw_params.keys()) if raw_params else [],
+                    "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
             return JSONResponse(
@@ -2150,6 +2178,11 @@ def data_source_execute_by_id(
             # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
             # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
             # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            # Fix #2 (20.5. vecer, Marti's "musime videt vic"): expanded context —
+            # data_source_code/id, variant, fastapi_endpoint, user_id, raw_params.
+            # `locals().get(...)` pattern protoze 3 endpointy maji `ds_code` + `ds_id`,
+            # 4. (data_source_execute) ma jen `code` z path param.
+            _locals_snapshot = locals()
             logger.error(
                 "data_source SQL execute FAILED",
                 exc_info=exc,
@@ -2157,6 +2190,15 @@ def data_source_execute_by_id(
                     "endpoint_context": "ds_runner.run_data_source",
                     "exception_type": type(exc).__name__,
                     "exception_str": str(exc)[:500],
+                    # Fix #2 — rich context pre drill-down:
+                    "data_source_code": _locals_snapshot.get("ds_code") or _locals_snapshot.get("code"),
+                    "data_source_id": _locals_snapshot.get("ds_id"),
+                    "variant": variant,
+                    "fastapi_endpoint": req.url.path,
+                    "http_method": req.method,
+                    "user_id": uid,
+                    "raw_params_keys": list(raw_params.keys()) if raw_params else [],
+                    "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
             return JSONResponse(
@@ -2222,6 +2264,11 @@ def data_source_execute(
             # Phase Etapa A+ polish (20.5.2026, Marti's catch z Praha hotelu):
             # wire logger.error → fw.diag_log. Bez tohoto by SQL execute failures
             # byly tiche pro audit ("Marti's permission gap z dnesniho rana").
+            # Fix #2 (20.5. vecer, Marti's "musime videt vic"): expanded context —
+            # data_source_code/id, variant, fastapi_endpoint, user_id, raw_params.
+            # `locals().get(...)` pattern protoze 3 endpointy maji `ds_code` + `ds_id`,
+            # 4. (data_source_execute) ma jen `code` z path param.
+            _locals_snapshot = locals()
             logger.error(
                 "data_source SQL execute FAILED",
                 exc_info=exc,
@@ -2229,6 +2276,15 @@ def data_source_execute(
                     "endpoint_context": "ds_runner.run_data_source",
                     "exception_type": type(exc).__name__,
                     "exception_str": str(exc)[:500],
+                    # Fix #2 — rich context pre drill-down:
+                    "data_source_code": _locals_snapshot.get("ds_code") or _locals_snapshot.get("code"),
+                    "data_source_id": _locals_snapshot.get("ds_id"),
+                    "variant": variant,
+                    "fastapi_endpoint": req.url.path,
+                    "http_method": req.method,
+                    "user_id": uid,
+                    "raw_params_keys": list(raw_params.keys()) if raw_params else [],
+                    "raw_params_preview": {k: str(v)[:200] for k, v in (raw_params or {}).items()},
                 },
             )
             return JSONResponse(

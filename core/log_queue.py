@@ -208,8 +208,13 @@ def _insert_to_db(event: dict[str, Any]) -> int | None:
             "conversation_id": event.get("conversation_id"),
             "design_mode": event.get("design_mode"),
             # Forensic blobs
-            "extra": json.dumps(event["extra"]) if event.get("extra") else None,
-            "dom_state": json.dumps(event["dom_state"]) if event.get("dom_state") else None,
+            # Fix #2.6 (20.5. vecer, Marti's "do DB se neloguje vubec" po Fix #1+2):
+            # default=str fallback pro non-JSON-serializable values (datetime,
+            # Decimal, Request, exception instance, SQLAlchemy session...).
+            # Bez tohoto by json.dumps() padlo TypeError -> except v _insert_to_db
+            # -> return None -> row ztracen do file fallback (DB ticha).
+            "extra": json.dumps(event["extra"], default=str) if event.get("extra") else None,
+            "dom_state": json.dumps(event["dom_state"], default=str) if event.get("dom_state") else None,
             # Audit
             "created_by_id": event.get("created_by_id"),
             "created_by_text": event.get("created_by_text"),

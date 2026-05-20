@@ -1620,20 +1620,25 @@
     .nb-modal-tab { padding: 6px 12px; background: transparent; border: 1px solid var(--border); border-radius: 6px 6px 0 0; color: var(--muted); cursor: pointer; font-size: 12px; font-family: inherit; transition: color .15s, border-color .15s; }
     .nb-modal-tab.is-active { color: #c084fc; border-color: #c084fc; border-bottom-color: var(--bg); }
     .nb-modal-tab:hover { color: var(--text); }
-    .nb-note-card { padding: 10px 12px; background: var(--bg-elev); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px; font-size: 13px; }
-    .nb-note-card .nb-meta { display: flex; gap: 6px; font-size: 11px; color: var(--muted); margin-bottom: 4px; flex-wrap: wrap; }
-    .nb-note-card .nb-tag { padding: 1px 6px; border-radius: 4px; background: rgba(124, 58, 237, 0.12); color: #c084fc; font-weight: 500; }
-    .nb-note-card .nb-tag.nb-task { background: rgba(245, 158, 11, 0.12); color: #f59e0b; }
-    .nb-note-card .nb-tag.nb-info { background: rgba(99, 102, 241, 0.12); color: #818cf8; }
-    .nb-note-card .nb-tag.nb-emotion { background: rgba(236, 72, 153, 0.12); color: #ec4899; }
-    .nb-note-card .nb-tag.nb-question { background: rgba(244, 114, 182, 0.12); color: #f472b6; }
-    .nb-note-card .nb-tag.nb-completed { background: rgba(34, 197, 94, 0.12); color: #22c55e; }
-    .nb-note-card .nb-tag.nb-dismissed { background: rgba(107, 114, 128, 0.12); color: #9ca3af; opacity: 0.7; }
-    .nb-note-card .nb-tag.nb-stale { background: rgba(239, 68, 68, 0.12); color: #ef4444; }
-    .nb-note-card .nb-content { line-height: 1.45; color: var(--text); white-space: pre-wrap; word-break: break-word; }
-    .nb-note-card.nb-completed-card { opacity: 0.65; }
-    .nb-note-card.nb-completed-card .nb-content { text-decoration: line-through; }
-    .nb-empty-state { text-align: center; padding: 24px 12px; color: var(--muted); font-size: 13px; }
+    .nb-note-card { padding: 11px 14px; background: #1c1f25; border: 1px solid #2f333c; border-left: 3px solid #2f333c; border-radius: 8px; margin-bottom: 8px; font-size: 13px; transition: border-color .15s, background .15s; }
+    .nb-note-card:hover { border-color: #3a3f4a; border-left-color: #c084fc; background: #1f232a; }
+    .nb-note-card .nb-meta { display: flex; gap: 6px; font-size: 10.5px; color: var(--muted); margin-bottom: 6px; flex-wrap: wrap; align-items: center; font-family: 'DM Mono', monospace; letter-spacing: .02em; }
+    .nb-note-card .nb-tag { padding: 2px 7px; border-radius: 4px; background: rgba(124, 58, 237, 0.16); color: #c084fc; font-weight: 600; text-transform: uppercase; font-size: 10px; letter-spacing: .05em; }
+    .nb-note-card .nb-tag.nb-task { background: rgba(245, 158, 11, 0.18); color: #fbbf24; }
+    .nb-note-card .nb-tag.nb-info { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; }
+    .nb-note-card .nb-tag.nb-emotion { background: rgba(236, 72, 153, 0.18); color: #f9a8d4; }
+    .nb-note-card .nb-tag.nb-question { background: rgba(244, 114, 182, 0.18); color: #f9a8d4; }
+    .nb-note-card .nb-tag.nb-completed { background: rgba(34, 197, 94, 0.18); color: #4ade80; }
+    .nb-note-card .nb-tag.nb-dismissed { background: rgba(107, 114, 128, 0.15); color: #9ca3af; opacity: 0.75; }
+    .nb-note-card .nb-tag.nb-stale { background: rgba(239, 68, 68, 0.18); color: #fca5a5; }
+    .nb-note-card .nb-content { line-height: 1.5; color: var(--text); white-space: pre-wrap; word-break: break-word; font-size: 13px; }
+    /* Open task — subtle amber left accent (drz attention) */
+    .nb-note-card:has(.nb-tag.nb-task) { border-left-color: #f59e0b; }
+    .nb-note-card:has(.nb-tag.nb-task):hover { border-left-color: #fbbf24; }
+    /* Completed — desaturated, ne hard line-through */
+    .nb-note-card.nb-completed-card { opacity: 0.55; border-left-color: #22c55e !important; }
+    .nb-note-card.nb-completed-card .nb-content { color: var(--muted); }
+    .nb-empty-state { text-align: center; padding: 36px 18px; color: var(--muted); font-size: 13px; font-style: italic; }
 
 
     /* Image v message bubble (assistant + user) */
@@ -1797,9 +1802,10 @@
     .persona-sms-badge { position: absolute; top: -4px; right: -6px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 8px; background: #c0392b; color: #fff; font-size: 9px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; font-family: 'DM Mono', monospace; line-height: 1; }
 
     /* SMS modal -- stejny pattern jako persona-modal-bg, jen wider */
-    .sms-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.55); display: none; align-items: center; justify-content: center; z-index: 230; }
+    .sms-modal-bg { position: fixed; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(2px); display: none; align-items: center; justify-content: center; z-index: 230; }
     .sms-modal-bg.open { display: flex; }
-    .sms-modal { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0; width: 680px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 12px 36px rgba(0,0,0,.5); overflow: hidden; }
+    .sms-modal,
+    .sms-modal-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 0; width: 680px; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; box-shadow: 0 16px 48px rgba(0,0,0,.6), 0 0 0 1px rgba(255,255,255,0.02) inset; overflow: hidden; }
     .sms-modal-header { display: flex; align-items: center; gap: 12px; padding: 16px 22px 12px; border-bottom: 1px solid var(--border); }
     .sms-modal-title { font-size: 14px; color: var(--text); font-weight: 500; flex: 1; }
     .sms-modal-sub { font-size: 11px; color: var(--muted); font-family: 'DM Mono', monospace; }

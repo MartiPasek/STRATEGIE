@@ -94,8 +94,58 @@ async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
     request.state.request_id = request_id
     set_request_id(request_id)
+    response = None
     try:
         response = await call_next(request)
+    except Exception as _mw_exc:
+        # Fix C (20.5. vecer, Marti's "NIC SE NELOGUJE" diagnostika):
+        # globalni exception catch + direct log_event() bypass Python logger
+        # machinery. Garantuje ze KAZDA uncaught exception → fw.diag_log row,
+        # nezavisle na DiagLogHandler attach state (uvicorn dictConfig moze
+        # reset root handlers post setup_logging).
+        try:
+            import traceback as _tb_mw
+            from core.log_queue import log_event as _log_event_mw
+            # Walk __cause__ chain pro root cause (analog Fix #2.5 v emit)
+            _root_mw = _mw_exc
+            while getattr(_root_mw, "__cause__", None) is not None:
+                _root_mw = _root_mw.__cause__
+            _log_event_mw(
+                level="error",
+                source="py",
+                module_id=f"middleware:{request.url.path}",
+                message=(
+                    f"Uncaught exception {type(_root_mw).__name__}: "
+                    f"{str(_root_mw)[:300]}"
+                ),
+                exception_type=type(_root_mw).__name__,
+                traceback_str=_tb_mw.format_exc(),
+                request_id=request_id,
+                fastapi_endpoint=request.url.path,
+                http_method=request.method,
+                http_status=500,
+                extra={
+                    "wrapper_exception_type": type(_mw_exc).__name__,
+                    "wrapper_exception_str": str(_mw_exc)[:500],
+                    "root_exception_type": type(_root_mw).__name__,
+                    "root_exception_str": str(_root_mw)[:500],
+                    "url_query": str(request.url.query)[:500],
+                    "client_host": request.client.host if request.client else None,
+                },
+            )
+        except Exception:
+            # Last resort — never crash middleware
+            import sys as _sys_mw
+            import traceback as _tb_inner
+            try:
+                _sys_mw.stderr.write(
+                    f"[Fix C middleware] log_event failed: "
+                    f"{_tb_inner.format_exc()}\n"
+                )
+            except Exception:
+                pass
+        # Re-raise so starlette returns 500 to client
+        raise
     finally:
         set_request_id(None)
     try:

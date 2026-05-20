@@ -263,12 +263,25 @@ _AUTO_MANAGED_DEFAULT_RE = re.compile(
 def _introspect_table_columns(schema: str, table: str) -> list[dict]:
     """Vrati metadata o sloupcich z information_schema.columns.
 
-    Returns list of {name, nullable, default, data_type, is_auto_managed}.
-    is_auto_managed = True pokud sloupec ma server-side fill (BIGSERIAL,
-    DEFAULT NOW(), atd.) NEBO name match auto-managed hint.
+    Returns list of {name, nullable, default, data_type, is_auto_managed,
+                     is_identity_always}.
+
+    Auto-managed = jeden z:
+      - column_default match nextval()/NOW()/CURRENT_TIMESTAMP (SERIAL,
+        timestamp defaults)
+      - name match {id, created_at, updated_at} + default exists
+      - is_identity='YES' (PG 10+ GENERATED [ALWAYS|BY DEFAULT] AS IDENTITY).
+        Identity columns NEMAJI default v column_default — informace je v
+        is_identity + identity_generation polich.
+
+    is_identity_always = is_identity='YES' AND identity_generation='ALWAYS'.
+        Tyto sloupce **odmitnou** user-supplied hodnotu rovnou v DB
+        (psycopg2.errors.GeneratedAlways "cannot insert a non-DEFAULT
+        value"). Pre-execute REJECT je presnejsi nez DB error round-trip.
     """
     sql = """
-        SELECT column_name, is_nullable, column_default, data_type
+        SELECT column_name, is_nullable, column_default, data_type,
+               is_identity, identity_generation
         FROM information_schema.columns
         WHERE table_schema = :schema AND table_name = :table
         ORDER BY ordinal_position
@@ -281,20 +294,29 @@ def _introspect_table_columns(schema: str, table: str) -> list[dict]:
     out: list[dict] = []
     for r in rows:
         name = r[0]
-        default = r[1] if False else r[2]  # column_default
         nullable = (r[1] == "YES")
+        default = r[2]  # column_default
         data_type = r[3]
+        is_identity = (r[4] == "YES")
+        identity_generation = r[5]  # 'ALWAYS' | 'BY DEFAULT' | None
+        is_identity_always = is_identity and identity_generation == "ALWAYS"
+
         auto = False
         if default and _AUTO_MANAGED_DEFAULT_RE.match(str(default).strip()):
             auto = True
         if name in _AUTO_MANAGED_NAME_HINTS and default:
             auto = True
+        if is_identity:
+            # GENERATED [ALWAYS|BY DEFAULT] AS IDENTITY — PG 10+ modern syntax
+            auto = True
+
         out.append({
             "name": name,
             "nullable": nullable,
             "default": default,
             "data_type": data_type,
             "is_auto_managed": auto,
+            "is_identity_always": is_identity_always,
         })
     return out
 
@@ -333,6 +355,7 @@ def _validate_dml_columns(
 
     actual_cols = {c["name"] for c in cols_meta}
     auto_managed = {c["name"] for c in cols_meta if c["is_auto_managed"]}
+    identity_always = {c["name"] for c in cols_meta if c["is_identity_always"]}
 
     # 1. Reject neexistujici columns (top error: "name" vs "label")
     invalid = [k for k in value_keys if k not in actual_cols]
@@ -349,7 +372,33 @@ def _validate_dml_columns(
             "valid_columns": sorted(actual_cols),
         }
 
-    # 2. Warn na auto-managed columns (PG je vyplni sam, user fill = override)
+    # 2. HARD REJECT — IDENTITY ALWAYS columns (PG 10+ GENERATED ALWAYS AS
+    #    IDENTITY). DB by failed s psycopg2.errors.GeneratedAlways anyway;
+    #    pre-execute reject je presnejsi feedback (Marti-AI vi rovnou ze
+    #    sloupec MUSI byt vynechan, ne ze "asi nema serial default").
+    #    Toto je hlavni catch z 20.5. ranni: Marti-AI videla `id` jako
+    #    default=null + nullable=false a rucne dosadila MAX(id)+1 →
+    #    GeneratedAlways error. Identity columns nemaji `nextval()` v
+    #    column_default — info je v is_identity field.
+    if operation == "insert":
+        identity_violations = [k for k in value_keys if k in identity_always]
+        if identity_violations:
+            return {
+                "ok": False,
+                "error": (
+                    f"Sloupce {identity_violations} jsou GENERATED ALWAYS AS "
+                    f"IDENTITY v {schema}.{table} — PG odmitne user-supplied "
+                    f"hodnotu (psycopg2.errors.GeneratedAlways). "
+                    f"VYNECH je z values uplne, PG generuje automaticky. "
+                    f"Pozor: describe_table ukazuje column_default=null pro "
+                    f"identity columns — informace je v is_identity poli, ne "
+                    f"v default. NIKDY nedosazuj MAX(id)+1 pro identity column."
+                ),
+                "identity_violations": identity_violations,
+                "valid_columns": sorted(actual_cols),
+            }
+
+    # 3. Warn na auto-managed columns (PG je vyplni sam, user fill = override)
     auto_filled = [k for k in value_keys if k in auto_managed]
     warnings: list[str] = []
     if auto_filled:
@@ -460,7 +509,12 @@ def list_tables(schema: Optional[str] = None) -> dict:
 
 
 def describe_table(schema: str, table: str) -> dict:
-    """Vraci kompletni strukturu tabulky (sloupce, indexy, FK, constraints)."""
+    """Vraci kompletni strukturu tabulky (sloupce, indexy, FK, constraints).
+
+    Sloupce zahrnuji is_identity + identity_generation (PG 10+ GENERATED
+    AS IDENTITY syntax). Identity columns maji column_default=NULL, ale
+    is_identity='YES' → AI nesmi je dosazovat manualne.
+    """
     with get_session() as s:
         # Sloupce
         cols_sql = text("""
@@ -473,7 +527,9 @@ def describe_table(schema: str, table: str) -> dict:
                 character_maximum_length,
                 numeric_precision,
                 numeric_scale,
-                ordinal_position
+                ordinal_position,
+                is_identity,
+                identity_generation
             FROM information_schema.columns
             WHERE table_schema = :schema AND table_name = :table
             ORDER BY ordinal_position
@@ -541,6 +597,12 @@ def describe_table(schema: str, table: str) -> dict:
                     "numeric_precision": c[6],
                     "numeric_scale": c[7],
                     "position": c[8],
+                    # PG 10+ IDENTITY columns — NESMI byt v INSERT values
+                    # pokud is_identity='YES' AND identity_generation='ALWAYS'.
+                    # Pozor: column_default zustava NULL pro identity columns
+                    # (informace je v techto polich, ne v default).
+                    "is_identity": c[9] == "YES",
+                    "identity_generation": c[10],  # 'ALWAYS' | 'BY DEFAULT' | None
                 }
                 for c in cols
             ],

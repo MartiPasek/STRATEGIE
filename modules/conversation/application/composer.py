@@ -2360,7 +2360,7 @@ MEMORY_BEHAVIOR_RULES = (
     "    je to **`GENERATED [ALWAYS|BY DEFAULT] AS IDENTITY`**. Pozor:\n"
     "    column_default je NULL (informace je v is_identity, ne default).\n"
     "    Mistake-prone signal: `nullable=false + default=null` → vypadá\n"
-    "    jako *„musím ručně"*, ale je to auto-managed. **Vynech IDENTITY\n"
+    "    jako *musim rucne*, ale je to auto-managed. **Vynech IDENTITY\n"
     "    sloupce z values vždycky** — PG odmítne user-supplied hodnotu\n"
     "    pokud je `GENERATED ALWAYS` (psycopg2.errors.GeneratedAlways).\n"
     "    NIKDY nedosazuj `MAX(id)+1` pro identity column.\n"

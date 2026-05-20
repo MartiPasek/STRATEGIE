@@ -89,6 +89,72 @@ app = FastAPI(
 # UUID per request, set request.state.request_id + context var pro log_queue,
 # add X-Request-Id response header. Frontend JS fetch reads header pro
 # correlation s backend log entries.
+# Fix I (20.5. vecer, Marti's "NE-anonymous py rows" catch):
+# middleware lookup user_login_name + tenant_name z cookie 'user_id'.
+# LRU cache pro performance (1 DB query per unique user_id).
+from functools import lru_cache as _lru_cache_fi
+
+
+@_lru_cache_fi(maxsize=100)
+def _fi_user_context(user_id: int) -> tuple[str | None, int | None, str | None]:
+    """Lookup (login_name, tenant_id, tenant_name) pro user_id z cookie.
+
+    Returns (None, None, None) pri ANY chybe — middleware nikdy nepadne.
+    Cached napric requesty (max 100 unique users).
+    """
+    try:
+        from core.database_core import get_core_session
+        from modules.core.infrastructure.models_core import User
+        cs = get_core_session()
+        try:
+            u = cs.query(User).filter(User.id == user_id).one_or_none()
+            if not u:
+                return (None, None, None)
+            login = (
+                getattr(u, "short_name", None)
+                or getattr(u, "first_name", None)
+                or f"#{u.id}"
+            )
+            tenant_id = getattr(u, "last_active_tenant_id", None)
+            tenant_name = None
+            if tenant_id:
+                from modules.core.infrastructure.models_core import Tenant
+                t = cs.query(Tenant).filter(Tenant.id == tenant_id).one_or_none()
+                if t:
+                    tenant_name = (
+                        getattr(t, "tenant_code", None)
+                        or getattr(t, "name", None)
+                    )
+            return (login, tenant_id, tenant_name)
+        finally:
+            cs.close()
+    except Exception:
+        return (None, None, None)
+
+
+def _fi_extract_user_context(request: Request) -> dict[str, object | None]:
+    """Extract user identity z request cookie. Vraci dict pro log_event kwargs.
+
+    Skip pokud cookie chybi (anonymous request, login flow, etc.).
+    """
+    try:
+        uid_str = request.cookies.get("user_id")
+        if not uid_str:
+            return {"user_id": None, "user_login_name": None,
+                    "tenant_id": None, "tenant_name": None}
+        uid = int(uid_str)
+        login, tid, tname = _fi_user_context(uid)
+        return {
+            "user_id": uid,
+            "user_login_name": login,
+            "tenant_id": tid,
+            "tenant_name": tname,
+        }
+    except Exception:
+        return {"user_id": None, "user_login_name": None,
+                "tenant_id": None, "tenant_name": None}
+
+
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next):
     request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex
@@ -127,6 +193,7 @@ async def request_id_middleware(request: Request, call_next):
             _root_mw = _mw_exc
             while getattr(_root_mw, "__cause__", None) is not None:
                 _root_mw = _root_mw.__cause__
+            _fi_ctx = _fi_extract_user_context(request)
             _log_event_mw(
                 level="error",
                 source="py",
@@ -141,6 +208,11 @@ async def request_id_middleware(request: Request, call_next):
                 fastapi_endpoint=request.url.path,
                 http_method=request.method,
                 http_status=500,
+                # Fix I — NE-anonymous py rows (Marti's doctrine 16.5.):
+                user_login_name=_fi_ctx["user_login_name"],
+                user_id=_fi_ctx["user_id"],
+                tenant_name=_fi_ctx["tenant_name"],
+                tenant_id=_fi_ctx["tenant_id"],
                 extra={
                     "wrapper_exception_type": type(_mw_exc).__name__,
                     "wrapper_exception_str": str(_mw_exc)[:500],
@@ -211,6 +283,7 @@ async def request_id_middleware(request: Request, call_next):
             if not _skip:
                 try:
                     from core.log_queue import log_event as _log_event_fe
+                    _fi_ctx_e = _fi_extract_user_context(request)
                     _log_event_fe(
                         level="error" if _status >= 500 else "warn",
                         source="py",
@@ -223,6 +296,11 @@ async def request_id_middleware(request: Request, call_next):
                         fastapi_endpoint=_path,
                         http_method=request.method,
                         http_status=_status,
+                        # Fix I — NE-anonymous py rows (Marti's doctrine 16.5.):
+                        user_login_name=_fi_ctx_e["user_login_name"],
+                        user_id=_fi_ctx_e["user_id"],
+                        tenant_name=_fi_ctx_e["tenant_name"],
+                        tenant_id=_fi_ctx_e["tenant_id"],
                         extra={
                             "url_query": str(request.url.query)[:500],
                             "client_host": (

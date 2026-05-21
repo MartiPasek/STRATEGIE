@@ -20,12 +20,171 @@ from __future__ import annotations
 
 import logging
 import re
+from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import text as _sql_text
 
 
 logger = logging.getLogger(__name__)
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Fix P (21.5. rano, Marti's "automatic at every grid call" doctrine)
+# Self-healing column alias map — runtime rewrite v fw.data_set.sql_text
+# ════════════════════════════════════════════════════════════════════════
+# Module-level cache aliases — TTL refresh (60s). Pokud Marti přidá novou
+# alias row do fw.comp_grid_column_alias, příští grid call (do 60s) ji
+# přebere bez restart.
+
+_ALIAS_CACHE: dict[str, str | None] | None = None  # key: "alias.old_col" → "alias.new_col" or None (dropped)
+_ALIAS_CACHE_LOADED_AT: datetime | None = None
+_ALIAS_CACHE_TTL_SECONDS = 60
+
+
+def _load_alias_cache(session) -> dict[str, str | None]:
+    """Load qualified column aliases z fw.comp_grid_column_alias.
+
+    Returns:
+        dict { "alias_or_table.old_col": "alias_or_table.new_col" | None }
+        None value = sloupec dropnut nadobro (žádný auto-rewrite).
+
+    Fail-soft: pokud table neexistuje nebo query selže, vrátí {} (žádný
+    self-heal, normální execute path).
+    """
+    global _ALIAS_CACHE, _ALIAS_CACHE_LOADED_AT
+
+    now = datetime.now(timezone.utc)
+    if (_ALIAS_CACHE is not None
+        and _ALIAS_CACHE_LOADED_AT is not None
+        and (now - _ALIAS_CACHE_LOADED_AT).total_seconds() < _ALIAS_CACHE_TTL_SECONDS):
+        return _ALIAS_CACHE
+
+    try:
+        rows = session.execute(_sql_text(
+            "SELECT table_or_alias, old_column, new_column "
+            "FROM fw.comp_grid_column_alias"
+        )).all()
+        new_cache: dict[str, str | None] = {}
+        for r in rows:
+            key = f"{r.table_or_alias}.{r.old_column}"
+            new_cache[key] = (
+                f"{r.table_or_alias}.{r.new_column}"
+                if r.new_column else None
+            )
+        _ALIAS_CACHE = new_cache
+        _ALIAS_CACHE_LOADED_AT = now
+        return new_cache
+    except Exception as exc:
+        logger.warning(
+            "[self_heal] alias cache load failed: %s — using empty map", exc
+        )
+        # Fail-soft: empty cache (no rewrites, normal execute)
+        _ALIAS_CACHE = {}
+        _ALIAS_CACHE_LOADED_AT = now
+        return {}
+
+
+def invalidate_alias_cache() -> None:
+    """Force refresh při next call (e.g. po INSERT/UPDATE/DELETE alias row).
+
+    Volitelně exponse jako admin endpoint pokud bude need before TTL.
+    """
+    global _ALIAS_CACHE, _ALIAS_CACHE_LOADED_AT
+    _ALIAS_CACHE = None
+    _ALIAS_CACHE_LOADED_AT = None
+
+
+def _apply_column_aliases(
+    session,
+    sql_text: str,
+    data_set_id: int | None = None,
+) -> tuple[str, list[dict[str, str]]]:
+    """Pre-execute scan + rewrite known qualified column aliases.
+
+    Args:
+        session: SQLAlchemy session (read-only, používá se jen pro alias load)
+        sql_text: SQL ze fw.data_set.sql_text
+        data_set_id: pokud given, UPDATE fw.data_set.sql_text persistent
+
+    Returns:
+        (rewritten_sql, applied_aliases_list)
+
+    Side effects (pokud applied non-empty AND data_set_id given):
+        - UPDATE fw.data_set.sql_text v separate transaction (own session)
+        - log_event info row do fw.diag_log via core.log_queue
+
+    Fail-soft: kterákoli internal chyba → return original sql + empty applied
+    list. NIKDY neraise — execute path pokračuje s tím co dostal.
+    """
+    try:
+        alias_map = _load_alias_cache(session)
+    except Exception:
+        return sql_text, []
+
+    if not alias_map:
+        return sql_text, []
+
+    applied: list[dict[str, str]] = []
+    new_sql = sql_text
+
+    for old_qualified, new_qualified in alias_map.items():
+        if new_qualified is None:
+            continue  # Dropped column — leave SQL as-is, will fail @ execute
+        # Word boundary regex — match exactly "alias.col" not "alias.col_suffix"
+        try:
+            pattern = re.compile(r'\b' + re.escape(old_qualified) + r'\b')
+        except re.error:
+            continue  # Defensive — invalid pattern, skip
+        if pattern.search(new_sql):
+            new_sql = pattern.sub(new_qualified, new_sql)
+            applied.append({"old": old_qualified, "new": new_qualified})
+
+    if applied and data_set_id is not None:
+        # Persist UPDATE v separate session (independent transaction, nesouvisí
+        # s primary SELECT session lifecycle).
+        try:
+            from core.database_data import get_data_session
+            update_session = get_data_session()
+            try:
+                update_session.execute(
+                    _sql_text(
+                        "UPDATE fw.data_set SET sql_text = :sql WHERE id = :id"
+                    ),
+                    {"sql": new_sql, "id": data_set_id},
+                )
+                update_session.commit()
+            finally:
+                update_session.close()
+        except Exception as exc:
+            logger.warning(
+                "[self_heal] data_set #%s UPDATE failed: %s — in-memory only",
+                data_set_id, exc,
+            )
+
+        # Log info do fw.diag_log (transparent migration audit)
+        try:
+            from core.log_queue import log_event as _log_event
+            _log_event(
+                level="info",
+                source="py",
+                module_id="modules.erp.application.data_source_runner:self_heal",
+                message=(
+                    f"Auto-applied {len(applied)} column alias(es) v data_set #"
+                    f"{data_set_id}: "
+                    + ", ".join(f"{a['old']}→{a['new']}" for a in applied)
+                ),
+                extra={
+                    "data_set_id": data_set_id,
+                    "applied": applied,
+                    "old_sql_preview": sql_text[:300],
+                    "new_sql_preview": new_sql[:300],
+                },
+            )
+        except Exception:
+            pass  # Never crash on log
+
+    return new_sql, applied
 
 
 # ════════════════════════════════════════════════════════════════════════
@@ -234,15 +393,25 @@ def run_data_source(
     # 1) Lookup chain
     op_info = _resolve_operation(session, code, variant=variant, kind=kind)
 
-    # 2) Normalize params (Fix H: pass sql_text pro auto-default missing binds)
+    # 2) Self-heal column aliases (Fix P 21.5. ráno, Marti's "automatic at
+    # every grid call" doctrine). Pre-execute scan + rewrite known renames
+    # z fw.comp_grid_column_alias. Side effect: UPDATE fw.data_set.sql_text
+    # persistent + log info row do fw.diag_log. Fail-soft — pokud self-heal
+    # selže, sql_text zůstane unchanged a execute pokračuje normálně.
+    sql_text, _applied_aliases = _apply_column_aliases(
+        session,
+        op_info["sql_text"],
+        data_set_id=op_info.get("data_set_id"),
+    )
+
+    # 3) Normalize params (Fix H: pass sql_text pro auto-default missing binds)
     params = _normalize_params(
         raw_params,
         limit_default=op_info["default_record_limit"] or 1000,
-        sql_text=op_info["sql_text"],
+        sql_text=sql_text,
     )
 
-    # 3) Execute SQL
-    sql_text = op_info["sql_text"]
+    # 4) Execute SQL (potenciálně už rewritten po self-heal)
     try:
         result = session.execute(_sql_text(sql_text), params)
         rows = [dict(r) for r in result.mappings().all()]

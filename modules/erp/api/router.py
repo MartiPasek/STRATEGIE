@@ -17055,15 +17055,19 @@ def _render_workspace_page(user_id: int) -> str:
             } catch (e) {}
           }
         }
-        // Fix Q (21.5. rano, Marti's catch): clear window ERP context před tab
-        // switch — eliminate stale core_id leak z předchozího FW tabu když
-        // teď přepínám na HC tab (žádný dispatchPageRender → window kontext
-        // by zůstal staré). Pokud target tab je FW (dispatchPageRender fire),
-        // přepíše to. Pokud HC, zůstane null → Fix L wrapper neinjectne
-        // X-Erp-Core-Id header → audit log core_id = NULL (správně).
+        // Fix Q+ (21.5. revize, po Marti's catch "FW tabs neloguji při switch"):
+        // per-tab window context caching. tab.coreId/compDefId se ukládá na
+        // konci switchTab (po dispatchPageRender běhu). Při switchu zpět
+        // restorneme cached value — FW tab dostane správný coreId, HC tab
+        // dostane null. Eliminuje stale leak Z FW→HC switch a zachová
+        // attribution při FW↔FW switching mezi cached taby.
         try {
-          window._erpActiveCoreId = null;
-          window._erpActiveCompDefId = null;
+          window._erpActiveCoreId = (tabsState.tabs[idx].coreId !== undefined
+            ? tabsState.tabs[idx].coreId
+            : null);
+          window._erpActiveCompDefId = (tabsState.tabs[idx].compDefId !== undefined
+            ? tabsState.tabs[idx].compDefId
+            : null);
         } catch (_e) { /* never crash tab switch */ }
         tabsState.activeIndex = idx;
         // Phase 38.4 (11.5.2026 vecer): track lastAccessedAt pro LRU eviction
@@ -17117,6 +17121,18 @@ def _render_workspace_page(user_id: int) -> str:
         } else {
           _renderTabIntoMain(tab);
         }
+        // Fix Q+ (21.5. revize): po load/render zachyt window state na tab —
+        // dispatchPageRender (pokud běhal, FW path) nastavil window._erpActiveCoreId
+        // → ulož pro budoucí switchTab restore. HC tab (dispatchPageRender ne)
+        // → window stayed null (z initial restore) → tab.coreId zůstane null.
+        try {
+          tab.coreId = (typeof window._erpActiveCoreId !== 'undefined'
+            ? window._erpActiveCoreId
+            : null);
+          tab.compDefId = (typeof window._erpActiveCompDefId !== 'undefined'
+            ? window._erpActiveCompDefId
+            : null);
+        } catch (_e) { /* never crash capture */ }
         // Phase 38.5: po switch tabu (load nebo cached) prepocitat refresh
         // ikonu — novy aktivni tab moze mit jine stari dat.
         if (typeof ErpRefresh !== 'undefined') ErpRefresh._updateButton();

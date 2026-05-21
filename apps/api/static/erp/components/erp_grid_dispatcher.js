@@ -134,9 +134,11 @@
     // Layer 2: Legacy hardcoded dispatch (fallback)
     // ════════════════════════════════════════════════════════════
     function _legacyUrl(mode) {
-      if (mode.indexOf("security_") === 0) {
-        return "/api/v1/erp/system/security?mode=" + encodeURIComponent(mode.substring(9));
-      } else if (mode.indexOf("framework_") === 0) {
+      // Phase SYSTEM NEW (21.5.2026): security_* legacy fallback dropped.
+      // security_users / security_devices / security_whitelists / security_invites /
+      // security_auth_audit / security_diag_log → FW chain pres fw.data_source
+      // (system_new.security.*). Hardcoded HC handler /system/security smazan.
+      if (mode.indexOf("framework_") === 0) {
         return "/api/v1/erp/system/framework?mode=" + encodeURIComponent(mode.substring(10));
       } else {
         return "/api/v1/erp/system/audit-overview?mode=" + encodeURIComponent(mode);

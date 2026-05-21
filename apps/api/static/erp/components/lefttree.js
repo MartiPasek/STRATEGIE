@@ -103,6 +103,15 @@
           // _decorateLeftPanelLi cte node.dispatch_kind a appenduje
           // symbol k row.
           dispatch_kind: n.dispatch_kind || null,
+          // Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light):
+          // runtime_type per-node classification — frontend badge dot
+          // before label. Backend (_build_system_root_from_db) computes
+          // z fw.hw_registry.shadow_mode + endpoint_url pattern:
+          //   'fw' (🟢) → data_source_runner (SQL v fw.data_set, modern)
+          //   'a3' (🔵) → shadow_mode=primary (data inline v hw_registry)
+          //   'hc' (🔴) → legacy /system/* or /diag-log/* (Python embed)
+          //   null     → no badge (folder, unknown, pre-asociace)
+          runtime_type: n.runtime_type || null,
           // Phase 38.4 (11.5.2026 vecer): core.id + core.code + menu_node PK
           // pass-through pro DESIGN mode alerty (smazat legacy cislo_def).
           // n.id = row["code"] (text identifier), n.menu_node_pk = row["id"] (INT PK).
@@ -278,6 +287,35 @@
             dm.textContent = " " + m.symbol;
             dm.title = m.title;
             row.appendChild(dm);
+          }
+        }
+      }
+
+      // 8. Runtime type badge (Fix R 21.5. vecer — Marti's "JE TO CESTA?")
+      //    Badge dot PŘED label pro at-glance migration planning:
+      //      'fw' → 🟢 (data_source_runner, modern, SQL v fw.data_set)
+      //      'a3' → 🔵 (data inline v fw.hw_registry, primary shadow)
+      //      'hc' → 🔴 (legacy hardcoded Python endpoint, migrate me)
+      //    Folders + nodes bez hw_registry = žádný badge.
+      //    Idempotent — skip pokud už existing (prevent dupe na re-render).
+      if (node.runtime_type) {
+        const runtimeBadges = {
+          "fw": { dot: "🟢", title: "FW: SQL v fw.data_set (data_source_runner — modern)" },
+          "a3": { dot: "🔵", title: "A3: data inline v fw.hw_registry (shadow_mode=primary)" },
+          "hc": { dot: "🔴", title: "HC: hardcoded Python endpoint (legacy — migrate to fw.data_source)" },
+        };
+        const b = runtimeBadges[node.runtime_type];
+        if (b) {
+          const row = li.querySelector(":scope > ." + cls + "-row");
+          if (row && !row.querySelector("." + cls + "-runtime-badge")) {
+            const rb = document.createElement("span");
+            rb.className = cls + "-runtime-badge";
+            rb.textContent = b.dot;
+            rb.title = b.title;
+            rb.style.marginRight = "4px";
+            rb.style.fontSize = "0.75em";
+            // Insert FIRST in row (před label) — at-glance vlevo
+            row.insertBefore(rb, row.firstChild);
           }
         }
       }

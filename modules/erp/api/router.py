@@ -8966,11 +8966,17 @@ def _build_system_root_from_db():
         # override jen DOLU (restriktivnejsi), NULL = default (z parent topic).
         # NULL = visible v System tree (System tree je parent-only audience),
         # 'parent_only' explicit = visible.
+        # Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light): extend
+        # SELECT o hw.endpoint_url pro runtime_type classification (FW/A3/HC).
+        # _build_node computes per-node badge: 'fw' (data_source_runner),
+        # 'a3' (shadow_mode='primary' inline), 'hc' (legacy /system/* or
+        # /diag-log/* endpoint).
         sql = _sql_text_st("""
             SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
                    n.visibility_scope, n.cislo_def, n.special_handler, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
-                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
+                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active,
+                   hw.endpoint_url AS hw_endpoint_url
             FROM fw.menu_node n
             LEFT JOIN fw.core c ON c.id = n.core_id
             LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
@@ -9088,6 +9094,23 @@ def _build_system_root_from_db():
                     node["dispatch_kind"] = "hw_" + hw_mode
                 # Else: no marker (asociace bez hw_registry = expected pro
                 # nove fw.core asociace pres picker, Marti's "vsechno postupne")
+
+                # Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light):
+                # runtime_type classification per node — frontend badge dot.
+                # 'fw' (🟢) = data_source_runner path (modern, SQL v fw.data_set)
+                # 'a3' (🔵) = shadow_mode='primary' (data inline v hw_registry)
+                # 'hc' (🔴) = legacy hardcoded Python endpoint (/system/* or /diag-log/*)
+                # None = no badge (folder, no hw_registry, unknown path)
+                _hw_url = row.get("hw_endpoint_url") or ""
+                if hw_mode == "primary":
+                    node["runtime_type"] = "a3"
+                elif "/api/v1/erp/data" in _hw_url:
+                    # /api/v1/erp/data/{code} nebo /data-by-id/{id} — generic runner
+                    node["runtime_type"] = "fw"
+                elif ("/api/v1/erp/system/" in _hw_url
+                      or "/api/v1/erp/diag-log/" in _hw_url):
+                    node["runtime_type"] = "hc"
+                # Else: žádný badge (legitimate state pre-hw_registry asociace)
             # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
             # v fw.menu_node, vrátí None — bezpečné).
             meta = row.get("metadata")

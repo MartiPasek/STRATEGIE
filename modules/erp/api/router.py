@@ -16856,6 +16856,14 @@ def _render_workspace_page(user_id: int) -> str:
           const btn = document.getElementById('erpRefreshBtn');
           if (btn) btn.classList.add('spinning');
           try {
+            // Fix Q (21.5. rano, Marti's catch): clear window ERP context před
+            // refresh — eliminate stale core_id z předchozích interakcí. Pokud
+            // dispatchPageRender pak fire (FW tab), přepíše. HC tab → null
+            // zůstane → Fix L wrapper neinjectne X-Erp-Core-Id → correct.
+            try {
+              window._erpActiveCoreId = null;
+              window._erpActiveCompDefId = null;
+            } catch (_e) { /* never crash refresh */ }
             // Clear cached data → _loadTabData fetchne znovu
             tab.data = null;
             if (typeof _loadTabData === 'function') {
@@ -17047,6 +17055,16 @@ def _render_workspace_page(user_id: int) -> str:
             } catch (e) {}
           }
         }
+        // Fix Q (21.5. rano, Marti's catch): clear window ERP context před tab
+        // switch — eliminate stale core_id leak z předchozího FW tabu když
+        // teď přepínám na HC tab (žádný dispatchPageRender → window kontext
+        // by zůstal staré). Pokud target tab je FW (dispatchPageRender fire),
+        // přepíše to. Pokud HC, zůstane null → Fix L wrapper neinjectne
+        // X-Erp-Core-Id header → audit log core_id = NULL (správně).
+        try {
+          window._erpActiveCoreId = null;
+          window._erpActiveCompDefId = null;
+        } catch (_e) { /* never crash tab switch */ }
         tabsState.activeIndex = idx;
         // Phase 38.4 (11.5.2026 vecer): track lastAccessedAt pro LRU eviction
         if (tabsState.tabs[idx]) {

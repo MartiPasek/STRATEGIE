@@ -242,6 +242,55 @@
   window._erpLogToDb.queueSize = () => _queueGet().length;
 
   // ════════════════════════════════════════════════════════════════════
+  // Fix L (21.5. rano) — global window.fetch wrapper pro Fix J header injection
+  // ════════════════════════════════════════════════════════════════════
+  // Marti's catch 21.5.: core_id NULL u Python error rows i po Fix K deploy.
+  // Root cause: Fix J Vrstva 5 přidal X-Erp-Core-Id header jen do _apiCall()
+  // v router.py inline JS. Ostatní fetch sites (page_render.js, datagrid.js)
+  // volají raw fetch bez headeru → middleware contextvar=None → row.core_id=NULL.
+  //
+  // Fix: jednou zaregistrovat wrapper, který intercept VŠECHNY fetch calls
+  // na /api/v1/erp/* a inject X-Erp-Core-Id + X-Erp-Comp-Def-Id z window state.
+  // Same-origin scope (žádný cross-origin leak).
+  //
+  // Idempotent guard: pokud window.fetch už wrapped (re-load souboru), skip.
+  if (!window._erpFetchWrappedV1) {
+    window._erpFetchWrappedV1 = true;
+    const _origFetch = window.fetch.bind(window);
+    window.fetch = function (input, init) {
+      try {
+        const url = typeof input === "string"
+          ? input
+          : (input && input.url) || "";
+        // Only inject pro ERP API calls (same-origin)
+        if (url && url.indexOf("/api/v1/erp/") !== -1) {
+          init = init || {};
+          // Normalize headers do plain object (může být Headers instance)
+          if (init.headers instanceof Headers) {
+            const _h = {};
+            init.headers.forEach((v, k) => { _h[k] = v; });
+            init.headers = _h;
+          } else if (!init.headers) {
+            init.headers = {};
+          }
+          // Inject jen pokud caller nedal vlastní hodnotu
+          const _coreId = window._erpActiveCoreId;
+          if (_coreId !== undefined && _coreId !== null
+              && init.headers["X-Erp-Core-Id"] === undefined) {
+            init.headers["X-Erp-Core-Id"] = String(_coreId);
+          }
+          const _compDefId = window._erpActiveCompDefId;
+          if (_compDefId !== undefined && _compDefId !== null
+              && init.headers["X-Erp-Comp-Def-Id"] === undefined) {
+            init.headers["X-Erp-Comp-Def-Id"] = String(_compDefId);
+          }
+        }
+      } catch (_e) { /* never crash fetch */ }
+      return _origFetch.call(this, input, init);
+    };
+  }
+
+  // ════════════════════════════════════════════════════════════════════
   // _erpLoadModule — IIFE wrapper s mutual immunity
   // ════════════════════════════════════════════════════════════════════
   // Pattern:

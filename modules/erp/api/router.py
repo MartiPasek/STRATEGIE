@@ -8955,39 +8955,6 @@ def _build_system_root_from_db():
 
     ds = _gds_st()
     try:
-        # Fix R++ (21.5. večer, Marti's catch #2 "proč není označen CORE,
-        # Přehled datasourců?"): dual-strategy data_source detection.
-        # 1. Direct code match: fw.data_source.code = menu_node.code OR fw.core.code
-        # 2. FK chain: fw.comp_def WHERE core_id=core.id AND data_source_id IS NOT NULL
-        #    (form root has data_source binding — Krok 5.I-A + Krok 5.R-C+10 rename)
-        # Plus fallback: any leaf s core_id ale bez match → default HC (legacy)
-        # CRITICAL: PG session error state recovery — pokud query selže (column
-        # neexistuje), MUSÍME explicit rollback PŘED dalším execute. Bez tohoto
-        # subsequent queries padaly na "current transaction is aborted" → tree
-        # endpoint vrátí None → empty tree (Marti's "Strom prázdný" 21.5.).
-        try:
-            ds_codes_rows = ds.execute(_sql_text_st(
-                "SELECT DISTINCT code FROM fw.data_source "
-                "WHERE status='active' AND code IS NOT NULL"
-            )).all()
-            _existing_ds_codes = {r[0] for r in ds_codes_rows}
-        except Exception:
-            try: ds.rollback()
-            except Exception: pass
-            _existing_ds_codes = set()
-
-        # FK chain — Krok 5.R-C+10 (18.5.) renamed parent_core_id → core_id
-        try:
-            cores_with_ds_rows = ds.execute(_sql_text_st(
-                "SELECT DISTINCT core_id FROM fw.comp_def "
-                "WHERE core_id IS NOT NULL AND data_source_id IS NOT NULL"
-            )).all()
-            _cores_with_ds = {r[0] for r in cores_with_ds_rows}
-        except Exception:
-            try: ds.rollback()
-            except Exception: pass
-            _cores_with_ds = set()
-
         # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
         # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
         # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
@@ -8999,17 +8966,11 @@ def _build_system_root_from_db():
         # override jen DOLU (restriktivnejsi), NULL = default (z parent topic).
         # NULL = visible v System tree (System tree je parent-only audience),
         # 'parent_only' explicit = visible.
-        # Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light): extend
-        # SELECT o hw.endpoint_url pro runtime_type classification (FW/A3/HC).
-        # _build_node computes per-node badge: 'fw' (data_source_runner),
-        # 'a3' (shadow_mode='primary' inline), 'hc' (legacy /system/* or
-        # /diag-log/* endpoint).
         sql = _sql_text_st("""
             SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
                    n.visibility_scope, n.cislo_def, n.special_handler, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
-                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active,
-                   hw.endpoint_url AS hw_endpoint_url
+                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
             FROM fw.menu_node n
             LEFT JOIN fw.core c ON c.id = n.core_id
             LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
@@ -9127,39 +9088,6 @@ def _build_system_root_from_db():
                     node["dispatch_kind"] = "hw_" + hw_mode
                 # Else: no marker (asociace bez hw_registry = expected pro
                 # nove fw.core asociace pres picker, Marti's "vsechno postupne")
-
-                # Fix R++ (21.5. vecer, Marti's "proč není označen CORE?
-                # NEMÁ TO LOGIKU"): 4-state runtime_type s dual-strategy
-                # detection + leaf fallback. Každý node s core_id (klikatelný
-                # grid) dostane SOME badge.
-                # 'fw'        (🟢) = FULL — hw_registry → /data, data_source_runner direct
-                # 'fw_ready'  (🟡) = MIXED — fw.data_source bound (code match nebo FK chain),
-                #                    ale hw_registry stále HC route (SQL hotová, dispatch needs update)
-                # 'a3'        (🔵) = shadow_mode='primary' (data inline v fw.hw_registry)
-                # 'hc'        (🔴) = legacy hardcoded — default pokud nic jiného nematch
-                # None = no badge (folder bez core_id, pre-asociace)
-                _hw_url = row.get("hw_endpoint_url") or ""
-                _node_code = row.get("code") or ""
-                _core_code_check = row.get("core_code") or ""
-                _node_core_id = row.get("core_id")
-                _has_data_source = (
-                    # Strategy 1: direct code match (menu_node.code or core.code)
-                    _node_code in _existing_ds_codes
-                    or _core_code_check in _existing_ds_codes
-                    # Strategy 2: FK chain — comp_def.parent_core_id=core.id AND data_source_id NOT NULL
-                    or (_node_core_id is not None and _node_core_id in _cores_with_ds)
-                )
-                if hw_mode == "primary":
-                    node["runtime_type"] = "a3"
-                elif "/api/v1/erp/data" in _hw_url:
-                    node["runtime_type"] = "fw"
-                elif _has_data_source:
-                    node["runtime_type"] = "fw_ready"
-                else:
-                    # Fix R++ fallback: leaf s core_id (klikatelný grid) bez fw.data_source
-                    # match = legacy hardcoded Python endpoint (nebo system view bez hw_registry).
-                    # Marti's "nemá to logiku" — každý grid musí mít badge.
-                    node["runtime_type"] = "hc"
             # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
             # v fw.menu_node, vrátí None — bezpečné).
             meta = row.get("metadata")

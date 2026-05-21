@@ -103,15 +103,6 @@
           // _decorateLeftPanelLi cte node.dispatch_kind a appenduje
           // symbol k row.
           dispatch_kind: n.dispatch_kind || null,
-          // Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light):
-          // runtime_type per-node classification — frontend badge dot
-          // before label. Backend (_build_system_root_from_db) computes
-          // z fw.hw_registry.shadow_mode + endpoint_url pattern:
-          //   'fw' (🟢) → data_source_runner (SQL v fw.data_set, modern)
-          //   'a3' (🔵) → shadow_mode=primary (data inline v hw_registry)
-          //   'hc' (🔴) → legacy /system/* or /diag-log/* (Python embed)
-          //   null     → no badge (folder, unknown, pre-asociace)
-          runtime_type: n.runtime_type || null,
           // Phase 38.4 (11.5.2026 vecer): core.id + core.code + menu_node PK
           // pass-through pro DESIGN mode alerty (smazat legacy cislo_def).
           // n.id = row["code"] (text identifier), n.menu_node_pk = row["id"] (INT PK).
@@ -249,80 +240,12 @@
         }
       }
 
-      // 6. Hardcoded marker (🛠️) — DEPRECATED Phase 38.4 Krok 13.4 (11.5.2026).
-      //    Puvodne ze 9.5. vecer (metadata.hardcoded=true). Nahrazen
-      //    dispatch_kind markerem (sekce 7) ktery rozlisuje a3_primary
-      //    vs hw_off vs hw_audit/compare vs orphan — preciznejsi semantika
-      //    via fw.hw_registry.shadow_mode lookup.
-      //    Marti's *„Ted jen odebrat tu puvodni ikonu ze stromu"* (11.5. vecer).
-
-      // 7. Dispatch kind marker (Phase 38.4 Krok 13.4 — 11.5.2026 vecer).
-      //    Backend (router.py _build_system_root_from_db) computuje
-      //    node.dispatch_kind z fw.menu_node.core_id → fw.core.code →
-      //    fw.hw_registry.shadow_mode lookup chain. Marker zobrazuje
-      //    runtime dispatch stav per node:
-      //    Marti's doctrine 11.5. vecer: *„Standard je A3, marker jen
-      //    pro odchylky"*. Tj. a3_primary = no marker (expected behavior),
-      //    markery jen pro anomalies (legacy, migration, orphan).
-      //
-      //      'a3_primary'  → no marker (standard A3 chain, expected)
-      //      'hw_off'      → 🛠️ (legacy hardcoded endpoint, no shadow)
-      //      'hw_audit'    → 🔄 (audit shadow mode — passive observation)
-      //      'hw_compare'  → 🔄 (compare shadow mode — diff validation)
-      //      'orphan'      → ⚠️ (leaf bez hw_registry match — needs attention)
-      //      null/folder   → no marker (folders nejsou dispatchable)
-      if (node.dispatch_kind) {
-        const dispatchMarkers = {
-          "hw_off":     { symbol: "🛠️", title: "Legacy hardcoded endpoint (hw_registry shadow_mode=off)" },
-          "hw_audit":   { symbol: "🔄", title: "Shadow audit mode (hw_registry shadow_mode=audit)" },
-          "hw_compare": { symbol: "🔄", title: "Shadow compare mode (hw_registry shadow_mode=compare)" },
-          "orphan":     { symbol: "⚠️", title: "Leaf bez fw.hw_registry zaznamu (orphan dispatch)" }
-        };
-        const m = dispatchMarkers[node.dispatch_kind];
-        if (m) {
-          const row = li.querySelector(":scope > ." + cls + "-row");
-          if (row && !row.querySelector("." + cls + "-dispatch-marker")) {
-            const dm = document.createElement("span");
-            dm.className = cls + "-dispatch-marker";
-            dm.textContent = " " + m.symbol;
-            dm.title = m.title;
-            row.appendChild(dm);
-          }
-        }
-      }
-
-      // 8. Runtime type badge (Fix R 21.5. vecer — Marti's "JE TO CESTA?"
-      //    + Fix R+ revize "značky musí rozlišovat fw.data_source"):
-      //    Badge dot PŘED label pro at-glance migration planning:
-      //      'fw'       → 🟢 FULL — hw_registry → /data, data_source_runner direct
-      //      'fw_ready' → 🟡 MIXED — fw.data_source.code exists, hw_registry stále /system/*
-      //                   (SQL migrated, dispatch path needs update — half-done)
-      //      'a3'       → 🔵 A3 — data inline v fw.hw_registry (shadow_mode=primary)
-      //      'hc'       → 🔴 HC — pure legacy, žádný fw.data_source, Python only
-      //    Folders + nodes bez hw_registry = žádný badge.
-      //    Idempotent — skip pokud už existing (prevent dupe na re-render).
-      if (node.runtime_type) {
-        const runtimeBadges = {
-          "fw":       { dot: "🟢", title: "FW: hw_registry → /api/v1/erp/data (data_source_runner direct — full migrated)" },
-          "fw_ready": { dot: "🟡", title: "FW-ready: fw.data_source.code exists, hw_registry stále /system/* (SQL migrated, dispatch needs update)" },
-          "a3":       { dot: "🔵", title: "A3: data inline v fw.hw_registry (shadow_mode=primary)" },
-          "hc":       { dot: "🔴", title: "HC: pure legacy hardcoded Python endpoint (no fw.data_source — needs full migration)" },
-        };
-        const b = runtimeBadges[node.runtime_type];
-        if (b) {
-          const row = li.querySelector(":scope > ." + cls + "-row");
-          if (row && !row.querySelector("." + cls + "-runtime-badge")) {
-            const rb = document.createElement("span");
-            rb.className = cls + "-runtime-badge";
-            rb.textContent = b.dot;
-            rb.title = b.title;
-            rb.style.marginRight = "4px";
-            rb.style.fontSize = "0.75em";
-            // Insert FIRST in row (před label) — at-glance vlevo
-            row.insertBefore(rb, row.firstChild);
-          }
-        }
-      }
+      // 6/7/8. Tree badges + dispatch markers DROPPED 21.5. vecer.
+      //   Marti's "Smaz prosim vsechny ty barevne puntiky a ty hardcoded
+      //   symboly a vycisti kod." Tree badges (Fix R variants 🟢🟡🔵🔴)
+      //   a dispatch markers (🛠️🔄⚠️) přílišná složitost. Backend stále
+      //   computes node.dispatch_kind pro případné budoucí use (DOM
+      //   dataset nebo CSS), ale žádný visual marker se nerendere.
 
       // Phase 38.4 Krok 14g-H (15.5.2026 rano, Marti's "dragable napric
       // celym stromem v design mode only"): cross-parent move pro

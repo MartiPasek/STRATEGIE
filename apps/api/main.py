@@ -176,6 +176,27 @@ async def request_id_middleware(request: Request, call_next):
     request.state.request_id = request_id
     set_request_id(request_id)
 
+    # Fix K (21.5. rano, Marti's "nejsou zde zapsany core_id, comp_def_id,
+    # tenant, user" catch): propaguj user+ERP context do contextvars, aby
+    # ho deep code (data_source_runner.logger.error, modules.*) dostal pres
+    # DiagLogHandler.emit() → log_event() fallback. Bez tohoto: Python error
+    # rows v fw.diag_log meli prazdne user_login_name / tenant_name / core_id /
+    # comp_def_id (jen middleware-level logger calls meli kontext).
+    try:
+        from core.log_queue import set_user_context as _fk_set_user_ctx
+        _fk_user_ctx = _fi_extract_user_context(request)
+        _fk_core_id = _fj_parse_int_header(request, "X-Erp-Core-Id")
+        _fk_comp_def_id = _fj_parse_int_header(request, "X-Erp-Comp-Def-Id")
+        _fk_set_user_ctx(
+            login_name=_fk_user_ctx["user_login_name"],
+            user_id=_fk_user_ctx["user_id"],
+            tenant_name=_fk_user_ctx["tenant_name"],
+            core_id=_fk_core_id,
+            comp_def_id=_fk_comp_def_id,
+        )
+    except Exception:
+        pass  # never crash middleware on context setup
+
     # EMERGENCY (20.5. vecer, Marti's HTTP/2 protocol error po Fix J deploy):
     # Drop Fix E+ request body capture — request._receive override pattern
     # je nestabilni s Starlette BaseHTTPMiddleware (raises "Unexpected
@@ -249,6 +270,12 @@ async def request_id_middleware(request: Request, call_next):
         raise
     finally:
         set_request_id(None)
+        # Fix K (21.5.): clear user+ERP context po request konci
+        try:
+            from core.log_queue import set_user_context as _fk_clear_ctx
+            _fk_clear_ctx(None, None, None, None, None)
+        except Exception:
+            pass
 
     # Fix E+ — capture response body pro 4xx/5xx (rebuild Response).
     _mw_response_body_preview = ""

@@ -99,6 +99,63 @@ def get_request_id() -> str | None:
 
 
 # ───────────────────────────────────────────────────────────────────────
+# User+ERP context (Fix K 21.5. — propagace pro Python error attribution)
+# ───────────────────────────────────────────────────────────────────────
+# Middleware (apps/api/main.py) po Fix I lookup user nastavi tyto vars.
+# Deep code (data_source_runner.logger.error, modules.*) je dostane pres
+# DiagLogHandler.emit() fallback. async-safe, propaguje skrz asyncio chain.
+#
+# Bez tohoto: Python error rows v fw.diag_log meli prazdne user_login_name +
+# tenant_name + core_id + comp_def_id (Marti's catch 21.5. rano).
+_user_login_name_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "user_login_name", default=None
+)
+_user_id_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "user_id", default=None
+)
+_tenant_name_var: contextvars.ContextVar[str | None] = contextvars.ContextVar(
+    "tenant_name", default=None
+)
+_core_id_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "core_id", default=None
+)
+_comp_def_id_var: contextvars.ContextVar[int | None] = contextvars.ContextVar(
+    "comp_def_id", default=None
+)
+
+
+def set_user_context(
+    login_name: str | None = None,
+    user_id: int | None = None,
+    tenant_name: str | None = None,
+    core_id: int | None = None,
+    comp_def_id: int | None = None,
+) -> None:
+    """Setni user context pro current async context (FastAPI middleware).
+
+    Call po Fix I _fi_user_context lookup + Fix J Vrstva 5 header parse.
+    Propaguje skrz asyncio call chain (data_source_runner.logger.error
+    dostane tyto values pres DiagLogHandler.emit fallback).
+    """
+    _user_login_name_var.set(login_name)
+    _user_id_var.set(user_id)
+    _tenant_name_var.set(tenant_name)
+    _core_id_var.set(core_id)
+    _comp_def_id_var.set(comp_def_id)
+
+
+def get_user_context() -> dict[str, Any]:
+    """Vrati user+ERP context z current async context."""
+    return {
+        "user_login_name": _user_login_name_var.get(),
+        "user_id": _user_id_var.get(),
+        "tenant_name": _tenant_name_var.get(),
+        "core_id": _core_id_var.get(),
+        "comp_def_id": _comp_def_id_var.get(),
+    }
+
+
+# ───────────────────────────────────────────────────────────────────────
 # Helpers — dedup hash a message normalization
 # ───────────────────────────────────────────────────────────────────────
 _NUM_PATTERN = re.compile(r"\d+")
@@ -521,6 +578,23 @@ def log_event(
     # Auto-fill request_id z context pokud nebyl explicitne predan
     if request_id is None:
         request_id = get_request_id()
+
+    # Fix K (21.5.): Auto-fill user+ERP context z contextvars pokud nebyly
+    # explicitne predany. Middleware (apps/api/main.py) je setni po Fix I
+    # _fi_user_context lookup + Fix J Vrstva 5 header parse. Bez tohoto:
+    # Python error rows (data_source_runner.logger.error) meli prazdne
+    # user_login_name / tenant_name / core_id / comp_def_id.
+    _ctx = get_user_context()
+    if user_login_name is None:
+        user_login_name = _ctx.get("user_login_name")
+    if user_id is None:
+        user_id = _ctx.get("user_id")
+    if tenant_name is None:
+        tenant_name = _ctx.get("tenant_name")
+    if core_id is None:
+        core_id = _ctx.get("core_id")
+    if comp_def_id is None:
+        comp_def_id = _ctx.get("comp_def_id")
 
     # Build event payload
     event: dict[str, Any] = {

@@ -13761,28 +13761,16 @@ def _render_workspace_page(user_id: int) -> str:
         });
       }
       async function gridColumnsResolved(mode) {
-        // 1. Pokus se fetch z server (fw.grid_master + grid_column)
-        try {
-          var res = await fetch("/api/v1/erp/grid/" + encodeURIComponent(mode) + "/columns",
-                                { credentials: "include" });
-          if (res.ok) {
-            var data = await res.json();
-            if (data && data.ok && Array.isArray(data.columns)) {
-              console.log("[ERP-DIAG] gridColumns server: " + mode +
-                          " (" + data.columns.length + " cols, config_v" +
-                          (data.grid && data.grid.config_version) + ")");
-              return adaptServerColumns(data.columns);
-            }
-          }
-          // 404 = grid není v master schema → fallback na hardcoded
-        } catch (e) {
-          console.warn("[ERP-DIAG] gridColumns server fetch failed for " + mode +
-                       ", fallback hardcoded:", e);
-        }
-        // 2. Fallback na hardcoded sync vrátky
+        // Phase 38.4 Krok 5.R-C+3 (11.5.) deprecated /grid/{code}/columns endpoint.
+        // Modern path: autoColumns from dataset[0] keys (datagrid.js native).
+        // Fix N+ (21.5. rano, Marti's "co ty warningy?"): drop fetch entirely,
+        // protože každý call generuje 404 warn row v fw.diag_log (middleware
+        // Fix E captures 4xx). Hardcoded sync fallback (gridColumns) zachován
+        // pro legacy mode-specific columns. Pokud mode neexistuje v hardcoded
+        // mapě, vrátí [] a autoColumns přeberou.
         var cols = gridColumns(mode);
         if (cols && cols.length) {
-          console.log("[ERP-DIAG] gridColumns hardcoded fallback: " + mode +
+          console.log("[ERP-DIAG] gridColumns hardcoded: " + mode +
                       " (" + cols.length + " cols)");
         }
         return cols || [];

@@ -8958,9 +8958,13 @@ def _build_system_root_from_db():
         # Fix R++ (21.5. večer, Marti's catch #2 "proč není označen CORE,
         # Přehled datasourců?"): dual-strategy data_source detection.
         # 1. Direct code match: fw.data_source.code = menu_node.code OR fw.core.code
-        # 2. FK chain: fw.comp_def WHERE parent_core_id=core.id AND data_source_id IS NOT NULL
-        #    (form root has data_source binding — Krok 5.I-A architecture)
+        # 2. FK chain: fw.comp_def WHERE core_id=core.id AND data_source_id IS NOT NULL
+        #    (form root has data_source binding — Krok 5.I-A + Krok 5.R-C+10 rename)
         # Plus fallback: any leaf s core_id ale bez match → default HC (legacy)
+        # CRITICAL: PG session error state recovery — pokud query selže (column
+        # neexistuje), MUSÍME explicit rollback PŘED dalším execute. Bez tohoto
+        # subsequent queries padaly na "current transaction is aborted" → tree
+        # endpoint vrátí None → empty tree (Marti's "Strom prázdný" 21.5.).
         try:
             ds_codes_rows = ds.execute(_sql_text_st(
                 "SELECT DISTINCT code FROM fw.data_source "
@@ -8968,16 +8972,20 @@ def _build_system_root_from_db():
             )).all()
             _existing_ds_codes = {r[0] for r in ds_codes_rows}
         except Exception:
-            _existing_ds_codes = set()  # fail-soft → fallback na endpoint_url only
+            try: ds.rollback()
+            except Exception: pass
+            _existing_ds_codes = set()
 
-        # FK chain: cores that have ANY comp_def with data_source bound (form root)
+        # FK chain — Krok 5.R-C+10 (18.5.) renamed parent_core_id → core_id
         try:
             cores_with_ds_rows = ds.execute(_sql_text_st(
-                "SELECT DISTINCT parent_core_id FROM fw.comp_def "
-                "WHERE parent_core_id IS NOT NULL AND data_source_id IS NOT NULL"
+                "SELECT DISTINCT core_id FROM fw.comp_def "
+                "WHERE core_id IS NOT NULL AND data_source_id IS NOT NULL"
             )).all()
             _cores_with_ds = {r[0] for r in cores_with_ds_rows}
         except Exception:
+            try: ds.rollback()
+            except Exception: pass
             _cores_with_ds = set()
 
         # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.

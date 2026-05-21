@@ -8955,11 +8955,12 @@ def _build_system_root_from_db():
 
     ds = _gds_st()
     try:
-        # Fix R+ (21.5. večer, Marti's catch "značky nerozlišují fw.data_source"):
-        # pre-fetch existing data_source codes pro accurate runtime_type
-        # classification. menu_node.code OR fw.core.code → match fw.data_source.code.
-        # has_data_source = "SQL je už v fw.data_set, just hw_registry needs update".
-        # Single query, lru-cached fetch.
+        # Fix R++ (21.5. večer, Marti's catch #2 "proč není označen CORE,
+        # Přehled datasourců?"): dual-strategy data_source detection.
+        # 1. Direct code match: fw.data_source.code = menu_node.code OR fw.core.code
+        # 2. FK chain: fw.comp_def WHERE parent_core_id=core.id AND data_source_id IS NOT NULL
+        #    (form root has data_source binding — Krok 5.I-A architecture)
+        # Plus fallback: any leaf s core_id ale bez match → default HC (legacy)
         try:
             ds_codes_rows = ds.execute(_sql_text_st(
                 "SELECT DISTINCT code FROM fw.data_source "
@@ -8968,6 +8969,16 @@ def _build_system_root_from_db():
             _existing_ds_codes = {r[0] for r in ds_codes_rows}
         except Exception:
             _existing_ds_codes = set()  # fail-soft → fallback na endpoint_url only
+
+        # FK chain: cores that have ANY comp_def with data_source bound (form root)
+        try:
+            cores_with_ds_rows = ds.execute(_sql_text_st(
+                "SELECT DISTINCT parent_core_id FROM fw.comp_def "
+                "WHERE parent_core_id IS NOT NULL AND data_source_id IS NOT NULL"
+            )).all()
+            _cores_with_ds = {r[0] for r in cores_with_ds_rows}
+        except Exception:
+            _cores_with_ds = set()
 
         # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
         # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
@@ -9109,33 +9120,38 @@ def _build_system_root_from_db():
                 # Else: no marker (asociace bez hw_registry = expected pro
                 # nove fw.core asociace pres picker, Marti's "vsechno postupne")
 
-                # Fix R+ (21.5. vecer, Marti's revize "značky musí rozlišovat
-                # fw.data_source existenci"): 4-state runtime_type classification.
-                # 'fw'        (🟢) = FULL — hw_registry → /api/v1/erp/data{...} (data_source_runner direct)
-                # 'fw_ready'  (🟡) = MIXED — fw.data_source.code exists, ale hw_registry stále HC route
-                #                    (SQL migrated, dispatch path needs update — migration half-done)
+                # Fix R++ (21.5. vecer, Marti's "proč není označen CORE?
+                # NEMÁ TO LOGIKU"): 4-state runtime_type s dual-strategy
+                # detection + leaf fallback. Každý node s core_id (klikatelný
+                # grid) dostane SOME badge.
+                # 'fw'        (🟢) = FULL — hw_registry → /data, data_source_runner direct
+                # 'fw_ready'  (🟡) = MIXED — fw.data_source bound (code match nebo FK chain),
+                #                    ale hw_registry stále HC route (SQL hotová, dispatch needs update)
                 # 'a3'        (🔵) = shadow_mode='primary' (data inline v fw.hw_registry)
-                # 'hc'        (🔴) = PURE legacy — žádný fw.data_source, hardcoded Python only
-                # None = no badge (folder, pre-asociace state)
+                # 'hc'        (🔴) = legacy hardcoded — default pokud nic jiného nematch
+                # None = no badge (folder bez core_id, pre-asociace)
                 _hw_url = row.get("hw_endpoint_url") or ""
                 _node_code = row.get("code") or ""
                 _core_code_check = row.get("core_code") or ""
+                _node_core_id = row.get("core_id")
                 _has_data_source = (
+                    # Strategy 1: direct code match (menu_node.code or core.code)
                     _node_code in _existing_ds_codes
                     or _core_code_check in _existing_ds_codes
+                    # Strategy 2: FK chain — comp_def.parent_core_id=core.id AND data_source_id NOT NULL
+                    or (_node_core_id is not None and _node_core_id in _cores_with_ds)
                 )
                 if hw_mode == "primary":
                     node["runtime_type"] = "a3"
                 elif "/api/v1/erp/data" in _hw_url:
                     node["runtime_type"] = "fw"
                 elif _has_data_source:
-                    # fw.data_source exists, ale hw_registry endpoint_url směřuje
-                    # na legacy /system/* nebo /diag-log/* — migration half-done
                     node["runtime_type"] = "fw_ready"
-                elif ("/api/v1/erp/system/" in _hw_url
-                      or "/api/v1/erp/diag-log/" in _hw_url):
+                else:
+                    # Fix R++ fallback: leaf s core_id (klikatelný grid) bez fw.data_source
+                    # match = legacy hardcoded Python endpoint (nebo system view bez hw_registry).
+                    # Marti's "nemá to logiku" — každý grid musí mít badge.
                     node["runtime_type"] = "hc"
-                # Else: žádný badge (legitimate state pre-hw_registry asociace)
             # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
             # v fw.menu_node, vrátí None — bezpečné).
             meta = row.get("metadata")

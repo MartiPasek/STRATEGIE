@@ -8955,6 +8955,20 @@ def _build_system_root_from_db():
 
     ds = _gds_st()
     try:
+        # Fix R+ (21.5. večer, Marti's catch "značky nerozlišují fw.data_source"):
+        # pre-fetch existing data_source codes pro accurate runtime_type
+        # classification. menu_node.code OR fw.core.code → match fw.data_source.code.
+        # has_data_source = "SQL je už v fw.data_set, just hw_registry needs update".
+        # Single query, lru-cached fetch.
+        try:
+            ds_codes_rows = ds.execute(_sql_text_st(
+                "SELECT DISTINCT code FROM fw.data_source "
+                "WHERE status='active' AND code IS NOT NULL"
+            )).all()
+            _existing_ds_codes = {r[0] for r in ds_codes_rows}
+        except Exception:
+            _existing_ds_codes = set()  # fail-soft → fallback na endpoint_url only
+
         # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
         # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
         # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
@@ -9095,18 +9109,29 @@ def _build_system_root_from_db():
                 # Else: no marker (asociace bez hw_registry = expected pro
                 # nove fw.core asociace pres picker, Marti's "vsechno postupne")
 
-                # Fix R (21.5. vecer, Marti's "JE TO CESTA?" green-light):
-                # runtime_type classification per node — frontend badge dot.
-                # 'fw' (🟢) = data_source_runner path (modern, SQL v fw.data_set)
-                # 'a3' (🔵) = shadow_mode='primary' (data inline v hw_registry)
-                # 'hc' (🔴) = legacy hardcoded Python endpoint (/system/* or /diag-log/*)
-                # None = no badge (folder, no hw_registry, unknown path)
+                # Fix R+ (21.5. vecer, Marti's revize "značky musí rozlišovat
+                # fw.data_source existenci"): 4-state runtime_type classification.
+                # 'fw'        (🟢) = FULL — hw_registry → /api/v1/erp/data{...} (data_source_runner direct)
+                # 'fw_ready'  (🟡) = MIXED — fw.data_source.code exists, ale hw_registry stále HC route
+                #                    (SQL migrated, dispatch path needs update — migration half-done)
+                # 'a3'        (🔵) = shadow_mode='primary' (data inline v fw.hw_registry)
+                # 'hc'        (🔴) = PURE legacy — žádný fw.data_source, hardcoded Python only
+                # None = no badge (folder, pre-asociace state)
                 _hw_url = row.get("hw_endpoint_url") or ""
+                _node_code = row.get("code") or ""
+                _core_code_check = row.get("core_code") or ""
+                _has_data_source = (
+                    _node_code in _existing_ds_codes
+                    or _core_code_check in _existing_ds_codes
+                )
                 if hw_mode == "primary":
                     node["runtime_type"] = "a3"
                 elif "/api/v1/erp/data" in _hw_url:
-                    # /api/v1/erp/data/{code} nebo /data-by-id/{id} — generic runner
                     node["runtime_type"] = "fw"
+                elif _has_data_source:
+                    # fw.data_source exists, ale hw_registry endpoint_url směřuje
+                    # na legacy /system/* nebo /diag-log/* — migration half-done
+                    node["runtime_type"] = "fw_ready"
                 elif ("/api/v1/erp/system/" in _hw_url
                       or "/api/v1/erp/diag-log/" in _hw_url):
                     node["runtime_type"] = "hc"

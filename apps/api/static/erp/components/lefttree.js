@@ -291,18 +291,22 @@
         }
       }
 
-      // 8. Runtime type badge (Fix R 21.5. vecer — Marti's "JE TO CESTA?")
+      // 8. Runtime type badge (Fix R 21.5. vecer — Marti's "JE TO CESTA?"
+      //    + Fix R+ revize "značky musí rozlišovat fw.data_source"):
       //    Badge dot PŘED label pro at-glance migration planning:
-      //      'fw' → 🟢 (data_source_runner, modern, SQL v fw.data_set)
-      //      'a3' → 🔵 (data inline v fw.hw_registry, primary shadow)
-      //      'hc' → 🔴 (legacy hardcoded Python endpoint, migrate me)
+      //      'fw'       → 🟢 FULL — hw_registry → /data, data_source_runner direct
+      //      'fw_ready' → 🟡 MIXED — fw.data_source.code exists, hw_registry stále /system/*
+      //                   (SQL migrated, dispatch path needs update — half-done)
+      //      'a3'       → 🔵 A3 — data inline v fw.hw_registry (shadow_mode=primary)
+      //      'hc'       → 🔴 HC — pure legacy, žádný fw.data_source, Python only
       //    Folders + nodes bez hw_registry = žádný badge.
       //    Idempotent — skip pokud už existing (prevent dupe na re-render).
       if (node.runtime_type) {
         const runtimeBadges = {
-          "fw": { dot: "🟢", title: "FW: SQL v fw.data_set (data_source_runner — modern)" },
-          "a3": { dot: "🔵", title: "A3: data inline v fw.hw_registry (shadow_mode=primary)" },
-          "hc": { dot: "🔴", title: "HC: hardcoded Python endpoint (legacy — migrate to fw.data_source)" },
+          "fw":       { dot: "🟢", title: "FW: hw_registry → /api/v1/erp/data (data_source_runner direct — full migrated)" },
+          "fw_ready": { dot: "🟡", title: "FW-ready: fw.data_source.code exists, hw_registry stále /system/* (SQL migrated, dispatch needs update)" },
+          "a3":       { dot: "🔵", title: "A3: data inline v fw.hw_registry (shadow_mode=primary)" },
+          "hc":       { dot: "🔴", title: "HC: pure legacy hardcoded Python endpoint (no fw.data_source — needs full migration)" },
         };
         const b = runtimeBadges[node.runtime_type];
         if (b) {

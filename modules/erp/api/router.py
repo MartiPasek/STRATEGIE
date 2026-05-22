@@ -7854,7 +7854,7 @@ def _build_system_root_from_db():
             # napriс session. Po cislo_def schema refactor (Stage 3) drop.
             if cislo is None and row.get("id"):
                 cislo = -100000 - int(row["id"])
-            sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
+            sv, svm, single = (None, None, False)  # dead audit_overview mapping dropped 22.5.
             children_db = by_parent.get(row["id"], [])
             children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
             children = []

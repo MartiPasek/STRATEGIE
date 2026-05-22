@@ -1837,25 +1837,79 @@
       if (this._destroyed || !this.gridApi) return [];
       try {
         const raw = this.gridApi.getColumnState();
-        // Per-column actual rendered width via api.getColumn().getActualWidth()
-        return raw.map(c => {
-          let actualWidth = c.width;
+        // Phase 22.5.2026: triple-fallback width capture (Marti's "po reload
+        // se zmeny neprojevily" — width: 80 vsude v DB). getActualWidth() fix
+        // z 9.5.2026 nestacil. Pridana DOM measurement jako 3. fallback.
+        //   1. col.getActualWidth() (API — funguje pro non-flex)
+        //   2. col.getColDef().actualWidth / width (columnDef snapshot)
+        //   3. DOM measurement (querySelector ag-header-cell pres colId)
+        //   4. raw c.width (poslední fallback — defaultní 80 pro flex)
+        const captured = raw.map(c => {
+          let actualWidth = null;
+          let source = "none";
           try {
             const col = this.gridApi.getColumn(c.colId);
-            if (col && typeof col.getActualWidth === "function") {
-              const w = col.getActualWidth();
-              if (w != null && w > 0) actualWidth = w;
+            if (col) {
+              if (typeof col.getActualWidth === "function") {
+                const w = col.getActualWidth();
+                if (w != null && w > 0) {
+                  actualWidth = w;
+                  source = "getActualWidth";
+                }
+              }
+              if (actualWidth == null && typeof col.getColDef === "function") {
+                const def = col.getColDef();
+                if (def && def.actualWidth != null && def.actualWidth > 0) {
+                  actualWidth = def.actualWidth;
+                  source = "colDef.actualWidth";
+                } else if (def && def.width != null && def.width > 0) {
+                  actualWidth = def.width;
+                  source = "colDef.width";
+                }
+              }
             }
           } catch (e) {}
-          // Phase 35-E.4 Krok C+ fix7 (9.5.2026 vecer): Marti's tip
-          // "Flex je autosize". Pixel-perfect persistence vyzaduje
-          // ZLOMIT AG Grid auto-distribute. flex:0 + columnDef
-          // suppressSizeToFit:true (v _applyLayout) zabranuje
-          // sizeColumnsToFit i flex behavior.
+          if (actualWidth == null && this.containerEl) {
+            try {
+              var safeId = String(c.colId || "").replace(/"/g, "");
+              var sel = '[col-id="' + safeId + '"].ag-header-cell';
+              var headerEl = this.containerEl.querySelector(sel);
+              if (headerEl) {
+                var rect = headerEl.getBoundingClientRect();
+                if (rect && rect.width > 0) {
+                  actualWidth = Math.round(rect.width);
+                  source = "DOM";
+                }
+              }
+            } catch (e) {}
+          }
+          if (actualWidth == null) {
+            actualWidth = c.width;
+            source = "raw";
+          }
           return Object.assign({}, c, {
             width: actualWidth,
             flex: 0,
+            __widthSource: source,
           });
+        });
+        try {
+          var sources = {};
+          captured.forEach(function (c) {
+            sources[c.__widthSource] = (sources[c.__widthSource] || 0) + 1;
+          });
+          console.info(
+            "[ErpDataGrid] getCurrentColumnState — width sources:", sources,
+            "first 3 cols:",
+            captured.slice(0, 3).map(function (c) {
+              return { colId: c.colId, width: c.width, source: c.__widthSource };
+            })
+          );
+        } catch (e) {}
+        return captured.map(function (c) {
+          var clean = Object.assign({}, c);
+          delete clean.__widthSource;
+          return clean;
         });
       }
       catch (e) { return []; }

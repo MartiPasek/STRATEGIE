@@ -212,18 +212,39 @@
         _refreshSaveBtn();
       }
 
-      fetch(fetchUrl, { credentials: 'include' })
-        .then(r => r.json())
-        .then(data => {
+      // Phase 22.5.2026 fix: pre-fetch layout PARALELNE s data fetch.
+      // Pass jako `initialLayout` do ErpDataGrid -- caller cesta A (Krok C+
+      // fix #8 z 9.5.2026) mutuje columnDefs PRED grid create (strip flex,
+      // set width, reorder). Pixel-perfect restore bez timing flicker.
+      // Bez initialLayout jde cesta B (post-create _applyLayout) ktera ma
+      // znamé problemy s AG Grid v32+ (Marti's "po reload se zmeny neprojevily").
+      const dataFetch = fetch(fetchUrl, { credentials: 'include' }).then(r => r.json());
+      const layoutFetch = fetch(
+        "/api/v1/erp/grid-layout/" + coreId + "/list",
+        { credentials: 'include' }
+      ).then(r => r.ok ? r.json() : null).catch(() => null);
+
+      Promise.all([dataFetch, layoutFetch])
+        .then(([data, layoutList]) => {
           if (!data || !data.ok) {
             throw new Error((data && data.error) || 'data fetch failed');
           }
           const rows = Array.isArray(data.rows) ? data.rows : [];
+          const initialLayout = (layoutList && layoutList.ok && layoutList.effective_default)
+            ? layoutList.effective_default
+            : null;
+          if (initialLayout) {
+            console.info(
+              "[page_render] pre-fetched layout #" + initialLayout.id +
+              " '" + initialLayout.name + "' for core_" + coreId +
+              " (cols=" + ((initialLayout.layout_json && initialLayout.layout_json.columns) || []).length + ")"
+            );
+          }
           gridHost.innerHTML = "";
           // Phase 38.4 Krok 5.R-C+2 (18.5.2026 vecer, Marti's "prehled_cislo
           // musi uplne zmizet"): native ErpDataGrid toolbar pres layoutKey
-          // = "core_<id>" — dropdown sestav + 🎨 Pravidla + + Uložit jako…
-          // + ⋮ Spravovat. Backend persistence pres /grid-layout/{core_id}.
+          // = "core_<id>" -- dropdown sestav + Pravidla + Ulozit jako
+          // + spravovat. Backend persistence pres /grid-layout/{core_id}.
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
               rowData: rows,
@@ -233,6 +254,7 @@
               layoutKey: "core_" + coreId,
               gridCode: rootCd.name || ("core_" + coreId),
               autoLoadDefault: true,
+              initialLayout: initialLayout,
               // Krok 5.R-C+7: coreInfo pill — fw.core context
               coreInfo: {
                 coreId: coreId,

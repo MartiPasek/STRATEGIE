@@ -5965,133 +5965,13 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Phase 38.4 Krok 14g Etapa F Sprint D (17.5.2026 dop.):
-# PATCH /design/db-connection/update/{id} + POST /design/db-connection/create
-# — Marti's "Kristý/Jirka z UI" — DB connection management bez DBeaveru.
+# Phase 22.5.2026 Iterace B Vlna 2-1: db_connection_editor extracted
+# 2 endpoints (PATCH /design/db-connection/update/{id} + GET /system/db-connections)
+# moved to modules/fw_components/db_connection_editor.py.
 # ════════════════════════════════════════════════════════════════════════
-@api_router.patch("/design/db-connection/update/{conn_id}")
-async def design_patch_db_connection(conn_id: int, req: Request) -> JSONResponse:
-    """PATCH fw.db_connection (Sprint D 17.5.2026).
+from modules.fw_components.db_connection_editor import DbConnectionEditorComponent as _DbConnEditor  # noqa: E402
+_DbConnEditor.register_routes(api_router)
 
-    Body fields (all optional, alespoň 1):
-      label, description, default_db, host, port, login_name,
-      scope_databases (JSONB array), is_active, sort_order, status
-      (NE: code — immutable per "ID je svaty" doctrine)
-
-    Returns:
-        200: {ok, conn_id, updated_fields: [...]}
-        400: invalid body
-        404: connection neexistuje
-    """
-    from core.database_data import get_data_session as _gds_pdc
-    from sqlalchemy import text as _sql_text_pdc
-    from modules.strategie_pg.application.service import update_row as _spg_update_pdc
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    try:
-        body = await req.json()
-    except Exception:
-        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
-
-    ALLOWED = ("label", "description", "default_db", "host", "port",
-               "login_name", "scope_databases", "is_active", "sort_order", "status")
-    update_vals = {}
-    for k in ALLOWED:
-        if k in body:
-            update_vals[k] = body[k]
-
-    if not update_vals:
-        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
-
-    # Validation
-    if "status" in update_vals:
-        v = update_vals["status"]
-        if v not in ("active", "archived"):
-            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
-    if "is_active" in update_vals:
-        update_vals["is_active"] = bool(update_vals["is_active"])
-    if "port" in update_vals and update_vals["port"] is not None:
-        try:
-            update_vals["port"] = int(update_vals["port"])
-        except (ValueError, TypeError):
-            return JSONResponse({"ok": False, "error": "port musi byt integer nebo null"}, status_code=400)
-
-    ds = _gds_pdc()
-    try:
-        existing = ds.execute(_sql_text_pdc("""
-            SELECT id FROM fw.db_connection WHERE id = :id
-        """), {"id": conn_id}).mappings().one_or_none()
-        if not existing:
-            return JSONResponse({"ok": False, "error": f"db_connection id={conn_id} neexistuje"}, status_code=404)
-
-        upd = _spg_update_pdc(schema="fw", table="db_connection", values=update_vals, where={"id": conn_id}, dry_run=False)
-        if not upd.get("ok"):
-            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
-
-        return JSONResponse({
-            "ok": True,
-            "conn_id": conn_id,
-            "updated_fields": sorted(update_vals.keys()),
-        })
-    finally:
-        ds.close()
-
-
-# ════════════════════════════════════════════════════════════════════════
-# Phase 38.4 Krok 14g Etapa F Krok 5.M-D (17.5.2026):
-# GET /system/db-connections — frontend reads master registry from DB
-# (Marti's "KDE TO CACHUJES?" — drop hardcoded JS array)
-# ════════════════════════════════════════════════════════════════════════
-@api_router.get("/system/db-connections")
-def system_db_connections(req: Request, include_inactive: bool = False) -> JSONResponse:
-    """Krok 5.M-D: List DB connections z fw.db_connection.
-
-    Frontend DesignDataSetEditor + DesignDataSourceEditor fetchnou tento
-    endpoint při open místo hardcoded DDS_DB_CONNECTIONS — DB = single
-    source of truth. Marti's pattern z 17.5. dop.
-
-    Query params:
-        include_inactive: bool (default False) — INTERSOFT placeholder shows
-                          jen pokud true (UI dropdown by default skryje)
-
-    Returns:
-        { ok, connections: [
-            {id, code, label, tenant_id, tenant_code, tenant_name,
-             db_type, host, port, default_db, scope_databases,
-             is_active, sort_order, description}
-        ] }
-    """
-    from core.database_data import get_data_session as _gds_dbconn
-    from sqlalchemy import text as _sql_text_dbconn
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    ds = _gds_dbconn()
-    try:
-        sql = _sql_text_dbconn("""
-            SELECT dc.id, dc.code, dc.label,
-                   dc.tenant_id,
-                   t.tenant_code, t.tenant_name,
-                   dc.db_type, dc.host, dc.port, dc.default_db,
-                   dc.scope_databases,
-                   dc.is_active, dc.sort_order, dc.description, dc.status
-            FROM fw.db_connection dc
-            LEFT JOIN public.tenants t ON t.id = dc.tenant_id
-            WHERE (:include_inactive OR dc.is_active = TRUE)
-              AND dc.status = 'active'
-            ORDER BY dc.sort_order ASC, dc.code ASC
-        """)
-        rows = ds.execute(sql, {"include_inactive": include_inactive}).mappings().all()
-        return JSONResponse(jsonable_encoder({
-            "ok": True,
-            "connections": [dict(r) for r in rows],
-            "count": len(rows),
-        }))
-    finally:
-        ds.close()
 
 
 @api_router.get("/design/context-menu-items")

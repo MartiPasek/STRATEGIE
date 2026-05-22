@@ -29,3 +29,11 @@ class CatalogPickerComponent(ComponentBase):
     binding_schema = BINDING
     js_path = JS_PATH
     description = "Generic single-value picker — listing pres data_source + vyber ID."
+
+
+
+# ── Frontend-only — žádné Python endpointy k extractnout ─────────────────
+# Tato komponenta je čistě JS widget. Backend přístup je generic přes
+# /api/v1/erp/data/{code} (data_source) nebo /api/v1/erp/data-by-id/{id}.
+# Žádný component-specific FastAPI sub-router. Manifest stays "ID first"
+# evidence + future invoke() pokud bude potřeba server-side dispatch.

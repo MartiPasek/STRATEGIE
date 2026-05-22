@@ -29,3 +29,11 @@ class EntityPickerComponent(ComponentBase):
     binding_schema = BINDING
     js_path = JS_PATH
     description = "FW entity picker s bidirectional binding (form save flow, field_extern column)."
+
+
+
+# ── Frontend-only — žádné Python endpointy k extractnout ─────────────────
+# Tato komponenta je čistě JS widget. Backend přístup je generic přes
+# /api/v1/erp/data/{code} (data_source) nebo /api/v1/erp/data-by-id/{id}.
+# Žádný component-specific FastAPI sub-router. Manifest stays "ID first"
+# evidence + future invoke() pokud bude potřeba server-side dispatch.

@@ -176,8 +176,14 @@
                 ". Long-term: fw.data_source.target_entity_type column.");
           return;
         }
-        saveBtn.disabled = true;
-        saveBtn.textContent = "⏳ Ukládám...";
+        // Phase 38.4 Krok 14g-H+35 hotfix (22.5.2026 vecer po revert f1e1dec):
+        // saveBtn variable byl dropnut v H+35 v1 (redesign na onclick = fn),
+        // ale `saveBtn.disabled = true` reference zustaly v _onSaveClick =>
+        // ReferenceError pri kliknu => save nic nedelal. Fix: read btn z DOM.
+        const _btnEl = document.getElementById("erpSaveChangesBtn");
+        if (_btnEl) {
+          _btnEl.disabled = true;
+        }
         const entries = Array.from(dirtyRows.entries());
         let okCount = 0, failCount = 0;
         for (const [rowId, changes] of entries) {
@@ -213,9 +219,13 @@
             console.error("[page_render save] row " + rowId + " network:", e);
           }
         }
-        saveBtn.disabled = false;
+        if (_btnEl) {
+          _btnEl.disabled = false;
+        }
         if (failCount > 0) {
           alert("Save: " + okCount + " OK, " + failCount + " FAIL — viz konzole.");
+        } else if (okCount > 0) {
+          console.info("[page_render save] OK: " + okCount + " row" + (okCount === 1 ? "" : "s") + " saved");
         }
         try {
           const gridInst = gridHost.__erpGridInst;

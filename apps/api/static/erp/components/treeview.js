@@ -98,7 +98,7 @@
  *                                    // 'divider' renders <hr> (popup menu)
  *                                    // 'hint' renders italic dim text (popup menu)
  *     children?: TreeNode[],         // optional pre-grouped (jinak flat with parent_id)
- *     data?: object,                 // app-specific (cislo_def, atd.) →
+ *     data?: object,                 // app-specific (menu_node_pk, atd.) →
  *                                     pass-through na li.dataset
  *     handler?: (node, e) => void,   // per-node action callback (popup menu)
  *     visible?: (node, ctx) => bool, // conditional show

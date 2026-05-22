@@ -1827,7 +1827,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
 
     Krok 14a-fix (12.5.2026): pokud `core_code` matches pattern `prehled_-{cislo}`
     (System grid prefix z layoutKey, Phase 35-E.4 Krok B+/C+), fallback lookup
-    přes menu_node.cislo_def → core_id. Tím akce 2 + 3 chodí i pro System grids.
+    přes menu_node.menu_node_pk → core_id. Tím akce 2 + 3 chodí i pro System grids.
     """
     import re
     from core.database_data import get_data_session as _gds_fw
@@ -1838,7 +1838,9 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         # Primary: přímý match fw.core.code
         core = _fetch_core(ds, "c.code = :code", {"code": core_code})
 
-        # Fallback: System grid prefix `core_-{cislo}` -> cislo_def negative
+        # Phase 22.5.2026: System grid prefix `core_-{cislo}` fallback dropped.
+        # cislo_def column removed — lookup by negative synthetic cislo no longer
+        # possible. Frontend now sends menu_node_pk directly (no cislo_def).
         # Phase 38.4 Krok 5.R-C+5.1 (18.5.2026 vecer): regex rename z
         # `^prehled_` na `^core_` po Krok 5.R-C+2 layoutKey rename.
         if not core:
@@ -1981,7 +1983,7 @@ _FW_FORM_ENTITY_MAP: dict = {
         "id_column": "id",
         "select_columns": [
             "id", "code", "label", "kind", "parent_id", "sort_order",
-            "status", "visibility_scope", "core_id", "cislo_def",
+            "status", "visibility_scope", "core_id",
             "framework_jadro_id", "special_handler", "is_immutable",
             "description_user", "description_system",
             "created_at", "updated_at",
@@ -7795,7 +7797,7 @@ def _build_system_root_from_db():
         # nesmí dropnout siblings ani parent. Error node má is_error=True
         # + error_detail string pro frontend right-panel render.
         try:
-            # Phase 22.5.2026: fw.menu_node.cislo_def column dropped.
+            # Phase 22.5.2026: fw.menu_node.menu_node_pk column dropped.
             # node["cislo_def"] field preserved (downstream lefttree.js uses
             # it for leaf detection + tab/favorite tracking) — value is
             # now menu_node.id directly (BIGINT integer). User_state tables
@@ -7829,7 +7831,6 @@ def _build_system_root_from_db():
                     })
             node = {
                 "id": "node_" + str(row.get("id") or 0),
-                "cislo_def": cislo,
                 # Phase 38.4 (11.5.2026 vecer): primary fw.* IDs pro DESIGN mode.
                 # node["id"] = row["code"] (text, legacy convention pro routing).
                 # menu_node_pk = row["id"] (INT, skutečný DB primary key).
@@ -8111,9 +8112,18 @@ class _CisloBody(BaseModel):
     item_id pridan ve Fix G (20.5. vecer, after Marti's #194 retest):
     user_tabs_open vola body.item_id, frontend tabs send {cislo, label, item_id}.
     """
-    cislo: int
+    cislo: int  # frontend body field name preserved (sends {cislo: <menu_node.id>})
     label: str | None = None
     item_id: str | None = None
+
+
+class _ReorderBody(BaseModel):
+    """Body schema for /tabs/reorder + /favorites/reorder.
+
+    Frontend posílá { cislos: [42, 17, 8, ...] } — list integer menu_node IDs
+    v požadovaném pořadí. Field name 'cislos' zachován (frontend compat).
+    """
+    cislos: list[int]
 
 
 @api_router.get("/tabs")
@@ -8132,7 +8142,7 @@ def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
     try:
         tab = user_state_svc.open_tab(
             user_id=uid, tenant_id=tid,
-            cislo_def=body.cislo,
+            menu_node_id=body.cislo,
             label=body.label or f"Přehled #{body.cislo}",
             item_id=body.item_id,
         )
@@ -8141,21 +8151,21 @@ def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
         raise HTTPException(400, str(e))
 
 
-@api_router.delete("/tabs/{cislo_def}")
-def user_tabs_close(cislo_def: int, req: Request) -> JSONResponse:
+@api_router.delete("/tabs/{menu_node_id}")
+def user_tabs_close(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    removed = user_state_svc.close_tab(uid, tid, cislo_def)
+    removed = user_state_svc.close_tab(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "removed": removed})
 
 
-@api_router.post("/tabs/{cislo_def}/active")
-def user_tabs_set_active(cislo_def: int, req: Request) -> JSONResponse:
+@api_router.post("/tabs/{menu_node_id}/active")
+def user_tabs_set_active(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    found = user_state_svc.set_active_tab(uid, tid, cislo_def)
+    found = user_state_svc.set_active_tab(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "found": found})
 
 
@@ -8164,9 +8174,9 @@ class _PinnedBody(BaseModel):
     pinned: bool
 
 
-@api_router.post("/tabs/{cislo_def}/pinned")
+@api_router.post("/tabs/{menu_node_id}/pinned")
 def user_tabs_set_pinned(
-    cislo_def: int, body: _PinnedBody, req: Request
+    menu_node_id: int, body: _PinnedBody, req: Request
 ) -> JSONResponse:
     """Phase 38.4 (11.5.2026 vecer): toggle pinned na záložce.
 
@@ -8176,7 +8186,7 @@ def user_tabs_set_pinned(
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    found = user_state_svc.set_tab_pinned(uid, tid, cislo_def, body.pinned)
+    found = user_state_svc.set_tab_pinned(uid, tid, menu_node_id, body.pinned)
     return JSONResponse({"ok": True, "found": found})
 
 
@@ -8186,6 +8196,7 @@ def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
     _require_parent(uid)
     tid = _get_tenant_id(uid)
     updated = user_state_svc.reorder_tabs(uid, tid, body.cislos)
+    # body.cislos = list[int] of menu_node_ids in desired order (frontend compat field name)
     return JSONResponse({"ok": True, "updated": updated})
 
 
@@ -8211,12 +8222,12 @@ def user_favorites_add(body: _CisloBody, req: Request) -> JSONResponse:
         raise HTTPException(400, str(e))
 
 
-@api_router.delete("/favorites/{cislo_def}")
-def user_favorites_remove(cislo_def: int, req: Request) -> JSONResponse:
+@api_router.delete("/favorites/{menu_node_id}")
+def user_favorites_remove(menu_node_id: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    removed = user_state_svc.remove_favorite(uid, tid, cislo_def)
+    removed = user_state_svc.remove_favorite(uid, tid, menu_node_id)
     return JSONResponse({"ok": True, "removed": removed})
 
 
@@ -11857,8 +11868,6 @@ def _render_workspace_page(user_id: int) -> str:
                 if (p.value === "deprecated") return { color: "#cc6666" };
                 return null;
               } },
-            { headerName: "Cislo def", field: "cislo_def", width: 100, sortable: true, type: "numericColumn",
-              headerTooltip: "Bridge na erp_grid_layouts.core_id (negativní = System scope, pozitivní = fw.core.id)" },
             { headerName: "Visibility", field: "visibility_scope", width: 140, sortable: true,
               cellStyle: function(p) {
                 if (p.value === "parent_only") return { color: "#cc6666" };
@@ -12502,7 +12511,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       function _findSystemNodeByCislo(cislo) {
-        return _walkSystemTree(function(n) { return n.cislo_def === cislo; });
+        return _walkSystemTree(function(n) { return n.menu_node_pk === cislo; });
       }
 
       function _findSystemNodeById(itemId) {
@@ -12513,7 +12522,7 @@ def _render_workspace_page(user_id: int) -> str:
         var node = _walkSystemTree(function(n) {
           return _modeFromNode(n) === mode;
         });
-        return node ? node.cislo_def : null;
+        return node ? node.menu_node_pk : null;
       }
 
       // Expose pro debug + external usage (renderSystemGrid)
@@ -13141,7 +13150,7 @@ def _render_workspace_page(user_id: int) -> str:
 
       // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
       // odstraněna. Mapping cislo → mode se derive z System tree dat.
-      // Plně DB-driven přes fw.menu_node.cislo_def + system_view{_mode}.
+      // Plně DB-driven přes fw.menu_node.menu_node_pk + system_view{_mode}.
       // Walker helpers jsou v jiném IIFE, čteme přes window._sys*.
       function _systemModeFromCislo(cislo) {
         if (cislo === -100) return "tabs";  // UI signal, audit tabs bar
@@ -16301,5 +16310,32 @@ def _render_error_page(title: str, msg: str) -> str:
         title=title,
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
+    ) msg: str) -> str:
+    """Error page (404 / 500) — STRATEGIE BLACK theme."""
+    content = f'''
+    <div class="erp-error">
+      <h1>{html.escape(title)}</h1>
+      <p>{html.escape(msg)}</p>
+      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
+    </div>
+    '''
+    return _render_full_page(
+        title=title,
+        content=content,
+        breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
 
+ msg: str) -> str:
+    """Error page (404 / 500) — STRATEGIE BLACK theme."""
+    content = f'''
+    <div class="erp-error">
+      <h1>{html.escape(title)}</h1>
+      <p>{html.escape(msg)}</p>
+      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
+    </div>
+    '''
+    return _render_full_page(
+        title=title,
+        content=content,
+        breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
+    )

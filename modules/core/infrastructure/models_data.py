@@ -1855,14 +1855,14 @@ class ErpUserTab(BaseData):
     Marti's spec: "Per user, per tenant... do data_db". Multi-device sync —
     user otevře tab v Chrome, vidí ho v Edge atd.
 
-    UNIQUE(user_id, tenant_id, cislo_def) — jeden přehled = jeden tab.
+    UNIQUE(user_id, tenant_id, menu_node_id) — jeden přehled = jeden tab.
     """
     __tablename__ = "erp_user_tabs"
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False)
     tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    menu_node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     label: Mapped[str] = mapped_column(String(255), nullable=False)
     item_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
@@ -1890,7 +1890,7 @@ class ErpUserFavorite(BaseData):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False)
     tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    menu_node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sort_order: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False
@@ -1908,7 +1908,7 @@ class ErpUserRecent(BaseData):
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     user_id: Mapped[int] = mapped_column(Integer, nullable=False)
     tenant_id: Mapped[int] = mapped_column(Integer, nullable=False)
-    cislo_def: Mapped[int] = mapped_column(Integer, nullable=False)
+    menu_node_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
     label: Mapped[str | None] = mapped_column(String(255), nullable=True)
     last_used_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=now_utc, nullable=False

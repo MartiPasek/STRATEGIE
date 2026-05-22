@@ -56,7 +56,7 @@ def _now() -> datetime:
 
 def _serialize_tab(t: ErpUserTab) -> dict:
     return {
-        "cislo": int(t.cislo_def),
+        "menu_node_id": int(t.menu_node_id),
         "label": t.label,
         "itemId": t.item_id,
         "sortOrder": int(t.sort_order or 0),
@@ -75,7 +75,7 @@ def _serialize_tab(t: ErpUserTab) -> dict:
 
 def _serialize_favorite(f: ErpUserFavorite) -> dict:
     return {
-        "cislo": int(f.cislo_def),
+        "menu_node_id": int(f.menu_node_id),
         "sortOrder": int(f.sort_order or 0),
         "addedAt": f.added_at.isoformat() if f.added_at else None,
     }
@@ -83,7 +83,7 @@ def _serialize_favorite(f: ErpUserFavorite) -> dict:
 
 def _serialize_recent(r: ErpUserRecent) -> dict:
     return {
-        "cislo": int(r.cislo_def),
+        "menu_node_id": int(r.menu_node_id),
         "label": r.label,
         "lastUsedAt": r.last_used_at.isoformat() if r.last_used_at else None,
         "useCount": int(r.use_count or 0),
@@ -121,7 +121,7 @@ def list_tabs(user_id: int, tenant_id: int) -> list[dict]:
 def open_tab(
     user_id: int,
     tenant_id: int,
-    cislo_def: int,
+    menu_node_id: int,
     label: str,
     item_id: str | None = None,
 ) -> dict:
@@ -147,7 +147,7 @@ def open_tab(
             .filter(
                 ErpUserTab.user_id == user_id,
                 ErpUserTab.tenant_id == tenant_id,
-                ErpUserTab.cislo_def == cislo_def,
+                ErpUserTab.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -172,7 +172,7 @@ def open_tab(
         new_tab = ErpUserTab(
             user_id=user_id,
             tenant_id=tenant_id,
-            cislo_def=cislo_def,
+            menu_node_id=menu_node_id,
             label=label,
             item_id=item_id,
             sort_order=next_order,
@@ -186,13 +186,13 @@ def open_tab(
     except IntegrityError:
         ds.rollback()
         raise ErpUserStateError(
-            f"Tab pro cislo_def={cislo_def} už existuje (race condition)"
+            f"Tab pro menu_node_id={menu_node_id} už existuje (race condition)"
         )
     finally:
         ds.close()
 
 
-def close_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
+def close_tab(user_id: int, tenant_id: int, menu_node_id: int) -> bool:
     """Smazání tabu. Returns True pokud existoval."""
     ds = get_data_session()
     try:
@@ -201,7 +201,7 @@ def close_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
             .filter(
                 ErpUserTab.user_id == user_id,
                 ErpUserTab.tenant_id == tenant_id,
-                ErpUserTab.cislo_def == cislo_def,
+                ErpUserTab.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -214,7 +214,7 @@ def close_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
         ds.close()
 
 
-def set_active_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
+def set_active_tab(user_id: int, tenant_id: int, menu_node_id: int) -> bool:
     """Mark tab as active (deactivate others). Returns True pokud našel."""
     ds = get_data_session()
     try:
@@ -229,7 +229,7 @@ def set_active_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
             .filter(
                 ErpUserTab.user_id == user_id,
                 ErpUserTab.tenant_id == tenant_id,
-                ErpUserTab.cislo_def == cislo_def,
+                ErpUserTab.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -247,7 +247,7 @@ def set_active_tab(user_id: int, tenant_id: int, cislo_def: int) -> bool:
 
 
 def set_tab_pinned(
-    user_id: int, tenant_id: int, cislo_def: int, pinned: bool
+    user_id: int, tenant_id: int, menu_node_id: int, pinned: bool
 ) -> bool:
     """Phase 38.4 (11.5.2026 vecer): toggle pinned status pro záložku.
 
@@ -262,7 +262,7 @@ def set_tab_pinned(
             .filter(
                 ErpUserTab.user_id == user_id,
                 ErpUserTab.tenant_id == tenant_id,
-                ErpUserTab.cislo_def == cislo_def,
+                ErpUserTab.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -275,18 +275,18 @@ def set_tab_pinned(
         ds.close()
 
 
-def reorder_tabs(user_id: int, tenant_id: int, cislo_defs_in_order: list[int]) -> int:
-    """Update sort_order podle pořadí cislo_defs. Returns count updated."""
+def reorder_tabs(user_id: int, tenant_id: int, menu_node_ids_in_order: list[int]) -> int:
+    """Update sort_order podle pořadí menu_node_ids. Returns count updated."""
     ds = get_data_session()
     try:
         updated = 0
-        for idx, cislo in enumerate(cislo_defs_in_order):
+        for idx, mnid in enumerate(menu_node_ids_in_order):
             r = (
                 ds.query(ErpUserTab)
                 .filter(
                     ErpUserTab.user_id == user_id,
                     ErpUserTab.tenant_id == tenant_id,
-                    ErpUserTab.cislo_def == cislo,
+                    ErpUserTab.menu_node_id == mnid,
                 )
                 .one_or_none()
             )
@@ -318,7 +318,7 @@ def list_favorites(user_id: int, tenant_id: int) -> list[dict]:
         ds.close()
 
 
-def add_favorite(user_id: int, tenant_id: int, cislo_def: int) -> dict:
+def add_favorite(user_id: int, tenant_id: int, menu_node_id: int) -> dict:
     """Add to favorites. Idempotent — pokud existuje, no-op a vrátí current."""
     ds = get_data_session()
     try:
@@ -327,7 +327,7 @@ def add_favorite(user_id: int, tenant_id: int, cislo_def: int) -> dict:
             .filter(
                 ErpUserFavorite.user_id == user_id,
                 ErpUserFavorite.tenant_id == tenant_id,
-                ErpUserFavorite.cislo_def == cislo_def,
+                ErpUserFavorite.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -359,7 +359,7 @@ def add_favorite(user_id: int, tenant_id: int, cislo_def: int) -> dict:
         new_fav = ErpUserFavorite(
             user_id=user_id,
             tenant_id=tenant_id,
-            cislo_def=cislo_def,
+            menu_node_id=menu_node_id,
             sort_order=next_order,
             added_at=_now(),
         )
@@ -369,12 +369,12 @@ def add_favorite(user_id: int, tenant_id: int, cislo_def: int) -> dict:
         return _serialize_favorite(new_fav)
     except IntegrityError:
         ds.rollback()
-        raise ErpUserStateError(f"Favorite cislo_def={cislo_def} race condition")
+        raise ErpUserStateError(f"Favorite menu_node_id={menu_node_id} race condition")
     finally:
         ds.close()
 
 
-def remove_favorite(user_id: int, tenant_id: int, cislo_def: int) -> bool:
+def remove_favorite(user_id: int, tenant_id: int, menu_node_id: int) -> bool:
     ds = get_data_session()
     try:
         existing = (
@@ -382,7 +382,7 @@ def remove_favorite(user_id: int, tenant_id: int, cislo_def: int) -> bool:
             .filter(
                 ErpUserFavorite.user_id == user_id,
                 ErpUserFavorite.tenant_id == tenant_id,
-                ErpUserFavorite.cislo_def == cislo_def,
+                ErpUserFavorite.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -395,17 +395,17 @@ def remove_favorite(user_id: int, tenant_id: int, cislo_def: int) -> bool:
         ds.close()
 
 
-def reorder_favorites(user_id: int, tenant_id: int, cislo_defs_in_order: list[int]) -> int:
+def reorder_favorites(user_id: int, tenant_id: int, menu_node_ids_in_order: list[int]) -> int:
     ds = get_data_session()
     try:
         updated = 0
-        for idx, cislo in enumerate(cislo_defs_in_order):
+        for idx, mnid in enumerate(menu_node_ids_in_order):
             r = (
                 ds.query(ErpUserFavorite)
                 .filter(
                     ErpUserFavorite.user_id == user_id,
                     ErpUserFavorite.tenant_id == tenant_id,
-                    ErpUserFavorite.cislo_def == cislo,
+                    ErpUserFavorite.menu_node_id == mnid,
                 )
                 .one_or_none()
             )
@@ -455,7 +455,7 @@ def list_recent(user_id: int, tenant_id: int, limit: int = MAX_RECENT_PER_USER_T
         ds.close()
 
 
-def track_recent(user_id: int, tenant_id: int, cislo_def: int, label: str | None = None) -> dict:
+def track_recent(user_id: int, tenant_id: int, menu_node_id: int, label: str | None = None) -> dict:
     """Update last_used_at + use_count (nebo insert). Pak trim na MAX entries."""
     ds = get_data_session()
     try:
@@ -464,7 +464,7 @@ def track_recent(user_id: int, tenant_id: int, cislo_def: int, label: str | None
             .filter(
                 ErpUserRecent.user_id == user_id,
                 ErpUserRecent.tenant_id == tenant_id,
-                ErpUserRecent.cislo_def == cislo_def,
+                ErpUserRecent.menu_node_id == menu_node_id,
             )
             .one_or_none()
         )
@@ -481,7 +481,7 @@ def track_recent(user_id: int, tenant_id: int, cislo_def: int, label: str | None
             new_rec = ErpUserRecent(
                 user_id=user_id,
                 tenant_id=tenant_id,
-                cislo_def=cislo_def,
+                menu_node_id=menu_node_id,
                 label=label,
                 last_used_at=now,
                 use_count=1,
@@ -509,7 +509,7 @@ def track_recent(user_id: int, tenant_id: int, cislo_def: int, label: str | None
         return result
     except IntegrityError:
         ds.rollback()
-        raise ErpUserStateError(f"Recent track cislo_def={cislo_def} race condition")
+        raise ErpUserStateError(f"Recent track menu_node_id={menu_node_id} race condition")
     finally:
         ds.close()
 

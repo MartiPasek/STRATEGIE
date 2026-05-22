@@ -1683,7 +1683,7 @@
 
   const LABEL_OVERRIDES = {
     // fw.menu_node
-    "mn.cislo_def": "Číslo definice (legacy Centrála 1)",
+    "mn.menu_node_pk": "Číslo definice (legacy Centrála 1)",
     "mn.framework_jadro_id": "Vazba na jádro (legacy)",
     "mn.special_handler": "Speciální handler",
     "mn.visibility_scope": "Rozsah viditelnosti",
@@ -1719,7 +1719,7 @@
     "mn.sort_order": "Pořadí ve stromě v rámci stejného rodiče (rostoucí).",
     "mn.status": "active = viditelný, draft = ve vývoji, archived = skrytý.",
     "mn.visibility_scope": "Kdo vidí tento uzel: parent_only (rodiče), admin, tenant_member, public.",
-    "mn.cislo_def": "Legacy číslo z Centrály 1. Nové uzly mají core_id FK na fw.core.",
+    "mn.menu_node_pk": "Legacy číslo z Centrály 1. Nové uzly mají core_id FK na fw.core.",
     "mn.framework_jadro_id": "Phase 28-D legacy lineage. Pro nové uzly použij core_id.",
     "mn.special_handler": "Custom handler pro speciální typy (např. dynamic generation pro audit_*).",
     "mn.is_immutable": "Pokud ano, nelze editovat ani smazat (system pojistka).",

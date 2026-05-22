@@ -2274,7 +2274,7 @@
       if (action === "design-core") {
         // Phase 38.4 Krok 5.R-C+9 (18.5.2026 vecer pozde): resolve negative
         // synthetic coreId → positive fw.core row via /design/core-by-code
-        // endpoint (Krok 5.R-C+5.1 backend fallback pres fw.menu_node.cislo_def).
+        // endpoint (Krok 5.R-C+5.1 backend fallback pres fw.menu_node.menu_node_pk).
         // Pro positive coreId (fw.core grid) — direct pass.
         menu.remove();
         if (ci.coreId == null) return;
@@ -2296,7 +2296,7 @@
           _openDesignFwForm(ci.coreId);
           return;
         }
-        // Negative synthetic — resolve via fw.menu_node.cislo_def
+        // Negative synthetic — resolve via fw.menu_node.menu_node_pk
         fetch("/api/v1/erp/design/core-by-code/" + encodeURIComponent("core_" + ci.coreId),
               { credentials: "include" })
           .then(function (res) {

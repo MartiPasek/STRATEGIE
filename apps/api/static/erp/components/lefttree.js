@@ -4,7 +4,7 @@
  * První consumer base ErpTreeView. Specializace pro:
  *   • Centrála 1 menu strom (EC_CentralaMenu) + System soudečky
  *   • Numerické ikony (n.ikona % 100, char code)
- *   • Leaf vs folder podle cislo_def != null (ne podle hasChildren)
+ *   • Leaf vs folder podle menu_node_pk != null (ne podle hasChildren)
  *   • Star ★ pro pinned (favorites)
  *   • Multi-select (Ctrl+klik) pro context-menu bulk akce
  *   • System data attrs (is_system, system_view, ...)
@@ -72,9 +72,9 @@
   class ErpLeftPanelTree extends global.ErpTreeView {
     /**
      * Adapt server tree response to ErpTreeView TreeNode shape.
-     * Server vrací nodes s `menu_text`, `cislo_def`, `ikona`, `is_system`, ...
+     * Server vrací nodes s `menu_text`, `menu_node_pk`, `ikona`, `is_system`, ...
      * Base čte `n.label` — zde mappujeme + zachováváme original props
-     * pro klikové handlery (cislo_def, ikona, is_system).
+     * pro klikové handlery (menu_node_pk, ikona, is_system).
      */
     static adaptServerTree(serverNodes) {
       if (!Array.isArray(serverNodes)) return [];
@@ -84,7 +84,7 @@
           id: n.id,
           label: label,
           // Pass-through pro click handler + decorator
-          cislo_def: n.cislo_def,
+          menu_node_pk: n.menu_node_pk,
           ikona: n.ikona,
           is_system: n.is_system === true,
           system_view: n.system_view || null,
@@ -104,7 +104,7 @@
           // symbol k row.
           dispatch_kind: n.dispatch_kind || null,
           // Phase 38.4 (11.5.2026 vecer): core.id + core.code + menu_node PK
-          // pass-through pro DESIGN mode alerty (smazat legacy cislo_def).
+          // pass-through pro DESIGN mode alerty.
           // n.id = row["code"] (text identifier), n.menu_node_pk = row["id"] (INT PK).
           menu_node_pk: n.menu_node_pk || null,
           core_id: n.core_id || null,
@@ -165,7 +165,7 @@
      * Render hooks — base dělá heavy lifting (DOM construction + rekurze),
      * subclass post-decoruje direct children o ERP-specific markery:
      *
-     *   1. Leaf/folder semantic fix (cislo_def != null = leaf, vždy)
+     *   1. Leaf/folder semantic fix (menu_node_pk != null = leaf, vždy)
      *   2. data-cislo-def attribute (legacy DOM API)
      *   3. System markers (.erp-tree-system, data-system-*)
      *   4. Pinned ★ ikona (ze stavu _pinnedSet)
@@ -187,11 +187,11 @@
     }
 
     _decorateLeftPanelLi(li, node, cls) {
-      const cisloDefStr = (node.cislo_def != null && node.cislo_def !== '')
-        ? String(node.cislo_def)
+      const cisloDefStr = (node.menu_node_pk != null && node.menu_node_pk !== '')
+        ? String(node.menu_node_pk)
         : '';
 
-      // 1. Leaf/folder semantic — cislo_def != null = leaf (klikatelný přehled),
+      // 1. Leaf/folder semantic — menu_node_pk != null = leaf (klikatelný přehled),
       //    bez ohledu na hasChildren (Marti's Centrála 1 pattern: jádro může
       //    být i container pro sub-přehledy).
       if (cisloDefStr) {
@@ -514,7 +514,7 @@
      *   • Klik na ★ ikonu          → onPinToggle hook (quick unpin)
      *   • Klik na ▶/▼ toggle       → expand/collapse only (žádný activate)
      *   • Ctrl/Cmd+klik             → multi-select toggle
-     *   • Plain klik (folder)       → expand + activate (pokud má cislo_def
+     *   • Plain klik (folder)       → expand + activate (pokud má menu_node_pk
      *                                  nebo core_id asociovany, H+27)
      *   • Plain klik (leaf)         → activate via onActivate hook
      *   • Pravý-klik (DESIGN)       → contextmenu s 🎨 Design item (H+11)
@@ -579,7 +579,7 @@
         this._toggleExpanded(id);
       }
 
-      // Activate pokud má cislo_def (klikatelný přehled)
+      // Activate pokud má menu_node_pk (klikatelný přehled)
       const cisloDefStr = li.dataset.cisloDef;
       if (cisloDefStr) {
         const cisloN = parseInt(cisloDefStr, 10);
@@ -592,7 +592,7 @@
           // prehled"): drop synthetic range gate pokud node.core_id set.
           //
           // Logic:
-          //   - Real cislo_def (cisloN > -100000)         → openTab (existing)
+          //   - Real menu_node_pk         → openTab (existing)
           //   - Synthetic + core_id set (asociace)        → openTab → dispatch core
           //   - Synthetic bez core_id (no association)    → no-op (H+14)
           const hasCoreAssociated = !!(node && node.core_id);
@@ -847,13 +847,13 @@
     // ════════════════════════════════════════════════════════════════
 
     /**
-     * Find first node with given cislo_def. Returns full node or null.
+     * Find first node with given menu_node_pk. Returns full node or null.
      */
     getNodeByCislo(cislo) {
       const c = parseInt(cislo, 10);
       if (!c) return null;
       for (const node of this._nodeIndex.values()) {
-        if (node.cislo_def != null && parseInt(node.cislo_def, 10) === c) {
+        if (node.menu_node_pk != null && parseInt(node.menu_node_pk, 10) === c) {
           return node;
         }
       }
@@ -878,7 +878,7 @@
 
     /**
      * Build path z node ID na root (pro breadcrumbs). Returns array
-     * [{id, label, cislo_def}] od root k node.
+     * [{id, label, menu_node_pk}] od root k node.
      */
     getPathForId(id) {
       const path = [];
@@ -894,7 +894,7 @@
           path.unshift({
             id: String(node.id),
             label: node.label,
-            cislo_def: node.cislo_def != null ? node.cislo_def : null,
+            menu_node_pk: node.menu_node_pk != null ? node.menu_node_pk : null,
           });
         }
         // Step up: li → ul → children → li (parent)

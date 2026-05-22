@@ -15949,33 +15949,14 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       async function _loadTabData(tab) {
-        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
-        // System view bez fetch z /prehled. Data jsou self-contained
-        // (System grid si fetchuje vlastni data uvnitr).
-        if (tab.cislo < 0) {
-          tab.data = { _system: true };  // sentinel — renderTabIntoMain rozumí
-          _renderTabIntoMain(tab);
-          // Phase 38.5+ (10.5.2026 vecer Marti's debugging): System tabs taky
-          // markFresh — security_devices grid + audit-overview byly bug, ikona
-          // refresh nikdy nemarkla freshness pro negative cisla → stale
-          // detection nikdy nezafungovala. System grids fetchují data uvnitř
-          // renderSystemGrid, ale pro MVP označíme fresh při otevření tabu
-          // (re-fetch uvnitř system view → re-call markFresh later, nice-to-have).
-          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
-          return;
-        }
-        // Phase 2.E (18.5.2026): legacy Centrála 1 /prehled dropped.
-        // Po Marti's DB cleanup (DELETE FROM erp_user_tabs WHERE cislo_def > 0)
-        // positive cislo tab restore je dead path. Stub pro safety —
-        // pokud někdo někdy vytvoří positive cislo entry, render notice.
-        console.warn("[Phase 2.E] Positive cislo tab restore stubbed:", tab.cislo);
-        mainContent.innerHTML =
-          '<div class="erp-prehled-error" style="padding:24px;color:#a09080;">' +
-          '<strong>📋 Legacy Centrála 1 přehled #' + tab.cislo + ' odstraněn</strong><br><br>' +
-          'Tento tab pochází z Centrály 1 a už není dostupný.<br>' +
-          'Zavři tab a otevři FW přehled přes <em>System tree</em>.<br>' +
-          '<small style="color:#807060;">Phase 2.E cleanup 18.5.2026.</small>' +
-          '</div>';
+        // Phase 22.5.2026: po cislo_def drop refactor — tab.cislo je teď
+        // VŽDY menu_node.id (positive integer). Žádný negative synthetic
+        // range, žádný Centrála 1 legacy. Sjednocená render cesta přes
+        // _renderTabIntoMain (System view / FW přehled / Design form
+        // dispatch dle node typu).
+        tab.data = { _system: true };  // sentinel pro renderTabIntoMain
+        _renderTabIntoMain(tab);
+        if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
       }
 
       function _renderTabIntoMain(tab) {

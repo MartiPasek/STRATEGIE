@@ -601,10 +601,3 @@ def reset_tree_order(user_id: int, tenant_id: int) -> int:
         return int(deleted or 0)
     finally:
         ds.close()
-)
-            .delete()
-        )
-        ds.commit()
-        return int(deleted or 0)
-    finally:
-        ds.close()

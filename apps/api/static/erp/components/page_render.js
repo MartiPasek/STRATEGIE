@@ -116,30 +116,45 @@
       // highlight + save button v meta area. Click → loop PATCH per dirty row.
       const dirtyRows = new Map();
 
-      // Hardcoded entity_id mapping per data_source_id (pre-Stage 2 column
-      // fw.data_source.target_entity_type). CORE 30 (ds #29) fw.core entity
-      // = 23 (5.N-1 _FW_FORM_CORE_REGISTRY[23] → "core" config).
-      const DS_TO_ENTITY = { 29: "23" };
-      const entityForPatch = DS_TO_ENTITY[rootCd.data_source_id] || null;
+      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save flow ted
+      // nejde"): drop hardcoded DS_TO_ENTITY mapping. Backend design_patch_entity
+      // numeric path /design/{core_id}/{row_id} → _resolve_entity_config_for_core
+      // (5.N-1 helper) lookup v _FW_FORM_CORE_REGISTRY[core_id]. Univerzalni
+      // pre vsechny grids (Diag log, DataSets, Trusted devices, ...) — pridat
+      // jen registry entry v router.py per novy core.
+      const entityForPatch = coreId ? String(coreId) : null;
 
       // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
       const dirtyRowData = new Map();
 
       // Phase 38.4 Krok 5.R-C+6.1 (18.5.2026 vecer): save dirty button
       // appendovan jako floating overlay (mainContent position:relative
-      // parent), drop <p> header reference. DESIGN mode only.
+      // parent), drop <p> header reference.
+      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's catch po H+34):
+      //   "Mali jsme save flow, ted to nejde..." Drop isDesignMode gate -
+      //   save button visible vzdy kdyz dirtyRows.size > 0 (vcetne Excel
+      //   mode v PROD UI scope). Stylizace orange amber #d4a04a - vizualni
+      //   parovani s Excel mode pill (servisni operace).
+      //   Marti's UX: ikona v hlavicce prehledu, napravo od refresh ikony.
       let saveBtn = null;
       function _ensureSaveBtn() {
         if (saveBtn) return saveBtn;
-        if (!isDesignMode) return null;
         saveBtn = document.createElement("button");
         saveBtn.type = "button";
         saveBtn.className = "erp-page-grid-save-btn";
         saveBtn.style.cssText =
           "position:absolute;top:8px;right:16px;z-index:10;" +
-          "padding:4px 12px;background:#3a5a3a;border:1px solid #4a7a4a;" +
-          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:11px;font-weight:600;" +
+          "padding:6px 14px;background:#d4a04a;border:1px solid #a8782f;" +
+          "border-radius:4px;color:#1a1410;cursor:pointer;font-size:12px;font-weight:700;" +
+          "box-shadow:0 2px 6px rgba(0,0,0,0.4);" +
           "display:none;";
+        saveBtn.title = "Uložit změny editovaných buněk (Excel mode dirty rows)";
+        saveBtn.addEventListener("mouseenter", function() {
+          saveBtn.style.background = "#e0b25a";
+        });
+        saveBtn.addEventListener("mouseleave", function() {
+          saveBtn.style.background = "#d4a04a";
+        });
         saveBtn.addEventListener("click", _onSaveClick);
         // Append to mainContent (parent has position:relative via .erp-main-content CSS)
         mainContent.appendChild(saveBtn);

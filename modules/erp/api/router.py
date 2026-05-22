@@ -1367,7 +1367,6 @@ def _serialize_menu_node(row_dict: dict) -> dict:
         "visibility_scope": row_dict.get("visibility_scope"),
         "cislo_def": row_dict.get("cislo_def"),
         "framework_jadro_id": row_dict.get("framework_jadro_id"),
-        "special_handler": row_dict.get("special_handler"),
         "is_immutable": bool(row_dict.get("is_immutable")),
         "description": row_dict.get("description"),
         # Phase 38.4 Krok 14a-A1l #1 (12.5.2026): dva popisy — system (vyvojari)
@@ -7796,8 +7795,8 @@ def _build_system_root_from_db():
         # NULL = visible v System tree (System tree je parent-only audience),
         # 'parent_only' explicit = visible.
         sql = _sql_text_st("""
-            SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
-                   n.visibility_scope, n.cislo_def, n.special_handler, n.status,
+            SELECT n.id, n.parent_id, n.code, n.label, n.sort_order,
+                   n.visibility_scope, n.cislo_def, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
                    hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
             FROM fw.menu_node n
@@ -11878,7 +11877,7 @@ def _render_workspace_page(user_id: int) -> str:
         // ── Phase 38.3+ Framework views (10.5.2026 odpoledne) ──────
         // Marti-AI's actual schema (8.5. večer): id, code, label, kind,
         // parent_id, sort_order, status, visibility_scope, cislo_def,
-        // framework_jadro_id, special_handler, is_immutable, description,
+        // framework_jadro_id, is_immutable, description,
         // created_at, updated_at. Žádný icon (emoji v label), žádný
         // target_url, status text místo is_active+is_archived.
         if (mode === "framework_menu_nodes") {
@@ -11919,8 +11918,6 @@ def _render_workspace_page(user_id: int) -> str:
                 if (p.value === "public") return { color: "#7ba8d4" };
                 return null;
               } },
-            { headerName: "Special handler", field: "special_handler", width: 160,
-              headerTooltip: "Pro kind='special' — JS function name v _sysHelpers" },
             { headerName: "Jádro ID", field: "framework_jadro_id", width: 100, type: "numericColumn",
               headerTooltip: "FK na fw.framework_jadro (kind='list'/'form')" },
             { headerName: "Imutabilní", field: "is_immutable", width: 100,
@@ -14047,7 +14044,7 @@ def _render_workspace_page(user_id: int) -> str:
         _walk(null);
         for (const n of _treeOrder) {
           const depth = _depth(n);
-          const prefix = '  '.repeat(depth) + (n.kind === 'folder' ? '📁 ' : '📄 ');
+          const prefix = '  '.repeat(depth) + (n.is_folder ? '📁 ' : '📄 ');
           const opt = document.createElement('option');
           opt.value = String(n.id);
           opt.textContent = prefix + n.label + ' (' + n.code + ')';

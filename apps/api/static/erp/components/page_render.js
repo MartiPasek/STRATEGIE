@@ -128,29 +128,36 @@
       const dirtyRowData = new Map();
 
       // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona vedle
-      // refresh button"): Drop floating overlay save btn. Hook do workspace
-      // header level save button (#erpSaveChangesBtn vedle #erpRefreshBtn).
-      // Pattern: window._erpSaveDirtyActiveGrid global hook + count update.
-      // Active grid registry via window._erpActiveSaveHandler (last grid s
-      // dirty rows wins; tab switch resets per-grid state defaultne).
+      // refresh button"): Hook do workspace header save button (#erpSaveChangesBtn
+      // vedle #erpRefreshBtn). Direct btn.onclick = fn pattern — pre-refresh
+      // overwrites previous handler (per-grid scope wins, no race). Drop
+      // addEventListener flag pattern (gotcha: re-bound across grid re-renders).
       function _refreshSaveBtn() {
         const btn = document.getElementById("erpSaveChangesBtn");
         const countEl = document.getElementById("erpSaveChangesCount");
-        if (!btn || !countEl) return;
+        if (!btn || !countEl) {
+          console.warn("[page_render save] btn/countEl missing in workspace header");
+          return;
+        }
         const count = dirtyRows.size;
         if (count > 0) {
           btn.style.display = "";
           countEl.textContent = String(count);
-          // Register this grid's save handler globalne (last-dirty wins)
-          window._erpActiveSaveHandler = _onSaveClick;
-          // Attach click jednou (idempotent via flag)
-          if (!btn.__erpSaveBound) {
-            btn.__erpSaveBound = true;
-            btn.addEventListener("click", function() {
-              if (typeof window._erpActiveSaveHandler === "function") {
-                window._erpActiveSaveHandler();
-              }
-            });
+          // Direct onclick replace — current grid's _onSaveClick wins.
+          // Wrapped pro defensive console.info + try/catch.
+          btn.onclick = function() {
+            console.info("[page_render save] click fired, dirty count=" + dirtyRows.size +
+                         ", entityForPatch=" + entityForPatch);
+            try {
+              _onSaveClick();
+            } catch (e) {
+              console.error("[page_render save] _onSaveClick threw:", e);
+              alert("Save error: " + (e && e.message || e));
+            }
+          };
+          // Hover effect (idempotent via attribute check)
+          if (!btn.dataset.erpSaveHoverBound) {
+            btn.dataset.erpSaveHoverBound = "1";
             btn.addEventListener("mouseenter", function() {
               btn.style.background = "#e0b25a";
             });
@@ -160,10 +167,7 @@
           }
         } else {
           btn.style.display = "none";
-          // Pokud zadny dirty na tomto gridu, drop self z global handler
-          if (window._erpActiveSaveHandler === _onSaveClick) {
-            window._erpActiveSaveHandler = null;
-          }
+          btn.onclick = null;
         }
       }
       async function _onSaveClick() {

@@ -864,7 +864,14 @@
       // B+10+ (6.5.2026): user-defined conditional formatting state
       this._formattingRules = [];        // array of rule objects (viz datagrid_formatting.js)
       this._heuristicsEnabled = false;   // B+10 auto-classification = opt-in
+      // ── Phase 38.4 Krok 14g-H+34 (22.5.2026 vecer, Marti): Excel mode toggle ──
+      // Per-grid feature (Marti's "Je to funkce Gridu, ne globalni"):
+      //   EXCEL = AG editable=true (inline cell edit ON), PROD = editable=false.
+      //   Ctrl+Shift+E v gridu = toggle. Bez persist (reset reload, servisni mod).
+      //   Visual: orange pill v footer (coreId:rowId button).
+      this._excelMode = false;
       this._init();
+      this._setupExcelModeToggle();
     }
 
     _defaults() {
@@ -2931,6 +2938,92 @@
           setTimeout(() => toast.remove(), 400);
         }
       }, 3000);
+    }
+
+    // ── Phase 38.4 Krok 14g-H+34 (22.5.2026 vecer): Excel mode toggle ────
+    //
+    // Per-grid feature, Marti's "dva toogle mody, nez to vsechno doladime".
+    // Ctrl+Shift+E uvnitr gridu = toggle EXCEL <-> PROD mode.
+    //
+    //   PROD (default)  = AG editable=false, no inline cell edit
+    //   EXCEL (servisni) = AG editable=true, AG default dvojklik = cell edit
+    //
+    // Bez persist (reset reload, vědomé zapnutí = servisní mód = bezpečnost).
+    // Visual indikátor: orange pill v footer (coreId:rowId button).
+
+    _setupExcelModeToggle() {
+      if (this._destroyed || !this.container) return;
+      this._onContainerKeydown = this._onContainerKeydown.bind(this);
+      this.container.addEventListener("keydown", this._onContainerKeydown);
+    }
+
+    _onContainerKeydown(ev) {
+      // Ctrl+Shift+E => toggle Excel mode (E case-insensitive)
+      if (ev.ctrlKey && ev.shiftKey && (ev.key === "E" || ev.key === "e")) {
+        ev.preventDefault();
+        ev.stopPropagation();
+        this._toggleExcelMode();
+      }
+    }
+
+    _toggleExcelMode() {
+      this._excelMode = !this._excelMode;
+      const mode = this._excelMode ? "EXCEL" : "PROD";
+      console.info("[ErpDataGrid] Mode switch:", mode, "layoutKey:", this.options.layoutKey);
+
+      // 1) AG Grid editable update - refresh column defs in-place
+      if (this.gridApi) {
+        try {
+          const colDefs = this.gridApi.getColumnDefs();
+          if (Array.isArray(colDefs)) {
+            colDefs.forEach(cd => {
+              if (cd && typeof cd === "object") {
+                cd.editable = this._excelMode;
+              }
+            });
+            // AG v32+: setGridOption preferred; fallback setColumnDefs
+            if (typeof this.gridApi.setGridOption === "function") {
+              this.gridApi.setGridOption("columnDefs", colDefs);
+            } else if (typeof this.gridApi.setColumnDefs === "function") {
+              this.gridApi.setColumnDefs(colDefs);
+            }
+          }
+        } catch (e) {
+          console.warn("[ErpDataGrid] Excel mode AG refresh failed:", e);
+        }
+      }
+
+      // 2) Pill orange in footer (coreId:rowId zone)
+      this._applyExcelModePillStyle();
+
+      // 3) Toast notification
+      this._toast(
+        this._excelMode
+          ? "⚠ EXCEL mode ON — inline cell edit povolen (servisní)"
+          : "🔒 PROD mode — editování gridu zakázáno",
+        this._excelMode ? "error" : null
+      );
+    }
+
+    _applyExcelModePillStyle() {
+      if (!this.toolbarEl) return;
+      const btn = this.toolbarEl.querySelector("[data-erp-coreinfo-btn]");
+      if (!btn) return;
+      if (this._excelMode) {
+        // Warm amber/orange - "servisní mód, pozor"
+        btn.style.background = "#d4a04a";
+        btn.style.color = "#1a1410";
+        btn.style.fontWeight = "700";
+        btn.style.borderColor = "#a8782f";
+        btn.title = "EXCEL mode ON — Ctrl+Shift+E pro návrat do PROD";
+      } else {
+        // Reset to default (inline styles cleared, CSS class takes over)
+        btn.style.background = "";
+        btn.style.color = "";
+        btn.style.fontWeight = "";
+        btn.style.borderColor = "";
+        btn.title = "";
+      }
     }
 
     _escapeHtml(s) {

@@ -56,7 +56,7 @@ def _now() -> datetime:
 
 def _serialize_tab(t: ErpUserTab) -> dict:
     return {
-        "menu_node_id": int(t.menu_node_id),
+        "cislo": int(t.menu_node_id),  # JSON key 'cislo' preserved (frontend backward compat); value je menu_node.id
         "label": t.label,
         "itemId": t.item_id,
         "sortOrder": int(t.sort_order or 0),
@@ -75,7 +75,7 @@ def _serialize_tab(t: ErpUserTab) -> dict:
 
 def _serialize_favorite(f: ErpUserFavorite) -> dict:
     return {
-        "menu_node_id": int(f.menu_node_id),
+        "cislo": int(f.menu_node_id),  # JSON key 'cislo' preserved
         "sortOrder": int(f.sort_order or 0),
         "addedAt": f.added_at.isoformat() if f.added_at else None,
     }
@@ -83,7 +83,7 @@ def _serialize_favorite(f: ErpUserFavorite) -> dict:
 
 def _serialize_recent(r: ErpUserRecent) -> dict:
     return {
-        "menu_node_id": int(r.menu_node_id),
+        "cislo": int(r.menu_node_id),  # JSON key 'cislo' preserved
         "label": r.label,
         "lastUsedAt": r.last_used_at.isoformat() if r.last_used_at else None,
         "useCount": int(r.use_count or 0),
@@ -595,6 +595,13 @@ def reset_tree_order(user_id: int, tenant_id: int) -> int:
                 ErpUserTreeOrder.user_id == user_id,
                 ErpUserTreeOrder.tenant_id == tenant_id,
             )
+            .delete()
+        )
+        ds.commit()
+        return int(deleted or 0)
+    finally:
+        ds.close()
+)
             .delete()
         )
         ds.commit()

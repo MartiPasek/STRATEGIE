@@ -127,48 +127,43 @@
       // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
       const dirtyRowData = new Map();
 
-      // Phase 38.4 Krok 5.R-C+6.1 (18.5.2026 vecer): save dirty button
-      // appendovan jako floating overlay (mainContent position:relative
-      // parent), drop <p> header reference.
-      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's catch po H+34):
-      //   "Mali jsme save flow, ted to nejde..." Drop isDesignMode gate -
-      //   save button visible vzdy kdyz dirtyRows.size > 0 (vcetne Excel
-      //   mode v PROD UI scope). Stylizace orange amber #d4a04a - vizualni
-      //   parovani s Excel mode pill (servisni operace).
-      //   Marti's UX: ikona v hlavicce prehledu, napravo od refresh ikony.
-      let saveBtn = null;
-      function _ensureSaveBtn() {
-        if (saveBtn) return saveBtn;
-        saveBtn = document.createElement("button");
-        saveBtn.type = "button";
-        saveBtn.className = "erp-page-grid-save-btn";
-        saveBtn.style.cssText =
-          "position:absolute;top:8px;right:16px;z-index:10;" +
-          "padding:6px 14px;background:#d4a04a;border:1px solid #a8782f;" +
-          "border-radius:4px;color:#1a1410;cursor:pointer;font-size:12px;font-weight:700;" +
-          "box-shadow:0 2px 6px rgba(0,0,0,0.4);" +
-          "display:none;";
-        saveBtn.title = "Uložit změny editovaných buněk (Excel mode dirty rows)";
-        saveBtn.addEventListener("mouseenter", function() {
-          saveBtn.style.background = "#e0b25a";
-        });
-        saveBtn.addEventListener("mouseleave", function() {
-          saveBtn.style.background = "#d4a04a";
-        });
-        saveBtn.addEventListener("click", _onSaveClick);
-        // Append to mainContent (parent has position:relative via .erp-main-content CSS)
-        mainContent.appendChild(saveBtn);
-        return saveBtn;
-      }
+      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona vedle
+      // refresh button"): Drop floating overlay save btn. Hook do workspace
+      // header level save button (#erpSaveChangesBtn vedle #erpRefreshBtn).
+      // Pattern: window._erpSaveDirtyActiveGrid global hook + count update.
+      // Active grid registry via window._erpActiveSaveHandler (last grid s
+      // dirty rows wins; tab switch resets per-grid state defaultne).
       function _refreshSaveBtn() {
-        const btn = _ensureSaveBtn();
-        if (!btn) return;
+        const btn = document.getElementById("erpSaveChangesBtn");
+        const countEl = document.getElementById("erpSaveChangesCount");
+        if (!btn || !countEl) return;
         const count = dirtyRows.size;
         if (count > 0) {
           btn.style.display = "";
-          btn.textContent = "💾 Uložit " + count;
+          countEl.textContent = String(count);
+          // Register this grid's save handler globalne (last-dirty wins)
+          window._erpActiveSaveHandler = _onSaveClick;
+          // Attach click jednou (idempotent via flag)
+          if (!btn.__erpSaveBound) {
+            btn.__erpSaveBound = true;
+            btn.addEventListener("click", function() {
+              if (typeof window._erpActiveSaveHandler === "function") {
+                window._erpActiveSaveHandler();
+              }
+            });
+            btn.addEventListener("mouseenter", function() {
+              btn.style.background = "#e0b25a";
+            });
+            btn.addEventListener("mouseleave", function() {
+              btn.style.background = "#d4a04a";
+            });
+          }
         } else {
           btn.style.display = "none";
+          // Pokud zadny dirty na tomto gridu, drop self z global handler
+          if (window._erpActiveSaveHandler === _onSaveClick) {
+            window._erpActiveSaveHandler = null;
+          }
         }
       }
       async function _onSaveClick() {

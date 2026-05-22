@@ -2048,6 +2048,14 @@ _FW_FORM_ENTITY_MAP["core_design"] = _FW_FORM_ENTITY_MAP["core"]
 _FW_FORM_ENTITY_MAP["comp_def_design"] = _FW_FORM_ENTITY_MAP["comp_def"]
 _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
 
+# Phase 38.4 Krok 5.N-2 LIVE (22.5.2026 vecer, Marti's "čistý stůl"):
+# System cores (Diag log, DataSets, DataSources, DB Connections, Knowledge
+# Entries, atd.) NEMAJÍ explicit entries v _FW_FORM_ENTITY_MAP. Resolvuji
+# se DB-driven pres fw.data_source.target_xxx columns (deployed _phase_krok5_n_2_
+# data_source_target_columns.sql). Marti's audit log RO doctrine (21.5. Fix N)
+# zustava intact — direct UPDATE pres design_patch_entity je servisni override
+# (Excel mode = vedome zapnuti, Marti's "dva mody, nez to vsechno doladime").
+
 
 # Phase 38.4 Krok 5.N-1 (17.5.2026): ID-based form_core registry.
 # Marti's doctrine "code je optional, ID je truth" — applied to fw.core
@@ -2062,19 +2070,79 @@ _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
 # Long-term plan: migrate config do fw.data_source.target_xxx columns
 # (Krok 5.N-2+) — vše v DB, žádný Python map.
 _FW_FORM_CORE_REGISTRY: dict = {
-    22: _FW_FORM_ENTITY_MAP["user"],   # user_edit form_core (Marti's code: '22a')
-    23: _FW_FORM_ENTITY_MAP["core"],   # core_design form_core (Marti's code: '23a')
-    # Add more as form_cores are created. Long-term: replace s DB-driven config.
+    22: _FW_FORM_ENTITY_MAP["user"],       # user_edit form_core (Marti's code: '22a')
+    23: _FW_FORM_ENTITY_MAP["core"],       # core_design form_core (Marti's code: '23a')
+    # Phase 38.4 Krok 5.N-2 LIVE (22.5.2026 vecer, Marti's "čistý stůl"):
+    # Ostatní cores resolvuji DB-driven pres fw.data_source.target_xxx columns.
+    # _resolve_entity_config_from_db() je PRIMARY path; this map je legacy
+    # fallback pro 22+23 (user/core form_cores postavené pre-Krok 5.N-2).
 }
 
 
-def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
-    """Resolve entity config for a form_core — ID first, code fallback.
+def _resolve_entity_config_from_db(core_id: int) -> dict | None:
+    """Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "čistý stůl"):
+    DB-driven entity config lookup pres fw.data_source.target_xxx columns.
 
-    Phase 38.4 Krok 5.N-1 (17.5.2026): pojistka proti Marti's code rename.
+    JOIN chain: fw.core → fw.comp_def (region_slot='main') → fw.data_source.
+
+    Args:
+        core_id: fw.core.id
+
+    Returns:
+        entity_config dict {schema, table, id_column, select_columns} nebo None
+        pokud:
+          - core/comp_def/data_source neexistuje
+          - target_table IS NULL (data_source je RO, save flow zakazan)
+    """
+    from core.database_data import get_data_session as _gds_resolve
+    from sqlalchemy import text as _sql_resolve
+
+    ds = _gds_resolve()
+    try:
+        row = ds.execute(_sql_resolve("""
+            SELECT
+                dsrc.target_schema,
+                dsrc.target_table,
+                dsrc.target_id_column,
+                dsrc.target_select_columns
+            FROM fw.core c
+            JOIN fw.comp_def cd
+                ON cd.core_id = c.id
+               AND cd.region_slot = 'main'
+               AND cd.is_active = TRUE
+            JOIN fw.data_source dsrc
+                ON dsrc.id = cd.data_source_id
+            WHERE c.id = :core_id
+              AND dsrc.target_table IS NOT NULL
+            LIMIT 1
+        """), {"core_id": core_id}).mappings().one_or_none()
+        if not row:
+            return None
+        config = {
+            "schema": row["target_schema"],
+            "table": row["target_table"],
+            "id_column": row["target_id_column"] or "id",
+        }
+        # select_columns je TEXT[] z PG, mapped to Python list
+        sel = row["target_select_columns"]
+        if sel:
+            config["select_columns"] = list(sel)
+        return config
+    except Exception as exc:
+        logger.warning(f"_resolve_entity_config_from_db(core_id={core_id}) failed: {exc}")
+        return None
+    finally:
+        ds.close()
+
+
+def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
+    """Resolve entity config for a form_core — DB-first (Krok 5.N-2), legacy fallback.
+
+    Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "čistý stůl za námi"):
     Lookup chain:
-      1. core_id v _FW_FORM_CORE_REGISTRY (primary, ID-keyed)
-      2. core.code v _FW_FORM_ENTITY_MAP (legacy fallback, code-keyed)
+      1. DB-driven via fw.data_source.target_xxx columns (PRIMARY, universal)
+      2. core_id v _FW_FORM_CORE_REGISTRY (legacy fallback, user_edit/core_design)
+      3. core.code v _FW_FORM_ENTITY_MAP (legacy code-keyed)
 
     Args:
         core_dict_or_id: dict s 'id' + 'code', nebo přímo int core_id
@@ -2082,18 +2150,30 @@ def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
     Returns:
         entity_config dict, nebo None pokud neresolved
     """
+    # Extract core_id
     if isinstance(core_dict_or_id, int):
-        return _FW_FORM_CORE_REGISTRY.get(core_dict_or_id)
-    if not isinstance(core_dict_or_id, dict):
+        core_id = core_dict_or_id
+        core_code = None
+    elif isinstance(core_dict_or_id, dict):
+        core_id = core_dict_or_id.get("id")
+        core_code = core_dict_or_id.get("code")
+    else:
         return None
-    # Try by id first (5.N-1 primary)
-    core_id = core_dict_or_id.get("id")
+
+    # 1. DB-driven (PRIMARY, Krok 5.N-2)
+    if core_id is not None:
+        config = _resolve_entity_config_from_db(core_id)
+        if config:
+            return config
+
+    # 2. Legacy hardcoded registry (user/core form_cores, 17.5. Krok 5.N-1)
     if core_id is not None and core_id in _FW_FORM_CORE_REGISTRY:
         return _FW_FORM_CORE_REGISTRY[core_id]
-    # Fallback by code (legacy, until Marti's all cores have registry entry)
-    code = core_dict_or_id.get("code")
-    if code and code in _FW_FORM_ENTITY_MAP:
-        return _FW_FORM_ENTITY_MAP[code]
+
+    # 3. Legacy code-keyed map (oldest fallback)
+    if core_code and core_code in _FW_FORM_ENTITY_MAP:
+        return _FW_FORM_ENTITY_MAP[core_code]
+
     return None
 
 
@@ -9833,6 +9913,14 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
+        <!-- Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona
+             hned vedle refresh button"): Workspace-level save button pro
+             dirty rows v Excel mode. Visible jen pokud window._erpDirtyCount > 0.
+             onclick → triggers window._erpSaveDirtyActiveGrid() (page_render.js
+             hook). Orange amber styling (sjednoceno s Excel mode pill). -->
+        <button type="button" class="erp-save-changes-btn" id="erpSaveChangesBtn"
+                data-hint="Uložit změny editovaných buněk (Excel mode)"
+                style="display:none;background:#d4a04a;border:1px solid #a8782f;color:#1a1410;font-weight:700;padding:6px 14px;border-radius:4px;cursor:pointer;margin-left:8px;box-shadow:0 2px 6px rgba(0,0,0,0.4);">💾 <span id="erpSaveChangesCount">0</span></button>
         <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
              Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
              Skryty po install (appinstalled event) nebo v PWA standalone mode. -->

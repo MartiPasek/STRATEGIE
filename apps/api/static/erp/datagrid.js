@@ -1353,6 +1353,23 @@
                   console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
                 }
               }
+              // Phase 22.5.2026: aplikuj formatting rules z initialLayout
+              // (rules nactene v _init na line 992, ale _rebuildGridFormatting
+              // se nikdy nezavolala — _applyLayout se pro initialLayout
+              // cestu skipne pres skipApply guard v _autoLoadDefault).
+              try {
+                var hasRules = Array.isArray(this._formattingRules) && this._formattingRules.length > 0;
+                if (hasRules || this._heuristicsEnabled === true) {
+                  this._rebuildGridFormatting();
+                  console.info(
+                    "[ErpDataGrid] onFirstDataRendered → _rebuildGridFormatting (initialLayout rules count=" +
+                    (this._formattingRules ? this._formattingRules.length : 0) +
+                    ", heuristics=" + (this._heuristicsEnabled === true) + ")"
+                  );
+                }
+              } catch (e) {
+                console.warn("[ErpDataGrid] initialLayout rebuild formatting failed:", e);
+              }
             }
             return;
           }

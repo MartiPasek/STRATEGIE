@@ -14695,6 +14695,185 @@ def _render_workspace_page(user_id: int) -> str:
       window.ErpRefresh = ErpRefresh;  // expose pro debugging
 
       // ════════════════════════════════════════════════════════════════
+      // Phase 38.4 Krok 14g-H+35 LIVE (22.5.2026 vecer, Marti's "ta ikona
+      // patri ke gridu, jako refresh"): ErpSave — save dirty rows ikona
+      // s per-tab state Mapou (analog ErpRefresh._gridFreshness).
+      //
+      // Workspace btn #erpSaveChangesBtn delegate na aktivni tab. Tab
+      // switch = btn updates per active. Tab close = forget(cislo).
+      // Excel mode toggle (Ctrl+Shift+E) pak povoli inline edit per-grid.
+      //
+      // Save click = ErpSave.save() → grab active tab's dirty → PATCH
+      // /api/v1/erp/design/{entityForPatch}/{rowId} per row → clear on OK.
+      // ════════════════════════════════════════════════════════════════
+      const ErpSave = {
+        // Map<cisloStr, { dirtyRows: Map<rowId, {field: value}>,
+        //                 dirtyRowData: Map<rowId, rowDataSnapshot>,
+        //                 entityForPatch: string }>
+        _gridDirty: new Map(),
+
+        // Volat z page_render.js onCellEdit per kazda zmena bunky.
+        markDirty(cislo, rowId, fieldName, newValue, rowData, entityForPatch) {
+          if (cislo == null || rowId == null) {
+            console.warn('[ErpSave] markDirty: cislo/rowId missing');
+            return;
+          }
+          const key = String(cislo);
+          let state = this._gridDirty.get(key);
+          if (!state) {
+            state = {
+              dirtyRows: new Map(),
+              dirtyRowData: new Map(),
+              entityForPatch: entityForPatch,
+            };
+            this._gridDirty.set(key, state);
+          }
+          let entry = state.dirtyRows.get(rowId);
+          if (!entry) {
+            entry = {};
+            state.dirtyRows.set(rowId, entry);
+          }
+          entry[fieldName] = newValue;
+          state.dirtyRowData.set(rowId, rowData);
+          state.entityForPatch = entityForPatch;  // update v pripade reuse
+          this._updateButton();
+        },
+
+        // Volat po uspesnem save per row (clear dirty marker)
+        clearRow(cislo, rowId) {
+          const state = this._gridDirty.get(String(cislo));
+          if (!state) return;
+          state.dirtyRows.delete(rowId);
+          state.dirtyRowData.delete(rowId);
+          if (state.dirtyRows.size === 0) {
+            this._gridDirty.delete(String(cislo));
+          }
+          this._updateButton();
+        },
+
+        // Volat po close tabu (cleanup, analog ErpRefresh.forget)
+        forget(cislo) {
+          if (cislo == null) return;
+          this._gridDirty.delete(String(cislo));
+          this._updateButton();
+        },
+
+        // Aktualizovat visibility/count podle aktivniho tabu
+        _updateButton() {
+          const btn = document.getElementById('erpSaveChangesBtn');
+          const countEl = document.getElementById('erpSaveChangesCount');
+          if (!btn || !countEl) return;
+          const activeCislo = this._getActiveTabCislo();
+          if (activeCislo == null) {
+            btn.style.display = 'none';
+            return;
+          }
+          const state = this._gridDirty.get(String(activeCislo));
+          const count = state ? state.dirtyRows.size : 0;
+          if (count > 0) {
+            btn.style.display = '';
+            countEl.textContent = String(count);
+          } else {
+            btn.style.display = 'none';
+          }
+        },
+
+        _getActiveTabCislo() {
+          if (typeof tabsState === 'undefined' || tabsState.activeIndex < 0) return null;
+          const tab = tabsState.tabs[tabsState.activeIndex];
+          return tab ? tab.cislo : null;
+        },
+
+        // Click handler — PATCH per dirty row na aktivnim tabu
+        async save() {
+          const cislo = this._getActiveTabCislo();
+          if (cislo == null) {
+            console.warn('[ErpSave] save: no active tab');
+            return;
+          }
+          const state = this._gridDirty.get(String(cislo));
+          if (!state || state.dirtyRows.size === 0) {
+            console.warn('[ErpSave] save: no dirty rows for active tab', cislo);
+            return;
+          }
+          if (!state.entityForPatch) {
+            alert('Save flow nepripraven — fw.data_source.target_table chybi.');
+            return;
+          }
+          const btn = document.getElementById('erpSaveChangesBtn');
+          if (btn) btn.disabled = true;
+          let okCount = 0, failCount = 0;
+          const errors = [];
+          const entries = Array.from(state.dirtyRows.entries());
+          for (const [rowId, changes] of entries) {
+            const rowData = state.dirtyRowData.get(rowId) || {};
+            const expectedUpdatedAt = rowData.updated_at || null;
+            try {
+              const resp = await fetch(
+                '/api/v1/erp/design/' + state.entityForPatch + '/' + rowId,
+                {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  credentials: 'include',
+                  body: JSON.stringify({
+                    field_changes: changes,
+                    expected_updated_at: expectedUpdatedAt,
+                  }),
+                }
+              );
+              const json = await resp.json();
+              if (resp.ok && json && json.ok) {
+                this.clearRow(cislo, rowId);
+                okCount++;
+              } else {
+                failCount++;
+                errors.push('row ' + rowId + ': ' + (json && json.error || 'unknown'));
+                console.error('[ErpSave] row ' + rowId + ' failed:', json && json.error);
+              }
+            } catch (e) {
+              failCount++;
+              errors.push('row ' + rowId + ': ' + e.message);
+              console.error('[ErpSave] row ' + rowId + ' network:', e);
+            }
+          }
+          if (btn) btn.disabled = false;
+          if (failCount > 0) {
+            alert('Save: ' + okCount + ' OK, ' + failCount + ' FAIL\n\n' + errors.join('\n'));
+          }
+          // Refresh aktivniho gridu pres ErpRefresh.refresh() — pulluje fresh data
+          try {
+            if (typeof ErpRefresh !== 'undefined' && typeof ErpRefresh.refresh === 'function') {
+              await ErpRefresh.refresh();
+            }
+          } catch (e) {
+            console.warn('[ErpSave] refresh after save failed:', e);
+          }
+        },
+
+        init() {
+          const btn = document.getElementById('erpSaveChangesBtn');
+          if (!btn) {
+            console.warn('[ErpSave] init: #erpSaveChangesBtn missing');
+            return;
+          }
+          btn.addEventListener('click', () => this.save());
+          btn.addEventListener('mouseenter', () => {
+            btn.style.background = '#e0b25a';
+          });
+          btn.addEventListener('mouseleave', () => {
+            btn.style.background = '#d4a04a';
+          });
+          this._updateButton();
+        }
+      };
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', () => ErpSave.init());
+      } else {
+        ErpSave.init();
+      }
+      window.ErpSave = ErpSave;  // expose pro debugging + page_render hook
+
+      // ════════════════════════════════════════════════════════════════
       // Phase 38.5+ (10.5.2026 rano): Install button pro non-technical
       // users. Marti's spec: 10 koleginim technicky unfriendly. ZIP +
       // PowerShell + admin rights je out — potrebujeme "klik a hotovo".
@@ -14935,6 +15114,9 @@ def _render_workspace_page(user_id: int) -> str:
         // Phase 38.5: po switch tabu (load nebo cached) prepocitat refresh
         // ikonu — novy aktivni tab moze mit jine stari dat.
         if (typeof ErpRefresh !== 'undefined') ErpRefresh._updateButton();
+        // Phase 38.4 Krok 14g-H+35 LIVE: stejny pattern pro save ikonu —
+        // visibility/count per aktivni tab.
+        if (typeof ErpSave !== 'undefined') ErpSave._updateButton();
       }
 
       function closeTab(idx) {
@@ -14945,6 +15127,8 @@ def _render_workspace_page(user_id: int) -> str:
         _apiCall("DELETE", "/api/v1/erp/tabs/" + closedCislo);
         // Phase 38.5: cleanup freshness tracking pro zavreny tab
         if (typeof ErpRefresh !== 'undefined') ErpRefresh.forget(closedCislo);
+        // Phase 38.4 Krok 14g-H+35 LIVE: cleanup dirty rows state per tab
+        if (typeof ErpSave !== 'undefined') ErpSave.forget(closedCislo);
         if (tabsState.tabs.length === 0) {
           tabsState.activeIndex = -1;
           // Cleanup grid + reset main content
@@ -15080,6 +15264,7 @@ def _render_workspace_page(user_id: int) -> str:
                   });
                 } catch (e) {}
                 try { ErpRefresh.forget(t.cislo); } catch (e) {}
+                try { if (typeof ErpSave !== 'undefined') ErpSave.forget(t.cislo); } catch (e) {}
               }
             });
             tabsState.tabs = survivors;
@@ -15154,6 +15339,7 @@ def _render_workspace_page(user_id: int) -> str:
             });
           } catch (e) {}
           try { ErpRefresh.forget(victim.cislo); } catch (e) {}
+          try { if (typeof ErpSave !== 'undefined') ErpSave.forget(victim.cislo); } catch (e) {}
           tabsState.tabs.splice(oldestIdx, 1);
           if (tabsState.activeIndex > oldestIdx) {
             tabsState.activeIndex--;

@@ -16047,10 +16047,59 @@ def _render_workspace_page(user_id: int) -> str:
             ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
           return;
         }
-        // Phase JS-cleanup (18.5.2026): renderPrehled call orphan (function dropped).
-        // Tab restore for positive cislo is unreachable (Phase 2.E stub returns earlier).
-        // Defensive return.
-        return;
+        // Phase 22.5.2026: po cislo_def drop refactor — VŠECHNY tab.cislo jsou
+        // positive menu_node.id (žádný synthetic negative range). Lookup
+        // core_id přes tree cache + dispatch přes page_render.js (stejná
+        // logika jako synthetic+core branch nahoře, jen pro positive IDs).
+        {
+          let node = (typeof _findSystemNodeById === "function")
+            ? _findSystemNodeById(tab.itemId) : null;
+          let coreId = node && node.core_id;
+          let coreCode = node && node.core_code;
+          if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
+            const li = tree.findLiByCislo(tab.cislo);
+            if (li) {
+              coreId = parseInt(li.dataset.coreId || "0", 10) || null;
+              coreCode = li.dataset.coreCode || null;
+            }
+          }
+          console.info("[Phase 22.5 dispatch] positive cislo lookup:", {
+            cislo: tab.cislo,
+            itemId: tab.itemId,
+            node_found_in_cache: !!node,
+            core_id: coreId,
+            core_code: coreCode,
+          });
+          if (coreId) {
+            const coreMode = coreCode
+              ? _systemModeFromItemId(coreCode)
+              : null;
+            if (coreMode) {
+              _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
+              return;
+            }
+            if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
+              window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
+            } else {
+              console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
+              mainContent.innerHTML =
+                '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
+                '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
+                '</div>';
+            }
+            return;
+          }
+          // No core associated — folder placeholder
+          mainContent.innerHTML =
+            '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+            '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
+            escapeHtml(tab.label || "Soudeček") + '</h2>' +
+            '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+            'Soudeček bez asociovaného core přehledu. ' +
+            'Pravý-klik → 🎨 Design pro vybrání core.' +
+            '</p></div>';
+          return;
+        }
         // Restore grid state pokud cached
         if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
           setTimeout(() => {
@@ -16292,3 +16341,4 @@ def _render_error_page(title: str, msg: str) -> str:
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
+

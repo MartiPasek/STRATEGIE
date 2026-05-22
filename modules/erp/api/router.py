@@ -2080,31 +2080,32 @@ _FW_FORM_CORE_REGISTRY: dict = {
 
 
 def _resolve_entity_config_from_db(core_id: int) -> dict | None:
-    """Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "čistý stůl"):
-    DB-driven entity config lookup pres fw.data_source.target_xxx columns.
+    """Phase 38.4 Krok 5.N-2 LIVE v2 (22.5.2026 vecer, Marti's "patri to do
+    instance gridu, ne data_source"): drop fw.data_source.target_xxx columns
+    bastl plan. Backend resolver extract target via SQL parse z data_set.sql_text.
 
-    JOIN chain: fw.core → fw.comp_def (region_slot='main') → fw.data_source.
+    Lookup chain:
+      JOIN fw.core c → fw.comp_def cd (region_slot='main', is_active)
+          → fw.data_source dsrc (cd.data_source_id)
+          → fw.data_source_op op (default, operation_kind='select')
+          → fw.data_set dset (op.data_set_id)
+      → regex extract FROM <schema>.<table> z dset.sql_text
+      → target = (schema, table, id='id', no whitelist)
 
-    Args:
-        core_id: fw.core.id
-
-    Returns:
-        entity_config dict {schema, table, id_column, select_columns} nebo None
-        pokud:
-          - core/comp_def/data_source neexistuje
-          - target_table IS NULL (data_source je RO, save flow zakazan)
+    Marti's design (22.5. vecer):
+      - select_columns = None (trust frontend, NULL = all editable per
+        fw.comp_grid.layout_json.editable_columns NULL default)
+      - Future: read fw.comp_grid for active user + use editable_columns
+        OR layout_json.columns[].colId as whitelist (server safety net).
     """
+    import re as _re_resolve
     from core.database_data import get_data_session as _gds_resolve
     from sqlalchemy import text as _sql_resolve
 
     ds = _gds_resolve()
     try:
         row = ds.execute(_sql_resolve("""
-            SELECT
-                dsrc.target_schema,
-                dsrc.target_table,
-                dsrc.target_id_column,
-                dsrc.target_select_columns
+            SELECT dset.sql_text
             FROM fw.core c
             JOIN fw.comp_def cd
                 ON cd.core_id = c.id
@@ -2112,22 +2113,42 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
                AND cd.is_active = TRUE
             JOIN fw.data_source dsrc
                 ON dsrc.id = cd.data_source_id
+            JOIN fw.data_source_op op
+                ON op.data_source_id = dsrc.id
+               AND op.operation_kind = 'select'
+            JOIN fw.data_set dset
+                ON dset.id = op.data_set_id
             WHERE c.id = :core_id
-              AND dsrc.target_table IS NOT NULL
+            ORDER BY op.is_default DESC NULLS LAST, op.id ASC
             LIMIT 1
         """), {"core_id": core_id}).mappings().one_or_none()
         if not row:
+            logger.info(f"_resolve_entity_config_from_db: no core/data_set chain for core_id={core_id}")
             return None
-        config = {
-            "schema": row["target_schema"],
-            "table": row["target_table"],
-            "id_column": row["target_id_column"] or "id",
+        sql_text = row["sql_text"] or ""
+        # Regex extract: FROM <schema>.<table> (case-insensitive, allow aliases)
+        # Pattern matches: "FROM fw.core c", "FROM public.users", "FROM fw.diag_log dl WHERE..."
+        match = _re_resolve.search(
+            r"\bFROM\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)",
+            sql_text,
+            _re_resolve.IGNORECASE,
+        )
+        if not match:
+            logger.warning(
+                f"_resolve_entity_config_from_db: no FROM <schema>.<table> v "
+                f"data_set sql_text pro core_id={core_id} (composite SQL? CTE? subquery?)"
+            )
+            return None
+        schema = match.group(1).lower()
+        table = match.group(2).lower()
+        return {
+            "schema": schema,
+            "table": table,
+            "id_column": "id",
+            # select_columns = None: Marti's "NULL = all editable" design.
+            # Server trust frontend payload. Future: read fw.comp_grid.layout_json
+            # for active user + use editable_columns / visible columns as whitelist.
         }
-        # select_columns je TEXT[] z PG, mapped to Python list
-        sel = row["target_select_columns"]
-        if sel:
-            config["select_columns"] = list(sel)
-        return config
     except Exception as exc:
         logger.warning(f"_resolve_entity_config_from_db(core_id={core_id}) failed: {exc}")
         return None

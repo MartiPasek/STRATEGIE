@@ -16310,32 +16310,4 @@ def _render_error_page(title: str, msg: str) -> str:
         title=title,
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
-    ) msg: str) -> str:
-    """Error page (404 / 500) — STRATEGIE BLACK theme."""
-    content = f'''
-    <div class="erp-error">
-      <h1>{html.escape(title)}</h1>
-      <p>{html.escape(msg)}</p>
-      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
-    </div>
-    '''
-    return _render_full_page(
-        title=title,
-        content=content,
-        breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
-    )
-
- msg: str) -> str:
-    """Error page (404 / 500) — STRATEGIE BLACK theme."""
-    content = f'''
-    <div class="erp-error">
-      <h1>{html.escape(title)}</h1>
-      <p>{html.escape(msg)}</p>
-      <p style="margin-top: 16px;"><a href="/erp/">← Zpět na ERP home</a></p>
-    </div>
-    '''
-    return _render_full_page(
-        title=title,
-        content=content,
-        breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )

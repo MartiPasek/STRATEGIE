@@ -1357,11 +1357,8 @@ def _serialize_menu_node(row_dict: dict) -> dict:
         except Exception: return None
     return {
         "id": row_dict.get("id"),
-        "code": row_dict.get("code"),
         "label": row_dict.get("label"),
-        "kind": row_dict.get("kind"),
         "parent_id": row_dict.get("parent_id"),
-        "parent_code": row_dict.get("_parent_code"),
         "sort_order": row_dict.get("sort_order"),
         "status": row_dict.get("status"),
         "visibility_scope": row_dict.get("visibility_scope"),
@@ -1402,11 +1399,10 @@ def _serialize_core(row_dict: dict) -> dict:
 
 
 def _fetch_menu_node(ds, where_sql: str, params: dict) -> dict | None:
-    """SELECT n.*, p.code AS _parent_code FROM fw.menu_node n LEFT JOIN ... WHERE ..."""
+    """SELECT n.* FROM fw.menu_node n WHERE ... (Phase: code column dropped 22.5.)."""
     sql = _sql_text_fw(f"""
-        SELECT n.*, p.code AS _parent_code
+        SELECT n.*
         FROM fw.menu_node n
-        LEFT JOIN fw.menu_node p ON p.id = n.parent_id
         WHERE {where_sql}
         LIMIT 1
     """)
@@ -1653,15 +1649,11 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
     _require_parent(uid)
 
     body = await req.json()
-    code = (body.get("code") or "").strip()
     label = (body.get("label") or "").strip()
     parent_id = body.get("parent_id")
     sort_order_in = body.get("sort_order")
-    kind = (body.get("kind") or "folder").strip()
 
     # Validation
-    if not code:
-        return JSONResponse({"ok": False, "error": "code povinne"}, status_code=400)
     if not label:
         return JSONResponse({"ok": False, "error": "label povinne"}, status_code=400)
     if parent_id is not None and (not isinstance(parent_id, int) or parent_id <= 0):
@@ -1702,15 +1694,9 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
                     status_code=400,
                 )
 
-        # Idempotency: code uniqueness check (best-effort, DB ma soft unique)
-        existing = ds.execute(_sql_text_cmn("""
-            SELECT id FROM fw.menu_node WHERE code = :code AND status = 'active'
-        """), {"code": code}).mappings().one_or_none()
-        if existing:
-            return JSONResponse(
-                {"ok": False, "error": f"menu_node s code='{code}' uz existuje (id={existing['id']})"},
-                status_code=400,
-            )
+        # Idempotency check dropped (code column removed 22.5.) — DB has no
+        # unique constraint on (parent_id, label). Multiple soudecky se stejnym
+        # label povolene; user vidi labels v sidebaru a sam vola jinak.
 
         # Auto sort_order — max + 10 v parent scope
         if sort_order_in is None or not isinstance(sort_order_in, int):
@@ -1739,12 +1725,10 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
             schema="fw",
             table="menu_node",
             values={
-                "code": code,
                 "label": label,
                 "parent_id": parent_id,
                 "sort_order": sort_order_resolved,
                 "status": "active",
-                "kind": kind,
                 "is_immutable": False,
                 "visibility_scope": "parent_only",
                 "created_by_id": uid,
@@ -1774,8 +1758,8 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
             """), {
                 "uid": uid,
                 "summary": (
-                    f"+ menu_node '{code}' (label='{label}', parent_id={parent_id}, "
-                    f"kind={kind}) by {caller_display}"
+                    f"+ menu_node label='{label}' parent_id={parent_id} "
+                    f"by {caller_display}"
                 ),
             })
             ds.execute(_sql_text_cmn("RELEASE SAVEPOINT pre_audit"))
@@ -1804,38 +1788,8 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
         ds.close()
 
 
-@api_router.get("/design/menu-node-by-code/{menu_node_code}")
-def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
-    """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier).
-
-    Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): added data_source lookup
-    via core.code (vazba pres code, Marti's pattern).
-    """
-    from core.database_data import get_data_session as _gds_fw
-    uid = _get_uid(req)
-    _require_parent(uid)
-    ds = _gds_fw()
-    try:
-        mn = _fetch_menu_node(ds, "n.code = :code", {"code": menu_node_code})
-        if not mn:
-            raise HTTPException(404, f"menu_node code={menu_node_code} not found")
-        core = None
-        columns: list[dict] = []
-        data_source = None
-        if mn.get("core_id"):
-            core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
-            if core and core.get("id"):
-                columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
-                # Krok 14g-H+30 Etapa 2: data_source lookup via code
-                data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
-        return JSONResponse(jsonable_encoder({
-            "menu_node": _serialize_menu_node(mn),
-            "core": _serialize_core(core) if core else None,
-            "columns": columns,
-            "data_source": _serialize_data_source(data_source) if data_source else None,
-        }))
-    finally:
-        ds.close()
+# /design/menu-node-by-code/{code} dropped 22.5.2026 — code column removed.
+# Frontend uses /design/menu-node/{id} (ID-based, line 1562).
 
 
 @api_router.get("/design/core/{core_id}")
@@ -4806,7 +4760,6 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         #   populated = root + alespon 1 child
         sql_cores = _sql_clst("""
             SELECT c.*,
-                   mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
                    cmi.label AS _origin_cmi_label,
                    (
@@ -4850,7 +4803,6 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "is_used_count": usage_map.get(core_id, 0),
                 # Krok 5.C origin provenance — picker display
                 "origin_menu_node_label": rd.get("_origin_mn_label"),
-                "origin_menu_node_code": rd.get("_origin_mn_code"),
                 "origin_cmi_label": rd.get("_origin_cmi_label"),
                 # Krok 5.D readiness_state (Marti-AI's Q4 insight)
                 "readiness_state": rd.get("_readiness_state") or "drafted",
@@ -7581,7 +7533,7 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             """), {
                 "uid": uid,
                 "summary": (
-                    f"fw.menu_node {existing['code']}: {change_desc} by {caller_display}"
+                    f"fw.menu_node id={existing['id']}: {change_desc} by {caller_display}"
                 ),
             })
             ds_pmn.execute(_sql_text_pmn("RELEASE SAVEPOINT pre_audit_log"))
@@ -7795,7 +7747,7 @@ def _build_system_root_from_db():
         # NULL = visible v System tree (System tree je parent-only audience),
         # 'parent_only' explicit = visible.
         sql = _sql_text_st("""
-            SELECT n.id, n.parent_id, n.code, n.label, n.sort_order,
+            SELECT n.id, n.parent_id, n.label, n.sort_order,
                    n.visibility_scope, n.cislo_def, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
                    hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
@@ -7804,7 +7756,7 @@ def _build_system_root_from_db():
             LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
             WHERE n.status = 'active'
               AND (n.visibility_scope = 'parent_only' OR n.visibility_scope IS NULL)
-            ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.code
+            ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.label
         """)
         result = ds.execute(sql)
         rows = [dict(r._mapping) for r in result]
@@ -7824,13 +7776,14 @@ def _build_system_root_from_db():
         pid = r.get("parent_id")
         by_parent.setdefault(pid, []).append(r)
 
-    # Find system root (parent_id IS NULL, code='system')
-    # Phase 38.4 Krok 14g-G2 (15.5.2026 rano, Marti's "novy soudecek
-    # mel byt sibling SYSTEM v sidebar"): get ALL top-level roots, ne
-    # jen system. Return list — strom_json appende vsechny do tree.
+    # Find system root (parent_id IS NULL, is_immutable=True)
+    # Phase 22.5.2026: code column dropped — system root identified by
+    # is_immutable flag (Marti's SYSTEM tree má immutable=True).
+    # Other roots (user-created soudečky pres "Nový soudeček" button) jsou
+    # is_immutable=False.
     roots = by_parent.get(None, [])
-    system_db = next((r for r in roots if r.get("code") == "system"), None)
-    other_roots = [r for r in roots if r.get("code") != "system"]
+    system_db = next((r for r in roots if bool(r.get("is_immutable"))), None)
+    other_roots = [r for r in roots if not bool(r.get("is_immutable"))]
     if not system_db and not other_roots:
         return None
 
@@ -7855,7 +7808,7 @@ def _build_system_root_from_db():
                 cislo = -100000 - int(row["id"])
             sv, svm, single = (None, None, False)  # dead audit_overview mapping dropped 22.5.
             children_db = by_parent.get(row["id"], [])
-            children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+            children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("label") or ""))
             children = []
             for c in children_db:
                 try:
@@ -7869,7 +7822,7 @@ def _build_system_root_from_db():
                         c.get("id"), c.get("code"),
                     )
                     children.append({
-                        "id": (c.get("code") or "err-{}".format(c.get("id"))),
+                        "id": "node_{}".format(c.get("id") or "err"),
                         "label": (c.get("label") or "?") + " ⚠️",
                         "nazev": (c.get("label") or "?") + " ⚠️",
                         "is_system": True,
@@ -7879,7 +7832,7 @@ def _build_system_root_from_db():
                         "metadata": {"error": True, "hardcoded": False},
                     })
             node = {
-                "id": row["code"],
+                "id": "node_" + str(row.get("id") or 0),
                 "cislo_def": cislo,
                 # Phase 38.4 (11.5.2026 vecer): primary fw.* IDs pro DESIGN mode.
                 # node["id"] = row["code"] (text, legacy convention pro routing).
@@ -7936,7 +7889,7 @@ def _build_system_root_from_db():
                 row.get("id"), row.get("code"),
             )
             return {
-                "id": (row.get("code") or "err-{}".format(row.get("id"))),
+                "id": "node_{}".format(row.get("id") or "err"),
                 "label": (row.get("label") or "?") + " ⚠️",
                 "nazev": (row.get("label") or "?") + " ⚠️",
                 "is_system": True,
@@ -7955,7 +7908,7 @@ def _build_system_root_from_db():
         if sys_root:
             result_roots.append(sys_root)
     # Sort other roots by sort_order + code
-    other_roots.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+    other_roots.sort(key=lambda r: (r.get("sort_order") or 100, r.get("label") or ""))
     for r in other_roots:
         try:
             n = _build_node(r)
@@ -14047,7 +14000,7 @@ def _render_workspace_page(user_id: int) -> str:
           const prefix = '  '.repeat(depth) + (n.is_folder ? '📁 ' : '📄 ');
           const opt = document.createElement('option');
           opt.value = String(n.id);
-          opt.textContent = prefix + n.label + ' (' + n.code + ')';
+          opt.textContent = prefix + n.label;
           if (parentId && n.id === parentId) opt.selected = true;
           parentSel.appendChild(opt);
         }
@@ -14065,32 +14018,8 @@ def _render_workspace_page(user_id: int) -> str:
         labelInp.type = 'text'; labelInp.style.cssText = _inpStyle;
         labelInp.placeholder = 'Display name (např. "Zákazníci")';
         body.appendChild(_row('Label', labelInp));
-        // Code
-        const codeInp = document.createElement('input');
-        codeInp.type = 'text'; codeInp.style.cssText = _inpStyle;
-        codeInp.placeholder = 'Unique code (např. "zakaznici" — auto z label)';
-        // Auto-suggest code z label
-        labelInp.addEventListener('input', () => {
-          if (codeInp.dataset.userEdit !== '1') {
-            codeInp.value = labelInp.value
-              .toLowerCase()
-              .normalize('NFD').replace(/[̀-ͯ]/g, '')
-              .replace(/[^a-z0-9]+/g, '_')
-              .replace(/^_+|_+$/g, '');
-          }
-        });
-        codeInp.addEventListener('input', () => { codeInp.dataset.userEdit = '1'; });
-        body.appendChild(_row('Code', codeInp));
-        // Kind dropdown
-        const kindSel = document.createElement('select');
-        kindSel.style.cssText = _inpStyle;
-        [['folder', '📁 Folder (kontejner pro sub-soudečky)'],
-         ['list', '📄 List (přehled s daty)']].forEach(([v, l]) => {
-          const o = document.createElement('option');
-          o.value = v; o.textContent = l;
-          kindSel.appendChild(o);
-        });
-        body.appendChild(_row('Kind', kindSel));
+        // Code input dropped 22.5.2026 — code column removed.
+        // Kind dropdown dropped 22.5.2026 — kind column removed.
 
         modal.appendChild(body);
 
@@ -14109,9 +14038,8 @@ def _render_workspace_page(user_id: int) -> str:
                               'border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;';
         okBtn.addEventListener('click', async () => {
           const labelV = labelInp.value.trim();
-          const codeV = codeInp.value.trim();
-          if (!labelV || !codeV) {
-            alert('Label + code povinné.'); return;
+          if (!labelV) {
+            alert('Label povinný.'); return;
           }
           // Krok 14g-G3: read parent_id z dropdown (Marti's actual choice)
           const parentSelVal = parentSel.value;
@@ -14122,8 +14050,8 @@ def _render_workspace_page(user_id: int) -> str:
               method: 'POST', credentials: 'include',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
-                code: codeV, label: labelV,
-                parent_id: finalParentId, kind: kindSel.value,
+                label: labelV,
+                parent_id: finalParentId,
               }),
             });
             const d = await r.json();

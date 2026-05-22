@@ -1241,7 +1241,10 @@
       } else if (this.opts.coreCode) {
         url = "/api/v1/erp/design/core-by-code/" + encodeURIComponent(this.opts.coreCode);
       } else {
-        url = "/api/v1/erp/design/menu-node-by-code/" + encodeURIComponent(this.opts.menuNodeCode);
+        // Phase 22.5.2026: menu-node-by-code fallback dropped (code column removed).
+        // No usable identifier — surface error.
+        this._showError("Chybi identifikator (menuNodeId/coreId/coreCode).");
+        return;
       }
       fetch(url, { credentials: "same-origin", cache: "no-store" })
         .then(r => r.ok ? r.json() : r.text().then(t => Promise.reject("HTTP " + r.status + ": " + t)))

@@ -111,17 +111,120 @@
         : '/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) + '?limit=500';
       const isDesignMode = (typeof window !== "undefined" && window._erpDesignMode === true);
 
-      // Phase 38.4 Krok 14g-H+35 LIVE (22.5.2026 vecer, Marti's "Tento mod
-      // patri ke gridu, jako refresh"): drop lokalni dirtyRows / dirtyRowData
-      // / _onSaveClick / _refreshSaveBtn. Vse pres window.ErpSave (analog
-      // ErpRefresh): per-tab state Mapa keyed na tab.cislo, btn updates per
-      // active tab pres _updateButton() v switchTab + close handlers.
-      //
-      // entityForPatch = String(coreId) — numeric path do design_patch_entity
-      // (backend _resolve_entity_config_for_core DB-first chain pres
-      // fw.data_source.target_xxx columns, Krok 5.N-2).
+      // Phase 38.4 Krok 5.R-D+3 (18.5.2026, Marti's "Stage 1 MVP, NIC VIC"):
+      // Per-grid dirty tracker Map(rowId → {field: newValue}). Visual yellow
+      // highlight + save button v meta area. Click → loop PATCH per dirty row.
+      const dirtyRows = new Map();
+
+      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save flow ted
+      // nejde"): drop hardcoded DS_TO_ENTITY mapping. Backend design_patch_entity
+      // numeric path /design/{core_id}/{row_id} → _resolve_entity_config_for_core
+      // (5.N-1 helper) lookup v _FW_FORM_CORE_REGISTRY[core_id]. Univerzalni
+      // pre vsechny grids (Diag log, DataSets, Trusted devices, ...) — pridat
+      // jen registry entry v router.py per novy core.
       const entityForPatch = coreId ? String(coreId) : null;
-      const _activeTabCislo = (tab && tab.cislo != null) ? tab.cislo : null;
+
+      // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
+      const dirtyRowData = new Map();
+
+      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona vedle
+      // refresh button"): Hook do workspace header save button (#erpSaveChangesBtn
+      // vedle #erpRefreshBtn). Direct btn.onclick = fn pattern — pre-refresh
+      // overwrites previous handler (per-grid scope wins, no race). Drop
+      // addEventListener flag pattern (gotcha: re-bound across grid re-renders).
+      function _refreshSaveBtn() {
+        const btn = document.getElementById("erpSaveChangesBtn");
+        const countEl = document.getElementById("erpSaveChangesCount");
+        if (!btn || !countEl) {
+          console.warn("[page_render save] btn/countEl missing in workspace header");
+          return;
+        }
+        const count = dirtyRows.size;
+        if (count > 0) {
+          btn.style.display = "";
+          countEl.textContent = String(count);
+          // Direct onclick replace — current grid's _onSaveClick wins.
+          // Wrapped pro defensive console.info + try/catch.
+          btn.onclick = function() {
+            console.info("[page_render save] click fired, dirty count=" + dirtyRows.size +
+                         ", entityForPatch=" + entityForPatch);
+            try {
+              _onSaveClick();
+            } catch (e) {
+              console.error("[page_render save] _onSaveClick threw:", e);
+              alert("Save error: " + (e && e.message || e));
+            }
+          };
+          // Hover effect (idempotent via attribute check)
+          if (!btn.dataset.erpSaveHoverBound) {
+            btn.dataset.erpSaveHoverBound = "1";
+            btn.addEventListener("mouseenter", function() {
+              btn.style.background = "#e0b25a";
+            });
+            btn.addEventListener("mouseleave", function() {
+              btn.style.background = "#d4a04a";
+            });
+          }
+        } else {
+          btn.style.display = "none";
+          btn.onclick = null;
+        }
+      }
+      async function _onSaveClick() {
+        if (!entityForPatch) {
+          alert("Save flow nepripraven pro data_source #" + rootCd.data_source_id +
+                ". Long-term: fw.data_source.target_entity_type column.");
+          return;
+        }
+        saveBtn.disabled = true;
+        saveBtn.textContent = "⏳ Ukládám...";
+        const entries = Array.from(dirtyRows.entries());
+        let okCount = 0, failCount = 0;
+        for (const [rowId, changes] of entries) {
+          // Optimistic lock — expected_updated_at z row snapshot (5.M-5+1
+          // doctrine, 17.5.). Bez nej backend vraci 400.
+          const rowData = dirtyRowData.get(rowId) || {};
+          const expectedUpdatedAt = rowData.updated_at || null;
+          try {
+            const resp = await fetch(
+              "/api/v1/erp/design/" + entityForPatch + "/" + rowId,
+              {
+                method: "PATCH",
+                headers: { "Content-Type": "application/json" },
+                credentials: "include",
+                body: JSON.stringify({
+                  field_changes: changes,
+                  expected_updated_at: expectedUpdatedAt,
+                }),
+              }
+            );
+            const json = await resp.json();
+            if (resp.ok && json && json.ok) {
+              dirtyRows.delete(rowId);
+              dirtyRowData.delete(rowId);
+              okCount++;
+            } else {
+              failCount++;
+              console.error("[page_render save] row " + rowId + " failed:",
+                            json && json.error);
+            }
+          } catch (e) {
+            failCount++;
+            console.error("[page_render save] row " + rowId + " network:", e);
+          }
+        }
+        saveBtn.disabled = false;
+        if (failCount > 0) {
+          alert("Save: " + okCount + " OK, " + failCount + " FAIL — viz konzole.");
+        }
+        try {
+          const gridInst = gridHost.__erpGridInst;
+          if (gridInst && gridInst.gridApi) {
+            gridInst.gridApi.refreshCells({ force: true });
+          }
+        } catch (e) {}
+        _refreshSaveBtn();
+      }
 
       // Phase 22.5.2026 fix: pre-fetch layout PARALELNE s data fetch.
       // Pass jako `initialLayout` do ErpDataGrid -- caller cesta A (Krok C+
@@ -182,48 +285,44 @@
                 rootCompDefId: rootCd.id,
                 rootTypeCode: rootCd.type_code || null,
               },
-              // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra.
-              // Reads z window.ErpSave._gridDirty Mapy (per-tab state).
+              // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
+              // (datagrid.js pass-through z 5.R-D+3 P1 patch).
               defaultColDefExtra: {
                 cellClassRules: {
                   "erp-cell-dirty": function (params) {
                     if (!params || !params.data || params.data.id == null) return false;
-                    if (!window.ErpSave || _activeTabCislo == null) return false;
-                    const state = window.ErpSave._gridDirty.get(String(_activeTabCislo));
-                    if (!state) return false;
-                    const dirty = state.dirtyRows.get(params.data.id);
+                    const dirty = dirtyRows.get(params.data.id);
                     if (!dirty) return false;
                     const field = params.colDef && params.colDef.field;
                     return field != null && Object.prototype.hasOwnProperty.call(dirty, field);
                   },
                 },
               },
-              // Phase 38.4 Krok 14g-H+35 LIVE (22.5.2026): delegate na ErpSave
-              // (analog ErpRefresh pattern). Per-tab state v window.ErpSave._gridDirty.
+              // ErpDataGrid passes (rowData, fieldName, oldValue, newValue) — NOT event obj.
               onCellEdit: function (rowData, fieldName, oldValue, newValue) {
                 if (!rowData || rowData.id == null) {
                   console.warn("[page_render cell edit] row.id missing — skip dirty track");
                   return;
                 }
-                if (!window.ErpSave) {
-                  console.error("[page_render cell edit] window.ErpSave missing");
-                  return;
+                const rowId = rowData.id;
+                let entry = dirtyRows.get(rowId);
+                if (!entry) {
+                  entry = {};
+                  dirtyRows.set(rowId, entry);
                 }
-                if (_activeTabCislo == null) {
-                  console.warn("[page_render cell edit] tab.cislo missing — skip");
-                  return;
-                }
-                window.ErpSave.markDirty(
-                  _activeTabCislo, rowData.id, fieldName, newValue, rowData, entityForPatch
-                );
+                entry[fieldName] = newValue;
+                // Snapshot rowData pro expected_updated_at v PATCH payload
+                // (5.M-5+1 optimistic lock pattern z 17.5.).
+                dirtyRowData.set(rowId, rowData);
                 console.info("[page_render cell edit]",
-                  { field: fieldName, oldValue, newValue, rowId: rowData.id,
-                    cislo: _activeTabCislo, entityForPatch });
+                  { field: fieldName, oldValue, newValue, rowId,
+                    ds_id: rootCd.data_source_id });
                 try {
                   if (gridInst && gridInst.gridApi) {
                     gridInst.gridApi.refreshCells({ force: true });
                   }
                 } catch (e) {}
+                _refreshSaveBtn();
               },
             });
             gridHost.__erpGridInst = gridInst;

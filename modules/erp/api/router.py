@@ -2563,10 +2563,39 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
         # native ErpDataGrid toolbar resi sestavu pres /grid-layout/{core_id}
         # API. fw.comp_grid_master* schema deprecated.
 
+        # Krok 5.S (22.5.2026 vecer, Marti's "od lesa" Centrala 1 toolbar parita):
+        # grid_actions driven by fw.data_source_op rows per root_comp_def's
+        # data_source_id. Aggregace:
+        #   has_insert / has_edit / has_delete = bool (kind row EXISTS)
+        #   edit_core_id = core_id z 'edit' row (kam otevrit form)
+        # Marti's doctrine: visibility per row presence (no status column).
+        grid_actions = None
+        root_ds_id = root_row["data_source_id"] if root_row else None
+        if root_ds_id is not None:
+            ga_row = ds.execute(_sql_psp("""
+                SELECT
+                    bool_or(operation_kind = 'insert') AS has_insert,
+                    bool_or(operation_kind = 'edit')   AS has_edit,
+                    bool_or(operation_kind = 'delete') AS has_delete,
+                    MAX(core_id) FILTER (WHERE operation_kind = 'edit') AS edit_core_id
+                FROM fw.data_source_op
+                WHERE data_source_id = :ds_id
+            """), {"ds_id": root_ds_id}).mappings().one_or_none()
+            grid_actions = {
+                "has_insert": bool(ga_row["has_insert"]) if ga_row else False,
+                "has_edit": bool(ga_row["has_edit"]) if ga_row else False,
+                "has_delete": bool(ga_row["has_delete"]) if ga_row else False,
+                "edit_core_id": ga_row["edit_core_id"] if ga_row else None,
+            }
+
+        root_comp_def_payload = dict(root_row) if root_row else None
+        if root_comp_def_payload is not None:
+            root_comp_def_payload["grid_actions"] = grid_actions
+
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core": dict(core_row),
-            "root_comp_def": dict(root_row) if root_row else None,
+            "root_comp_def": root_comp_def_payload,
             "has_root": root_row is not None,
         }))
     finally:
@@ -3508,6 +3537,88 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         logger.exception(f"design_patch_entity failed: {exc}")
         return JSONResponse(
             {"ok": False, "error": f"PATCH failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+# ────────────────────────────────────────────────────────────────────
+# Phase 38.4 Krok 5.S Fáze 4 (22.5.2026 vecer, Marti's "od lesa" toolbar):
+# DELETE entity endpoint — analog design_patch_entity ale DELETE flow.
+# Reuse _resolve_entity_config_for_core (5.N-2 v2 SQL parse resolver).
+# Marti's Q7=A "drz jednoduchost" — hard delete bez soft delete branch.
+# ────────────────────────────────────────────────────────────────────
+
+@api_router.delete("/design/{core_id}/{row_id}")
+async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONResponse:
+    """Hard DELETE row z entity table.
+
+    URL: DELETE /api/v1/erp/design/{core_id}/{row_id}
+
+    Resolves target table via _resolve_entity_config_for_core (DB-first
+    z 5.N-2 v2 SQL parse, fallback _FW_FORM_CORE_REGISTRY pro user/core).
+    Returns:
+        200: {ok, deleted_rows} — success (idempotent: 0 rows pokud row neexistuje)
+        404: core_id not resolvable to entity_config
+        500: DB error
+    """
+    from core.database_data import get_data_session as _gds_del
+    from sqlalchemy import text as _sql_text_del
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # Resolve entity config (schema, table, id_column) via 5.N-2 v2 chain
+    config = _resolve_entity_config_for_core(core_id)
+    if not config:
+        return JSONResponse(
+            {"ok": False, "error": f"Entity '{core_id}' nelze resolvovat (chybi data_source/data_set chain)"},
+            status_code=404,
+        )
+
+    schema = config["schema"]
+    table = config["table"]
+    id_column = config.get("id_column", "id")
+
+    ds = _gds_del()
+    try:
+        # Direct DELETE — _require_parent gate sufficient authz (Marti's "rodice maji full trust")
+        result = ds.execute(_sql_text_del(
+            f'DELETE FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
+        ), {"rid": row_id})
+        deleted_rows = result.rowcount
+
+        # Activity log audit (Krok 5.S doctrine NE-anonymous: kdo kdy co)
+        try:
+            ds.execute(_sql_text_del("""
+                INSERT INTO activity_log
+                    (user_id, action_kind, target_kind, target_id, change_source, payload, created_at)
+                VALUES
+                    (:uid, 'delete', :tk, :tid, 'ui', :payload, NOW())
+            """), {
+                "uid": uid,
+                "tk": f"{schema}.{table}",
+                "tid": row_id,
+                "payload": f'{{"core_id":{core_id},"deleted_rows":{deleted_rows}}}',
+            })
+        except Exception as _act_e:
+            logger.warning(f"design_delete_entity activity_log INSERT failed: {_act_e}")
+
+        ds.commit()
+        return JSONResponse({
+            "ok": True,
+            "deleted_rows": deleted_rows,
+            "core_id": core_id,
+            "row_id": row_id,
+            "schema": schema,
+            "table": table,
+        })
+    except Exception as exc:
+        ds.rollback()
+        logger.exception(f"design_delete_entity failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"DELETE failed: {exc}"},
             status_code=500,
         )
     finally:
@@ -5640,7 +5751,12 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
         if not ds_row:
             return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} neexistuje nebo neni aktivni"}, status_code=404)
 
-        # Resolve data_set_id — reuse OR inline create
+        # Krok 5.S Fáze 5 (22.5.2026 vecer): non-execute ops (edit/delete)
+        # NEPOTREBUJI data_set (Marti's Q6 DROP NOT NULL z DDL). Pokud body
+        # neposila data_set_id ANI data_set inline, op kind MUSI byt edit/delete.
+        NO_DATA_SET_KINDS = ("edit", "delete")
+
+        # Resolve data_set_id — reuse OR inline create OR NULL (edit/delete)
         data_set_id = body.get("data_set_id")
         if data_set_id is not None:
             # Reuse path — verify exists + active
@@ -5685,13 +5801,30 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
             if not set_result.get("ok"):
                 return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {set_result.get('error')}"}, status_code=500)
             new_set_id = set_result["inserted"]["id"]
+        elif op_kind in NO_DATA_SET_KINDS:
+            # Krok 5.S Fáze 5: edit/delete ops bez data_set (Marti's DROP NOT NULL)
+            new_set_id = None
         else:
-            return JSONResponse({"ok": False, "error": "body musi mit 'data_set_id' (reuse) NEBO 'data_set' (inline create)"}, status_code=400)
+            return JSONResponse({
+                "ok": False,
+                "error": f"body musi mit 'data_set_id' (reuse) NEBO 'data_set' (inline create) — pripadne kind v {NO_DATA_SET_KINDS} (bez data_set)"
+            }, status_code=400)
 
         # Build op values — variant_code NULL allowed (Krok 5.K-B6 doctrine)
         variant_code = body.get("variant_code")
         if variant_code is not None and not str(variant_code).strip():
             variant_code = None
+        # Krok 5.S Fáze 5 (22.5.2026 vecer, Marti's "ted nemam cim nakonfigurovat"):
+        # core_id support pro 'edit' op kind — vazba na CORE pro Oprava button
+        # v grid toolbar (Krok 5.S Fáze 3 frontend).
+        core_id_raw = body.get("core_id")
+        core_id_val = None
+        if core_id_raw is not None and str(core_id_raw).strip():
+            try:
+                core_id_val = int(core_id_raw)
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": "core_id musi byt integer"}, status_code=400)
+
         op_values = {
             "data_source_id": data_source_id,
             "data_set_id": new_set_id,
@@ -5700,6 +5833,7 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
             "is_default": bool(body.get("is_default", False)),
             "sort_order": int(body.get("sort_order") or 0),
             "description": (body.get("description") or None),
+            "core_id": core_id_val,
         }
         op_result = _spg_insert_aop(schema="fw", table="data_source_op", values=op_values)
         if not op_result.get("ok"):
@@ -5738,7 +5872,7 @@ async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
 
-    ALLOWED = ("variant_code", "operation_kind", "sort_order", "is_default", "description")
+    ALLOWED = ("variant_code", "operation_kind", "sort_order", "is_default", "description", "core_id")
     update_vals = {}
     for k in ALLOWED:
         if k in body:

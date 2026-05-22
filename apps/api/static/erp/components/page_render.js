@@ -56,6 +56,98 @@
         '</p></div>';
     }
 
+    // ─── Krok 5.S Fáze 3 (22.5.2026 vecer): Grid toolbar — Centrala 1 parita ───
+    //
+    // 4 buttons (Nový/Oprava/Smazat/Obnovit) driven by grid_actions z page-spec
+    // backend response (Fáze 2). Show/hide per fw.data_source_op presence:
+    //   has_insert + edit_core_id → 🆕 Nový visible
+    //   has_edit + edit_core_id   → ✏️ Oprava visible
+    //   has_delete                → 🗑️ Smazat visible
+    //   always                    → 🔄 Obnovit visible
+    //
+    // Click handlers v context object: onNew, onEdit, onDelete, onRefresh.
+    function _renderGridToolbar(toolbarHost, gridActions, ctx) {
+      if (!toolbarHost) return;
+      if (!gridActions) {
+        // Bez grid_actions (např. drafted core) — render jen Obnovit
+        gridActions = { has_insert: false, has_edit: false, has_delete: false, edit_core_id: null };
+      }
+      const editCoreId = gridActions.edit_core_id;
+      const showNew = !!(gridActions.has_insert && editCoreId);
+      const showEdit = !!(gridActions.has_edit && editCoreId);
+      const showDelete = !!gridActions.has_delete;
+
+      const btnStyle =
+        'padding:6px 14px;border:1px solid #2a3744;background:#15202b;' +
+        'color:#cfd6df;cursor:pointer;border-radius:3px;font-size:13px;' +
+        'font-family:inherit;display:inline-flex;align-items:center;gap:6px;';
+      const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
+
+      const parts = [
+        '<div style="padding:8px 12px;display:flex;align-items:center;gap:8px;">',
+      ];
+      if (showNew) {
+        parts.push(
+          '<button id="erp-tb-new-' + ctx.coreId + '" type="button" ' +
+          'style="' + btnStyle + '">🆕 <span>Nový</span></button>'
+        );
+      }
+      if (showEdit) {
+        parts.push(
+          '<button id="erp-tb-edit-' + ctx.coreId + '" type="button" ' +
+          'data-need-row="1" disabled style="' + btnDisabledStyle + '">✏️ <span>Oprava</span></button>'
+        );
+      }
+      if (showDelete) {
+        parts.push(
+          '<button id="erp-tb-delete-' + ctx.coreId + '" type="button" ' +
+          'data-need-row="1" disabled style="' + btnDisabledStyle + '">🗑️ <span>Smazat</span></button>'
+        );
+      }
+      parts.push(
+        '<button id="erp-tb-refresh-' + ctx.coreId + '" type="button" ' +
+        'style="' + btnStyle + 'margin-left:auto;">🔄 <span>Obnovit</span></button>'
+      );
+      parts.push('</div>');
+      toolbarHost.innerHTML = parts.join('');
+
+      // Wire click handlers
+      if (showNew) {
+        const btnNew = document.getElementById('erp-tb-new-' + ctx.coreId);
+        if (btnNew) btnNew.addEventListener('click', () => ctx.onNew(editCoreId));
+      }
+      if (showEdit) {
+        const btnEdit = document.getElementById('erp-tb-edit-' + ctx.coreId);
+        if (btnEdit) btnEdit.addEventListener('click', () => {
+          if (btnEdit.disabled) return;
+          ctx.onEdit(editCoreId);
+        });
+      }
+      if (showDelete) {
+        const btnDelete = document.getElementById('erp-tb-delete-' + ctx.coreId);
+        if (btnDelete) btnDelete.addEventListener('click', () => {
+          if (btnDelete.disabled) return;
+          ctx.onDelete();
+        });
+      }
+      const btnRefresh = document.getElementById('erp-tb-refresh-' + ctx.coreId);
+      if (btnRefresh) btnRefresh.addEventListener('click', () => ctx.onRefresh());
+    }
+
+    function _updateToolbarSelection(toolbarHost, hasSelection) {
+      if (!toolbarHost) return;
+      const btnStyle =
+        'padding:6px 14px;border:1px solid #2a3744;background:#15202b;' +
+        'color:#cfd6df;cursor:pointer;border-radius:3px;font-size:13px;' +
+        'font-family:inherit;display:inline-flex;align-items:center;gap:6px;';
+      const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
+      const targets = toolbarHost.querySelectorAll('[data-need-row="1"]');
+      targets.forEach((btn) => {
+        btn.disabled = !hasSelection;
+        btn.setAttribute('style', hasSelection ? btnStyle : btnDisabledStyle);
+      });
+    }
+
     function _renderEmptyGrid(mainContent, tab, rootCd, coreId, specForRender) {
       // Phase 38.4 Krok 5.R-D (18.5.2026 rano, Marti's "zasadni posun v Gridu"):
       // real ErpDataGrid s data_source rows. AG Grid autoColumns=true → sam
@@ -71,12 +163,21 @@
       // mainContent → max plochy. Parita s hardcoded #erpSysGridBody (Uzivatele
       // tab) co taky nema header. Meta info (Root + data_source) bude pripadne
       // budouci v patickce nebo title bar — pro ted plne native AG Grid.
+      // Krok 5.S Fáze 3 (22.5.2026 vecer, Marti's "od lesa" Centrala 1 toolbar):
+      // Wrap layout v flex column — toolbar host nad gridem (auto-height),
+      // grid host flex:1. Toolbar render se vola po Promise.all .then(),
+      // kdy uz mame data fetched + grid_actions z page-spec.
+      const toolbarHostId = 'erp-page-toolbar-' + coreId;
       mainContent.innerHTML =
-        '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
-        'width:100%;background:#0f141a;overflow:hidden;">' +
-        '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
-        '⏳ Načítám rows…' +
-        '</div></div>';
+        '<div style="display:flex;flex-direction:column;height:100%;width:100%;">' +
+          '<div id="' + toolbarHostId + '" style="flex:0 0 auto;' +
+          'background:#0f141a;border-bottom:1px solid #1a2332;"></div>' +
+          '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
+          'width:100%;background:#0f141a;overflow:hidden;">' +
+          '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
+          '⏳ Načítám rows…' +
+          '</div></div>' +
+        '</div>';
 
       const gridHost = document.getElementById(gridHostId);
       if (!gridHost) {
@@ -336,6 +437,109 @@
               },
             });
             gridHost.__erpGridInst = gridInst;
+
+            // Krok 5.S Fáze 3 (22.5.2026 vecer): render toolbar po grid create.
+            // gridActions z page-spec response (rootCd.grid_actions). Click
+            // handlers volaji DesignFwForm modal / DELETE fetch / re-fetch.
+            const _toolbarHost = document.getElementById(toolbarHostId);
+            let _selectedRowId = null;
+            if (_toolbarHost) {
+              _renderGridToolbar(_toolbarHost, rootCd.grid_actions, {
+                coreId: coreId,
+                onNew: function(editCoreId) {
+                  // Q8=A today MVP — Insert mode v Fáze 5 (DesignFwForm extend
+                  // o rowId=null support → empty form → POST insert).
+                  alert(
+                    "🆕 Nový záznam (CORE " + editCoreId + ")\n\n" +
+                    "Insert mode přijde v Krok 5.S Fáze 5 (DesignFwForm extend " +
+                    "o rowId=null). Zatím přidávejte řádky přes Excel mode " +
+                    "(Ctrl+Shift+E)."
+                  );
+                },
+                onEdit: function(editCoreId) {
+                  if (!_selectedRowId || typeof window.DesignFwForm !== "function") {
+                    console.warn("[toolbar Oprava] no selection or DesignFwForm missing");
+                    return;
+                  }
+                  new window.DesignFwForm({
+                    coreId: editCoreId,
+                    rowId: _selectedRowId,
+                    onSaveSuccess: function() {
+                      // Refresh grid po save (analog openFwFormForRow flow)
+                      try {
+                        const inst = gridHost.__erpGridInst;
+                        if (inst && typeof inst.refresh === "function") inst.refresh();
+                      } catch (_e) {}
+                    },
+                  }).open();
+                },
+                onDelete: async function() {
+                  if (!_selectedRowId) return;
+                  const ok = window.confirm(
+                    "Opravdu smazat záznam ID " + _selectedRowId + "?\n\n" +
+                    "Tato akce je nevratná."
+                  );
+                  if (!ok) return;
+                  try {
+                    const resp = await fetch(
+                      "/api/v1/erp/design/" + coreId + "/" + _selectedRowId,
+                      { method: "DELETE", credentials: "include" }
+                    );
+                    const json = await resp.json();
+                    if (resp.ok && json && json.ok) {
+                      console.info("[toolbar Smazat] deleted row " + _selectedRowId +
+                                   " (" + json.deleted_rows + " rows)");
+                      _selectedRowId = null;
+                      // Refresh grid (re-fetch data + setRowData)
+                      try {
+                        const r = await fetch(fetchUrl, { credentials: 'include' });
+                        const d = await r.json();
+                        if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
+                          gridInst.gridApi.setGridOption('rowData', d.rows);
+                        }
+                      } catch (_e) {}
+                      _updateToolbarSelection(_toolbarHost, false);
+                    } else {
+                      alert("Smazání selhalo: " + (json && json.error || resp.status));
+                    }
+                  } catch (e) {
+                    console.error("[toolbar Smazat] network:", e);
+                    alert("Smazání selhalo (network): " + (e && e.message || e));
+                  }
+                },
+                onRefresh: async function() {
+                  try {
+                    const r = await fetch(fetchUrl, { credentials: 'include' });
+                    const d = await r.json();
+                    if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
+                      gridInst.gridApi.setGridOption('rowData', d.rows);
+                      console.info("[toolbar Obnovit] refreshed " + d.rows.length + " rows");
+                    }
+                  } catch (e) {
+                    console.error("[toolbar Obnovit] network:", e);
+                  }
+                },
+              });
+
+              // Wire selection change → enable/disable Oprava + Smazat
+              try {
+                if (gridInst && gridInst.gridApi) {
+                  gridInst.gridApi.addEventListener('selectionChanged', function() {
+                    const sel = gridInst.gridApi.getSelectedRows();
+                    if (sel && sel.length > 0) {
+                      const row = sel[0];
+                      _selectedRowId = row.id != null ? row.id : (row.ID != null ? row.ID : null);
+                      _updateToolbarSelection(_toolbarHost, _selectedRowId != null);
+                    } else {
+                      _selectedRowId = null;
+                      _updateToolbarSelection(_toolbarHost, false);
+                    }
+                  });
+                }
+              } catch (_e) {
+                console.warn("[toolbar] selectionChanged wire failed:", _e);
+              }
+            }
           } catch (e) {
             console.error("[page_render] ErpDataGrid init failed:", e);
             gridHost.innerHTML =

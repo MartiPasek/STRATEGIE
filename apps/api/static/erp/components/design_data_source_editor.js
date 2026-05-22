@@ -484,6 +484,25 @@
       opGrid.appendChild(_lbl("Sort order:"));
       opGrid.appendChild(sortInput);
 
+      // Krok 5.S Fáze 5 (22.5.2026 vecer, Marti's "ted nemam cim nakonfigurovat"):
+      // core_id input — vazba na CORE pro 'edit' op (Oprava button) nebo 'insert'
+      // op (Novy button). Visible jen pokud kind='edit'/'insert'. Pro select/update/
+      // delete kind hidden (irelevantni).
+      const coreIdInput = _ipt("(ID CORE pro edit/insert form)");
+      coreIdInput.type = "number";
+      const coreIdLabel = _lbl("Core ID (form):");
+      opGrid.appendChild(coreIdLabel);
+      opGrid.appendChild(coreIdInput);
+      // Sub-grid wrapper pro toggle
+      const _toggleCoreIdRow = function() {
+        const k = kindSelect.value;
+        const show = (k === "edit" || k === "insert");
+        coreIdLabel.style.display = show ? "" : "none";
+        coreIdInput.style.display = show ? "" : "none";
+      };
+      kindSelect.addEventListener("change", _toggleCoreIdRow);
+      _toggleCoreIdRow();
+
       formWrap.appendChild(opGrid);
 
       // Sprint B: Inline section wrap (default visible)
@@ -702,15 +721,24 @@
       okBtn.style.cssText = "padding:5px 12px;background:#1f4858;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
       okBtn.addEventListener("click", () => {
         // Sprint B: validate dle aktivního modu
+        const _coreIdRaw = coreIdInput.value && String(coreIdInput.value).trim();
+        const _coreIdVal = _coreIdRaw ? parseInt(_coreIdRaw, 10) : null;
         const newOp = {
           existing: false,
           variant_code: null,  // resolved v _onSaveClick (default/_2/_3 logic)
           operation_kind: kindSelect.value,
           is_default: isDefaultCheck.checked,
           sort_order: parseInt(sortInput.value, 10) || (this._opsState.length * 10),
+          // Krok 5.S Fáze 5 (22.5.2026 vecer): core_id pro edit/insert ops
+          core_id: (isNaN(_coreIdVal) ? null : _coreIdVal),
         };
 
-        if (_opMode === "existing") {
+        // Krok 5.S Fáze 5: edit/delete ops NEPOTREBUJI data_set (backend Q6 DROP NOT NULL).
+        // Pokud kind je edit/delete, skip data_set validation (newOp bude bez data_set_id).
+        const _noDataSetKind = (newOp.operation_kind === "edit" || newOp.operation_kind === "delete");
+        if (_noDataSetKind) {
+          // No-op — data_set_id zustane undefined, backend zpracuje jako NULL
+        } else if (_opMode === "existing") {
           // Sprint B+ (17.5.): grid selection state instead of <select>.
           const ds = this._existingSelectedDs;
           if (!ds || !ds.id) {
@@ -826,6 +854,23 @@
       opGrid.appendChild(isDefaultCheck);
       opGrid.appendChild(_lbl("Sort order:"));
       opGrid.appendChild(sortInput);
+
+      // Krok 5.S Fáze 5 (22.5.2026 vecer): core_id input pro edit/insert ops
+      // (vazba na CORE pro grid toolbar Oprava/Novy button).
+      const coreIdInput = _ipt(op.core_id != null ? String(op.core_id) : "", "(ID CORE pro edit form)");
+      coreIdInput.type = "number";
+      const coreIdLabel = _lbl("Core ID (form):");
+      opGrid.appendChild(coreIdLabel);
+      opGrid.appendChild(coreIdInput);
+      const _toggleCoreIdRow = function() {
+        const k = kindSelect.value;
+        const show = (k === "edit" || k === "insert");
+        coreIdLabel.style.display = show ? "" : "none";
+        coreIdInput.style.display = show ? "" : "none";
+      };
+      kindSelect.addEventListener("change", _toggleCoreIdRow);
+      _toggleCoreIdRow();
+
       formWrap.appendChild(opGrid);
 
       // Data set inline
@@ -924,6 +969,13 @@
           const opPatchBody = {};
           if (kindSelect.value !== op.operation_kind) opPatchBody.operation_kind = kindSelect.value;
           if (isDefaultCheck.checked !== !!op.is_default) opPatchBody.is_default = isDefaultCheck.checked;
+          // Krok 5.S Fáze 5: core_id diff (NULL <-> int)
+          const _ciRaw = coreIdInput.value && String(coreIdInput.value).trim();
+          const _ciVal = _ciRaw ? parseInt(_ciRaw, 10) : null;
+          const _ciNew = isNaN(_ciVal) ? null : _ciVal;
+          if (_ciNew !== (op.core_id != null ? op.core_id : null)) {
+            opPatchBody.core_id = _ciNew;
+          }
           const newSort = parseInt(sortInput.value, 10);
           if (!isNaN(newSort) && newSort !== op.sort_order) opPatchBody.sort_order = newSort;
 

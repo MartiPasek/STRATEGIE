@@ -7334,6 +7334,7 @@
     { value: "select", label: "select" },
     { value: "insert", label: "insert" },
     { value: "update", label: "update" },
+    { value: "edit",   label: "edit (otevri form)" },
     { value: "delete", label: "delete" },
   ];
 

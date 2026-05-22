@@ -1362,7 +1362,6 @@ def _serialize_menu_node(row_dict: dict) -> dict:
         "sort_order": row_dict.get("sort_order"),
         "status": row_dict.get("status"),
         "visibility_scope": row_dict.get("visibility_scope"),
-        "cislo_def": row_dict.get("cislo_def"),
         "framework_jadro_id": row_dict.get("framework_jadro_id"),
         "is_immutable": bool(row_dict.get("is_immutable")),
         "description": row_dict.get("description"),
@@ -1847,8 +1846,10 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
             if m:
                 cislo = int(m.group(1))
                 # Najdi menu_node s tim cislo_def, vezmi jeho core_id
+                # Phase 22.5.2026: cislo_def dropped from fw.menu_node.
+                # `cislo` value is now menu_node.id directly — use id lookup:
                 mn_for_cislo = _fetch_menu_node(
-                    ds, "n.cislo_def = :cislo", {"cislo": cislo}
+                    ds, "n.id = :id", {"id": cislo}
                 )
                 if mn_for_cislo and mn_for_cislo.get("core_id"):
                     core = _fetch_core(
@@ -7748,7 +7749,7 @@ def _build_system_root_from_db():
         # 'parent_only' explicit = visible.
         sql = _sql_text_st("""
             SELECT n.id, n.parent_id, n.label, n.sort_order,
-                   n.visibility_scope, n.cislo_def, n.status,
+                   n.visibility_scope, n.status,
                    n.is_immutable, n.core_id, c.code AS core_code,
                    hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
             FROM fw.menu_node n
@@ -7794,18 +7795,13 @@ def _build_system_root_from_db():
         # nesmí dropnout siblings ani parent. Error node má is_error=True
         # + error_detail string pro frontend right-panel render.
         try:
-            cislo = row.get("cislo_def")
-            # Phase 38.4 Krok 14g-H+12 (15.5.2026 vecer, Marti's "CORE chybi
-            # v oblibených"): synthetic cislo_def pro nodes bez Centrala 1
-            # legacy ID. Pin/MRU/tabs tracking (erp_user_favorites/recent/
-            # tabs) drzi cislo_def jako stable INT key (B+8.1 schema).
-            # Synthetic range -100000 - menu_node_pk:
-            #   - mimo Centrala 1 positive (1-10000)
-            #   - mimo system negative (-100 to -200)
-            # Predictable per menu_node.id → favorites tracking konzistentni
-            # napriс session. Po cislo_def schema refactor (Stage 3) drop.
-            if cislo is None and row.get("id"):
-                cislo = -100000 - int(row["id"])
+            # Phase 22.5.2026: fw.menu_node.cislo_def column dropped.
+            # node["cislo_def"] field preserved (downstream lefttree.js uses
+            # it for leaf detection + tab/favorite tracking) — value is
+            # now menu_node.id directly (BIGINT integer). User_state tables
+            # erp_user_tabs/favorites/recent keep `cislo_def` column name
+            # (semantic mismatch: column holds menu_node.id values now).
+            cislo = row.get("id")
             sv, svm, single = (None, None, False)  # dead audit_overview mapping dropped 22.5.
             children_db = by_parent.get(row["id"], [])
             children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("label") or ""))

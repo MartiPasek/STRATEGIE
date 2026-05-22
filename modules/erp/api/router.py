@@ -8146,6 +8146,28 @@ def grid_layout_delete(layout_id: int, req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
+# user_recent_track), 0x definovany — dead reference po commit cc11689
+# ("VELKY DROP Centrála 1 reading"). FastAPI/Pydantic nemohlo resolve →
+# 422 Unprocessable Content pro VSE 3 endpointy. Fix: restore class def.
+class _CisloBody(BaseModel):
+    """Phase B+8.1c (restored 20.5.): body schema pro endpointy s cislo + label.
+
+    Used by:
+      - POST /api/v1/erp/tabs (user_tabs_open)
+      - POST /api/v1/erp/favorites (user_favorites_add)
+      - POST /api/v1/erp/recent (user_recent_track)
+
+    Frontend payload shape (from trackTreeRecent / openTab / favoriteAdd):
+        { "cislo": int, "label": str | null, "item_id": str | null }
+
+    item_id pridan ve Fix G (20.5. vecer, after Marti's #194 retest):
+    user_tabs_open vola body.item_id, frontend tabs send {cislo, label, item_id}.
+    """
+    cislo: int
+    label: str | None = None
+    item_id: str | None = None
+
+
 @api_router.get("/tabs")
 def user_tabs_list(req: Request) -> JSONResponse:
     uid = _get_uid(req)

@@ -250,7 +250,13 @@
               rowData: rows,
               autoColumns: true,
               rowSelection: "single",
-              enableEdit: isDesignMode,
+              // Phase 38.4 Krok 14g-H+34 (22.5.2026 vecer, Marti's catch):
+              // PROD = inline edit OFF default. Excel toggle (Ctrl+Shift+E)
+              // ho zapne servisne. Drop `enableEdit: isDesignMode` —
+              // grid se vzdycky inicializuje synchronizovany s
+              // _excelMode=false (PROD). Krok 5.R-D+2 inline edit v DESIGN
+              // mode nahrazen explicitnim Excel toggle per-grid.
+              enableEdit: false,
               layoutKey: "core_" + coreId,
               gridCode: rootCd.name || ("core_" + coreId),
               autoLoadDefault: true,

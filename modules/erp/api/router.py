@@ -11840,313 +11840,16 @@ def _render_workspace_page(user_id: int) -> str:
         // framework_jadro_id, is_immutable, description,
         // created_at, updated_at. Žádný icon (emoji v label), žádný
         // target_url, status text místo is_active+is_archived.
-        if (mode === "framework_menu_nodes") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Code", field: "code", width: 220, sortable: true,
-              cellStyle: { fontFamily: "monospace" },
-              headerTooltip: "Stable identifier — natural key (např. 'system.audit.tabs')" },
-            { headerName: "Parent code", field: "parent_code", width: 200, sortable: true,
-              cellStyle: { fontFamily: "monospace", color: "#888" } },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 200, sortable: true,
-              headerTooltip: "Display label včetně emoji (Marti-AI's choice — žádný icon column)" },
-            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
-            { headerName: "Kind", field: "kind", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "folder") return { color: "#d4a017" };
-                if (p.value === "list") return { color: "#7ba8d4" };
-                if (p.value === "form") return { color: "#6aa84f" };
-                if (p.value === "iframe") return { color: "#aa66cc" };
-                if (p.value === "special") return { color: "#cc6666" };
-                return null;
-              } },
-            { headerName: "Status", field: "status", width: 110, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "archived") return { color: "#888" };
-                if (p.value === "draft") return { color: "#d4a017" };
-                if (p.value === "deprecated") return { color: "#cc6666" };
-                return null;
-              } },
-            { headerName: "Visibility", field: "visibility_scope", width: 140, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "parent_only") return { color: "#cc6666" };
-                if (p.value === "parent_or_admin") return { color: "#d4a017" };
-                if (p.value === "tenant_member") return { color: "#6aa84f" };
-                if (p.value === "public") return { color: "#7ba8d4" };
-                return null;
-              } },
-            { headerName: "Jádro ID", field: "framework_jadro_id", width: 100, type: "numericColumn",
-              headerTooltip: "FK na fw.framework_jadro (kind='list'/'form')" },
-            { headerName: "Imutabilní", field: "is_immutable", width: 100,
-              cellRenderer: function(p) { return p.value ? "🔒" : ""; },
-              headerTooltip: "Marti-AI's pattern — systémové záznamy bez code review" },
-            { headerName: "Description", field: "description", flex: 1, minWidth: 200,
-              cellStyle: { color: "#aaa", fontStyle: "italic" } },
-            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
+                // [framework_menu_nodes] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
         // ── Phase 38.4 Krok 6+ Datové zdroje (fw.data_source) ──
-        if (mode === "framework_data_sources") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Code", field: "code", width: 200, sortable: true,
-              cellStyle: { fontFamily: "monospace" },
-              headerTooltip: "Stable identifier (UNIQUE per version)" },
-            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
-            { headerName: "Název", field: "name", flex: 1, minWidth: 200, sortable: true },
-            { headerName: "Operations", field: "operation_count", width: 100, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" }; },
-              headerTooltip: "Počet rows v fw.data_source_op (LEFT JOIN COUNT)" },
-            { headerName: "Kinds", field: "operation_kinds", width: 220,
-              cellStyle: { fontFamily: "monospace", color: "#aaa" },
-              headerTooltip: "Comma-separated operation_kind list (select, insert, update, delete, ...)" },
-            { headerName: "Refresh", field: "refresh_type", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "manual") return { color: "#888" };
-                if (p.value === "auto")   return { color: "#7ba8d4" };
-                if (p.value === "on_focus") return { color: "#d4a017" };
-                return null;
-              } },
-            { headerName: "RowMem", field: "row_memory", width: 90,
-              cellRenderer: function(p) { return p.value ? "✓" : ""; },
-              headerTooltip: "Pamatovat aktuální řádek po refresh" },
-            { headerName: "Filter ms", field: "filter_delay_ms", width: 90, type: "numericColumn",
-              headerTooltip: "Debounce ms pro filter input" },
-            { headerName: "Limit", field: "default_record_limit", width: 90, type: "numericColumn",
-              headerTooltip: "Default record limit (max rows)" },
-            { headerName: "Status", field: "status", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "archived") return { color: "#888" };
-                if (p.value === "draft") return { color: "#d4a017" };
-                if (p.value === "deprecated") return { color: "#cc6666" };
-                return null;
-              } },
-            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn",
-              headerTooltip: "FK na public.tenants (NULL = global)" },
-            { headerName: "Sys", field: "is_system", width: 60,
-              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
-            { headerName: "Imut", field: "is_immutable", width: 60,
-              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
-            { headerName: "Description", field: "description", flex: 1, minWidth: 180,
-              cellStyle: { color: "#aaa", fontStyle: "italic" } },
-            { headerName: "GUID", field: "guid", width: 240,
-              cellStyle: { fontFamily: "monospace", color: "#666", fontSize: "11px" } },
-            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
-            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
-              sortable: false, filter: false, resizable: false,
-              cellRenderer: function(p) {
-                var rowId = p.data && p.data.id;
-                var status = p.data && p.data.status;
-                if (rowId == null) return "";
-                var wrap = document.createElement("div");
-                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
-                var btn = document.createElement("button");
-                btn.type = "button";
-                if (status === "archived") {
-                  btn.textContent = "↻";
-                  btn.title = "Obnovit (restore z archivu)";
-                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
-                  btn.addEventListener("click", function(ev) {
-                    ev.stopPropagation();
-                    if (window._sysHelpers && window._sysHelpers.restoreDataSource) {
-                      window._sysHelpers.restoreDataSource(rowId, function() {
-                        if (window._sysHelpers.renderSystemGrid) {
-                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
-                        }
-                      });
-                    }
-                  });
-                } else {
-                  btn.textContent = "✕";
-                  btn.title = "Archivovat data_source";
-                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
-                  btn.addEventListener("click", function(ev) {
-                    ev.stopPropagation();
-                    if (window._sysHelpers && window._sysHelpers.archiveDataSource) {
-                      window._sysHelpers.archiveDataSource(rowId, function() {
-                        if (window._sysHelpers.renderSystemGrid) {
-                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
-                        }
-                      });
-                    }
-                  });
-                }
-                wrap.appendChild(btn);
-                return wrap;
-              } }
-          ];
-        }
+                // [framework_data_sources] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
         // ── Phase 38.4 Krok 6+ DataSets (fw.data_set, low-level SQL) ──
-        if (mode === "framework_data_sets") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Code", field: "code", width: 200, sortable: true,
-              cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
-            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): Kind dropped
-            // (Marti's "V tom SQL textu muze byt cokoli... Chceme ho na neco?")
-            { headerName: "DB", field: "db_connection", width: 110, sortable: true,
-              headerTooltip: "Cílový connection (data_db, eurosoft, ...)" },
-            { headerName: "Description", field: "description", width: 220 },
-            { headerName: "SQL", field: "sql_text", flex: 1, minWidth: 300,
-              cellStyle: { fontFamily: "monospace", fontSize: "11px", color: "#bbb" },
-              valueFormatter: function(p) {
-                if (!p.value) return "-";
-                var s = String(p.value).replace(/\\s+/g, " ").trim();
-                return s.length > 100 ? s.substring(0, 100) + "…" : s;
-              },
-              headerTooltip: "SQL text (truncated v gridu na 100 znaků; full text v detail view)" },
-            { headerName: "Params", field: "parameters", width: 100,
-              cellRenderer: function(p) {
-                if (!p.value) return "-";
-                try {
-                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
-                  return Array.isArray(arr) ? String(arr.length) : "?";
-                } catch (e) { return "?"; }
-              },
-              headerTooltip: "Počet parametrů v JSONB schema (např. [{name:'id', type:'int', required:true}])" },
-            { headerName: "Status", field: "status", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "archived") return { color: "#888" };
-                if (p.value === "draft") return { color: "#d4a017" };
-                if (p.value === "deprecated") return { color: "#cc6666" };
-                return null;
-              } },
-            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn" },
-            { headerName: "Sys", field: "is_system", width: 60,
-              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
-            { headerName: "Imut", field: "is_immutable", width: 60,
-              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
-            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
-            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
-            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
-              sortable: false, filter: false, resizable: false,
-              cellRenderer: function(p) {
-                var rowId = p.data && p.data.id;
-                var status = p.data && p.data.status;
-                if (rowId == null) return "";
-                var wrap = document.createElement("div");
-                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
-                var btn = document.createElement("button");
-                btn.type = "button";
-                if (status === "archived") {
-                  btn.textContent = "↻";
-                  btn.title = "Obnovit (restore z archivu)";
-                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
-                  btn.addEventListener("click", function(ev) {
-                    ev.stopPropagation();
-                    if (window._sysHelpers && window._sysHelpers.restoreDataSet) {
-                      window._sysHelpers.restoreDataSet(rowId, function() {
-                        if (window._sysHelpers.renderSystemGrid) {
-                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
-                        }
-                      });
-                    }
-                  });
-                } else {
-                  btn.textContent = "✕";
-                  btn.title = "Archivovat data_set";
-                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
-                  btn.addEventListener("click", function(ev) {
-                    ev.stopPropagation();
-                    if (window._sysHelpers && window._sysHelpers.archiveDataSet) {
-                      window._sysHelpers.archiveDataSet(rowId, function() {
-                        if (window._sysHelpers.renderSystemGrid) {
-                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
-                        }
-                      });
-                    }
-                  });
-                }
-                wrap.appendChild(btn);
-                return wrap;
-              } }
-          ];
-        }
+                // [framework_data_sets] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
 
         // Sprint D (17.5.2026 dop.): DB Connections grid
-        if (mode === "framework_db_connections") {
-          return [
-            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
-            { headerName: "Code", field: "code", width: 180, sortable: true,
-              cellStyle: { fontFamily: "monospace", color: "#7ed4e8" },
-              headerTooltip: "Stable identifier (immutable, like ID)" },
-            { headerName: "Label", field: "label", flex: 1, minWidth: 280, sortable: true,
-              cellStyle: { fontWeight: "500" } },
-            { headerName: "Tenant", field: "tenant_code", width: 110, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "STRATEGIE") return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "EUR")       return { color: "#7ba8d4" };
-                if (p.value === "INTERSOFT") return { color: "#d4a017" };
-                return { color: "#888" };
-              } },
-            { headerName: "Type", field: "db_type", width: 90, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "postgres") return { color: "#7ed4a8", fontFamily: "monospace" };
-                if (p.value === "mssql")    return { color: "#aa66cc", fontFamily: "monospace" };
-                return { fontFamily: "monospace" };
-              } },
-            { headerName: "Host", field: "host", width: 140, sortable: true,
-              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
-            { headerName: "Port", field: "port", width: 70, sortable: true, type: "numericColumn" },
-            { headerName: "Default DB", field: "default_db", width: 130, sortable: true,
-              cellStyle: { fontFamily: "monospace" } },
-            { headerName: "Scope", field: "scope_databases", width: 110,
-              valueFormatter: function(p) {
-                if (!p.value) return "-";
-                try {
-                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
-                  return Array.isArray(arr) ? (arr.length + "× DBs") : "?";
-                } catch (e) { return "?"; }
-              },
-              headerTooltip: "JSONB array of accessible databases (cross-DB SELECT scope)" },
-            { headerName: "Login", field: "login_name", width: 110,
-              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
-            { headerName: "Active", field: "is_active", width: 80, sortable: true,
-              cellRenderer: function(p) { return p.value ? '<span style="color:#6aa84f;font-weight:600">✓</span>' : '<span style="color:#cc6666">✗</span>'; } },
-            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
-            { headerName: "Status", field: "status", width: 100, sortable: true,
-              cellStyle: function(p) {
-                if (p.value === "active")   return { color: "#6aa84f", fontWeight: "500" };
-                if (p.value === "archived") return { color: "#888" };
-                return null;
-              } },
-            { headerName: "Description", field: "description", flex: 1, minWidth: 220,
-              cellStyle: { color: "#aaa", fontStyle: "italic" } },
-            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
-              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
-          ];
-        }
+                // [framework_db_connections] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
 
-        if (mode === "stats") {
-          return [
-            { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
-            { headerName: "Obdobi", field: "period", width: 110, sortable: true, sort: "desc" },
-            { headerName: "Pending", field: "pending", width: 100, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#888" } : null; } },
-            { headerName: "In progress", field: "in_progress", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#d4a017" } : null; } },
-            { headerName: "Auditovane", field: "audited", width: 120, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : null; } },
-            { headerName: "Excluded", field: "excluded", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: function(p) { return (p.value > 0) ? { color: "#666" } : null; } },
-            { headerName: "Celkem", field: "total", width: 110, sortable: true, type: "numericColumn",
-              cellStyle: { fontWeight: "600" } }
-          ];
-        }
+                // [stats] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
         // audited / all
         var showStatus = (mode === "all");
         var cols = [
@@ -13130,65 +12833,11 @@ def _render_workspace_page(user_id: int) -> str:
       // identicky jako EUROSOFT prehled tab.
       // Helpers v izolovanych <script> blocich nahore (window._sysHelpers.*).
 
-      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
-      // odstraněna. Mapping itemId → mode se derive z System tree dat
-      // (fw.menu_node primary, hardcoded fallback v _SYSTEM_CISLO_TO_VIEW).
-      //
-      // Speciální case: 'system.audit.tabs' (cislo_def=-100) drží Variant A
-      // tabs UI signal — nemá vlastní mode, jen markeruje tabs bar visibility.
-      //
-      // Walker helpers jsou v jiném IIFE, tj. čteme přes window._sys*.
-      function _systemModeFromItemId(itemId) {
-        if (!itemId) return null;
-        if (itemId === "system.audit.tabs") return "tabs";  // UI signal, no mode
-        if (typeof window._sysFindNodeById !== "function") return null;
-        var node = window._sysFindNodeById(itemId);
-        if (!node || !node.system_view) return null;
-        if (node.system_view === "audit_overview") return node.system_view_mode;
-        return node.system_view + "_" + node.system_view_mode;
-      }
-
-      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
-      // odstraněna. Mapping cislo → mode se derive z System tree dat.
-      // Plně DB-driven přes fw.menu_node.menu_node_pk + system_view{_mode}.
-      // Walker helpers jsou v jiném IIFE, čteme přes window._sys*.
-      function _systemModeFromCislo(cislo) {
-        if (cislo === -100) return "tabs";  // UI signal, audit tabs bar
-        if (typeof window._sysFindNodeByCislo !== "function") return null;
-        var node = window._sysFindNodeByCislo(cislo);
-        if (!node || !node.system_view) return null;
-        if (node.system_view === "audit_overview") return node.system_view_mode;
-        return node.system_view + "_" + node.system_view_mode;
-      }
-
-      // Render System view do main pane. NEMODIFIKUJE tabsBar ani tree
-      // active state (to dela switchTab caller pred volanim).
-      function _renderSystemViewIntoMain(mode, label) {
-        const main = document.getElementById("erpMainContent");
-        if (!main) return;
-        main.dataset.systemView = mode || "";
-        const lbl = label || "Audit";
-
-        if (mode === "tabs") {
-          // Variant A — iframe dashboard se zalozkami (combined view)
-          main.innerHTML =
-            '<iframe src="/erp/system/audit-dashboard?embed=1&single=0&mode=tabs"' +
-            ' style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
-            ' title="Audit dashboard"></iframe>';
-        } else if (window._sysHelpers && window._sysHelpers.renderSystemGrid) {
-          // Variant B — native AG Grid v main pane.
-          // Phase 35-E.4: audited / all / stats (audit-overview endpoint)
-          // Phase 38.3 (10.5.2026): security_* modes (security endpoint),
-          //   handled v renderSystemGrid via mode prefix dispatch.
-          window._sysHelpers.renderSystemGrid(mode, lbl);
-        } else {
-          // Fallback — pokud helpers neproskocila parse, jdi pres iframe
-          main.innerHTML =
-            '<iframe src="/erp/system/audit-dashboard?embed=1&single=1&mode=' + mode +
-            '" style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
-            ' title="Audit dashboard fallback"></iframe>';
-        }
-      }
+      // Phase 22.5.2026 cleanup C: _systemModeFromItemId/_systemModeFromCislo/
+      // _renderSystemViewIntoMain droppnuté (3 dead functions, ~55 LOC).
+      // Po cislo_def drop refactor + dead negative branch drop v
+      // _renderTabIntoMain jsou bez callsitů. System view dispatch jde teď
+      // unified přes ErpPageRender.dispatchPageRender (fw.data_source path).
 
       // ── Active node restore (po loadTree) ──────────────────────────
       // Phase B+6.11e: subclass owns visual active class. Router.py má
@@ -15962,144 +15611,43 @@ def _render_workspace_page(user_id: int) -> str:
       function _renderTabIntoMain(tab) {
         // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
         if (currentJadro) closeJadroPane();
-        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
-        // System view (audit dashboard / native AG Grid).
-        if (tab.cislo < 0) {
-          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pokud
-          // soudecek ma core_id, rovnou aktivovat prehled"): synthetic
-          // range + core_id check. Pokud node v tree cache má asociovany
-          // core, re-dispatch via core_code (jako bychom kliknuli na real
-          // prehled). Fallback: info placeholder s identifikatorem core.
-          if (tab.cislo <= -100000) {
-            // Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "nedeje
-            // se aktivace prehledu ani po hard reset"): add diagnostics +
-            // li.dataset fallback pokud tree cache lookup fails.
-            let node = (typeof _findSystemNodeById === "function")
-              ? _findSystemNodeById(tab.itemId) : null;
-
-            // Fallback: pokud cache lookup selhal, pokus li.dataset (set v
-            // _decorateLeftPanelLi). Tj. real DOM stejne ma core_id v dataset.
-            let coreId = node && node.core_id;
-            let coreCode = node && node.core_code;
-            if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
-              const li = tree.findLiByCislo(tab.cislo);
-              if (li) {
-                coreId = parseInt(li.dataset.coreId || "0", 10) || null;
-                coreCode = li.dataset.coreCode || null;
-              }
-            }
-
-            console.info("[H+29 dispatch] synthetic+core lookup:", {
-              cislo: tab.cislo,
-              itemId: tab.itemId,
-              node_found_in_cache: !!node,
-              core_id: coreId,
-              core_code: coreCode,
-            });
-
-            if (coreId) {
-              // Re-dispatch via core_code — pokud core matches known
-              // system mode, render system view. Jinak info placeholder.
-              const coreMode = coreCode
-                ? _systemModeFromItemId(coreCode)
-                : null;
-              console.info("[H+29 dispatch] coreMode lookup:", coreMode);
-              if (coreMode) {
-                _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
-                return;
-              }
-              // Phase 38.4 Krok 5.R (17.5.2026 vecer, Marti's "JO, melo
-              // by to byt v nezavislem js. TJ ten 5/5"): page render
-              // dispatch presunuty do standalone modulu
-              // apps/api/static/erp/components/page_render.js (gotcha #100
-              // — inline JS v router.py je krehky pro velke bloky).
-              if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
-                window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
-              } else {
-                console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
-                mainContent.innerHTML =
-                  '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
-                  '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
-                  '</div>';
-              }
-              return;
-            }
-            // No core associated — info placeholder (drop H+14 silent doctrine
-            // pre nove asociace flow — Marti chce vidět něco, ne nic)
+        // Phase 22.5.2026 (po cislo_def drop refactor): VŠECHNY tab.cislo jsou
+        // positive menu_node.id. Žádný synthetic negative range, žádný legacy
+        // Centrála 1 negative ID. Dispatch přes core_id lookup z tree cache +
+        // ErpPageRender.dispatchPageRender (single path, no branching).
+        let node = (typeof _findSystemNodeById === "function")
+          ? _findSystemNodeById(tab.itemId) : null;
+        let coreId = node && node.core_id;
+        let coreCode = node && node.core_code;
+        if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
+          const li = tree.findLiByCislo(tab.cislo);
+          if (li) {
+            coreId = parseInt(li.dataset.coreId || "0", 10) || null;
+            coreCode = li.dataset.coreCode || null;
+          }
+        }
+        if (coreId) {
+          if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
+            window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
+          } else {
+            console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
             mainContent.innerHTML =
-              '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-              '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
-              escapeHtml(tab.label || "Soudeček") + '</h2>' +
-              '<p style="color:#7a8696;font-size:13px;margin:0;">' +
-              'Soudeček bez asociovaného core přehledu. ' +
-              'Pravý-klik → 🎨 Design pro vybrání core.' +
-              '</p></div>';
-            return;
+              '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
+              '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
+              '</div>';
           }
-          const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);
-          if (mode) {
-            _renderSystemViewIntoMain(mode, tab.label);
-            return;
-          }
-          // Fallback: System tab bez rozeznatelneho mode → hlaska
-          mainContent.innerHTML =
-            '<div class="erp-main-error">System tab #' + tab.cislo +
-            ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
           return;
         }
-        // Phase 22.5.2026: po cislo_def drop refactor — VŠECHNY tab.cislo jsou
-        // positive menu_node.id (žádný synthetic negative range). Lookup
-        // core_id přes tree cache + dispatch přes page_render.js (stejná
-        // logika jako synthetic+core branch nahoře, jen pro positive IDs).
-        {
-          let node = (typeof _findSystemNodeById === "function")
-            ? _findSystemNodeById(tab.itemId) : null;
-          let coreId = node && node.core_id;
-          let coreCode = node && node.core_code;
-          if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
-            const li = tree.findLiByCislo(tab.cislo);
-            if (li) {
-              coreId = parseInt(li.dataset.coreId || "0", 10) || null;
-              coreCode = li.dataset.coreCode || null;
-            }
-          }
-          console.info("[Phase 22.5 dispatch] positive cislo lookup:", {
-            cislo: tab.cislo,
-            itemId: tab.itemId,
-            node_found_in_cache: !!node,
-            core_id: coreId,
-            core_code: coreCode,
-          });
-          if (coreId) {
-            const coreMode = coreCode
-              ? _systemModeFromItemId(coreCode)
-              : null;
-            if (coreMode) {
-              _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
-              return;
-            }
-            if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
-              window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
-            } else {
-              console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
-              mainContent.innerHTML =
-                '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
-                '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
-                '</div>';
-            }
-            return;
-          }
-          // No core associated — folder placeholder
-          mainContent.innerHTML =
-            '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-            '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
-            escapeHtml(tab.label || "Soudeček") + '</h2>' +
-            '<p style="color:#7a8696;font-size:13px;margin:0;">' +
-            'Soudeček bez asociovaného core přehledu. ' +
-            'Pravý-klik → 🎨 Design pro vybrání core.' +
-            '</p></div>';
-          return;
-        }
+        // No core associated — folder placeholder
+        mainContent.innerHTML =
+          '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+          '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
+          escapeHtml(tab.label || "Soudeček") + '</h2>' +
+          '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+          'Soudeček bez asociovaného core přehledu. ' +
+          'Pravý-klik → 🎨 Design pro vybrání core.' +
+          '</p></div>';
+        return;
         // Restore grid state pokud cached
         if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
           setTimeout(() => {

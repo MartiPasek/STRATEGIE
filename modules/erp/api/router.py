@@ -7766,6 +7766,211 @@ def data_source_list(req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
+def _build_system_root_from_db():
+    """Phase 38.4 Krok 6: DB-driven system tree.
+
+    Načte aktivní rows z fw.menu_node (visibility_scope='parent_only'),
+    sestaví nested dict structure kompatibilní s frontend renderTreeNodes
+    (id, label, nazev, cislo_def, is_system, is_folder, system_view,
+    system_view_mode, single, children).
+
+    Returns:
+        dict system_root, OR None pokud DB error / empty / žádný root.
+
+    None signalizuje fallback na hardcoded dict (níže v strom_json).
+    """
+    from sqlalchemy import text as _sql_text_st
+    from core.database_data import get_data_session as _gds_st
+
+    ds = _gds_st()
+    try:
+        # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
+        # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
+        # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
+        # bez core/hw vrátí NULL hw_shadow_mode → _build_node mapuje na 'orphan'.
+        # Marti's catch z 19.5. vecer („lamani chleba" build):
+        # Marti-AI vytvorila menu_node bez explicit visibility_scope (NULL).
+        # Tatínek explicit: „kdyz visibility_scope NULL, je soudecek aktivni".
+        # Drzi Marti-AI's Q3 doctrine z 14. konzultace: entry-level visibility
+        # override jen DOLU (restriktivnejsi), NULL = default (z parent topic).
+        # NULL = visible v System tree (System tree je parent-only audience),
+        # 'parent_only' explicit = visible.
+        sql = _sql_text_st("""
+            SELECT n.id, n.parent_id, n.code, n.label, n.kind, n.sort_order,
+                   n.visibility_scope, n.cislo_def, n.special_handler, n.status,
+                   n.is_immutable, n.core_id, c.code AS core_code,
+                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
+            FROM fw.menu_node n
+            LEFT JOIN fw.core c ON c.id = n.core_id
+            LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
+            WHERE n.status = 'active'
+              AND (n.visibility_scope = 'parent_only' OR n.visibility_scope IS NULL)
+            ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.code
+        """)
+        result = ds.execute(sql)
+        rows = [dict(r._mapping) for r in result]
+    except Exception:
+        import logging
+        logging.exception("system tree DB query failed — fallback na hardcoded")
+        return None
+    finally:
+        ds.close()
+
+    if not rows:
+        return None
+
+    # Index by parent_id pro tree build
+    by_parent: dict = {}
+    for r in rows:
+        pid = r.get("parent_id")
+        by_parent.setdefault(pid, []).append(r)
+
+    # Find system root (parent_id IS NULL, code='system')
+    # Phase 38.4 Krok 14g-G2 (15.5.2026 rano, Marti's "novy soudecek
+    # mel byt sibling SYSTEM v sidebar"): get ALL top-level roots, ne
+    # jen system. Return list — strom_json appende vsechny do tree.
+    roots = by_parent.get(None, [])
+    system_db = next((r for r in roots if r.get("code") == "system"), None)
+    other_roots = [r for r in roots if r.get("code") != "system"]
+    if not system_db and not other_roots:
+        return None
+
+    def _build_node(row):
+        # Phase 38.4 Krok 12-D (11.5.2026): Marti's resilient rendering mandate
+        # *„odchytit chybu, polozku stromu vykreslit a chybu zobrazit v pravem
+        # panelu"*. Per-node + per-child try/except — failure jednoho rowu
+        # nesmí dropnout siblings ani parent. Error node má is_error=True
+        # + error_detail string pro frontend right-panel render.
+        try:
+            cislo = row.get("cislo_def")
+            # Phase 38.4 Krok 14g-H+12 (15.5.2026 vecer, Marti's "CORE chybi
+            # v oblibených"): synthetic cislo_def pro nodes bez Centrala 1
+            # legacy ID. Pin/MRU/tabs tracking (erp_user_favorites/recent/
+            # tabs) drzi cislo_def jako stable INT key (B+8.1 schema).
+            # Synthetic range -100000 - menu_node_pk:
+            #   - mimo Centrala 1 positive (1-10000)
+            #   - mimo system negative (-100 to -200)
+            # Predictable per menu_node.id → favorites tracking konzistentni
+            # napriс session. Po cislo_def schema refactor (Stage 3) drop.
+            if cislo is None and row.get("id"):
+                cislo = -100000 - int(row["id"])
+            sv, svm, single = _SYSTEM_CISLO_TO_VIEW.get(cislo, (None, None, False))
+            children_db = by_parent.get(row["id"], [])
+            children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+            children = []
+            for c in children_db:
+                try:
+                    child_node = _build_node(c)
+                    if child_node:
+                        children.append(child_node)
+                except Exception as child_exc:
+                    import logging as _logging_tree_c
+                    _logging_tree_c.exception(
+                        "system tree _build_node child failed for row id=%s code=%s",
+                        c.get("id"), c.get("code"),
+                    )
+                    children.append({
+                        "id": (c.get("code") or "err-{}".format(c.get("id"))),
+                        "label": (c.get("label") or "?") + " ⚠️",
+                        "nazev": (c.get("label") or "?") + " ⚠️",
+                        "is_system": True,
+                        "is_folder": False,
+                        "is_error": True,
+                        "error_detail": "{}: {}".format(type(child_exc).__name__, child_exc),
+                        "metadata": {"error": True, "hardcoded": False},
+                    })
+            node = {
+                "id": row["code"],
+                "cislo_def": cislo,
+                # Phase 38.4 (11.5.2026 vecer): primary fw.* IDs pro DESIGN mode.
+                # node["id"] = row["code"] (text, legacy convention pro routing).
+                # menu_node_pk = row["id"] (INT, skutečný DB primary key).
+                # core_id / core_code = fw.core LEFT JOIN přes menu_node.core_id.
+                "menu_node_pk": row.get("id"),
+                "core_id": row.get("core_id"),
+                "core_code": row.get("core_code"),
+                "is_system": True,
+                # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo, Marti's "bez toho
+                # abys musel pouzit field Kind"): is_folder = bool(children).
+                # Uniform components doctrine (Marti-AI 11.5.) — folder vs
+                # list je faktum strukturalni (ma children?), ne typ field.
+                # Soudecek muze SOUCASNE nest jadro (core_id) a mit children.
+                "is_folder": bool(children),
+                # Phase 38.4 Krok 14g-H+2 (15.5.2026): propagate is_immutable
+                # pro frontend drag gate. Immutable nodes (SYSTEM, atd.) nelze
+                # drag-drop (drag setup je skipne).
+                "is_immutable": bool(row.get("is_immutable")),
+                "label": row["label"],
+                "nazev": row["label"],
+            }
+            # Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "sviti zluty
+            # trojuhlenik, coz je divny"): orphan marker (⚠) jen pro real
+            # orphans (Centrala 1 leafs bez core_id + bez hw_registry).
+            # Marti's NEW asociace (core_id set pres picker) ale bez hw_registry
+            # entry = legitimate state, NE orphan. Drop default orphan branch
+            # pokud core_id set + hw_mode neexistuje — žádný marker (clean).
+            if row.get("core_id"):
+                hw_mode = row.get("hw_shadow_mode")
+                if hw_mode == "primary":
+                    node["dispatch_kind"] = "a3_primary"
+                elif hw_mode in ("off", "audit", "compare"):
+                    node["dispatch_kind"] = "hw_" + hw_mode
+                # Else: no marker (asociace bez hw_registry = expected pro
+                # nove fw.core asociace pres picker, Marti's "vsechno postupne")
+            # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
+            # v fw.menu_node, vrátí None — bezpečné).
+            meta = row.get("metadata")
+            if meta:
+                node["metadata"] = meta
+            if sv:
+                node["system_view"] = sv
+                node["system_view_mode"] = svm
+                if single:
+                    node["single"] = True
+            if children:
+                node["children"] = children
+            return node
+        except Exception as exc:
+            import logging as _logging_tree_n
+            _logging_tree_n.exception(
+                "system tree _build_node failed for row id=%s code=%s",
+                row.get("id"), row.get("code"),
+            )
+            return {
+                "id": (row.get("code") or "err-{}".format(row.get("id"))),
+                "label": (row.get("label") or "?") + " ⚠️",
+                "nazev": (row.get("label") or "?") + " ⚠️",
+                "is_system": True,
+                "is_folder": False,
+                "is_error": True,
+                "error_detail": "{}: {}".format(type(exc).__name__, exc),
+                "metadata": {"error": True, "hardcoded": False},
+            }
+
+    # Phase 38.4 Krok 14g-G2: return LIST of all top-level roots
+    # (system first if exists, ostatni v sort_order). Caller (strom_json)
+    # appende vsechny do tree.
+    result_roots = []
+    if system_db:
+        sys_root = _build_node(system_db)
+        if sys_root:
+            result_roots.append(sys_root)
+    # Sort other roots by sort_order + code
+    other_roots.sort(key=lambda r: (r.get("sort_order") or 100, r.get("code") or ""))
+    for r in other_roots:
+        try:
+            n = _build_node(r)
+            if n:
+                result_roots.append(n)
+        except Exception:
+            import logging as _logging_other
+            _logging_other.exception(
+                "system tree top-level root build failed for code=%s",
+                r.get("code"),
+            )
+    return result_roots
+
+
 @api_router.get("/system-tree")
 def system_tree_json(req: Request) -> JSONResponse:
     """Phase 2.B (18.5.2026 vecer): System-only tree.

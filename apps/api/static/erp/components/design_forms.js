@@ -4745,6 +4745,8 @@
             title: "🔗 Vybrat data source (lookup source pro entity_picker)",
             endpoint: "/api/v1/erp/design/fw-data-source/list?status=active&limit=500",
             listKey: "data_sources",
+            coreId: 19,  // Krok 5.T Option C: framework_data_sources core
+
             idField: "id",
             labelField: "name",
             width: "900px",

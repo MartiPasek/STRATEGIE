@@ -199,6 +199,8 @@
         title: "🔗 Vybrat existing core přehled",
         endpoint: "/api/v1/erp/design/fw-core/list",
         listKey: "cores",
+        coreId: 30,  // Krok 5.T Option C: CORE Jádro (framework_core_list mainscreen)
+
         labelField: "label",
         columns: [
           { headerName: "Code", field: "code", width: 220, filter: "agTextColumnFilter", sortable: true },
@@ -567,6 +569,8 @@
                coreCode + "')",
         endpoint: "/api/v1/erp/design/fw-data-source/list",
         listKey: "data_sources",
+        coreId: 19,  // Krok 5.T Option C: framework_data_sources core
+
         labelField: "name",
         columns: [
           { headerName: "Code", field: "code", width: 220,

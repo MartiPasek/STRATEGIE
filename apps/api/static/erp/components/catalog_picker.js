@@ -92,10 +92,15 @@
         onNew: null,
         onEdit: null,
         onDelete: null,
-        // Krok 5.T (23.5.2026 rano): per-picker layoutKey pro isolated sestavy.
-        // Caller override: explicit `catalogKey: "catalog_data_source"`. Default:
-        // auto-slug z title (např. "Vybrat Datový zdroj" → "catalog_vybrat_datovy_zdroj").
-        catalogKey: null,
+        // Krok 5.T Option C (23.5.2026 rano, Marti's Q5=C doctrine): caller-provided
+        // coreId — picker layoutKey = "core_<coreId>". Reuse fw.comp_grid persistence
+        // pro parent core (catalog layouts shared s mainscreen view, consistency).
+        //
+        // Bez coreId → layoutKey null → ErpDataGrid native toolbar features hidden
+        // gracefully (basic grid bez Pravidla/Uložit jako/Spravovat).
+        //
+        // Marti's spec drops auto-slug fallback (failed backend regex /^core_<int>$/).
+        coreId: null,
       }, opts || {});
 
       this._overlay = null;
@@ -152,31 +157,6 @@
       await this._fetchAndRender();
     }
 
-    /**
-     * Krok 5.T (23.5.2026 rano): resolve layoutKey per picker context.
-     * Caller override: this.opts.catalogKey (explicit). Default: auto-slug
-     * z this.opts.title prefixed s "catalog_".
-     *
-     * Example:
-     *   title="Vybrat Datový zdroj" → "catalog_vybrat_datovy_zdroj"
-     *   catalogKey="catalog_data_source" (explicit) → used as-is
-     */
-    _resolveCatalogKey() {
-      if (this.opts.catalogKey) return this.opts.catalogKey;
-      return "catalog_" + this._slugifyTitle(this.opts.title || "untitled");
-    }
-
-    _slugifyTitle(text) {
-      // ASCII-fold + lowercase + replace non-alphanumeric → underscore
-      // Strip leading/trailing underscores. Czech diacritics handled by NFD normalize.
-      return String(text)
-        .normalize("NFD")
-        .replace(/[\u0300-\u036f]/g, "")  // strip combining marks
-        .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "_")
-        .replace(/^_+|_+$/g, "");
-    }
-
     close() {
       if (!this._isOpen) return;
       try {
@@ -208,16 +188,17 @@
         } else {
           // Re-create grid
           this._gridContainer.innerHTML = "";
-          const _catalogKey = this._resolveCatalogKey();
+          // Krok 5.T Option C (23.5.2026 rano): layoutKey z caller coreId
+          const _layoutKey = this.opts.coreId ? ("core_" + this.opts.coreId) : null;
           this._grid = new window.ErpDataGrid(this._gridContainer, {
             rowData: data,
             columnDefs: this.opts.columns,
             autoColumns: false,
-            // Krok 5.T (23.5.2026 rano): full ErpDataGrid features parity
+            // Krok 5.T Option C: full ErpDataGrid features parity pokud coreId provided
             // (Marti's "stejna trida, vsechny funkce jako mainscreen").
-            layoutKey: _catalogKey,
-            gridCode: _catalogKey,
-            autoLoadDefault: true,
+            layoutKey: _layoutKey,
+            gridCode: _layoutKey,
+            autoLoadDefault: !!_layoutKey,
             enableExport: true,
             enableRangeSelection: true,
             onRowDoubleClick: (row) => this._handleSelect(row),
@@ -413,21 +394,21 @@
     async _fetchAndRender() {
       try {
         const rows = await this._fetchData();
-        const _catalogKey = this._resolveCatalogKey();
+        // Krok 5.T Option C (23.5.2026 rano): layoutKey z caller coreId
+        const _layoutKey = this.opts.coreId ? ("core_" + this.opts.coreId) : null;
         this._grid = new window.ErpDataGrid(this._gridContainer, {
           rowData: rows,
           columnDefs: this.opts.columns,
           autoColumns: false,
           // AG Grid native selection
           rowSelection: "single",
-          // Krok 5.T (23.5.2026 rano): full ErpDataGrid features parity
-          // (Marti's "stejna trida, vsechny funkce jako mainscreen").
-          // Native toolbar (layoutKey dropdown + Pravidla + Uložit jako)
-          // se objevi nad gridem. Per-picker context isolation pres
-          // catalogKey slug.
-          layoutKey: _catalogKey,
-          gridCode: _catalogKey,
-          autoLoadDefault: true,
+          // Krok 5.T Option C: full ErpDataGrid features pokud coreId provided.
+          // Bez coreId → null layoutKey → toolbar features hidden gracefully.
+          // Native toolbar (layoutKey dropdown + Pravidla + Uložit jako) se
+          // objevi nad gridem. Layout shared s parent core (consistency).
+          layoutKey: _layoutKey,
+          gridCode: _layoutKey,
+          autoLoadDefault: !!_layoutKey,
           enableExport: true,
           enableRangeSelection: true,
           onRowDoubleClick: (row) => this._handleSelect(row),

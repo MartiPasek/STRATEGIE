@@ -50,7 +50,7 @@ function Get-NssmPropMultiLine {
     return @($clean)
 }
 
-# Mirror primary config (Python path, args) — same shared venv
+# Mirror primary config (Python path, args) - same shared venv
 $PrimaryApp = Get-NssmPropOneLine "STRATEGIE-API" "Application"
 $PrimaryArgs = Get-NssmPropOneLine "STRATEGIE-API" "AppParameters"
 $PrimaryEnvLines = Get-NssmPropMultiLine "STRATEGIE-API" "AppEnvironmentExtra"
@@ -127,7 +127,7 @@ if (-not (Test-Path $LogDir)) { New-Item -ItemType Directory -Path $LogDir -Forc
 & $NssmPath set $ServiceName AppRestartDelay 5000 | Out-Null
 
 Write-Host ""
-Write-Host "DONE — blue-green secondary configured."
+Write-Host "DONE - blue-green secondary configured."
 Write-Host ""
 Write-Host "Next:"
 Write-Host "  Start-Service $ServiceName"

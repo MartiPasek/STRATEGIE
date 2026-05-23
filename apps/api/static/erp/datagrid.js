@@ -1542,12 +1542,15 @@
     _layoutApiBase() {
       const key = this.options.layoutKey;
       if (!key || typeof key !== "string") return null;
-      const m = key.match(/^core_(-?\d+)$/);
+      // Krok 5.U (23.5.2026): polymorphic scope — Marti's Q8=A path prefix.
+      // Accept "core_<id>" OR "ds_<id>" formats. Frontend pass full scopeKey
+      // do URL (backend parsuje stejnou regex).
+      const m = key.match(/^(core|ds)_(-?\d+)$/);
       if (!m) {
-        console.warn("ErpDataGrid: layoutKey expected 'core_<id>', got:", key);
+        console.warn("ErpDataGrid: layoutKey expected 'core_<id>' OR 'ds_<id>', got:", key);
         return null;
       }
-      return { coreId: parseInt(m[1], 10) };
+      return { scopeKey: key, scopeKind: m[1], scopeId: parseInt(m[2], 10) };
     }
 
     /**
@@ -1559,7 +1562,7 @@
       if (!base) return null;
       try {
         const r = await fetch(
-          "/api/v1/erp/grid-layout/" + base.coreId + "/list",
+          "/api/v1/erp/grid-layout/" + base.scopeKey + "/list",
           { credentials: "include" }
         );
         if (!r.ok) return null;
@@ -1747,7 +1750,7 @@
           heuristics_enabled: this._heuristicsEnabled === true,
         },
       };
-      const r = await fetch("/api/v1/erp/grid-layout/" + base.coreId, {
+      const r = await fetch("/api/v1/erp/grid-layout/" + base.scopeKey, {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },

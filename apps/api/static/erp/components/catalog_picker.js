@@ -96,11 +96,14 @@
         // coreId — picker layoutKey = "core_<coreId>". Reuse fw.comp_grid persistence
         // pro parent core (catalog layouts shared s mainscreen view, consistency).
         //
-        // Bez coreId → layoutKey null → ErpDataGrid native toolbar features hidden
-        // gracefully (basic grid bez Pravidla/Uložit jako/Spravovat).
+        // Krok 5.U (23.5.2026 dop, Marti's "B správný long-term, grid je nejvyšší
+        // know-how"): polymorphic scope extend. Pro pickers bez stable parent core
+        // (např. generic /data/<dsCode>) pass dataSourceId → layoutKey = "ds_<id>".
+        // Backend XOR exactly-one CHECK constraint — per-core OR per-data_source.
         //
-        // Marti's spec drops auto-slug fallback (failed backend regex /^core_<int>$/).
+        // Priority: coreId > dataSourceId > null (toolbar features hidden).
         coreId: null,
+        dataSourceId: null,
       }, opts || {});
 
       this._overlay = null;
@@ -188,8 +191,11 @@
         } else {
           // Re-create grid
           this._gridContainer.innerHTML = "";
-          // Krok 5.T Option C (23.5.2026 rano): layoutKey z caller coreId
-          const _layoutKey = this.opts.coreId ? ("core_" + this.opts.coreId) : null;
+          // Krok 5.U (23.5.2026 dop): polymorphic scope — coreId priority,
+          // dataSourceId fallback, jinak null (toolbar features hidden).
+          const _layoutKey = this.opts.coreId
+            ? ("core_" + this.opts.coreId)
+            : (this.opts.dataSourceId ? ("ds_" + this.opts.dataSourceId) : null);
           this._grid = new window.ErpDataGrid(this._gridContainer, {
             rowData: data,
             columnDefs: this.opts.columns,
@@ -394,8 +400,11 @@
     async _fetchAndRender() {
       try {
         const rows = await this._fetchData();
-        // Krok 5.T Option C (23.5.2026 rano): layoutKey z caller coreId
-        const _layoutKey = this.opts.coreId ? ("core_" + this.opts.coreId) : null;
+        // Krok 5.U (23.5.2026 dop): polymorphic scope — coreId priority,
+        // dataSourceId fallback, jinak null (toolbar features hidden).
+        const _layoutKey = this.opts.coreId
+          ? ("core_" + this.opts.coreId)
+          : (this.opts.dataSourceId ? ("ds_" + this.opts.dataSourceId) : null);
         this._grid = new window.ErpDataGrid(this._gridContainer, {
           rowData: rows,
           columnDefs: this.opts.columns,

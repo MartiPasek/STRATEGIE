@@ -90,9 +90,27 @@ def _check_admin_for_shared(user_id: int, scope: str) -> None:
 
 # ── Read operations ────────────────────────────────────────────────────
 
-def list_layouts(core_id: int, user_id: int) -> dict:
+def _scope_filter(scope_kind: str, scope_id: int):
+    """Krok 5.U (23.5.2026): polymorphic scope filter for SQLAlchemy queries.
+
+    Marti's Q7=A XOR — exactly-one column non-null per row. Service filtruje
+    podle scope_kind: "core" → ErpGridLayout.core_id, "ds" → data_source_id.
     """
-    Vrací seznam dostupných layoutů pro daný přehled + user.
+    if scope_kind == "core":
+        return ErpGridLayout.core_id == scope_id
+    elif scope_kind == "ds":
+        return ErpGridLayout.data_source_id == scope_id
+    else:
+        raise GridLayoutError(f"Invalid scope_kind '{scope_kind}' (expected 'core' or 'ds')")
+
+
+def list_layouts(scope_kind: str, scope_id: int, user_id: int) -> dict:
+    """
+    Vrací seznam dostupných layoutů pro daný scope (core OR data_source) + user.
+
+    Krok 5.U (23.5.2026): polymorphic scope — Marti's "B správný long-term"
+    Catalog picker pro per-data-source sestavy (scope_kind="ds"), mainscreen
+    grids pro per-core sestavy (scope_kind="core").
 
     Returns:
         {
@@ -101,10 +119,11 @@ def list_layouts(core_id: int, user_id: int) -> dict:
             "effective_default": {...} | None,  # personal default OR shared default
         }
     """
+    scope_filter = _scope_filter(scope_kind, scope_id)
     with _get_data_session_ctx() as ds:
         # Shared layouts (user_id IS NULL)
         shared_q = ds.query(ErpGridLayout).filter(
-            ErpGridLayout.core_id == core_id,
+            scope_filter,
             ErpGridLayout.user_id.is_(None),
         ).order_by(
             ErpGridLayout.is_default.desc(),
@@ -114,7 +133,7 @@ def list_layouts(core_id: int, user_id: int) -> dict:
 
         # Personal layouts pro daného user_id
         personal_q = ds.query(ErpGridLayout).filter(
-            ErpGridLayout.core_id == core_id,
+            scope_filter,
             ErpGridLayout.user_id == user_id,
         ).order_by(
             ErpGridLayout.is_default.desc(),
@@ -161,7 +180,8 @@ def get_layout(layout_id: int, user_id: int) -> dict | None:
 
 def create_layout(
     *,
-    core_id: int,
+    scope_kind: str,
+    scope_id: int,
     user_id: int,
     name: str,
     layout_json: dict,
@@ -171,6 +191,8 @@ def create_layout(
 ) -> dict:
     """
     Vytvoří novou sestavu.
+
+    Krok 5.U (23.5.2026): polymorphic scope (scope_kind in {"core", "ds"}).
 
     scope="user" → uloží jako personal (user_id = current user)
     scope="shared" → uloží jako shared (user_id NULL), vyžaduje is_marti_parent
@@ -185,12 +207,13 @@ def create_layout(
     layout_json = _validate_layout_json(layout_json)
 
     target_user_id = None if scope == "shared" else user_id
+    scope_filter = _scope_filter(scope_kind, scope_id)
 
     with _get_data_session_ctx() as ds:
         # Anti-spam check
         if scope == "user":
             count = ds.query(ErpGridLayout).filter(
-                ErpGridLayout.core_id == core_id,
+                scope_filter,
                 ErpGridLayout.user_id == user_id,
             ).count()
             if count >= MAX_PERSONAL_LAYOUTS_PER_USER_PREHLED:
@@ -200,7 +223,7 @@ def create_layout(
                 )
         else:
             count = ds.query(ErpGridLayout).filter(
-                ErpGridLayout.core_id == core_id,
+                scope_filter,
                 ErpGridLayout.user_id.is_(None),
             ).count()
             if count >= MAX_SHARED_LAYOUTS_PER_PREHLED:
@@ -210,11 +233,16 @@ def create_layout(
 
         # Pokud nastavujeme is_default, odznač starý default v scope
         if is_default:
-            _unset_default_in_scope(ds, core_id, target_user_id)
+            _unset_default_in_scope(ds, scope_kind, scope_id, target_user_id)
+
+        # Krok 5.U: per scope_kind set right FK column
+        core_id_val = scope_id if scope_kind == "core" else None
+        data_source_id_val = scope_id if scope_kind == "ds" else None
 
         now = datetime.now(timezone.utc)
         layout = ErpGridLayout(
-            core_id=core_id,
+            core_id=core_id_val,
+            data_source_id=data_source_id_val,
             user_id=target_user_id,
             name=name,
             description=description,
@@ -232,13 +260,13 @@ def create_layout(
             ds.rollback()
             # Unique constraint violation → name conflict v scope
             raise GridLayoutError(
-                f"Sestava jména '{name}' už pro tento přehled v daném scope existuje. "
+                f"Sestava jména '{name}' už pro tento scope existuje. "
                 f"Buď přepiš (PUT na ID), nebo zvol jiný název."
             ) from e
         ds.refresh(layout)
         logger.info(
-            f"create_layout id={layout.id} prehled={core_id} "
-            f"scope={scope} name={name!r} default={is_default} by_user={user_id}"
+            f"create_layout id={layout.id} scope={scope_kind}_{scope_id} "
+            f"perm={scope} name={name!r} default={is_default} by_user={user_id}"
         )
         return _serialize(layout)
 
@@ -285,8 +313,10 @@ def update_layout(
         if layout_json is not None:
             layout.layout_json = _validate_layout_json(layout_json)
         if is_default is True and not layout.is_default:
-            # Změna na default → odznač starý
-            _unset_default_in_scope(ds, layout.core_id, layout.user_id)
+            # Změna na default → odznač starý (Krok 5.U: polymorphic scope)
+            layout_scope_kind = "core" if layout.core_id is not None else "ds"
+            layout_scope_id = layout.core_id if layout.core_id is not None else layout.data_source_id
+            _unset_default_in_scope(ds, layout_scope_kind, layout_scope_id, layout.user_id)
             layout.is_default = True
         elif is_default is False and layout.is_default:
             layout.is_default = False
@@ -353,15 +383,17 @@ def delete_layout(layout_id: int, user_id: int) -> bool:
 # ── Internal helpers ───────────────────────────────────────────────────
 
 def _unset_default_in_scope(
-    ds: Session, core_id: int, user_id: int | None
+    ds: Session, scope_kind: str, scope_id: int, user_id: int | None
 ) -> None:
     """
+    Krok 5.U (23.5.2026): polymorphic scope.
+
     Odznačí is_default v daném scope (shared = user_id IS NULL,
     personal = user_id matches). Volá se před nastavením nového default,
     aby partial unique index nezahlasil konflikt.
     """
     q = ds.query(ErpGridLayout).filter(
-        ErpGridLayout.core_id == core_id,
+        _scope_filter(scope_kind, scope_id),
         ErpGridLayout.is_default.is_(True),
     )
     if user_id is None:
@@ -375,12 +407,29 @@ def _unset_default_in_scope(
 
 
 def _serialize(layout: ErpGridLayout) -> dict:
-    """Layout → dict pro JSON response."""
+    """Layout → dict pro JSON response.
+
+    Krok 5.U (23.5.2026): polymorphic scope — vrací scope_kind + scope_id
+    (frontend-friendly), plus oba raw column hodnot (debug/audit).
+    """
+    if layout.core_id is not None:
+        scope_kind = "core"
+        scope_id = layout.core_id
+    elif layout.data_source_id is not None:
+        scope_kind = "ds"
+        scope_id = layout.data_source_id
+    else:
+        # Shouldn't happen (DB CHECK XOR), defensive fallback
+        scope_kind = None
+        scope_id = None
     return {
         "id": layout.id,
+        "scope_kind": scope_kind,      # Krok 5.U: "core" | "ds" | None (defensive)
+        "scope_id": scope_id,
         "core_id": layout.core_id,
+        "data_source_id": layout.data_source_id,
         "user_id": layout.user_id,
-        "scope": layout.scope,                    # "shared" | "personal"
+        "scope": layout.scope,                    # "shared" | "personal" (audience)
         "name": layout.name,
         "description": layout.description,
         "is_default": layout.is_default,

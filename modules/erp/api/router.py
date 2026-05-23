@@ -7665,13 +7665,31 @@ def system_tree_json(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "tree": tree})
 
 
-@api_router.get("/grid-layout/{core_id}/list")
-def grid_layout_list(core_id: int, req: Request) -> JSONResponse:
-    """List dostupných sestav (shared + personal pro current user) + effective default."""
+def _parse_scope_key(scope: str) -> tuple[str, int]:
+    """Krok 5.U (23.5.2026): polymorphic scope URL parser.
+
+    Marti's Q8=A path scope prefix: "core_19" → ("core", 19), "ds_10" → ("ds", 10).
+    Regex: ^(core|ds)_(-?\d+)$
+    """
+    import re as _re_scope
+    m = _re_scope.match(r"^(core|ds)_(-?\d+)$", scope)
+    if not m:
+        raise HTTPException(400, f"Invalid scope '{scope}' — expected 'core_<id>' or 'ds_<id>'")
+    return (m.group(1), int(m.group(2)))
+
+
+@api_router.get("/grid-layout/{scope}/list")
+def grid_layout_list(scope: str, req: Request) -> JSONResponse:
+    """List dostupných sestav per polymorphic scope.
+
+    Krok 5.U (23.5.2026): scope path param accept "core_<id>" OR "ds_<id>".
+    Marti's Q8=A — explicit prefix v URL, Network tab debugging friendly.
+    """
     uid = _get_uid(req)
     _require_parent(uid)
+    scope_kind, scope_id = _parse_scope_key(scope)
     try:
-        result = grid_layout_service.list_layouts(core_id, uid)
+        result = grid_layout_service.list_layouts(scope_kind, scope_id, uid)
         return JSONResponse({"ok": True, **result})
     except grid_layout_service.GridLayoutError as e:
         raise HTTPException(400, str(e))
@@ -7724,9 +7742,9 @@ class GridLayoutUpdate(BaseModel):
     is_default: bool | None = None
 
 
-@api_router.post("/grid-layout/{core_id}")
+@api_router.post("/grid-layout/{scope}")
 def grid_layout_create(
-    core_id: int,
+    scope: str,
     body: GridLayoutCreate,
     req: Request,
 ) -> JSONResponse:
@@ -7734,8 +7752,10 @@ def grid_layout_create(
     uid = _get_uid(req)
     _require_parent(uid)
     try:
+        scope_kind, scope_id = _parse_scope_key(scope)
         layout = grid_layout_service.create_layout(
-            core_id=core_id,
+            scope_kind=scope_kind,
+            scope_id=scope_id,
             user_id=uid,
             name=body.name,
             layout_json=body.layout_json,

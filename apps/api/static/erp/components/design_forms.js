@@ -7084,6 +7084,9 @@
                     idField: lookupId,
                     labelField: lookupDisplay,
                     width: "900px",
+                    // Krok 5.U (23.5.2026 dop): per-data_source sestavy (polymorphic scope)
+                    dataSourceId: field.data_source_id || null,
+
                     columns: [
                       { headerName: "ID", field: lookupId, width: 80, type: "numericColumn" },
                       { headerName: "Code", field: "code", width: 220 },

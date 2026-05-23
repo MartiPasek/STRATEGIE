@@ -2012,9 +2012,25 @@
         const buildOpts = Object.assign({}, this.options, {
           heuristicsEnabled: this._heuristicsEnabled === true,
         });
-        const newDefs = (cols.length > 0 && this.options.autoColumns)
-          ? buildAutoColumnDefs(cols, rowData, buildOpts)
-          : null;
+        // Krok 5.U Fáze H++++ (23.5.2026): per-column formatting i pro
+        // autoColumns:false grids — Marti's catch "obarvovaci schema se
+        // v pickup komponente neaplikuje na grid".
+        // Catalog picker (autoColumns:false, explicit opts.columns) měl
+        // newDefs=null → per-column cellClassRules skip → grid bez obarveni.
+        // Fix: pokud autoColumns false, klonuj current columnDefs z gridApi
+        // (zachová explicit definitions caller's) + merge user rules.
+        let newDefs = null;
+        if (cols.length > 0 && this.options.autoColumns) {
+          // Auto path — rebuild from rowData + heuristics
+          newDefs = buildAutoColumnDefs(cols, rowData, buildOpts);
+        } else {
+          // Explicit columnDefs path (picker, custom grids) — clone current
+          // defs aby merge user rules nebyl side-effect na caller's options.
+          try {
+            const currentDefs = this.gridApi.getColumnDefs() || [];
+            newDefs = currentDefs.map(d => Object.assign({}, d));
+          } catch (e) { /* fallback: žádný column rules apply */ }
+        }
         // Merge per-column user rules into newDefs cellClassRules
         if (newDefs) {
           for (const def of newDefs) {

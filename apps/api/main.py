@@ -136,6 +136,49 @@ async def lifespan(app: FastAPI):
             f"[lifespan] startup log_event failed: {exc}"
         )
 
+    # Phase API Versioned Routing Etapa G (23.5.2026): jen primary instance
+    # updatuje fw.api_version SET released_at=NOW(), git_sha=<HEAD>.
+    # Secondary (STRATEGIE-API-B) nesmi prepisovat - jeji datum se updatuje
+    # az pri promotion (api_version_promote.ps1).
+    # Marti's "drz jednoduchost": Restart-Service triggeruje auto-update
+    # bez wrapperu deploy_current.ps1.
+    if _instance_name == "primary":
+        try:
+            from core.config import settings as _settings_av
+            import psycopg2 as _psycopg2_av
+            _av_url = _settings_av.database_url or _settings_av.database_data_url
+            if _av_url:
+                _av_url = _av_url.replace(
+                    "postgresql+psycopg2://", "postgresql://"
+                ).replace("postgresql+asyncpg://", "postgresql://")
+                _full_git_sha = "unknown"
+                try:
+                    _full_git_sha = _sp_lifespan.check_output(
+                        ["git", "rev-parse", "HEAD"],
+                        cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+                        stderr=_sp_lifespan.DEVNULL,
+                        timeout=2,
+                    ).decode().strip()
+                except Exception:
+                    pass
+                _av_conn = _psycopg2_av.connect(_av_url)
+                _av_conn.autocommit = True
+                _av_cur = _av_conn.cursor()
+                _av_cur.execute(
+                    """
+                    UPDATE fw.api_version
+                    SET released_at = NOW(), git_sha = %s
+                    WHERE version_code = 'current'
+                    """,
+                    (_full_git_sha,),
+                )
+                _av_cur.close()
+                _av_conn.close()
+        except Exception as exc:
+            logging.getLogger(__name__).warning(
+                f"[lifespan] api_version auto-update failed: {exc}"
+            )
+
     yield
 
     # Phase HA-1: SHUTDOWN audit (before background drain stop)

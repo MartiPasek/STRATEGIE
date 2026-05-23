@@ -1350,13 +1350,17 @@
           const initLayout = (this.options.autoLoadDefault && this.options.layoutKey && !hasInitialLayout)
             ? this._autoLoadDefault()
             : Promise.resolve(null);
-          // Phase API Versioned Routing post-deploy fix #10 (23.5.2026 vecer
-          // Marti's catch "Zase ted volas autoload default"): DROP lightweight
-          // toolbar refresh side-effect. listLayouts() + _refreshToolbar() byly
-          // ZAMERNE volane post-init pro populate dropdown, ALE Marti to vidi
-          // jako "auto load default" call (DOM mutate -> grid resize -> reset).
-          // Pri pre-fetched initialLayout je dropdown lazy-populated pri prvnim
-          // user kliku na nej (existing _refreshToolbar logic), zadny eager fetch.
+          // Lightweight toolbar refresh pro pripad pre-fetched initialLayout
+          // (drozdneutralni — jen fetch list pro dropdown, zadny applyState)
+          if (hasInitialLayout && this.options.layoutKey) {
+            // Defer az po grid settle (po 600ms, mezi 500ms LOCK a beyond)
+            setTimeout(() => {
+              if (this._destroyed) return;
+              this.listLayouts()
+                .then(() => this._refreshToolbar())
+                .catch(() => { /* silent */ });
+            }, 600);
+          }
           initLayout.finally(() => {
             if (this._destroyed) return;
             if (!this._currentLayoutId) {
@@ -1619,10 +1623,12 @@
       // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer Marti's
       // catch "po 300ms problikne vsechny na 80px"): AG Grid Issue #9959 —
       // "Column widths with flex setting are calculated by the grid AFTER initial
-      // render, which causes layout flashes". Hide DOM during flicker window,
-      // reveal po 500ms LOCK doběhl. User vidi vyhraz finalni stav.
-      // Fix #9 (Marti's "Nejlepsi vysledek je s potlacenou visibilitou pri
-      // nabehu... aplikuj ji"): RE-ENABLE Fix #6 — best visual UX.
+      // render, which causes layout flashes". AG Grid post-render rekalkuluje
+      // flex widths (i kdyz initialState ma explicit widths) -> 80px each = container
+      // width / 38 cols. Vidi se ~300ms flash, pak 500ms LOCK vrati spravne widths.
+      // Fix: visibility:hidden na gridContainer az do LOCK doby, pak show. Zadny
+      // user-visible flash. Onen "right way to apply columnState without flickering"
+      // z [Issue #7373] — hide DOM behem initial render flicker window.
       if (opts.initialLayout && this.gridContainer) {
         try {
           this.gridContainer.style.visibility = 'hidden';

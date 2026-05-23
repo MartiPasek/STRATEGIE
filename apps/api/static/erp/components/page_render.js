@@ -322,8 +322,12 @@
       // Bez initialLayout jde cesta B (post-create _applyLayout) ktera ma
       // znamé problemy s AG Grid v32+ (Marti's "po reload se zmeny neprojevily").
       const dataFetch = fetch(fetchUrl, { credentials: 'include' }).then(r => r.json());
+      // Krok 5.U Fáze H+ (23.5.2026): polymorphic scope path prefix —
+      // backend _parse_scope_key regex čeká "core_<id>" nebo "ds_<id>".
+      // Page_render obsluhuje jen core scope (main screen grids vázané
+      // na fw.core). DS scope jen pres catalog picker (catalog_picker.js).
       const layoutFetch = fetch(
-        "/api/v1/erp/grid-layout/" + coreId + "/list",
+        "/api/v1/erp/grid-layout/core_" + coreId + "/list",
         { credentials: 'include' }
       ).then(r => r.ok ? r.json() : null).catch(() => null);
 

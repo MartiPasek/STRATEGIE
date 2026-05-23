@@ -376,8 +376,11 @@
     if (!document.body) return null;
     _banner = document.createElement("div");
     _banner.id = "erpDiagBanner";
+    // Marti's 24.5. drobnost: pod DEV badge (router.py erp-design-badge top:9px).
+    // DEV badge je ~22px vysoký + 9px top => 31px. Posun na top:38px = ~7px gap.
+    // right:16px zarovnání s DEV badge edge.
     _banner.style.cssText = [
-      "position:fixed", "top:8px", "right:8px",
+      "position:fixed", "top:38px", "right:16px",
       "background:rgba(20,30,40,0.85)", "color:#cfd6dc",
       "padding:4px 10px", "border-radius:12px",
       "font-size:11px", "font-family:monospace",

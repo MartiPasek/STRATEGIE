@@ -15829,9 +15829,14 @@ def _render_workspace_page(user_id: int) -> str:
           // 11.5. revize: žádný pinned styling na celé záložce (Marti's UX
           // feedback). Místo toho close ikona vpravo: × pro běžné, 📌 pro pinned.
           // Right-click toggle pin <=> close (pinned tab close icon = 📌 disabled).
+          // Marti's 24.5. drobnost "vypni hint ze zalozek prehledu": title
+          // tooltip jen pro pinned (info o right-click), pro běžné taby drop
+          // — label je viditelný v erp-tab-label spanu, tooltip redundantní.
+          const tabTitle = pinned
+            ? ' title="' + escapeAttr(t.label) + ' (📌 připnutá — pravý klik pro odepnutí)"'
+            : '';
           html += '<div class="erp-tab' + (active ? ' active' : '') +
-                  '" data-tab-idx="' + i + '" title="' + escapeAttr(t.label) +
-                  (pinned ? ' (📌 připnutá — pravý klik pro odepnutí)' : '') + '">';
+                  '" data-tab-idx="' + i + '"' + tabTitle + '>';
           html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
           const closeChar = pinned ? '📌' : '×';
           const closeTitle = pinned

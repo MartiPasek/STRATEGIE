@@ -603,6 +603,21 @@
                         const r = await fetch(fetchUrl, { credentials: 'include' });
                         const d = await r.json();
                         if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
+                          // Krok 5.X polish (23.5.2026, Marti's catch): full
+                          // selection reset PŘED setRowData. AG Grid jinak
+                          // auto-restore selection na rows se stejnými IDs
+                          // (zbývající po DELETE zůstanou opticky vybrané).
+                          try {
+                            gridInst.gridApi.deselectAll();
+                            // AG Grid Enterprise range selection (Excel-like
+                            // cell range) — clear separately
+                            if (typeof gridInst.gridApi.clearRangeSelection === 'function') {
+                              gridInst.gridApi.clearRangeSelection();
+                            }
+                            if (typeof gridInst.gridApi.clearFocusedCell === 'function') {
+                              gridInst.gridApi.clearFocusedCell();
+                            }
+                          } catch (_e) {}
                           gridInst.gridApi.setGridOption('rowData', d.rows);
                         }
                       } catch (e) {
@@ -611,12 +626,20 @@
                     },
                   });
 
-                  // Reset selection state
+                  // Krok 5.X polish: pojistka — reset selection state PO refresh
+                  // (refreshFn už deselectAll volal před setRowData, ale tady
+                  // znovu pro toolbar + state lock cleanup).
                   _selectedRowId = null;
-                  _updateToolbarSelection(_toolbarHost, false);
+                  _updateToolbarSelection(_toolbarHost, false, 0);
                   try {
                     if (gridInst && gridInst.gridApi) {
                       gridInst.gridApi.deselectAll();
+                      if (typeof gridInst.gridApi.clearRangeSelection === 'function') {
+                        gridInst.gridApi.clearRangeSelection();
+                      }
+                      if (typeof gridInst.gridApi.clearFocusedCell === 'function') {
+                        gridInst.gridApi.clearFocusedCell();
+                      }
                     }
                   } catch (_e) {}
                 },

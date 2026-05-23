@@ -1403,53 +1403,34 @@
                   if (diff.length > 0) {
                     console.info("[ErpDataGrid] applyColumnState changed " + diff.length + " columns:", diff.slice(0, 10));
                   }
-                  // Defensive: post-render check after 250ms (catch async re-apply z autoSize / data load)
+                  // PERMANENT 500ms re-apply (Marti's catch 23.5. vecer): AG Grid
+                  // ASYNC reapplikuje flex:1 po onModelUpdated (cca 250-500ms post
+                  // applyColumnState). Diagnostic test ukazal:
+                  //   post_apply: {w:80, flex:null}
+                  //   after_250ms: {w:80, flex:1}   <- AG Grid reapply flex
+                  // Width preserved ale flex:1 zpusobi re-distribute pri dalsim
+                  // render. Fix: po 500ms (Marti's "prodlouzit ten cas") force
+                  // re-apply setColumnWidths z afterState (= co byl spravne
+                  // po applyColumnState). Slozitejsi prehledy (38+ cols)
+                  // potrebuji vic casu na settle pred re-apply.
                   setTimeout(() => {
                     try {
-                      const finalState = params.api.getColumnState();
-                      const drift = [];
-                      for (const f of finalState) {
-                        const a = afterState.find(x => x.colId === f.colId);
-                        if (!a) continue;
-                        if (a.width !== f.width || a.flex !== f.flex) {
-                          drift.push({ colId: f.colId, post_apply: { w: a.width, flex: a.flex }, after_250ms: { w: f.width, flex: f.flex } });
-                        }
-                      }
-                      if (drift.length > 0) {
-                        console.warn(
-                          "[ErpDataGrid] LAYOUT DRIFT detected 250ms after applyColumnState — " +
-                          drift.length + " columns drifted. First 3 detailed:\n" +
-                          drift.slice(0, 3).map(d => JSON.stringify(d)).join("\n")
-                        );
-                        // Also try AGGRESSIVE re-apply: setColumnWidths z afterState (sync post-applyColumnState)
-                        // Pokud drift PERSISTUJE i po re-apply, problem je v AG Grid internal layout pass.
+                      const reWidths = afterState
+                        .filter(c => c.width != null && c.width > 0 && !!c.colId)
+                        .map(c => ({ key: c.colId, newWidth: c.width }));
+                      if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
+                        params.api.setColumnWidths(reWidths);
+                        // Plus explicit setColumnState aby flex zustal 0 (preventuje budouci reapply)
                         try {
-                          const reWidths = afterState
-                            .filter(c => c.width != null && c.width > 0 && !!c.colId)
-                            .map(c => ({ key: c.colId, newWidth: c.width }));
-                          if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
-                            params.api.setColumnWidths(reWidths);
-                            console.info("[ErpDataGrid] RE-APPLY setColumnWidths(" + reWidths.length + ") after 250ms drift");
-                            // Snapshot po re-apply
-                            setTimeout(() => {
-                              const finalState2 = params.api.getColumnState();
-                              const stillDrifting = finalState2.filter((f, i) => {
-                                const a = afterState.find(x => x.colId === f.colId);
-                                return a && f.width !== a.width;
-                              });
-                              console.info(
-                                "[ErpDataGrid] Post re-apply: " + stillDrifting.length +
-                                " columns STILL drift after re-apply. " +
-                                (stillDrifting.length === 0 ? "Re-apply WORKED ✓" : "Problem persists")
-                              );
-                            }, 100);
-                          }
-                        } catch (eR) {
-                          console.warn("[ErpDataGrid] re-apply setColumnWidths failed:", eR);
-                        }
+                          const lockState = afterState.map(c => ({ colId: c.colId, width: c.width, flex: 0 }));
+                          params.api.applyColumnState({ state: lockState, defaultState: { flex: 0 } });
+                        } catch (eL) { /* silent */ }
+                        console.info(
+                          "[ErpDataGrid] Layout LOCK 500ms post-render (" + reWidths.length + " cols, flex:0 forced)"
+                        );
                       }
                     } catch (e) { /* silent */ }
-                  }, 250);
+                  }, 500);
                 } catch (e) {
                   console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
                 }

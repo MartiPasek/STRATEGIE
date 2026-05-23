@@ -513,14 +513,39 @@
                     );
                     const json = await resp.json();
                     if (resp.ok && json && json.ok) {
-                      console.info("[toolbar Smazat] deleted row " + _selectedRowId +
-                                   " (" + json.deleted_rows + " rows)");
+                      console.info("[toolbar Smazat] FULL response:", json,
+                                   "→ schema=" + (json.schema || "?") +
+                                   ", table=" + (json.table || "?") +
+                                   ", deleted=" + json.deleted_rows +
+                                   " row(s) id=" + _selectedRowId);
+                      const _deletedId = _selectedRowId;
                       _selectedRowId = null;
                       // Refresh grid (re-fetch data + setRowData)
                       try {
                         const r = await fetch(fetchUrl, { credentials: 'include' });
                         const d = await r.json();
                         if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
+                          // Krok 5.W diag (23.5.2026): verify zda DELETE persistuje —
+                          // hledej smazaný ID v refreshed rows. Pokud tam je, něco
+                          // nesedí (transaction not committed, wrong table, re-insert).
+                          const _stillThere = d.rows.find(row =>
+                            row && (row.id === _deletedId || row.ID === _deletedId)
+                          );
+                          if (_stillThere) {
+                            console.warn(
+                              "[toolbar Smazat] ⚠ DELETE PARADOX: backend ohlásil " +
+                              json.deleted_rows + " rows deleted, ale refresh vrátil " +
+                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU. " +
+                              "Možnosti: (1) wrong table targeted, (2) tx nezacommitovaná, " +
+                              "(3) row re-inserted (např. diag_log self-feeding event). " +
+                              "Verify v DBeaveru: SELECT * FROM " +
+                              (json.schema || "?") + "." + (json.table || "?") +
+                              " WHERE id=" + _deletedId
+                            );
+                          } else {
+                            console.info("[toolbar Smazat] ✓ row id=" + _deletedId +
+                                         " VERIFIED gone after refresh");
+                          }
                           gridInst.gridApi.setGridOption('rowData', d.rows);
                         }
                       } catch (_e) {}

@@ -85,13 +85,12 @@ $GitSha = (& git -C $Source rev-parse HEAD).Trim()
 $PyScript = @"
 import os, sys, re
 sys.path.insert(0, r'$Source')
-from dotenv import load_dotenv
-load_dotenv(r'$Source\.env')
+from core.config import settings
 import psycopg2
 
-url = os.environ.get('STRATEGIE_DATA_DB_URL') or os.environ.get('DATABASE_URL')
+url = settings.database_url or settings.database_data_url
 if not url:
-    print('FAIL: STRATEGIE_DATA_DB_URL not set'); sys.exit(1)
+    print('FAIL: settings.database_url not set in .env'); sys.exit(1)
 url = url.replace('postgresql+psycopg2://', 'postgresql://').replace('postgresql+asyncpg://', 'postgresql://')
 
 conn = psycopg2.connect(url)

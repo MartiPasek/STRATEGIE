@@ -7077,6 +7077,21 @@
                   return;
                 }
                 try {
+                  // Krok 5.V (23.5.2026): LOCATE — initialSelectedId z aktualni
+                  // FK hodnoty v idCol read-only input. Picker pri open
+                  // auto-select + scroll. Marti's "kdyz ji otervu, je treba
+                  // dat locate adekvatni vetu". Fallback na wrap._selectedValue
+                  // (po user already selected nad picker reopen).
+                  let _initSelId = null;
+                  try {
+                    if (wrap._selectedValue && wrap._selectedValue.id != null) {
+                      _initSelId = wrap._selectedValue.id;
+                    } else {
+                      const _idIn = idCol.querySelector("input");
+                      const _v = _idIn && _idIn.value && _idIn.value.trim();
+                      if (_v) _initSelId = isNaN(Number(_v)) ? _v : Number(_v);
+                    }
+                  } catch (e) { /* defensive */ }
                   const _picker = new window.ErpCatalogPicker({
                     title: "🔗 Vybrat " + label + " (z " + (dsName || dsCode) + ")",
                     endpoint: "/api/v1/erp/data/" + encodeURIComponent(dsCode) + "?limit=500",
@@ -7084,6 +7099,7 @@
                     idField: lookupId,
                     labelField: lookupDisplay,
                     width: "900px",
+                    initialSelectedId: _initSelId,
                     // Krok 5.U (23.5.2026 dop): per-data_source sestavy (polymorphic scope)
                     dataSourceId: field.data_source_id || null,
 

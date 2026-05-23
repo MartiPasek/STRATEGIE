@@ -436,11 +436,15 @@
         // bail-out pokud row found nebo žádné rows neexistují.
         const initId = this.opts.initialSelectedId;
         if (initId != null) {
-          // Krok 5.V hotfix (23.5.2026): type coercion fix — initId může být
-          // number (z this._data.data_source.id) ale node.data.id může být
-          // string nebo number podle backend serializace. Strict === selhal
-          // při type mismatch. Coerce na Number na obou stranách (NaN-safe).
+          // Krok 5.V hotfix (23.5.2026): type coercion + custom idField.
+          // - initId může být number (z this._data.data_source.id) ale
+          //   node.data[idField] může být string nebo number podle backend
+          //   Pydantic serializace. Coerce na Number na obou stranách.
+          // - idField support: generic picker (design_forms.js callsite #2)
+          //   používá idField=lookupId (např. 'kontakt_id'), ne 'id'. Default
+          //   'id' (z opts.idField, line 84).
           const initIdNum = Number(initId);
+          const idFld = this.opts.idField || "id";
           const _tryLocate = (attemptsLeft, delay) => {
             try {
               const api = this._grid && this._grid.gridApi;
@@ -456,17 +460,17 @@
               api.forEachNode((node) => {
                 rowCount++;
                 if (rowCount <= 3 && node && node.data) {
-                  sampleIds.push(node.data.id + " (" + typeof node.data.id + ")");
+                  sampleIds.push(node.data[idFld] + " (" + typeof node.data[idFld] + ")");
                 }
                 if (found) return;
-                if (node && node.data && Number(node.data.id) === initIdNum) {
+                if (node && node.data && Number(node.data[idFld]) === initIdNum) {
                   node.setSelected(true, true);  // selected + clearOthers
                   if (typeof api.ensureNodeVisible === "function") {
                     api.ensureNodeVisible(node, "middle");
                   }
                   found = true;
-                  console.info("[ErpCatalogPicker] LOCATE OK: id=" + initId +
-                               " selected + scrolled");
+                  console.info("[ErpCatalogPicker] LOCATE OK: " + idFld +
+                               "=" + initId + " selected + scrolled");
                 }
               });
               // Edge case: pokud no match (Marti's volba "nic neselectovat"),
@@ -476,10 +480,10 @@
                 setTimeout(() => _tryLocate(attemptsLeft - 1, delay * 3), delay);
               }
               if (!found && rowCount > 0) {
-                console.warn("[ErpCatalogPicker] LOCATE: id=" + initId +
+                console.warn("[ErpCatalogPicker] LOCATE: " + idFld + "=" + initId +
                              " (typ=" + typeof initId + ", num=" + initIdNum +
                              ") nenalezen v " + rowCount + " rows. " +
-                             "Sample IDs: [" + sampleIds.join(", ") + "]");
+                             "Sample " + idFld + "s: [" + sampleIds.join(", ") + "]");
               }
             } catch (e) {
               console.warn("[ErpCatalogPicker] LOCATE failed:", e);

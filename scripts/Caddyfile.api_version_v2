@@ -1,0 +1,68 @@
+{
+    email m.pasek@eurosoft.com
+}
+
+strategie-ai.com, www.strategie-ai.com, app.strategie-ai.com, api.strategie-ai.com {
+    # Phase API Versioned Routing (23.5.2026):
+    #
+    # Routing priority (Caddy evaluates reverse_proxy in order, first match wins):
+    #   1. @apiVersions     -> always primary 8002 (bypass cookie pinning)
+    #                          Reason: pin/unpin/list must hit current code, not pinned snapshot
+    #   2. @versionPrevious -> secondary 8003 (cookie-based pin)
+    #   3. @versionOlder1   -> 8004 (future)
+    #   4. @versionOlder2   -> 8005 (future)
+    #   5. Default          -> primary 8002 + failover chain (HA-1 preserved)
+
+    # 1. API versioning endpoints — VZDY primary (bypass cookie)
+    @apiVersions path /api/v1/erp/api-versions /api/v1/erp/api-versions/*
+    reverse_proxy @apiVersions localhost:8002 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    # 2. Cookie-pinned routes (user explicit volil starsi kod)
+    @versionPrevious header_regexp Cookie strategie_api_version=previous
+    reverse_proxy @versionPrevious localhost:8003 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    @versionOlder1 header_regexp Cookie strategie_api_version=older_1
+    reverse_proxy @versionOlder1 localhost:8004 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    @versionOlder2 header_regexp Cookie strategie_api_version=older_2
+    reverse_proxy @versionOlder2 localhost:8005 {
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    # 3. Default route (no cookie) -> current + auto-failover chain (HA-1)
+    reverse_proxy localhost:8002 localhost:8003 {
+        lb_policy first
+        health_uri /api/v1/health
+        health_interval 3s
+        health_timeout 2s
+        health_status 2xx
+        fail_duration 10s
+        max_fails 1
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    log {
+        output file C:/caddy/logs/access.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+        format json
+    }
+}

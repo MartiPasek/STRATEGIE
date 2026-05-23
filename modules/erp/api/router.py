@@ -9328,6 +9328,298 @@ def _render_full_page(
       background: #22c55e;
       box-shadow: 0 0 6px rgba(34, 197, 94, 0.6);
     }}
+    /* ===== Phase API Versioned Routing Etapa D (23.5.2026) ===== */
+    /* Footer pill "V1.3.25 . DD.M. HH:MM" + dropup menu s versions list. */
+    .erp-footer-api-version {{
+      display: flex;
+      align-items: center;
+      flex-shrink: 0;
+    }}
+    .api-version-pill {{
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      padding: 3px 9px;
+      font-size: 10px;
+      font-family: 'DM Mono', monospace;
+      font-weight: 500;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      cursor: pointer;
+      user-select: none;
+      transition: background 100ms, border-color 100ms, color 100ms;
+    }}
+    .api-version-pill:hover {{
+      background: rgba(255, 255, 255, 0.08);
+      color: var(--text);
+    }}
+    .api-version-pill-current {{
+      /* default - no color */
+    }}
+    .api-version-pill-previous {{
+      background: rgba(212, 184, 138, 0.15);
+      color: #d4b88a;
+      border-color: rgba(212, 184, 138, 0.4);
+    }}
+    .api-version-pill-previous:hover {{
+      background: rgba(212, 184, 138, 0.25);
+    }}
+    .api-version-pill-older {{
+      background: rgba(200, 58, 58, 0.18);
+      color: #ff7a7a;
+      border-color: rgba(200, 58, 58, 0.5);
+    }}
+    .api-version-pill-older:hover {{
+      background: rgba(200, 58, 58, 0.28);
+    }}
+    .api-version-pill-flashed {{
+      animation: api-version-flash 1.5s ease-in-out infinite;
+    }}
+    @keyframes api-version-flash {{
+      0%, 100% {{ opacity: 1; }}
+      50% {{ opacity: 0.5; }}
+    }}
+    .api-version-pill-caret {{
+      font-size: 8px;
+      opacity: 0.7;
+    }}
+    /* Dropup menu (position:fixed, anchored above pill) */
+    .api-version-dropup {{
+      position: fixed;
+      min-width: 280px;
+      max-width: 360px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      box-shadow: 0 -4px 18px rgba(0, 0, 0, 0.5);
+      padding: 0;
+      z-index: 10001;
+      font-size: 12px;
+    }}
+    .api-version-dropup-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 8px 12px;
+      font-weight: 600;
+      color: var(--text);
+      border-bottom: 1px solid var(--border);
+    }}
+    .api-version-dropup-pin-badge {{
+      font-size: 9px;
+      padding: 2px 6px;
+      background: rgba(212, 184, 138, 0.25);
+      color: #d4b88a;
+      border-radius: 3px;
+      letter-spacing: 0.05em;
+    }}
+    .api-version-dropup-body {{
+      padding: 4px 0;
+      max-height: 280px;
+      overflow-y: auto;
+    }}
+    .api-version-row {{
+      display: flex;
+      align-items: center;
+      width: 100%;
+      gap: 10px;
+      padding: 8px 12px;
+      background: transparent;
+      border: none;
+      border-left: 3px solid transparent;
+      color: var(--text);
+      font-family: 'DM Mono', monospace;
+      font-size: 12px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 100ms;
+    }}
+    .api-version-row:hover {{
+      background: rgba(255, 255, 255, 0.06);
+    }}
+    .api-version-row-current {{
+      /* default text */
+    }}
+    .api-version-row-previous {{
+      background: rgba(212, 184, 138, 0.08);
+      border-left-color: #d4b88a;
+    }}
+    .api-version-row-previous:hover {{
+      background: rgba(212, 184, 138, 0.18);
+    }}
+    .api-version-row-older {{
+      background: rgba(200, 58, 58, 0.08);
+      border-left-color: #c83a3a;
+    }}
+    .api-version-row-older:hover {{
+      background: rgba(200, 58, 58, 0.16);
+    }}
+    .api-version-row-flashed {{
+      animation: api-version-flash 1.5s ease-in-out infinite;
+    }}
+    .api-version-row-active {{
+      outline: 1px solid rgba(124, 156, 217, 0.6);
+      outline-offset: -1px;
+      cursor: default;
+    }}
+    .api-version-row-label {{
+      flex: 0 0 auto;
+      font-weight: 500;
+    }}
+    .api-version-row-date {{
+      flex: 1;
+      color: var(--muted);
+      font-size: 11px;
+    }}
+    .api-version-row-active-label {{
+      font-size: 9px;
+      padding: 2px 6px;
+      background: rgba(124, 156, 217, 0.2);
+      color: #7c9cd9;
+      border-radius: 3px;
+      letter-spacing: 0.05em;
+    }}
+    .api-version-pin-reason {{
+      padding: 6px 12px;
+      font-size: 11px;
+      color: var(--muted);
+      border-top: 1px solid var(--border);
+      background: rgba(255, 255, 255, 0.02);
+    }}
+    .api-version-pin-reason em {{
+      color: var(--text);
+      font-style: italic;
+    }}
+    .api-version-dropup-footer {{
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      padding: 6px 8px 8px 8px;
+      border-top: 1px solid var(--border);
+    }}
+    .api-version-unpin-btn,
+    .api-version-diff-btn {{
+      width: 100%;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.04);
+      color: var(--text);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      font-size: 11px;
+      cursor: pointer;
+      text-align: center;
+      transition: background 100ms;
+    }}
+    .api-version-unpin-btn:hover,
+    .api-version-diff-btn:hover {{
+      background: rgba(255, 255, 255, 0.10);
+    }}
+    .api-version-unpin-btn {{
+      background: rgba(124, 156, 217, 0.15);
+      border-color: rgba(124, 156, 217, 0.4);
+      color: #7c9cd9;
+    }}
+    .api-version-unpin-btn:hover {{
+      background: rgba(124, 156, 217, 0.25);
+    }}
+    /* Diff modal (full-screen overlay) */
+    .api-version-diff-modal {{
+      position: fixed;
+      inset: 0;
+      z-index: 100001;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }}
+    .api-version-diff-modal-backdrop {{
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.6);
+    }}
+    .api-version-diff-modal-card {{
+      position: relative;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+      width: min(640px, 90vw);
+      max-height: 80vh;
+      display: flex;
+      flex-direction: column;
+    }}
+    .api-version-diff-modal-header {{
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }}
+    .api-version-diff-modal-header h3 {{
+      font-size: 14px;
+      color: var(--text);
+      font-weight: 600;
+    }}
+    .api-version-diff-modal-close {{
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 16px;
+      cursor: pointer;
+      padding: 4px 8px;
+    }}
+    .api-version-diff-modal-close:hover {{
+      color: var(--text);
+    }}
+    .api-version-diff-modal-body {{
+      padding: 12px 18px 18px 18px;
+      overflow-y: auto;
+      flex: 1;
+    }}
+    .api-version-diff-stats {{
+      font-size: 12px;
+      color: var(--muted);
+      margin-bottom: 12px;
+    }}
+    .api-version-diff-commits {{
+      list-style: none;
+      padding: 0;
+      margin: 0 0 14px 0;
+    }}
+    .api-version-diff-commit {{
+      display: grid;
+      grid-template-columns: 60px 76px 1fr;
+      gap: 8px;
+      padding: 6px 0;
+      font-size: 12px;
+      border-bottom: 1px dashed var(--border);
+    }}
+    .api-version-diff-commit code {{
+      font-family: 'DM Mono', monospace;
+      color: #7c9cd9;
+    }}
+    .api-version-diff-commit-date {{
+      color: var(--muted);
+      font-size: 11px;
+    }}
+    .api-version-diff-commit-subject {{
+      color: var(--text);
+    }}
+    .api-version-diff-gh {{
+      display: inline-block;
+      padding: 6px 12px;
+      background: rgba(124, 156, 217, 0.15);
+      color: #7c9cd9;
+      border: 1px solid rgba(124, 156, 217, 0.4);
+      border-radius: 4px;
+      text-decoration: none;
+      font-size: 12px;
+    }}
+    .api-version-diff-gh:hover {{
+      background: rgba(124, 156, 217, 0.25);
+    }}
+    /* ===== End Phase API Versioned Routing Etapa D ===== */
     /* Zoom toggle ve footeru — kompaktnější než header verze */
     .erp-zoom-toggle-footer {{
       flex-shrink: 0;
@@ -10450,6 +10742,11 @@ def _render_full_page(
     <div class="erp-footer-left">
       <span class="erp-footer-brand">STRATEGIE</span>{user_name_html}{tenant_name_html}
     </div>
+    <!-- Phase API Versioned Routing Etapa D (23.5.2026): version pill v paticce.
+         Pill "V1.3.25 . DD.M. HH:MM" -> dropup s versions list + pin/unpin + diff.
+         Color severity per active pin: current (no color) / previous (yellow) /
+         older (red) / older_2+ (red flashed). Marti's spec z 23.5. odpoledne. -->
+    <div id="erpFooterApiVersion" class="erp-footer-api-version"></div>
     <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přemístěn z header.
          A− default zmenšuje (−25%), A+ zvětšuje (+25%), A reset. -->
     <div class="erp-zoom-toggle erp-zoom-toggle-footer" role="group" aria-label="Velikost UI">
@@ -11494,6 +11791,10 @@ def _render_workspace_page(user_id: int) -> str:
          cyklicky per-row). Generic _erpBatchRowAction(opts) — reusable napříč
          existing Smazat + future HW/FW dynamic actions. -->
     <script src="/static/erp/components/erp_batch_action.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Phase API Versioned Routing Etapa D (23.5.2026): footer version dropup.
+         Renders pill v <div id="erpFooterApiVersion"> + dropup menu s pin/unpin/diff.
+         Polluje GET /api/v1/erp/api-versions every 60s pro current_pin + versions list. -->
+    <script src="/static/erp/components/api_version_dropup.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->

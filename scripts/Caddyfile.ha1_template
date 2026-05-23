@@ -1,0 +1,31 @@
+{
+    email m.pasek@eurosoft.com
+}
+
+strategie-ai.com, www.strategie-ai.com, app.strategie-ai.com, api.strategie-ai.com {
+    reverse_proxy localhost:8002 localhost:8003 {
+        lb_policy least_conn
+        health_uri /api/v1/health
+        health_interval 3s
+        health_timeout 2s
+        health_status 2xx
+        fail_duration 10s
+        max_fails 1
+        header_up Host {host}
+        header_up X-Real-IP {remote_host}
+    }
+
+    header {
+        X-Content-Type-Options nosniff
+        X-Frame-Options DENY
+        Referrer-Policy strict-origin-when-cross-origin
+    }
+
+    log {
+        output file C:/caddy/logs/access.log {
+            roll_size 10MB
+            roll_keep 5
+        }
+        format json
+    }
+}

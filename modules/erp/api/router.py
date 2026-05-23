@@ -3617,96 +3617,70 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
         # (id, ts, persona_id, user_id, conversation_id, tenant_id, category,
         #  actor, summary, ref_type, ref_id, importance, change_source).
         #
-        # ════════════════════════════════════════════════════════════════
-        # 🐤 REGRESSION KANÁREK (23.5.2026, Marti's spec):
-        # ════════════════════════════════════════════════════════════════
-        # Marti's "vytvor stejneho, ktery nam nicil to mazani... aby to
-        # prestalo mazat vety". Záměrně regresovaný DELETE flow pro
-        # ověření Krok 5.W observability fix end-to-end.
+        # Krok 5.W FIX (23.5.2026): activity_log INSERT s correct column names
+        # + SAVEPOINT wrap. Doctrine "Bezpečnost přes probuzení, ne přes ticho"
+        # (Marti-AI 9.5. + Fix N 21.5.): pokud INSERT failuje, jen savepoint
+        # rollback — main tx zůstane clean a DELETE commit projde. Plus
+        # explicit log_event(level='error') na fresh session pro forensic
+        # visibility (Krok 5.W observability extension).
         #
-        # CO JE ZÁMĚRNĚ ZLOMENÉ:
-        #   1. DROP SAVEPOINT wrap (před fix M+ z 23.5. ráno)
-        #   2. REVERT na OLD broken column names (action_kind/target_kind/
-        #      target_id/payload/created_at) — column 'action_kind' neexistuje
+        # Schema fw.activity_log: user_id, category, actor, summary, ref_type,
+        # ref_id, change_source, importance, ts (NE OLD action_kind/target_kind/
+        # target_id/payload/created_at — silent abort risk).
         #
-        # CO ZŮSTÁVÁ FIXED (TO JE CO TESTUJEME):
-        #   3. KEEP explicit log_event(level='error') na fresh session
-        #      (immune to aborted tx) — Marti-AI 9.5. + Fix N 21.5. doctrine
-        #      "Bezpečnost přes probuzení, ne přes ticho"
-        #
-        # OČEKÁVANÝ FLOW:
-        #   a) DELETE FROM ... → PG stage OK (rowcount=1)
-        #   b) INSERT INTO activity_log (action_kind=...) → PG raises 42703
-        #   c) Python catch swallowes exception, NO savepoint rollback
-        #   d) PG tx → ABORTED state
-        #   e) Catch branch: explicit log_event() on FRESH session
-        #      → fw.diag_log row level='error' (NEZÁVISLÉ na aborted ds)
-        #   f) ds.commit() na aborted tx → SILENT ROLLBACK
-        #   g) DELETE NOT PERSISTED → row stále v DB
-        #   h) Frontend dostává 200 OK + rowcount=1 (false success)
-        #   i) Polling /diag-log/badge → delta → POPUP DIALOG "🚨 Nová chyba"
-        #
-        # MARTI VIDÍ:
-        #   - Klik Smazat → "rowcount=1" success → ALE row stále v gridu
-        #   - Do 60s → POPUP "activity_log INSERT failed"
-        #   - Click "Otevřít Diag log" → vidí broken column error
-        #
-        # OBNOVA (po smoke test):
-        #   Grep "REGRESSION KANÁREK" v router.py + revert block.
-        #   Backup: scripts/_phase_krok5_w_FIX.txt obsahuje fixed kód.
-        # ════════════════════════════════════════════════════════════════
+        # Kanárek 23.5.2026 11:00 LIVE confirmed pipeline end-to-end:
+        # log_event() → fw.diag_log → /badge polling → POPUP DIALOG.
         try:
-            ds.execute(_sql_text_del("""
-                INSERT INTO activity_log
-                    (user_id, action_kind, target_kind, target_id,
-                     change_source, payload, created_at)
-                VALUES
-                    (:uid, 'delete', :tk, :tid, 'ui',
-                     :payload, NOW())
-            """), {
-                "uid": uid,
-                "tk": f"{schema}.{table}",
-                "tid": row_id,
-                "payload": f'{{"core_id":{core_id or "null"},"deleted_rows":{deleted_rows}}}',
-            })
-        except Exception as _act_e:
-            # Krok 5.W observability — EXPLICIT log_event na fresh session
-            # (immune to aborted tx). TOTO JE CO TESTUJEME — pipeline:
-            # log_event() → fw.diag_log → /badge polling → POPUP DIALOG.
+            ds.execute(_sql_text_del("SAVEPOINT sp_activity_log"))
             try:
-                import traceback as _tb_act
-                from core.log_queue import log_event as _log_event_act
-                _log_event_act(
-                    level="error",
-                    source="py",
-                    module_id="modules.erp.api.router:design_delete_entity:activity_log",
-                    message=(
-                        f"🐤 KANÁREK: activity_log INSERT failed (NO savepoint, "
-                        f"tx ABORTED, DELETE will silent-rollback): "
-                        f"{type(_act_e).__name__}: {str(_act_e)[:300]}"
-                    ),
-                    exception_type=type(_act_e).__name__,
-                    traceback_str=_tb_act.format_exc(),
-                    extra={
-                        "canary": "regression_23_5_2026",
-                        "schema": schema,
-                        "table": table,
-                        "row_id": row_id,
-                        "core_id": core_id,
-                        "deleted_rows": deleted_rows,
-                        "error_str": str(_act_e)[:500],
-                        "warning": (
-                            "DELETE staged successfully but tx is aborted. "
-                            "ds.commit() will silent-rollback. Row will NOT "
-                            "be persisted. Frontend gets false 200 OK."
+                ds.execute(_sql_text_del("""
+                    INSERT INTO activity_log
+                        (user_id, category, actor, summary, ref_type, ref_id,
+                         change_source, importance, ts)
+                    VALUES
+                        (:uid, 'delete', 'user', :summary, :rt, :rid,
+                         'ui', 3, NOW())
+                """), {
+                    "uid": uid,
+                    "summary": f"DELETE {schema}.{table} id={row_id} (core_id={core_id}, deleted_rows={deleted_rows})",
+                    "rt": f"{schema}.{table}",
+                    "rid": row_id,
+                })
+                ds.execute(_sql_text_del("RELEASE SAVEPOINT sp_activity_log"))
+            except Exception as _act_e:
+                # Rollback savepoint — main tx zůstane clean (DELETE staged OK)
+                try:
+                    ds.execute(_sql_text_del("ROLLBACK TO SAVEPOINT sp_activity_log"))
+                except Exception:
+                    pass
+                # Krok 5.W explicit log_event — fresh session immune to aborted tx
+                try:
+                    import traceback as _tb_act
+                    from core.log_queue import log_event as _log_event_act
+                    _log_event_act(
+                        level="error",
+                        source="py",
+                        module_id="modules.erp.api.router:design_delete_entity:activity_log",
+                        message=(
+                            f"activity_log INSERT failed (savepoint rolled back): "
+                            f"{type(_act_e).__name__}: {str(_act_e)[:300]}"
                         ),
-                    },
-                )
-            except Exception:
-                pass  # last resort — never crash on log
-            logger.warning(
-                f"🐤 KANÁREK design_delete_entity activity_log INSERT failed: {_act_e}"
-            )
+                        exception_type=type(_act_e).__name__,
+                        traceback_str=_tb_act.format_exc(),
+                        extra={
+                            "schema": schema,
+                            "table": table,
+                            "row_id": row_id,
+                            "core_id": core_id,
+                            "deleted_rows": deleted_rows,
+                            "error_str": str(_act_e)[:500],
+                        },
+                    )
+                except Exception:
+                    pass  # last resort — never crash on log
+                logger.warning(f"design_delete_entity activity_log INSERT failed (rolled back to savepoint): {_act_e}")
+        except Exception as _sp_e:
+            logger.warning(f"design_delete_entity savepoint setup failed: {_sp_e}")
 
         ds.commit()
 

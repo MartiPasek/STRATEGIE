@@ -436,6 +436,11 @@
         // bail-out pokud row found nebo žádné rows neexistují.
         const initId = this.opts.initialSelectedId;
         if (initId != null) {
+          // Krok 5.V hotfix (23.5.2026): type coercion fix — initId může být
+          // number (z this._data.data_source.id) ale node.data.id může být
+          // string nebo number podle backend serializace. Strict === selhal
+          // při type mismatch. Coerce na Number na obou stranách (NaN-safe).
+          const initIdNum = Number(initId);
           const _tryLocate = (attemptsLeft, delay) => {
             try {
               const api = this._grid && this._grid.gridApi;
@@ -447,15 +452,21 @@
               }
               let found = false;
               let rowCount = 0;
+              let sampleIds = [];  // diagnostic: prvních 3 IDs aktuálního gridu
               api.forEachNode((node) => {
                 rowCount++;
+                if (rowCount <= 3 && node && node.data) {
+                  sampleIds.push(node.data.id + " (" + typeof node.data.id + ")");
+                }
                 if (found) return;
-                if (node && node.data && node.data.id === initId) {
+                if (node && node.data && Number(node.data.id) === initIdNum) {
                   node.setSelected(true, true);  // selected + clearOthers
                   if (typeof api.ensureNodeVisible === "function") {
                     api.ensureNodeVisible(node, "middle");
                   }
                   found = true;
+                  console.info("[ErpCatalogPicker] LOCATE OK: id=" + initId +
+                               " selected + scrolled");
                 }
               });
               // Edge case: pokud no match (Marti's volba "nic neselectovat"),
@@ -465,14 +476,16 @@
                 setTimeout(() => _tryLocate(attemptsLeft - 1, delay * 3), delay);
               }
               if (!found && rowCount > 0) {
-                console.info("[ErpCatalogPicker] LOCATE: id=" + initId +
-                             " nenalezen v " + rowCount + " rows (možná archivován).");
+                console.warn("[ErpCatalogPicker] LOCATE: id=" + initId +
+                             " (typ=" + typeof initId + ", num=" + initIdNum +
+                             ") nenalezen v " + rowCount + " rows. " +
+                             "Sample IDs: [" + sampleIds.join(", ") + "]");
               }
             } catch (e) {
               console.warn("[ErpCatalogPicker] LOCATE failed:", e);
             }
           };
-          _tryLocate(3, 50);  // 3 attempts: 50ms, 150ms, 450ms
+          _tryLocate(3, 50);  // 4 attempts: 0ms, 50ms, 150ms, 450ms
         }
       } catch (e) {
         console.error("[ErpCatalogPicker] fetch failed:", e);

@@ -60,7 +60,32 @@ async def lifespan(app: FastAPI):
       - Spawn background task: drain every 5 min.
     Shutdown:
       - Cancel background task + final drain attempt.
+
+    Phase HA-1 (23.5.2026, Marti's "production safety"): lifespan log_event
+    pro restart audit. Instance identity z env (STRATEGIE_INSTANCE_NAME,
+    UVICORN_PORT). Logováno do fw.diag_log level=info, source=py,
+    module_id=api.lifecycle.
     """
+    import time as _t_lifespan
+    import socket as _sock_lifespan
+    import subprocess as _sp_lifespan
+
+    _startup_ts = _t_lifespan.time()
+    _instance_name = os.environ.get("STRATEGIE_INSTANCE_NAME", "primary")
+    _port = int(os.environ.get("UVICORN_PORT", 8001))
+    _pid = os.getpid()
+    _hostname = _sock_lifespan.gethostname()
+    _git_sha = "unknown"
+    try:
+        _git_sha = _sp_lifespan.check_output(
+            ["git", "rev-parse", "--short", "HEAD"],
+            cwd=os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+            stderr=_sp_lifespan.DEVNULL,
+            timeout=2,
+        ).decode().strip()
+    except Exception:
+        pass
+
     # Startup
     try:
         startup_drain_oneshot()  # sync, blocks until done (fast)
@@ -69,7 +94,51 @@ async def lifespan(app: FastAPI):
         logging.getLogger(__name__).warning(
             f"[lifespan] log_queue startup hooks failed: {exc}"
         )
+
+    # Phase HA-1: STARTUP audit (after drain bootstrap, before yield)
+    try:
+        from core.log_queue import log_event as _log_event_startup
+        _log_event_startup(
+            level="info",
+            source="py",
+            module_id="api.lifecycle",
+            message=f"STRATEGIE-API started — instance={_instance_name} port={_port} pid={_pid}",
+            extra={
+                "event": "startup",
+                "instance": _instance_name,
+                "port": _port,
+                "pid": _pid,
+                "hostname": _hostname,
+                "git_sha": _git_sha,
+            },
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning(
+            f"[lifespan] startup log_event failed: {exc}"
+        )
+
     yield
+
+    # Phase HA-1: SHUTDOWN audit (before background drain stop)
+    try:
+        from core.log_queue import log_event as _log_event_shutdown
+        _uptime = int(_t_lifespan.time() - _startup_ts)
+        _log_event_shutdown(
+            level="info",
+            source="py",
+            module_id="api.lifecycle",
+            message=f"STRATEGIE-API stopping — instance={_instance_name} port={_port} uptime={_uptime}s",
+            extra={
+                "event": "shutdown",
+                "instance": _instance_name,
+                "port": _port,
+                "pid": _pid,
+                "uptime_seconds": _uptime,
+            },
+        )
+    except Exception:
+        pass
+
     # Shutdown
     try:
         stop_background_drain()
@@ -83,6 +152,29 @@ app = FastAPI(
     version="0.1.0",
     lifespan=lifespan,
 )
+
+
+# Phase HA-1 (23.5.2026, Marti's "production safety"): Raw liveness endpoint
+# pro Caddy load balancer health probes. NO auth (Caddy probe nemá cookie),
+# NO DB query (jen lightweight ping). Caddy bude polling this endpoint —
+# pokud non-200, instance removed z upstream pool.
+#
+# Distinct od /api/v1/erp/health (parent gated, full tenant context).
+# /api/v1/health = liveness only (am I alive?).
+@app.get("/api/v1/health")
+def api_health_liveness() -> dict:
+    """Phase HA-1: raw liveness probe pro Caddy load balancer.
+
+    Returns:
+        {"ok": true, "instance": "primary"|"secondary", "port": int}
+
+    Žádné DB query (rychlost), žádný auth (Caddy nemá cookie).
+    """
+    return {
+        "ok": True,
+        "instance": os.environ.get("STRATEGIE_INSTANCE_NAME", "primary"),
+        "port": int(os.environ.get("UVICORN_PORT", 8001)),
+    }
 
 
 # Phase 38.4 Krok 14g Etapa A (16.5.2026): request_id middleware.

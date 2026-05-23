@@ -7056,8 +7056,12 @@ def diag_log_badge(req: Request) -> JSONResponse:
 
     ds = _gds_badge()
     try:
-        # Single query — vrati error_count + warn_count + top_module
-        row = ds.execute(_sql_badge("""
+        # Hotfix 23.5. ~11:00 — Marti's smoke ukázal status='new' (NE 'open')
+        # je default v fw.diag_log_upsert. Filter na NOT dismissed (exclude
+        # jen explicit acknowledged/resolved/ignored). Doctrine: badge ukazuje
+        # vše čerstvé včetně 'new'.
+        DISMISSED_STATES = "('acknowledged', 'resolved', 'ignored')"
+        row = ds.execute(_sql_badge(f"""
             SELECT
                 COUNT(*) FILTER (WHERE level = 'error') AS error_count,
                 COUNT(*) FILTER (WHERE level = 'warn')  AS warn_count,
@@ -7066,14 +7070,14 @@ def diag_log_badge(req: Request) -> JSONResponse:
                     SELECT module_id
                     FROM fw.diag_log
                     WHERE level = 'error'
-                      AND COALESCE(status, 'open') = 'open'
+                      AND (status IS NULL OR status NOT IN {DISMISSED_STATES})
                       AND created_at > NOW() - INTERVAL '24 hours'
                     GROUP BY module_id
                     ORDER BY SUM(occurrences) DESC NULLS LAST
                     LIMIT 1
                 ) AS top_module
             FROM fw.diag_log
-            WHERE COALESCE(status, 'open') = 'open'
+            WHERE (status IS NULL OR status NOT IN {DISMISSED_STATES})
               AND created_at > NOW() - INTERVAL '24 hours'
         """)).mappings().one_or_none()
 

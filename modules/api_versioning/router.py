@@ -11,7 +11,7 @@ Endpointy:
   GET  /api/v1/erp/api-versions/diff     - git log between snapshots (?from=X&to=Y)
 
 Pattern: Vlna 2 sub-router extract (parita s db_connection_editor.py).
-Wire-up: register_routes() volana v main router include.
+Auth pattern: lokalni _require_user_id helper (parita s _get_uid v router.py:61).
 
 Doctrine:
   - "Bezpecnost pres probuzeni" (Marti-AI 9.5.) - kazdy pin/unpin = log_event
@@ -24,7 +24,7 @@ from __future__ import annotations
 import os
 import subprocess
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
@@ -33,7 +33,6 @@ from sqlalchemy.orm import Session
 
 from core.database_data import get_session
 from core.log_queue import log_event
-from modules.auth.application.auth_dep import get_current_user
 
 # =====================================================================
 # Constants
@@ -46,6 +45,34 @@ COOKIE_SAMESITE = "lax"
 
 # Git repo path - kde zije current code (cloud APP)
 GIT_REPO_PATH = os.environ.get("STRATEGIE_REPO_ROOT", r"C:\Projekty\STRATEGIE")
+
+
+# =====================================================================
+# Auth helper (parita s router.py:61 _get_uid)
+# =====================================================================
+
+def _require_user_id(request: Request) -> int:
+    """Extract user_id z cookie. Raise 401 bez auth."""
+    user_id_str = request.cookies.get("user_id")
+    if not user_id_str:
+        raise HTTPException(status_code=401, detail="Nejsi prihlasen.")
+    try:
+        return int(user_id_str)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=401, detail="Neplatny user_id cookie.")
+
+
+def _resolve_login_name(session: Session, user_id: int) -> Optional[str]:
+    """Lookup user.login_name pro audit log (best-effort, vrací None pri failure)."""
+    try:
+        row = session.execute(
+            text("SELECT login_name FROM public.users WHERE id = :uid"),
+            {"uid": user_id},
+        ).first()
+        return row.login_name if row else None
+    except Exception:
+        return None
+
 
 # =====================================================================
 # Pydantic models
@@ -159,18 +186,16 @@ def _get_active_pin(session: Session, user_id: int) -> Optional[dict]:
 
 
 # =====================================================================
-# Router
+# Router (parent api_router ma prefix /api/v1/erp, sub-router prefix relative)
 # =====================================================================
 
-# Note: parent api_router (modules/erp/api/router.py:55) je APIRouter(prefix="/api/v1/erp").
-# Sub-router prefix relative -> final URL = /api/v1/erp/api-versions/...
 _router = APIRouter(prefix="/api-versions", tags=["api-versioning"])
 
 
 @_router.get("", response_model=ApiVersionsResponse)
 async def list_versions(
     request: Request,
-    user=Depends(get_current_user),
+    user_id: int = Depends(_require_user_id),
     session: Session = Depends(get_session),
 ):
     """List vsech aktivnich versions + user's current pin (pro UI footer dropup)."""
@@ -186,7 +211,7 @@ async def list_versions(
 
     # User's current pin (pokud existuje a neexpiroval)
     current_pin = None
-    pin_row = _get_active_pin(session, user.id)
+    pin_row = _get_active_pin(session, user_id)
     if pin_row:
         seconds_remaining = None
         if pin_row["expires_at"]:
@@ -211,7 +236,7 @@ async def pin_version(
     body: PinRequest,
     response: Response,
     request: Request,
-    user=Depends(get_current_user),
+    user_id: int = Depends(_require_user_id),
     session: Session = Depends(get_session),
 ):
     """Set user pin na version_code. Set cookie + INSERT user_api_pin row + log_event."""
@@ -230,6 +255,7 @@ async def pin_version(
         )
 
     expires_at = datetime.utcnow() + timedelta(seconds=COOKIE_MAX_AGE_SECONDS)
+    login_name = _resolve_login_name(session, user_id)
 
     # 2. INSERT user_api_pin row (append-only doctrine)
     session.execute(text("""
@@ -241,7 +267,7 @@ async def pin_version(
             :reason, :user_id
         )
     """), {
-        "user_id": user.id,
+        "user_id": user_id,
         "version_id": version_row.id,
         "expires_at": expires_at,
         "reason": body.reason,
@@ -259,20 +285,23 @@ async def pin_version(
     )
 
     # 4. Audit log_event (Bezpecnost pres probuzeni doctrine)
-    log_event(
-        level="warn",
-        source="py",
-        module_id="api.version.pin",
-        message=f"User {user.login_name or user.id} pinned na verzi {body.version_code} ({version_row.version_string})",
-        extra={
-            "user_id": user.id,
-            "user_login_name": getattr(user, "login_name", None),
-            "version_code": body.version_code,
-            "version_string": version_row.version_string,
-            "reason": body.reason,
-            "expires_at": expires_at.isoformat(),
-        },
-    )
+    try:
+        log_event(
+            level="warn",
+            source="py",
+            module_id="api.version.pin",
+            message=f"User {login_name or user_id} pinned na verzi {body.version_code} ({version_row.version_string})",
+            extra={
+                "user_id": user_id,
+                "user_login_name": login_name,
+                "version_code": body.version_code,
+                "version_string": version_row.version_string,
+                "reason": body.reason,
+                "expires_at": expires_at.isoformat(),
+            },
+        )
+    except Exception:
+        pass  # audit failure NIKDY nekrasi endpoint
 
     return PinResponse(
         ok=True,
@@ -285,10 +314,12 @@ async def pin_version(
 async def unpin_version(
     response: Response,
     request: Request,
-    user=Depends(get_current_user),
+    user_id: int = Depends(_require_user_id),
     session: Session = Depends(get_session),
 ):
     """Clear pin (revert na current). UPDATE auto_reverted_at na latest active row + clear cookie."""
+    login_name = _resolve_login_name(session, user_id)
+
     # 1. Mark latest active pin jako reverted (append-only doctrine: UPDATE jen auto_reverted_at)
     result = session.execute(text("""
         UPDATE fw.user_api_pin
@@ -300,7 +331,7 @@ async def unpin_version(
             LIMIT 1
         )
         RETURNING pinned_version_id
-    """), {"user_id": user.id})
+    """), {"user_id": user_id})
     reverted_row = result.first()
     session.commit()
 
@@ -309,17 +340,20 @@ async def unpin_version(
 
     # 3. Audit log_event
     reverted_version_id = reverted_row.pinned_version_id if reverted_row else None
-    log_event(
-        level="info",
-        source="py",
-        module_id="api.version.unpin",
-        message=f"User {user.login_name or user.id} revertoval pin (zpet na current)",
-        extra={
-            "user_id": user.id,
-            "user_login_name": getattr(user, "login_name", None),
-            "reverted_from_version_id": reverted_version_id,
-        },
-    )
+    try:
+        log_event(
+            level="info",
+            source="py",
+            module_id="api.version.unpin",
+            message=f"User {login_name or user_id} revertoval pin (zpet na current)",
+            extra={
+                "user_id": user_id,
+                "user_login_name": login_name,
+                "reverted_from_version_id": reverted_version_id,
+            },
+        )
+    except Exception:
+        pass
 
     return UnpinResponse(ok=True, reverted_to="current")
 
@@ -328,7 +362,7 @@ async def unpin_version(
 async def diff_versions(
     from_code: str,
     to_code: str = "current",
-    user=Depends(get_current_user),
+    user_id: int = Depends(_require_user_id),
     session: Session = Depends(get_session),
 ):
     """Git log mezi snapshots. Vrati commits + files_changed + GitHub compare URL."""
@@ -349,7 +383,7 @@ async def diff_versions(
     from_v = versions_map[from_code]
     to_v = versions_map[to_code]
 
-    # 2. Pokud nemame git_sha (jeste neproběhl deploy_current.ps1), vrat empty diff
+    # 2. Pokud nemame git_sha (jeste neprobehl deploy_current.ps1), vrat empty diff
     if not from_v.git_sha or not to_v.git_sha:
         return DiffResponse(
             from_version={
@@ -372,7 +406,6 @@ async def diff_versions(
 
     # 3. Git log mezi sha (subprocess s timeout)
     try:
-        # Commit list (max 10 most recent)
         log_result = subprocess.run(
             [
                 "git", "-C", GIT_REPO_PATH,
@@ -383,7 +416,6 @@ async def diff_versions(
             capture_output=True, text=True, timeout=10,
         )
 
-        # Total commits count
         count_result = subprocess.run(
             [
                 "git", "-C", GIT_REPO_PATH,
@@ -394,7 +426,6 @@ async def diff_versions(
         )
         commits_count = int(count_result.stdout.strip()) if count_result.returncode == 0 else 0
 
-        # Files changed count
         diff_stat = subprocess.run(
             [
                 "git", "-C", GIT_REPO_PATH,
@@ -405,20 +436,22 @@ async def diff_versions(
         )
         files_changed = None
         if diff_stat.returncode == 0 and diff_stat.stdout:
-            # Parse "23 files changed, 100 insertions(+), 50 deletions(-)"
             import re
             m = re.search(r"(\d+) files? changed", diff_stat.stdout)
             if m:
                 files_changed = int(m.group(1))
 
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError) as e:
-        log_event(
-            level="error",
-            source="py",
-            module_id="api.version.diff",
-            message=f"Git subprocess failed: {e}",
-            extra={"from_sha": from_v.git_sha, "to_sha": to_v.git_sha},
-        )
+        try:
+            log_event(
+                level="error",
+                source="py",
+                module_id="api.version.diff",
+                message=f"Git subprocess failed: {e}",
+                extra={"from_sha": from_v.git_sha, "to_sha": to_v.git_sha},
+            )
+        except Exception:
+            pass
         raise HTTPException(status_code=500, detail=f"Git diff failed: {e}")
 
     # 4. Parse commit list
@@ -436,7 +469,7 @@ async def diff_versions(
                 subject=parts[4],
             ))
 
-    # 5. GitHub compare URL (configurable, default placeholder)
+    # 5. GitHub compare URL (configurable)
     github_repo = os.environ.get("STRATEGIE_GITHUB_REPO", "")
     github_compare_url = None
     if github_repo:

@@ -6169,6 +6169,13 @@ _DbConnEditor.register_routes(api_router)
 from modules.fw_components.data_set_editor import DataSetEditorComponent as _DataSetEditor  # noqa: E402
 _DataSetEditor.register_routes(api_router)
 
+# ════════════════════════════════════════════════════════════════════════
+# Phase API Versioned Routing Etapa C (23.5.2026): api_versioning sub-router.
+# 4 endpoints: GET list, POST pin/unpin, GET diff.
+# Marti's "drz jednoduchost" - per-feature module, no router.py bloat.
+# ════════════════════════════════════════════════════════════════════════
+from modules.api_versioning.router import ApiVersioningComponent as _ApiVersioning  # noqa: E402
+_ApiVersioning.register_routes(api_router)
 
 
 @api_router.get("/design/context-menu-items")

@@ -3439,8 +3439,15 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 update_row as _spg_update,
             )
             upd_values = dict(field_changes)
-            upd_values["updated_by_id"] = uid
-            upd_values["updated_by_text"] = caller_display
+            # Phase 38.4 Krok 5.N-2 hotfix #2 (23.5.2026, Marti's smoke
+            # Excel mode fw.diag_log): defensive audit injection. fw.diag_log
+            # (append-only audit per Fix N doctrine 21.5.) nemá updated_by_*
+            # columns — má jen created_by_* + resolved_by_*. Inject jen pokud
+            # target table sloupec MÁ (z _table_cols introspect SELECT * vrátil).
+            if "updated_by_id" in _table_cols:
+                upd_values["updated_by_id"] = uid
+            if "updated_by_text" in _table_cols:
+                upd_values["updated_by_text"] = caller_display
             upd = _spg_update(
                 schema=schema_name,
                 table=table_name,

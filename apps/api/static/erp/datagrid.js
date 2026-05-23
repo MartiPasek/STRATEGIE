@@ -1416,7 +1416,37 @@
                         }
                       }
                       if (drift.length > 0) {
-                        console.warn("[ErpDataGrid] LAYOUT DRIFT detected 250ms after applyColumnState — " + drift.length + " columns drifted:", drift.slice(0, 10));
+                        console.warn(
+                          "[ErpDataGrid] LAYOUT DRIFT detected 250ms after applyColumnState — " +
+                          drift.length + " columns drifted. First 3 detailed:\n" +
+                          drift.slice(0, 3).map(d => JSON.stringify(d)).join("\n")
+                        );
+                        // Also try AGGRESSIVE re-apply: setColumnWidths z afterState (sync post-applyColumnState)
+                        // Pokud drift PERSISTUJE i po re-apply, problem je v AG Grid internal layout pass.
+                        try {
+                          const reWidths = afterState
+                            .filter(c => c.width != null && c.width > 0 && !!c.colId)
+                            .map(c => ({ key: c.colId, newWidth: c.width }));
+                          if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
+                            params.api.setColumnWidths(reWidths);
+                            console.info("[ErpDataGrid] RE-APPLY setColumnWidths(" + reWidths.length + ") after 250ms drift");
+                            // Snapshot po re-apply
+                            setTimeout(() => {
+                              const finalState2 = params.api.getColumnState();
+                              const stillDrifting = finalState2.filter((f, i) => {
+                                const a = afterState.find(x => x.colId === f.colId);
+                                return a && f.width !== a.width;
+                              });
+                              console.info(
+                                "[ErpDataGrid] Post re-apply: " + stillDrifting.length +
+                                " columns STILL drift after re-apply. " +
+                                (stillDrifting.length === 0 ? "Re-apply WORKED ✓" : "Problem persists")
+                              );
+                            }, 100);
+                          }
+                        } catch (eR) {
+                          console.warn("[ErpDataGrid] re-apply setColumnWidths failed:", eR);
+                        }
                       }
                     } catch (e) { /* silent */ }
                   }, 250);

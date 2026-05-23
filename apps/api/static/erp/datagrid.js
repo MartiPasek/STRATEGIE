@@ -1334,9 +1334,33 @@
           // ulozeny layout existuje, applyColumnState aplikoval custom
           // sirky — sizeColumnsToFit by je proporcionalne prepisalo.
           // Pokud layout neexistuje, fit columns jako driv.
-          const initLayout = (this.options.autoLoadDefault && this.options.layoutKey)
+          // Phase API Versioned Routing post-deploy fix #5 (23.5.2026 vecer
+          // Marti's catch "po 250ms se zavola default a poradi/sirka fuc...
+          // CHCE TO DISABLOVAT TO -> autoLoadDefault SKIP applyColumnState"):
+          // Pokud initialLayout je pre-fetched, _autoLoadDefault() je no-op
+          // pro applyState (SKIP branch), ALE side-effecty (await listLayouts,
+          // _refreshToolbar) trigger AG Grid onModelUpdated -> default
+          // column order reset (i pri maintainColumnOrder:true, protoze
+          // refresh toolbar mutate DOM toolbaru => layout shift => grid
+          // resize => internal recompute).
+          // Fix: skip _autoLoadDefault ENTIRELY when initialLayout passed.
+          // _currentLayoutId uz nastaveno z initialLayout (line 1010).
+          // Toolbar refresh udelame lehce v separate promise, bez state ops.
+          const hasInitialLayout = !!this.options.initialLayout;
+          const initLayout = (this.options.autoLoadDefault && this.options.layoutKey && !hasInitialLayout)
             ? this._autoLoadDefault()
             : Promise.resolve(null);
+          // Lightweight toolbar refresh pro pripad pre-fetched initialLayout
+          // (drozdneutralni — jen fetch list pro dropdown, zadny applyState)
+          if (hasInitialLayout && this.options.layoutKey) {
+            // Defer az po grid settle (po 600ms, mezi 500ms LOCK a beyond)
+            setTimeout(() => {
+              if (this._destroyed) return;
+              this.listLayouts()
+                .then(() => this._refreshToolbar())
+                .catch(() => { /* silent */ });
+            }, 600);
+          }
           initLayout.finally(() => {
             if (this._destroyed) return;
             if (!this._currentLayoutId) {

@@ -3051,6 +3051,15 @@
           : "🔒 PROD mode — editování gridu zakázáno",
         this._excelMode ? "error" : null
       );
+
+      // 4) Krok 5.Y (23.5.2026): expose global Excel mode flag + fire event
+      //    pro Save button visibility v grid toolbar (page_render.js listener).
+      try {
+        window._erpExcelMode = this._excelMode;
+        window.dispatchEvent(new CustomEvent("erp:excel-mode-change", {
+          detail: { excelMode: this._excelMode, layoutKey: this.options.layoutKey },
+        }));
+      } catch (_e) {}
     }
 
     _applyExcelModePillStyle() {

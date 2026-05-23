@@ -100,6 +100,17 @@
           'data-need-row="1" data-hint="Smazat vybraný záznam (nevratné)" disabled>🗑️</button>'
         );
       }
+      // Krok 5.Y (23.5.2026, Marti's "save patri gridu"): Save Changes button
+      // (Excel mode dirty rows). Always rendered, display:none default.
+      // Visibility controlled:
+      //   1. Excel mode toggle (datagrid.js fires 'erp:excel-mode-change' event)
+      //   2. _refreshSaveBtn() updates count badge + disabled state
+      // Stejný design jako Nový/Oprava/Smazat (36×36, 27px icon, data-hint).
+      parts.push(
+        '<button id="erp-tb-save" type="button" class="erp-grid-action-btn warning" ' +
+        'data-hint="Uložit změny editovaných buněk (Excel mode)" ' +
+        'style="display:none;" disabled>💾<span class="erp-save-count" id="erp-tb-save-count">0</span></button>'
+      );
       toolbarHost.innerHTML = parts.join('');
 
       // Wire click handlers
@@ -251,24 +262,32 @@
       // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
       const dirtyRowData = new Map();
 
-      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona vedle
-      // refresh button"): Hook do workspace header save button (#erpSaveChangesBtn
-      // vedle #erpRefreshBtn). Direct btn.onclick = fn pattern — pre-refresh
-      // overwrites previous handler (per-grid scope wins, no race). Drop
-      // addEventListener flag pattern (gotcha: re-bound across grid re-renders).
+      // Phase 38.4 Krok 5.Y (23.5.2026, Marti's "save patri gridu"):
+      // Save button moved z workspace header (#erpSaveChangesBtn) DO grid
+      // toolbar (#erp-tb-save renderován v _renderGridToolbar). Visibility:
+      //   - Hidden when Excel mode OFF (window._erpExcelMode === false)
+      //   - Visible + disabled when Excel ON + count=0
+      //   - Visible + enabled + count badge when Excel ON + count > 0
+      // Toggle fires custom event 'erp:excel-mode-change' z datagrid.js.
       function _refreshSaveBtn() {
-        const btn = document.getElementById("erpSaveChangesBtn");
-        const countEl = document.getElementById("erpSaveChangesCount");
+        const btn = document.getElementById("erp-tb-save");
+        const countEl = document.getElementById("erp-tb-save-count");
         if (!btn || !countEl) {
-          console.warn("[page_render save] btn/countEl missing in workspace header");
+          // Toolbar not rendered yet (page-spec async). Defer silent.
+          return;
+        }
+        const excelOn = !!window._erpExcelMode;
+        if (!excelOn) {
+          btn.style.display = "none";
+          btn.onclick = null;
           return;
         }
         const count = dirtyRows.size;
+        btn.style.display = "";
+        countEl.textContent = String(count);
+        btn.disabled = (count === 0);
         if (count > 0) {
-          btn.style.display = "";
-          countEl.textContent = String(count);
-          // Direct onclick replace — current grid's _onSaveClick wins.
-          // Wrapped pro defensive console.info + try/catch.
+          btn.setAttribute("data-hint", "Uložit " + count + " změn (Excel mode)");
           btn.onclick = function() {
             console.info("[page_render save] click fired, dirty count=" + dirtyRows.size +
                          ", entityForPatch=" + entityForPatch);
@@ -279,21 +298,29 @@
               alert("Save error: " + (e && e.message || e));
             }
           };
-          // Hover effect (idempotent via attribute check)
-          if (!btn.dataset.erpSaveHoverBound) {
-            btn.dataset.erpSaveHoverBound = "1";
-            btn.addEventListener("mouseenter", function() {
-              btn.style.background = "#e0b25a";
-            });
-            btn.addEventListener("mouseleave", function() {
-              btn.style.background = "#d4a04a";
-            });
-          }
         } else {
-          btn.style.display = "none";
+          btn.setAttribute("data-hint", "Žádné neuložené změny");
           btn.onclick = null;
         }
       }
+
+      // Krok 5.Y: Listen na Excel mode toggle event (fired z datagrid.js
+      // _toggleExcelMode). Refresh save btn visibility on each toggle.
+      // Idempotent guard — bind jen 1× per page load.
+      if (!window._erpSaveBtnExcelListenerBound) {
+        window._erpSaveBtnExcelListenerBound = true;
+        window.addEventListener("erp:excel-mode-change", function() {
+          try {
+            // Re-call _refreshSaveBtn for whatever grid is currently active
+            // (window._erpSaveDirtyActiveGrid hook drží current grid's handler).
+            if (typeof window._erpSaveBtnRefresh === "function") {
+              window._erpSaveBtnRefresh();
+            }
+          } catch (_e) {}
+        });
+      }
+      // Register this grid's refresh fn jako global hook
+      window._erpSaveBtnRefresh = _refreshSaveBtn;
       async function _onSaveClick() {
         if (!entityForPatch) {
           alert("Save flow nepripraven pro data_source #" + rootCd.data_source_id +

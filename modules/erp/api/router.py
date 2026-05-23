@@ -8578,6 +8578,44 @@ def _render_full_page(
       color: #d46a6a;
       background: rgba(212, 106, 106, 0.08);
     }}
+    /* Krok 5.Y (23.5.2026, Marti's "save patri gridu"): Save Changes button
+       v Excel mode. Orange amber accent (sjednoceno s Excel mode pill). */
+    .erp-grid-action-btn.warning {{
+      border-color: #a8782f;
+      color: #d4a04a;
+      position: relative;
+    }}
+    .erp-grid-action-btn.warning:hover {{
+      border-color: #d4a04a;
+      color: #1a1410;
+      background: #d4a04a;
+    }}
+    .erp-grid-action-btn.warning:disabled {{
+      border-color: var(--border);
+      color: var(--text-muted);
+      background: transparent;
+      opacity: 0.35;
+    }}
+    /* Count badge overlay (top-right corner) */
+    .erp-grid-action-btn.warning .erp-save-count {{
+      position: absolute;
+      top: -4px;
+      right: -4px;
+      min-width: 16px;
+      height: 16px;
+      padding: 0 4px;
+      background: #d4a04a;
+      color: #1a1410;
+      border-radius: 8px;
+      font-size: 10px;
+      font-weight: 700;
+      line-height: 16px;
+      text-align: center;
+      pointer-events: none;
+    }}
+    .erp-grid-action-btn.warning:disabled .erp-save-count {{
+      display: none;
+    }}
 
     @keyframes refreshSpin {{
       from {{ transform: rotate(0deg); }}
@@ -10384,14 +10422,11 @@ def _render_full_page(
              root_comp_def.grid_actions. No actions → empty host (only Refresh
              visible v header). -->
         <div id="erpGridActionsHost" style="display:flex;align-items:center;gap:6px;margin-left:12px;"></div>
-        <!-- Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona
-             hned vedle refresh button"): Workspace-level save button pro
-             dirty rows v Excel mode. Visible jen pokud window._erpDirtyCount > 0.
-             onclick → triggers window._erpSaveDirtyActiveGrid() (page_render.js
-             hook). Orange amber styling (sjednoceno s Excel mode pill). -->
-        <button type="button" class="erp-save-changes-btn" id="erpSaveChangesBtn"
-                data-hint="Uložit změny editovaných buněk (Excel mode)"
-                style="display:none;background:#d4a04a;border:1px solid #a8782f;color:#1a1410;font-weight:700;padding:6px 14px;border-radius:4px;cursor:pointer;margin-left:8px;box-shadow:0 2px 6px rgba(0,0,0,0.4);">💾 <span id="erpSaveChangesCount">0</span></button>
+        <!-- Phase 38.4 Krok 5.Y (23.5.2026, Marti's "save button patri gridu"):
+             erpSaveChangesBtn moved z workspace header DO erpGridActionsHost
+             (renderován _renderGridToolbar jako 4. button po Nový/Oprava/Smazat,
+             stejný design erp-grid-action-btn.warning, visibility gated na
+             Excel mode toggle). Dropped: workspace header save button stub. -->
         <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
              Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
              Skryty po install (appinstalled event) nebo v PWA standalone mode. -->

@@ -998,6 +998,66 @@
 .ag-theme-quartz-dark .ag-cell.erp-fmt-pill-slate  { background: rgba(71, 85, 105, 0.30) !important; color: #94a3b8 !important; box-shadow: inset 0 0 0 1px rgba(71, 85, 105, 0.5) !important; }
 .ag-theme-quartz-dark .ag-cell.erp-fmt-pill-strike { background: rgba(148, 163, 184, 0.25) !important; color: #94a3b8 !important; text-decoration: line-through !important; }
 
+/* ── Bubble style (effect: "bubble") — Marti's 24.5. "text v bubline" ─
+   Vyraznejsi nez pill: vetsi padding, vic rounded, mírný drop shadow, bold default.
+   Vypadá jako chat bubble — vhodne pro status/tag indikátory s důrazem. */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble {
+  border-radius: 16px !important;
+  margin: 4px 6px !important;
+  padding: 0 14px !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  display: inline-flex !important;
+  align-items: center;
+  height: calc(100% - 8px);
+  letter-spacing: 0.2px;
+  /* Drop shadow pro depth */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.12) !important;
+}
+/* Bubble color overrides — sytější than pill (alpha 0.35 vs 0.25) + sytější text */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-red    { background: rgba(239, 68, 68, 0.40) !important; color: #fecaca !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-orange { background: rgba(249, 115, 22, 0.40) !important; color: #fed7aa !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-yellow { background: rgba(234, 179, 8, 0.40) !important; color: #fef08a !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-green  { background: rgba(34, 197, 94, 0.40) !important; color: #bbf7d0 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-blue   { background: rgba(59, 130, 246, 0.40) !important; color: #bfdbfe !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-purple { background: rgba(168, 85, 247, 0.40) !important; color: #e9d5ff !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-gray   { background: rgba(107, 114, 128, 0.45) !important; color: #e5e7eb !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-rose   { background: rgba(244, 63, 94, 0.40) !important; color: #fecdd3 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-amber  { background: rgba(217, 119, 6, 0.40) !important; color: #fde68a !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-lime   { background: rgba(132, 204, 22, 0.40) !important; color: #d9f99d !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-teal   { background: rgba(20, 184, 166, 0.40) !important; color: #99f6e4 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-cyan   { background: rgba(6, 182, 212, 0.40) !important; color: #a5f3fc !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-indigo { background: rgba(99, 102, 241, 0.40) !important; color: #c7d2fe !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-pink   { background: rgba(236, 72, 153, 0.40) !important; color: #fbcfe8 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-slate  { background: rgba(71, 85, 105, 0.50) !important; color: #cbd5e1 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-bubble-strike { background: rgba(148, 163, 184, 0.40) !important; color: #cbd5e1 !important; text-decoration: line-through !important; }
+
+/* Bubble preview v modal */
+.erp-fmt-preview-cell.erp-fmt-bubble-preview {
+  border-radius: 16px;
+  padding: 6px 18px !important;
+  font-weight: 700;
+  font-size: 12px;
+  min-width: 80px !important;
+  letter-spacing: 0.2px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3), inset 0 0 0 1px rgba(255, 255, 255, 0.12);
+}
+.erp-fmt-preview-cell.erp-fmt-bubble-red    { background: rgba(239, 68, 68, 0.40) !important; color: #fecaca !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-orange { background: rgba(249, 115, 22, 0.40) !important; color: #fed7aa !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-yellow { background: rgba(234, 179, 8, 0.40) !important; color: #fef08a !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-green  { background: rgba(34, 197, 94, 0.40) !important; color: #bbf7d0 !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-blue   { background: rgba(59, 130, 246, 0.40) !important; color: #bfdbfe !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-purple { background: rgba(168, 85, 247, 0.40) !important; color: #e9d5ff !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-gray   { background: rgba(107, 114, 128, 0.45) !important; color: #e5e7eb !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-rose   { background: rgba(244, 63, 94, 0.40) !important; color: #fecdd3 !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-amber  { background: rgba(217, 119, 6, 0.40) !important; color: #fde68a !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-lime   { background: rgba(132, 204, 22, 0.40) !important; color: #d9f99d !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-teal   { background: rgba(20, 184, 166, 0.40) !important; color: #99f6e4 !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-cyan   { background: rgba(6, 182, 212, 0.40) !important; color: #a5f3fc !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-indigo { background: rgba(99, 102, 241, 0.40) !important; color: #c7d2fe !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-pink   { background: rgba(236, 72, 153, 0.40) !important; color: #fbcfe8 !important; }
+.erp-fmt-preview-cell.erp-fmt-bubble-slate  { background: rgba(71, 85, 105, 0.50) !important; color: #cbd5e1 !important; }
+
 /* ── Row-level color classes ───────────────────────────────────────
    Aplikace na celý řádek. Zachovat zebra-stripe contrast — proto
    alpha mírnější (0.10 vs 0.18 pro cells). */

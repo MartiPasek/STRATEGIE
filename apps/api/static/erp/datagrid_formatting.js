@@ -297,6 +297,9 @@
         uniqueClass += " " + (colorDef.borderClass || "erp-fmt-border-gray");
       } else if (r.effect === "pill" && !isRow) {
         uniqueClass += " erp-fmt-pill erp-fmt-pill-" + (r.color || "gray");
+      } else if (r.effect === "bubble" && !isRow) {
+        // Marti's "text v bubline" - vyraznejsi nez pill (vetsi padding, shadow, bold)
+        uniqueClass += " erp-fmt-bubble erp-fmt-bubble-" + (r.color || "gray");
       }
       // Icon prefix (Marti's "severity emoji") — apply via ::before
       if (r.iconPrefix && r.iconPrefix !== "none") {
@@ -487,6 +490,7 @@
              rule.scope === "text" ? "Text" : "Buňka") +
             (rule.effect === "border" ? ' <span style="opacity:0.6;font-size:0.85em">┃</span>' : '') +
             (rule.effect === "pill" ? ' <span style="opacity:0.6;font-size:0.85em">💊</span>' : '') +
+            (rule.effect === "bubble" ? ' <span style="opacity:0.6;font-size:0.85em">💬</span>' : '') +
             (rule.bold === true ? ' <b style="opacity:0.7;font-size:0.85em">B</b>' : '') +
             (rule.italic === true ? ' <i style="opacity:0.7;font-size:0.85em">I</i>' : '') +
             (rule.underline === true ? ' <u style="opacity:0.7;font-size:0.85em">U</u>' : '') +
@@ -640,6 +644,10 @@
                   '<input type="radio" name="fmt-effect" value="pill"' + (rule.effect === "pill" ? " checked" : "") + '>' +
                   '<span>💊 Pilulka</span>' +
                 '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="radio" name="fmt-effect" value="bubble"' + (rule.effect === "bubble" ? " checked" : "") + '>' +
+                  '<span>💬 Bublina</span>' +
+                '</label>' +
               '</div>' +
               // Icon prefix picker (12 emoji buttons)
               '<div class="erp-fmt-edit-row" style="margin-top:8px;align-items:center;">' +
@@ -690,9 +698,11 @@
           const iconDef = _iconByKey(iconKey);
           // Reset all classes
           previewEl.className = "erp-fmt-preview-cell";
-          // Apply scope class (pill effect overrides default scope styling)
+          // Apply scope class (pill/bubble effect override default scope styling)
           if (effect === "pill" && scope !== "row") {
             previewEl.classList.add("erp-fmt-pill-preview", "erp-fmt-pill-" + colorKey);
+          } else if (effect === "bubble" && scope !== "row") {
+            previewEl.classList.add("erp-fmt-bubble-preview", "erp-fmt-bubble-" + colorKey);
           } else if (scope === "row" || scope === "cell") {
             previewEl.classList.add(colorDef.cellClass);
           } else if (scope === "text") {

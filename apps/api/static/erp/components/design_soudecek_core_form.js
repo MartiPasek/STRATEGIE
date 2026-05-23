@@ -195,11 +195,16 @@
       };
 
       const self = this;
+      // Krok 5.V (23.5.2026): LOCATE — initialSelectedId z aktualne
+      // asociovaneho core (menu_node.core_id). Picker pri open auto-select
+      // + scroll na adekvatni vetu.
+      const coreInitId = (menuNode && menuNode.core_id) || null;
       const picker = new window.ErpCatalogPicker({
         title: "🔗 Vybrat existing core přehled",
         endpoint: "/api/v1/erp/design/fw-core/list",
         listKey: "cores",
         coreId: 30,  // Krok 5.T Option C: CORE Jádro (framework_core_list mainscreen)
+        initialSelectedId: coreInitId,
 
         labelField: "label",
         columns: [
@@ -564,12 +569,18 @@
 
       const self = this;
       const coreCode = core.code || "";
+      // Krok 5.V (23.5.2026): LOCATE — initialSelectedId z aktualne
+      // asociovaneho data_source. Picker pri open auto-select + scroll
+      // na adekvatni vetu. Marti's "kdyz ji otervu, je treba dat locate".
+      const dataSource = (this._data && this._data.data_source) || null;
+      const dsInitId = (dataSource && dataSource.id) || null;
       const picker = new window.ErpCatalogPicker({
         title: "🔗 Vybrat existing data_source (vazba pres core.code = '" +
                coreCode + "')",
         endpoint: "/api/v1/erp/design/fw-data-source/list",
         listKey: "data_sources",
         coreId: 19,  // Krok 5.T Option C: framework_data_sources core
+        initialSelectedId: dsInitId,
 
         labelField: "name",
         columns: [

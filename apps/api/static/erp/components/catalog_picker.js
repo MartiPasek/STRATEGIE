@@ -428,29 +428,51 @@
           },
         });
 
-        // Phase 38.4 Krok 14g-H+31 step 5 (15.5.2026 vecer, Marti's
-        // "je treba videt, ktera veta je vybrana"): post-render highlight
-        // matching aktualne vybrana entita. Use setTimeout(0) — AG Grid
-        // renders synchronously when rowData passed v opts, ale necham
-        // event loop tick aby grid byl plne ready.
+        // Phase 38.4 Krok 5.V (23.5.2026): LOCATE — robustnější retry pattern.
+        // Marti's "kdyz ji otervu, je treba dat locate". Předchozí setTimeout(0)
+        // (z Krok 14g-H+31 step 5) byl křehký — AG Grid v32+ async rowData
+        // application (i když rowData passed sync v opts) může trvat ~0-50ms.
+        // Retry s exponential backoff (3 attempts: 0ms, 50ms, 150ms) +
+        // bail-out pokud row found nebo žádné rows neexistují.
         const initId = this.opts.initialSelectedId;
         if (initId != null) {
-          setTimeout(() => {
+          const _tryLocate = (attemptsLeft, delay) => {
             try {
               const api = this._grid && this._grid.gridApi;
-              if (!api || typeof api.forEachNode !== "function") return;
+              if (!api || typeof api.forEachNode !== "function") {
+                if (attemptsLeft > 0) {
+                  setTimeout(() => _tryLocate(attemptsLeft - 1, delay * 3), delay);
+                }
+                return;
+              }
+              let found = false;
+              let rowCount = 0;
               api.forEachNode((node) => {
+                rowCount++;
+                if (found) return;
                 if (node && node.data && node.data.id === initId) {
-                  node.setSelected(true, true);  // selected, clearSelection
+                  node.setSelected(true, true);  // selected + clearOthers
                   if (typeof api.ensureNodeVisible === "function") {
                     api.ensureNodeVisible(node, "middle");
                   }
+                  found = true;
                 }
               });
+              // Edge case: pokud no match (Marti's volba "nic neselectovat"),
+              // ale data are loaded → bail out, no select. Pokud no data yet,
+              // retry. Marti's edge case: archived row → silent skip.
+              if (!found && rowCount === 0 && attemptsLeft > 0) {
+                setTimeout(() => _tryLocate(attemptsLeft - 1, delay * 3), delay);
+              }
+              if (!found && rowCount > 0) {
+                console.info("[ErpCatalogPicker] LOCATE: id=" + initId +
+                             " nenalezen v " + rowCount + " rows (možná archivován).");
+              }
             } catch (e) {
-              console.warn("[ErpCatalogPicker] initial select failed:", e);
+              console.warn("[ErpCatalogPicker] LOCATE failed:", e);
             }
-          }, 0);
+          };
+          _tryLocate(3, 50);  // 3 attempts: 50ms, 150ms, 450ms
         }
       } catch (e) {
         console.error("[ErpCatalogPicker] fetch failed:", e);

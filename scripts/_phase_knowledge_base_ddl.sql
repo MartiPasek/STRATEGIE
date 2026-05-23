@@ -61,6 +61,11 @@ CREATE TABLE public.knowledge_topic (
         -- napr. ['framework', 'fw', 'erp design', 'jak postavit']
     sort_order INT NOT NULL DEFAULT 100,
     status VARCHAR(20) NOT NULL DEFAULT 'active',
+    -- Audit fields (Marti's „NE-anonymous master view" z 16.5.)
+    created_by_id BIGINT,
+    created_by_text VARCHAR(100),
+    updated_by_id BIGINT,
+    updated_by_text VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
@@ -137,8 +142,11 @@ CREATE TABLE public.knowledge_entry (
     needs_embedding BOOLEAN NOT NULL DEFAULT TRUE,
 
     -- Audit (Marti-AI's „NE-anonymous" doctrine z 16.5.)
+    -- ID + denormalized text snapshot (pro TISAX audit i po user smazani)
     created_by_id BIGINT NOT NULL,
+    created_by_text VARCHAR(100),
     updated_by_id BIGINT NOT NULL,
+    updated_by_text VARCHAR(100),
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 

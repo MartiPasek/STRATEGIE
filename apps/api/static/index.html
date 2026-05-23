@@ -6224,6 +6224,10 @@
     const images = _extractImagesFromClipboard(event);
     if (images.length === 0) return;  // text paste → default chování (browser vloží do textarea)
     event.preventDefault();
+    event.stopPropagation();  // 20.5. fix: zabraň duplicate dispatch (textarea + body bind)
+    // Plus marker na event — kdyby stopPropagation selhal (capture vs bubble race)
+    if (event._strategiePasteHandled) return;
+    event._strategiePasteHandled = true;
     // Rename pasted files (clipboard má `image.png` default — přidej timestamp)
     const stamped = images.map((f) => {
       const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);

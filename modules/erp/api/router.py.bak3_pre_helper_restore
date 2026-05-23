@@ -1357,12 +1357,17 @@ def _serialize_menu_node(row_dict: dict) -> dict:
         except Exception: return None
     return {
         "id": row_dict.get("id"),
+        "code": row_dict.get("code"),
         "label": row_dict.get("label"),
+        "kind": row_dict.get("kind"),
         "parent_id": row_dict.get("parent_id"),
+        "parent_code": row_dict.get("_parent_code"),
         "sort_order": row_dict.get("sort_order"),
         "status": row_dict.get("status"),
         "visibility_scope": row_dict.get("visibility_scope"),
+        "cislo_def": row_dict.get("cislo_def"),
         "framework_jadro_id": row_dict.get("framework_jadro_id"),
+        "special_handler": row_dict.get("special_handler"),
         "is_immutable": bool(row_dict.get("is_immutable")),
         "description": row_dict.get("description"),
         # Phase 38.4 Krok 14a-A1l #1 (12.5.2026): dva popisy — system (vyvojari)
@@ -1398,10 +1403,11 @@ def _serialize_core(row_dict: dict) -> dict:
 
 
 def _fetch_menu_node(ds, where_sql: str, params: dict) -> dict | None:
-    """SELECT n.* FROM fw.menu_node n WHERE ... (Phase: code column dropped 22.5.)."""
+    """SELECT n.*, p.code AS _parent_code FROM fw.menu_node n LEFT JOIN ... WHERE ..."""
     sql = _sql_text_fw(f"""
-        SELECT n.*
+        SELECT n.*, p.code AS _parent_code
         FROM fw.menu_node n
+        LEFT JOIN fw.menu_node p ON p.id = n.parent_id
         WHERE {where_sql}
         LIMIT 1
     """)
@@ -1648,11 +1654,15 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
     _require_parent(uid)
 
     body = await req.json()
+    code = (body.get("code") or "").strip()
     label = (body.get("label") or "").strip()
     parent_id = body.get("parent_id")
     sort_order_in = body.get("sort_order")
+    kind = (body.get("kind") or "folder").strip()
 
     # Validation
+    if not code:
+        return JSONResponse({"ok": False, "error": "code povinne"}, status_code=400)
     if not label:
         return JSONResponse({"ok": False, "error": "label povinne"}, status_code=400)
     if parent_id is not None and (not isinstance(parent_id, int) or parent_id <= 0):
@@ -1693,9 +1703,15 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
                     status_code=400,
                 )
 
-        # Idempotency check dropped (code column removed 22.5.) — DB has no
-        # unique constraint on (parent_id, label). Multiple soudecky se stejnym
-        # label povolene; user vidi labels v sidebaru a sam vola jinak.
+        # Idempotency: code uniqueness check (best-effort, DB ma soft unique)
+        existing = ds.execute(_sql_text_cmn("""
+            SELECT id FROM fw.menu_node WHERE code = :code AND status = 'active'
+        """), {"code": code}).mappings().one_or_none()
+        if existing:
+            return JSONResponse(
+                {"ok": False, "error": f"menu_node s code='{code}' uz existuje (id={existing['id']})"},
+                status_code=400,
+            )
 
         # Auto sort_order — max + 10 v parent scope
         if sort_order_in is None or not isinstance(sort_order_in, int):
@@ -1724,10 +1740,12 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
             schema="fw",
             table="menu_node",
             values={
+                "code": code,
                 "label": label,
                 "parent_id": parent_id,
                 "sort_order": sort_order_resolved,
                 "status": "active",
+                "kind": kind,
                 "is_immutable": False,
                 "visibility_scope": "parent_only",
                 "created_by_id": uid,
@@ -1757,8 +1775,8 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
             """), {
                 "uid": uid,
                 "summary": (
-                    f"+ menu_node label='{label}' parent_id={parent_id} "
-                    f"by {caller_display}"
+                    f"+ menu_node '{code}' (label='{label}', parent_id={parent_id}, "
+                    f"kind={kind}) by {caller_display}"
                 ),
             })
             ds.execute(_sql_text_cmn("RELEASE SAVEPOINT pre_audit"))
@@ -1787,8 +1805,38 @@ async def design_create_menu_node(req: Request) -> JSONResponse:
         ds.close()
 
 
-# /design/menu-node-by-code/{code} dropped 22.5.2026 — code column removed.
-# Frontend uses /design/menu-node/{id} (ID-based, line 1562).
+@api_router.get("/design/menu-node-by-code/{menu_node_code}")
+def design_menu_node_by_code(menu_node_code: str, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok 14a: lookup by fw.menu_node.code (text identifier).
+
+    Krok 14g-H+30 Etapa 2 (15.5.2026 vecer): added data_source lookup
+    via core.code (vazba pres code, Marti's pattern).
+    """
+    from core.database_data import get_data_session as _gds_fw
+    uid = _get_uid(req)
+    _require_parent(uid)
+    ds = _gds_fw()
+    try:
+        mn = _fetch_menu_node(ds, "n.code = :code", {"code": menu_node_code})
+        if not mn:
+            raise HTTPException(404, f"menu_node code={menu_node_code} not found")
+        core = None
+        columns: list[dict] = []
+        data_source = None
+        if mn.get("core_id"):
+            core = _fetch_core(ds, "c.id = :id", {"id": mn["core_id"]})
+            if core and core.get("id"):
+                columns = _fetch_columns_for_core(ds, core["id"], core.get("code") or "")
+                # Krok 14g-H+30 Etapa 2: data_source lookup via code
+                data_source = _fetch_data_source_for_core(ds, core.get("code") or "")
+        return JSONResponse(jsonable_encoder({
+            "menu_node": _serialize_menu_node(mn),
+            "core": _serialize_core(core) if core else None,
+            "columns": columns,
+            "data_source": _serialize_data_source(data_source) if data_source else None,
+        }))
+    finally:
+        ds.close()
 
 
 @api_router.get("/design/core/{core_id}")
@@ -1827,7 +1875,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
 
     Krok 14a-fix (12.5.2026): pokud `core_code` matches pattern `prehled_-{cislo}`
     (System grid prefix z layoutKey, Phase 35-E.4 Krok B+/C+), fallback lookup
-    přes menu_node.menu_node_pk → core_id. Tím akce 2 + 3 chodí i pro System grids.
+    přes menu_node.cislo_def → core_id. Tím akce 2 + 3 chodí i pro System grids.
     """
     import re
     from core.database_data import get_data_session as _gds_fw
@@ -1838,9 +1886,7 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
         # Primary: přímý match fw.core.code
         core = _fetch_core(ds, "c.code = :code", {"code": core_code})
 
-        # Phase 22.5.2026: System grid prefix `core_-{cislo}` fallback dropped.
-        # cislo_def column removed — lookup by negative synthetic cislo no longer
-        # possible. Frontend now sends menu_node_pk directly (no cislo_def).
+        # Fallback: System grid prefix `core_-{cislo}` -> cislo_def negative
         # Phase 38.4 Krok 5.R-C+5.1 (18.5.2026 vecer): regex rename z
         # `^prehled_` na `^core_` po Krok 5.R-C+2 layoutKey rename.
         if not core:
@@ -1848,10 +1894,8 @@ def design_core_by_code(core_code: str, req: Request) -> JSONResponse:
             if m:
                 cislo = int(m.group(1))
                 # Najdi menu_node s tim cislo_def, vezmi jeho core_id
-                # Phase 22.5.2026: cislo_def dropped from fw.menu_node.
-                # `cislo` value is now menu_node.id directly — use id lookup:
                 mn_for_cislo = _fetch_menu_node(
-                    ds, "n.id = :id", {"id": cislo}
+                    ds, "n.cislo_def = :cislo", {"cislo": cislo}
                 )
                 if mn_for_cislo and mn_for_cislo.get("core_id"):
                     core = _fetch_core(
@@ -1983,7 +2027,7 @@ _FW_FORM_ENTITY_MAP: dict = {
         "id_column": "id",
         "select_columns": [
             "id", "code", "label", "kind", "parent_id", "sort_order",
-            "status", "visibility_scope", "core_id",
+            "status", "visibility_scope", "core_id", "cislo_def",
             "framework_jadro_id", "special_handler", "is_immutable",
             "description_user", "description_system",
             "created_at", "updated_at",
@@ -2048,14 +2092,6 @@ _FW_FORM_ENTITY_MAP["core_design"] = _FW_FORM_ENTITY_MAP["core"]
 _FW_FORM_ENTITY_MAP["comp_def_design"] = _FW_FORM_ENTITY_MAP["comp_def"]
 _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
 
-# Phase 38.4 Krok 5.N-2 LIVE (22.5.2026 vecer, Marti's "čistý stůl"):
-# System cores (Diag log, DataSets, DataSources, DB Connections, Knowledge
-# Entries, atd.) NEMAJÍ explicit entries v _FW_FORM_ENTITY_MAP. Resolvuji
-# se DB-driven pres fw.data_source.target_xxx columns (deployed _phase_krok5_n_2_
-# data_source_target_columns.sql). Marti's audit log RO doctrine (21.5. Fix N)
-# zustava intact — direct UPDATE pres design_patch_entity je servisni override
-# (Excel mode = vedome zapnuti, Marti's "dva mody, nez to vsechno doladime").
-
 
 # Phase 38.4 Krok 5.N-1 (17.5.2026): ID-based form_core registry.
 # Marti's doctrine "code je optional, ID je truth" — applied to fw.core
@@ -2070,100 +2106,19 @@ _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
 # Long-term plan: migrate config do fw.data_source.target_xxx columns
 # (Krok 5.N-2+) — vše v DB, žádný Python map.
 _FW_FORM_CORE_REGISTRY: dict = {
-    22: _FW_FORM_ENTITY_MAP["user"],       # user_edit form_core (Marti's code: '22a')
-    23: _FW_FORM_ENTITY_MAP["core"],       # core_design form_core (Marti's code: '23a')
-    # Phase 38.4 Krok 5.N-2 LIVE (22.5.2026 vecer, Marti's "čistý stůl"):
-    # Ostatní cores resolvuji DB-driven pres fw.data_source.target_xxx columns.
-    # _resolve_entity_config_from_db() je PRIMARY path; this map je legacy
-    # fallback pro 22+23 (user/core form_cores postavené pre-Krok 5.N-2).
+    22: _FW_FORM_ENTITY_MAP["user"],   # user_edit form_core (Marti's code: '22a')
+    23: _FW_FORM_ENTITY_MAP["core"],   # core_design form_core (Marti's code: '23a')
+    # Add more as form_cores are created. Long-term: replace s DB-driven config.
 }
 
 
-def _resolve_entity_config_from_db(core_id: int) -> dict | None:
-    """Phase 38.4 Krok 5.N-2 LIVE v2 (22.5.2026 vecer, Marti's "patri to do
-    instance gridu, ne data_source"): drop fw.data_source.target_xxx columns
-    bastl plan. Backend resolver extract target via SQL parse z data_set.sql_text.
-
-    Lookup chain:
-      JOIN fw.core c → fw.comp_def cd (region_slot='main', is_active)
-          → fw.data_source dsrc (cd.data_source_id)
-          → fw.data_source_op op (default, operation_kind='select')
-          → fw.data_set dset (op.data_set_id)
-      → regex extract FROM <schema>.<table> z dset.sql_text
-      → target = (schema, table, id='id', no whitelist)
-
-    Marti's design (22.5. vecer):
-      - select_columns = None (trust frontend, NULL = all editable per
-        fw.comp_grid.layout_json.editable_columns NULL default)
-      - Future: read fw.comp_grid for active user + use editable_columns
-        OR layout_json.columns[].colId as whitelist (server safety net).
-    """
-    import re as _re_resolve
-    from core.database_data import get_data_session as _gds_resolve
-    from sqlalchemy import text as _sql_resolve
-
-    ds = _gds_resolve()
-    try:
-        row = ds.execute(_sql_resolve("""
-            SELECT dset.sql_text
-            FROM fw.core c
-            JOIN fw.comp_def cd
-                ON cd.core_id = c.id
-               AND cd.region_slot = 'main'
-               AND cd.is_active = TRUE
-            JOIN fw.data_source dsrc
-                ON dsrc.id = cd.data_source_id
-            JOIN fw.data_source_op op
-                ON op.data_source_id = dsrc.id
-               AND op.operation_kind = 'select'
-            JOIN fw.data_set dset
-                ON dset.id = op.data_set_id
-            WHERE c.id = :core_id
-            ORDER BY op.is_default DESC NULLS LAST, op.id ASC
-            LIMIT 1
-        """), {"core_id": core_id}).mappings().one_or_none()
-        if not row:
-            logger.info(f"_resolve_entity_config_from_db: no core/data_set chain for core_id={core_id}")
-            return None
-        sql_text = row["sql_text"] or ""
-        # Regex extract: FROM <schema>.<table> (case-insensitive, allow aliases)
-        # Pattern matches: "FROM fw.core c", "FROM public.users", "FROM fw.diag_log dl WHERE..."
-        match = _re_resolve.search(
-            r"\bFROM\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)",
-            sql_text,
-            _re_resolve.IGNORECASE,
-        )
-        if not match:
-            logger.warning(
-                f"_resolve_entity_config_from_db: no FROM <schema>.<table> v "
-                f"data_set sql_text pro core_id={core_id} (composite SQL? CTE? subquery?)"
-            )
-            return None
-        schema = match.group(1).lower()
-        table = match.group(2).lower()
-        return {
-            "schema": schema,
-            "table": table,
-            "id_column": "id",
-            # select_columns = None: Marti's "NULL = all editable" design.
-            # Server trust frontend payload. Future: read fw.comp_grid.layout_json
-            # for active user + use editable_columns / visible columns as whitelist.
-        }
-    except Exception as exc:
-        logger.warning(f"_resolve_entity_config_from_db(core_id={core_id}) failed: {exc}")
-        return None
-    finally:
-        ds.close()
-
-
 def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
-    """Resolve entity config for a form_core — DB-first (Krok 5.N-2), legacy fallback.
+    """Resolve entity config for a form_core — ID first, code fallback.
 
-    Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "čistý stůl za námi"):
+    Phase 38.4 Krok 5.N-1 (17.5.2026): pojistka proti Marti's code rename.
     Lookup chain:
-      1. DB-driven via fw.data_source.target_xxx columns (PRIMARY, universal)
-      2. core_id v _FW_FORM_CORE_REGISTRY (legacy fallback, user_edit/core_design)
-      3. core.code v _FW_FORM_ENTITY_MAP (legacy code-keyed)
+      1. core_id v _FW_FORM_CORE_REGISTRY (primary, ID-keyed)
+      2. core.code v _FW_FORM_ENTITY_MAP (legacy fallback, code-keyed)
 
     Args:
         core_dict_or_id: dict s 'id' + 'code', nebo přímo int core_id
@@ -2171,30 +2126,18 @@ def _resolve_entity_config_for_core(core_dict_or_id) -> dict | None:
     Returns:
         entity_config dict, nebo None pokud neresolved
     """
-    # Extract core_id
     if isinstance(core_dict_or_id, int):
-        core_id = core_dict_or_id
-        core_code = None
-    elif isinstance(core_dict_or_id, dict):
-        core_id = core_dict_or_id.get("id")
-        core_code = core_dict_or_id.get("code")
-    else:
+        return _FW_FORM_CORE_REGISTRY.get(core_dict_or_id)
+    if not isinstance(core_dict_or_id, dict):
         return None
-
-    # 1. DB-driven (PRIMARY, Krok 5.N-2)
-    if core_id is not None:
-        config = _resolve_entity_config_from_db(core_id)
-        if config:
-            return config
-
-    # 2. Legacy hardcoded registry (user/core form_cores, 17.5. Krok 5.N-1)
+    # Try by id first (5.N-1 primary)
+    core_id = core_dict_or_id.get("id")
     if core_id is not None and core_id in _FW_FORM_CORE_REGISTRY:
         return _FW_FORM_CORE_REGISTRY[core_id]
-
-    # 3. Legacy code-keyed map (oldest fallback)
-    if core_code and core_code in _FW_FORM_ENTITY_MAP:
-        return _FW_FORM_ENTITY_MAP[core_code]
-
+    # Fallback by code (legacy, until Marti's all cores have registry entry)
+    code = core_dict_or_id.get("code")
+    if code and code in _FW_FORM_ENTITY_MAP:
+        return _FW_FORM_ENTITY_MAP[code]
     return None
 
 
@@ -2563,39 +2506,10 @@ def fw_core_page_spec(core_id: int, req: Request) -> JSONResponse:
         # native ErpDataGrid toolbar resi sestavu pres /grid-layout/{core_id}
         # API. fw.comp_grid_master* schema deprecated.
 
-        # Krok 5.S (22.5.2026 vecer, Marti's "od lesa" Centrala 1 toolbar parita):
-        # grid_actions driven by fw.data_source_op rows per root_comp_def's
-        # data_source_id. Aggregace:
-        #   has_insert / has_edit / has_delete = bool (kind row EXISTS)
-        #   edit_core_id = core_id z 'edit' row (kam otevrit form)
-        # Marti's doctrine: visibility per row presence (no status column).
-        grid_actions = None
-        root_ds_id = root_row["data_source_id"] if root_row else None
-        if root_ds_id is not None:
-            ga_row = ds.execute(_sql_psp("""
-                SELECT
-                    bool_or(operation_kind = 'insert') AS has_insert,
-                    bool_or(operation_kind = 'edit')   AS has_edit,
-                    bool_or(operation_kind = 'delete') AS has_delete,
-                    MAX(core_id) FILTER (WHERE operation_kind = 'edit') AS edit_core_id
-                FROM fw.data_source_op
-                WHERE data_source_id = :ds_id
-            """), {"ds_id": root_ds_id}).mappings().one_or_none()
-            grid_actions = {
-                "has_insert": bool(ga_row["has_insert"]) if ga_row else False,
-                "has_edit": bool(ga_row["has_edit"]) if ga_row else False,
-                "has_delete": bool(ga_row["has_delete"]) if ga_row else False,
-                "edit_core_id": ga_row["edit_core_id"] if ga_row else None,
-            }
-
-        root_comp_def_payload = dict(root_row) if root_row else None
-        if root_comp_def_payload is not None:
-            root_comp_def_payload["grid_actions"] = grid_actions
-
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core": dict(core_row),
-            "root_comp_def": root_comp_def_payload,
+            "root_comp_def": dict(root_row) if root_row else None,
             "has_root": root_row is not None,
         }))
     finally:
@@ -3537,219 +3451,6 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         logger.exception(f"design_patch_entity failed: {exc}")
         return JSONResponse(
             {"ok": False, "error": f"PATCH failed: {exc}"},
-            status_code=500,
-        )
-    finally:
-        ds.close()
-
-
-# ────────────────────────────────────────────────────────────────────
-# Phase 38.4 Krok 5.S Fáze 4 (22.5.2026 vecer, Marti's "od lesa" toolbar):
-# DELETE entity endpoint — analog design_patch_entity ale DELETE flow.
-# Reuse _resolve_entity_config_for_core (5.N-2 v2 SQL parse resolver).
-# Marti's Q7=A "drz jednoduchost" — hard delete bez soft delete branch.
-# ────────────────────────────────────────────────────────────────────
-
-@api_router.delete("/design/{core_id}/{row_id}")
-async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONResponse:
-    """Hard DELETE row z entity table.
-
-    URL: DELETE /api/v1/erp/design/{core_id}/{row_id}
-
-    Resolves target table via _resolve_entity_config_for_core (DB-first
-    z 5.N-2 v2 SQL parse, fallback _FW_FORM_CORE_REGISTRY pro user/core).
-    Returns:
-        200: {ok, deleted_rows} — success (idempotent: 0 rows pokud row neexistuje)
-        404: core_id not resolvable to entity_config
-        500: DB error
-    """
-    from core.database_data import get_data_session as _gds_del
-    from sqlalchemy import text as _sql_text_del
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    # Resolve entity config (schema, table, id_column) via 5.N-2 v2 chain
-    config = _resolve_entity_config_for_core(core_id)
-    if not config:
-        return JSONResponse(
-            {"ok": False, "error": f"Entity '{core_id}' nelze resolvovat (chybi data_source/data_set chain)"},
-            status_code=404,
-        )
-
-    schema = config["schema"]
-    table = config["table"]
-    id_column = config.get("id_column", "id")
-
-    ds = _gds_del()
-    try:
-        # Krok 5.W diag #3 (23.5.2026): connection identity check BEFORE DELETE.
-        # Marti's paradox: manual DBeaver DELETE+COMMIT persistuje, backend ne.
-        # Hypotéza: ds connects k JINÉ DB nebo serveru než DBeaver.
-        ds_conn_info = ds.execute(_sql_text_del(
-            "SELECT pg_backend_pid() AS pid, current_database() AS db, "
-            "current_user AS pg_user, session_user AS sess_user, "
-            "inet_server_addr()::text AS host, inet_server_port() AS port"
-        )).mappings().first()
-
-        # Direct DELETE — _require_parent gate sufficient authz (Marti's "rodice maji full trust")
-        result = ds.execute(_sql_text_del(
-            f'DELETE FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
-        ), {"rid": row_id})
-        deleted_rows = result.rowcount
-
-        # Krok 5.W diag (23.5.2026): immediate same-session re-check PŘED commit.
-        # Pokud DELETE skutečně proběhl, count by mělo být 0 i v této session.
-        # Marti's paradox: rowcount=1, ale row stále v DB.
-        check_pre_commit = ds.execute(_sql_text_del(
-            f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
-        ), {"rid": row_id}).scalar()
-
-        # Krok 5.W diag #3: tx state check PŘED commit
-        ds_tx_pre = ds.execute(_sql_text_del(
-            "SELECT pg_current_xact_id_if_assigned()::text AS tx_id"
-        )).scalar()
-
-        # Activity log audit (Krok 5.S doctrine NE-anonymous: kdo kdy co)
-        # Krok 5.W fix (23.5.2026): ROOT CAUSE paradox FOUND!
-        # Backend používal OLD column names (action_kind/target_kind/target_id/
-        # payload/created_at) které v aktuálním schema NEEXISTUJÍ. Schema má:
-        # (id, ts, persona_id, user_id, conversation_id, tenant_id, category,
-        #  actor, summary, ref_type, ref_id, importance, change_source).
-        #
-        # PG raised "column does not exist" → Python catch swallowed exception
-        # → PG tx ABORTED → ds.commit() na aborted tx → silent ROLLBACK
-        # → DELETE ROLLBACKED → row vrátí se v fresh session.
-        #
-        # Plus SAVEPOINT wrap: pokud INSERT failuje, jen savepoint rollback —
-        # main tx zůstane clean a DELETE commit projde.
-        try:
-            ds.execute(_sql_text_del("SAVEPOINT sp_activity_log"))
-            try:
-                ds.execute(_sql_text_del("""
-                    INSERT INTO activity_log
-                        (user_id, category, actor, summary, ref_type, ref_id,
-                         change_source, importance, ts)
-                    VALUES
-                        (:uid, 'delete', 'user', :summary, :rt, :rid,
-                         'ui', 3, NOW())
-                """), {
-                    "uid": uid,
-                    "summary": f"DELETE {schema}.{table} id={row_id} (core_id={core_id}, deleted_rows={deleted_rows})",
-                    "rt": f"{schema}.{table}",
-                    "rid": row_id,
-                })
-                ds.execute(_sql_text_del("RELEASE SAVEPOINT sp_activity_log"))
-            except Exception as _act_e:
-                # Rollback savepoint — main tx zustane clean (DELETE staged OK)
-                try:
-                    ds.execute(_sql_text_del("ROLLBACK TO SAVEPOINT sp_activity_log"))
-                except Exception:
-                    pass
-                # Krok 5.W systémový fix: Marti's "Bezpečnost přes probuzení,
-                # ne přes ticho" doctrine. logger.warning + EXPLICIT log_event
-                # do fw.diag_log se SEPARATE session (handler ds může být
-                # v aborted state). ERROR level + plný kontext pro forensic.
-                try:
-                    import traceback as _tb_act
-                    from core.log_queue import log_event as _log_event_act
-                    _log_event_act(
-                        level="error",
-                        source="py",
-                        module_id="modules.erp.api.router:design_delete_entity:activity_log",
-                        message=(
-                            f"activity_log INSERT failed (savepoint rolled back): "
-                            f"{type(_act_e).__name__}: {str(_act_e)[:300]}"
-                        ),
-                        exception_type=type(_act_e).__name__,
-                        traceback_str=_tb_act.format_exc(),
-                        extra={
-                            "schema": schema,
-                            "table": table,
-                            "row_id": row_id,
-                            "core_id": core_id,
-                            "deleted_rows": deleted_rows,
-                            "error_str": str(_act_e)[:500],
-                        },
-                    )
-                except Exception:
-                    pass  # last resort — never crash on log
-                logger.warning(f"design_delete_entity activity_log INSERT failed (rolled back to savepoint): {_act_e}")
-        except Exception as _sp_e:
-            logger.warning(f"design_delete_entity savepoint setup failed: {_sp_e}")
-
-        ds.commit()
-
-        # Krok 5.W diag #3: tx state check PO commit. Mělo být NULL = tx closed.
-        ds_tx_post = None
-        try:
-            ds_tx_post = ds.execute(_sql_text_del(
-                "SELECT pg_current_xact_id_if_assigned()::text AS tx_id"
-            )).scalar()
-        except Exception as _e:
-            ds_tx_post = f"err: {type(_e).__name__}"
-
-        # Krok 5.W diag: fresh session re-check POST commit.
-        # Pokud check_pre=0 ale check_post=1, commit se rolloutoval mimo
-        # tuto session (deferred trigger? connection pool issue?).
-        ds2 = _gds_del()
-        check_post_commit = None
-        ds2_conn_info = None
-        try:
-            ds2_conn_info = ds2.execute(_sql_text_del(
-                "SELECT pg_backend_pid() AS pid, current_database() AS db, "
-                "current_user AS pg_user, session_user AS sess_user, "
-                "inet_server_addr()::text AS host, inet_server_port() AS port"
-            )).mappings().first()
-            check_post_commit = ds2.execute(_sql_text_del(
-                f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
-            ), {"rid": row_id}).scalar()
-        except Exception:
-            pass
-        finally:
-            ds2.close()
-
-        # Krok 5.W diag #3: full diag log s connection identity comparison
-        ds_info_str = dict(ds_conn_info) if ds_conn_info else None
-        ds2_info_str = dict(ds2_conn_info) if ds2_conn_info else None
-        same_pid = (ds_conn_info and ds2_conn_info
-                    and ds_conn_info["pid"] == ds2_conn_info["pid"])
-        same_db = (ds_conn_info and ds2_conn_info
-                   and ds_conn_info["db"] == ds2_conn_info["db"])
-        same_host = (ds_conn_info and ds2_conn_info
-                     and ds_conn_info["host"] == ds2_conn_info["host"])
-        logger.info(
-            f"design_delete_entity DELETE FROM {schema}.{table} id={row_id}:\n"
-            f"  rowcount={deleted_rows}, pre={check_pre_commit}, post={check_post_commit}\n"
-            f"  ds (DELETE+pre): {ds_info_str}\n"
-            f"  ds tx pre={ds_tx_pre}, post={ds_tx_post} (None=tx closed)\n"
-            f"  ds2 (post check): {ds2_info_str}\n"
-            f"  same_pid={same_pid}, same_db={same_db}, same_host={same_host}"
-        )
-
-        return JSONResponse({
-            "ok": True,
-            "deleted_rows": deleted_rows,
-            "core_id": core_id,
-            "row_id": row_id,
-            "schema": schema,
-            "table": table,
-            # Diag fields — frontend zobrazí v paradox warning pokud nesedí
-            "check_pre_commit": check_pre_commit,
-            "check_post_commit": check_post_commit,
-            "ds_conn": ds_info_str,
-            "ds2_conn": ds2_info_str,
-            "ds_tx_pre": ds_tx_pre,
-            "ds_tx_post": ds_tx_post,
-            "same_pid": same_pid,
-            "same_db": same_db,
-            "same_host": same_host,
-        })
-    except Exception as exc:
-        ds.rollback()
-        logger.exception(f"design_delete_entity failed: {exc}")
-        return JSONResponse(
-            {"ok": False, "error": f"DELETE failed: {exc}"},
             status_code=500,
         )
     finally:
@@ -5106,6 +4807,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
         #   populated = root + alespon 1 child
         sql_cores = _sql_clst("""
             SELECT c.*,
+                   mn.code  AS _origin_mn_code,
                    mn.label AS _origin_mn_label,
                    cmi.label AS _origin_cmi_label,
                    (
@@ -5149,6 +4851,7 @@ def design_list_fw_core(req: Request) -> JSONResponse:
                 "is_used_count": usage_map.get(core_id, 0),
                 # Krok 5.C origin provenance — picker display
                 "origin_menu_node_label": rd.get("_origin_mn_label"),
+                "origin_menu_node_code": rd.get("_origin_mn_code"),
                 "origin_cmi_label": rd.get("_origin_cmi_label"),
                 # Krok 5.D readiness_state (Marti-AI's Q4 insight)
                 "readiness_state": rd.get("_readiness_state") or "drafted",
@@ -5832,6 +5535,218 @@ async def design_patch_fw_data_source(data_source_id: int, req: Request) -> JSON
         ds_pds.close()
 
 
+@api_router.get("/design/data-set/{data_set_id}")
+def design_get_data_set_single(data_set_id: int, req: Request) -> JSONResponse:
+    """Krok 5.L-A GET single data_set detail + use count (pocet refs v data_source_op).
+
+    Returns:
+        200: { ok, data_set: {id, code, sql_text, db_connection, description, status,
+               is_system, created_at}, use_count }  # kind dropped Krok 5.L-D 17.5.2026
+        404: data_set neexistuje
+    """
+    from core.database_data import get_data_session as _gds_gdss
+    from sqlalchemy import text as _sql_text_gdss
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds_session = _gds_gdss()
+    try:
+        row = ds_session.execute(_sql_text_gdss("""
+            SELECT * FROM fw.data_set WHERE id = :id
+        """), {"id": data_set_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} nenalezen"}, status_code=404)
+
+        # Count refs in data_source_op (informativní pro UI warning)
+        use_count = ds_session.execute(_sql_text_gdss("""
+            SELECT COUNT(*) AS cnt FROM fw.data_source_op WHERE data_set_id = :id
+        """), {"id": data_set_id}).scalar() or 0
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_set": dict(row),
+            "use_count": use_count,
+        }))
+    finally:
+        ds_session.close()
+
+
+@api_router.post("/design/data-set/create")
+async def design_create_data_set(req: Request) -> JSONResponse:
+    """Krok 5.L-A POST single data_set create.
+
+    Body: {kind: str, sql_text: str, db_connection?: 'data_db', description?: str, code?: null}
+
+    code defaultne NULL per Marti's doctrine (17.5.). PG UNIQUE allows multiple NULLs.
+
+    Returns:
+        200: {ok, data_set_id, data_set: {...full row...}}
+        400: invalid body
+        500: INSERT failed
+    """
+    from core.database_data import get_data_session as _gds_cds_set
+    from sqlalchemy import text as _sql_text_cds_set
+    from modules.strategie_pg.application.service import insert_row as _spg_insert_cds_set
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind field — SQL truth source
+    # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
+    # Backward compat: accept db_connection_id (FK BIGINT) or db_connection (legacy code string).
+    sql_text = body.get("sql_text") or ""
+    db_conn_id_raw = body.get("db_connection_id")
+    db_conn_legacy = body.get("db_connection")  # legacy string code
+    description = body.get("description")
+    if description is not None:
+        description = str(description).strip() or None
+
+    # Code optional — None = NULL v DB (Marti's NULL doctrine)
+    code_raw = body.get("code")
+    code_normalized = None
+    if code_raw is not None:
+        code_normalized = str(code_raw).strip() or None
+
+    # Validation
+    if not sql_text.strip():
+        return JSONResponse({"ok": False, "error": "sql_text povinný"}, status_code=400)
+
+    ds_session = _gds_cds_set()
+    try:
+        # Resolve db_connection_id (Krok 5.M backward compat)
+        db_connection_id = None
+        if db_conn_id_raw is not None:
+            try:
+                db_connection_id = int(db_conn_id_raw)
+            except (ValueError, TypeError):
+                return JSONResponse({"ok": False, "error": f"db_connection_id musí být integer, got {db_conn_id_raw!r}"}, status_code=400)
+        else:
+            # Legacy fallback: lookup FK by code OR default_db string
+            conn_code = (db_conn_legacy or "data_db").strip() or "data_db"
+            conn_row = ds_session.execute(_sql_text_cds_set("""
+                SELECT id FROM fw.db_connection
+                WHERE code = :c OR default_db = :c
+                LIMIT 1
+            """), {"c": conn_code}).mappings().one_or_none()
+            if conn_row is None:
+                return JSONResponse({"ok": False, "error": f"db_connection '{conn_code}' nenalezen v fw.db_connection"}, status_code=400)
+            db_connection_id = conn_row["id"]
+
+        # Uniqueness check JEN pokud code non-null
+        if code_normalized is not None:
+            existing = ds_session.execute(_sql_text_cds_set("""
+                SELECT id FROM fw.data_set
+                WHERE code = :code AND status = 'active'
+                LIMIT 1
+            """), {"code": code_normalized}).mappings().one_or_none()
+            if existing:
+                return JSONResponse(
+                    {"ok": False, "error": f"Aktivni data_set s code='{code_normalized}' uz existuje (id={existing['id']})."},
+                    status_code=400,
+                )
+
+        values = {
+            "code": code_normalized,
+            "sql_text": sql_text,
+            "db_connection_id": db_connection_id,
+            "description": description,
+            "is_system": False,
+            "status": "active",
+        }
+        result = _spg_insert_cds_set(schema="fw", table="data_set", values=values)
+        if not result.get("ok"):
+            return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {result.get('error')}"}, status_code=500)
+
+        new_row = result.get("inserted") or {}
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_set_id": new_row.get("id"),
+            "data_set": new_row,
+        }))
+    finally:
+        ds_session.close()
+
+
+@api_router.patch("/design/data-set/update/{data_set_id}")
+async def design_patch_data_set(data_set_id: int, req: Request) -> JSONResponse:
+    """Krok 5.K-B3: PATCH data_set (SQL primitiv) — update sql_text +
+    db_connection + description.  # kind dropped Krok 5.L-D 17.5.2026
+
+    Route 3-segment (Marti's gotcha #14b+10) — vyhne collision s generic
+    design_patch_entity `/design/{entity_type}/{row_id}`.
+
+    Body: {sql_text?, kind?, db_connection?, description?}
+    """
+    from core.database_data import get_data_session as _gds_pdset
+    from sqlalchemy import text as _sql_text_pdset
+    from modules.strategie_pg.application.service import update_row as _spg_update_pdset
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    # Krok 5.L-D (17.5.2026, Marti's "kind matouci"): drop kind z ALLOWED
+    # Krok 5.M (17.5.2026): db_connection VARCHAR → FK db_connection_id.
+    # Backward compat: accept db_connection_id (FK BIGINT) or db_connection (legacy code string).
+    # Sprint A (17.5.2026 dop.): + status pro archive/restore z UI.
+    ALLOWED = ("sql_text", "db_connection_id", "description", "status")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+    if "status" in update_vals:
+        v = update_vals["status"]
+        if v not in ("active", "archived"):
+            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
+
+    ds_pdset = _gds_pdset()
+    try:
+        # Legacy db_connection (string code) → FK resolve
+        if "db_connection_id" not in update_vals and "db_connection" in body:
+            conn_code = (body["db_connection"] or "").strip()
+            if conn_code:
+                conn_row = ds_pdset.execute(_sql_text_pdset("""
+                    SELECT id FROM fw.db_connection
+                    WHERE code = :c OR default_db = :c
+                    LIMIT 1
+                """), {"c": conn_code}).mappings().one_or_none()
+                if conn_row is None:
+                    return JSONResponse({"ok": False, "error": f"db_connection '{conn_code}' nenalezen v fw.db_connection"}, status_code=400)
+                update_vals["db_connection_id"] = conn_row["id"]
+
+        if not update_vals:
+            return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: sql_text, db_connection_id (nebo db_connection), description"}, status_code=400)
+        existing = ds_pdset.execute(_sql_text_pdset("""
+            SELECT id, status FROM fw.data_set WHERE id = :id
+        """), {"id": data_set_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} neexistuje"}, status_code=404)
+        if existing["status"] != "active":
+            return JSONResponse({"ok": False, "error": f"data_set id={data_set_id} neni active"}, status_code=400)
+
+        upd = _spg_update_pdset(schema="fw", table="data_set", values=update_vals, where={"id": data_set_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "data_set_id": data_set_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds_pdset.close()
+
+
 @api_router.post("/design/data-source/{data_source_id}/op-create")
 async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSONResponse:
     """Sprint B+++ (17.5.2026 odp., Marti's "add op v edit mode"):
@@ -5882,12 +5797,7 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
         if not ds_row:
             return JSONResponse({"ok": False, "error": f"data_source id={data_source_id} neexistuje nebo neni aktivni"}, status_code=404)
 
-        # Krok 5.S Fáze 5 (22.5.2026 vecer): non-execute ops (edit/delete)
-        # NEPOTREBUJI data_set (Marti's Q6 DROP NOT NULL z DDL). Pokud body
-        # neposila data_set_id ANI data_set inline, op kind MUSI byt edit/delete.
-        NO_DATA_SET_KINDS = ("edit", "delete")
-
-        # Resolve data_set_id — reuse OR inline create OR NULL (edit/delete)
+        # Resolve data_set_id — reuse OR inline create
         data_set_id = body.get("data_set_id")
         if data_set_id is not None:
             # Reuse path — verify exists + active
@@ -5932,30 +5842,13 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
             if not set_result.get("ok"):
                 return JSONResponse({"ok": False, "error": f"INSERT data_set failed: {set_result.get('error')}"}, status_code=500)
             new_set_id = set_result["inserted"]["id"]
-        elif op_kind in NO_DATA_SET_KINDS:
-            # Krok 5.S Fáze 5: edit/delete ops bez data_set (Marti's DROP NOT NULL)
-            new_set_id = None
         else:
-            return JSONResponse({
-                "ok": False,
-                "error": f"body musi mit 'data_set_id' (reuse) NEBO 'data_set' (inline create) — pripadne kind v {NO_DATA_SET_KINDS} (bez data_set)"
-            }, status_code=400)
+            return JSONResponse({"ok": False, "error": "body musi mit 'data_set_id' (reuse) NEBO 'data_set' (inline create)"}, status_code=400)
 
         # Build op values — variant_code NULL allowed (Krok 5.K-B6 doctrine)
         variant_code = body.get("variant_code")
         if variant_code is not None and not str(variant_code).strip():
             variant_code = None
-        # Krok 5.S Fáze 5 (22.5.2026 vecer, Marti's "ted nemam cim nakonfigurovat"):
-        # core_id support pro 'edit' op kind — vazba na CORE pro Oprava button
-        # v grid toolbar (Krok 5.S Fáze 3 frontend).
-        core_id_raw = body.get("core_id")
-        core_id_val = None
-        if core_id_raw is not None and str(core_id_raw).strip():
-            try:
-                core_id_val = int(core_id_raw)
-            except (ValueError, TypeError):
-                return JSONResponse({"ok": False, "error": "core_id musi byt integer"}, status_code=400)
-
         op_values = {
             "data_source_id": data_source_id,
             "data_set_id": new_set_id,
@@ -5964,7 +5857,6 @@ async def design_add_op_to_data_source(data_source_id: int, req: Request) -> JSO
             "is_default": bool(body.get("is_default", False)),
             "sort_order": int(body.get("sort_order") or 0),
             "description": (body.get("description") or None),
-            "core_id": core_id_val,
         }
         op_result = _spg_insert_aop(schema="fw", table="data_source_op", values=op_values)
         if not op_result.get("ok"):
@@ -6003,7 +5895,7 @@ async def design_patch_data_source_op(op_id: int, req: Request) -> JSONResponse:
     except Exception:
         return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
 
-    ALLOWED = ("variant_code", "operation_kind", "sort_order", "is_default", "description", "core_id")
+    ALLOWED = ("variant_code", "operation_kind", "sort_order", "is_default", "description")
     update_vals = {}
     for k in ALLOWED:
         if k in body:
@@ -6119,20 +6011,133 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Phase 22.5.2026 Iterace B Vlna 2-1: db_connection_editor extracted
-# 2 endpoints (PATCH /design/db-connection/update/{id} + GET /system/db-connections)
-# moved to modules/fw_components/db_connection_editor.py.
+# Phase 38.4 Krok 14g Etapa F Sprint D (17.5.2026 dop.):
+# PATCH /design/db-connection/update/{id} + POST /design/db-connection/create
+# — Marti's "Kristý/Jirka z UI" — DB connection management bez DBeaveru.
 # ════════════════════════════════════════════════════════════════════════
-from modules.fw_components.db_connection_editor import DbConnectionEditorComponent as _DbConnEditor  # noqa: E402
-_DbConnEditor.register_routes(api_router)
+@api_router.patch("/design/db-connection/update/{conn_id}")
+async def design_patch_db_connection(conn_id: int, req: Request) -> JSONResponse:
+    """PATCH fw.db_connection (Sprint D 17.5.2026).
+
+    Body fields (all optional, alespoň 1):
+      label, description, default_db, host, port, login_name,
+      scope_databases (JSONB array), is_active, sort_order, status
+      (NE: code — immutable per "ID je svaty" doctrine)
+
+    Returns:
+        200: {ok, conn_id, updated_fields: [...]}
+        400: invalid body
+        404: connection neexistuje
+    """
+    from core.database_data import get_data_session as _gds_pdc
+    from sqlalchemy import text as _sql_text_pdc
+    from modules.strategie_pg.application.service import update_row as _spg_update_pdc
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    ALLOWED = ("label", "description", "default_db", "host", "port",
+               "login_name", "scope_databases", "is_active", "sort_order", "status")
+    update_vals = {}
+    for k in ALLOWED:
+        if k in body:
+            update_vals[k] = body[k]
+
+    if not update_vals:
+        return JSONResponse({"ok": False, "error": f"Body musi obsahovat alespon jeden z: {ALLOWED}"}, status_code=400)
+
+    # Validation
+    if "status" in update_vals:
+        v = update_vals["status"]
+        if v not in ("active", "archived"):
+            return JSONResponse({"ok": False, "error": f"status musi byt 'active' nebo 'archived', got {v!r}"}, status_code=400)
+    if "is_active" in update_vals:
+        update_vals["is_active"] = bool(update_vals["is_active"])
+    if "port" in update_vals and update_vals["port"] is not None:
+        try:
+            update_vals["port"] = int(update_vals["port"])
+        except (ValueError, TypeError):
+            return JSONResponse({"ok": False, "error": "port musi byt integer nebo null"}, status_code=400)
+
+    ds = _gds_pdc()
+    try:
+        existing = ds.execute(_sql_text_pdc("""
+            SELECT id FROM fw.db_connection WHERE id = :id
+        """), {"id": conn_id}).mappings().one_or_none()
+        if not existing:
+            return JSONResponse({"ok": False, "error": f"db_connection id={conn_id} neexistuje"}, status_code=404)
+
+        upd = _spg_update_pdc(schema="fw", table="db_connection", values=update_vals, where={"id": conn_id}, dry_run=False)
+        if not upd.get("ok"):
+            return JSONResponse({"ok": False, "error": f"UPDATE failed: {upd.get('error')}"}, status_code=500)
+
+        return JSONResponse({
+            "ok": True,
+            "conn_id": conn_id,
+            "updated_fields": sorted(update_vals.keys()),
+        })
+    finally:
+        ds.close()
+
 
 # ════════════════════════════════════════════════════════════════════════
-# Vlna 2-2 (22.5.2026): data_set_editor extract z router.py do per-komponenta file.
-# 5 endpoints moved to modules/fw_components/data_set_editor.py.
+# Phase 38.4 Krok 14g Etapa F Krok 5.M-D (17.5.2026):
+# GET /system/db-connections — frontend reads master registry from DB
+# (Marti's "KDE TO CACHUJES?" — drop hardcoded JS array)
 # ════════════════════════════════════════════════════════════════════════
-from modules.fw_components.data_set_editor import DataSetEditorComponent as _DataSetEditor  # noqa: E402
-_DataSetEditor.register_routes(api_router)
+@api_router.get("/system/db-connections")
+def system_db_connections(req: Request, include_inactive: bool = False) -> JSONResponse:
+    """Krok 5.M-D: List DB connections z fw.db_connection.
 
+    Frontend DesignDataSetEditor + DesignDataSourceEditor fetchnou tento
+    endpoint při open místo hardcoded DDS_DB_CONNECTIONS — DB = single
+    source of truth. Marti's pattern z 17.5. dop.
+
+    Query params:
+        include_inactive: bool (default False) — INTERSOFT placeholder shows
+                          jen pokud true (UI dropdown by default skryje)
+
+    Returns:
+        { ok, connections: [
+            {id, code, label, tenant_id, tenant_code, tenant_name,
+             db_type, host, port, default_db, scope_databases,
+             is_active, sort_order, description}
+        ] }
+    """
+    from core.database_data import get_data_session as _gds_dbconn
+    from sqlalchemy import text as _sql_text_dbconn
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_dbconn()
+    try:
+        sql = _sql_text_dbconn("""
+            SELECT dc.id, dc.code, dc.label,
+                   dc.tenant_id,
+                   t.tenant_code, t.tenant_name,
+                   dc.db_type, dc.host, dc.port, dc.default_db,
+                   dc.scope_databases,
+                   dc.is_active, dc.sort_order, dc.description, dc.status
+            FROM fw.db_connection dc
+            LEFT JOIN public.tenants t ON t.id = dc.tenant_id
+            WHERE (:include_inactive OR dc.is_active = TRUE)
+              AND dc.status = 'active'
+            ORDER BY dc.sort_order ASC, dc.code ASC
+        """)
+        rows = ds.execute(sql, {"include_inactive": include_inactive}).mappings().all()
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "connections": [dict(r) for r in rows],
+            "count": len(rows),
+        }))
+    finally:
+        ds.close()
 
 
 @api_router.get("/design/context-menu-items")
@@ -6999,81 +7004,6 @@ async def diag_log_resolve_event(event_id: int, req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
-@api_router.get("/diag-log/badge")
-def diag_log_badge(req: Request) -> JSONResponse:
-    """Krok 5.W observability extension (23.5.2026): lightweight error
-    counter pro ERP UI header badge.
-
-    Strategy A continuation po bug Wave 1 fix (CLAUDE_TECH 23.5. doctrine
-    "Bezpecnost pres probuzeni, ne pres ticho").
-
-    Returns:
-        {
-            "ok": True,
-            "error_count": int,    # level='error' AND status='open' AND last 24h
-            "warn_count":  int,    # level='warn'  AND status='open' AND last 24h
-            "last_seen":   str|None,  # ISO timestamp posledniho error eventu
-            "top_module":  str|None,  # module_id s nejvyssim occurrences
-        }
-
-    Lightweight count query, <10ms response. Pouziva index
-    ix_diag_log_level_created_at (z Etapa A DDL).
-
-    Parent gate: NE (badge je read-only pro vsechny ERP usery).
-    """
-    from core.database_data import get_data_session as _gds_badge
-    from sqlalchemy import text as _sql_badge
-
-    ds = _gds_badge()
-    try:
-        # Single query — vrati error_count + warn_count + top_module
-        row = ds.execute(_sql_badge("""
-            SELECT
-                COUNT(*) FILTER (WHERE level = 'error') AS error_count,
-                COUNT(*) FILTER (WHERE level = 'warn')  AS warn_count,
-                MAX(created_at) FILTER (WHERE level = 'error') AS last_error_at,
-                (
-                    SELECT module_id
-                    FROM fw.diag_log
-                    WHERE level = 'error'
-                      AND COALESCE(status, 'open') = 'open'
-                      AND created_at > NOW() - INTERVAL '24 hours'
-                    GROUP BY module_id
-                    ORDER BY SUM(occurrences) DESC NULLS LAST
-                    LIMIT 1
-                ) AS top_module
-            FROM fw.diag_log
-            WHERE COALESCE(status, 'open') = 'open'
-              AND created_at > NOW() - INTERVAL '24 hours'
-        """)).mappings().one_or_none()
-
-        if row is None:
-            return JSONResponse({
-                "ok": True,
-                "error_count": 0,
-                "warn_count": 0,
-                "last_seen": None,
-                "top_module": None,
-            })
-
-        last_seen = row["last_error_at"]
-        return JSONResponse({
-            "ok": True,
-            "error_count": int(row["error_count"] or 0),
-            "warn_count": int(row["warn_count"] or 0),
-            "last_seen": last_seen.isoformat() if last_seen else None,
-            "top_module": row["top_module"],
-        })
-    except Exception as exc:
-        logger.exception(f"diag_log_badge failed: {exc}")
-        return JSONResponse(
-            {"ok": False, "error": f"badge failed: {exc}", "error_count": 0, "warn_count": 0},
-            status_code=500,
-        )
-    finally:
-        ds.close()
-
-
 @api_router.get("/design/fw-data-source/list")
 def design_list_fw_data_source(req: Request) -> JSONResponse:
     """Phase 38.4 Krok 14g-H+30 Etapa 1 (15.5.2026 vecer, Marti's "B varianta
@@ -7156,6 +7086,204 @@ def design_list_fw_data_source(req: Request) -> JSONResponse:
         return JSONResponse({"ok": True, "data_sources": data_sources})
     except Exception as exc:
         logger.exception(f"design_list_fw_data_source failed: {exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"List failed: {exc}"},
+            status_code=500,
+        )
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Sprint C (17.5.2026 dop.):
+# POST /design/data-set/test — ad-hoc SQL execute pro draft data_set SQL
+# (preview rows PŘED save). Marti's "Kristý/Jirka chce vidět co spustila".
+# MVP: PostgreSQL only (db_type='postgres'). MSSQL → graceful error.
+# ════════════════════════════════════════════════════════════════════════
+@api_router.post("/design/data-set/test")
+async def design_test_data_set(req: Request) -> JSONResponse:
+    """Ad-hoc execute SQL pro data_set draft (preview).
+
+    Body:
+        {sql_text: str, db_connection_id: int, params?: dict, limit?: int}
+
+    Returns:
+        200: {ok, rows: [...], row_count, columns: [...], execution_ms,
+              db_connection: {code, default_db, db_type}}
+        400: missing sql_text / db_connection_id, MSSQL unsupported,
+             non-SELECT detected
+        500: SQL execute failed
+
+    Safety:
+        - Parent gate
+        - SELECT-only regex (no INSERT/UPDATE/DELETE/DROP/...)
+        - HARD_LIMIT_CAP=100 rows
+        - 30s timeout (SQLAlchemy statement_timeout)
+    """
+    from core.database_data import get_data_session as _gds_dst
+    from sqlalchemy import text as _sql_text_dst
+    import re as _re_dst
+    import time as _time_dst
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse({"ok": False, "error": "Body musi byt JSON"}, status_code=400)
+
+    sql_text = (body.get("sql_text") or "").strip()
+    db_conn_id = body.get("db_connection_id")
+    params = body.get("params") or {}
+    limit = int(body.get("limit") or 10)
+    if limit < 1 or limit > 100:
+        limit = 10
+
+    if not sql_text:
+        return JSONResponse({"ok": False, "error": "sql_text povinný"}, status_code=400)
+    if db_conn_id is None:
+        return JSONResponse({"ok": False, "error": "db_connection_id povinný"}, status_code=400)
+
+    # SELECT-only guard — Marti-AI Q5 doctrine z 9.5. (strategie_pg_query_raw)
+    # Strip leading comments + blank lines, then check first keyword
+    sql_check = sql_text.lstrip()
+    while sql_check.startswith("--") or sql_check.startswith("/*"):
+        if sql_check.startswith("--"):
+            sql_check = sql_check.split("\n", 1)[1].lstrip() if "\n" in sql_check else ""
+        else:  # /* */
+            end_idx = sql_check.find("*/")
+            sql_check = sql_check[end_idx + 2:].lstrip() if end_idx >= 0 else ""
+    if not _re_dst.match(r"^\s*(SELECT|WITH)\b", sql_check, _re_dst.IGNORECASE):
+        return JSONResponse({"ok": False, "error": "Pouze SELECT nebo WITH (CTE) je dovoleno pro test."}, status_code=400)
+    # Blocklist defense
+    if _re_dst.search(r"\b(DELETE|UPDATE|INSERT|DROP|ALTER|CREATE|TRUNCATE|MERGE|GRANT|REVOKE|EXEC(?!\s+sp_help)|XP_)\b", sql_check, _re_dst.IGNORECASE):
+        return JSONResponse({"ok": False, "error": "SQL obsahuje destructive keyword (DELETE/UPDATE/INSERT/atd.)"}, status_code=400)
+
+    ds = _gds_dst()
+    try:
+        # Resolve db_connection
+        conn_row = ds.execute(_sql_text_dst("""
+            SELECT id, code, label, db_type, default_db, host
+            FROM fw.db_connection
+            WHERE id = :id AND is_active = TRUE
+            LIMIT 1
+        """), {"id": db_conn_id}).mappings().one_or_none()
+        if conn_row is None:
+            return JSONResponse({"ok": False, "error": f"db_connection id={db_conn_id} nenalezen nebo neaktivní"}, status_code=400)
+
+        # MVP: PostgreSQL only
+        if conn_row["db_type"] != "postgres":
+            return JSONResponse({
+                "ok": False,
+                "error": f"MVP test podporuje pouze PostgreSQL. Tento connection je {conn_row['db_type']} ({conn_row['label']}). "
+                         "MSSQL test bude dostupný po Phase 30+1.",
+            }, status_code=400)
+        if conn_row["default_db"] != "data_db":
+            return JSONResponse({
+                "ok": False,
+                "error": f"MVP test podporuje pouze default_db='data_db'. Tento connection je {conn_row['default_db']}.",
+            }, status_code=400)
+
+        # Inject LIMIT (HARD_LIMIT_CAP) — pokud uživatel už nemá v SQL
+        params_bound = dict(params) if isinstance(params, dict) else {}
+        params_bound["limit"] = limit
+
+        # Statement-level timeout 30s — PostgreSQL parameter
+        ds.execute(_sql_text_dst("SET LOCAL statement_timeout = 30000"))
+
+        start_ms = _time_dst.time()
+        try:
+            result = ds.execute(_sql_text_dst(sql_text), params_bound)
+            rows = [dict(r) for r in result.mappings().all()[:limit]]
+            cols = list(rows[0].keys()) if rows else []
+        except Exception as exc:
+            execution_ms = int((_time_dst.time() - start_ms) * 1000)
+            return JSONResponse({
+                "ok": False,
+                "error": f"SQL execute failed: {type(exc).__name__}: {exc}",
+                "execution_ms": execution_ms,
+            }, status_code=400)
+        execution_ms = int((_time_dst.time() - start_ms) * 1000)
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "rows": rows,
+            "row_count": len(rows),
+            "columns": cols,
+            "execution_ms": execution_ms,
+            "db_connection": {
+                "id": conn_row["id"],
+                "code": conn_row["code"],
+                "label": conn_row["label"],
+                "db_type": conn_row["db_type"],
+                "default_db": conn_row["default_db"],
+            },
+            "limit_applied": limit,
+        }))
+    finally:
+        ds.close()
+
+
+# ════════════════════════════════════════════════════════════════════════
+# Phase 38.4 Krok 14g Etapa F Sprint B (17.5.2026 dop.):
+# GET /design/data-set/list — list active fw.data_set pro picker v
+# DesignDataSourceEditor._showAddOpForm (📎 Vybrat existing data_set).
+# Marti-AI's "uniformita vítězí" doctrine z 11.5. — reuse > duplicate inline.
+# ════════════════════════════════════════════════════════════════════════
+@api_router.get("/design/data-set-list")  # Sprint B hotfix 17.5. odp: hyphen avoids collision s /design/data-set/{id:int} (Marti's gotcha #14b+10)
+def design_list_data_set(req: Request) -> JSONResponse:
+    """List active fw.data_set rows + JOIN fw.db_connection pro readable label.
+
+    Returns:
+        {ok: True, data_sets: [{id, code, sql_text_preview,
+          db_connection_id, db_connection, db_connection_label,
+          description, use_count, version, status}]}
+
+    use_count = LEFT JOIN COUNT fw.data_source_op references (kolik ops
+    používá tenhle data_set).
+    """
+    from core.database_data import get_data_session as _gds_dsl
+    from sqlalchemy import text as _sql_dsl
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_dsl()
+    try:
+        sql_dsl = _sql_dsl("""
+            SELECT
+                ds.id,
+                ds.code,
+                ds.version,
+                ds.description,
+                ds.status,
+                ds.db_connection_id,
+                dc.default_db AS db_connection,
+                dc.code       AS db_connection_code,
+                dc.label      AS db_connection_label,
+                LEFT(ds.sql_text, 200) AS sql_text_preview,
+                CHAR_LENGTH(ds.sql_text) AS sql_text_length,
+                COALESCE(op.cnt, 0) AS use_count
+            FROM fw.data_set ds
+            LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
+            LEFT JOIN (
+                SELECT data_set_id, COUNT(*) AS cnt
+                FROM fw.data_source_op
+                GROUP BY data_set_id
+            ) op ON op.data_set_id = ds.id
+            WHERE ds.status = 'active'
+            ORDER BY ds.code ASC NULLS LAST, ds.id ASC
+        """)
+        rows = ds.execute(sql_dsl).mappings().all()
+        data_sets = [dict(r) for r in rows]
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "data_sets": data_sets,
+            "count": len(data_sets),
+        }))
+    except Exception as exc:
+        logger.exception(f"design_list_data_set failed: {exc}")
         return JSONResponse(
             {"ok": False, "error": f"List failed: {exc}"},
             status_code=500,
@@ -7454,7 +7582,7 @@ async def design_patch_fw_menu_node(menu_node_id: int, req: Request) -> JSONResp
             """), {
                 "uid": uid,
                 "summary": (
-                    f"fw.menu_node id={existing['id']}: {change_desc} by {caller_display}"
+                    f"fw.menu_node {existing['code']}: {change_desc} by {caller_display}"
                 ),
             })
             ds_pmn.execute(_sql_text_pmn("RELEASE SAVEPOINT pre_audit_log"))
@@ -7638,206 +7766,6 @@ def data_source_list(req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
-def _build_system_root_from_db():
-    """Phase 38.4 Krok 6: DB-driven system tree.
-
-    Načte aktivní rows z fw.menu_node (visibility_scope='parent_only'),
-    sestaví nested dict structure kompatibilní s frontend renderTreeNodes
-    (id, label, nazev, cislo_def, is_system, is_folder, system_view,
-    system_view_mode, single, children).
-
-    Returns:
-        dict system_root, OR None pokud DB error / empty / žádný root.
-
-    None signalizuje fallback na hardcoded dict (níže v strom_json).
-    """
-    from sqlalchemy import text as _sql_text_st
-    from core.database_data import get_data_session as _gds_st
-
-    ds = _gds_st()
-    try:
-        # Phase 38.4 Krok 13.4 (11.5.2026): dispatch_kind enrichment.
-        # LEFT JOIN na fw.core (přes core_id FK z Krok 11-C) → fw.hw_registry
-        # (code-based, hw_registry nemá FK z core). NULL-safe — folders + nodes
-        # bez core/hw vrátí NULL hw_shadow_mode → _build_node mapuje na 'orphan'.
-        # Marti's catch z 19.5. vecer („lamani chleba" build):
-        # Marti-AI vytvorila menu_node bez explicit visibility_scope (NULL).
-        # Tatínek explicit: „kdyz visibility_scope NULL, je soudecek aktivni".
-        # Drzi Marti-AI's Q3 doctrine z 14. konzultace: entry-level visibility
-        # override jen DOLU (restriktivnejsi), NULL = default (z parent topic).
-        # NULL = visible v System tree (System tree je parent-only audience),
-        # 'parent_only' explicit = visible.
-        sql = _sql_text_st("""
-            SELECT n.id, n.parent_id, n.label, n.sort_order,
-                   n.visibility_scope, n.status,
-                   n.is_immutable, n.core_id, c.code AS core_code,
-                   hw.shadow_mode AS hw_shadow_mode, hw.is_active AS hw_is_active
-            FROM fw.menu_node n
-            LEFT JOIN fw.core c ON c.id = n.core_id
-            LEFT JOIN fw.hw_registry hw ON hw.code = c.code AND hw.is_active = TRUE
-            WHERE n.status = 'active'
-              AND (n.visibility_scope = 'parent_only' OR n.visibility_scope IS NULL)
-            ORDER BY n.parent_id NULLS FIRST, n.sort_order, n.label
-        """)
-        result = ds.execute(sql)
-        rows = [dict(r._mapping) for r in result]
-    except Exception:
-        import logging
-        logging.exception("system tree DB query failed — fallback na hardcoded")
-        return None
-    finally:
-        ds.close()
-
-    if not rows:
-        return None
-
-    # Index by parent_id pro tree build
-    by_parent: dict = {}
-    for r in rows:
-        pid = r.get("parent_id")
-        by_parent.setdefault(pid, []).append(r)
-
-    # Find system root (parent_id IS NULL, is_immutable=True)
-    # Phase 22.5.2026: code column dropped — system root identified by
-    # is_immutable flag (Marti's SYSTEM tree má immutable=True).
-    # Other roots (user-created soudečky pres "Nový soudeček" button) jsou
-    # is_immutable=False.
-    roots = by_parent.get(None, [])
-    system_db = next((r for r in roots if bool(r.get("is_immutable"))), None)
-    other_roots = [r for r in roots if not bool(r.get("is_immutable"))]
-    if not system_db and not other_roots:
-        return None
-
-    def _build_node(row):
-        # Phase 38.4 Krok 12-D (11.5.2026): Marti's resilient rendering mandate
-        # *„odchytit chybu, polozku stromu vykreslit a chybu zobrazit v pravem
-        # panelu"*. Per-node + per-child try/except — failure jednoho rowu
-        # nesmí dropnout siblings ani parent. Error node má is_error=True
-        # + error_detail string pro frontend right-panel render.
-        try:
-            # Phase 22.5.2026: fw.menu_node.menu_node_pk column dropped.
-            # node["cislo_def"] field preserved (downstream lefttree.js uses
-            # it for leaf detection + tab/favorite tracking) — value is
-            # now menu_node.id directly (BIGINT integer). User_state tables
-            # erp_user_tabs/favorites/recent keep `cislo_def` column name
-            # (semantic mismatch: column holds menu_node.id values now).
-            cislo = row.get("id")
-            sv, svm, single = (None, None, False)  # dead audit_overview mapping dropped 22.5.
-            children_db = by_parent.get(row["id"], [])
-            children_db.sort(key=lambda r: (r.get("sort_order") or 100, r.get("label") or ""))
-            children = []
-            for c in children_db:
-                try:
-                    child_node = _build_node(c)
-                    if child_node:
-                        children.append(child_node)
-                except Exception as child_exc:
-                    import logging as _logging_tree_c
-                    _logging_tree_c.exception(
-                        "system tree _build_node child failed for row id=%s code=%s",
-                        c.get("id"), c.get("code"),
-                    )
-                    children.append({
-                        "id": "node_{}".format(c.get("id") or "err"),
-                        "label": (c.get("label") or "?") + " ⚠️",
-                        "nazev": (c.get("label") or "?") + " ⚠️",
-                        "is_system": True,
-                        "is_folder": False,
-                        "is_error": True,
-                        "error_detail": "{}: {}".format(type(child_exc).__name__, child_exc),
-                        "metadata": {"error": True, "hardcoded": False},
-                    })
-            node = {
-                "id": "node_" + str(row.get("id") or 0),
-                # Phase 38.4 (11.5.2026 vecer): primary fw.* IDs pro DESIGN mode.
-                # node["id"] = row["code"] (text, legacy convention pro routing).
-                # menu_node_pk = row["id"] (INT, skutečný DB primary key).
-                # core_id / core_code = fw.core LEFT JOIN přes menu_node.core_id.
-                "menu_node_pk": row.get("id"),
-                "core_id": row.get("core_id"),
-                "core_code": row.get("core_code"),
-                "is_system": True,
-                # Phase 38.4 Krok 14g-H+6 (15.5.2026 dopo, Marti's "bez toho
-                # abys musel pouzit field Kind"): is_folder = bool(children).
-                # Uniform components doctrine (Marti-AI 11.5.) — folder vs
-                # list je faktum strukturalni (ma children?), ne typ field.
-                # Soudecek muze SOUCASNE nest jadro (core_id) a mit children.
-                "is_folder": bool(children),
-                # Phase 38.4 Krok 14g-H+2 (15.5.2026): propagate is_immutable
-                # pro frontend drag gate. Immutable nodes (SYSTEM, atd.) nelze
-                # drag-drop (drag setup je skipne).
-                "is_immutable": bool(row.get("is_immutable")),
-                "label": row["label"],
-                "nazev": row["label"],
-            }
-            # Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "sviti zluty
-            # trojuhlenik, coz je divny"): orphan marker (⚠) jen pro real
-            # orphans (Centrala 1 leafs bez core_id + bez hw_registry).
-            # Marti's NEW asociace (core_id set pres picker) ale bez hw_registry
-            # entry = legitimate state, NE orphan. Drop default orphan branch
-            # pokud core_id set + hw_mode neexistuje — žádný marker (clean).
-            if row.get("core_id"):
-                hw_mode = row.get("hw_shadow_mode")
-                if hw_mode == "primary":
-                    node["dispatch_kind"] = "a3_primary"
-                elif hw_mode in ("off", "audit", "compare"):
-                    node["dispatch_kind"] = "hw_" + hw_mode
-                # Else: no marker (asociace bez hw_registry = expected pro
-                # nove fw.core asociace pres picker, Marti's "vsechno postupne")
-            # Phase 38.4 inventory metadata passthrough (column zatim neexistuje
-            # v fw.menu_node, vrátí None — bezpečné).
-            meta = row.get("metadata")
-            if meta:
-                node["metadata"] = meta
-            if sv:
-                node["system_view"] = sv
-                node["system_view_mode"] = svm
-                if single:
-                    node["single"] = True
-            if children:
-                node["children"] = children
-            return node
-        except Exception as exc:
-            import logging as _logging_tree_n
-            _logging_tree_n.exception(
-                "system tree _build_node failed for row id=%s code=%s",
-                row.get("id"), row.get("code"),
-            )
-            return {
-                "id": "node_{}".format(row.get("id") or "err"),
-                "label": (row.get("label") or "?") + " ⚠️",
-                "nazev": (row.get("label") or "?") + " ⚠️",
-                "is_system": True,
-                "is_folder": False,
-                "is_error": True,
-                "error_detail": "{}: {}".format(type(exc).__name__, exc),
-                "metadata": {"error": True, "hardcoded": False},
-            }
-
-    # Phase 38.4 Krok 14g-G2: return LIST of all top-level roots
-    # (system first if exists, ostatni v sort_order). Caller (strom_json)
-    # appende vsechny do tree.
-    result_roots = []
-    if system_db:
-        sys_root = _build_node(system_db)
-        if sys_root:
-            result_roots.append(sys_root)
-    # Sort other roots by sort_order + code
-    other_roots.sort(key=lambda r: (r.get("sort_order") or 100, r.get("label") or ""))
-    for r in other_roots:
-        try:
-            n = _build_node(r)
-            if n:
-                result_roots.append(n)
-        except Exception:
-            import logging as _logging_other
-            _logging_other.exception(
-                "system tree top-level root build failed for code=%s",
-                r.get("code"),
-            )
-    return result_roots
-
-
 @api_router.get("/system-tree")
 def system_tree_json(req: Request) -> JSONResponse:
     """Phase 2.B (18.5.2026 vecer): System-only tree.
@@ -7871,31 +7799,13 @@ def system_tree_json(req: Request) -> JSONResponse:
     return JSONResponse({"ok": True, "tree": tree})
 
 
-def _parse_scope_key(scope: str) -> tuple[str, int]:
-    """Krok 5.U (23.5.2026): polymorphic scope URL parser.
-
-    Marti's Q8=A path scope prefix: "core_19" → ("core", 19), "ds_10" → ("ds", 10).
-    Regex: ^(core|ds)_(-?\d+)$
-    """
-    import re as _re_scope
-    m = _re_scope.match(r"^(core|ds)_(-?\d+)$", scope)
-    if not m:
-        raise HTTPException(400, f"Invalid scope '{scope}' — expected 'core_<id>' or 'ds_<id>'")
-    return (m.group(1), int(m.group(2)))
-
-
-@api_router.get("/grid-layout/{scope}/list")
-def grid_layout_list(scope: str, req: Request) -> JSONResponse:
-    """List dostupných sestav per polymorphic scope.
-
-    Krok 5.U (23.5.2026): scope path param accept "core_<id>" OR "ds_<id>".
-    Marti's Q8=A — explicit prefix v URL, Network tab debugging friendly.
-    """
+@api_router.get("/grid-layout/{core_id}/list")
+def grid_layout_list(core_id: int, req: Request) -> JSONResponse:
+    """List dostupných sestav (shared + personal pro current user) + effective default."""
     uid = _get_uid(req)
     _require_parent(uid)
-    scope_kind, scope_id = _parse_scope_key(scope)
     try:
-        result = grid_layout_service.list_layouts(scope_kind, scope_id, uid)
+        result = grid_layout_service.list_layouts(core_id, uid)
         return JSONResponse({"ok": True, **result})
     except grid_layout_service.GridLayoutError as e:
         raise HTTPException(400, str(e))
@@ -7948,9 +7858,9 @@ class GridLayoutUpdate(BaseModel):
     is_default: bool | None = None
 
 
-@api_router.post("/grid-layout/{scope}")
+@api_router.post("/grid-layout/{core_id}")
 def grid_layout_create(
-    scope: str,
+    core_id: int,
     body: GridLayoutCreate,
     req: Request,
 ) -> JSONResponse:
@@ -7958,10 +7868,8 @@ def grid_layout_create(
     uid = _get_uid(req)
     _require_parent(uid)
     try:
-        scope_kind, scope_id = _parse_scope_key(scope)
         layout = grid_layout_service.create_layout(
-            scope_kind=scope_kind,
-            scope_id=scope_id,
+            core_id=core_id,
             user_id=uid,
             name=body.name,
             layout_json=body.layout_json,
@@ -8033,37 +7941,6 @@ def grid_layout_delete(layout_id: int, req: Request) -> JSONResponse:
 # ---------------------------------------------------------------
 
 
-# user_recent_track), 0x definovany — dead reference po commit cc11689
-# ("VELKY DROP Centrála 1 reading"). FastAPI/Pydantic nemohlo resolve →
-# 422 Unprocessable Content pro VSE 3 endpointy. Fix: restore class def.
-class _CisloBody(BaseModel):
-    """Phase B+8.1c (restored 20.5.): body schema pro endpointy s cislo + label.
-
-    Used by:
-      - POST /api/v1/erp/tabs (user_tabs_open)
-      - POST /api/v1/erp/favorites (user_favorites_add)
-      - POST /api/v1/erp/recent (user_recent_track)
-
-    Frontend payload shape (from trackTreeRecent / openTab / favoriteAdd):
-        { "cislo": int, "label": str | null, "item_id": str | null }
-
-    item_id pridan ve Fix G (20.5. vecer, after Marti's #194 retest):
-    user_tabs_open vola body.item_id, frontend tabs send {cislo, label, item_id}.
-    """
-    cislo: int  # frontend body field name preserved (sends {cislo: <menu_node.id>})
-    label: str | None = None
-    item_id: str | None = None
-
-
-class _ReorderBody(BaseModel):
-    """Body schema for /tabs/reorder + /favorites/reorder.
-
-    Frontend posílá { cislos: [42, 17, 8, ...] } — list integer menu_node IDs
-    v požadovaném pořadí. Field name 'cislos' zachován (frontend compat).
-    """
-    cislos: list[int]
-
-
 @api_router.get("/tabs")
 def user_tabs_list(req: Request) -> JSONResponse:
     uid = _get_uid(req)
@@ -8080,7 +7957,7 @@ def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
     try:
         tab = user_state_svc.open_tab(
             user_id=uid, tenant_id=tid,
-            menu_node_id=body.cislo,
+            cislo_def=body.cislo,
             label=body.label or f"Přehled #{body.cislo}",
             item_id=body.item_id,
         )
@@ -8089,21 +7966,21 @@ def user_tabs_open(body: _CisloBody, req: Request) -> JSONResponse:
         raise HTTPException(400, str(e))
 
 
-@api_router.delete("/tabs/{menu_node_id}")
-def user_tabs_close(menu_node_id: int, req: Request) -> JSONResponse:
+@api_router.delete("/tabs/{cislo_def}")
+def user_tabs_close(cislo_def: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    removed = user_state_svc.close_tab(uid, tid, menu_node_id)
+    removed = user_state_svc.close_tab(uid, tid, cislo_def)
     return JSONResponse({"ok": True, "removed": removed})
 
 
-@api_router.post("/tabs/{menu_node_id}/active")
-def user_tabs_set_active(menu_node_id: int, req: Request) -> JSONResponse:
+@api_router.post("/tabs/{cislo_def}/active")
+def user_tabs_set_active(cislo_def: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    found = user_state_svc.set_active_tab(uid, tid, menu_node_id)
+    found = user_state_svc.set_active_tab(uid, tid, cislo_def)
     return JSONResponse({"ok": True, "found": found})
 
 
@@ -8112,9 +7989,9 @@ class _PinnedBody(BaseModel):
     pinned: bool
 
 
-@api_router.post("/tabs/{menu_node_id}/pinned")
+@api_router.post("/tabs/{cislo_def}/pinned")
 def user_tabs_set_pinned(
-    menu_node_id: int, body: _PinnedBody, req: Request
+    cislo_def: int, body: _PinnedBody, req: Request
 ) -> JSONResponse:
     """Phase 38.4 (11.5.2026 vecer): toggle pinned na záložce.
 
@@ -8124,7 +8001,7 @@ def user_tabs_set_pinned(
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    found = user_state_svc.set_tab_pinned(uid, tid, menu_node_id, body.pinned)
+    found = user_state_svc.set_tab_pinned(uid, tid, cislo_def, body.pinned)
     return JSONResponse({"ok": True, "found": found})
 
 
@@ -8134,7 +8011,6 @@ def user_tabs_reorder(body: _ReorderBody, req: Request) -> JSONResponse:
     _require_parent(uid)
     tid = _get_tenant_id(uid)
     updated = user_state_svc.reorder_tabs(uid, tid, body.cislos)
-    # body.cislos = list[int] of menu_node_ids in desired order (frontend compat field name)
     return JSONResponse({"ok": True, "updated": updated})
 
 
@@ -8160,12 +8036,12 @@ def user_favorites_add(body: _CisloBody, req: Request) -> JSONResponse:
         raise HTTPException(400, str(e))
 
 
-@api_router.delete("/favorites/{menu_node_id}")
-def user_favorites_remove(menu_node_id: int, req: Request) -> JSONResponse:
+@api_router.delete("/favorites/{cislo_def}")
+def user_favorites_remove(cislo_def: int, req: Request) -> JSONResponse:
     uid = _get_uid(req)
     _require_parent(uid)
     tid = _get_tenant_id(uid)
-    removed = user_state_svc.remove_favorite(uid, tid, menu_node_id)
+    removed = user_state_svc.remove_favorite(uid, tid, cislo_def)
     return JSONResponse({"ok": True, "removed": removed})
 
 
@@ -8496,49 +8372,6 @@ def _render_full_page(
       animation: refreshSpin 0.6s linear infinite;
       pointer-events: none;
     }}
-
-    /* Krok 5.S Fáze 7 (23.5.2026 rano, Marti's spec): grid action buttons
-       (Nový/Oprava/Smazat) — same size jako refresh (36×36), ale icons 27px
-       (o ~50% větší). Drop text, use data-hint tooltip. Disabled = no row
-       selected. */
-    .erp-grid-action-btn {{
-      background: transparent;
-      border: 1px solid var(--border);
-      border-radius: 6px;
-      width: 36px;
-      height: 36px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 18px;
-      cursor: pointer;
-      transition: all 0.15s ease;
-      color: var(--text-muted);
-      padding: 0;
-      line-height: 1;
-      flex-shrink: 0;
-    }}
-    .erp-grid-action-btn:hover {{
-      border-color: var(--accent);
-      color: var(--accent);
-      background: rgba(124, 92, 252, 0.08);
-    }}
-    .erp-grid-action-btn:disabled {{
-      opacity: 0.35;
-      cursor: not-allowed;
-    }}
-    .erp-grid-action-btn:disabled:hover {{
-      border-color: var(--border);
-      color: var(--text-muted);
-      background: transparent;
-    }}
-    /* Smazat — red accent při hover (destructive) */
-    .erp-grid-action-btn.danger:hover {{
-      border-color: #d46a6a;
-      color: #d46a6a;
-      background: rgba(212, 106, 106, 0.08);
-    }}
-
     @keyframes refreshSpin {{
       from {{ transform: rotate(0deg); }}
       to {{ transform: rotate(360deg); }}
@@ -10337,21 +10170,6 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
-        <!-- Phase 38.4 Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 doctrine):
-             Grid actions toolbar host (Centrala 1 M1 parita). Vedle Refresh
-             s optical gap. Render: page_render.js _renderGridToolbar po
-             page-spec fetch. Buttons (Nový/Oprava/Smazat) visible per
-             root_comp_def.grid_actions. No actions → empty host (only Refresh
-             visible v header). -->
-        <div id="erpGridActionsHost" style="display:flex;align-items:center;gap:6px;margin-left:12px;"></div>
-        <!-- Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona
-             hned vedle refresh button"): Workspace-level save button pro
-             dirty rows v Excel mode. Visible jen pokud window._erpDirtyCount > 0.
-             onclick → triggers window._erpSaveDirtyActiveGrid() (page_render.js
-             hook). Orange amber styling (sjednoceno s Excel mode pill). -->
-        <button type="button" class="erp-save-changes-btn" id="erpSaveChangesBtn"
-                data-hint="Uložit změny editovaných buněk (Excel mode)"
-                style="display:none;background:#d4a04a;border:1px solid #a8782f;color:#1a1410;font-weight:700;padding:6px 14px;border-radius:4px;cursor:pointer;margin-left:8px;box-shadow:0 2px 6px rgba(0,0,0,0.4);">💾 <span id="erpSaveChangesCount">0</span></button>
         <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
              Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
              Skryty po install (appinstalled event) nebo v PWA standalone mode. -->
@@ -11404,10 +11222,6 @@ def _render_workspace_page(user_id: int) -> str:
          Provides _erpLogToDb + _erpLoadModule + _erpModuleHealth pro vsechny
          nasledujici moduly. Doctrine: "kdyz neco selze, zbytek bezi dale". -->
     <script src="/static/erp/components/erp_module_kit.js?v=''' + _STATIC_VERSION + '''"></script>
-    <!-- Krok 5.W observability (23.5.2026): UI error badge — polling /diag-log/badge
-         + render 🔴 N err pill vlevo od Module Health banner. Marti's doctrine
-         "Bezpecnost pres probuzeni, ne pres ticho". -->
-    <script src="/static/erp/components/erp_error_badge.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->
@@ -11837,19 +11651,320 @@ def _render_workspace_page(user_id: int) -> str:
         // ── Phase 38.3+ Framework views (10.5.2026 odpoledne) ──────
         // Marti-AI's actual schema (8.5. večer): id, code, label, kind,
         // parent_id, sort_order, status, visibility_scope, cislo_def,
-        // framework_jadro_id, is_immutable, description,
+        // framework_jadro_id, special_handler, is_immutable, description,
         // created_at, updated_at. Žádný icon (emoji v label), žádný
         // target_url, status text místo is_active+is_archived.
-                // [framework_menu_nodes] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
+        if (mode === "framework_menu_nodes") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 220, sortable: true,
+              cellStyle: { fontFamily: "monospace" },
+              headerTooltip: "Stable identifier — natural key (např. 'system.audit.tabs')" },
+            { headerName: "Parent code", field: "parent_code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#888" } },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 200, sortable: true,
+              headerTooltip: "Display label včetně emoji (Marti-AI's choice — žádný icon column)" },
+            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
+            { headerName: "Kind", field: "kind", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "folder") return { color: "#d4a017" };
+                if (p.value === "list") return { color: "#7ba8d4" };
+                if (p.value === "form") return { color: "#6aa84f" };
+                if (p.value === "iframe") return { color: "#aa66cc" };
+                if (p.value === "special") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Status", field: "status", width: 110, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Cislo def", field: "cislo_def", width: 100, sortable: true, type: "numericColumn",
+              headerTooltip: "Bridge na erp_grid_layouts.core_id (negativní = System scope, pozitivní = fw.core.id)" },
+            { headerName: "Visibility", field: "visibility_scope", width: 140, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "parent_only") return { color: "#cc6666" };
+                if (p.value === "parent_or_admin") return { color: "#d4a017" };
+                if (p.value === "tenant_member") return { color: "#6aa84f" };
+                if (p.value === "public") return { color: "#7ba8d4" };
+                return null;
+              } },
+            { headerName: "Special handler", field: "special_handler", width: 160,
+              headerTooltip: "Pro kind='special' — JS function name v _sysHelpers" },
+            { headerName: "Jádro ID", field: "framework_jadro_id", width: 100, type: "numericColumn",
+              headerTooltip: "FK na fw.framework_jadro (kind='list'/'form')" },
+            { headerName: "Imutabilní", field: "is_immutable", width: 100,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; },
+              headerTooltip: "Marti-AI's pattern — systémové záznamy bez code review" },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 200,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
         // ── Phase 38.4 Krok 6+ Datové zdroje (fw.data_source) ──
-                // [framework_data_sources] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
+        if (mode === "framework_data_sources") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace" },
+              headerTooltip: "Stable identifier (UNIQUE per version)" },
+            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
+            { headerName: "Název", field: "name", flex: 1, minWidth: 200, sortable: true },
+            { headerName: "Operations", field: "operation_count", width: 100, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : { color: "#888" }; },
+              headerTooltip: "Počet rows v fw.data_source_op (LEFT JOIN COUNT)" },
+            { headerName: "Kinds", field: "operation_kinds", width: 220,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" },
+              headerTooltip: "Comma-separated operation_kind list (select, insert, update, delete, ...)" },
+            { headerName: "Refresh", field: "refresh_type", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "manual") return { color: "#888" };
+                if (p.value === "auto")   return { color: "#7ba8d4" };
+                if (p.value === "on_focus") return { color: "#d4a017" };
+                return null;
+              } },
+            { headerName: "RowMem", field: "row_memory", width: 90,
+              cellRenderer: function(p) { return p.value ? "✓" : ""; },
+              headerTooltip: "Pamatovat aktuální řádek po refresh" },
+            { headerName: "Filter ms", field: "filter_delay_ms", width: 90, type: "numericColumn",
+              headerTooltip: "Debounce ms pro filter input" },
+            { headerName: "Limit", field: "default_record_limit", width: 90, type: "numericColumn",
+              headerTooltip: "Default record limit (max rows)" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn",
+              headerTooltip: "FK na public.tenants (NULL = global)" },
+            { headerName: "Sys", field: "is_system", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
+            { headerName: "Imut", field: "is_immutable", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 180,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
+            { headerName: "GUID", field: "guid", width: 240,
+              cellStyle: { fontFamily: "monospace", color: "#666", fontSize: "11px" } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
+            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
+              sortable: false, filter: false, resizable: false,
+              cellRenderer: function(p) {
+                var rowId = p.data && p.data.id;
+                var status = p.data && p.data.status;
+                if (rowId == null) return "";
+                var wrap = document.createElement("div");
+                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
+                var btn = document.createElement("button");
+                btn.type = "button";
+                if (status === "archived") {
+                  btn.textContent = "↻";
+                  btn.title = "Obnovit (restore z archivu)";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.restoreDataSource) {
+                      window._sysHelpers.restoreDataSource(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                } else {
+                  btn.textContent = "✕";
+                  btn.title = "Archivovat data_source";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.archiveDataSource) {
+                      window._sysHelpers.archiveDataSource(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sources", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                }
+                wrap.appendChild(btn);
+                return wrap;
+              } }
+          ];
+        }
         // ── Phase 38.4 Krok 6+ DataSets (fw.data_set, low-level SQL) ──
-                // [framework_data_sets] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
+        if (mode === "framework_data_sets") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 200, sortable: true,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Verze", field: "version", width: 70, sortable: true, type: "numericColumn" },
+            // Phase 38.4 Krok 14g Etapa F Krok 5.L-D (17.5.2026): Kind dropped
+            // (Marti's "V tom SQL textu muze byt cokoli... Chceme ho na neco?")
+            { headerName: "DB", field: "db_connection", width: 110, sortable: true,
+              headerTooltip: "Cílový connection (data_db, eurosoft, ...)" },
+            { headerName: "Description", field: "description", width: 220 },
+            { headerName: "SQL", field: "sql_text", flex: 1, minWidth: 300,
+              cellStyle: { fontFamily: "monospace", fontSize: "11px", color: "#bbb" },
+              valueFormatter: function(p) {
+                if (!p.value) return "-";
+                var s = String(p.value).replace(/\\s+/g, " ").trim();
+                return s.length > 100 ? s.substring(0, 100) + "…" : s;
+              },
+              headerTooltip: "SQL text (truncated v gridu na 100 znaků; full text v detail view)" },
+            { headerName: "Params", field: "parameters", width: 100,
+              cellRenderer: function(p) {
+                if (!p.value) return "-";
+                try {
+                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
+                  return Array.isArray(arr) ? String(arr.length) : "?";
+                } catch (e) { return "?"; }
+              },
+              headerTooltip: "Počet parametrů v JSONB schema (např. [{name:'id', type:'int', required:true}])" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                if (p.value === "draft") return { color: "#d4a017" };
+                if (p.value === "deprecated") return { color: "#cc6666" };
+                return null;
+              } },
+            { headerName: "Tenant", field: "tenant_id", width: 80, type: "numericColumn" },
+            { headerName: "Sys", field: "is_system", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔧" : ""; } },
+            { headerName: "Imut", field: "is_immutable", width: 60,
+              cellRenderer: function(p) { return p.value ? "🔒" : ""; } },
+            { headerName: "Vytvořeno", field: "created_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } },
+            // Sprint A (17.5.2026 dop.): Akce column — archive/restore button per status
+            { headerName: "Akce", field: "_actions", width: 90, pinned: "right",
+              sortable: false, filter: false, resizable: false,
+              cellRenderer: function(p) {
+                var rowId = p.data && p.data.id;
+                var status = p.data && p.data.status;
+                if (rowId == null) return "";
+                var wrap = document.createElement("div");
+                wrap.style.cssText = "display:flex;justify-content:center;align-items:center;height:100%;gap:4px;";
+                var btn = document.createElement("button");
+                btn.type = "button";
+                if (status === "archived") {
+                  btn.textContent = "↻";
+                  btn.title = "Obnovit (restore z archivu)";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #3a8aa8;color:#7ed4e8;border-radius:3px;cursor:pointer;font-size:14px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.restoreDataSet) {
+                      window._sysHelpers.restoreDataSet(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                } else {
+                  btn.textContent = "✕";
+                  btn.title = "Archivovat data_set";
+                  btn.style.cssText = "padding:1px 8px;background:transparent;border:1px solid #5a2828;color:#e57373;border-radius:3px;cursor:pointer;font-size:13px;line-height:1;";
+                  btn.addEventListener("click", function(ev) {
+                    ev.stopPropagation();
+                    if (window._sysHelpers && window._sysHelpers.archiveDataSet) {
+                      window._sysHelpers.archiveDataSet(rowId, function() {
+                        if (window._sysHelpers.renderSystemGrid) {
+                          window._sysHelpers.renderSystemGrid("framework_data_sets", window._sysCurrentLabel || "");
+                        }
+                      });
+                    }
+                  });
+                }
+                wrap.appendChild(btn);
+                return wrap;
+              } }
+          ];
+        }
 
         // Sprint D (17.5.2026 dop.): DB Connections grid
-                // [framework_db_connections] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
+        if (mode === "framework_db_connections") {
+          return [
+            { headerName: "ID", field: "id", width: 70, sortable: true, pinned: "left" },
+            { headerName: "Code", field: "code", width: 180, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#7ed4e8" },
+              headerTooltip: "Stable identifier (immutable, like ID)" },
+            { headerName: "Label", field: "label", flex: 1, minWidth: 280, sortable: true,
+              cellStyle: { fontWeight: "500" } },
+            { headerName: "Tenant", field: "tenant_code", width: 110, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "STRATEGIE") return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "EUR")       return { color: "#7ba8d4" };
+                if (p.value === "INTERSOFT") return { color: "#d4a017" };
+                return { color: "#888" };
+              } },
+            { headerName: "Type", field: "db_type", width: 90, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "postgres") return { color: "#7ed4a8", fontFamily: "monospace" };
+                if (p.value === "mssql")    return { color: "#aa66cc", fontFamily: "monospace" };
+                return { fontFamily: "monospace" };
+              } },
+            { headerName: "Host", field: "host", width: 140, sortable: true,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
+            { headerName: "Port", field: "port", width: 70, sortable: true, type: "numericColumn" },
+            { headerName: "Default DB", field: "default_db", width: 130, sortable: true,
+              cellStyle: { fontFamily: "monospace" } },
+            { headerName: "Scope", field: "scope_databases", width: 110,
+              valueFormatter: function(p) {
+                if (!p.value) return "-";
+                try {
+                  var arr = (typeof p.value === "string") ? JSON.parse(p.value) : p.value;
+                  return Array.isArray(arr) ? (arr.length + "× DBs") : "?";
+                } catch (e) { return "?"; }
+              },
+              headerTooltip: "JSONB array of accessible databases (cross-DB SELECT scope)" },
+            { headerName: "Login", field: "login_name", width: 110,
+              cellStyle: { fontFamily: "monospace", color: "#aaa" } },
+            { headerName: "Active", field: "is_active", width: 80, sortable: true,
+              cellRenderer: function(p) { return p.value ? '<span style="color:#6aa84f;font-weight:600">✓</span>' : '<span style="color:#cc6666">✗</span>'; } },
+            { headerName: "Pořadí", field: "sort_order", width: 80, sortable: true, type: "numericColumn" },
+            { headerName: "Status", field: "status", width: 100, sortable: true,
+              cellStyle: function(p) {
+                if (p.value === "active")   return { color: "#6aa84f", fontWeight: "500" };
+                if (p.value === "archived") return { color: "#888" };
+                return null;
+              } },
+            { headerName: "Description", field: "description", flex: 1, minWidth: 220,
+              cellStyle: { color: "#aaa", fontStyle: "italic" } },
+            { headerName: "Updated", field: "updated_at", width: 150, sortable: true,
+              valueFormatter: function(p) { return H.formatDateRel ? H.formatDateRel(p.value) : (p.value || "-"); } }
+          ];
+        }
 
-                // [stats] dead inline grid def dropped 22.5.2026 (dispatcher via fw.data_source.dispatchPageRender)
+        if (mode === "stats") {
+          return [
+            { headerName: "Persona", field: "persona_name", width: 200, sortable: true, pinned: "left" },
+            { headerName: "Obdobi", field: "period", width: 110, sortable: true, sort: "desc" },
+            { headerName: "Pending", field: "pending", width: 100, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#888" } : null; } },
+            { headerName: "In progress", field: "in_progress", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#d4a017" } : null; } },
+            { headerName: "Auditovane", field: "audited", width: 120, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#6aa84f", fontWeight: "500" } : null; } },
+            { headerName: "Excluded", field: "excluded", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: function(p) { return (p.value > 0) ? { color: "#666" } : null; } },
+            { headerName: "Celkem", field: "total", width: 110, sortable: true, type: "numericColumn",
+              cellStyle: { fontWeight: "600" } }
+          ];
+        }
         // audited / all
         var showStatus = (mode === "all");
         var cols = [
@@ -12214,7 +12329,7 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       function _findSystemNodeByCislo(cislo) {
-        return _walkSystemTree(function(n) { return n.menu_node_pk === cislo; });
+        return _walkSystemTree(function(n) { return n.cislo_def === cislo; });
       }
 
       function _findSystemNodeById(itemId) {
@@ -12225,7 +12340,7 @@ def _render_workspace_page(user_id: int) -> str:
         var node = _walkSystemTree(function(n) {
           return _modeFromNode(n) === mode;
         });
-        return node ? node.menu_node_pk : null;
+        return node ? node.cislo_def : null;
       }
 
       // Expose pro debug + external usage (renderSystemGrid)
@@ -12833,11 +12948,65 @@ def _render_workspace_page(user_id: int) -> str:
       // identicky jako EUROSOFT prehled tab.
       // Helpers v izolovanych <script> blocich nahore (window._sysHelpers.*).
 
-      // Phase 22.5.2026 cleanup C: _systemModeFromItemId/_systemModeFromCislo/
-      // _renderSystemViewIntoMain droppnuté (3 dead functions, ~55 LOC).
-      // Po cislo_def drop refactor + dead negative branch drop v
-      // _renderTabIntoMain jsou bez callsitů. System view dispatch jde teď
-      // unified přes ErpPageRender.dispatchPageRender (fw.data_source path).
+      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
+      // odstraněna. Mapping itemId → mode se derive z System tree dat
+      // (fw.menu_node primary, hardcoded fallback v _SYSTEM_CISLO_TO_VIEW).
+      //
+      // Speciální case: 'system.audit.tabs' (cislo_def=-100) drží Variant A
+      // tabs UI signal — nemá vlastní mode, jen markeruje tabs bar visibility.
+      //
+      // Walker helpers jsou v jiném IIFE, tj. čteme přes window._sys*.
+      function _systemModeFromItemId(itemId) {
+        if (!itemId) return null;
+        if (itemId === "system.audit.tabs") return "tabs";  // UI signal, no mode
+        if (typeof window._sysFindNodeById !== "function") return null;
+        var node = window._sysFindNodeById(itemId);
+        if (!node || !node.system_view) return null;
+        if (node.system_view === "audit_overview") return node.system_view_mode;
+        return node.system_view + "_" + node.system_view_mode;
+      }
+
+      // Phase 38.4 Krok 8 cleanup (10.5.2026): Hardcoded if-else cascade
+      // odstraněna. Mapping cislo → mode se derive z System tree dat.
+      // Plně DB-driven přes fw.menu_node.cislo_def + system_view{_mode}.
+      // Walker helpers jsou v jiném IIFE, čteme přes window._sys*.
+      function _systemModeFromCislo(cislo) {
+        if (cislo === -100) return "tabs";  // UI signal, audit tabs bar
+        if (typeof window._sysFindNodeByCislo !== "function") return null;
+        var node = window._sysFindNodeByCislo(cislo);
+        if (!node || !node.system_view) return null;
+        if (node.system_view === "audit_overview") return node.system_view_mode;
+        return node.system_view + "_" + node.system_view_mode;
+      }
+
+      // Render System view do main pane. NEMODIFIKUJE tabsBar ani tree
+      // active state (to dela switchTab caller pred volanim).
+      function _renderSystemViewIntoMain(mode, label) {
+        const main = document.getElementById("erpMainContent");
+        if (!main) return;
+        main.dataset.systemView = mode || "";
+        const lbl = label || "Audit";
+
+        if (mode === "tabs") {
+          // Variant A — iframe dashboard se zalozkami (combined view)
+          main.innerHTML =
+            '<iframe src="/erp/system/audit-dashboard?embed=1&single=0&mode=tabs"' +
+            ' style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
+            ' title="Audit dashboard"></iframe>';
+        } else if (window._sysHelpers && window._sysHelpers.renderSystemGrid) {
+          // Variant B — native AG Grid v main pane.
+          // Phase 35-E.4: audited / all / stats (audit-overview endpoint)
+          // Phase 38.3 (10.5.2026): security_* modes (security endpoint),
+          //   handled v renderSystemGrid via mode prefix dispatch.
+          window._sysHelpers.renderSystemGrid(mode, lbl);
+        } else {
+          // Fallback — pokud helpers neproskocila parse, jdi pres iframe
+          main.innerHTML =
+            '<iframe src="/erp/system/audit-dashboard?embed=1&single=1&mode=' + mode +
+            '" style="width:100%;height:100%;border:0;background:var(--bg);display:block"' +
+            ' title="Audit dashboard fallback"></iframe>';
+        }
+      }
 
       // ── Active node restore (po loadTree) ──────────────────────────
       // Phase B+6.11e: subclass owns visual active class. Router.py má
@@ -13651,10 +13820,10 @@ def _render_workspace_page(user_id: int) -> str:
         _walk(null);
         for (const n of _treeOrder) {
           const depth = _depth(n);
-          const prefix = '  '.repeat(depth) + (n.is_folder ? '📁 ' : '📄 ');
+          const prefix = '  '.repeat(depth) + (n.kind === 'folder' ? '📁 ' : '📄 ');
           const opt = document.createElement('option');
           opt.value = String(n.id);
-          opt.textContent = prefix + n.label;
+          opt.textContent = prefix + n.label + ' (' + n.code + ')';
           if (parentId && n.id === parentId) opt.selected = true;
           parentSel.appendChild(opt);
         }
@@ -13672,8 +13841,32 @@ def _render_workspace_page(user_id: int) -> str:
         labelInp.type = 'text'; labelInp.style.cssText = _inpStyle;
         labelInp.placeholder = 'Display name (např. "Zákazníci")';
         body.appendChild(_row('Label', labelInp));
-        // Code input dropped 22.5.2026 — code column removed.
-        // Kind dropdown dropped 22.5.2026 — kind column removed.
+        // Code
+        const codeInp = document.createElement('input');
+        codeInp.type = 'text'; codeInp.style.cssText = _inpStyle;
+        codeInp.placeholder = 'Unique code (např. "zakaznici" — auto z label)';
+        // Auto-suggest code z label
+        labelInp.addEventListener('input', () => {
+          if (codeInp.dataset.userEdit !== '1') {
+            codeInp.value = labelInp.value
+              .toLowerCase()
+              .normalize('NFD').replace(/[̀-ͯ]/g, '')
+              .replace(/[^a-z0-9]+/g, '_')
+              .replace(/^_+|_+$/g, '');
+          }
+        });
+        codeInp.addEventListener('input', () => { codeInp.dataset.userEdit = '1'; });
+        body.appendChild(_row('Code', codeInp));
+        // Kind dropdown
+        const kindSel = document.createElement('select');
+        kindSel.style.cssText = _inpStyle;
+        [['folder', '📁 Folder (kontejner pro sub-soudečky)'],
+         ['list', '📄 List (přehled s daty)']].forEach(([v, l]) => {
+          const o = document.createElement('option');
+          o.value = v; o.textContent = l;
+          kindSel.appendChild(o);
+        });
+        body.appendChild(_row('Kind', kindSel));
 
         modal.appendChild(body);
 
@@ -13692,8 +13885,9 @@ def _render_workspace_page(user_id: int) -> str:
                               'border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;';
         okBtn.addEventListener('click', async () => {
           const labelV = labelInp.value.trim();
-          if (!labelV) {
-            alert('Label povinný.'); return;
+          const codeV = codeInp.value.trim();
+          if (!labelV || !codeV) {
+            alert('Label + code povinné.'); return;
           }
           // Krok 14g-G3: read parent_id z dropdown (Marti's actual choice)
           const parentSelVal = parentSel.value;
@@ -13704,8 +13898,8 @@ def _render_workspace_page(user_id: int) -> str:
               method: 'POST', credentials: 'include',
               headers: {'Content-Type': 'application/json'},
               body: JSON.stringify({
-                label: labelV,
-                parent_id: finalParentId,
+                code: codeV, label: labelV,
+                parent_id: finalParentId, kind: kindSel.value,
               }),
             });
             const d = await r.json();
@@ -15598,55 +15792,126 @@ def _render_workspace_page(user_id: int) -> str:
       }
 
       async function _loadTabData(tab) {
-        // Phase 22.5.2026: po cislo_def drop refactor — tab.cislo je teď
-        // VŽDY menu_node.id (positive integer). Žádný negative synthetic
-        // range, žádný Centrála 1 legacy. Sjednocená render cesta přes
-        // _renderTabIntoMain (System view / FW přehled / Design form
-        // dispatch dle node typu).
-        tab.data = { _system: true };  // sentinel pro renderTabIntoMain
-        _renderTabIntoMain(tab);
-        if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view bez fetch z /prehled. Data jsou self-contained
+        // (System grid si fetchuje vlastni data uvnitr).
+        if (tab.cislo < 0) {
+          tab.data = { _system: true };  // sentinel — renderTabIntoMain rozumí
+          _renderTabIntoMain(tab);
+          // Phase 38.5+ (10.5.2026 vecer Marti's debugging): System tabs taky
+          // markFresh — security_devices grid + audit-overview byly bug, ikona
+          // refresh nikdy nemarkla freshness pro negative cisla → stale
+          // detection nikdy nezafungovala. System grids fetchují data uvnitř
+          // renderSystemGrid, ale pro MVP označíme fresh při otevření tabu
+          // (re-fetch uvnitř system view → re-call markFresh later, nice-to-have).
+          if (typeof ErpRefresh !== 'undefined') ErpRefresh.markFresh(tab.cislo);
+          return;
+        }
+        // Phase 2.E (18.5.2026): legacy Centrála 1 /prehled dropped.
+        // Po Marti's DB cleanup (DELETE FROM erp_user_tabs WHERE cislo_def > 0)
+        // positive cislo tab restore je dead path. Stub pro safety —
+        // pokud někdo někdy vytvoří positive cislo entry, render notice.
+        console.warn("[Phase 2.E] Positive cislo tab restore stubbed:", tab.cislo);
+        mainContent.innerHTML =
+          '<div class="erp-prehled-error" style="padding:24px;color:#a09080;">' +
+          '<strong>📋 Legacy Centrála 1 přehled #' + tab.cislo + ' odstraněn</strong><br><br>' +
+          'Tento tab pochází z Centrály 1 a už není dostupný.<br>' +
+          'Zavři tab a otevři FW přehled přes <em>System tree</em>.<br>' +
+          '<small style="color:#807060;">Phase 2.E cleanup 18.5.2026.</small>' +
+          '</div>';
       }
 
       function _renderTabIntoMain(tab) {
         // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
         if (currentJadro) closeJadroPane();
-        // Phase 22.5.2026 (po cislo_def drop refactor): VŠECHNY tab.cislo jsou
-        // positive menu_node.id. Žádný synthetic negative range, žádný legacy
-        // Centrála 1 negative ID. Dispatch přes core_id lookup z tree cache +
-        // ErpPageRender.dispatchPageRender (single path, no branching).
-        let node = (typeof _findSystemNodeById === "function")
-          ? _findSystemNodeById(tab.itemId) : null;
-        let coreId = node && node.core_id;
-        let coreCode = node && node.core_code;
-        if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
-          const li = tree.findLiByCislo(tab.cislo);
-          if (li) {
-            coreId = parseInt(li.dataset.coreId || "0", 10) || null;
-            coreCode = li.dataset.coreCode || null;
-          }
-        }
-        if (coreId) {
-          if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
-            window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
-          } else {
-            console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
+        // Phase 35-E.4 Krok C+: System tab (negative cislo) → render
+        // System view (audit dashboard / native AG Grid).
+        if (tab.cislo < 0) {
+          // Phase 38.4 Krok 14g-H+27 (15.5.2026 ~20:00, Marti's "pokud
+          // soudecek ma core_id, rovnou aktivovat prehled"): synthetic
+          // range + core_id check. Pokud node v tree cache má asociovany
+          // core, re-dispatch via core_code (jako bychom kliknuli na real
+          // prehled). Fallback: info placeholder s identifikatorem core.
+          if (tab.cislo <= -100000) {
+            // Phase 38.4 Krok 14g-H+29 (15.5.2026 ~20:45, Marti's "nedeje
+            // se aktivace prehledu ani po hard reset"): add diagnostics +
+            // li.dataset fallback pokud tree cache lookup fails.
+            let node = (typeof _findSystemNodeById === "function")
+              ? _findSystemNodeById(tab.itemId) : null;
+
+            // Fallback: pokud cache lookup selhal, pokus li.dataset (set v
+            // _decorateLeftPanelLi). Tj. real DOM stejne ma core_id v dataset.
+            let coreId = node && node.core_id;
+            let coreCode = node && node.core_code;
+            if (!coreId && typeof tree !== "undefined" && tree && typeof tree.findLiByCislo === "function") {
+              const li = tree.findLiByCislo(tab.cislo);
+              if (li) {
+                coreId = parseInt(li.dataset.coreId || "0", 10) || null;
+                coreCode = li.dataset.coreCode || null;
+              }
+            }
+
+            console.info("[H+29 dispatch] synthetic+core lookup:", {
+              cislo: tab.cislo,
+              itemId: tab.itemId,
+              node_found_in_cache: !!node,
+              core_id: coreId,
+              core_code: coreCode,
+            });
+
+            if (coreId) {
+              // Re-dispatch via core_code — pokud core matches known
+              // system mode, render system view. Jinak info placeholder.
+              const coreMode = coreCode
+                ? _systemModeFromItemId(coreCode)
+                : null;
+              console.info("[H+29 dispatch] coreMode lookup:", coreMode);
+              if (coreMode) {
+                _renderSystemViewIntoMain(coreMode, tab.label || coreCode);
+                return;
+              }
+              // Phase 38.4 Krok 5.R (17.5.2026 vecer, Marti's "JO, melo
+              // by to byt v nezavislem js. TJ ten 5/5"): page render
+              // dispatch presunuty do standalone modulu
+              // apps/api/static/erp/components/page_render.js (gotcha #100
+              // — inline JS v router.py je krehky pro velke bloky).
+              if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
+                window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
+              } else {
+                console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
+                mainContent.innerHTML =
+                  '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
+                  '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
+                  '</div>';
+              }
+              return;
+            }
+            // No core associated — info placeholder (drop H+14 silent doctrine
+            // pre nove asociace flow — Marti chce vidět něco, ne nic)
             mainContent.innerHTML =
-              '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
-              '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
-              '</div>';
+              '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
+              '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
+              escapeHtml(tab.label || "Soudeček") + '</h2>' +
+              '<p style="color:#7a8696;font-size:13px;margin:0;">' +
+              'Soudeček bez asociovaného core přehledu. ' +
+              'Pravý-klik → 🎨 Design pro vybrání core.' +
+              '</p></div>';
+            return;
           }
+          const mode = _systemModeFromItemId(tab.itemId) || _systemModeFromCislo(tab.cislo);
+          if (mode) {
+            _renderSystemViewIntoMain(mode, tab.label);
+            return;
+          }
+          // Fallback: System tab bez rozeznatelneho mode → hlaska
+          mainContent.innerHTML =
+            '<div class="erp-main-error">System tab #' + tab.cislo +
+            ' — neznamy view mode (itemId=' + escapeHtml(tab.itemId || "") + ').</div>';
           return;
         }
-        // No core associated — folder placeholder
-        mainContent.innerHTML =
-          '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
-          '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
-          escapeHtml(tab.label || "Soudeček") + '</h2>' +
-          '<p style="color:#7a8696;font-size:13px;margin:0;">' +
-          'Soudeček bez asociovaného core přehledu. ' +
-          'Pravý-klik → 🎨 Design pro vybrání core.' +
-          '</p></div>';
+        // Phase JS-cleanup (18.5.2026): renderPrehled call orphan (function dropped).
+        // Tab restore for positive cislo is unreachable (Phase 2.E stub returns earlier).
+        // Defensive return.
         return;
         // Restore grid state pokud cached
         if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
@@ -15890,3 +16155,4 @@ def _render_error_page(title: str, msg: str) -> str:
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
 
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 

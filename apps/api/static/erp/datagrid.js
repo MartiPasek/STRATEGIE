@@ -1366,6 +1366,20 @@
                     applyOrder: true,
                     defaultState: { flex: 0 },
                   });
+                  // Defensive setColumnWidths PIXEL-PERFECT (parita s _applyLayout line 1645).
+                  // Forces explicit widths z initialLayout — preventuje AG Grid auto-fit
+                  // overriding pres flex inheritance nebo sizeColumnsToFit.
+                  try {
+                    const widths = stateNoFlex
+                      .filter(c => c.width != null && c.width > 0)
+                      .map(c => ({ key: c.colId, newWidth: c.width }));
+                    if (widths.length > 0 && typeof params.api.setColumnWidths === "function") {
+                      params.api.setColumnWidths(widths);
+                      console.info("[ErpDataGrid] onFirstDataRendered → setColumnWidths(" + widths.length + " cols) defensive lock");
+                    }
+                  } catch (eSW) {
+                    console.warn("[ErpDataGrid] setColumnWidths defensive failed:", eSW);
+                  }
                   // Diagnostic: snapshot after (sync) — diff widths/order
                   const afterState = params.api.getColumnState();
                   const diff = [];

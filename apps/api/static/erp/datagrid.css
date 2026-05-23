@@ -89,6 +89,67 @@
   --ag-tooltip-foreground-color: var(--text, #f0f1f5);
 }
 
+/* Marti's 24.5. drobnost: AG Grid context menu compact — default je spacious
+   (padding ~12px, big icons), grid action menu vypadá nadrozměrné vs grid.
+   Override: tighter padding, smaller icons, smaller font. */
+.ag-theme-quartz-dark .ag-menu {
+  padding: 4px 0 !important;
+  min-width: 200px;
+  border-radius: 6px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.3) !important;
+  border: 1px solid rgba(79, 142, 247, 0.3) !important;
+}
+.ag-theme-quartz-dark .ag-menu-list {
+  padding: 0 !important;
+}
+.ag-theme-quartz-dark .ag-menu-option {
+  padding: 0 !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  line-height: 30px !important;
+}
+.ag-theme-quartz-dark .ag-menu-option-active,
+.ag-theme-quartz-dark .ag-menu-option:hover {
+  background: rgba(79, 142, 247, 0.15) !important;
+}
+.ag-theme-quartz-dark .ag-menu-option-part {
+  padding: 0 8px !important;
+  height: 30px !important;
+  line-height: 30px !important;
+}
+.ag-theme-quartz-dark .ag-menu-option-icon {
+  width: 24px !important;
+  padding: 0 4px 0 8px !important;
+}
+.ag-theme-quartz-dark .ag-menu-option-text {
+  font-size: 13px !important;
+  padding: 0 6px !important;
+}
+.ag-theme-quartz-dark .ag-menu-option-shortcut {
+  font-size: 11px !important;
+  opacity: 0.55;
+  padding: 0 12px 0 16px !important;
+  font-family: 'DM Mono', monospace;
+}
+.ag-theme-quartz-dark .ag-menu-option-popup-pointer {
+  padding: 0 8px !important;
+  font-size: 10px;
+}
+.ag-theme-quartz-dark .ag-menu .ag-icon {
+  font-size: 14px !important;
+  height: 14px !important;
+  width: 14px !important;
+  line-height: 14px !important;
+}
+.ag-theme-quartz-dark .ag-menu-separator {
+  height: 1px !important;
+  margin: 4px 0 !important;
+  background: rgba(255, 255, 255, 0.08);
+}
+.ag-theme-quartz-dark .ag-menu-option-disabled {
+  opacity: 0.4;
+}
+
 /* Marti's 24.5. drobnost: výrazný dark mode tooltip pro field hints.
    AG Grid native tooltip má basic styling — pojďme přidat shadow, border,
    padding, font weight. Vypadá jako custom tooltip, ne browser default. */

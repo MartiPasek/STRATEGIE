@@ -89,6 +89,36 @@
   --ag-tooltip-foreground-color: var(--text, #f0f1f5);
 }
 
+/* Marti's 24.5. drobnost: výrazný dark mode tooltip pro field hints.
+   AG Grid native tooltip má basic styling — pojďme přidat shadow, border,
+   padding, font weight. Vypadá jako custom tooltip, ne browser default. */
+.ag-theme-quartz-dark .ag-tooltip {
+  background: rgba(20, 24, 32, 0.96) !important;
+  color: #f0f1f5 !important;
+  border: 1px solid rgba(79, 142, 247, 0.4) !important;
+  border-radius: 4px !important;
+  padding: 6px 10px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.2px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(0, 0, 0, 0.3) !important;
+  max-width: 400px;
+  z-index: 99999;
+  /* Subtle fade-in animation */
+  animation: erpTooltipFadeIn 0.15s ease-out;
+}
+@keyframes erpTooltipFadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+/* AG Grid Quartz tooltip wrapper (vyšší specificity pro override) */
+.ag-theme-quartz-dark .ag-tooltip-custom,
+.ag-theme-quartz-dark .ag-popup .ag-tooltip {
+  background: rgba(20, 24, 32, 0.96) !important;
+  color: #f0f1f5 !important;
+  border: 1px solid rgba(79, 142, 247, 0.4) !important;
+}
+
 /* ID column — accent + monospace (parita s Tabulator B+1.7 visual) */
 .ag-theme-quartz-dark.erp-ag-grid .ag-cell.erp-ag-col-id {
   color: var(--accent, #4f8ef7);

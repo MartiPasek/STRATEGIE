@@ -527,6 +527,10 @@
       const def = {
         field: c,
         headerName: c,
+        // Marti's 24.5. drobnost: hint pro header (truncated field names).
+        // AG Grid native header tooltip — auto-shown když text overflows.
+        // Custom dark mode styling v datagrid.css `.ag-tooltip`.
+        headerTooltip: c,
         sortable: true,
         resizable: true,
         // Filtering: floating filter row pod hlavičkou
@@ -1618,6 +1622,10 @@
         },
         // Animation
         animateRows: true,
+        // Marti's 24.5. drobnost: hint pro fields v gridu (truncated names).
+        // Tooltip delays — rychlejší show pro field hints.
+        tooltipShowDelay: 400,    // ms before showing (default 2000 = too slow)
+        tooltipHideDelay: 10000,  // ms before hiding (default 10000 = stays long enough)
       };
 
       // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer Marti's

@@ -1757,9 +1757,27 @@
       const skipApply = !!this.options.initialLayout;
       const result = await this.listLayouts();
       if (skipApply) {
+        // Phase API Versioned Routing post-deploy fix #2 (23.5.2026 vecer
+        // Marti's catch "drifting zmizelo, presto efekt je stejny... Neco
+        // zavola autoLoadDefault"): initialLayout pre-applied via initialState,
+        // ALE _currentLayoutId zustaval null -> initLayout.finally callback
+        // (line ~1322) si myslel "zadny layout" a volal sizeColumnsToFit()
+        // = proporcionalni flex distribuce -> 38 cols rozhazeno na ~80px each.
+        // Fix: nastavit _currentLayoutId z initialLayout.id, aby finally
+        // callback poznal "layout existuje, fit SKIP".
+        try {
+          const il = this.options.initialLayout;
+          if (il && il.id != null) {
+            this._currentLayoutId = il.id;
+            this._currentLayoutName = il.name || null;
+            this._isDirty = false;
+          }
+        } catch (e) { /* silent */ }
         console.info(
           "[ErpDataGrid] autoLoadDefault " + key +
-          " → SKIP applyColumnState (initialLayout pre-applied via gridOptions.initialState)"
+          " → SKIP applyColumnState + lock _currentLayoutId=" +
+          (this._currentLayoutId != null ? this._currentLayoutId : "null") +
+          " (initialLayout pre-applied via gridOptions.initialState)"
         );
       } else if (result && result.effective_default) {
         const lid = result.effective_default.id;

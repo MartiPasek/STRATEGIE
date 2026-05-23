@@ -196,6 +196,27 @@
     return PRESET_COLORS.find(c => c.key === k) || PRESET_COLORS[0];
   }
 
+  // ── Preset icons (Marti's 23.5. "severity emoji") ───────────────
+  // 12 nejčastějších semantic emoji jako prefix v cell ::before.
+  // "none" = žádný icon (default).
+  const PRESET_ICONS = [
+    { key: "none",    label: "Žádná",        emoji: "" },
+    { key: "red",     label: "Červená",      emoji: "🔴" },
+    { key: "yellow",  label: "Žlutá",        emoji: "🟡" },
+    { key: "green",   label: "Zelená",       emoji: "🟢" },
+    { key: "warning", label: "Varování",     emoji: "⚠️" },
+    { key: "success", label: "OK",           emoji: "✅" },
+    { key: "error",   label: "Chyba",        emoji: "❌" },
+    { key: "info",    label: "Info",         emoji: "ℹ️" },
+    { key: "fire",    label: "Důležité",     emoji: "🔥" },
+    { key: "star",    label: "Hvězda",       emoji: "⭐" },
+    { key: "up",      label: "Nahoru",       emoji: "🔼" },
+    { key: "down",    label: "Dolů",         emoji: "🔽" },
+  ];
+  function _iconByKey(k) {
+    return PRESET_ICONS.find(i => i.key === k) || PRESET_ICONS[0];
+  }
+
   // ── Compile rules → AG Grid format ─────────────────────────────────
 
   /**
@@ -269,10 +290,17 @@
       if (r.bold === true)      uniqueClass += " erp-fmt-bold";
       if (r.italic === true)    uniqueClass += " erp-fmt-italic";
       if (r.underline === true) uniqueClass += " erp-fmt-underline";
-      // Fix 23.5.2026 vecer (Marti's "bleskneme se"): effect="border" -> left border accent
-      // Apply only pro cell/text scope (row scope by full-row border looked ugly).
-      if (r.effect === "border" && !isRow) {
+      // Fix 23.5.2026 vecer (Marti's "bleskneme se"): effect = "none" | "border" | "pill".
+      // border = 3px colored left accent (works for cell/text AND row scope now).
+      // pill = rounded badge feel (inset box-shadow + border-radius, cell scope only).
+      if (r.effect === "border") {
         uniqueClass += " " + (colorDef.borderClass || "erp-fmt-border-gray");
+      } else if (r.effect === "pill" && !isRow) {
+        uniqueClass += " erp-fmt-pill erp-fmt-pill-" + (r.color || "gray");
+      }
+      // Icon prefix (Marti's "severity emoji") — apply via ::before
+      if (r.iconPrefix && r.iconPrefix !== "none") {
+        uniqueClass += " erp-fmt-icon-" + r.iconPrefix;
       }
 
       if (isRow) {
@@ -454,9 +482,14 @@
             _esc(col.label) +
           '</span>' +
           '<span class="erp-fmt-col-scope">' +
+            (_iconByKey(rule.iconPrefix || "none").emoji ? _iconByKey(rule.iconPrefix).emoji + ' ' : '') +
             (rule.scope === "row" ? "Řádek" :
              rule.scope === "text" ? "Text" : "Buňka") +
-            (rule.bold === true ? ' <b style="opacity:0.7;font-size:0.85em">+ tučně</b>' : '') +
+            (rule.effect === "border" ? ' <span style="opacity:0.6;font-size:0.85em">┃</span>' : '') +
+            (rule.effect === "pill" ? ' <span style="opacity:0.6;font-size:0.85em">💊</span>' : '') +
+            (rule.bold === true ? ' <b style="opacity:0.7;font-size:0.85em">B</b>' : '') +
+            (rule.italic === true ? ' <i style="opacity:0.7;font-size:0.85em">I</i>' : '') +
+            (rule.underline === true ? ' <u style="opacity:0.7;font-size:0.85em">U</u>' : '') +
           '</span>' +
           '<span class="erp-fmt-col-actions">' +
             '<button type="button" class="erp-fmt-icon-btn" data-fmt-edit title="Upravit">✎</button>' +
@@ -591,10 +624,35 @@
                   '<input type="checkbox" data-fmt-underline' + (rule.underline === true ? " checked" : "") + '>' +
                   '<span><u>Podtržení</u></span>' +
                 '</label>' +
+              '</div>' +
+              // Effect radio (none / border / pill)
+              '<div class="erp-fmt-edit-row erp-fmt-edit-row-checks" style="margin-top:8px;">' +
+                '<span style="font-size:11px;color:rgba(255,255,255,0.4);margin-right:8px;">Efekt:</span>' +
                 '<label class="erp-fmt-edit-check">' +
-                  '<input type="checkbox" data-fmt-effect-border' + (rule.effect === "border" ? " checked" : "") + '>' +
+                  '<input type="radio" name="fmt-effect" value="none"' + ((!rule.effect || rule.effect === "none") ? " checked" : "") + '>' +
+                  '<span>Žádný</span>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="radio" name="fmt-effect" value="border"' + (rule.effect === "border" ? " checked" : "") + '>' +
                   '<span>┃ Levý okraj</span>' +
                 '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="radio" name="fmt-effect" value="pill"' + (rule.effect === "pill" ? " checked" : "") + '>' +
+                  '<span>💊 Pilulka</span>' +
+                '</label>' +
+              '</div>' +
+              // Icon prefix picker (12 emoji buttons)
+              '<div class="erp-fmt-edit-row" style="margin-top:8px;align-items:center;">' +
+                '<span style="font-size:11px;color:rgba(255,255,255,0.4);margin-right:8px;">Ikonka:</span>' +
+                '<div class="erp-fmt-icon-pills">' +
+                  PRESET_ICONS.map(i =>
+                    '<button type="button" class="erp-fmt-icon-pill' +
+                    (i.key === (rule.iconPrefix || "none") ? " selected" : "") + '" ' +
+                    'data-icon="' + i.key + '" title="' + _esc(i.label) + '">' +
+                    (i.emoji || '∅') +
+                    '</button>'
+                  ).join('') +
+                '</div>' +
               '</div>' +
             '</div>' +
             // ── Preview ─────────────────────────────────────
@@ -625,11 +683,17 @@
           const bold = form.querySelector("[data-fmt-bold]").checked;
           const italic = form.querySelector("[data-fmt-italic]").checked;
           const underline = form.querySelector("[data-fmt-underline]").checked;
-          const borderEffect = form.querySelector("[data-fmt-effect-border]").checked;
+          const effectRadio = form.querySelector("input[name='fmt-effect']:checked");
+          const effect = effectRadio ? effectRadio.value : "none";
+          const iconBtn = form.querySelector(".erp-fmt-icon-pill.selected");
+          const iconKey = iconBtn ? iconBtn.dataset.icon : "none";
+          const iconDef = _iconByKey(iconKey);
           // Reset all classes
           previewEl.className = "erp-fmt-preview-cell";
-          // Apply scope class
-          if (scope === "row" || scope === "cell") {
+          // Apply scope class (pill effect overrides default scope styling)
+          if (effect === "pill" && scope !== "row") {
+            previewEl.classList.add("erp-fmt-pill-preview", "erp-fmt-pill-" + colorKey);
+          } else if (scope === "row" || scope === "cell") {
             previewEl.classList.add(colorDef.cellClass);
           } else if (scope === "text") {
             previewEl.classList.add(colorDef.textClass);
@@ -638,13 +702,16 @@
           if (bold)      previewEl.classList.add("erp-fmt-bold");
           if (italic)    previewEl.classList.add("erp-fmt-italic");
           if (underline) previewEl.classList.add("erp-fmt-underline");
-          if (borderEffect && scope !== "row") {
+          // Border effect (separate from pill — they're mutex via radio)
+          if (effect === "border") {
             previewEl.classList.add(colorDef.borderClass);
           }
+          // Icon prefix — use DOM content prepend (preview only, real CSS uses ::before)
+          previewEl.textContent = (iconDef.emoji ? iconDef.emoji + " " : "") + "Ukázka textu";
         };
         // Wire all inputs to live preview
         ["data-fmt-scope", "data-fmt-bold", "data-fmt-italic",
-         "data-fmt-underline", "data-fmt-effect-border"].forEach(attr => {
+         "data-fmt-underline"].forEach(attr => {
           const el = form.querySelector("[" + attr + "]");
           if (el) el.addEventListener("change", updatePreview);
         });
@@ -673,6 +740,18 @@
             if (typeof updatePreview === "function") updatePreview();
           });
         });
+        // Icon picker selection (+ live preview update)
+        form.querySelectorAll(".erp-fmt-icon-pill").forEach(btn => {
+          btn.addEventListener("click", () => {
+            form.querySelectorAll(".erp-fmt-icon-pill").forEach(b => b.classList.remove("selected"));
+            btn.classList.add("selected");
+            if (typeof updatePreview === "function") updatePreview();
+          });
+        });
+        // Effect radio change -> preview update
+        form.querySelectorAll("input[name='fmt-effect']").forEach(r => {
+          r.addEventListener("change", () => { if (typeof updatePreview === "function") updatePreview(); });
+        });
 
         // Cancel — abort edit (if was new rule, remove it)
         form.querySelector("[data-fmt-edit-cancel]").addEventListener("click", () => {
@@ -698,7 +777,10 @@
             bold: form.querySelector("[data-fmt-bold]") && form.querySelector("[data-fmt-bold]").checked,
             italic: form.querySelector("[data-fmt-italic]") && form.querySelector("[data-fmt-italic]").checked,
             underline: form.querySelector("[data-fmt-underline]") && form.querySelector("[data-fmt-underline]").checked,
-            effect: (form.querySelector("[data-fmt-effect-border]") && form.querySelector("[data-fmt-effect-border]").checked) ? "border" : "none",
+            effect: (form.querySelector("input[name='fmt-effect']:checked") || {}).value || "none",
+            iconPrefix: (form.querySelector(".erp-fmt-icon-pill.selected") || {}).dataset
+                        ? form.querySelector(".erp-fmt-icon-pill.selected").dataset.icon
+                        : "none",
             order: rule.order || idx,
           };
           // Validation
@@ -737,6 +819,7 @@
             italic: false,
             underline: false,
             effect: "none",
+            iconPrefix: "none",
             order: state.rules.length,
             _isNew: true,
           };

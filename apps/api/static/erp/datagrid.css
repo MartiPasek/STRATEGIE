@@ -847,6 +847,55 @@
 .erp-fmt-edit-check input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
 .erp-fmt-edit-check span { font-size: 13px; }
 .erp-fmt-color-pills { display: flex; flex-wrap: wrap; gap: 4px; max-width: 320px; }
+
+/* Icon picker — emoji buttons grid */
+.erp-fmt-icon-pills { display: flex; flex-wrap: wrap; gap: 4px; max-width: 420px; }
+.erp-fmt-icon-pill {
+  width: 32px; height: 32px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 16px;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+  padding: 0;
+  color: rgba(255, 255, 255, 0.5);
+}
+.erp-fmt-icon-pill:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.2);
+}
+.erp-fmt-icon-pill.selected {
+  background: rgba(59, 130, 246, 0.25);
+  border-color: #3b82f6;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
+}
+
+/* Pill preview in modal — inline-block badge feel */
+.erp-fmt-preview-cell.erp-fmt-pill-preview {
+  border-radius: 12px;
+  padding: 4px 14px !important;
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 80px !important;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+.erp-fmt-preview-cell.erp-fmt-pill-red    { background: rgba(239, 68, 68, 0.25) !important; color: #fca5a5 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-orange { background: rgba(249, 115, 22, 0.25) !important; color: #fdba74 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-yellow { background: rgba(234, 179, 8, 0.25) !important; color: #fcd34d !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-green  { background: rgba(34, 197, 94, 0.25) !important; color: #86efac !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-blue   { background: rgba(59, 130, 246, 0.25) !important; color: #93c5fd !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-purple { background: rgba(168, 85, 247, 0.25) !important; color: #d8b4fe !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-gray   { background: rgba(107, 114, 128, 0.30) !important; color: #d1d5db !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-rose   { background: rgba(244, 63, 94, 0.25) !important; color: #fda4af !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-amber  { background: rgba(217, 119, 6, 0.25) !important; color: #fbbf24 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-lime   { background: rgba(132, 204, 22, 0.25) !important; color: #bef264 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-teal   { background: rgba(20, 184, 166, 0.25) !important; color: #5eead4 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-cyan   { background: rgba(6, 182, 212, 0.25) !important; color: #67e8f9 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-indigo { background: rgba(99, 102, 241, 0.25) !important; color: #a5b4fc !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-pink   { background: rgba(236, 72, 153, 0.25) !important; color: #f9a8d4 !important; }
+.erp-fmt-preview-cell.erp-fmt-pill-slate  { background: rgba(71, 85, 105, 0.30) !important; color: #94a3b8 !important; }
 .erp-fmt-preview-wrap {
   background: rgba(0, 0, 0, 0.2);
   border: 1px dashed rgba(255, 255, 255, 0.1);
@@ -868,8 +917,8 @@
 .ag-theme-quartz-dark .erp-fmt-underline { text-decoration: underline !important; }
 
 /* ── Left border accent (effect: "border") ─────────────────────
-   3px solid colored stripe na levé straně buňky. Cell-scope only
-   (row by byl ugly). Stackuje s color text + background. */
+   3px solid colored stripe — funguje pro cell/text scope, plus pro row
+   scope se aplikuje na první cell v řádku (Marti's 23.5. extension). */
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-red    { border-left: 3px solid #ef4444 !important; }
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-orange { border-left: 3px solid #f97316 !important; }
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-yellow { border-left: 3px solid #eab308 !important; }
@@ -877,6 +926,77 @@
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-blue   { border-left: 3px solid #3b82f6 !important; }
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-purple { border-left: 3px solid #a855f7 !important; }
 .ag-theme-quartz-dark .ag-cell.erp-fmt-border-gray   { border-left: 3px solid #6b7280 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-rose   { border-left: 3px solid #f43f5e !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-amber  { border-left: 3px solid #d97706 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-lime   { border-left: 3px solid #84cc16 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-teal   { border-left: 3px solid #14b8a6 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-cyan   { border-left: 3px solid #06b6d4 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-indigo { border-left: 3px solid #6366f1 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-pink   { border-left: 3px solid #ec4899 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-slate  { border-left: 3px solid #475569 !important; }
+/* Row scope — border-left na první cell v řádku */
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-red    > .ag-cell:first-child { border-left: 3px solid #ef4444 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-orange > .ag-cell:first-child { border-left: 3px solid #f97316 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-yellow > .ag-cell:first-child { border-left: 3px solid #eab308 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-green  > .ag-cell:first-child { border-left: 3px solid #22c55e !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-blue   > .ag-cell:first-child { border-left: 3px solid #3b82f6 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-purple > .ag-cell:first-child { border-left: 3px solid #a855f7 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-gray   > .ag-cell:first-child { border-left: 3px solid #6b7280 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-rose   > .ag-cell:first-child { border-left: 3px solid #f43f5e !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-amber  > .ag-cell:first-child { border-left: 3px solid #d97706 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-lime   > .ag-cell:first-child { border-left: 3px solid #84cc16 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-teal   > .ag-cell:first-child { border-left: 3px solid #14b8a6 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-cyan   > .ag-cell:first-child { border-left: 3px solid #06b6d4 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-indigo > .ag-cell:first-child { border-left: 3px solid #6366f1 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-pink   > .ag-cell:first-child { border-left: 3px solid #ec4899 !important; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-border-slate  > .ag-cell:first-child { border-left: 3px solid #475569 !important; }
+
+/* ── Icon prefix (effect: severity emoji) — Marti's 23.5. "hezke futury" ─
+   Apply emoji as ::before na cell. CSS-only, žádný cellRenderer churn. */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-red::before     { content: "🔴 "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-yellow::before  { content: "🟡 "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-green::before   { content: "🟢 "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-warning::before { content: "⚠️ "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-success::before { content: "✅ "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-error::before   { content: "❌ "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-info::before    { content: "ℹ️ "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-fire::before    { content: "🔥 "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-star::before    { content: "⭐ "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-up::before      { content: "🔼 "; margin-right: 2px; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-icon-down::before    { content: "🔽 "; margin-right: 2px; }
+
+/* ── Pill style (effect: "pill") — Marti's 23.5. "status pills" ─
+   Rounded badge feel via inset box-shadow (AG Grid cell nemá wrapper element).
+   Cell scope only — row scope by neměl smysl jako pill. */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill {
+  border-radius: 12px !important;
+  margin: 3px 4px !important;
+  padding: 0 8px !important;
+  font-weight: 600;
+  font-size: 12px;
+  display: inline-flex !important;
+  align-items: center;
+  height: calc(100% - 6px);
+  /* Subtle inset shadow pro depth */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+/* Pill color overrides — bg + border + text per color */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-red    { background: rgba(239, 68, 68, 0.25) !important; color: #fca5a5 !important; box-shadow: inset 0 0 0 1px rgba(239, 68, 68, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-orange { background: rgba(249, 115, 22, 0.25) !important; color: #fdba74 !important; box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-yellow { background: rgba(234, 179, 8, 0.25) !important; color: #fcd34d !important; box-shadow: inset 0 0 0 1px rgba(234, 179, 8, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-green  { background: rgba(34, 197, 94, 0.25) !important; color: #86efac !important; box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-blue   { background: rgba(59, 130, 246, 0.25) !important; color: #93c5fd !important; box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-purple { background: rgba(168, 85, 247, 0.25) !important; color: #d8b4fe !important; box-shadow: inset 0 0 0 1px rgba(168, 85, 247, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-gray   { background: rgba(107, 114, 128, 0.30) !important; color: #d1d5db !important; box-shadow: inset 0 0 0 1px rgba(107, 114, 128, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-rose   { background: rgba(244, 63, 94, 0.25) !important; color: #fda4af !important; box-shadow: inset 0 0 0 1px rgba(244, 63, 94, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-amber  { background: rgba(217, 119, 6, 0.25) !important; color: #fbbf24 !important; box-shadow: inset 0 0 0 1px rgba(217, 119, 6, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-lime   { background: rgba(132, 204, 22, 0.25) !important; color: #bef264 !important; box-shadow: inset 0 0 0 1px rgba(132, 204, 22, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-teal   { background: rgba(20, 184, 166, 0.25) !important; color: #5eead4 !important; box-shadow: inset 0 0 0 1px rgba(20, 184, 166, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-cyan   { background: rgba(6, 182, 212, 0.25) !important; color: #67e8f9 !important; box-shadow: inset 0 0 0 1px rgba(6, 182, 212, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-indigo { background: rgba(99, 102, 241, 0.25) !important; color: #a5b4fc !important; box-shadow: inset 0 0 0 1px rgba(99, 102, 241, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-pink   { background: rgba(236, 72, 153, 0.25) !important; color: #f9a8d4 !important; box-shadow: inset 0 0 0 1px rgba(236, 72, 153, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-slate  { background: rgba(71, 85, 105, 0.30) !important; color: #94a3b8 !important; box-shadow: inset 0 0 0 1px rgba(71, 85, 105, 0.5) !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-pill-strike { background: rgba(148, 163, 184, 0.25) !important; color: #94a3b8 !important; text-decoration: line-through !important; }
 
 /* ── Row-level color classes ───────────────────────────────────────
    Aplikace na celý řádek. Zachovat zebra-stripe contrast — proto

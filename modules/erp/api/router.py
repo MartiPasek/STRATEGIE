@@ -8270,6 +8270,49 @@ def _render_full_page(
       animation: refreshSpin 0.6s linear infinite;
       pointer-events: none;
     }}
+
+    /* Krok 5.S Fáze 7 (23.5.2026 rano, Marti's spec): grid action buttons
+       (Nový/Oprava/Smazat) — same size jako refresh (36×36), ale icons 27px
+       (o ~50% větší). Drop text, use data-hint tooltip. Disabled = no row
+       selected. */
+    .erp-grid-action-btn {{
+      background: transparent;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      width: 36px;
+      height: 36px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 27px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      color: var(--text-muted);
+      padding: 0;
+      line-height: 1;
+      flex-shrink: 0;
+    }}
+    .erp-grid-action-btn:hover {{
+      border-color: var(--accent);
+      color: var(--accent);
+      background: rgba(124, 92, 252, 0.08);
+    }}
+    .erp-grid-action-btn:disabled {{
+      opacity: 0.35;
+      cursor: not-allowed;
+    }}
+    .erp-grid-action-btn:disabled:hover {{
+      border-color: var(--border);
+      color: var(--text-muted);
+      background: transparent;
+    }}
+    /* Smazat — red accent při hover (destructive) */
+    .erp-grid-action-btn.danger:hover {{
+      border-color: #d46a6a;
+      color: #d46a6a;
+      background: rgba(212, 106, 106, 0.08);
+    }}
+
     @keyframes refreshSpin {{
       from {{ transform: rotate(0deg); }}
       to {{ transform: rotate(360deg); }}

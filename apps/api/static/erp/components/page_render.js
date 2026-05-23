@@ -56,17 +56,15 @@
         '</p></div>';
     }
 
-    // ─── Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 M1 header relocation): ───
+    // ─── Krok 5.S Fáze 7 (23.5.2026 rano, Marti's icon-only design parity): ───
     //
-    // Grid actions toolbar žije v workspace header (#erpGridActionsHost) vedle
+    // Grid actions toolbar v workspace header (#erpGridActionsHost) vedle
     // Tvoje Marti + 🔄 Refresh. 3 buttons (Nový/Oprava/Smazat) driven by
-    // grid_actions z page-spec backend response:
-    //   has_insert + edit_core_id → 🆕 Nový visible
-    //   has_edit + edit_core_id   → ✏️ Oprava visible (vyzaduje row select)
-    //   has_delete                → 🗑️ Smazat visible (vyzaduje row select)
-    //
-    // Obnovit button DROP (Marti's Q4) — workspace 🔄 Refresh dělá refresh
-    // + má oranžový rámeček stale data indication. Jeden refresh button.
+    // grid_actions z page-spec backend response. Design parita s
+    // .erp-refresh-btn — 36×36 square, 27px icon, data-hint tooltip:
+    //   has_insert + edit_core_id → 🆕 Nový visible (no row required)
+    //   has_edit + edit_core_id   → ✏️ Oprava visible (row select required)
+    //   has_delete                → 🗑️ Smazat visible (row select required, danger hover)
     //
     // No grid_actions (drafted core / form-only) → empty host (jen Refresh
     // zustane v workspace header).
@@ -83,32 +81,23 @@
       const showEdit = !!(gridActions.has_edit && editCoreId);
       const showDelete = !!gridActions.has_delete;
 
-      // Kompaktní styling pro header context (smaller padding než Fáze 3
-      // standalone toolbar, parity s erp-refresh-btn vedle).
-      const btnStyle =
-        'padding:5px 11px;border:1px solid #2a3744;background:#15202b;' +
-        'color:#cfd6df;cursor:pointer;border-radius:4px;font-size:12px;' +
-        'font-family:inherit;display:inline-flex;align-items:center;gap:5px;' +
-        'line-height:1;';
-      const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
-
       const parts = [];
       if (showNew) {
         parts.push(
-          '<button id="erp-tb-new" type="button" ' +
-          'style="' + btnStyle + '">🆕 <span>Nový</span></button>'
+          '<button id="erp-tb-new" type="button" class="erp-grid-action-btn" ' +
+          'data-hint="Nový záznam (Insert)">🆕</button>'
         );
       }
       if (showEdit) {
         parts.push(
-          '<button id="erp-tb-edit" type="button" ' +
-          'data-need-row="1" disabled style="' + btnDisabledStyle + '">✏️ <span>Oprava</span></button>'
+          '<button id="erp-tb-edit" type="button" class="erp-grid-action-btn" ' +
+          'data-need-row="1" data-hint="Oprava vybraného záznamu (Enter / dvojklik)" disabled>✏️</button>'
         );
       }
       if (showDelete) {
         parts.push(
-          '<button id="erp-tb-delete" type="button" ' +
-          'data-need-row="1" disabled style="' + btnDisabledStyle + '">🗑️ <span>Smazat</span></button>'
+          '<button id="erp-tb-delete" type="button" class="erp-grid-action-btn danger" ' +
+          'data-need-row="1" data-hint="Smazat vybraný záznam (nevratné)" disabled>🗑️</button>'
         );
       }
       toolbarHost.innerHTML = parts.join('');
@@ -136,17 +125,10 @@
 
     function _updateToolbarSelection(toolbarHost, hasSelection) {
       if (!toolbarHost) return;
-      const btnStyle =
-        'padding:5px 11px;border:1px solid #2a3744;background:#15202b;' +
-        'color:#cfd6df;cursor:pointer;border-radius:4px;font-size:12px;' +
-        'font-family:inherit;display:inline-flex;align-items:center;gap:5px;' +
-        'line-height:1;';
-      const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
+      // Krok 5.S Fáze 7: class-based styling, jen toggle disabled attribute
+      // (CSS .erp-grid-action-btn:disabled handle opacity + cursor).
       const targets = toolbarHost.querySelectorAll('[data-need-row="1"]');
-      targets.forEach((btn) => {
-        btn.disabled = !hasSelection;
-        btn.setAttribute('style', hasSelection ? btnStyle : btnDisabledStyle);
-      });
+      targets.forEach((btn) => { btn.disabled = !hasSelection; });
     }
 
     function _renderEmptyGrid(mainContent, tab, rootCd, coreId, specForRender) {

@@ -992,7 +992,19 @@
       if (opts.initialLayout && opts.initialLayout.layout_json) {
         const lj = opts.initialLayout.layout_json;
         if (Array.isArray(lj.columns) && lj.columns.length > 0) {
-          initialColumnState = lj.columns;
+          // Phase API Versioned Routing post-deploy fix #3 (23.5.2026 vecer
+          // Marti's catch "sirka funguje, poradi ne"): DB snapshot ma items
+          // bez colId (jen field). AG Grid v32+ initialState.columnState
+          // VYZADUJE colId per item — bez colId state item ignored
+          // (Issue #5111: "columns that can't be matched will be treated as
+          // new columns and placed at the end"). Fix: normalize colId fallback
+          // k field/column PRED passing do initialState. Pak match s
+          // auto-generated colId v columnDefs (= field) funguje.
+          initialColumnState = lj.columns
+            .map(c => Object.assign({}, c, {
+              colId: c.colId || c.field || c.column,
+            }))
+            .filter(c => !!c.colId);
           // Pre-set state aby guards (onGridSizeChanged, onFirstDataRendered)
           // fungovaly hned — _currentLayoutId truthy = persistovany layout.
           this._currentLayoutId = opts.initialLayout.id;
@@ -1368,11 +1380,53 @@
                     .filter(c => !!c.colId); // drop entries bez identifier
                   // Diagnostic: snapshot before applyColumnState
                   const beforeState = params.api.getColumnState();
+                  // Phase API Versioned Routing post-deploy fix #3 (23.5.2026 vecer
+                  // Marti's catch "sirka funguje, poradi ne"): partial state s 5 z 38
+                  // cols + applyOrder:true v AG Grid v32+ ignoruje order. Pri 33
+                  // chybejicich cols Issue #5111 nedeterministic placement.
+                  // Fix: build FULL state ze vsech grid cols, merge saved props
+                  // pro 5 z initialLayout, pak sort by saved order index (saved
+                  // first, ostatni v puvodnim columnDef poradi). Plne pokryty state
+                  // = applyOrder se aplikuje deterministicky.
+                  const savedByColId = {};
+                  const savedOrder = {};
+                  stateNoFlex.forEach((c, i) => {
+                    savedByColId[c.colId] = c;
+                    savedOrder[c.colId] = i;
+                  });
+                  const fullState = beforeState.map((c, origIdx) => {
+                    const saved = savedByColId[c.colId];
+                    if (saved) {
+                      return Object.assign({}, c, saved, { flex: 0 });
+                    }
+                    return Object.assign({}, c, { flex: 0 });
+                  });
+                  // Sort: saved cols first (in saved order), pak ostatni v puvodnim poradi
+                  fullState.sort((a, b) => {
+                    const aIdx = savedOrder[a.colId];
+                    const bIdx = savedOrder[b.colId];
+                    const aHas = aIdx != null;
+                    const bHas = bIdx != null;
+                    if (!aHas && !bHas) {
+                      // oba mimo saved — zachovat puvodni poradi z beforeState
+                      const aOrig = beforeState.findIndex(x => x.colId === a.colId);
+                      const bOrig = beforeState.findIndex(x => x.colId === b.colId);
+                      return aOrig - bOrig;
+                    }
+                    if (!aHas) return 1;
+                    if (!bHas) return -1;
+                    return aIdx - bIdx;
+                  });
                   params.api.applyColumnState({
-                    state: stateNoFlex,
+                    state: fullState,
                     applyOrder: true,
                     defaultState: { flex: 0 },
                   });
+                  console.info(
+                    "[ErpDataGrid] full state apply — " + fullState.length +
+                    " cols (" + stateNoFlex.length + " z layoutu first, " +
+                    (fullState.length - stateNoFlex.length) + " ostatnich)"
+                  );
                   // Defensive setColumnWidths PIXEL-PERFECT (parita s _applyLayout line 1645).
                   // Forces explicit widths z initialLayout — preventuje AG Grid auto-fit
                   // overriding pres flex inheritance nebo sizeColumnsToFit.
@@ -1421,9 +1475,16 @@
                       if (reWidths.length > 0 && typeof params.api.setColumnWidths === "function") {
                         params.api.setColumnWidths(reWidths);
                         // Plus explicit setColumnState aby flex zustal 0 (preventuje budouci reapply)
+                        // Fix #3 (23.5.2026 vecer): pridat applyOrder:true aby 500ms re-apply
+                        // preservoval order z initial applyColumnState (afterState reflects
+                        // post-apply order = saved layout order)
                         try {
                           const lockState = afterState.map(c => ({ colId: c.colId, width: c.width, flex: 0 }));
-                          params.api.applyColumnState({ state: lockState, defaultState: { flex: 0 } });
+                          params.api.applyColumnState({
+                            state: lockState,
+                            applyOrder: true,
+                            defaultState: { flex: 0 },
+                          });
                         } catch (eL) { /* silent */ }
                         console.info(
                           "[ErpDataGrid] Layout LOCK 500ms post-render (" + reWidths.length + " cols, flex:0 forced)"

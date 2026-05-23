@@ -3611,20 +3611,44 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
         )).scalar()
 
         # Activity log audit (Krok 5.S doctrine NE-anonymous: kdo kdy co)
+        # Krok 5.W fix (23.5.2026): ROOT CAUSE paradox FOUND!
+        # Backend používal OLD column names (action_kind/target_kind/target_id/
+        # payload/created_at) které v aktuálním schema NEEXISTUJÍ. Schema má:
+        # (id, ts, persona_id, user_id, conversation_id, tenant_id, category,
+        #  actor, summary, ref_type, ref_id, importance, change_source).
+        #
+        # PG raised "column does not exist" → Python catch swallowed exception
+        # → PG tx ABORTED → ds.commit() na aborted tx → silent ROLLBACK
+        # → DELETE ROLLBACKED → row vrátí se v fresh session.
+        #
+        # Plus SAVEPOINT wrap: pokud INSERT failuje, jen savepoint rollback —
+        # main tx zůstane clean a DELETE commit projde.
         try:
-            ds.execute(_sql_text_del("""
-                INSERT INTO activity_log
-                    (user_id, action_kind, target_kind, target_id, change_source, payload, created_at)
-                VALUES
-                    (:uid, 'delete', :tk, :tid, 'ui', :payload, NOW())
-            """), {
-                "uid": uid,
-                "tk": f"{schema}.{table}",
-                "tid": row_id,
-                "payload": f'{{"core_id":{core_id},"deleted_rows":{deleted_rows}}}',
-            })
-        except Exception as _act_e:
-            logger.warning(f"design_delete_entity activity_log INSERT failed: {_act_e}")
+            ds.execute(_sql_text_del("SAVEPOINT sp_activity_log"))
+            try:
+                ds.execute(_sql_text_del("""
+                    INSERT INTO activity_log
+                        (user_id, category, actor, summary, ref_type, ref_id,
+                         change_source, importance, ts)
+                    VALUES
+                        (:uid, 'delete', 'user', :summary, :rt, :rid,
+                         'ui', 3, NOW())
+                """), {
+                    "uid": uid,
+                    "summary": f"DELETE {schema}.{table} id={row_id} (core_id={core_id}, deleted_rows={deleted_rows})",
+                    "rt": f"{schema}.{table}",
+                    "rid": row_id,
+                })
+                ds.execute(_sql_text_del("RELEASE SAVEPOINT sp_activity_log"))
+            except Exception as _act_e:
+                # Rollback savepoint — main tx zustane clean (DELETE staged OK)
+                try:
+                    ds.execute(_sql_text_del("ROLLBACK TO SAVEPOINT sp_activity_log"))
+                except Exception:
+                    pass
+                logger.warning(f"design_delete_entity activity_log INSERT failed (rolled back to savepoint): {_act_e}")
+        except Exception as _sp_e:
+            logger.warning(f"design_delete_entity savepoint setup failed: {_sp_e}")
 
         ds.commit()
 

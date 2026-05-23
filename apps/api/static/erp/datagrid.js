@@ -1349,13 +1349,56 @@
               const cols = this.options.initialLayout.layout_json.columns;
               if (Array.isArray(cols) && cols.length > 0) {
                 try {
+                  // Phase API Versioned Routing post-deploy fix (23.5.2026 vecer
+                  // Marti's catch "problikne spravne pak rozhazi"):
+                  // STRIP flex z cols PRED applyColumnState. Pokud cols[i].flex
+                  // je truthy (z save snapshotu kde columns mely flex), AG Grid
+                  // reapply flex -> grid se rozhazi na flex distribution.
+                  // Plus defaultState: { flex: 0 } jako safety net.
+                  const stateNoFlex = cols.map(c => Object.assign({}, c, {
+                    flex: 0,
+                    flexAfter: undefined,
+                  }));
+                  // Diagnostic: snapshot before applyColumnState
+                  const beforeState = params.api.getColumnState();
                   params.api.applyColumnState({
-                    state: cols,
+                    state: stateNoFlex,
                     applyOrder: true,
+                    defaultState: { flex: 0 },
                   });
+                  // Diagnostic: snapshot after (sync) — diff widths/order
+                  const afterState = params.api.getColumnState();
+                  const diff = [];
+                  for (const a of afterState) {
+                    const b = beforeState.find(x => x.colId === a.colId);
+                    if (!b) continue;
+                    if (b.width !== a.width || b.flex !== a.flex || b.hide !== a.hide) {
+                      diff.push({ colId: a.colId, before: { w: b.width, flex: b.flex }, after: { w: a.width, flex: a.flex } });
+                    }
+                  }
                   console.info(
                     "[ErpDataGrid] onFirstDataRendered → applyColumnState(applyOrder:true) — column reorder z initialLayout"
                   );
+                  if (diff.length > 0) {
+                    console.info("[ErpDataGrid] applyColumnState changed " + diff.length + " columns:", diff.slice(0, 10));
+                  }
+                  // Defensive: post-render check after 250ms (catch async re-apply z autoSize / data load)
+                  setTimeout(() => {
+                    try {
+                      const finalState = params.api.getColumnState();
+                      const drift = [];
+                      for (const f of finalState) {
+                        const a = afterState.find(x => x.colId === f.colId);
+                        if (!a) continue;
+                        if (a.width !== f.width || a.flex !== f.flex) {
+                          drift.push({ colId: f.colId, post_apply: { w: a.width, flex: a.flex }, after_250ms: { w: f.width, flex: f.flex } });
+                        }
+                      }
+                      if (drift.length > 0) {
+                        console.warn("[ErpDataGrid] LAYOUT DRIFT detected 250ms after applyColumnState — " + drift.length + " columns drifted:", drift.slice(0, 10));
+                      }
+                    } catch (e) { /* silent */ }
+                  }, 250);
                 } catch (e) {
                   console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
                 }

@@ -1522,14 +1522,18 @@
                           "[ErpDataGrid] Layout LOCK 500ms post-render (" + reWidths.length + " cols, flex:0 forced)"
                         );
                       }
-                      // Phase API Versioned Routing post-deploy fix #8 (23.5.2026 vecer):
-                      // Drop reveal hook — Fix #6 visibility:hidden removed v createGrid.
-                      // Grid je instantly viditelny od pocatku (no hidden state to reveal).
-                      // Kod ponechan jako no-op (safety pro pripad future re-enable Fix #6).
+                      // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer):
+                      // REVEAL grid container po LOCK doběhl (visibility:hidden -> visible).
+                      // Hide bylo set v createGrid (line 1611). Tady release, user vidi
+                      // grid az kdyz uz je final state. Plus clear safety timer.
                       try {
                         if (this._initVisibilityTimer) {
                           clearTimeout(this._initVisibilityTimer);
                           this._initVisibilityTimer = null;
+                        }
+                        if (this.gridContainer && this.gridContainer.style.visibility === 'hidden') {
+                          this.gridContainer.style.visibility = 'visible';
+                          console.info("[ErpDataGrid] gridContainer REVEAL (post-LOCK, no flicker)");
                         }
                       } catch (eR) { /* silent */ }
                     } catch (e) { /* silent */ }

@@ -1522,6 +1522,20 @@
                           "[ErpDataGrid] Layout LOCK 500ms post-render (" + reWidths.length + " cols, flex:0 forced)"
                         );
                       }
+                      // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer):
+                      // REVEAL grid container po LOCK doběhl (visibility:hidden -> visible).
+                      // Hide bylo set v createGrid (line 1611). Tady release, user vidi
+                      // grid az kdyz uz je final state. Plus clear safety timer.
+                      try {
+                        if (this._initVisibilityTimer) {
+                          clearTimeout(this._initVisibilityTimer);
+                          this._initVisibilityTimer = null;
+                        }
+                        if (this.gridContainer && this.gridContainer.style.visibility === 'hidden') {
+                          this.gridContainer.style.visibility = 'visible';
+                          console.info("[ErpDataGrid] gridContainer REVEAL (post-LOCK, no flicker)");
+                        }
+                      } catch (eR) { /* silent */ }
                     } catch (e) { /* silent */ }
                   }, 500);
                 } catch (e) {
@@ -1606,6 +1620,24 @@
         animateRows: true,
       };
 
+      // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer Marti's
+      // catch "po 300ms problikne vsechny na 80px"): AG Grid Issue #9959 —
+      // "Column widths with flex setting are calculated by the grid AFTER initial
+      // render, which causes layout flashes". AG Grid post-render rekalkuluje
+      // flex widths (i kdyz initialState ma explicit widths) -> 80px each = container
+      // width / 38 cols. Vidi se ~300ms flash, pak 500ms LOCK vrati spravne widths.
+      // Fix: visibility:hidden na gridContainer az do LOCK doby, pak show. Zadny
+      // user-visible flash. Onen "right way to apply columnState without flickering"
+      // z [Issue #7373] — hide DOM behem initial render flicker window.
+      if (opts.initialLayout && this.gridContainer) {
+        try {
+          this.gridContainer.style.visibility = 'hidden';
+          // Safety net: po 1500ms force show (i kdyby LOCK nedoběhl)
+          this._initVisibilityTimer = setTimeout(() => {
+            try { if (this.gridContainer) this.gridContainer.style.visibility = 'visible'; } catch (e) {}
+          }, 1500);
+        } catch (e) { /* silent */ }
+      }
       // AG Grid v32+ API: createGrid()
       // B+5.3: AG Grid renders do gridContainer (= container nebo wrapper inner)
       this.gridApi = window.agGrid.createGrid(this.gridContainer, gridOptions);

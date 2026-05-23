@@ -1519,7 +1519,7 @@
                           });
                         } catch (eL) { /* silent */ }
                         console.info(
-                          "[ErpDataGrid] Layout LOCK 500ms post-render (" + reWidths.length + " cols, flex:0 forced)"
+                          "[ErpDataGrid] Layout LOCK 300ms post-render (" + reWidths.length + " cols, flex:0 forced)"
                         );
                       }
                       // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer):
@@ -1537,7 +1537,7 @@
                         }
                       } catch (eR) { /* silent */ }
                     } catch (e) { /* silent */ }
-                  }, 500);
+                  }, 300);
                 } catch (e) {
                   console.warn("[ErpDataGrid] reorder applyColumnState failed:", e);
                 }
@@ -1632,10 +1632,12 @@
       if (opts.initialLayout && this.gridContainer) {
         try {
           this.gridContainer.style.visibility = 'hidden';
-          // Safety net: po 1500ms force show (i kdyby LOCK nedoběhl)
+          // Phase API Versioned Routing post-deploy fix #11 (23.5.2026 vecer
+          // Marti's "zkratit visibilitu"): safety net 1500ms -> 800ms.
+          // Reveal hook v 500ms LOCK setTimeout zkracen na 300ms.
           this._initVisibilityTimer = setTimeout(() => {
             try { if (this.gridContainer) this.gridContainer.style.visibility = 'visible'; } catch (e) {}
-          }, 1500);
+          }, 800);
         } catch (e) { /* silent */ }
       }
       // AG Grid v32+ API: createGrid()

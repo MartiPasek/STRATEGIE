@@ -123,12 +123,57 @@
       }
     }
 
-    function _updateToolbarSelection(toolbarHost, hasSelection) {
+    function _updateToolbarSelection(toolbarHost, hasSelection, selectedCount) {
       if (!toolbarHost) return;
       // Krok 5.S Fáze 7: class-based styling, jen toggle disabled attribute
       // (CSS .erp-grid-action-btn:disabled handle opacity + cursor).
       const targets = toolbarHost.querySelectorAll('[data-need-row="1"]');
       targets.forEach((btn) => { btn.disabled = !hasSelection; });
+
+      // Krok 5.X (23.5.2026): Oprava disabled při multi-select (form jen single).
+      // Smazat (a budoucí batch actions) zůstává enabled při count>=1.
+      const N = Number(selectedCount) || (hasSelection ? 1 : 0);
+      const editBtns = toolbarHost.querySelectorAll('[data-action="edit"], [data-action="oprava"]');
+      editBtns.forEach((btn) => {
+        // Edit umí jen 1 řádek — disable při N>1
+        btn.disabled = !hasSelection || N > 1;
+        try {
+          if (N > 1) {
+            btn.setAttribute('data-hint', 'Oprava jen pro 1 řádek (vybráno ' + N + ')');
+          } else if (btn._origHint != null) {
+            btn.setAttribute('data-hint', btn._origHint);
+          } else {
+            btn._origHint = btn.getAttribute('data-hint') || '';
+          }
+        } catch (_e) {}
+      });
+
+      // Selection counter badge (vedle toolbar buttonů, jen při N>=2)
+      let counterEl = toolbarHost.querySelector('[data-erp-selcount]');
+      if (N >= 2) {
+        if (!counterEl) {
+          counterEl = document.createElement('span');
+          counterEl.setAttribute('data-erp-selcount', '1');
+          counterEl.style.cssText = [
+            'display:inline-flex', 'align-items:center', 'justify-content:center',
+            'min-width:24px', 'height:24px',
+            'padding:0 8px',
+            'margin:0 4px 0 8px',
+            'background:rgba(60,120,200,0.25)',
+            'color:#aac8ec',
+            'border:1px solid rgba(120,170,220,0.4)',
+            'border-radius:12px',
+            'font-size:11px', 'font-weight:700',
+            'font-family:monospace',
+            'user-select:none',
+          ].join(';');
+          counterEl.title = 'Vybraných řádků';
+          toolbarHost.appendChild(counterEl);
+        }
+        counterEl.textContent = String(N);
+      } else if (counterEl) {
+        counterEl.remove();
+      }
     }
 
     function _renderEmptyGrid(mainContent, tab, rootCd, coreId, specForRender) {
@@ -356,7 +401,10 @@
             const gridInst = new window.ErpDataGrid(gridHost, {
               rowData: rows,
               autoColumns: true,
-              rowSelection: "single",
+              // Krok 5.X (23.5.2026): multi-row selection pro batch operations
+              // (Mód 1 Centrála 1 — cyklicky per-row). Shift+klik = range, Ctrl+klik
+              // = toggle. _erpBatchRowAction helper drží sequential loop.
+              rowSelection: "multiple",
               // Phase 38.4 Krok 14g-H+34 (22.5.2026 vecer, Marti's catch):
               // PROD = inline edit OFF default. Excel toggle (Ctrl+Shift+E)
               // ho zapne servisne. Drop `enableEdit: isDesignMode` —
@@ -500,75 +548,77 @@
                   }).open();
                 },
                 onDelete: async function() {
-                  if (!_selectedRowId) return;
-                  const ok = window.confirm(
-                    "Opravdu smazat záznam ID " + _selectedRowId + "?\n\n" +
-                    "Tato akce je nevratná."
-                  );
-                  if (!ok) return;
+                  // Krok 5.X (23.5.2026): batch helper Mód 1 (Centrála 1 cyklicky per-row).
+                  // Collect selected rows; pokud žádné, fallback na _selectedRowId (focused).
+                  let ids = [];
                   try {
-                    const resp = await fetch(
-                      "/api/v1/erp/design/" + coreId + "/" + _selectedRowId,
-                      { method: "DELETE", credentials: "include" }
-                    );
-                    const json = await resp.json();
-                    if (resp.ok && json && json.ok) {
-                      console.info("[toolbar Smazat] FULL response:", json,
-                                   "→ schema=" + (json.schema || "?") +
-                                   ", table=" + (json.table || "?") +
-                                   ", deleted=" + json.deleted_rows +
-                                   " row(s) id=" + _selectedRowId);
-                      const _deletedId = _selectedRowId;
-                      _selectedRowId = null;
-                      // Refresh grid (re-fetch data + setRowData)
+                    if (gridInst && gridInst.gridApi) {
+                      const sel = gridInst.gridApi.getSelectedRows() || [];
+                      ids = sel.map(r => (r && (r.id != null ? r.id : r.ID))).filter(x => x != null);
+                    }
+                  } catch (_e) {}
+                  if (ids.length === 0 && _selectedRowId != null) {
+                    ids = [_selectedRowId];
+                  }
+                  if (ids.length === 0) {
+                    console.warn("[toolbar Smazat] no selection — abort");
+                    return;
+                  }
+
+                  // Defensive — pokud helper nezavedený, fallback na native confirm
+                  if (typeof window._erpBatchRowAction !== "function") {
+                    console.error("[toolbar Smazat] _erpBatchRowAction not loaded — abort");
+                    alert("Batch helper není zaveden. Hard reload (Ctrl+Shift+R).");
+                    return;
+                  }
+
+                  const result = await window._erpBatchRowAction({
+                    rowIds: ids,
+                    opLabel: "Smazat",
+                    opVerb: "smazat",
+                    destructive: true,
+                    actionFn: async function(rowId, idx, total) {
+                      try {
+                        const resp = await fetch(
+                          "/api/v1/erp/design/" + coreId + "/" + rowId,
+                          { method: "DELETE", credentials: "include" }
+                        );
+                        const json = await resp.json().catch(() => ({}));
+                        if (resp.ok && json && json.ok) {
+                          // Krok 5.W diag drilldown — pokud refresh ukáže still-there,
+                          // backend success ale persistence fail (activity_log abort).
+                          // Tady jen log, refresh post-loop hodnotí state.
+                          console.info("[batch Smazat] " + (idx + 1) + "/" + total +
+                                       " id=" + rowId + " OK (deleted=" + json.deleted_rows + ")");
+                          return { ok: true };
+                        }
+                        const errMsg = (json && json.error) || ("HTTP " + resp.status);
+                        return { ok: false, error: errMsg };
+                      } catch (e) {
+                        return { ok: false, error: "network: " + (e && e.message || e) };
+                      }
+                    },
+                    refreshFn: async function() {
                       try {
                         const r = await fetch(fetchUrl, { credentials: 'include' });
                         const d = await r.json();
                         if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
-                          // Krok 5.W diag (23.5.2026): verify zda DELETE persistuje —
-                          // hledej smazaný ID v refreshed rows. Pokud tam je, něco
-                          // nesedí (transaction not committed, wrong table, re-insert).
-                          const _stillThere = d.rows.find(row =>
-                            row && (row.id === _deletedId || row.ID === _deletedId)
-                          );
-                          if (_stillThere) {
-                            console.warn(
-                              "[toolbar Smazat] ⚠ DELETE PARADOX: backend ohlásil " +
-                              json.deleted_rows + " rows deleted, ale refresh vrátil " +
-                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU.\n\n" +
-                              "Krok 5.W diag #3 — connection identity:\n" +
-                              "  ds (DELETE+pre): " + JSON.stringify(json.ds_conn) + "\n" +
-                              "  ds2 (post check): " + JSON.stringify(json.ds2_conn) + "\n" +
-                              "  same_pid=" + json.same_pid +
-                                ", same_db=" + json.same_db +
-                                ", same_host=" + json.same_host + "\n" +
-                              "  tx_pre=" + json.ds_tx_pre + ", tx_post=" + json.ds_tx_post +
-                                " (None=tx closed po commit, číslo=tx STÁLE otevřená!)\n\n" +
-                              "Verdikt:\n" +
-                              "  • same_host=false → DIFFERENT PG instance/server!\n" +
-                              "  • same_db=false → DIFFERENT database name!\n" +
-                              "  • tx_post != None → ds.commit() NESPLNIL skutečný COMMIT (tx leak)\n" +
-                              "  • same_pid=true → SAME connection (pool reuse) → connection state issue\n" +
-                              "  • vše true + tx_post=None → COMMIT proběhl, ale DB level re-creates\n\n" +
-                              "Verify v DBeaveru: SELECT * FROM " +
-                              (json.schema || "?") + "." + (json.table || "?") +
-                              " WHERE id=" + _deletedId
-                            );
-                          } else {
-                            console.info("[toolbar Smazat] ✓ row id=" + _deletedId +
-                                         " VERIFIED gone after refresh");
-                          }
                           gridInst.gridApi.setGridOption('rowData', d.rows);
                         }
-                      } catch (_e) {}
-                      _updateToolbarSelection(_toolbarHost, false);
-                    } else {
-                      alert("Smazání selhalo: " + (json && json.error || resp.status));
+                      } catch (e) {
+                        console.warn("[batch Smazat] refresh failed:", e);
+                      }
+                    },
+                  });
+
+                  // Reset selection state
+                  _selectedRowId = null;
+                  _updateToolbarSelection(_toolbarHost, false);
+                  try {
+                    if (gridInst && gridInst.gridApi) {
+                      gridInst.gridApi.deselectAll();
                     }
-                  } catch (e) {
-                    console.error("[toolbar Smazat] network:", e);
-                    alert("Smazání selhalo (network): " + (e && e.message || e));
-                  }
+                  } catch (_e) {}
                 },
                 // Krok 5.S Fáze 6: onRefresh dropnut — workspace 🔄 Refresh
                 // už refresh dělá (ErpRefresh.refreshActiveTab) + oranžový rámeček
@@ -576,17 +626,22 @@
               });
 
               // Wire selection change → enable/disable Oprava + Smazat
+              // Krok 5.X (23.5.2026): multi-row aware. _selectedRowId drží
+              // PRVNÍ selected (focused) — pro Oprava single-row fallback.
+              // Smazat se dívá na getSelectedRows() celý array (batch).
               try {
                 if (gridInst && gridInst.gridApi) {
                   gridInst.gridApi.addEventListener('selectionChanged', function() {
-                    const sel = gridInst.gridApi.getSelectedRows();
-                    if (sel && sel.length > 0) {
+                    const sel = gridInst.gridApi.getSelectedRows() || [];
+                    if (sel.length > 0) {
                       const row = sel[0];
                       _selectedRowId = row.id != null ? row.id : (row.ID != null ? row.ID : null);
-                      _updateToolbarSelection(_toolbarHost, _selectedRowId != null);
+                      // Toolbar enable: hasSelection=true (Smazat enabled).
+                      // Oprava ignoruje multi-select — opens form pro 1. row.
+                      _updateToolbarSelection(_toolbarHost, _selectedRowId != null, sel.length);
                     } else {
                       _selectedRowId = null;
-                      _updateToolbarSelection(_toolbarHost, false);
+                      _updateToolbarSelection(_toolbarHost, false, 0);
                     }
                   });
                 }

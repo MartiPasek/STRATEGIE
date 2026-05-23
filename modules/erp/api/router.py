@@ -11416,6 +11416,10 @@ def _render_workspace_page(user_id: int) -> str:
          + render 🔴 N err pill vlevo od Module Health banner. Marti's doctrine
          "Bezpecnost pres probuzeni, ne pres ticho". -->
     <script src="/static/erp/components/erp_error_badge.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Krok 5.X (23.5.2026): batch row action helper — Mód 1 (Centrála 1
+         cyklicky per-row). Generic _erpBatchRowAction(opts) — reusable napříč
+         existing Smazat + future HW/FW dynamic actions. -->
+    <script src="/static/erp/components/erp_batch_action.js?v=''' + _STATIC_VERSION + '''"></script>
     <link rel="stylesheet" href="/static/erp/datagrid.css?v=''' + _STATIC_VERSION + '''">
     <script src="/static/erp/datagrid.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- B+10+ (6.5.2026): conditional formatting engine + UI editor -->

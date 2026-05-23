@@ -3282,7 +3282,15 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
     schema_name = entity_config["schema"]
     table_name = entity_config["table"]
     id_column = entity_config["id_column"]
-    allowed_columns = set(entity_config["select_columns"])
+    # Phase 38.4 Krok 5.N-2 v2 (22.5.2026 vecer, Marti's "NULL = all editable,
+    # trust frontend"): resolver vrací select_columns=None pro DB-driven
+    # entity configs (Excel mode + dynamic comp_grid columns). Legacy
+    # _FW_FORM_CORE_REGISTRY a _FW_FORM_ENTITY_MAP entries vrací explicit list.
+    #
+    # 23.5.2026 hotfix Marti's smoke "Save 0 OK, 2 FAIL" — fw.diag_log core_id=44
+    # PATCH 500 bare text → set(None) TypeError → unhandled exception.
+    _raw_cols = entity_config.get("select_columns")
+    allowed_columns = set(_raw_cols) if _raw_cols is not None else None  # None = no whitelist
 
     # Phase 38.4 Krok 5.R-D+3 extend (18.5.2026, Marti's "neni jej treba
     # komplikovat"): universal optional fields — pokud v target table
@@ -3298,29 +3306,46 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         "version",            # Optimistic lock alt
     })
 
-    # Expand allowed_columns o universal fields kterých má target table —
-    # zjisti až po current_row load (line níže). Zatím defer validation.
-
     # Validate field_changes — jen sloupce v allowed list (defense in depth proti
     # ad-hoc UPDATE např. password_hash). id_column zakazat (immutable).
     # Universal fields se kontrolují separátně po current_row load.
-    invalid_fields = [
-        f for f in field_changes
-        if (f not in allowed_columns and f not in UNIVERSAL_OPTIONAL_FIELDS)
-            or f == id_column
-    ]
-    if invalid_fields:
-        return JSONResponse(
-            {
-                "ok": False,
-                "error": (
-                    f"Sloupce {invalid_fields} nejsou povolene v PATCH "
-                    f"pro entity '{entity_type}'. Allowed: {sorted(allowed_columns - {id_column})} "
-                    f"+ universal: {sorted(UNIVERSAL_OPTIONAL_FIELDS)}"
-                ),
-            },
-            status_code=400,
-        )
+    if allowed_columns is not None:
+        # Legacy whitelist mode (explicit select_columns list)
+        invalid_fields = [
+            f for f in field_changes
+            if (f not in allowed_columns and f not in UNIVERSAL_OPTIONAL_FIELDS)
+                or f == id_column
+        ]
+        if invalid_fields:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Sloupce {invalid_fields} nejsou povolene v PATCH "
+                        f"pro entity '{entity_type}'. Allowed: {sorted(allowed_columns - {id_column})} "
+                        f"+ universal: {sorted(UNIVERSAL_OPTIONAL_FIELDS)}"
+                    ),
+                },
+                status_code=400,
+            )
+    else:
+        # NULL whitelist mode (Marti's "trust frontend, DB-driven" 22.5. doctrine).
+        # Server safety net: blokovat jen id_column (immutable). Žádné jiné
+        # restriction — frontend pošle field_changes obsahující jen sloupce
+        # z visible/editable columns v fw.comp_grid.layout_json.
+        # Audit pro forensic: log_event(level='info') s field_changes keys.
+        invalid_fields = [f for f in field_changes if f == id_column]
+        if invalid_fields:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"ID column '{id_column}' je immutable — nelze PATCH. "
+                        f"Field changes: {list(field_changes.keys())}"
+                    ),
+                },
+                status_code=400,
+            )
 
     # Resolve caller display name (Marti-AI's "non-app actor" doctrine —
     # users muze byt placeholder bez full activity, ale display name vzdy

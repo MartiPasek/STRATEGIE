@@ -3589,6 +3589,13 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
         ), {"rid": row_id})
         deleted_rows = result.rowcount
 
+        # Krok 5.W diag (23.5.2026): immediate same-session re-check PŘED commit.
+        # Pokud DELETE skutečně proběhl, count by mělo být 0 i v této session.
+        # Marti's paradox: rowcount=1, ale row stále v DB.
+        check_pre_commit = ds.execute(_sql_text_del(
+            f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
+        ), {"rid": row_id}).scalar()
+
         # Activity log audit (Krok 5.S doctrine NE-anonymous: kdo kdy co)
         try:
             ds.execute(_sql_text_del("""
@@ -3606,6 +3613,27 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
             logger.warning(f"design_delete_entity activity_log INSERT failed: {_act_e}")
 
         ds.commit()
+
+        # Krok 5.W diag: fresh session re-check POST commit.
+        # Pokud check_pre=0 ale check_post=1, commit se rolloutoval mimo
+        # tuto session (deferred trigger? connection pool issue?).
+        ds2 = _gds_del()
+        check_post_commit = None
+        try:
+            check_post_commit = ds2.execute(_sql_text_del(
+                f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
+            ), {"rid": row_id}).scalar()
+        except Exception:
+            pass
+        finally:
+            ds2.close()
+
+        logger.info(
+            f"design_delete_entity DELETE FROM {schema}.{table} id={row_id}: "
+            f"rowcount={deleted_rows}, pre_commit_check={check_pre_commit}, "
+            f"post_commit_check={check_post_commit}"
+        )
+
         return JSONResponse({
             "ok": True,
             "deleted_rows": deleted_rows,
@@ -3613,6 +3641,9 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
             "row_id": row_id,
             "schema": schema,
             "table": table,
+            # Diag fields — frontend zobrazí v paradox warning pokud nesedí
+            "check_pre_commit": check_pre_commit,
+            "check_post_commit": check_post_commit,
         })
     except Exception as exc:
         ds.rollback()

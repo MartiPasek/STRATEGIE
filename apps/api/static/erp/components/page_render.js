@@ -535,9 +535,18 @@
                             console.warn(
                               "[toolbar Smazat] ⚠ DELETE PARADOX: backend ohlásil " +
                               json.deleted_rows + " rows deleted, ale refresh vrátil " +
-                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU. " +
-                              "Možnosti: (1) wrong table targeted, (2) tx nezacommitovaná, " +
-                              "(3) row re-inserted (např. diag_log self-feeding event). " +
+                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU.\n" +
+                              "Diagnostika z Krok 5.W diag:\n" +
+                              "  pre_commit_check (same session): " + json.check_pre_commit +
+                                "  (0=row pryč, 1=DELETE selhal SILENTLY)\n" +
+                              "  post_commit_check (fresh session): " + json.check_post_commit +
+                                "  (0=commit OK, 1=row se vrátila po commit)\n\n" +
+                              "Verdikt:\n" +
+                              "  • pre=0 + post=0 + grid stale → GRID REFRESH cache problem\n" +
+                              "  • pre=1 → DELETE neproběhl, rowcount lže (driver bug nebo " +
+                                "trigger BEFORE DELETE silent)\n" +
+                              "  • pre=0 + post=1 → COMMIT rollback magic (deferred trigger, " +
+                                "AFTER DELETE re-insert, connection pool)\n\n" +
                               "Verify v DBeaveru: SELECT * FROM " +
                               (json.schema || "?") + "." + (json.table || "?") +
                               " WHERE id=" + _deletedId

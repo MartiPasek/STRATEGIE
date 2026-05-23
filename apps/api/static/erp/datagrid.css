@@ -792,6 +792,16 @@
   opacity: 0.7;
 }
 
+/* ── Cell classes — 8 nových semantic colors (Marti's 23.5. "vic inteligentnich barev") ─ */
+.ag-theme-quartz-dark .erp-fmt-cell-rose   { background-color: rgba(244, 63, 94, 0.18) !important;   color: #fda4af !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-amber  { background-color: rgba(217, 119, 6, 0.18) !important;   color: #fbbf24 !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-lime   { background-color: rgba(132, 204, 22, 0.18) !important;  color: #bef264 !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-teal   { background-color: rgba(20, 184, 166, 0.18) !important;  color: #5eead4 !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-cyan   { background-color: rgba(6, 182, 212, 0.18) !important;   color: #67e8f9 !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-indigo { background-color: rgba(99, 102, 241, 0.18) !important;  color: #a5b4fc !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-pink   { background-color: rgba(236, 72, 153, 0.18) !important;  color: #f9a8d4 !important; }
+.ag-theme-quartz-dark .erp-fmt-cell-slate  { background-color: rgba(71, 85, 105, 0.22) !important;   color: #94a3b8 !important; }
+
 /* ── Text-only color classes (Marti's 23.5. vecer "probarvit jen text") ───
    Aplikuje barvu jen na text uvnitř buňky, žádné background.
    Identické text colors jako .erp-fmt-cell-* (light pastel pro dark theme). */
@@ -802,12 +812,71 @@
 .ag-theme-quartz-dark .erp-fmt-text-blue   { color: #93c5fd !important; background: transparent !important; }
 .ag-theme-quartz-dark .erp-fmt-text-purple { color: #d8b4fe !important; background: transparent !important; }
 .ag-theme-quartz-dark .erp-fmt-text-gray   { color: #d1d5db !important; background: transparent !important; }
+/* 8 nových text-only colors */
+.ag-theme-quartz-dark .erp-fmt-text-rose   { color: #fda4af !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-amber  { color: #fbbf24 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-lime   { color: #bef264 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-teal   { color: #5eead4 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-cyan   { color: #67e8f9 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-indigo { color: #a5b4fc !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-pink   { color: #f9a8d4 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-slate  { color: #94a3b8 !important; background: transparent !important; }
 
-/* ── Bold modifier (Marti's "udelat jej tucnym") ───────────────────
-   Stackuje se přes color class — both cell/text/row scope. */
-.ag-theme-quartz-dark .erp-fmt-bold {
-  font-weight: 700 !important;
+/* ── Editor sections (Marti's "bleskneme se") — 3-section layout ─── */
+.erp-fmt-edit-sections { display: flex; flex-direction: column; gap: 10px; padding: 12px; }
+.erp-fmt-edit-section {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 10px 12px;
 }
+.erp-fmt-section-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.5px;
+  color: rgba(255, 255, 255, 0.6);
+  margin-bottom: 8px; text-transform: uppercase;
+}
+.erp-fmt-edit-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: flex-end; }
+.erp-fmt-edit-row-checks { align-items: center; gap: 20px; }
+.erp-fmt-edit-check {
+  display: flex; align-items: center; gap: 6px;
+  cursor: pointer; user-select: none;
+  padding: 4px 8px; border-radius: 4px;
+  transition: background 0.15s;
+}
+.erp-fmt-edit-check:hover { background: rgba(255, 255, 255, 0.05); }
+.erp-fmt-edit-check input[type="checkbox"] { transform: scale(1.2); cursor: pointer; }
+.erp-fmt-edit-check span { font-size: 13px; }
+.erp-fmt-color-pills { display: flex; flex-wrap: wrap; gap: 4px; max-width: 320px; }
+.erp-fmt-preview-wrap {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 4px; padding: 8px;
+}
+.erp-fmt-preview-row { display: flex; align-items: center; gap: 12px; }
+.erp-fmt-preview-label { font-size: 11px; color: rgba(255, 255, 255, 0.4); min-width: 70px; }
+.erp-fmt-preview-cell {
+  display: inline-block; padding: 6px 12px;
+  background: rgba(255, 255, 255, 0.06); border-radius: 3px;
+  font-size: 13px; color: #e5e7eb; min-width: 120px; text-align: center;
+  transition: all 0.15s;
+}
+
+/* ── Style modifiers (Marti's 23.5. "bleskneme se") ─────────────
+   Stackují se přes color class — all scopes (cell/text/row). */
+.ag-theme-quartz-dark .erp-fmt-bold      { font-weight: 700 !important; }
+.ag-theme-quartz-dark .erp-fmt-italic    { font-style: italic !important; }
+.ag-theme-quartz-dark .erp-fmt-underline { text-decoration: underline !important; }
+
+/* ── Left border accent (effect: "border") ─────────────────────
+   3px solid colored stripe na levé straně buňky. Cell-scope only
+   (row by byl ugly). Stackuje s color text + background. */
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-red    { border-left: 3px solid #ef4444 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-orange { border-left: 3px solid #f97316 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-yellow { border-left: 3px solid #eab308 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-green  { border-left: 3px solid #22c55e !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-blue   { border-left: 3px solid #3b82f6 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-purple { border-left: 3px solid #a855f7 !important; }
+.ag-theme-quartz-dark .ag-cell.erp-fmt-border-gray   { border-left: 3px solid #6b7280 !important; }
 
 /* ── Row-level color classes ───────────────────────────────────────
    Aplikace na celý řádek. Zachovat zebra-stripe contrast — proto
@@ -841,6 +910,15 @@
   background-color: rgba(107, 114, 128, 0.14) !important;
   color: #d1d5db;
 }
+/* 8 nových row colors (alpha 0.10 pro zebra-stripe contrast) */
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-rose   { background-color: rgba(244, 63, 94, 0.10) !important;   color: #fda4af; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-amber  { background-color: rgba(217, 119, 6, 0.10) !important;   color: #fbbf24; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-lime   { background-color: rgba(132, 204, 22, 0.10) !important;  color: #bef264; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-teal   { background-color: rgba(20, 184, 166, 0.10) !important;  color: #5eead4; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-cyan   { background-color: rgba(6, 182, 212, 0.10) !important;   color: #67e8f9; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-indigo { background-color: rgba(99, 102, 241, 0.10) !important;  color: #a5b4fc; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-pink   { background-color: rgba(236, 72, 153, 0.10) !important;  color: #f9a8d4; }
+.ag-theme-quartz-dark .ag-row.erp-fmt-row-slate  { background-color: rgba(71, 85, 105, 0.14) !important;   color: #94a3b8; }
 .ag-theme-quartz-dark .ag-row.erp-fmt-row-strike {
   text-decoration: line-through !important;
   color: #94a3b8 !important;

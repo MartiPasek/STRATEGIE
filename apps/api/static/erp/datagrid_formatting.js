@@ -164,15 +164,32 @@
   // Fix 23.5.2026 vecer (Marti's drobnost: "probarvit jen text v bunce, pripadne
   // jej udelat tucnym"): pridana 'textClass' (color text BEZ bg) pro scope="text".
   // Bold modifier "erp-fmt-bold" (CSS class) appended pri rule.bold === true.
+  // Fix 23.5.2026 vecer (Marti's "vic inteligentnich barev"):
+  // 16 semantic colors organized into groups (warm / cool / other / neutral / special).
+  // Each color má cellClass (bg+text), rowClass (light bg), textClass (text only),
+  // borderClass (3px left accent).
   const PRESET_COLORS = [
-    { key: "red",    label: "Červená",   swatch: "#ef4444", cellClass: "erp-fmt-cell-red",    rowClass: "erp-fmt-row-red",    textClass: "erp-fmt-text-red" },
-    { key: "orange", label: "Oranžová",  swatch: "#f97316", cellClass: "erp-fmt-cell-orange", rowClass: "erp-fmt-row-orange", textClass: "erp-fmt-text-orange" },
-    { key: "yellow", label: "Žlutá",     swatch: "#eab308", cellClass: "erp-fmt-cell-yellow", rowClass: "erp-fmt-row-yellow", textClass: "erp-fmt-text-yellow" },
-    { key: "green",  label: "Zelená",    swatch: "#22c55e", cellClass: "erp-fmt-cell-green",  rowClass: "erp-fmt-row-green",  textClass: "erp-fmt-text-green" },
-    { key: "blue",   label: "Modrá",     swatch: "#3b82f6", cellClass: "erp-fmt-cell-blue",   rowClass: "erp-fmt-row-blue",   textClass: "erp-fmt-text-blue" },
-    { key: "purple", label: "Fialová",   swatch: "#a855f7", cellClass: "erp-fmt-cell-purple", rowClass: "erp-fmt-row-purple", textClass: "erp-fmt-text-purple" },
-    { key: "gray",   label: "Šedá",      swatch: "#6b7280", cellClass: "erp-fmt-cell-gray",   rowClass: "erp-fmt-row-gray",   textClass: "erp-fmt-text-gray" },
-    { key: "strike", label: "Přeškrtnuto", swatch: "#94a3b8", cellClass: "erp-fmt-cell-strike", rowClass: "erp-fmt-row-strike", textClass: "erp-fmt-cell-strike" },
+    // ── Warm ────────────────────────────────────────────────
+    { key: "red",    label: "Červená",   swatch: "#ef4444", cellClass: "erp-fmt-cell-red",    rowClass: "erp-fmt-row-red",    textClass: "erp-fmt-text-red",    borderClass: "erp-fmt-border-red" },
+    { key: "rose",   label: "Růže",      swatch: "#f43f5e", cellClass: "erp-fmt-cell-rose",   rowClass: "erp-fmt-row-rose",   textClass: "erp-fmt-text-rose",   borderClass: "erp-fmt-border-rose" },
+    { key: "orange", label: "Oranžová",  swatch: "#f97316", cellClass: "erp-fmt-cell-orange", rowClass: "erp-fmt-row-orange", textClass: "erp-fmt-text-orange", borderClass: "erp-fmt-border-orange" },
+    { key: "amber",  label: "Jantar",    swatch: "#d97706", cellClass: "erp-fmt-cell-amber",  rowClass: "erp-fmt-row-amber",  textClass: "erp-fmt-text-amber",  borderClass: "erp-fmt-border-amber" },
+    { key: "yellow", label: "Žlutá",     swatch: "#eab308", cellClass: "erp-fmt-cell-yellow", rowClass: "erp-fmt-row-yellow", textClass: "erp-fmt-text-yellow", borderClass: "erp-fmt-border-yellow" },
+    // ── Cool ────────────────────────────────────────────────
+    { key: "lime",   label: "Limeta",    swatch: "#84cc16", cellClass: "erp-fmt-cell-lime",   rowClass: "erp-fmt-row-lime",   textClass: "erp-fmt-text-lime",   borderClass: "erp-fmt-border-lime" },
+    { key: "green",  label: "Zelená",    swatch: "#22c55e", cellClass: "erp-fmt-cell-green",  rowClass: "erp-fmt-row-green",  textClass: "erp-fmt-text-green",  borderClass: "erp-fmt-border-green" },
+    { key: "teal",   label: "Tyrkysová", swatch: "#14b8a6", cellClass: "erp-fmt-cell-teal",   rowClass: "erp-fmt-row-teal",   textClass: "erp-fmt-text-teal",   borderClass: "erp-fmt-border-teal" },
+    { key: "cyan",   label: "Azurová",   swatch: "#06b6d4", cellClass: "erp-fmt-cell-cyan",   rowClass: "erp-fmt-row-cyan",   textClass: "erp-fmt-text-cyan",   borderClass: "erp-fmt-border-cyan" },
+    { key: "blue",   label: "Modrá",     swatch: "#3b82f6", cellClass: "erp-fmt-cell-blue",   rowClass: "erp-fmt-row-blue",   textClass: "erp-fmt-text-blue",   borderClass: "erp-fmt-border-blue" },
+    { key: "indigo", label: "Indigo",    swatch: "#6366f1", cellClass: "erp-fmt-cell-indigo", rowClass: "erp-fmt-row-indigo", textClass: "erp-fmt-text-indigo", borderClass: "erp-fmt-border-indigo" },
+    // ── Other ───────────────────────────────────────────────
+    { key: "purple", label: "Fialová",   swatch: "#a855f7", cellClass: "erp-fmt-cell-purple", rowClass: "erp-fmt-row-purple", textClass: "erp-fmt-text-purple", borderClass: "erp-fmt-border-purple" },
+    { key: "pink",   label: "Růžová",    swatch: "#ec4899", cellClass: "erp-fmt-cell-pink",   rowClass: "erp-fmt-row-pink",   textClass: "erp-fmt-text-pink",   borderClass: "erp-fmt-border-pink" },
+    // ── Neutral ─────────────────────────────────────────────
+    { key: "gray",   label: "Šedá",      swatch: "#6b7280", cellClass: "erp-fmt-cell-gray",   rowClass: "erp-fmt-row-gray",   textClass: "erp-fmt-text-gray",   borderClass: "erp-fmt-border-gray" },
+    { key: "slate",  label: "Břidlice",  swatch: "#475569", cellClass: "erp-fmt-cell-slate",  rowClass: "erp-fmt-row-slate",  textClass: "erp-fmt-text-slate",  borderClass: "erp-fmt-border-slate" },
+    // ── Special ─────────────────────────────────────────────
+    { key: "strike", label: "Přeškrtnuto", swatch: "#94a3b8", cellClass: "erp-fmt-cell-strike", rowClass: "erp-fmt-row-strike", textClass: "erp-fmt-cell-strike", borderClass: "erp-fmt-border-gray" },
   ];
 
   function _colorByKey(k) {
@@ -249,8 +266,13 @@
         baseClass = colorDef.cellClass;
       }
       let uniqueClass = baseClass + " erp-fmt-rule-" + (r.id || r.order || "x");
-      if (r.bold === true) {
-        uniqueClass += " erp-fmt-bold";
+      if (r.bold === true)      uniqueClass += " erp-fmt-bold";
+      if (r.italic === true)    uniqueClass += " erp-fmt-italic";
+      if (r.underline === true) uniqueClass += " erp-fmt-underline";
+      // Fix 23.5.2026 vecer (Marti's "bleskneme se"): effect="border" -> left border accent
+      // Apply only pro cell/text scope (row scope by full-row border looked ugly).
+      if (r.effect === "border" && !isRow) {
+        uniqueClass += " " + (colorDef.borderClass || "erp-fmt-border-gray");
       }
 
       if (isRow) {
@@ -517,36 +539,117 @@
           'style="background:' + c.swatch + '"></button>'
         ).join("");
 
+        // Fix 23.5.2026 vecer (Marti's "bleskneme se před kolegama"):
+        // reorganized editor — 3 sekce (Když / Co / Jak) + live preview.
         form.innerHTML =
-          '<div class="erp-fmt-edit-grid">' +
-            '<label class="erp-fmt-edit-label">Sloupec' +
-              '<select data-fmt-col>' + colOptions + '</select>' +
-            '</label>' +
-            '<label class="erp-fmt-edit-label">Operátor' +
-              '<select data-fmt-op>' + opOptions + '</select>' +
-            '</label>' +
-            '<label class="erp-fmt-edit-label" data-fmt-value-wrap>Hodnota' +
-              '<input type="text" data-fmt-val value="' + _esc(rule.value || "") + '">' +
-            '</label>' +
-            '<label class="erp-fmt-edit-label">Rozsah' +
-              '<select data-fmt-scope>' +
-                '<option value="cell"' + (rule.scope === "cell" ? " selected" : "") + '>Buňka</option>' +
-                '<option value="text"' + (rule.scope === "text" ? " selected" : "") + '>Text v buňce</option>' +
-                '<option value="row"' + (rule.scope === "row" ? " selected" : "") + '>Celý řádek</option>' +
-              '</select>' +
-            '</label>' +
-            '<label class="erp-fmt-edit-label" data-fmt-bold-wrap>Tučně' +
-              '<input type="checkbox" data-fmt-bold' + (rule.bold === true ? " checked" : "") + ' style="margin-top:8px;transform:scale(1.3);transform-origin:left center;">' +
-            '</label>' +
-            '<div class="erp-fmt-edit-color">' +
-              '<span class="erp-fmt-edit-label-text">Barva</span>' +
-              '<div class="erp-fmt-color-pills">' + colorPills + '</div>' +
+          '<div class="erp-fmt-edit-sections">' +
+            // ── Sekce 1: KDYŽ ──────────────────────────────
+            '<div class="erp-fmt-edit-section">' +
+              '<div class="erp-fmt-section-title">📋 KDYŽ (podmínka)</div>' +
+              '<div class="erp-fmt-edit-row">' +
+                '<label class="erp-fmt-edit-label">Sloupec' +
+                  '<select data-fmt-col>' + colOptions + '</select>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-label">Operátor' +
+                  '<select data-fmt-op>' + opOptions + '</select>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-label" data-fmt-value-wrap>Hodnota' +
+                  '<input type="text" data-fmt-val value="' + _esc(rule.value || "") + '">' +
+                '</label>' +
+              '</div>' +
+            '</div>' +
+            // ── Sekce 2: CO ─────────────────────────────────
+            '<div class="erp-fmt-edit-section">' +
+              '<div class="erp-fmt-section-title">🎯 CO obarvit</div>' +
+              '<div class="erp-fmt-edit-row">' +
+                '<label class="erp-fmt-edit-label">Rozsah' +
+                  '<select data-fmt-scope>' +
+                    '<option value="cell"' + (rule.scope === "cell" ? " selected" : "") + '>Buňka</option>' +
+                    '<option value="text"' + (rule.scope === "text" ? " selected" : "") + '>Text v buňce</option>' +
+                    '<option value="row"' + (rule.scope === "row" ? " selected" : "") + '>Celý řádek</option>' +
+                  '</select>' +
+                '</label>' +
+                '<div class="erp-fmt-edit-color">' +
+                  '<span class="erp-fmt-edit-label-text">Barva</span>' +
+                  '<div class="erp-fmt-color-pills">' + colorPills + '</div>' +
+                '</div>' +
+              '</div>' +
+            '</div>' +
+            // ── Sekce 3: JAK ────────────────────────────────
+            '<div class="erp-fmt-edit-section">' +
+              '<div class="erp-fmt-section-title">✨ JAK ozdobit (volitelné)</div>' +
+              '<div class="erp-fmt-edit-row erp-fmt-edit-row-checks">' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="checkbox" data-fmt-bold' + (rule.bold === true ? " checked" : "") + '>' +
+                  '<span><b>Tučně</b></span>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="checkbox" data-fmt-italic' + (rule.italic === true ? " checked" : "") + '>' +
+                  '<span><i>Kurzíva</i></span>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="checkbox" data-fmt-underline' + (rule.underline === true ? " checked" : "") + '>' +
+                  '<span><u>Podtržení</u></span>' +
+                '</label>' +
+                '<label class="erp-fmt-edit-check">' +
+                  '<input type="checkbox" data-fmt-effect-border' + (rule.effect === "border" ? " checked" : "") + '>' +
+                  '<span>┃ Levý okraj</span>' +
+                '</label>' +
+              '</div>' +
+            '</div>' +
+            // ── Preview ─────────────────────────────────────
+            '<div class="erp-fmt-edit-section">' +
+              '<div class="erp-fmt-section-title">👁 NÁHLED</div>' +
+              '<div class="erp-fmt-preview-wrap">' +
+                '<div class="erp-fmt-preview-row">' +
+                  '<span class="erp-fmt-preview-label">Sloupec X</span>' +
+                  '<span class="erp-fmt-preview-cell" data-fmt-preview>Ukázka textu</span>' +
+                '</div>' +
+              '</div>' +
             '</div>' +
           '</div>' +
           '<div class="erp-fmt-edit-actions">' +
             '<button type="button" class="erp-fmt-modal-btn" data-fmt-edit-cancel>Zrušit</button>' +
             '<button type="button" class="erp-fmt-modal-btn primary" data-fmt-edit-apply>Použít</button>' +
           '</div>';
+
+        // ── Live preview update ────────────────────────────
+        const previewEl = form.querySelector("[data-fmt-preview]");
+        const updatePreview = () => {
+          if (!previewEl) return;
+          const colorKey = (form.querySelector(".erp-fmt-color-pill.selected") || {}).dataset
+                          ? form.querySelector(".erp-fmt-color-pill.selected").dataset.color
+                          : rule.color;
+          const colorDef = _colorByKey(colorKey);
+          const scope = form.querySelector("[data-fmt-scope]").value;
+          const bold = form.querySelector("[data-fmt-bold]").checked;
+          const italic = form.querySelector("[data-fmt-italic]").checked;
+          const underline = form.querySelector("[data-fmt-underline]").checked;
+          const borderEffect = form.querySelector("[data-fmt-effect-border]").checked;
+          // Reset all classes
+          previewEl.className = "erp-fmt-preview-cell";
+          // Apply scope class
+          if (scope === "row" || scope === "cell") {
+            previewEl.classList.add(colorDef.cellClass);
+          } else if (scope === "text") {
+            previewEl.classList.add(colorDef.textClass);
+          }
+          // Apply style modifiers
+          if (bold)      previewEl.classList.add("erp-fmt-bold");
+          if (italic)    previewEl.classList.add("erp-fmt-italic");
+          if (underline) previewEl.classList.add("erp-fmt-underline");
+          if (borderEffect && scope !== "row") {
+            previewEl.classList.add(colorDef.borderClass);
+          }
+        };
+        // Wire all inputs to live preview
+        ["data-fmt-scope", "data-fmt-bold", "data-fmt-italic",
+         "data-fmt-underline", "data-fmt-effect-border"].forEach(attr => {
+          const el = form.querySelector("[" + attr + "]");
+          if (el) el.addEventListener("change", updatePreview);
+        });
+        // Initial preview render (deferred — after color pill setup below)
+        setTimeout(updatePreview, 0);
 
         // Live updates of rule preview state in form (no apply yet)
         const opSelect = form.querySelector("[data-fmt-op]");
@@ -562,11 +665,12 @@
         opSelect.addEventListener("change", updateValueVisibility);
         updateValueVisibility();
 
-        // Color pill selection
+        // Color pill selection (+ live preview update)
         form.querySelectorAll(".erp-fmt-color-pill").forEach(btn => {
           btn.addEventListener("click", () => {
             form.querySelectorAll(".erp-fmt-color-pill").forEach(b => b.classList.remove("selected"));
             btn.classList.add("selected");
+            if (typeof updatePreview === "function") updatePreview();
           });
         });
 
@@ -592,6 +696,9 @@
                    : rule.color,
             scope: form.querySelector("[data-fmt-scope]").value,
             bold: form.querySelector("[data-fmt-bold]") && form.querySelector("[data-fmt-bold]").checked,
+            italic: form.querySelector("[data-fmt-italic]") && form.querySelector("[data-fmt-italic]").checked,
+            underline: form.querySelector("[data-fmt-underline]") && form.querySelector("[data-fmt-underline]").checked,
+            effect: (form.querySelector("[data-fmt-effect-border]") && form.querySelector("[data-fmt-effect-border]").checked) ? "border" : "none",
             order: rule.order || idx,
           };
           // Validation
@@ -627,6 +734,9 @@
             color: "yellow",
             scope: "cell",
             bold: false,
+            italic: false,
+            underline: false,
+            effect: "none",
             order: state.rules.length,
             _isNew: true,
           };

@@ -1071,6 +1071,14 @@
       const gridOptions = {
         columnDefs: columnDefs || [],
         rowData: rowData,
+        // Phase API Versioned Routing post-deploy fix #4 (23.5.2026 vecer Marti's
+        // catch "dvojnasobne probliknuti — postavi se spravne, pak ~400ms default,
+        // pak zpet"): AG Grid v26+ DEFAULT behavior je "match columnDefs order na
+        // kazde columnDefs update / data update / model update". Onen 400ms reset
+        // = onModelUpdated event resyncuje columns s columnDefs order, ignoruje
+        // applyColumnState order. Fix: maintainColumnOrder:true zachova user-applied
+        // order napric updates (AG Grid v26 upgrade guide).
+        maintainColumnOrder: true,
         // Krok C+ fix #8: initialState bez flicker (pokud caller pre-fetchnul)
         ...(initialColumnState ? {
           initialState: { columnState: initialColumnState },

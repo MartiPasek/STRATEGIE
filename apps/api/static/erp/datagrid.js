@@ -1350,17 +1350,13 @@
           const initLayout = (this.options.autoLoadDefault && this.options.layoutKey && !hasInitialLayout)
             ? this._autoLoadDefault()
             : Promise.resolve(null);
-          // Lightweight toolbar refresh pro pripad pre-fetched initialLayout
-          // (drozdneutralni — jen fetch list pro dropdown, zadny applyState)
-          if (hasInitialLayout && this.options.layoutKey) {
-            // Defer az po grid settle (po 600ms, mezi 500ms LOCK a beyond)
-            setTimeout(() => {
-              if (this._destroyed) return;
-              this.listLayouts()
-                .then(() => this._refreshToolbar())
-                .catch(() => { /* silent */ });
-            }, 600);
-          }
+          // Phase API Versioned Routing post-deploy fix #10 (23.5.2026 vecer
+          // Marti's catch "Zase ted volas autoload default"): DROP lightweight
+          // toolbar refresh side-effect. listLayouts() + _refreshToolbar() byly
+          // ZAMERNE volane post-init pro populate dropdown, ALE Marti to vidi
+          // jako "auto load default" call (DOM mutate -> grid resize -> reset).
+          // Pri pre-fetched initialLayout je dropdown lazy-populated pri prvnim
+          // user kliku na nej (existing _refreshToolbar logic), zadny eager fetch.
           initLayout.finally(() => {
             if (this._destroyed) return;
             if (!this._currentLayoutId) {

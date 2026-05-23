@@ -1620,15 +1620,22 @@
         animateRows: true,
       };
 
-      // Phase API Versioned Routing post-deploy fix #8 (23.5.2026 vecer Marti's
-      // catch "Vypada to dobre... zkus povolit zpet visibility"): po Fix #4
-      // (maintainColumnOrder:true) + Fix #7 (HARD GUARD _autoLoadDefault) uz
-      // flash NENI vidi - AG Grid flex post-render reapply je suppressed
-      // maintainColumnOrder + _autoLoadDefault listLayouts side-effect je
-      // disabled. Fix #6 visibility:hidden uz neni nutny (500ms vizualni
-      // delay zbytecne). Drop visibility hack, grid je instantly viditelny.
-      // Pokud by se flash znovu objevil v slozitejsich gridech, vratit zpet
-      // (Fix #6 commit zachovan v git history pro reference).
+      // Phase API Versioned Routing post-deploy fix #6 (23.5.2026 vecer Marti's
+      // catch "po 300ms problikne vsechny na 80px"): AG Grid Issue #9959 —
+      // "Column widths with flex setting are calculated by the grid AFTER initial
+      // render, which causes layout flashes". Hide DOM during flicker window,
+      // reveal po 500ms LOCK doběhl. User vidi vyhraz finalni stav.
+      // Fix #9 (Marti's "Nejlepsi vysledek je s potlacenou visibilitou pri
+      // nabehu... aplikuj ji"): RE-ENABLE Fix #6 — best visual UX.
+      if (opts.initialLayout && this.gridContainer) {
+        try {
+          this.gridContainer.style.visibility = 'hidden';
+          // Safety net: po 1500ms force show (i kdyby LOCK nedoběhl)
+          this._initVisibilityTimer = setTimeout(() => {
+            try { if (this.gridContainer) this.gridContainer.style.visibility = 'visible'; } catch (e) {}
+          }, 1500);
+        } catch (e) { /* silent */ }
+      }
       // AG Grid v32+ API: createGrid()
       // B+5.3: AG Grid renders do gridContainer (= container nebo wrapper inner)
       this.gridApi = window.agGrid.createGrid(this.gridContainer, gridOptions);

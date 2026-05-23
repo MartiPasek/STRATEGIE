@@ -162,7 +162,9 @@ def _get_active_pin(session: Session, user_id: int) -> Optional[dict]:
 # Router
 # =====================================================================
 
-_router = APIRouter(prefix="/api/v1/erp/api-versions", tags=["api-versioning"])
+# Note: parent api_router (modules/erp/api/router.py:55) je APIRouter(prefix="/api/v1/erp").
+# Sub-router prefix relative -> final URL = /api/v1/erp/api-versions/...
+_router = APIRouter(prefix="/api-versions", tags=["api-versioning"])
 
 
 @_router.get("", response_model=ApiVersionsResponse)

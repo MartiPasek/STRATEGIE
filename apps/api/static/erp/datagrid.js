@@ -1355,10 +1355,17 @@
                   // je truthy (z save snapshotu kde columns mely flex), AG Grid
                   // reapply flex -> grid se rozhazi na flex distribution.
                   // Plus defaultState: { flex: 0 } jako safety net.
-                  const stateNoFlex = cols.map(c => Object.assign({}, c, {
-                    flex: 0,
-                    flexAfter: undefined,
-                  }));
+                  // Fix 23.5. vecer: DB snapshot ma 'field' ale ne 'colId'.
+                  // AG Grid applyColumnState VYZADUJE colId v state items - bez
+                  // colId state ignored (37 columns drift smoke test).
+                  // Normalize: colId = c.colId || c.field || c.column.
+                  const stateNoFlex = cols
+                    .map(c => Object.assign({}, c, {
+                      colId: c.colId || c.field || c.column,
+                      flex: 0,
+                      flexAfter: undefined,
+                    }))
+                    .filter(c => !!c.colId); // drop entries bez identifier
                   // Diagnostic: snapshot before applyColumnState
                   const beforeState = params.api.getColumnState();
                   params.api.applyColumnState({
@@ -1371,7 +1378,7 @@
                   // overriding pres flex inheritance nebo sizeColumnsToFit.
                   try {
                     const widths = stateNoFlex
-                      .filter(c => c.width != null && c.width > 0)
+                      .filter(c => c.width != null && c.width > 0 && !!c.colId)
                       .map(c => ({ key: c.colId, newWidth: c.width }));
                     if (widths.length > 0 && typeof params.api.setColumnWidths === "function") {
                       params.api.setColumnWidths(widths);

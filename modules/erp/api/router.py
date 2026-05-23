@@ -8284,7 +8284,7 @@ def _render_full_page(
       display: inline-flex;
       align-items: center;
       justify-content: center;
-      font-size: 27px;
+      font-size: 18px;
       cursor: pointer;
       transition: all 0.15s ease;
       color: var(--text-muted);

@@ -1879,7 +1879,22 @@
      */
     async _autoLoadDefault() {
       const key = this.options.layoutKey;
-      const skipApply = !!this.options.initialLayout;
+      // Phase API Versioned Routing post-deploy fix #7 (23.5.2026 vecer Marti's
+      // catch "Znovu volas to autoloaddefault... DISABLUJ HO JAKO PREDTIM"):
+      // HARD GUARD na samotnem function body. I kdyby caller (init or
+      // resetToDefault) volal _autoLoadDefault PRES Fix #5 condition, pokud
+      // initialLayout passed -> early return BEZ listLayouts() side-effects.
+      // Belt-and-suspenders: caller guard (Fix #5) + callee guard (Fix #7).
+      // Caller-side reset (resetToDefault button) override pres allowReload=true
+      // (NIKDO ne pase tuto option zatim, ale future-proof pro user reset action).
+      if (this.options.initialLayout) {
+        console.info(
+          "[ErpDataGrid] _autoLoadDefault " + (key || "(no key)") +
+          " → HARD SKIP (initialLayout passed, Fix #7)"
+        );
+        return;
+      }
+      const skipApply = false;  // unreachable after early return, kept for clarity
       const result = await this.listLayouts();
       if (skipApply) {
         // Phase API Versioned Routing post-deploy fix #2 (23.5.2026 vecer

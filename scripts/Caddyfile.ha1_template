@@ -3,8 +3,12 @@
 }
 
 strategie-ai.com, www.strategie-ai.com, app.strategie-ai.com, api.strategie-ai.com {
+    # Phase HA-1 Blue-Green (23.5.2026):
+    #   - localhost:8002 = STRATEGIE-API (primary, aktualni kod z C:\Projekty\STRATEGIE)
+    #   - localhost:8003 = STRATEGIE-API-B (secondary, day-old snapshot z C:\Projekty\STRATEGIE-prev)
+    # lb_policy first = primary preferred 100%, secondary only on primary fail
     reverse_proxy localhost:8002 localhost:8003 {
-        lb_policy least_conn
+        lb_policy first
         health_uri /api/v1/health
         health_interval 3s
         health_timeout 2s

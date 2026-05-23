@@ -2607,26 +2607,33 @@
           '<div class="erp-modal-footer"></div>';
         backdrop.appendChild(modal);
         document.body.appendChild(backdrop);
-        // Krok 5.U Fáze H (23.5.2026): stack-aware z-index — Marti's catch
-        // "Ulozit jako popup je schovany za pickerem". Default CSS z-index 200
-        // je pod ErpCatalogPicker overlay (10010). Spočítáme max z-index všech
-        // existujících overlay v DOMu (modal-backdrops, picker overlay, drop-up
-        // menu) a posuneme se o +10 nahoru. Handluje arbitrary nesting
-        // (picker → save-as → confirm dialog) bez globálního CSS override.
+        // Krok 5.U Fáze H+H++ (23.5.2026): stack-aware z-index — Marti's catch
+        // "Ulozit jako popup je schovany za pickerem" + "tolikrat klik = tolikrat
+        // instance" potvrzuje modal SE OTEVÍRÁ ale je POD picker overlay.
+        //
+        // Default CSS z-index 200 je pod ErpCatalogPicker overlay (10010).
+        // Picker overlay NEMÁ className (jen inline style v catalog_picker.js
+        // line 134), takže className-based querySelector ho minul.
+        //
+        // Fix H++: skenuj VŠECHNY body-level children s computed
+        // position:fixed (catches arbitrary overlays bez className), spočítej
+        // max z-index, posuň o +10. Plus hard floor Math.max(_maxZ+10, 10020)
+        // jako pojistka — vždy nad ErpCatalogPicker (10010) i kdyby scan selhal.
         try {
-          const _stackCandidates = document.querySelectorAll(
-            ".erp-modal-backdrop, .erp-catalog-picker-overlay, .erp-toolbar-coreinfo-menu"
-          );
-          let _maxZ = 200;  // fallback baseline (matches CSS default)
-          _stackCandidates.forEach((el) => {
+          const _bodyChildren = document.querySelectorAll("body > *");
+          let _maxZ = 200;  // CSS fallback baseline
+          _bodyChildren.forEach((el) => {
             if (el === backdrop) return;  // skip self
-            const z = parseInt(window.getComputedStyle(el).zIndex, 10);
+            const _s = window.getComputedStyle(el);
+            if (_s.position !== "fixed") return;  // jen fixed-positioned overlays
+            const z = parseInt(_s.zIndex, 10);
             if (!isNaN(z) && z > _maxZ) _maxZ = z;
           });
-          backdrop.style.zIndex = String(_maxZ + 10);
+          // Hard floor 10020 — vždy nad ErpCatalogPicker (10010) i kdyby
+          // scan nenašel žádný overlay (defensive).
+          backdrop.style.zIndex = String(Math.max(_maxZ + 10, 10020));
         } catch (e) {
-          // Defensive — pokud DOM query nebo getComputedStyle selže, drop na
-          // hard-coded high value který je nad ErpCatalogPicker (10010).
+          // Last-resort fallback — hard-coded high value nad ErpCatalogPicker.
           backdrop.style.zIndex = "10020";
         }
 

@@ -1,78 +1,96 @@
 #Requires -RunAsAdministrator
 # ============================================================
 # Phase HA-1 (23.5.2026): Install STRATEGIE-API-B NSSM service
-# (port 8002, secondary instance)
+# Secondary instance, port 8003 (primary already runs on 8002)
 # ============================================================
-# ASCII-only (gotcha #110 - em-dash/Czech smart quotes break PS5.1
-# default cp1250 encoding). All special chars replaced.
+# ASCII-only (gotcha #110 PS5.1 cp1250).
 # ============================================================
 
 $ServiceName = "STRATEGIE-API-B"
+$SecondaryPort = "8003"
 $NssmPath = "C:\Tools\nssm.exe"
 
-# Discover existing STRATEGIE-API config (mirror Python path + AppDirectory + env)
-$PrimaryApp = & $NssmPath get "STRATEGIE-API" Application 2>$null
-$PrimaryDir = & $NssmPath get "STRATEGIE-API" AppDirectory 2>$null
-$PrimaryArgs = & $NssmPath get "STRATEGIE-API" AppParameters 2>$null
-$PrimaryEnv = & $NssmPath get "STRATEGIE-API" AppEnvironmentExtra 2>$null
+if (-not (Test-Path $NssmPath)) {
+    Write-Error "NSSM not found at $NssmPath"
+    exit 1
+}
+
+# Helper: get NSSM property, strip trailing CR/LF/whitespace
+function Get-NssmProp {
+    param([string]$svc, [string]$prop)
+    $val = & $NssmPath get $svc $prop 2>$null
+    if ($null -eq $val) { return "" }
+    return ($val | Out-String).Trim()
+}
+
+# Discover existing STRATEGIE-API config (mirror Python + dir + env)
+$PrimaryApp = Get-NssmProp "STRATEGIE-API" "Application"
+$PrimaryDir = Get-NssmProp "STRATEGIE-API" "AppDirectory"
+$PrimaryArgs = Get-NssmProp "STRATEGIE-API" "AppParameters"
+$PrimaryEnv = Get-NssmProp "STRATEGIE-API" "AppEnvironmentExtra"
 
 if (-not $PrimaryApp -or -not (Test-Path $PrimaryApp)) {
-    Write-Error "STRATEGIE-API not installed or Python path invalid. Cannot mirror config."
-    Write-Host "  Get-Service STRATEGIE-API"
-    Write-Host "  nssm get STRATEGIE-API Application"
+    Write-Error "STRATEGIE-API not installed or Python path invalid. Cannot mirror."
+    Write-Host "  Application reported: '$PrimaryApp'"
     exit 1
 }
 
 Write-Host "Mirroring STRATEGIE-API config:"
-Write-Host "  Application:  $PrimaryApp"
-Write-Host "  AppDirectory: $PrimaryDir"
-Write-Host "  AppArgs:      $PrimaryArgs"
+Write-Host "  Application:  '$PrimaryApp'"
+Write-Host "  AppDirectory: '$PrimaryDir'"
+Write-Host "  AppArgs:      '$PrimaryArgs'"
 Write-Host ""
 
-# Replace --port 8001 with --port 8003 in args
-$SecondaryArgs = $PrimaryArgs -replace "--port\s+\d+", "--port 8003"
+# Replace --port N with --port 8003 in args
+$SecondaryArgs = $PrimaryArgs -replace "--port\s+\d+", "--port $SecondaryPort"
 if ($SecondaryArgs -eq $PrimaryArgs) {
-    Write-Warning "Primary args don't contain '--port N' pattern. Will append --port 8003."
-    $SecondaryArgs = $PrimaryArgs.TrimEnd() + " --port 8003"
+    Write-Warning "Primary args missing '--port N'. Appending."
+    $SecondaryArgs = $PrimaryArgs.TrimEnd() + " --port $SecondaryPort"
 }
-Write-Host "Secondary args: $SecondaryArgs"
+Write-Host "Secondary args: '$SecondaryArgs'"
 Write-Host ""
 
-# Check if already installed
+# If service exists, remove first (idempotent reinstall)
 $Existing = & $NssmPath status $ServiceName 2>$null
 if ($Existing) {
-    Write-Host "Service $ServiceName already exists. Status: $Existing"
-    Write-Host "To reinstall: nssm remove $ServiceName confirm; then re-run."
-    exit 0
+    Write-Host "Service $ServiceName exists (status: $Existing). Removing for clean reinstall..."
+    & $NssmPath stop $ServiceName 2>$null
+    Start-Sleep -Seconds 2
+    & $NssmPath remove $ServiceName confirm
+    Start-Sleep -Seconds 1
 }
 
 Write-Host "Installing NSSM service: $ServiceName"
 
-# Install service (args as single string passed to nssm)
+# Install service (args as single string, NSSM parses)
 $ArgsArray = $SecondaryArgs.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
 & $NssmPath install $ServiceName $PrimaryApp @ArgsArray
 & $NssmPath set $ServiceName AppDirectory $PrimaryDir
-& $NssmPath set $ServiceName DisplayName "STRATEGIE API (Secondary, port 8002)"
-& $NssmPath set $ServiceName Description "Phase HA-1 secondary API instance. Load-balanced with STRATEGIE-API (port 8001) via Caddy."
+& $NssmPath set $ServiceName DisplayName "STRATEGIE API (Secondary, port $SecondaryPort)"
+& $NssmPath set $ServiceName Description "Phase HA-1 secondary API. Load-balanced with STRATEGIE-API via Caddy."
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START
 
-# Environment vars: inherit from primary + override port + instance name
+# Environment variables — NSSM expects single multi-line string s LF (NOT CRLF).
+# Filter out any UVICORN_PORT / STRATEGIE_INSTANCE_NAME from primary env, then append ours.
+$EnvLines = @()
 if ($PrimaryEnv) {
-    # Strip any existing UVICORN_PORT / STRATEGIE_INSTANCE_NAME (case-insensitive)
-    $LinesIn = $PrimaryEnv -split "`r?`n"
-    $LinesOut = @()
-    foreach ($line in $LinesIn) {
-        if ($line -match '^(UVICORN_PORT|STRATEGIE_INSTANCE_NAME)=') { continue }
-        $LinesOut += $line
+    foreach ($line in ($PrimaryEnv -split "`r?`n")) {
+        $clean = $line.Trim()
+        if ($clean -eq "") { continue }
+        if ($clean -match '^(UVICORN_PORT|STRATEGIE_INSTANCE_NAME)=') { continue }
+        $EnvLines += $clean
     }
-    $LinesOut += "UVICORN_PORT=8002"
-    $LinesOut += "STRATEGIE_INSTANCE_NAME=secondary"
-    $NewEnv = $LinesOut -join "`r`n"
-    & $NssmPath set $ServiceName AppEnvironmentExtra $NewEnv
-} else {
-    Write-Warning "Primary has no AppEnvironmentExtra. Setting minimum."
-    & $NssmPath set $ServiceName AppEnvironmentExtra "UVICORN_PORT=8002`r`nSTRATEGIE_INSTANCE_NAME=secondary"
 }
+$EnvLines += "UVICORN_PORT=$SecondaryPort"
+$EnvLines += "STRATEGIE_INSTANCE_NAME=secondary"
+
+# NSSM requires \n (LF) not CRLF for env entries. Join with LF only.
+$EnvBlock = $EnvLines -join "`n"
+
+Write-Host "Environment block to set:"
+$EnvLines | ForEach-Object { Write-Host "  $_" }
+
+& $NssmPath set $ServiceName AppEnvironmentExtra $EnvBlock
 
 # Log rotation
 $LogDir = "C:\Logs\STRATEGIE"
@@ -90,10 +108,14 @@ if (-not (Test-Path $LogDir)) {
 & $NssmPath set $ServiceName AppRestartDelay 5000
 
 Write-Host ""
-Write-Host "DONE. Service $ServiceName installed."
+Write-Host "DONE. Service $ServiceName installed (port $SecondaryPort)."
 Write-Host ""
 Write-Host "Next steps:"
 Write-Host "  Start-Service $ServiceName"
 Write-Host "  Start-Sleep -Seconds 5"
-Write-Host "  Invoke-RestMethod http://localhost:8002/api/v1/health"
-Write-Host "  # Expect: {ok:True, instance:'secondary', port:8002}"
+Write-Host "  Invoke-RestMethod http://localhost:$SecondaryPort/api/v1/health"
+Write-Host "  # Expect: {ok:True, instance:'secondary', port:$SecondaryPort}"
+Write-Host ""
+Write-Host "Verify env:"
+Write-Host "  & '$NssmPath' get $ServiceName AppEnvironmentExtra"
+Write-Host "  & '$NssmPath' get $ServiceName AppParameters"

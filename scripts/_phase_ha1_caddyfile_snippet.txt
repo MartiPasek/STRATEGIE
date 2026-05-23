@@ -1,75 +1,43 @@
 # ============================================================
-# Phase HA-1 Caddyfile update — strategie-ai.com round-robin
+# Phase HA-1 Caddyfile update - 2 upstreams + health check
 # ============================================================
-# Marti's 23.5.2026 spec: 2 API upstreams + health check + failover.
-#
-# CESTA: C:\caddy\Caddyfile (cloud APP, edituj jako admin)
-#
-# Co měnit: v bloku pro strategie-ai.com nahradit "reverse_proxy"
-# directive (která dnes ukazuje na 1 upstream localhost:8001) za
-# multi-upstream s health check + least_conn lb_policy.
+# Marti's existing setup:
+#   STRATEGIE-API   listening localhost:8002 (primary)
+#   STRATEGIE-API-B listening localhost:8003 (secondary, Phase HA-1)
 # ============================================================
 
-# PŘED (dnes — single upstream):
-#
-# strategie-ai.com {
-#     ...
-#     reverse_proxy localhost:8001
-# }
+# Najdi blok pro strategie-ai.com v C:\caddy\Caddyfile a nahrad
+# `reverse_proxy localhost:8002` (nebo 8001) za:
 
-# PO (Phase HA-1 — 2 upstreams):
+reverse_proxy localhost:8002 localhost:8003 {
+    # Load balance - least_conn = preferuj idle upstream
+    lb_policy least_conn
 
-strategie-ai.com, www.strategie-ai.com, app.strategie-ai.com, api.strategie-ai.com {
-    # ... existing tls + headers + matchers ...
+    # Active health check
+    health_uri /api/v1/health
+    health_interval 3s
+    health_timeout 2s
+    health_status 2xx
 
-    # Phase HA-1 (23.5.2026): zero-downtime restart pres 2 API upstreams.
-    # Caddy active health check /api/v1/health (no auth, lightweight).
-    # Pokud instance returns non-200 (down for restart, crash), Caddy
-    # automaticky failover na zbyvajici upstream do dalsi pasive check.
-    reverse_proxy localhost:8001 localhost:8002 {
-        # Load balance — least_conn = preferuje upstream s méně active connections
-        # (round_robin alternative = rovnoměrné distribution)
-        lb_policy least_conn
+    # Failover - dead upstream removed z pool na 10s
+    fail_duration 10s
+    max_fails 1
 
-        # Active health check — Caddy polling each upstream
-        health_uri /api/v1/health
-        health_interval 3s
-        health_timeout 2s
-        health_status 2xx
-        # Po fail: instance removed z pool, retry za N*interval
-        fail_duration 10s
-        max_fails 1
-
-        # Header pass-through (existing behavior)
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+    # Existing headers
+    header_up Host {host}
+    header_up X-Real-IP {remote_host}
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
 }
 
 # ============================================================
-# Deploy (cloud APP, PowerShell admin):
-# ============================================================
+# Deploy (admin PS):
 #
-# 1. Backup existing Caddyfile:
-#    Copy-Item C:\caddy\Caddyfile C:\caddy\Caddyfile.bak_pre_ha1
+#   Copy-Item C:\caddy\Caddyfile C:\caddy\Caddyfile.bak_pre_ha1
+#   notepad C:\caddy\Caddyfile    # edit per spec vyse
+#   C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile
+#   Restart-Service STRATEGIE-CADDY
 #
-# 2. Edit C:\caddy\Caddyfile (Notepad as admin) — replace reverse_proxy block
-#    per spec výše.
-#
-# 3. Validate config:
-#    C:\caddy\caddy.exe validate --config C:\caddy\Caddyfile
-#
-# 4. Reload Caddy (graceful — no downtime):
-#    Restart-Service STRATEGIE-CADDY
-#    # OR: C:\caddy\caddy.exe reload --config C:\caddy\Caddyfile
-#
-# 5. Verify both upstreams reachable:
-#    Invoke-RestMethod http://localhost:8001/api/v1/health
-#    Invoke-RestMethod http://localhost:8002/api/v1/health
-#
-# 6. Verify Caddy upstream pool (admin API):
-#    Invoke-RestMethod http://localhost:2019/reverse_proxy/upstreams
-#    # Returns JSON s health status per upstream
+# Verify upstream pool (Caddy admin API):
+#   Invoke-RestMethod http://localhost:2019/reverse_proxy/upstreams
 # ============================================================

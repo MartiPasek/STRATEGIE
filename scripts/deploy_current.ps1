@@ -23,10 +23,10 @@ $ErrorActionPreference = "Stop"
 
 $RepoPath = "C:\Projekty\STRATEGIE"
 $ServiceName = "STRATEGIE-API"
-$PsqlPath = "C:\Program Files\PostgreSQL\16\bin\psql.exe"
-$PgUser = "postgres"
-$PgDatabase = "data_db"
 $HealthUrl = "http://localhost:8002/api/v1/health"
+# Python venv (poetry) - obsahuje psycopg2, pouzivame ho misto psql
+# (psql neni v PATH na cloud APP, PG bezi na 10.200.188.12)
+$PythonExe = "C:\Users\Administrator\AppData\Local\pypoetry\Cache\virtualenvs\strategie-W5adySD1-py3.14\Scripts\python.exe"
 
 # =====================================================================
 # 1. Git pull
@@ -64,27 +64,50 @@ if ($svc.Status -ne "Running") {
 Write-Host "  Status: $($svc.Status)"
 
 # =====================================================================
-# 3. UPDATE released_at + git_sha
+# 3. UPDATE released_at + git_sha (via Python venv psycopg2)
 # =====================================================================
 Write-Host ""
 Write-Host "=== Step 3: UPDATE fw.api_version ===" -ForegroundColor Cyan
-if (-not (Test-Path $PsqlPath)) {
-    Write-Warning "psql not found: $PsqlPath - skipping DB update"
+if (-not (Test-Path $PythonExe)) {
+    Write-Warning "Python venv not found: $PythonExe - skipping DB update"
     Write-Warning "(Service restarted ALE fw.api_version.released_at NOT updated)"
 }
 else {
-    $Sql = @"
+    # Python script reads STRATEGIE_DATA_DB_URL from env (set v NSSM)
+    # nebo nactena z .env. Pouzivame stejny conn string jako STRATEGIE-API.
+    $PyScript = @"
+import os, sys
+sys.path.insert(0, r'$RepoPath')
+from dotenv import load_dotenv
+load_dotenv(r'$RepoPath\.env')
+import psycopg2
+url = os.environ.get('STRATEGIE_DATA_DB_URL') or os.environ.get('DATABASE_URL')
+if not url:
+    print('FAIL: STRATEGIE_DATA_DB_URL not set'); sys.exit(1)
+# Convert sqlalchemy URL -> psycopg2 (drop postgresql+psycopg2:// prefix)
+url = url.replace('postgresql+psycopg2://', 'postgresql://').replace('postgresql+asyncpg://', 'postgresql://')
+conn = psycopg2.connect(url)
+conn.autocommit = True
+cur = conn.cursor()
+cur.execute(""""""
 UPDATE fw.api_version
 SET released_at = NOW(),
-    git_sha = '$GitSha'
+    git_sha = %s
 WHERE version_code = 'current'
 RETURNING version_string,
           TO_CHAR(released_at, 'DD.MM. HH24:MI') AS released,
-          SUBSTRING(git_sha, 1, 7) AS sha;
+          SUBSTRING(git_sha, 1, 7) AS sha
+"""""", ('$GitSha',))
+row = cur.fetchone()
+if row:
+    print(f'  Updated: {row[0]} -> released_at={row[1]}, git_sha={row[2]}')
+else:
+    print('  WARN: 0 rows updated (version_code=current not found?)')
+cur.close(); conn.close()
 "@
-    & $PsqlPath -U $PgUser -d $PgDatabase -c $Sql
+    & $PythonExe -c $PyScript
     if ($LASTEXITCODE -ne 0) {
-        Write-Warning "psql UPDATE failed (exit code $LASTEXITCODE)"
+        Write-Warning "Python UPDATE failed (exit code $LASTEXITCODE)"
     }
 }
 

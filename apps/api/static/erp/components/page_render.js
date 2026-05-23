@@ -435,6 +435,49 @@
                 } catch (e) {}
                 _refreshSaveBtn();
               },
+              // Krok 5.S Fáze 5 + dvojklik shortcut (23.5.2026 rano, Marti's
+              // "dvojklik na uzivatelich = otevreni editace vety"): Centrala 1
+              // Excel/Windows standard. Reuse stejny flow jako toolbar Oprava
+              // button — DesignFwForm modal s editCoreId + rowId.
+              onRowDoubleClick: function(rowData, ev) {
+                const ga = rootCd && rootCd.grid_actions;
+                if (!ga || !ga.edit_core_id) {
+                  console.info("[page_render dblclick] no edit_core_id — no-op");
+                  return;
+                }
+                if (!rowData || rowData.id == null) return;
+                if (typeof window.DesignFwForm !== "function") {
+                  console.warn("[page_render dblclick] DesignFwForm not loaded");
+                  return;
+                }
+                new window.DesignFwForm({
+                  coreId: ga.edit_core_id,
+                  rowId: rowData.id,
+                  onSaveSuccess: function() {
+                    try {
+                      const inst = gridHost.__erpGridInst;
+                      if (inst && typeof inst.refresh === "function") inst.refresh();
+                    } catch (_e) {}
+                  },
+                }).open();
+              },
+              // Enter na radku = same as dvojklik (keyboard parity)
+              onRowEnter: function(rowData, ev) {
+                const ga = rootCd && rootCd.grid_actions;
+                if (!ga || !ga.edit_core_id) return;
+                if (!rowData || rowData.id == null) return;
+                if (typeof window.DesignFwForm !== "function") return;
+                new window.DesignFwForm({
+                  coreId: ga.edit_core_id,
+                  rowId: rowData.id,
+                  onSaveSuccess: function() {
+                    try {
+                      const inst = gridHost.__erpGridInst;
+                      if (inst && typeof inst.refresh === "function") inst.refresh();
+                    } catch (_e) {}
+                  },
+                }).open();
+              },
             });
             gridHost.__erpGridInst = gridInst;
 

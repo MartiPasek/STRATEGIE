@@ -72,7 +72,26 @@ async def lifespan(app: FastAPI):
 
     _startup_ts = _t_lifespan.time()
     _instance_name = os.environ.get("STRATEGIE_INSTANCE_NAME", "primary")
-    _port = int(os.environ.get("UVICORN_PORT", 8001))
+    # Phase HA-1 hotfix (23.5.2026): port resolve priority:
+    #   1. UVICORN_PORT env (Phase HA-1 secondary explicit)
+    #   2. --port argument v sys.argv (Marti's existing primary NSSM config)
+    #   3. fallback 8001 (uvicorn default)
+    import sys as _sys_lifespan
+    _port = int(os.environ.get("UVICORN_PORT", 0)) or 0
+    if not _port:
+        try:
+            _argv = _sys_lifespan.argv
+            for i, arg in enumerate(_argv):
+                if arg == "--port" and i + 1 < len(_argv):
+                    _port = int(_argv[i + 1])
+                    break
+                if arg.startswith("--port="):
+                    _port = int(arg.split("=", 1)[1])
+                    break
+        except (ValueError, IndexError):
+            pass
+    if not _port:
+        _port = 8001  # last-resort uvicorn default
     _pid = os.getpid()
     _hostname = _sock_lifespan.gethostname()
     _git_sha = "unknown"
@@ -161,6 +180,27 @@ app = FastAPI(
 #
 # Distinct od /api/v1/erp/health (parent gated, full tenant context).
 # /api/v1/health = liveness only (am I alive?).
+def _resolve_uvicorn_port() -> int:
+    """Phase HA-1 hotfix: port resolve priority — env UVICORN_PORT,
+    sys.argv --port, fallback 8001. Marti's existing NSSM config uses
+    --port arg, no env var.
+    """
+    import sys as _sys_port
+    _p = int(os.environ.get("UVICORN_PORT", 0)) or 0
+    if _p:
+        return _p
+    try:
+        _argv = _sys_port.argv
+        for i, arg in enumerate(_argv):
+            if arg == "--port" and i + 1 < len(_argv):
+                return int(_argv[i + 1])
+            if arg.startswith("--port="):
+                return int(arg.split("=", 1)[1])
+    except (ValueError, IndexError):
+        pass
+    return 8001  # uvicorn default
+
+
 @app.get("/api/v1/health")
 def api_health_liveness() -> dict:
     """Phase HA-1: raw liveness probe pro Caddy load balancer.
@@ -173,7 +213,7 @@ def api_health_liveness() -> dict:
     return {
         "ok": True,
         "instance": os.environ.get("STRATEGIE_INSTANCE_NAME", "primary"),
-        "port": int(os.environ.get("UVICORN_PORT", 8001)),
+        "port": _resolve_uvicorn_port(),
     }
 
 

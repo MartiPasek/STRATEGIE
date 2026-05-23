@@ -1,16 +1,7 @@
 # ============================================================
 # Phase HA-1 SMOKE: zero-downtime restart proof
 # ============================================================
-# Run AFTER:
-#   - STRATEGIE-API-B installed + started
-#   - Caddyfile updated s 2 upstreams + reload
-#
-# Co testuje:
-#   1. Background curl loop /api/v1/health (1× per 200ms = 5 req/s)
-#   2. Track which instance odpovídá (primary/secondary)
-#   3. During loop → Restart-Service STRATEGIE-API (primary)
-#   4. Verify ZERO 502/503 errors — všechny requesty by měly jít přes
-#      secondary během restart window (~5-10s)
+# ASCII-only (gotcha #110 - PS5.1 cp1250 default breaks em-dash + arrows).
 # ============================================================
 
 param(
@@ -38,7 +29,6 @@ $StartTime = Get-Date
 while ((New-TimeSpan -Start $StartTime).TotalSeconds -lt $DurationSeconds) {
     $Elapsed = [int](New-TimeSpan -Start $StartTime).TotalSeconds
 
-    # Trigger restart at marked time
     if (-not $RestartTriggered -and $Elapsed -ge $RestartAfterSeconds) {
         Write-Host "[$Elapsed s] === RESTARTING $RestartService ==="
         Start-Job -ScriptBlock {
@@ -51,9 +41,19 @@ while ((New-TimeSpan -Start $StartTime).TotalSeconds -lt $DurationSeconds) {
     try {
         $Resp = Invoke-RestMethod -Uri $Url -Method GET -TimeoutSec 3 -ErrorAction Stop
         $Instance = $Resp.instance
-        $Counts[$Instance]++
-        $InstanceShort = if ($Instance -eq "primary") { "P" } else { "S" }
-        Write-Host "[$Elapsed s] ${InstanceShort}" -NoNewline
+        if (-not $Instance) { $Instance = "unknown" }
+        if ($Counts.ContainsKey($Instance)) {
+            $Counts[$Instance]++
+        } else {
+            $Counts[$Instance] = 1
+        }
+        if ($Instance -eq "primary") {
+            Write-Host "P" -NoNewline
+        } elseif ($Instance -eq "secondary") {
+            Write-Host "S" -NoNewline
+        } else {
+            Write-Host "?" -NoNewline
+        }
     } catch {
         $Counts["error"]++
         $ErrCode = "?"
@@ -61,7 +61,7 @@ while ((New-TimeSpan -Start $StartTime).TotalSeconds -lt $DurationSeconds) {
             $ErrCode = [int]$_.Exception.Response.StatusCode
         }
         $ErrorDetails += "[$Elapsed s] $ErrCode $($_.Exception.Message)"
-        Write-Host "[$Elapsed s] X" -NoNewline -ForegroundColor Red
+        Write-Host "X" -NoNewline -ForegroundColor Red
     }
 
     Start-Sleep -Milliseconds 200
@@ -71,26 +71,26 @@ Write-Host ""
 Write-Host ""
 Write-Host "=== Phase HA-1 SMOKE RESULTS ==="
 Write-Host ""
-Write-Host "Primary    (8001): $($Counts['primary']) requests"
-Write-Host "Secondary  (8002): $($Counts['secondary']) requests"
-Write-Host "Errors     (502/timeout): $($Counts['error']) requests"
+foreach ($k in $Counts.Keys) {
+    Write-Host "  $k : $($Counts[$k]) requests"
+}
 Write-Host ""
 
-if ($Counts['error'] -eq 0) {
-    Write-Host "✓ ZERO-DOWNTIME ACHIEVED — žádné 502/timeout errors during restart" -ForegroundColor Green
-} elseif ($Counts['error'] -le 2) {
-    Write-Host "⚠ ALMOST ZERO-DOWNTIME — $($Counts['error']) errors (race v Caddy fail detection)" -ForegroundColor Yellow
-    Write-Host "  → Pojd snizit health_interval na 1s pro tighter detection."
+if ($Counts["error"] -eq 0) {
+    Write-Host "OK - ZERO-DOWNTIME ACHIEVED - no errors during restart" -ForegroundColor Green
+} elseif ($Counts["error"] -le 2) {
+    Write-Host "WARN - ALMOST ZERO-DOWNTIME - $($Counts['error']) errors (Caddy fail detect race)" -ForegroundColor Yellow
+    Write-Host "  Reduce health_interval to 1s for tighter detection."
 } else {
-    Write-Host "✗ HA-1 FAIL — $($Counts['error']) errors je moc. Caddy failover nezavadi." -ForegroundColor Red
+    Write-Host "FAIL - HA-1 FAIL - $($Counts['error']) errors. Caddy failover not engaged." -ForegroundColor Red
     Write-Host ""
     Write-Host "Error details:"
     $ErrorDetails | ForEach-Object { Write-Host "  $_" }
 }
 
 Write-Host ""
-Write-Host "Verify v fw.diag_log:"
-Write-Host "  SELECT id, level, message, extra->>'event', extra->>'instance', created_at"
+Write-Host "Verify in fw.diag_log (DBeaver):"
+Write-Host "  SELECT id, level, message, extra->>'event' AS evt,"
+Write-Host "         extra->>'instance' AS inst, created_at"
 Write-Host "  FROM fw.diag_log WHERE module_id = 'api.lifecycle'"
 Write-Host "  ORDER BY id DESC LIMIT 10;"
-Write-Host "  → Expect: startup/shutdown events during restart window"

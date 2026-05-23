@@ -1,40 +1,42 @@
 #Requires -RunAsAdministrator
 # ============================================================
-# Phase HA-1 (23.5.2026, Marti's "production safety"):
-# Install STRATEGIE-API-B NSSM service (port 8002, secondary instance)
+# Phase HA-1 (23.5.2026): Install STRATEGIE-API-B NSSM service
+# (port 8002, secondary instance)
 # ============================================================
-#
-# Marti's spec: "Kdyz zase na pul hodiny zastavime jedno API, tak aby
-# druhe nadale bezelo." Druhá API instance pro zero-downtime restart.
-#
-# Cíl:
-#   - NSSM service "STRATEGIE-API-B" na portu 8002
-#   - Same Python module (modules.erp.api / apps.api.main:app)
-#   - Same DB connections (data_db single source of truth)
-#   - Env: UVICORN_PORT=8002, STRATEGIE_INSTANCE_NAME=secondary
-#
-# Existing STRATEGIE-API (port 8001) zůstává nezměněn.
-#
-# Background services (STRATEGIE-EMAIL-FETCHER, STRATEGIE-TASK-WORKER,
-# STRATEGIE-QUESTION-GENERATOR) zůstávají single-instance — neovlivněno.
+# ASCII-only (gotcha #110 - em-dash/Czech smart quotes break PS5.1
+# default cp1250 encoding). All special chars replaced.
 # ============================================================
 
 $ServiceName = "STRATEGIE-API-B"
-$AppRoot = "C:\Projekty\STRATEGIE"
 $NssmPath = "C:\Tools\nssm.exe"
-$PythonPath = "C:\Python314\python.exe"
 
-# Find python via existing STRATEGIE-API config (mirror)
-if (-not (Test-Path $PythonPath)) {
-    $ExistingPath = & $NssmPath get "STRATEGIE-API" Application 2>$null
-    if ($ExistingPath -and (Test-Path $ExistingPath)) {
-        $PythonPath = $ExistingPath
-        Write-Host "Reuse Python from STRATEGIE-API: $PythonPath"
-    } else {
-        Write-Error "Python.exe not found. Set `$PythonPath manually."
-        exit 1
-    }
+# Discover existing STRATEGIE-API config (mirror Python path + AppDirectory + env)
+$PrimaryApp = & $NssmPath get "STRATEGIE-API" Application 2>$null
+$PrimaryDir = & $NssmPath get "STRATEGIE-API" AppDirectory 2>$null
+$PrimaryArgs = & $NssmPath get "STRATEGIE-API" AppParameters 2>$null
+$PrimaryEnv = & $NssmPath get "STRATEGIE-API" AppEnvironmentExtra 2>$null
+
+if (-not $PrimaryApp -or -not (Test-Path $PrimaryApp)) {
+    Write-Error "STRATEGIE-API not installed or Python path invalid. Cannot mirror config."
+    Write-Host "  Get-Service STRATEGIE-API"
+    Write-Host "  nssm get STRATEGIE-API Application"
+    exit 1
 }
+
+Write-Host "Mirroring STRATEGIE-API config:"
+Write-Host "  Application:  $PrimaryApp"
+Write-Host "  AppDirectory: $PrimaryDir"
+Write-Host "  AppArgs:      $PrimaryArgs"
+Write-Host ""
+
+# Replace --port 8001 with --port 8003 in args
+$SecondaryArgs = $PrimaryArgs -replace "--port\s+\d+", "--port 8003"
+if ($SecondaryArgs -eq $PrimaryArgs) {
+    Write-Warning "Primary args don't contain '--port N' pattern. Will append --port 8003."
+    $SecondaryArgs = $PrimaryArgs.TrimEnd() + " --port 8003"
+}
+Write-Host "Secondary args: $SecondaryArgs"
+Write-Host ""
 
 # Check if already installed
 $Existing = & $NssmPath status $ServiceName 2>$null
@@ -45,33 +47,34 @@ if ($Existing) {
 }
 
 Write-Host "Installing NSSM service: $ServiceName"
-Write-Host "  Python:       $PythonPath"
-Write-Host "  AppRoot:      $AppRoot"
-Write-Host "  Port:         8002"
-Write-Host "  Instance:     secondary"
-Write-Host ""
 
-# Install service
-& $NssmPath install $ServiceName $PythonPath "-m" "uvicorn" "apps.api.main:app" "--host" "0.0.0.0" "--port" "8002"
-& $NssmPath set $ServiceName AppDirectory $AppRoot
+# Install service (args as single string passed to nssm)
+$ArgsArray = $SecondaryArgs.Split(' ', [StringSplitOptions]::RemoveEmptyEntries)
+& $NssmPath install $ServiceName $PrimaryApp @ArgsArray
+& $NssmPath set $ServiceName AppDirectory $PrimaryDir
 & $NssmPath set $ServiceName DisplayName "STRATEGIE API (Secondary, port 8002)"
-& $NssmPath set $ServiceName Description "Phase HA-1 secondary API instance pro zero-downtime restart. Load-balanced s STRATEGIE-API (port 8001) přes Caddy round-robin."
+& $NssmPath set $ServiceName Description "Phase HA-1 secondary API instance. Load-balanced with STRATEGIE-API (port 8001) via Caddy."
 & $NssmPath set $ServiceName Start SERVICE_AUTO_START
 
-# Environment variables (mirror STRATEGIE-API + override port + instance name)
-$EnvFromPrimary = & $NssmPath get "STRATEGIE-API" AppEnvironmentExtra 2>$null
-if ($EnvFromPrimary) {
-    Write-Host "Inheriting env from STRATEGIE-API + override UVICORN_PORT + STRATEGIE_INSTANCE_NAME"
-    # Append our overrides — NSSM AppEnvironmentExtra format: KEY=VALUE (multi-line)
-    $NewEnv = $EnvFromPrimary -replace "(?m)^UVICORN_PORT=.*$", "" -replace "(?m)^STRATEGIE_INSTANCE_NAME=.*$", ""
-    $NewEnv = $NewEnv.TrimEnd() + "`r`nUVICORN_PORT=8002`r`nSTRATEGIE_INSTANCE_NAME=secondary"
+# Environment vars: inherit from primary + override port + instance name
+if ($PrimaryEnv) {
+    # Strip any existing UVICORN_PORT / STRATEGIE_INSTANCE_NAME (case-insensitive)
+    $LinesIn = $PrimaryEnv -split "`r?`n"
+    $LinesOut = @()
+    foreach ($line in $LinesIn) {
+        if ($line -match '^(UVICORN_PORT|STRATEGIE_INSTANCE_NAME)=') { continue }
+        $LinesOut += $line
+    }
+    $LinesOut += "UVICORN_PORT=8002"
+    $LinesOut += "STRATEGIE_INSTANCE_NAME=secondary"
+    $NewEnv = $LinesOut -join "`r`n"
     & $NssmPath set $ServiceName AppEnvironmentExtra $NewEnv
 } else {
-    Write-Warning "STRATEGIE-API has no AppEnvironmentExtra — set env manually"
+    Write-Warning "Primary has no AppEnvironmentExtra. Setting minimum."
     & $NssmPath set $ServiceName AppEnvironmentExtra "UVICORN_PORT=8002`r`nSTRATEGIE_INSTANCE_NAME=secondary"
 }
 
-# Log rotation (10 MB, keep 5 backups)
+# Log rotation
 $LogDir = "C:\Logs\STRATEGIE"
 if (-not (Test-Path $LogDir)) {
     New-Item -ItemType Directory -Path $LogDir -Force | Out-Null
@@ -82,20 +85,15 @@ if (-not (Test-Path $LogDir)) {
 & $NssmPath set $ServiceName AppRotateBytes 10485760
 & $NssmPath set $ServiceName AppRotateOnline 1
 
-# Restart on crash: 5s delay
+# Restart on crash
 & $NssmPath set $ServiceName AppExit Default Restart
 & $NssmPath set $ServiceName AppRestartDelay 5000
 
 Write-Host ""
-Write-Host "✓ NSSM service $ServiceName installed."
+Write-Host "DONE. Service $ServiceName installed."
 Write-Host ""
 Write-Host "Next steps:"
-Write-Host "  1. Start service:    Start-Service $ServiceName"
-Write-Host "  2. Verify port 8002: Test-NetConnection -ComputerName localhost -Port 8002"
-Write-Host "  3. Verify health:    Invoke-RestMethod http://localhost:8002/api/v1/health"
-Write-Host "  4. Update Caddyfile pro round-robin (viz scripts/_phase_ha1_caddyfile.txt)"
-Write-Host "  5. Reload Caddy:     Restart-Service STRATEGIE-CADDY"
-Write-Host ""
-Write-Host "fw.diag_log audit:"
-Write-Host '  SELECT id, level, message, extra FROM fw.diag_log'
-Write-Host "  WHERE module_id = 'api.lifecycle' ORDER BY id DESC LIMIT 5;"
+Write-Host "  Start-Service $ServiceName"
+Write-Host "  Start-Sleep -Seconds 5"
+Write-Host "  Invoke-RestMethod http://localhost:8002/api/v1/health"
+Write-Host "  # Expect: {ok:True, instance:'secondary', port:8002}"

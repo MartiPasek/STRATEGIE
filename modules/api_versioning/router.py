@@ -31,7 +31,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from core.database_data import get_session
+from core.database_data import get_data_session
 from core.log_queue import log_event
 
 # =====================================================================
@@ -189,6 +189,20 @@ def _get_active_pin(session: Session, user_id: int) -> Optional[dict]:
 # Router (parent api_router ma prefix /api/v1/erp, sub-router prefix relative)
 # =====================================================================
 
+def _db_session_dep():
+    """FastAPI Depends-compatible wrapper kolem get_data_session.
+
+    get_data_session() vrati Session direct (ne generator), takze pro
+    Depends() potrebujeme wrapper s yield + finally cleanup.
+    """
+    session = get_data_session()
+    try:
+        yield session
+    finally:
+        session.close()
+
+
+
 _router = APIRouter(prefix="/api-versions", tags=["api-versioning"])
 
 
@@ -196,7 +210,7 @@ _router = APIRouter(prefix="/api-versions", tags=["api-versioning"])
 async def list_versions(
     request: Request,
     user_id: int = Depends(_require_user_id),
-    session: Session = Depends(get_session),
+    session: Session = Depends(_db_session_dep),
 ):
     """List vsech aktivnich versions + user's current pin (pro UI footer dropup)."""
     rows = session.execute(text("""
@@ -237,7 +251,7 @@ async def pin_version(
     response: Response,
     request: Request,
     user_id: int = Depends(_require_user_id),
-    session: Session = Depends(get_session),
+    session: Session = Depends(_db_session_dep),
 ):
     """Set user pin na version_code. Set cookie + INSERT user_api_pin row + log_event."""
     # 1. Resolve version_code -> active row
@@ -315,7 +329,7 @@ async def unpin_version(
     response: Response,
     request: Request,
     user_id: int = Depends(_require_user_id),
-    session: Session = Depends(get_session),
+    session: Session = Depends(_db_session_dep),
 ):
     """Clear pin (revert na current). UPDATE auto_reverted_at na latest active row + clear cookie."""
     login_name = _resolve_login_name(session, user_id)
@@ -363,7 +377,7 @@ async def diff_versions(
     from_code: str,
     to_code: str = "current",
     user_id: int = Depends(_require_user_id),
-    session: Session = Depends(get_session),
+    session: Session = Depends(_db_session_dep),
 ):
     """Git log mezi snapshots. Vrati commits + files_changed + GitHub compare URL."""
     # 1. Resolve both versions

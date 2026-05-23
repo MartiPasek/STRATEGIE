@@ -792,6 +792,23 @@
   opacity: 0.7;
 }
 
+/* ── Text-only color classes (Marti's 23.5. vecer "probarvit jen text") ───
+   Aplikuje barvu jen na text uvnitř buňky, žádné background.
+   Identické text colors jako .erp-fmt-cell-* (light pastel pro dark theme). */
+.ag-theme-quartz-dark .erp-fmt-text-red    { color: #fca5a5 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-orange { color: #fdba74 !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-yellow { color: #fcd34d !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-green  { color: #86efac !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-blue   { color: #93c5fd !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-purple { color: #d8b4fe !important; background: transparent !important; }
+.ag-theme-quartz-dark .erp-fmt-text-gray   { color: #d1d5db !important; background: transparent !important; }
+
+/* ── Bold modifier (Marti's "udelat jej tucnym") ───────────────────
+   Stackuje se přes color class — both cell/text/row scope. */
+.ag-theme-quartz-dark .erp-fmt-bold {
+  font-weight: 700 !important;
+}
+
 /* ── Row-level color classes ───────────────────────────────────────
    Aplikace na celý řádek. Zachovat zebra-stripe contrast — proto
    alpha mírnější (0.10 vs 0.18 pro cells). */

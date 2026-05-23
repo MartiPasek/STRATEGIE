@@ -161,15 +161,18 @@
 
   // ── Preset colors (8 pastel) ───────────────────────────────────────
 
+  // Fix 23.5.2026 vecer (Marti's drobnost: "probarvit jen text v bunce, pripadne
+  // jej udelat tucnym"): pridana 'textClass' (color text BEZ bg) pro scope="text".
+  // Bold modifier "erp-fmt-bold" (CSS class) appended pri rule.bold === true.
   const PRESET_COLORS = [
-    { key: "red",    label: "Červená",   swatch: "#ef4444", cellClass: "erp-fmt-cell-red",    rowClass: "erp-fmt-row-red" },
-    { key: "orange", label: "Oranžová",  swatch: "#f97316", cellClass: "erp-fmt-cell-orange", rowClass: "erp-fmt-row-orange" },
-    { key: "yellow", label: "Žlutá",     swatch: "#eab308", cellClass: "erp-fmt-cell-yellow", rowClass: "erp-fmt-row-yellow" },
-    { key: "green",  label: "Zelená",    swatch: "#22c55e", cellClass: "erp-fmt-cell-green",  rowClass: "erp-fmt-row-green" },
-    { key: "blue",   label: "Modrá",     swatch: "#3b82f6", cellClass: "erp-fmt-cell-blue",   rowClass: "erp-fmt-row-blue" },
-    { key: "purple", label: "Fialová",   swatch: "#a855f7", cellClass: "erp-fmt-cell-purple", rowClass: "erp-fmt-row-purple" },
-    { key: "gray",   label: "Šedá",      swatch: "#6b7280", cellClass: "erp-fmt-cell-gray",   rowClass: "erp-fmt-row-gray" },
-    { key: "strike", label: "Přeškrtnuto", swatch: "#94a3b8", cellClass: "erp-fmt-cell-strike", rowClass: "erp-fmt-row-strike" },
+    { key: "red",    label: "Červená",   swatch: "#ef4444", cellClass: "erp-fmt-cell-red",    rowClass: "erp-fmt-row-red",    textClass: "erp-fmt-text-red" },
+    { key: "orange", label: "Oranžová",  swatch: "#f97316", cellClass: "erp-fmt-cell-orange", rowClass: "erp-fmt-row-orange", textClass: "erp-fmt-text-orange" },
+    { key: "yellow", label: "Žlutá",     swatch: "#eab308", cellClass: "erp-fmt-cell-yellow", rowClass: "erp-fmt-row-yellow", textClass: "erp-fmt-text-yellow" },
+    { key: "green",  label: "Zelená",    swatch: "#22c55e", cellClass: "erp-fmt-cell-green",  rowClass: "erp-fmt-row-green",  textClass: "erp-fmt-text-green" },
+    { key: "blue",   label: "Modrá",     swatch: "#3b82f6", cellClass: "erp-fmt-cell-blue",   rowClass: "erp-fmt-row-blue",   textClass: "erp-fmt-text-blue" },
+    { key: "purple", label: "Fialová",   swatch: "#a855f7", cellClass: "erp-fmt-cell-purple", rowClass: "erp-fmt-row-purple", textClass: "erp-fmt-text-purple" },
+    { key: "gray",   label: "Šedá",      swatch: "#6b7280", cellClass: "erp-fmt-cell-gray",   rowClass: "erp-fmt-row-gray",   textClass: "erp-fmt-text-gray" },
+    { key: "strike", label: "Přeškrtnuto", swatch: "#94a3b8", cellClass: "erp-fmt-cell-strike", rowClass: "erp-fmt-row-strike", textClass: "erp-fmt-cell-strike" },
   ];
 
   function _colorByKey(k) {
@@ -235,8 +238,20 @@
 
       // Unique class name per rule (so multiple rules can stack visually
       // — last write wins for color, but order ranks priority).
-      const uniqueClass = colorDef[isRow ? "rowClass" : "cellClass"]
-        + " erp-fmt-rule-" + (r.id || r.order || "x");
+      // Fix 23.5.2026 (Marti's "text v bunce / tucnym"): scope="text" -> textClass
+      // (color text only, no bg). r.bold=true -> append "erp-fmt-bold" modifier.
+      let baseClass;
+      if (isRow) {
+        baseClass = colorDef.rowClass;
+      } else if (r.scope === "text") {
+        baseClass = colorDef.textClass || colorDef.cellClass;
+      } else {
+        baseClass = colorDef.cellClass;
+      }
+      let uniqueClass = baseClass + " erp-fmt-rule-" + (r.id || r.order || "x");
+      if (r.bold === true) {
+        uniqueClass += " erp-fmt-bold";
+      }
 
       if (isRow) {
         // Map class string → predicate
@@ -417,7 +432,9 @@
             _esc(col.label) +
           '</span>' +
           '<span class="erp-fmt-col-scope">' +
-            (rule.scope === "row" ? "Řádek" : "Buňka") +
+            (rule.scope === "row" ? "Řádek" :
+             rule.scope === "text" ? "Text" : "Buňka") +
+            (rule.bold === true ? ' <b style="opacity:0.7;font-size:0.85em">+ tučně</b>' : '') +
           '</span>' +
           '<span class="erp-fmt-col-actions">' +
             '<button type="button" class="erp-fmt-icon-btn" data-fmt-edit title="Upravit">✎</button>' +
@@ -514,8 +531,12 @@
             '<label class="erp-fmt-edit-label">Rozsah' +
               '<select data-fmt-scope>' +
                 '<option value="cell"' + (rule.scope === "cell" ? " selected" : "") + '>Buňka</option>' +
+                '<option value="text"' + (rule.scope === "text" ? " selected" : "") + '>Text v buňce</option>' +
                 '<option value="row"' + (rule.scope === "row" ? " selected" : "") + '>Celý řádek</option>' +
               '</select>' +
+            '</label>' +
+            '<label class="erp-fmt-edit-label" data-fmt-bold-wrap>Tučně' +
+              '<input type="checkbox" data-fmt-bold' + (rule.bold === true ? " checked" : "") + ' style="margin-top:8px;transform:scale(1.3);transform-origin:left center;">' +
             '</label>' +
             '<div class="erp-fmt-edit-color">' +
               '<span class="erp-fmt-edit-label-text">Barva</span>' +
@@ -570,6 +591,7 @@
                    ? form.querySelector(".erp-fmt-color-pill.selected").dataset.color
                    : rule.color,
             scope: form.querySelector("[data-fmt-scope]").value,
+            bold: form.querySelector("[data-fmt-bold]") && form.querySelector("[data-fmt-bold]").checked,
             order: rule.order || idx,
           };
           // Validation
@@ -604,6 +626,7 @@
             value: "",
             color: "yellow",
             scope: "cell",
+            bold: false,
             order: state.rules.length,
             _isNew: true,
           };

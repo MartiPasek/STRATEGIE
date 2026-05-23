@@ -10068,6 +10068,13 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
+        <!-- Phase 38.4 Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 doctrine):
+             Grid actions toolbar host (Centrala 1 M1 parita). Vedle Refresh
+             s optical gap. Render: page_render.js _renderGridToolbar po
+             page-spec fetch. Buttons (Nový/Oprava/Smazat) visible per
+             root_comp_def.grid_actions. No actions → empty host (only Refresh
+             visible v header). -->
+        <div id="erpGridActionsHost" style="display:flex;align-items:center;gap:6px;margin-left:12px;"></div>
         <!-- Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save ikona
              hned vedle refresh button"): Workspace-level save button pro
              dirty rows v Excel mode. Visible jen pokud window._erpDirtyCount > 0.

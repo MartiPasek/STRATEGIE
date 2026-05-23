@@ -56,90 +56,91 @@
         '</p></div>';
     }
 
-    // ─── Krok 5.S Fáze 3 (22.5.2026 vecer): Grid toolbar — Centrala 1 parita ───
+    // ─── Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 M1 header relocation): ───
     //
-    // 4 buttons (Nový/Oprava/Smazat/Obnovit) driven by grid_actions z page-spec
-    // backend response (Fáze 2). Show/hide per fw.data_source_op presence:
+    // Grid actions toolbar žije v workspace header (#erpGridActionsHost) vedle
+    // Tvoje Marti + 🔄 Refresh. 3 buttons (Nový/Oprava/Smazat) driven by
+    // grid_actions z page-spec backend response:
     //   has_insert + edit_core_id → 🆕 Nový visible
-    //   has_edit + edit_core_id   → ✏️ Oprava visible
-    //   has_delete                → 🗑️ Smazat visible
-    //   always                    → 🔄 Obnovit visible
+    //   has_edit + edit_core_id   → ✏️ Oprava visible (vyzaduje row select)
+    //   has_delete                → 🗑️ Smazat visible (vyzaduje row select)
     //
-    // Click handlers v context object: onNew, onEdit, onDelete, onRefresh.
+    // Obnovit button DROP (Marti's Q4) — workspace 🔄 Refresh dělá refresh
+    // + má oranžový rámeček stale data indication. Jeden refresh button.
+    //
+    // No grid_actions (drafted core / form-only) → empty host (jen Refresh
+    // zustane v workspace header).
     function _renderGridToolbar(toolbarHost, gridActions, ctx) {
       if (!toolbarHost) return;
+      // Clear předchozí grid actions (tab switch cleanup)
+      toolbarHost.innerHTML = '';
       if (!gridActions) {
-        // Bez grid_actions (např. drafted core) — render jen Obnovit
-        gridActions = { has_insert: false, has_edit: false, has_delete: false, edit_core_id: null };
+        // Marti's Q5: no actions, no buttons — jen Refresh (workspace header)
+        return;
       }
       const editCoreId = gridActions.edit_core_id;
       const showNew = !!(gridActions.has_insert && editCoreId);
       const showEdit = !!(gridActions.has_edit && editCoreId);
       const showDelete = !!gridActions.has_delete;
 
+      // Kompaktní styling pro header context (smaller padding než Fáze 3
+      // standalone toolbar, parity s erp-refresh-btn vedle).
       const btnStyle =
-        'padding:6px 14px;border:1px solid #2a3744;background:#15202b;' +
-        'color:#cfd6df;cursor:pointer;border-radius:3px;font-size:13px;' +
-        'font-family:inherit;display:inline-flex;align-items:center;gap:6px;';
+        'padding:5px 11px;border:1px solid #2a3744;background:#15202b;' +
+        'color:#cfd6df;cursor:pointer;border-radius:4px;font-size:12px;' +
+        'font-family:inherit;display:inline-flex;align-items:center;gap:5px;' +
+        'line-height:1;';
       const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
 
-      const parts = [
-        '<div style="padding:8px 12px;display:flex;align-items:center;gap:8px;">',
-      ];
+      const parts = [];
       if (showNew) {
         parts.push(
-          '<button id="erp-tb-new-' + ctx.coreId + '" type="button" ' +
+          '<button id="erp-tb-new" type="button" ' +
           'style="' + btnStyle + '">🆕 <span>Nový</span></button>'
         );
       }
       if (showEdit) {
         parts.push(
-          '<button id="erp-tb-edit-' + ctx.coreId + '" type="button" ' +
+          '<button id="erp-tb-edit" type="button" ' +
           'data-need-row="1" disabled style="' + btnDisabledStyle + '">✏️ <span>Oprava</span></button>'
         );
       }
       if (showDelete) {
         parts.push(
-          '<button id="erp-tb-delete-' + ctx.coreId + '" type="button" ' +
+          '<button id="erp-tb-delete" type="button" ' +
           'data-need-row="1" disabled style="' + btnDisabledStyle + '">🗑️ <span>Smazat</span></button>'
         );
       }
-      parts.push(
-        '<button id="erp-tb-refresh-' + ctx.coreId + '" type="button" ' +
-        'style="' + btnStyle + 'margin-left:auto;">🔄 <span>Obnovit</span></button>'
-      );
-      parts.push('</div>');
       toolbarHost.innerHTML = parts.join('');
 
       // Wire click handlers
       if (showNew) {
-        const btnNew = document.getElementById('erp-tb-new-' + ctx.coreId);
+        const btnNew = document.getElementById('erp-tb-new');
         if (btnNew) btnNew.addEventListener('click', () => ctx.onNew(editCoreId));
       }
       if (showEdit) {
-        const btnEdit = document.getElementById('erp-tb-edit-' + ctx.coreId);
+        const btnEdit = document.getElementById('erp-tb-edit');
         if (btnEdit) btnEdit.addEventListener('click', () => {
           if (btnEdit.disabled) return;
           ctx.onEdit(editCoreId);
         });
       }
       if (showDelete) {
-        const btnDelete = document.getElementById('erp-tb-delete-' + ctx.coreId);
+        const btnDelete = document.getElementById('erp-tb-delete');
         if (btnDelete) btnDelete.addEventListener('click', () => {
           if (btnDelete.disabled) return;
           ctx.onDelete();
         });
       }
-      const btnRefresh = document.getElementById('erp-tb-refresh-' + ctx.coreId);
-      if (btnRefresh) btnRefresh.addEventListener('click', () => ctx.onRefresh());
     }
 
     function _updateToolbarSelection(toolbarHost, hasSelection) {
       if (!toolbarHost) return;
       const btnStyle =
-        'padding:6px 14px;border:1px solid #2a3744;background:#15202b;' +
-        'color:#cfd6df;cursor:pointer;border-radius:3px;font-size:13px;' +
-        'font-family:inherit;display:inline-flex;align-items:center;gap:6px;';
+        'padding:5px 11px;border:1px solid #2a3744;background:#15202b;' +
+        'color:#cfd6df;cursor:pointer;border-radius:4px;font-size:12px;' +
+        'font-family:inherit;display:inline-flex;align-items:center;gap:5px;' +
+        'line-height:1;';
       const btnDisabledStyle = btnStyle + 'opacity:0.45;cursor:not-allowed;';
       const targets = toolbarHost.querySelectorAll('[data-need-row="1"]');
       targets.forEach((btn) => {
@@ -163,21 +164,16 @@
       // mainContent → max plochy. Parita s hardcoded #erpSysGridBody (Uzivatele
       // tab) co taky nema header. Meta info (Root + data_source) bude pripadne
       // budouci v patickce nebo title bar — pro ted plne native AG Grid.
-      // Krok 5.S Fáze 3 (22.5.2026 vecer, Marti's "od lesa" Centrala 1 toolbar):
-      // Wrap layout v flex column — toolbar host nad gridem (auto-height),
-      // grid host flex:1. Toolbar render se vola po Promise.all .then(),
-      // kdy uz mame data fetched + grid_actions z page-spec.
-      const toolbarHostId = 'erp-page-toolbar-' + coreId;
+      // Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 doctrine M1 header relocation):
+      // Drop toolbar wrap nad gridem — toolbar žije v workspace header
+      // (#erpGridActionsHost vedle Tvoje Marti + 🔄 Refresh). Žádná optická
+      // mezera mezi filtrem a tabs. Čistý gridHost direct child mainContent.
       mainContent.innerHTML =
-        '<div style="display:flex;flex-direction:column;height:100%;width:100%;">' +
-          '<div id="' + toolbarHostId + '" style="flex:0 0 auto;' +
-          'background:#0f141a;border-bottom:1px solid #1a2332;"></div>' +
-          '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
-          'width:100%;background:#0f141a;overflow:hidden;">' +
-          '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
-          '⏳ Načítám rows…' +
-          '</div></div>' +
-        '</div>';
+        '<div id="' + gridHostId + '" style="flex:1 1 auto;min-height:0;min-width:0;' +
+        'width:100%;background:#0f141a;overflow:hidden;">' +
+        '<div style="padding:20px;text-align:center;color:#5d6975;font-style:italic;">' +
+        '⏳ Načítám rows…' +
+        '</div></div>';
 
       const gridHost = document.getElementById(gridHostId);
       if (!gridHost) {
@@ -481,10 +477,11 @@
             });
             gridHost.__erpGridInst = gridInst;
 
-            // Krok 5.S Fáze 3 (22.5.2026 vecer): render toolbar po grid create.
-            // gridActions z page-spec response (rootCd.grid_actions). Click
-            // handlers volaji DesignFwForm modal / DELETE fetch / re-fetch.
-            const _toolbarHost = document.getElementById(toolbarHostId);
+            // Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3 M1 header relocation):
+            // render grid actions do workspace header (#erpGridActionsHost
+            // vedle Tvoje Marti + 🔄 Refresh). Tab switch cleanup: ohort.innerHTML
+            // se clearuje v _renderGridToolbar start (předchozí tab grid actions).
+            const _toolbarHost = document.getElementById("erpGridActionsHost");
             let _selectedRowId = null;
             if (_toolbarHost) {
               _renderGridToolbar(_toolbarHost, rootCd.grid_actions, {
@@ -550,18 +547,9 @@
                     alert("Smazání selhalo (network): " + (e && e.message || e));
                   }
                 },
-                onRefresh: async function() {
-                  try {
-                    const r = await fetch(fetchUrl, { credentials: 'include' });
-                    const d = await r.json();
-                    if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
-                      gridInst.gridApi.setGridOption('rowData', d.rows);
-                      console.info("[toolbar Obnovit] refreshed " + d.rows.length + " rows");
-                    }
-                  } catch (e) {
-                    console.error("[toolbar Obnovit] network:", e);
-                  }
-                },
+                // Krok 5.S Fáze 6: onRefresh dropnut — workspace 🔄 Refresh
+                // už refresh dělá (ErpRefresh.refreshActiveTab) + oranžový rámeček
+                // stale data indication. Marti's Q4 doctrine.
               });
 
               // Wire selection change → enable/disable Oprava + Smazat

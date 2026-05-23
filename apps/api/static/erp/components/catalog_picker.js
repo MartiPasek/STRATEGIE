@@ -92,6 +92,10 @@
         onNew: null,
         onEdit: null,
         onDelete: null,
+        // Krok 5.T (23.5.2026 rano): per-picker layoutKey pro isolated sestavy.
+        // Caller override: explicit `catalogKey: "catalog_data_source"`. Default:
+        // auto-slug z title (např. "Vybrat Datový zdroj" → "catalog_vybrat_datovy_zdroj").
+        catalogKey: null,
       }, opts || {});
 
       this._overlay = null;
@@ -148,6 +152,31 @@
       await this._fetchAndRender();
     }
 
+    /**
+     * Krok 5.T (23.5.2026 rano): resolve layoutKey per picker context.
+     * Caller override: this.opts.catalogKey (explicit). Default: auto-slug
+     * z this.opts.title prefixed s "catalog_".
+     *
+     * Example:
+     *   title="Vybrat Datový zdroj" → "catalog_vybrat_datovy_zdroj"
+     *   catalogKey="catalog_data_source" (explicit) → used as-is
+     */
+    _resolveCatalogKey() {
+      if (this.opts.catalogKey) return this.opts.catalogKey;
+      return "catalog_" + this._slugifyTitle(this.opts.title || "untitled");
+    }
+
+    _slugifyTitle(text) {
+      // ASCII-fold + lowercase + replace non-alphanumeric → underscore
+      // Strip leading/trailing underscores. Czech diacritics handled by NFD normalize.
+      return String(text)
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")  // strip combining marks
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "_")
+        .replace(/^_+|_+$/g, "");
+    }
+
     close() {
       if (!this._isOpen) return;
       try {
@@ -179,10 +208,18 @@
         } else {
           // Re-create grid
           this._gridContainer.innerHTML = "";
+          const _catalogKey = this._resolveCatalogKey();
           this._grid = new window.ErpDataGrid(this._gridContainer, {
             rowData: data,
             columnDefs: this.opts.columns,
             autoColumns: false,
+            // Krok 5.T (23.5.2026 rano): full ErpDataGrid features parity
+            // (Marti's "stejna trida, vsechny funkce jako mainscreen").
+            layoutKey: _catalogKey,
+            gridCode: _catalogKey,
+            autoLoadDefault: true,
+            enableExport: true,
+            enableRangeSelection: true,
             onRowDoubleClick: (row) => this._handleSelect(row),
             onSelectionChange: (rows) => {
               this._selectedRow = (rows && rows.length === 1) ? rows[0] : null;
@@ -376,12 +413,23 @@
     async _fetchAndRender() {
       try {
         const rows = await this._fetchData();
+        const _catalogKey = this._resolveCatalogKey();
         this._grid = new window.ErpDataGrid(this._gridContainer, {
           rowData: rows,
           columnDefs: this.opts.columns,
           autoColumns: false,
           // AG Grid native selection
           rowSelection: "single",
+          // Krok 5.T (23.5.2026 rano): full ErpDataGrid features parity
+          // (Marti's "stejna trida, vsechny funkce jako mainscreen").
+          // Native toolbar (layoutKey dropdown + Pravidla + Uložit jako)
+          // se objevi nad gridem. Per-picker context isolation pres
+          // catalogKey slug.
+          layoutKey: _catalogKey,
+          gridCode: _catalogKey,
+          autoLoadDefault: true,
+          enableExport: true,
+          enableRangeSelection: true,
           onRowDoubleClick: (row) => this._handleSelect(row),
           onSelectionChange: (selectedRows) => {
             this._selectedRow = (selectedRows && selectedRows.length === 1)

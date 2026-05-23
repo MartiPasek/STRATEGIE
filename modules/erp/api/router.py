@@ -3583,6 +3583,15 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
 
     ds = _gds_del()
     try:
+        # Krok 5.W diag #3 (23.5.2026): connection identity check BEFORE DELETE.
+        # Marti's paradox: manual DBeaver DELETE+COMMIT persistuje, backend ne.
+        # Hypotéza: ds connects k JINÉ DB nebo serveru než DBeaver.
+        ds_conn_info = ds.execute(_sql_text_del(
+            "SELECT pg_backend_pid() AS pid, current_database() AS db, "
+            "current_user AS pg_user, session_user AS sess_user, "
+            "inet_server_addr()::text AS host, inet_server_port() AS port"
+        )).mappings().first()
+
         # Direct DELETE — _require_parent gate sufficient authz (Marti's "rodice maji full trust")
         result = ds.execute(_sql_text_del(
             f'DELETE FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
@@ -3595,6 +3604,11 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
         check_pre_commit = ds.execute(_sql_text_del(
             f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
         ), {"rid": row_id}).scalar()
+
+        # Krok 5.W diag #3: tx state check PŘED commit
+        ds_tx_pre = ds.execute(_sql_text_del(
+            "SELECT pg_current_xact_id_if_assigned()::text AS tx_id"
+        )).scalar()
 
         # Activity log audit (Krok 5.S doctrine NE-anonymous: kdo kdy co)
         try:
@@ -3614,12 +3628,27 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
 
         ds.commit()
 
+        # Krok 5.W diag #3: tx state check PO commit. Mělo být NULL = tx closed.
+        ds_tx_post = None
+        try:
+            ds_tx_post = ds.execute(_sql_text_del(
+                "SELECT pg_current_xact_id_if_assigned()::text AS tx_id"
+            )).scalar()
+        except Exception as _e:
+            ds_tx_post = f"err: {type(_e).__name__}"
+
         # Krok 5.W diag: fresh session re-check POST commit.
         # Pokud check_pre=0 ale check_post=1, commit se rolloutoval mimo
         # tuto session (deferred trigger? connection pool issue?).
         ds2 = _gds_del()
         check_post_commit = None
+        ds2_conn_info = None
         try:
+            ds2_conn_info = ds2.execute(_sql_text_del(
+                "SELECT pg_backend_pid() AS pid, current_database() AS db, "
+                "current_user AS pg_user, session_user AS sess_user, "
+                "inet_server_addr()::text AS host, inet_server_port() AS port"
+            )).mappings().first()
             check_post_commit = ds2.execute(_sql_text_del(
                 f'SELECT COUNT(*) FROM "{schema}"."{table}" WHERE "{id_column}" = :rid'
             ), {"rid": row_id}).scalar()
@@ -3628,10 +3657,22 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
         finally:
             ds2.close()
 
+        # Krok 5.W diag #3: full diag log s connection identity comparison
+        ds_info_str = dict(ds_conn_info) if ds_conn_info else None
+        ds2_info_str = dict(ds2_conn_info) if ds2_conn_info else None
+        same_pid = (ds_conn_info and ds2_conn_info
+                    and ds_conn_info["pid"] == ds2_conn_info["pid"])
+        same_db = (ds_conn_info and ds2_conn_info
+                   and ds_conn_info["db"] == ds2_conn_info["db"])
+        same_host = (ds_conn_info and ds2_conn_info
+                     and ds_conn_info["host"] == ds2_conn_info["host"])
         logger.info(
-            f"design_delete_entity DELETE FROM {schema}.{table} id={row_id}: "
-            f"rowcount={deleted_rows}, pre_commit_check={check_pre_commit}, "
-            f"post_commit_check={check_post_commit}"
+            f"design_delete_entity DELETE FROM {schema}.{table} id={row_id}:\n"
+            f"  rowcount={deleted_rows}, pre={check_pre_commit}, post={check_post_commit}\n"
+            f"  ds (DELETE+pre): {ds_info_str}\n"
+            f"  ds tx pre={ds_tx_pre}, post={ds_tx_post} (None=tx closed)\n"
+            f"  ds2 (post check): {ds2_info_str}\n"
+            f"  same_pid={same_pid}, same_db={same_db}, same_host={same_host}"
         )
 
         return JSONResponse({
@@ -3644,6 +3685,13 @@ async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONR
             # Diag fields — frontend zobrazí v paradox warning pokud nesedí
             "check_pre_commit": check_pre_commit,
             "check_post_commit": check_post_commit,
+            "ds_conn": ds_info_str,
+            "ds2_conn": ds2_info_str,
+            "ds_tx_pre": ds_tx_pre,
+            "ds_tx_post": ds_tx_post,
+            "same_pid": same_pid,
+            "same_db": same_db,
+            "same_host": same_host,
         })
     except Exception as exc:
         ds.rollback()

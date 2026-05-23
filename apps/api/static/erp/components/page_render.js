@@ -535,18 +535,21 @@
                             console.warn(
                               "[toolbar Smazat] ⚠ DELETE PARADOX: backend ohlásil " +
                               json.deleted_rows + " rows deleted, ale refresh vrátil " +
-                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU.\n" +
-                              "Diagnostika z Krok 5.W diag:\n" +
-                              "  pre_commit_check (same session): " + json.check_pre_commit +
-                                "  (0=row pryč, 1=DELETE selhal SILENTLY)\n" +
-                              "  post_commit_check (fresh session): " + json.check_post_commit +
-                                "  (0=commit OK, 1=row se vrátila po commit)\n\n" +
+                              "row id=" + _deletedId + " STÁLE PŘÍTOMNOU.\n\n" +
+                              "Krok 5.W diag #3 — connection identity:\n" +
+                              "  ds (DELETE+pre): " + JSON.stringify(json.ds_conn) + "\n" +
+                              "  ds2 (post check): " + JSON.stringify(json.ds2_conn) + "\n" +
+                              "  same_pid=" + json.same_pid +
+                                ", same_db=" + json.same_db +
+                                ", same_host=" + json.same_host + "\n" +
+                              "  tx_pre=" + json.ds_tx_pre + ", tx_post=" + json.ds_tx_post +
+                                " (None=tx closed po commit, číslo=tx STÁLE otevřená!)\n\n" +
                               "Verdikt:\n" +
-                              "  • pre=0 + post=0 + grid stale → GRID REFRESH cache problem\n" +
-                              "  • pre=1 → DELETE neproběhl, rowcount lže (driver bug nebo " +
-                                "trigger BEFORE DELETE silent)\n" +
-                              "  • pre=0 + post=1 → COMMIT rollback magic (deferred trigger, " +
-                                "AFTER DELETE re-insert, connection pool)\n\n" +
+                              "  • same_host=false → DIFFERENT PG instance/server!\n" +
+                              "  • same_db=false → DIFFERENT database name!\n" +
+                              "  • tx_post != None → ds.commit() NESPLNIL skutečný COMMIT (tx leak)\n" +
+                              "  • same_pid=true → SAME connection (pool reuse) → connection state issue\n" +
+                              "  • vše true + tx_post=None → COMMIT proběhl, ale DB level re-creates\n\n" +
                               "Verify v DBeaveru: SELECT * FROM " +
                               (json.schema || "?") + "." + (json.table || "?") +
                               " WHERE id=" + _deletedId

@@ -420,12 +420,45 @@
             );
           }
           gridHost.innerHTML = "";
+
+          // Marti's 24.5.2026 master-detail MVP: opt-in registry per
+          // data_source code. Detect podle rootCd.data_source_code (FK na
+          // fw.data_source). Pri match → ErpDataGrid s enableMasterDetail
+          // + detailFetchUrl template. AG Grid native renderuje detail
+          // grid (žádný custom JS renderer pro MVP — Marti's Varianta A).
+          // Future: pridat dalsi data sources (kaskáda) OR extract do fw
+          // schema flag (master_detail_enabled column).
+          const MASTER_DETAIL_REGISTRY = {
+            "framework_data_sources": {
+              detailFetchUrl: "/api/v1/erp/design/fw-data-source/{id}/operations",
+              detailRowHeight: 220,  // ~5 ops viditelné + scroll
+            },
+            // future levels — kaskáda:
+            // "framework_data_source_ops": {
+            //   detailFetchUrl: "/api/v1/erp/design/fw-data-source-op/{id}/dataset",
+            //   detailRowHeight: 180,
+            // },
+          };
+          const _dsCode = rootCd && rootCd.data_source_code;
+          const _masterDetailCfg = _dsCode ? MASTER_DETAIL_REGISTRY[_dsCode] : null;
+          if (_masterDetailCfg) {
+            console.info("[page_render] master-detail ENABLED for", _dsCode,
+              "→ detail URL:", _masterDetailCfg.detailFetchUrl);
+          }
+
           // Phase 38.4 Krok 5.R-C+2 (18.5.2026 vecer, Marti's "prehled_cislo
           // musi uplne zmizet"): native ErpDataGrid toolbar pres layoutKey
           // = "core_<id>" -- dropdown sestav + Pravidla + Ulozit jako
           // + spravovat. Backend persistence pres /grid-layout/{core_id}.
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
+              // Marti's 24.5.2026 master-detail opt-in (Krok 4 wire-up):
+              enableMasterDetail: !!_masterDetailCfg,
+              detailFetchUrl: _masterDetailCfg ? _masterDetailCfg.detailFetchUrl : undefined,
+              detailRowHeight: _masterDetailCfg ? _masterDetailCfg.detailRowHeight : undefined,
+              // masterDetailDefaultExpanded: default true (level 1 expanded)
+              // — Marti's "default expanded" spec. Pro collapsed default:
+              // masterDetailDefaultExpanded: false.
               rowData: rows,
               autoColumns: true,
               // Krok 5.X (23.5.2026): multi-row selection pro batch operations

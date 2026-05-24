@@ -6155,62 +6155,19 @@ def design_get_data_source_full(data_source_id: int, req: Request) -> JSONRespon
 
 
 # ════════════════════════════════════════════════════════════════════════
-# Master-detail lazy fetch — Marti's 24.5.2026 spec.
-# Pattern: per-level endpoint (clean scaling pro kaskádu).
-# Level 1: data_source → operations (this endpoint).
-# Level 2+: future endpoints (data_source_op → data_set, atd.).
-# Frontend ErpDataGrid masterDetail uses these endpoints přes
-# detailCellRendererParams.getDetailRowData factory.
+# Master-detail lazy fetch — DROPPED 24.5.2026 vecer.
+# Endpoint /design/fw-data-source/{id}/operations nahrazen FW chain:
+#   fw.data_source (code='system_new.framework_data_source_ops', id=44)
+#   fw.data_set s :master_id bind param
+#   fw.data_source_op (default select)
+#
+# Custom renderer data_source_op_detail.js (v2.0.0) teď fetchuje přes
+# generic /api/v1/erp/data/system_new.framework_data_source_ops?master_id={X}
+# + nested ErpDataGrid layoutKey "ds_44" → nativní persistence sloupců
+# přes fw.comp_grid (žádná nová tabulka, žádný validator extension).
+#
+# Marti's "fw self edited" doctrine (11.5.) v praxi.
 # ════════════════════════════════════════════════════════════════════════
-
-@api_router.get("/design/fw-data-source/{data_source_id}/operations")
-def design_list_data_source_operations(data_source_id: int, req: Request) -> JSONResponse:
-    """Master-detail level 1: vrací flat ops list pro jeden data_source.
-
-    Volaný z AG Grid detailCellRendererParams.getDetailRowData při
-    expand master row. Pre-loaded design (master grid include
-    operation_count) → klik expand → tento endpoint fetch.
-
-    Returns:
-        200: { ok: true, rows: [{id, variant_code, operation_kind,
-                                 sort_order, is_default, description,
-                                 data_set_id, data_set_code, ...}] }
-    """
-    from core.database_data import get_data_session as _gds_mdo
-    from sqlalchemy import text as _sql_text_mdo
-
-    uid = _get_uid(req)
-    _require_parent(uid)
-
-    ds_session = _gds_mdo()
-    try:
-        # Same query jako v /design/data-source/{id}/full (line 6111),
-        # ale jen ops array — bez source header. AG Grid detail grid
-        # autoColumns:true vyrenderuje sloupce z první row.
-        op_rows = ds_session.execute(_sql_text_mdo("""
-            SELECT op.id, op.variant_code, op.operation_kind,
-                   op.sort_order, op.is_default,
-                   op.description,
-                   ds.id AS data_set_id, ds.code AS data_set_code,
-                   ds.description AS data_set_description,
-                   ds.status AS data_set_status,
-                   dc.code AS db_connection_code,
-                   dc.default_db AS db_connection
-            FROM fw.data_source_op op
-            LEFT JOIN fw.data_set ds ON ds.id = op.data_set_id
-            LEFT JOIN fw.db_connection dc ON dc.id = ds.db_connection_id
-            WHERE op.data_source_id = :sid
-            ORDER BY op.sort_order ASC, op.id ASC
-        """), {"sid": data_source_id}).mappings().all()
-
-        rows = [dict(r) for r in op_rows]
-        return JSONResponse(jsonable_encoder({
-            "ok": True,
-            "rows": rows,
-            "count": len(rows),
-        }))
-    finally:
-        ds_session.close()
 
 
 # ════════════════════════════════════════════════════════════════════════

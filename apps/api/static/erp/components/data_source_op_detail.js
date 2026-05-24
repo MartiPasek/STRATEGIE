@@ -2,25 +2,32 @@
  * ErpDataSourceOpDetailRenderer
  * ─────────────────────────────────────────────────────────────────────
  * Custom AG Grid detail cell renderer pro master-detail pattern
- * (Marti's 24.5.2026 Krok 6 — Varianta B nested ErpDataGrid).
+ * (Marti's 24.5.2026 vecer — Volba A: drop HW, postavit FW chain).
  *
  * Použití (z page_render.js MASTER_DETAIL_REGISTRY):
  *
  *   "framework_data_sources": {
- *     detailCellRenderer: function() {
- *       return new window.ErpDataSourceOpDetailRenderer();
- *     },
- *     detailRowHeight: 240,
+ *     detailCellRenderer: window.ErpDataSourceOpDetailRenderer,
+ *     detailRowHeight: 180,
  *   },
  *
- * Renderer fetch ops přes /api/v1/erp/design/fw-data-source/{id}/operations
- * + vytvoří nested ErpDataGrid s plnou paletou features:
- *   - layoutKey "data_source_op" (SHARED napříč všech master rows)
- *   - autoLoadDefault: true (restore last sestava)
- *   - autoColumns: true (auto-build z first row keys)
+ * Renderer fetchne ops přes generic data_source_runner endpoint:
+ *   /api/v1/erp/data/system_new.framework_data_source_ops?master_id={X}
+ *
+ * (FW chain: fw.data_set + fw.data_source + fw.data_source_op,
+ *  deploy 24.5.2026, data_source.id = 44. SQL s :master_id bind param.)
+ *
+ * Nested ErpDataGrid s plnou paletou features:
+ *   - layoutKey "ds_44" (validní formát fw.data_source.id)
+ *     → nativní persistence sloupců přes fw.comp_grid (žádná nová tabulka)
+ *   - autoLoadDefault: true (restore last saved sestava per layoutKey)
+ *   - autoColumns: true (fallback build z first row keys pokud žádná sestava)
  *   - compact: true (rowHeight 26, headerHeight 32)
  *   - enableFilters: true (floating filter row + glow + pravý-klik popup)
  *   - enableMasterDetail: false (kaskáda level 2 přijde later)
+ *
+ * Marti's "fw self edited" doctrine (11.5.) — vše skrz fw infrastruktura,
+ * nehardcodovat. Drop HW endpoint /design/fw-data-source/{id}/operations.
  *
  * Wrapped v _erpLoadModule pattern (Module Health visibility).
  */
@@ -31,7 +38,13 @@
     ? window._erpLoadModule
     : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "]", e); } };
 
-  loader("data_source_op_detail.js", "v1.0.0", function () {
+  loader("data_source_op_detail.js", "v2.0.0", function () {
+
+    // FW chain code + layoutKey — deploy 24.5.2026 (data_source.id = 44).
+    // Pokud někdy bude potřeba změnit code, změnit i layoutKey společně
+    // (musí odpovídat fw.data_source.id pro validátor + fw.comp_grid lookup).
+    var FW_DATA_SOURCE_CODE = "system_new.framework_data_source_ops";
+    var FW_LAYOUT_KEY = "ds_44";
 
     function ErpDataSourceOpDetailRenderer() {}
 
@@ -41,11 +54,11 @@
       var masterId = masterRow.id || masterRow.Id || masterRow.ID;
 
       // Container — full width, fixed height per detailRowHeight option.
-      // Padding & border styling pres CSS .ag-details-row + .ag-details-grid
-      // (Marti's 24.5.2026 Krok 5 polish).
+      // Padding & border styling pres CSS .ag-full-width-row.ag-row-level-1
+      // + .erp-data-source-op-detail (Marti's 24.5.2026 v6 — Quartz v32+ class).
       self._eGui = document.createElement("div");
       self._eGui.className = "erp-data-source-op-detail";
-      // Krok 6 v4: height 100% (vyplnit detail row container fully).
+      // height 100% (vyplnit detail row container fully).
       // Pari s detailRowHeight:180 fixed v page_render.js (autoHeight měl
       // timing race s async fetch → detail row stayed 0px).
       self._eGui.style.cssText = "width:100%; height:100%; box-sizing:border-box;";
@@ -63,39 +76,40 @@
         return;
       }
 
-      var url = "/api/v1/erp/design/fw-data-source/" + encodeURIComponent(masterId) + "/operations";
-      console.log("[ErpDataSourceOpDetailRenderer] fetch:", url);
+      // Generic data_source_runner endpoint s :master_id bind param.
+      // FW chain (fw.data_set + fw.data_source + fw.data_source_op) deploy 24.5.2026.
+      var url = "/api/v1/erp/data/" + encodeURIComponent(FW_DATA_SOURCE_CODE) +
+                "?master_id=" + encodeURIComponent(masterId);
+      console.log("[ErpDataSourceOpDetailRenderer] fetch FW:", url);
 
       fetch(url, { credentials: "same-origin" })
         .then(function (r) { return r.json(); })
         .then(function (json) {
+          // data_source_runner response shape: { ok, rows, columns, ... }
           var rows = (json && json.ok && Array.isArray(json.rows)) ? json.rows : [];
-          console.log("[ErpDataSourceOpDetailRenderer] received", rows.length, "ops pro masterId=" + masterId);
+          console.log("[ErpDataSourceOpDetailRenderer] received", rows.length,
+                      "ops pro masterId=" + masterId);
 
           // Vytvoř nested ErpDataGrid s plnou paletou features
           try {
             self._nestedGrid = new window.ErpDataGrid(self._eGui, {
               rowData: rows,
-              autoColumns: true,                // build columns z first row keys
+
+              // FW layout persistence — fw.comp_grid lookup per layoutKey.
+              // Validní formát "ds_<fw.data_source.id>" prochází validatorem.
+              // autoLoadDefault: true → restore user's last saved sestava (sloupce,
+              // šířky, sort, filters, formatting rules). Pokud žádná sestava
+              // ještě neexistuje, fallback na autoColumns (build z first row keys).
+              layoutKey: FW_LAYOUT_KEY,
+              autoLoadDefault: true,
+              autoColumns: true,                // fallback pokud žádná saved sestava
+
               enableFilters: true,              // floating filter + glow + popup
               rowSelection: "single",           // single row selection v detail
               compact: true,                    // rowHeight 26, headerHeight 32
 
-              // Krok 6 v3 hotfix: drop layoutKey persistence (MVP).
-              // Backend layoutKey validator expects 'core_<id>' OR 'ds_<id>'
-              // — 'data_source_op' nevyhovuje → autoLoadDefault triggers
-              // 404, blokuje grid init flow. Layout persistence per-level
-              // (Marti's spec 3) přijde later s schema design (TODO).
-              // layoutKey: undefined → no toolbar, no save, just sort/filter
-              // session-only — ALE expand funguje.
-
               // Disable kaskáda zatím (level 2 = data_set přijde later)
               enableMasterDetail: false,
-
-              // Krok 6 v4: drop domLayout autoHeight (timing race s async
-              // fetch způsobil detail row stayed 0px). Use default "normal"
-              // → nested grid fills container (180px fixed).
-              // domLayout: "normal" (default — explicit comment).
             });
           } catch (e) {
             console.warn("[ErpDataSourceOpDetailRenderer] nested grid create failed:", e);
@@ -132,6 +146,6 @@
     // Export na window pro page_render.js MASTER_DETAIL_REGISTRY
     window.ErpDataSourceOpDetailRenderer = ErpDataSourceOpDetailRenderer;
 
-    console.log("[ErpDataSourceOpDetailRenderer] registered (v1.0.0)");
+    console.log("[ErpDataSourceOpDetailRenderer] registered (v2.0.0 — FW chain)");
   });
 })();

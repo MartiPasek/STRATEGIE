@@ -539,6 +539,49 @@
                : "agTextColumnFilter",
         floatingFilter: opts.enableFilters !== false,
       };
+      // Marti's 24.5.2026: agDateColumnFilter potřebuje comparator když
+      // cellValue je string (ISO nebo Czech format), ne Date object.
+      // Bez comparatoru filter "rovná se 22.5.2026" matchne všechny rows
+      // (AG Grid neumí porovnat string vs Date → fallback show all).
+      // Comparator parsuje cellValue → Date → porovná only date part.
+      if (colType === "date") {
+        def.filterParams = {
+          comparator: function (filterLocalDateAtMidnight, cellValue) {
+            if (cellValue == null || cellValue === "") return -1;
+            var cellDate;
+            if (cellValue instanceof Date) {
+              cellDate = cellValue;
+            } else {
+              // Parse string — supports ISO (2026-05-22), ISO datetime
+              // (2026-05-22T19:08:08), Czech (22.5.2026 19:08:08)
+              var s = String(cellValue).trim();
+              if (/^\d{4}-\d{2}-\d{2}/.test(s)) {
+                cellDate = new Date(s);
+              } else if (/^(\d{1,2})\.(\d{1,2})\.(\d{4})/.test(s)) {
+                var m = s.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+                cellDate = new Date(
+                  parseInt(m[3], 10),       // year
+                  parseInt(m[2], 10) - 1,    // month (0-indexed)
+                  parseInt(m[1], 10)         // day
+                );
+              } else {
+                cellDate = new Date(s);
+              }
+            }
+            if (!cellDate || isNaN(cellDate.getTime())) return -1;
+            // Compare only date part (ignore time-of-day pro equals match)
+            var cellMidnight = new Date(
+              cellDate.getFullYear(),
+              cellDate.getMonth(),
+              cellDate.getDate()
+            ).getTime();
+            var filterMidnight = filterLocalDateAtMidnight.getTime();
+            if (cellMidnight < filterMidnight) return -1;
+            if (cellMidnight > filterMidnight) return 1;
+            return 0;
+          },
+        };
+      }
       if (isId) {
         def.width = 80;
         def.minWidth = 60;

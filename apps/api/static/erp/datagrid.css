@@ -337,13 +337,18 @@
    - Top padding malý (přilepený k master row, indent visualne navazuje)
    - Container border + radius pro vizuální oddělení detail blocku */
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-row {
-  background-color: var(--bg, #0e0f11);
-  padding: 4px 12px 12px 60px;  /* L=60 indent jako tree, B=12 mezera */
+  background-color: var(--bg, #0e0f11) !important;
+  /* Marti's tree indent — AG Grid Quartz může mit inline padding:0,
+     force !important pro override. */
+  padding-top: 4px !important;
+  padding-right: 12px !important;
+  padding-bottom: 12px !important;
+  padding-left: 60px !important;
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-grid {
-  border: 1px solid var(--border, #3a3d44);
-  border-radius: 4px;
-  overflow: hidden;  /* zachovat radius na rohách */
+  border: 1px solid var(--border, #3a3d44) !important;
+  border-radius: 4px !important;
+  overflow: hidden !important;  /* zachovat radius na rohách */
 }
 /* Detail grid header subtle background — match master header */
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-grid .ag-header {

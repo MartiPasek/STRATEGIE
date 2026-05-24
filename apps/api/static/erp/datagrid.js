@@ -1548,8 +1548,23 @@
                   try { opts.onRefresh(); } catch (e) {}
                 }
               };
+              // Etapa F Problem B fix (24.5.2026 vecer): disabled state
+              // respektuje gridActions backend signal (paralela
+              // _renderCrudToolbarHtml stateMap). Marti's "creatovat vsude,
+              // ridit jen enabledelitu" doctrine — items VZDY visible,
+              // enabled jen pokud gridActions povoluje + requiresRow check.
+              const _ga = opts.gridActions || {};
+              const _editCoreId = _ga.edit_core_id;
+              const _stateMap = {
+                create: !_ga.has_insert || !_editCoreId,
+                edit:   !_ga.has_edit   || !_editCoreId,
+                delete: !_ga.has_delete,
+                refresh: false,
+              };
               actions.forEach(function (action) {
-                const disabled = action.requiresRow && !rowData;
+                const initDisabled = _stateMap[action.key] === true;
+                const needRowDisabled = action.requiresRow && !rowData;
+                const disabled = initDisabled || needRowDisabled;
                 crudItems.push({
                   name: action.icon + " " + action.label,
                   tooltip: action.hint || "",

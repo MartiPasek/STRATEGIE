@@ -478,13 +478,13 @@
           // 3 vrstvy (context menu, grid header, workspace toolbar).
           const _gridCodeForActions = rootCd.name || ("core_" + coreId);
           const _gridActionsForCtx = rootCd && rootCd.grid_actions;
-          const _ctxMenuActions = [];
-          if (_gridActionsForCtx) {
-            if (_gridActionsForCtx.has_insert) _ctxMenuActions.push("create");
-            if (_gridActionsForCtx.has_edit) _ctxMenuActions.push("edit");
-            if (_gridActionsForCtx.has_delete) _ctxMenuActions.push("delete");
-          }
-          _ctxMenuActions.push("refresh");  // always available
+          // Etapa F Problem B fix (24.5.2026 vecer Marti's doctrine "creatovat
+          // vsude, ridit jen enabledelitu"): _ctxMenuActions = VZDY 4 actions.
+          // Disabled state se rozhoduje v datagrid.js z gridActions stateMap.
+          // contextMenuActions = declarative list available action types,
+          // ne filter per has_*. Drz "stejne zobrazit, stejne funkce" napric
+          // master + detail + picker.
+          const _ctxMenuActions = ["create", "edit", "delete", "refresh"];
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

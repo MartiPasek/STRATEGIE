@@ -491,9 +491,33 @@ async def request_id_middleware(request: Request, call_next):
     try:
         _status = getattr(response, "status_code", 0) or 0
         if _status >= 400:
-            # Skip auth gate 401 (login flow expected, noise)
+            # Skip auth gate 401 (login flow expected, noise) +
+            # bot scanner traffic (Marti's catch 24.5. 16h: spam warn).
+            # Common scanner paths returning 404 → silent skip.
+            # POST / 405 → silent skip (bot scan nebo PWA SW noise).
+            # Drží doctrine "Bezpečnost přes probuzení, ne přes ticho":
+            # signál (4xx z naších endpointů) keep, šum (external scan) drop.
             _path = request.url.path
-            _skip = _status == 401 and _path.startswith("/api/v1/auth/")
+            _method = request.method
+            _is_auth_gate_401 = _status == 401 and _path.startswith("/api/v1/auth/")
+            _is_post_root_405 = (
+                _status == 405 and _path == "/" and _method == "POST"
+            )
+            _scanner_paths = (
+                "/wp-content/", "/wp-admin/", "/wp-includes/",
+                "/wp-login.php", "/xmlrpc.php",
+                "/.env", "/.git/", "/.well-known/",
+                "/phpmyadmin", "/admin/login", "/admin.php",
+                "/robots.txt", "/sitemap.xml", "/favicon.ico",
+                "/api/v2/", "/v1/", "/cgi-bin/", "/cms/",
+                "/owa/", "/ews/", "/autodiscover/",
+                "/.aws/", "/.docker/", "/.kube/",
+                "/api/jsonws/", "/console/",
+            )
+            _is_scanner_noise = _status == 404 and any(
+                _path.startswith(_pat) for _pat in _scanner_paths
+            )
+            _skip = _is_auth_gate_401 or _is_post_root_405 or _is_scanner_noise
             if not _skip:
                 try:
                     from core.log_queue import log_event as _log_event_fe

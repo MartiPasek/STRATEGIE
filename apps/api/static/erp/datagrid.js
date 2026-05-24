@@ -1302,15 +1302,65 @@
       this._updateSaveButton();
     }
 
-    /** Clear all dirty state + refresh cells (yellow visual gone). */
+    /** Clear all dirty state + REVERT cell values from snapshot + refresh
+     *  cells (yellow visual gone). Marti's catch (24.5.2026 vecer pozde):
+     *  "S resetem provedenych hodnot" — mirror DesignFwForm dirty close
+     *  flow. Revert PRED clear (snapshot lookup uses _dirtyRowData). */
     _clearDirty() {
       if (this._dirtyRows.size === 0 && this._dirtyRowData.size === 0) return;
+      // REVERT cell values from snapshot — restore original DB hodnoty
+      if (this.gridApi && typeof this.gridApi.getRowNode === "function") {
+        this._dirtyRows.forEach((fields, rowId) => {
+          const snap = this._dirtyRowData.get(rowId);
+          if (!snap) return;
+          let node = null;
+          try { node = this.gridApi.getRowNode(String(rowId)); } catch (_eN) {}
+          if (!node) return;
+          Object.keys(fields).forEach((field) => {
+            if (Object.prototype.hasOwnProperty.call(snap, field)) {
+              try { node.setDataValue(field, snap[field]); } catch (_eR) {}
+            }
+          });
+        });
+      }
+      // Clear state Maps
       this._dirtyRows.clear();
       this._dirtyRowData.clear();
+      // Refresh cells (yellow visual + reverted values reflektnou)
       if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
         try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
       }
       this._updateSaveButton();
+    }
+
+    /** 3-way confirm dialog mirror DesignFwForm._beforeCloseHandler
+     *  (design_forms.js line 922). Marti's "S dialogem... v gridu je
+     *  to stejny". Returns "save" | "discard" | "cancel". */
+    async _confirmDirtyChanges() {
+      const count = this._dirtyRows.size;
+      if (count === 0) return "discard";  // nothing to confirm
+      const phrase = count > 1
+        ? (count < 5 ? "provedené změny" : "provedených změn")
+        : "provedenou změnu";
+      try {
+        if (typeof window !== "undefined"
+            && window._erpDFH
+            && typeof window._erpDFH._confirmDarkDialog === "function") {
+          const decision = await window._erpDFH._confirmDarkDialog({
+            title: "Neuložené změny",
+            message: "Mám uložit tebou " + phrase + "? (" + count + ")",
+          });
+          // Mirror DesignFwForm semantics:
+          //   true (Ano)  → save
+          //   false (Ne)  → discard (revert)
+          //   null (Esc)  → cancel (stay)
+          if (decision === true) return "save";
+          if (decision === false) return "discard";
+          return "cancel";
+        }
+      } catch (_eDlg) { /* fallback bezpecne */ }
+      // Bez DFH helperu → fallback nativni confirm (binary)
+      return window.confirm("Uložit " + count + " změn?") ? "save" : "discard";
     }
 
     /** Update Save button visibility + count badge per current state. */
@@ -4309,7 +4359,32 @@
       }
     }
 
-    _toggleExcelMode() {
+    async _toggleExcelMode() {
+      // Excel mode Faze 2-A+ (24.5.2026 vecer pozde, Marti's "v gridu je to
+      // stejny" pattern z DesignFwForm._beforeCloseHandler): pokud going OFF
+      // s dirty → 3-way confirm. Save → trigger _handleSaveClick + verify
+      // success. Discard → _clearDirty (revert). Cancel → stay on (NO toggle).
+      if (this._excelMode === true && this._dirtyRows.size > 0) {
+        const decision = await this._confirmDirtyChanges();
+        if (decision === "cancel") {
+          // User press Esc / click outside → stay in Excel mode
+          return;
+        }
+        if (decision === "save") {
+          try {
+            await this._handleSaveClick();
+          } catch (_eSave) {
+            // Save threw → stay on, dirty visible
+            return;
+          }
+          // Partial fail check — pokud save zanechal dirty (server reject),
+          // stay on. User can retry or explicit Discard.
+          if (this._dirtyRows.size > 0) return;
+        } else {
+          // decision === "discard" → revert cell values + clear
+          this._clearDirty();
+        }
+      }
       this._excelMode = !this._excelMode;
       const mode = this._excelMode ? "EXCEL" : "PROD";
       console.info("[ErpDataGrid] Mode switch:", mode, "layoutKey:", this.options.layoutKey);

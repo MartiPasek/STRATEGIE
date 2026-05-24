@@ -430,26 +430,30 @@
           //   - detailRowHeight: container výška v px (nested grid height).
           // Future: kaskáda level 2+ přes další registry entries with
           // dedicated renderers (each level vlastní ErpDataGrid + layoutKey).
+          // Marti's 24.5.2026 Krok 6 hotfix: AG Grid detailCellRenderer
+          // expects CLASS REFERENCE (constructor), ne factory function.
+          // AG Grid calls `new detailCellRenderer()` internally.
+          // Plus defensive: pokud renderer class není loaded (script tag
+          // missing/cache), enableMasterDetail = false (žádný error).
           const MASTER_DETAIL_REGISTRY = {
             "framework_data_sources": {
-              detailCellRenderer: function () {
-                if (typeof window.ErpDataSourceOpDetailRenderer === "function") {
-                  return new window.ErpDataSourceOpDetailRenderer();
-                }
-                console.warn("[page_render] ErpDataSourceOpDetailRenderer not loaded");
-                return null;
-              },
+              rendererClass: window.ErpDataSourceOpDetailRenderer || null,
               detailRowHeight: 240,  // ~6 ops viditelné v compact mode
             },
             // future levels — kaskáda:
             // "framework_data_source_ops": {
-            //   detailCellRenderer: function () { return new window.ErpDataSetDetailRenderer(); },
+            //   rendererClass: window.ErpDataSetDetailRenderer || null,
             //   detailRowHeight: 200,
             // },
           };
           const _dsCode = rootCd && rootCd.data_source_code;
           const _masterDetailCfg = _dsCode ? MASTER_DETAIL_REGISTRY[_dsCode] : null;
-          if (_masterDetailCfg) {
+          const _masterDetailReady = _masterDetailCfg && _masterDetailCfg.rendererClass;
+          if (_masterDetailCfg && !_masterDetailReady) {
+            console.warn("[page_render] master-detail registry hit for", _dsCode,
+              "but renderer class not loaded — skipping master-detail (script tag missing or cache)");
+          }
+          if (_masterDetailReady) {
             console.info("[page_render] master-detail ENABLED for", _dsCode,
               "→ nested ErpDataGrid renderer (layoutKey persistence)");
           }
@@ -461,9 +465,10 @@
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
               // Marti's 24.5.2026 master-detail (Krok 6 nested ErpDataGrid):
-              enableMasterDetail: !!_masterDetailCfg,
-              detailCellRenderer: _masterDetailCfg ? _masterDetailCfg.detailCellRenderer : undefined,
-              detailRowHeight: _masterDetailCfg ? _masterDetailCfg.detailRowHeight : undefined,
+              // Enable jen pokud renderer class is loaded (defensive).
+              enableMasterDetail: !!_masterDetailReady,
+              detailCellRenderer: _masterDetailReady ? _masterDetailCfg.rendererClass : undefined,
+              detailRowHeight: _masterDetailReady ? _masterDetailCfg.detailRowHeight : undefined,
               // Marti's 24.5.2026 changed mind: NE auto-expand. User klikne
               // na expand arrow (►) manuálně. Default vše collapsed.
               masterDetailDefaultExpanded: false,

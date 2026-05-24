@@ -616,12 +616,17 @@
                : "agTextColumnFilter",
         floatingFilter: opts.enableFilters !== false,
       };
-      // Marti's 24.5.2026: date filter v floating row je read-only label
-      // (žádný typing, žádné ikony). Klik na cell otevře popup (stejné
-      // jako pravý-klik). Popup zachová AG Grid native date picker
-      // (browserDatePicker default true — calendar UI v popup OK).
-      // Custom floating filter component _ErpDateFloatingFilter
-      // (definováno níže v souboru).
+      // Marti's 24.5.2026: filterParams unified — max 1 condition
+      // (AG Grid Quartz v32+ default je 2 = vždy AND/OR + 2 pole, což
+      // user matlo — "v nativním AG bylo OK"). Set maxNumConditions:1
+      // → jen jedno pole v popup, žádné AND/OR. Aplikováno na všechny
+      // filter types (text/number/date).
+      def.filterParams = {
+        maxNumConditions: 1,
+      };
+      // Date columns: floating row je read-only label, klik otevře popup
+      // (žádný typing, žádné ikony). Popup má AG Grid native date picker.
+      // Custom component _ErpDateFloatingFilter definováno níže.
       if (colType === "date") {
         def.floatingFilterComponent = _ErpDateFloatingFilter;
       }

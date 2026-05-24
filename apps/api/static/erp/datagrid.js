@@ -1353,44 +1353,64 @@
                 ev.preventDefault();
                 ev.stopPropagation();
 
-                // Find header cell — multi-fallback (Quartz v32+ může mít
-                // col-id na vnitřním elementu, ne na header-cell rootu)
-                var headerCell = ffCell.closest(".ag-header-cell") ||
-                                 ffCell.closest("[col-id]") ||
-                                 (ffCell.parentElement && ffCell.parentElement.closest(".ag-header-cell"));
+                // Robust colId extract — vždy projít cross-row aria-colindex
+                // match (floating cell má col-id="N" = column index, ne field
+                // name — pro showColumnFilter API potřebujeme field name).
                 var colId = null;
-                if (headerCell) {
-                  colId = headerCell.getAttribute("col-id") ||
-                          headerCell.getAttribute("aria-colindex") ||
-                          headerCell.getAttribute("data-col-id");
+                var ffHeaderCell = ffCell.closest(".ag-header-cell");
+                var ariaIdx = ffHeaderCell ? ffHeaderCell.getAttribute("aria-colindex") : null;
+                if (ariaIdx) {
+                  var topCell = (this.gridContainer || document).querySelector(
+                    ".ag-header-row:not(.ag-header-row-floating-filter) " +
+                    ".ag-header-cell[aria-colindex='" + ariaIdx + "']"
+                  );
+                  if (topCell) {
+                    colId = topCell.getAttribute("col-id");
+                  }
                 }
-                // Last resort — najít col-id kdekoliv v ancestor chain
-                if (!colId) {
-                  var anyCol = ev.target.closest("[col-id]");
-                  if (anyCol) colId = anyCol.getAttribute("col-id");
+                // Last-resort fallback — closest col-id (pokud aria-colindex
+                // lookup nefunguje v některé AG Grid verzi)
+                if (!colId && ffHeaderCell) {
+                  var cidAttr = ffHeaderCell.getAttribute("col-id");
+                  if (cidAttr && !/^\d+$/.test(cidAttr)) {  // skip numeric (index)
+                    colId = cidAttr;
+                  }
                 }
 
                 console.log("[ErpDataGrid] floating filter FIRED", {
                   colId: colId,
-                  headerCellTag: headerCell ? headerCell.tagName : null,
-                  headerCellClass: headerCell ? headerCell.className : null,
-                  headerCellAttrs: headerCell ? Array.from(headerCell.attributes || []).map(function(a){return a.name+"="+a.value;}).join(" ") : null
+                  ariaColIndex: ariaIdx,
+                  hasShowColumnFilter: typeof params.api.showColumnFilter,
+                  hasShowColumnMenu: typeof params.api.showColumnMenu
                 });
 
-                // Strategy 1: dispatch real MouseEvent sequence na filter button
-                // AG Grid posloucha na mousedown ne synthetic .click().
-                // POZOR: musí být actual <button>, NE wrapper div.
-                // V Quartz v32+: data-ref="eButtonShowMainFilter" = actual button
-                //                data-ref="eButtonWrapper" = div wrapper (nereaguje)
-                // v3 hotfix: querySelector(".ag-floating-filter-button, button")
-                // matchnul WRAPPER div protože je v DOM order PŘED svým child button.
+                // Strategy 1 (NEW PRIMARY): AG Grid API showColumnFilter.
+                // Marti's 24.5.2026 Fáze 2 catch: dispatch MouseEvent na
+                // display:none button způsobí popup auto-close (AG Grid needs
+                // visible anchor pro popup positioning). API call je clean.
+                try {
+                  if (typeof params.api.showColumnFilter === "function" && colId) {
+                    params.api.showColumnFilter(colId);
+                    return;  // success
+                  }
+                  if (typeof params.api.showColumnMenu === "function" && colId) {
+                    params.api.showColumnMenu(colId);
+                    return;  // success
+                  }
+                } catch (e) {
+                  console.warn("[ErpDataGrid] API showColumnFilter failed:", e);
+                }
+
+                // Strategy 2 (FALLBACK): button dispatch — pro AG Grid <v32
+                // nebo když API metody chybí. POZOR: pokud filter button je
+                // display:none (Fáze 2), tato cesta nefunguje — popup auto-close.
                 var filterBtn = ffCell.querySelector(
-                  "[data-ref='eButtonShowMainFilter'], " +     // AG Grid Quartz exact
-                  ".ag-floating-filter-button-button, " +       // class name
-                  ".ag-floating-filter-button > button"         // direct child button
+                  "[data-ref='eButtonShowMainFilter'], " +
+                  ".ag-floating-filter-button-button, " +
+                  ".ag-floating-filter-button > button"
                 );
                 if (filterBtn) {
-                  console.log("[ErpDataGrid] dispatching MouseEvent sequence on filter button:", filterBtn);
+                  console.log("[ErpDataGrid] FALLBACK: MouseEvent dispatch on filter button:", filterBtn);
                   try {
                     ["mousedown", "mouseup", "click"].forEach(function (evName) {
                       filterBtn.dispatchEvent(new MouseEvent(evName, {
@@ -1400,26 +1420,11 @@
                         button: 0
                       }));
                     });
-                    return;  // success path — exit
                   } catch (e) {
                     console.warn("[ErpDataGrid] MouseEvent dispatch failed:", e);
                   }
-                }
-
-                // Strategy 2: fallback na AG Grid API
-                console.log("[ErpDataGrid] no filter button OR dispatch failed, fallback to API. colId=", colId);
-                try {
-                  if (typeof params.api.showColumnFilter === "function" && colId) {
-                    params.api.showColumnFilter(colId);
-                  } else if (typeof params.api.showColumnMenu === "function" && colId) {
-                    params.api.showColumnMenu(colId);
-                  } else {
-                    console.warn("[ErpDataGrid] no usable API method, colId=", colId,
-                      "showColumnFilter exists:", typeof params.api.showColumnFilter,
-                      "showColumnMenu exists:", typeof params.api.showColumnMenu);
-                  }
-                } catch (e) {
-                  console.warn("[ErpDataGrid] API popup failed:", e);
+                } else {
+                  console.warn("[ErpDataGrid] no usable popup method, colId=", colId);
                 }
               }, true);  // capture phase
             }

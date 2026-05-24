@@ -279,8 +279,8 @@
 .ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter.erp-filter-active input.ag-input-field-input {
   border-color: var(--accent, #4a7ba8) !important;
   box-shadow:
-    0 0 0 4px rgba(74, 123, 168, 0.55),
-    0 0 10px 2px rgba(74, 123, 168, 0.30) !important;
+    0 0 0 5px rgba(74, 123, 168, 0.55),
+    0 0 12px 3px rgba(74, 123, 168, 0.30) !important;
 }
 
 /* Marti's 24.5.2026 Fáze 2: filter ikona vpravo skrytá — "uz ji

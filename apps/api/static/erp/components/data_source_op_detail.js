@@ -108,6 +108,13 @@
               rowSelection: "single",           // single row selection v detail
               compact: true,                    // rowHeight 26, headerHeight 32
 
+              // Marti's 24.5.2026 catch: nested grids s saved layoutem
+              // si nepřejí flex distribution — sloupce by se "analogicky
+              // roztáhli na celou šířku gridu" i přes saved widths.
+              // disableColumnFlex=true → buildAutoColumnDefs cols bez flex +
+              // suppressSizeToFit + skip sizeColumnsToFit() v init/resize.
+              disableColumnFlex: true,
+
               // Disable kaskáda zatím (level 2 = data_set přijde later)
               enableMasterDetail: false,
             });

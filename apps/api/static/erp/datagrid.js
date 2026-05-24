@@ -591,8 +591,19 @@
         def.cellClass = "erp-ag-col-id";
         def.suppressMenu = true;
       } else {
-        def.flex = isWide ? 3 : 1;
-        def.minWidth = isWide ? 180 : 80;
+        // Marti's 24.5.2026 catch: nested grids s saved layoutem si neprejí
+        // flex distribution. opts.disableColumnFlex=true:
+        //   - flex:0 + suppressSizeToFit:true → respektuje explicit width
+        //   - default width 160 (fallback pre saved layout)
+        if (opts.disableColumnFlex) {
+          def.flex = 0;
+          def.suppressSizeToFit = true;
+          def.width = isWide ? 240 : 160;
+          def.minWidth = isWide ? 180 : 80;
+        } else {
+          def.flex = isWide ? 3 : 1;
+          def.minWidth = isWide ? 180 : 80;
+        }
       }
       // B+10 (6.5.2026): column-level coloring — money / key heuristics.
       // Money columns mají numeric formatter + zelená/červená per sign.
@@ -1713,8 +1724,10 @@
           }
           initLayout.finally(() => {
             if (this._destroyed) return;
-            if (!this._currentLayoutId) {
+            if (!this._currentLayoutId && !this.options.disableColumnFlex) {
               // Zadny default layout — fit columns (Marti's "grid roztazen")
+              // disableColumnFlex (24.5.2026): nested grids — explicit widths,
+              // žádné auto-fit.
               try { params.api.sizeColumnsToFit(); } catch (e) {}
             }
             // B+10++++ (Marti's drobnost 6.5.2026 po návratu): přesun toolbaru
@@ -1921,7 +1934,9 @@
           // mame aplikovany ulozeny layout, sizeColumnsToFit NEPREPISE
           // custom sirky sloupcu. Tabs switch trigger onGridSizeChanged ->
           // bez guardu by reset persistovany state.
-          if (this._currentLayoutId) return;
+          // Marti's 24.5.2026: disableColumnFlex (nested grids) — žádný
+          // auto-fit ani při window resize, explicit widths drží.
+          if (this._currentLayoutId || this.options.disableColumnFlex) return;
           try { params.api.sizeColumnsToFit(); } catch (e) {}
         },
         onRowClicked: (event) => {

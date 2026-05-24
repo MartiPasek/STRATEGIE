@@ -1202,15 +1202,47 @@
                   var url = String(opts.detailFetchUrl).replace(
                     "{id}", String(params.data.id || params.data.Id || params.data.ID || "")
                   );
+                  console.log("[ErpDataGrid] master-detail fetch:", url, "for masterId:", params.data.id);
                   fetch(url, { credentials: "same-origin" })
                     .then(function (r) { return r.json(); })
                     .then(function (json) {
-                      if (json && json.ok && Array.isArray(json.rows)) {
-                        params.successCallback(json.rows);
-                      } else {
-                        console.warn("[ErpDataGrid] detail fetch returned no rows:", url, json);
-                        params.successCallback([]);
+                      var rows = (json && json.ok && Array.isArray(json.rows)) ? json.rows : [];
+                      console.log("[ErpDataGrid] master-detail received:", rows.length, "rows for", url);
+
+                      // AG Grid Quartz detail grid nema autoColumns wrapper —
+                      // musime build columnDefs z first row keys + apply
+                      // pres detailGridInfo.api. Pokud rows.length === 0,
+                      // skip (žádné cols = empty grid OK).
+                      if (rows.length > 0) {
+                        try {
+                          var detailNode = params.node;
+                          var detailGridInfo = detailNode && detailNode.detailGridInfo;
+                          var detailApi = detailGridInfo && detailGridInfo.api;
+                          if (detailApi && typeof detailApi.setGridOption === "function") {
+                            var firstRow = rows[0];
+                            var autoCols = Object.keys(firstRow).map(function (k) {
+                              return {
+                                field: k,
+                                headerName: k,
+                                sortable: true,
+                                resizable: true,
+                                filter: true,
+                                // ID-like sloupce úzké
+                                width: (k === "id" || k.toLowerCase().endsWith("_id")) ? 80 : undefined,
+                                flex: (k === "id" || k.toLowerCase().endsWith("_id")) ? 0 : 1,
+                              };
+                            });
+                            detailApi.setGridOption("columnDefs", autoCols);
+                            console.log("[ErpDataGrid] master-detail auto-built", autoCols.length, "columns");
+                          } else {
+                            console.warn("[ErpDataGrid] detailApi not available pro auto-columns — caller musí provide detailGridOptions.columnDefs");
+                          }
+                        } catch (e) {
+                          console.warn("[ErpDataGrid] auto-build detail columns failed:", e);
+                        }
                       }
+
+                      params.successCallback(rows);
                     })
                     .catch(function (err) {
                       console.warn("[ErpDataGrid] detail fetch failed:", url, err);
@@ -1218,22 +1250,20 @@
                     });
                 },
                 detailGridOptions: Object.assign({
-                  // Default detail grid options — autoColumns z fetched data,
-                  // same theme jako master. Caller může override přes
-                  // opts.detailGridOptions (merge).
+                  // Default detail grid options — columns auto-built v
+                  // getDetailRowData callback (viz výše). Caller může
+                  // override pres opts.detailGridOptions.columnDefs.
+                  columnDefs: [],
                   defaultColDef: {
                     sortable: true,
                     resizable: true,
                     filter: true,
                     floatingFilter: false,  // detail compact — bez floating row
+                    flex: 1,
                   },
                   rowHeight: opts.rowHeight || 32,
                   headerHeight: opts.headerHeight || 36,
                   suppressContextMenu: false,
-                  // autoSize column widths po data load
-                  onFirstDataRendered: function (e) {
-                    try { e.api.sizeColumnsToFit(); } catch (_) {}
-                  },
                 }, opts.detailGridOptions || {}),
               }
             : undefined

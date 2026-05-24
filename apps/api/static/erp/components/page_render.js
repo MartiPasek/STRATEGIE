@@ -546,18 +546,30 @@
               // Excel mode Save (master grid jen, Krok 5.Y).
               gridActions: _gridActionsForCtx || null,
               enableSaveButton: true,
-              // Refresh callback — ErpDataGrid internal Obnovit button vola
-              // tento handler. Re-fetch rows z data_source endpoint.
-              onRefresh: function () {
+              // Refresh callback — Etapa F Fix 3 real fetch (24.5.2026 vecer
+              // Marti's catch "tlacitko refresh na master nechodi"). Soucasny
+              // refreshCells({force:true}) byl jen visual repaint, ne novy fetch.
+              // Pojdme real fetch fetchUrl (defined v parent scope, line ~244)
+              // + setGridOption rowData. Paralela s Krok 5.X batch Smazat
+              // refreshFn (line ~735 puvodne, dropnuto v Etapa F).
+              onRefresh: async function () {
                 try {
-                  if (typeof window._refreshGrid === "function") {
-                    window._refreshGrid();
-                  } else if (gridHost.__erpGridInst
-                             && gridHost.__erpGridInst.gridApi) {
-                    gridHost.__erpGridInst.gridApi.refreshCells({force: true});
+                  const r = await fetch(fetchUrl, { credentials: 'include' });
+                  const d = await r.json();
+                  if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
+                    try {
+                      gridInst.gridApi.deselectAll();
+                      if (typeof gridInst.gridApi.clearRangeSelection === 'function') {
+                        gridInst.gridApi.clearRangeSelection();
+                      }
+                      if (typeof gridInst.gridApi.clearFocusedCell === 'function') {
+                        gridInst.gridApi.clearFocusedCell();
+                      }
+                    } catch (_e) {}
+                    gridInst.gridApi.setGridOption('rowData', d.rows);
                   }
                 } catch (e) {
-                  console.warn("[page_render onRefresh]", e);
+                  console.warn("[page_render onRefresh] real fetch failed:", e);
                 }
               },
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra

@@ -1089,12 +1089,20 @@
         const actionKey = btn.getAttribute("data-action");
         btn.addEventListener("click", () => {
           if (btn.disabled) return;
-          const rowData = self._getFirstSelectedRowData();
+          // Etapa F Fix 2 multi-row (24.5.2026 vecer Marti's catch "vcera
+          // jsme rozchodili mazani vice vet"): collect getSelectedRows()
+          // array → predat rowIds. Backward compat: rowData = first row.
+          const selectedRows = self._getSelectedRowsSafe();
+          const rowIds = selectedRows
+            .map(r => (r && (r.id != null ? r.id : r.ID)))
+            .filter(x => x != null);
+          const rowData = selectedRows.length > 0 ? selectedRows[0] : null;
           const gridCode = self.options.gridCode
             || (self.options.layoutKey ? String(self.options.layoutKey) : null);
           const coreId = (self.options.coreInfo && self.options.coreInfo.coreId != null)
             ? self.options.coreInfo.coreId : null;
           const refreshFn = function () {
+            // Refresh via callback if provided; jinak repaint cells
             if (typeof self.options.onRefresh === "function") {
               try { self.options.onRefresh(); } catch (e) {}
             } else if (self.gridApi) {
@@ -1105,6 +1113,7 @@
             gridCode: gridCode,
             coreId: coreId,
             rowData: rowData,
+            rowIds: rowIds,   // NEW: multi-row support
             gridApi: self.gridApi,
             refreshFn: refreshFn,
           }).catch((err) => {
@@ -1143,6 +1152,18 @@
         return (Array.isArray(sel) && sel.length > 0) ? sel[0] : null;
       } catch (e) {
         return null;
+      }
+    }
+
+    /** Helper — fetch ALL selected rows (array, ne single). Etapa F Fix 2
+     *  multi-row support pro batch delete (Marti's "vcera jsme rozchodili"). */
+    _getSelectedRowsSafe() {
+      if (!this.gridApi) return [];
+      try {
+        const sel = this.gridApi.getSelectedRows();
+        return Array.isArray(sel) ? sel : [];
+      } catch (e) {
+        return [];
       }
     }
 
@@ -1561,6 +1582,19 @@
                 delete: !_ga.has_delete,
                 refresh: false,
               };
+              // Etapa F Fix 2 multi-row: collect selected rows array (paralela
+              // s _wireCrudToolbar). Right-click na unselected row != selection
+              // — getSelectedRows() vrati [] (pripadne pripoji jen aktualne
+              // pravo-klikany row, AG Grid v32+ behavior).
+              const _selectedRows = (function () {
+                try {
+                  const sel = params.api.getSelectedRows();
+                  return Array.isArray(sel) ? sel : [];
+                } catch (_e) { return []; }
+              })();
+              const _rowIdsArr = _selectedRows
+                .map(r => (r && (r.id != null ? r.id : r.ID)))
+                .filter(x => x != null);
               actions.forEach(function (action) {
                 const initDisabled = _stateMap[action.key] === true;
                 const needRowDisabled = action.requiresRow && !rowData;
@@ -1577,6 +1611,7 @@
                       gridCode: gridCode,
                       coreId: coreIdForCtx,
                       rowData: rowData,
+                      rowIds: _rowIdsArr,   // NEW: multi-row support
                       gridApi: params.api,
                       refreshFn: refreshFn,
                     }).catch(function (err) {

@@ -100,15 +100,21 @@
     }
 
     /** Hard delete via erp_batch_action (Marti's Q3=a hard delete).
+     * Etapa F Fix 2 multi-row (24.5.2026 vecer Marti's catch "vcera jsme
+     * rozchodili mazani vice vet"): preferred ctx.rowIds (array z getSelectedRows),
+     * fallback ctx.rowData.id (single row backward compat).
      * ctx must include coreId (= page-spec core_id, used as source table
      * resolver in backend design_delete_entity handler).
      */
     function _hardDeleteRow(ctx) {
-      var rowData = ctx.rowData;
       var coreId = ctx.coreId;
       var refreshFn = ctx.refreshFn;
-      if (!rowData || rowData.id == null) {
-        alert("⚠ Smazat: chybí ID řádku.");
+      // Etapa F Fix 2 multi-row — preferred rowIds array, fallback single rowData
+      var rowIds = (Array.isArray(ctx.rowIds) && ctx.rowIds.length > 0)
+        ? ctx.rowIds
+        : (ctx.rowData && ctx.rowData.id != null ? [ctx.rowData.id] : []);
+      if (rowIds.length === 0) {
+        alert("⚠ Smazat: nejprve vyber řádek.");
         return Promise.reject(new Error("no_row_id"));
       }
       if (coreId == null) {
@@ -119,12 +125,13 @@
         alert("⚠ erp_batch_action.js není načten.");
         return Promise.reject(new Error("batch_action_missing"));
       }
-      // Reuse Krok 5.X Mód 1 cyklicky per-row + existing DELETE endpoint
-      // /api/v1/erp/design/{core_id}/{row_id} (router.py:3585, Krok 5.W).
+      // Reuse Krok 5.X Mód 1 cyklicky per-row (sequential loop) + existing DELETE
+      // endpoint /api/v1/erp/design/{core_id}/{row_id} (router.py:3585, Krok 5.W).
       // Marti's doctrine "stejne funkce" — same endpoint jako Krok 5.S Fáze 6
-      // workspace toolbar Smazat, just routed přes registry.
+      // workspace toolbar Smazat, just routed přes registry. Multi-row drz
+      // Marti's Centrala 1 19yr Mod 1 doctrine (cyklicky per-row, ne batch SQL).
       return global._erpBatchRowAction({
-        rowIds: [rowData.id],
+        rowIds: rowIds,
         opLabel: "Smazat",
         opVerb: "smazat",
         destructive: true,

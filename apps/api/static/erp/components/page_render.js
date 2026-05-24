@@ -540,12 +540,16 @@
               contextMenuActions: _ctxMenuActions,
               // Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper
               // refactor"): pass gridActions backend signal → ErpDataGrid
-              // renderuje vlastni CRUD toolbar (4 buttons Novy/Oprava/Smazat/
-              // Obnovit) v internim wrapperu nad ag-grid. Drz "tlacitka musi
-              // byt zevnitr fw komponenty". + enableSaveButton: true pro
-              // Excel mode Save (master grid jen, Krok 5.Y).
+              // renderuje CRUD buttons (4 + Save). Drz "zevnitr fw komponenty"
+              // — definice v fw komponente. + enableSaveButton: true (master jen).
               gridActions: _gridActionsForCtx || null,
               enableSaveButton: true,
+              // Etapa F toolbarHost (24.5.2026 vecer Marti's final spec):
+              // Master grid renderuje CRUD buttons DO workspace header
+              // (#erpGridActionsHost vedle "Tvoje Marti" + 🔄 Refresh).
+              // Drz Marti's "v mainscreen jsou v hlavicce aplikace". Nested
+              // grids (detail picker) default = internal toolbar nad gridem.
+              toolbarHost: document.getElementById("erpGridActionsHost"),
               // Refresh callback — Etapa F Fix 3 real fetch (24.5.2026 vecer
               // Marti's catch "tlacitko refresh na master nechodi"). Soucasny
               // refreshCells({force:true}) byl jen visual repaint, ne novy fetch.

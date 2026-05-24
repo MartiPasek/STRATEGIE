@@ -10730,13 +10730,18 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
-        <!-- Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper refactor"
-             "tlacitka musi byt zevnitr fw komponenty"): #erpGridActionsHost
-             DROPPED. CRUD buttons (Novy/Oprava/Smazat/Obnovit) + Save
-             (Krok 5.Y Excel mode) ted renderovany UVNITR ErpDataGrid containeru
-             per-grid instance (master + detail + picker). Drz "stejne
-             zobrazit, stejne funkce" napric. _refreshSaveBtn() v page_render.js
-             stale targets #erp-tb-save per ID (ted v gridu, ne v header). -->
+        <!-- Etapa F toolbarHost (24.5.2026 vecer Marti's final spec):
+             #erpGridActionsHost RESTORED — host pro master grid CRUD buttons
+             (Novy/Oprava/Smazat/Obnovit + Save Excel mode). ErpDataGrid
+             VZDY definuje CO + JAK (single source of truth z erp_grid_actions.js
+             registry), ale KDE renderuje je caller decision per opts.toolbarHost:
+               * Master grid (page_render.js): toolbarHost = TENTO div
+               * Detail grid (data_source_op_detail.js): default = internal toolbar
+             Tab switch cleanup: ErpDataGrid destroy() clear-uje innerHTML
+             tohoto hostu (DOM element vlastni router.py, ErpDataGrid jen
+             populates/clears obsah). _refreshSaveBtn() targets #erp-tb-save
+             per ID — funguje v obou pripadech (master external nebo nested internal). -->
+        <div id="erpGridActionsHost" style="display:flex;align-items:center;gap:6px;margin-left:12px;"></div>
         <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
              Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
              Skryty po install (appinstalled event) nebo v PWA standalone mode. -->
@@ -16305,4 +16310,3 @@ def _render_error_page(title: str, msg: str) -> str:
         content=content,
         breadcrumb=[("ERP", "/erp/"), ("Chyba", None)],
     )
-

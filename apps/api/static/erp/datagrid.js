@@ -998,6 +998,15 @@
         //   null = vsechny CRUD buttons disabled, jen Obnovit aktivni (detail
         //   grid bez ops). Refresh je vzdy enabled.
         gridActions: null,
+        // Etapa F toolbarHost (24.5.2026 vecer Marti's final spec):
+        //   HTMLElement => render CRUD buttons DO tohoto external hostu
+        //                  (master grid -> workspace header #erpGridActionsHost)
+        //   null (default) => render do internal wrapperu nad gridem
+        //                     (nested detail / picker / modal)
+        // Drz Marti's "zevnitr fw komponenty" — ErpDataGrid definuje CO (4 buttons)
+        // + JAK (dispatcher, freshness), ne KDE. KDE je caller decision per
+        // use case. Single source of truth zachovan.
+        toolbarHost: null,
         // crudToolbar: 'auto' | true | false
         //   'auto' (default): render true if gridActions truthy AND coreInfo.coreId
         //   true: force render (i kdyz gridActions null — vsechny disabled krom Refresh)
@@ -1253,13 +1262,29 @@
         this.gridContainer.className = "erp-grid-inner";
       }
 
-      // Universal CRUD Etapa F: TOP CRUD toolbar inside container.
+      // Universal CRUD Etapa F (24.5.2026 vecer Marti's final spec):
+      // CRUD toolbar render target = caller decision via opts.toolbarHost.
+      //   - External (e.g. workspace header #erpGridActionsHost) — master grid
+      //   - Internal (default) — nested detail / picker / modal
+      // Drz "zevnitr fw komponenty" — ErpDataGrid definuje CO + JAK, ne KDE.
       if (_renderCrud) {
-        this.container.classList.add("erp-grid-with-crud-toolbar");
-        this.crudToolbarEl = document.createElement("div");
-        this.crudToolbarEl.className = "erp-grid-crud-toolbar";
-        this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
-        this.container.appendChild(this.crudToolbarEl);
+        const externalHost = (this.options.toolbarHost instanceof HTMLElement)
+          ? this.options.toolbarHost : null;
+        if (externalHost) {
+          // External — use caller-provided DOM element, no wrapper class.
+          // Caller vlastni element lifecycle (innerHTML clear na destroy).
+          this._toolbarHostExternal = true;
+          this.crudToolbarEl = externalHost;
+          this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
+        } else {
+          // Internal — create wrapper nad ag-grid host (default).
+          this._toolbarHostExternal = false;
+          this.container.classList.add("erp-grid-with-crud-toolbar");
+          this.crudToolbarEl = document.createElement("div");
+          this.crudToolbarEl.className = "erp-grid-crud-toolbar";
+          this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
+          this.container.appendChild(this.crudToolbarEl);
+        }
       }
 
       if (this.options.layoutKey || _renderCrud) {
@@ -4082,6 +4107,18 @@
     destroy() {
       if (this._destroyed) return;
       this._destroyed = true;
+      // Etapa F Freshness cleanup — clear polling timer
+      if (this._freshnessTimer) {
+        try { clearInterval(this._freshnessTimer); } catch (e) {}
+        this._freshnessTimer = null;
+      }
+      // Etapa F toolbarHost cleanup — pokud external (caller-owned DOM),
+      // vyprazdni jen innerHTML (CRUD buttons). Caller drzi lifecycle elementu
+      // samotneho (workspace header div zustane v DOM, jen bez buttons).
+      if (this._toolbarHostExternal && this.crudToolbarEl) {
+        try { this.crudToolbarEl.innerHTML = ''; } catch (e) {}
+      }
+      this.crudToolbarEl = null;
       // B+6.3+ (5.5.2026): cleanup ErpDropdown layout selector
       if (this._layoutDropdown) {
         try { this._layoutDropdown.destroy(); } catch (e) {}

@@ -539,6 +539,16 @@
                : "agTextColumnFilter",
         floatingFilter: opts.enableFilters !== false,
       };
+      // Marti's 24.5.2026: date filter cleanup přes AG Grid native props.
+      // browserDatePicker:false → plain text input (žádný calendar icon).
+      // filterPlaceholder:"" → bez "dd.mm." mask placeholderu.
+      // Drží i popup filter (rightclick) — Marti potvrdí jestli OK.
+      if (colType === "date") {
+        def.filterParams = {
+          browserDatePicker: false,
+          filterPlaceholder: "",
+        };
+      }
       if (isId) {
         def.width = 80;
         def.minWidth = 60;

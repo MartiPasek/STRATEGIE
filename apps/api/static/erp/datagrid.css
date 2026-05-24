@@ -313,22 +313,9 @@
   display: none !important;
 }
 
-/* Marti's 24.5.2026 Fáze 2+++: date filter — vsechno pryc. Hide
-   všechny AG Grid date picker UI komponenty scope JEN .ag-date-field
-   (text filtry nedotčeny). Plus placeholder mask "dd.mm." transparent.
-   Žádné layout changes — AG Grid native flex drží. */
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field .ag-icon,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field .ag-input-suffix,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field .ag-picker-field-button,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field .ag-picker-field-display,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field .ag-picker-field-wrapper {
-  display: none !important;
-}
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::placeholder,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::-webkit-input-placeholder,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::-moz-placeholder {
-  color: transparent !important;
-}
+/* Marti's 24.5.2026: date filter ikony řešeny per-column property
+   v JS columnDefs builderu (filterParams.browserDatePicker: false +
+   filterPlaceholder: ""). Žádný CSS hack potřebný — AG Grid native cesta. */
 
 /* Status bar (counts) drobně dimmer */
 .ag-theme-quartz-dark.erp-ag-grid .ag-status-bar {

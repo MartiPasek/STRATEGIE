@@ -270,6 +270,15 @@
   background-color: var(--bg, #0e0f11);
 }
 
+/* Marti's 24.5.2026 Fáze 1+: visual cue "active filter" — floating filter
+   input zaří modře (jako focus state) když je filter aktivní (= AG Grid
+   přidal modrý puntík na ikoně vpravo). Class .erp-filter-active je toggle
+   z JS listener "filterChanged" event v datagrid.js. */
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter.erp-filter-active input.ag-input-field-input {
+  border-color: var(--accent, #4a7ba8) !important;
+  box-shadow: 0 0 0 1px rgba(74, 123, 168, 0.4) !important;
+}
+
 /* Status bar (counts) drobně dimmer */
 .ag-theme-quartz-dark.erp-ag-grid .ag-status-bar {
   font-size: 11px;

@@ -1426,6 +1426,47 @@
           } catch (e) {
             console.warn("[ErpDataGrid] floating filter contextmenu wire failed:", e);
           }
+
+          // Marti's 24.5.2026 Fáze 1+: visual cue "active filter" —
+          // floating filter input zaří modře (jako focus state) když je
+          // filter aktivní (= AG Grid přidal modrý puntík na ikoně).
+          // Strategie: filterChanged event → toggle .erp-filter-active class
+          // na floating filter cell per column (match přes aria-colindex).
+          // CSS pattern: viz datagrid.css `.erp-filter-active input`.
+          try {
+            var gcontFF = this.gridContainer;
+            var apiFF = params.api;
+            var _syncFloatingFilterActive = function () {
+              if (!gcontFF || !apiFF || typeof apiFF.getColumn !== "function") return;
+              try {
+                var cells = gcontFF.querySelectorAll(".ag-floating-filter");
+                cells.forEach(function (cell) {
+                  var ariaIdx = cell.getAttribute("aria-colindex");
+                  if (!ariaIdx) return;
+                  // Match s top header row přes aria-colindex (col-id je
+                  // jen na top header, floating cell má jen index)
+                  var topCell = gcontFF.querySelector(
+                    ".ag-header-row:not(.ag-header-row-floating-filter) " +
+                    ".ag-header-cell[aria-colindex='" + ariaIdx + "']"
+                  );
+                  if (!topCell) return;
+                  var colId = topCell.getAttribute("col-id");
+                  if (!colId) return;
+                  var col = apiFF.getColumn(colId);
+                  if (!col || typeof col.isFilterActive !== "function") return;
+                  cell.classList.toggle("erp-filter-active", col.isFilterActive());
+                });
+              } catch (e) {
+                console.warn("[ErpDataGrid] sync floating filter active failed:", e);
+              }
+            };
+            apiFF.addEventListener("filterChanged", _syncFloatingFilterActive);
+            // Initial sync (pro layout restore — filter z DB sestavy)
+            setTimeout(_syncFloatingFilterActive, 200);
+          } catch (e) {
+            console.warn("[ErpDataGrid] floating filter active sync wire failed:", e);
+          }
+
           // B+5.2: setup dirty tracking + auto-load default
           this._setupDirtyTracking();
           // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): pockame na

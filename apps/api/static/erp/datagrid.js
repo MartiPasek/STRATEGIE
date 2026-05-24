@@ -701,6 +701,24 @@
       };
       result.push(def);
     }
+    // Marti's 24.5.2026 master-detail: pokud enableMasterDetail, první
+    // sloupec dostane cellRenderer:'agGroupCellRenderer' = AG Grid expand
+    // arrow (►/▼) prefix. Caller's column behavior (sort, filter) zachováno
+    // přes innerRenderer.
+    if (opts.enableMasterDetail === true && result.length > 0) {
+      var firstCol = result[0];
+      // Skip pokud caller už nastavil custom cellRenderer (don't override)
+      if (!firstCol.cellRenderer) {
+        firstCol.cellRenderer = "agGroupCellRenderer";
+        // Pokud má valueFormatter, použij ho v group renderer params
+        if (typeof firstCol.valueFormatter === "function") {
+          firstCol.cellRendererParams = Object.assign(
+            {}, firstCol.cellRendererParams || {},
+            { innerRenderer: null }  // default — show formatted value
+          );
+        }
+      }
+    }
     return result;
   }
 
@@ -1165,9 +1183,68 @@
         suppressRowClickSelection: false,
         suppressRowDeselection: false,
         enableRangeSelection: opts.enableRangeSelection !== false,
-        // Master-detail
+        // Master-detail — Marti's 24.5.2026:
+        //   enableMasterDetail: true → rozjet master-detail mode
+        //   detailRenderer / detailCellRenderer: custom component (Krok 3+)
+        //   detailCellRendererParams: AG Grid native config
+        //     - default: getDetailRowData fetch z opts.detailFetchUrl
+        //       template (.replace('{id}', params.data.id))
+        //     - detailGridOptions: nested grid config (autoColumns default)
+        //   detailRowHeight: per row height v px
+        //   masterDetailDefaultExpanded: false → vše collapsed, default true
+        //     → level 1 auto-expanded (groupDefaultExpanded: 1)
         masterDetail: opts.enableMasterDetail === true,
-        detailCellRenderer: opts.detailRenderer || undefined,
+        detailCellRenderer: opts.detailRenderer || opts.detailCellRenderer || undefined,
+        detailCellRendererParams: opts.detailCellRendererParams || (
+          opts.enableMasterDetail === true && opts.detailFetchUrl
+            ? {
+                getDetailRowData: function (params) {
+                  var url = String(opts.detailFetchUrl).replace(
+                    "{id}", String(params.data.id || params.data.Id || params.data.ID || "")
+                  );
+                  fetch(url, { credentials: "same-origin" })
+                    .then(function (r) { return r.json(); })
+                    .then(function (json) {
+                      if (json && json.ok && Array.isArray(json.rows)) {
+                        params.successCallback(json.rows);
+                      } else {
+                        console.warn("[ErpDataGrid] detail fetch returned no rows:", url, json);
+                        params.successCallback([]);
+                      }
+                    })
+                    .catch(function (err) {
+                      console.warn("[ErpDataGrid] detail fetch failed:", url, err);
+                      params.successCallback([]);
+                    });
+                },
+                detailGridOptions: Object.assign({
+                  // Default detail grid options — autoColumns z fetched data,
+                  // same theme jako master. Caller může override přes
+                  // opts.detailGridOptions (merge).
+                  defaultColDef: {
+                    sortable: true,
+                    resizable: true,
+                    filter: true,
+                    floatingFilter: false,  // detail compact — bez floating row
+                  },
+                  rowHeight: opts.rowHeight || 32,
+                  headerHeight: opts.headerHeight || 36,
+                  suppressContextMenu: false,
+                  // autoSize column widths po data load
+                  onFirstDataRendered: function (e) {
+                    try { e.api.sizeColumnsToFit(); } catch (_) {}
+                  },
+                }, opts.detailGridOptions || {}),
+              }
+            : undefined
+        ),
+        detailRowHeight: opts.detailRowHeight || undefined,
+        // groupDefaultExpanded: 1 = expand level 1 only (master rows
+        // expanded, ich detail-detail collapsed). Marti's "default
+        // expanded jen level 1" doctrine.
+        groupDefaultExpanded: opts.enableMasterDetail === true
+          ? (opts.masterDetailDefaultExpanded === false ? 0 : 1)
+          : undefined,
         // Tooltips
         tooltipShowDelay: 400,
         // Locale

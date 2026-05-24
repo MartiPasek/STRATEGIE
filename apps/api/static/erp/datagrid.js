@@ -1107,9 +1107,24 @@
       return parts.join("");
     }
 
-    /** Wire click handlers — dispatch via ErpGridActions registry. */
+    /** Wire click handlers — dispatch via ErpGridActions registry.
+     *  Plus Faze 2-B wire (24.5.2026 vecer pozde): Save button #erp-tb-save
+     *  onclick → this._handleSaveClick. Cached _saveBtnEl pro
+     *  _updateSaveButton future calls. */
     _wireCrudToolbar() {
       if (!this.crudToolbarEl) return;
+      // Faze 2-B wire: lookup + wire Save button (per-instance ref cache).
+      this._saveBtnEl = this.crudToolbarEl.querySelector("#erp-tb-save");
+      if (this._saveBtnEl) {
+        const self_ = this;
+        this._saveBtnEl.onclick = function () {
+          self_._handleSaveClick().catch(function (err) {
+            console.error("[ErpDataGrid] _handleSaveClick rejected:", err);
+          });
+        };
+        // Initial state — hidden if Excel mode off, disabled if no dirty
+        this._updateSaveButton();
+      }
       const self = this;
       const buttons = this.crudToolbarEl.querySelectorAll("[data-action]");
       buttons.forEach((btn) => {
@@ -1783,15 +1798,34 @@
         // B+10+ (6.5.2026): merge heuristics (opt-in) + user rules (compiled).
         rowClassRules: initialRowRules,
         // Default column behavior — Phase 38.4 Krok 5.R-D+3 (18.5.2026):
-        // merge opts.defaultColDefExtra pro per-instance extension
-        // (e.g. cellClassRules pro dirty tracking v page_render.js).
-        defaultColDef: Object.assign({
-          sortable: true,
-          resizable: true,
-          filter: opts.enableFilters !== false,
-          floatingFilter: opts.enableFilters !== false,
-          editable: opts.enableEdit === true,
-        }, opts.defaultColDefExtra || {}),
+        // merge opts.defaultColDefExtra pro per-instance extension.
+        // Faze 2-B wire (24.5.2026 vecer pozde): internal cellClassRules
+        // "erp-cell-dirty" reads this._dirtyRows. Override caller's pokud
+        // caller pass stejny key (last wins via merge order — internal first
+        // do base, caller second, internal LAST overwrite "erp-cell-dirty").
+        defaultColDef: (function (gridSelf) {
+          const merged = Object.assign({
+            sortable: true,
+            resizable: true,
+            filter: opts.enableFilters !== false,
+            floatingFilter: opts.enableFilters !== false,
+            editable: opts.enableEdit === true,
+          }, opts.defaultColDefExtra || {});
+          // Internal cellClassRules — append "erp-cell-dirty" reading
+          // this._dirtyRows. Caller cellClassRules zachovany pro JINE keys.
+          const callerCCR = (opts.defaultColDefExtra && opts.defaultColDefExtra.cellClassRules) || {};
+          merged.cellClassRules = Object.assign({}, callerCCR, {
+            "erp-cell-dirty": function (params) {
+              if (!params || !params.data || params.data.id == null) return false;
+              const dirty = gridSelf._dirtyRows.get(params.data.id);
+              if (!dirty) return false;
+              const field = params.colDef && params.colDef.field;
+              return field != null
+                && Object.prototype.hasOwnProperty.call(dirty, field);
+            },
+          });
+          return merged;
+        })(this),
         // Phase 38.4 Krok 5.R-D+3 (Marti's "UX delight zdarma"):
         // native AG Grid Ctrl+Z/Y undo edited cells + commit on blur.
         undoRedoCellEditing: true,
@@ -2687,6 +2721,24 @@
           }
         },
         onCellValueChanged: (event) => {
+          // Faze 2-B wire (24.5.2026 vecer pozde, Marti's "Zatim ji mas
+          // zvenku fw"): track dirty INSIDE fw komponenty. Gated this._excelMode
+          // + has rowData.id (anonymous/system rows excluded).
+          if (this._excelMode && event.data && event.data.id != null
+              && event.colDef && event.colDef.field) {
+            try {
+              this._setDirty(
+                event.data.id,
+                event.colDef.field,
+                event.newValue,
+                event.data
+              );
+            } catch (_eD) {
+              console.warn("[ErpDataGrid] _setDirty failed:", _eD);
+            }
+          }
+          // Existing callback for backward compat (page_render.js Faze 1
+          // dirtyRows Map populace dokud Faze 2-B cleanup nedrop external).
           if (typeof opts.onCellEdit === "function") {
             opts.onCellEdit(event.data, event.colDef.field, event.oldValue, event.newValue);
           }

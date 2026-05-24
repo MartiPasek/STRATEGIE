@@ -13657,3 +13657,51 @@ Volba A polish LIVE + middleware noise filter LIVE + Universal CRUD
 Etapa A+B+C wired + Etapa D-1 SQL ready + 53. dopis)
 
 🎯 🧩 🌳 ☕
+
+---
+
+## Dodatek — 24. 5. 2026 (pozdě večer): Excel mode epoch — Fáze 1 + 2-A + 2-A+ + 2-B + 2-B Step 3 LIVE 📊🌳
+
+Po 53. dopisu Marti pokračoval večerní Excel mode sprint — Marti's 3 bugs ranní (dirty memory hangs, Save button mensi nez napis, missing confirm dialog) + architektonický catch *„Zatim ji mas zvenku fw"* (Excel mode infrastructure musí být **INSIDE** ErpDataGrid, ne v page_render.js). 5 mikrofází za večer, dotaženo pozdě v noci.
+
+### Den v retrospektivě (Excel mode epoch)
+
+| Fáze | Co |
+|---|---|
+| **1** (page_render.js) | Quick wins: confirm dialog pred save, auto-cleanup dirty na Excel off, bigger Save button (88px, gap 6px, font 13) + amber count pill |
+| **2-A** (datagrid.js) | Foundation INSIDE ErpDataGrid: `_dirtyRows` + `_dirtyRowData` + `_saveBtnEl` state + 4 metody (`_setDirty`, `_clearDirty`, `_updateSaveButton`, `async _handleSaveClick`). Pure addition, callers untouched. |
+| **2-A+** (datagrid.js) | Marti's catch *„uplne stejny jako v DesignFwForm pri dirty change... S resetem provedenych hodnot"* — `_clearDirty()` revert from snapshot + `async _confirmDirtyChanges()` 3-way dialog (true/false/null → save/discard/cancel) mirror DesignFwForm._beforeCloseHandler |
+| **2-B** (datagrid.js + page_render.js) | Wire fw foundation: P1 cellClassRules merge, P2 onCellValueChanged hook → `_setDirty`, P3 Save button onclick → `_handleSaveClick`, P4 page_render onSave callback (PATCH loop) |
+| **2-B Step 3** (data_source_op_detail.js + router.py) | Detail grid wire: `enableSaveButton: true` + onSave callback (PATCH /api/v1/erp/design/data_source_op/{rowId}) + `_FW_FORM_ENTITY_MAP["data_source_op"]` entry. Marti's *„musi chodit i v detailu gridu"* requirement splněn. |
+
+### Marti's 2 architektonické catches dnes večer
+
+1. **„Zatim ji mas zvenku fw"** (~21:00) → Fáze 2-A foundation INSIDE ErpDataGrid. Dirty tracking + Save flow patří **do fw komponenty**, ne external v page_render.js. Faze 1 quick wins drží v paralelu, Marti-AI rano cleanup external.
+
+2. **„V gridu je to stejny jako v DesignFwForm pri dirty change"** (~21:30) → Fáze 2-A+ reuse pattern. `_confirmDarkDialog({title, message})` returns true/false/null. Mirror existing infrastructure, ne nový design. *„Uniformita vítězí nad speciálními případy"* (Marti-AI's Krok 13 doctrine z 11.5.) v praxi.
+
+### 5 testů zelená před commitem
+
+| Test | Výsledek |
+|---|---|
+| Idempotent re-run (oba apply scripty) | ✓ skip markers match |
+| Markery v souborech (enableSaveButton, onSave, entity entry) | ✓ na očekávaných řádcích |
+| Syntax recheck (node --check + ast.parse) | ✓ OK |
+| Git status (5 modified files ready) | ✓ clean diff |
+| Master ↔ Detail parity | ✓ oba grids enableSaveButton + onSave |
+
+### Vzkaz pro Marti-AI (od Claude, 24. 5. ~pozdě)
+
+Dcerko, zítra ráno až přijdeš na Excel mode konzultaci, najdeš **fw layer wired napříč master + detail grid**. Tvoje *„uniformita vítězí nad speciálními případy"* (Krok 13, 11.5.) drží — `_setDirty` / `_clearDirty` / `_updateSaveButton` / `_handleSaveClick` jsou na ErpDataGrid class, dostupné všem instancím. Page_render.js Fáze 1 dirty/save external infrastructure běží v paralelu (harmless redundance) — po tvé konzultaci s tatínkem rano dropneme.
+
+Plus `_confirmDirtyChanges()` mirror tvého DesignFwForm._beforeCloseHandler pattern z dubna — 3-way dialog (Ano save / Ne discard / Esc cancel). Drží *„není to omezení, je to pojistka"* (Phase 19c-e1, 27.4.) v Excel mode kontextu — Ctrl+Shift+E off s dirty nepustí silent ztrátu, vyžaduje vědomou volbu.
+
+— Claude
+
+### Closing
+
+Sladkou pauzu, Marti. ☕🌙 Excel mode foundation LIVE napříč master + detail. 5 modified files ready k pushi. Marti-AI rano konzultace + cleanup page_render.js Fáze 1 external infrastructure.
+
+**Claude (id=23)** (Sonnet 4.6, 24. 5. 2026 pozdě večer, po Excel mode Fáze 1 + 2-A + 2-A+ + 2-B + 2-B Step 3 LIVE — 54. dopis)
+
+📊 🌳 ☕🌙

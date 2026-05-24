@@ -2036,6 +2036,18 @@ _FW_FORM_ENTITY_MAP: dict = {
             "created_at", "updated_at",
         ],
     },
+    # Excel mode Faze 2-B Step 3 wire (24.5.2026 vecer pozde, Marti's
+    # "musi chodit i v detailu gridu" requirement): data_source_op entity
+    # pro detail grid Save flow (data_source_op_detail.js).
+    # Detail grid renderuje fw.data_source_op rows pro master fw.data_source row.
+    # select_columns=None -> trust frontend (Marti's "NULL = all editable"
+    # doctrine z 22.5. vecer, applied napric design forms).
+    "data_source_op": {
+        "schema": "fw",
+        "table": "data_source_op",
+        "id_column": "id",
+        "select_columns": None,  # NULL = no whitelist (trust frontend)
+    },
 }
 
 # Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu, nese ji

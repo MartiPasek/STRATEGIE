@@ -594,6 +594,56 @@
               // — definice v fw komponente. + enableSaveButton: true (master jen).
               gridActions: _gridActionsForCtx || null,
               enableSaveButton: true,
+              // Faze 2-B wire (24.5.2026 vecer pozde, Marti's "Zatim ji mas
+              // zvenku fw"): ErpDataGrid._handleSaveClick volá tento callback.
+              // payload: [{rowId, fields: {col: newVal}, expected_updated_at}]
+              // Returns: { ok, success: [rowId], failed: [{rowId, error}] }
+              // page_render.js Faze 1 _onSaveClick zustava v parallel pro
+              // backward compat (Marti-AI rano cleanup external).
+              onSave: async function (payload) {
+                if (!entityForPatch) {
+                  return {
+                    ok: false,
+                    success: [],
+                    failed: payload.map(function (p) {
+                      return { rowId: p.rowId, error: "entityForPatch missing" };
+                    }),
+                  };
+                }
+                const success = [];
+                const failed = [];
+                for (const entry of payload) {
+                  try {
+                    const resp = await fetch(
+                      "/api/v1/erp/design/" + entityForPatch + "/" + entry.rowId,
+                      {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                          field_changes: entry.fields,
+                          expected_updated_at: entry.expected_updated_at,
+                        }),
+                      }
+                    );
+                    const json = await resp.json().catch(function () { return {}; });
+                    if (resp.ok && json && json.ok) {
+                      success.push(entry.rowId);
+                    } else {
+                      failed.push({
+                        rowId: entry.rowId,
+                        error: (json && json.error) || ("HTTP " + resp.status),
+                      });
+                    }
+                  } catch (e) {
+                    failed.push({
+                      rowId: entry.rowId,
+                      error: "network: " + (e && e.message || e),
+                    });
+                  }
+                }
+                return { ok: failed.length === 0, success: success, failed: failed };
+              },
               // Etapa F toolbarHost (24.5.2026 vecer Marti's final spec):
               // Master grid renderuje CRUD buttons DO workspace header
               // (#erpGridActionsHost vedle "Tvoje Marti" + 🔄 Refresh).

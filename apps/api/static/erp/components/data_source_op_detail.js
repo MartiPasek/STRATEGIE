@@ -156,6 +156,51 @@
               // suppressSizeToFit + skip sizeColumnsToFit() v init/resize.
               disableColumnFlex: true,
 
+              // Excel mode Faze 2-B Step 3 wire (24.5.2026 vecer pozde,
+              // Marti's "musi chodit i v detailu gridu" requirement):
+              // detail grid taky enableSaveButton + onSave callback, mirror
+              // master grid path (page_render.js). Drz "stejne zobrazit,
+              // stejne funkce" napric master + detail.
+              enableSaveButton: true,
+              onSave: async function (payload) {
+                // Detail grid rows = fw.data_source_op (entityForPatch
+                // hardcoded pro tento renderer). PATCH endpoint loop,
+                // result shape {ok, success: [rowId], failed: [{rowId, error}]}
+                // identicky s master onSave callback v page_render.js (P4).
+                const success = [];
+                const failed = [];
+                for (const entry of payload) {
+                  try {
+                    const resp = await fetch(
+                      "/api/v1/erp/design/data_source_op/" + entry.rowId,
+                      {
+                        method: "PATCH",
+                        headers: { "Content-Type": "application/json" },
+                        credentials: "include",
+                        body: JSON.stringify({
+                          field_changes: entry.fields,
+                          expected_updated_at: entry.expected_updated_at,
+                        }),
+                      }
+                    );
+                    const json = await resp.json().catch(function () { return {}; });
+                    if (resp.ok && json && json.ok) {
+                      success.push(entry.rowId);
+                    } else {
+                      failed.push({
+                        rowId: entry.rowId,
+                        error: (json && json.error) || ("HTTP " + resp.status),
+                      });
+                    }
+                  } catch (e) {
+                    failed.push({
+                      rowId: entry.rowId,
+                      error: "network: " + (e && e.message || e),
+                    });
+                  }
+                }
+                return { ok: failed.length === 0, success: success, failed: failed };
+              },
               // Universal CRUD Etapa F (24.5.2026 vecer Marti's "tlacitka
               // musi byt zevnitr fw komponenty"): nested detail grid taky
               // dostane vlastni CRUD toolbar. Pro ted: zadne ops (data_source_op

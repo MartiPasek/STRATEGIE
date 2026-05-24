@@ -979,6 +979,29 @@
         // Render: button "coreId:refId" vlevo PRED layout dropdown.
         // Klik → drop-up menu s informacemi (label, code, mode, ...).
         coreInfo: null,
+        // Universal CRUD Etapa F (24.5.2026 vecer Marti's doctrine "tlacitka
+        // musi byt zevnitr fw componenty"): per-grid CRUD toolbar (Novy/
+        // Oprava/Smazat/Obnovit) renderovany UVNITR ErpDataGrid containeru
+        // nad ag-grid host. Drz "stejne zobrazit, stejne funkce" napric vsema
+        // grid instancema (master + detail + picker). Driven by gridActions
+        // backend signal — visible vzdy, jen enabled state se meni.
+        //
+        // gridActions: {has_insert, has_edit, has_delete, edit_core_id}
+        //   — backend payload z /fw-core/{id}/page-spec (rootCd.grid_actions).
+        //   - has_insert/edit/delete: ovlada enabled state pro Novy/Oprava/Smazat
+        //   - edit_core_id: registered v ErpGridActions registry per gridCode
+        //   null = vsechny CRUD buttons disabled, jen Obnovit aktivni (detail
+        //   grid bez ops). Refresh je vzdy enabled.
+        gridActions: null,
+        // crudToolbar: 'auto' | true | false
+        //   'auto' (default): render true if gridActions truthy AND coreInfo.coreId
+        //   true: force render (i kdyz gridActions null — vsechny disabled krom Refresh)
+        //   false: drop toolbar uplne (legacy/special grids)
+        crudToolbar: 'auto',
+        // enableSaveButton: opt-in pro Excel mode Save placeholder v toolbar.
+        // Master grid (page_render.js) = true, nested detail = false (no Excel mode).
+        // ID '#erp-tb-save' + count badge — Krok 5.Y backward compat.
+        enableSaveButton: false,
         // B+10++ (6.5.2026): limit context pro status bar Celkem
         // { applied: int, hasMore: bool, options: [int...], onChange: (newLimit) => void }
         // Pokud null → status panel renderuje běžný "Celkem: N" bez click handleru.
@@ -1002,6 +1025,127 @@
       };
     }
 
+    // -----------------------------------------------------------------------
+    // Universal CRUD Etapa F (24.5.2026 vecer): per-grid internal toolbar
+    // (Novy/Oprava/Smazat/Obnovit). Drz Marti's doctrine "tlacitka musi
+    // byt zevnitr fw componenty" + "stejne zobrazit, stejne funkce" napric
+    // master + detail + picker. Visible vzdy, enabled state z gridActions.
+    // -----------------------------------------------------------------------
+
+    /** Detect zda renderovat CRUD toolbar. */
+    _shouldRenderCrudToolbar() {
+      const mode = this.options.crudToolbar;
+      if (mode === false) return false;
+      if (mode === true) return true;
+      const hasActions = !!this.options.gridActions;
+      const hasCoreId = !!(this.options.coreInfo && this.options.coreInfo.coreId != null);
+      const hasRegistry = (typeof window !== "undefined")
+        && window.ErpGridActions
+        && typeof window.ErpGridActions.list === "function";
+      return hasActions && hasCoreId && hasRegistry;
+    }
+
+    /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
+     *  + optional Save placeholder. */
+    _renderCrudToolbarHtml() {
+      const actions = window.ErpGridActions.list(["create", "edit", "delete", "refresh"]);
+      const ga = this.options.gridActions || {};
+      const editCoreId = ga.edit_core_id;
+      const stateMap = {
+        create: !ga.has_insert || !editCoreId,
+        edit: !ga.has_edit || !editCoreId,
+        delete: !ga.has_delete,
+        refresh: false,
+      };
+      const parts = actions.map((action) => {
+        const initDisabled = stateMap[action.key];
+        const disabledNow = initDisabled || (action.requiresRow);
+        const classes = ["erp-grid-action-btn"];
+        if (action.destructive) classes.push("danger");
+        const dataNeedRow = action.requiresRow ? ' data-need-row="1"' : "";
+        const dataAction = ' data-action="' + action.key + '"';
+        const disAttr = disabledNow ? " disabled" : "";
+        return '<button type="button" class="' + classes.join(" ") + '"'
+          + dataAction + dataNeedRow + disAttr
+          + ' data-hint="' + (action.hint || action.label).replace(/"/g, "&quot;") + '">'
+          + action.icon + "</button>";
+      });
+      if (this.options.enableSaveButton) {
+        parts.push(
+          '<button id="erp-tb-save" type="button" class="erp-grid-action-btn warning" '
+          + 'data-hint="Ulozit zmeny editovanych bunek (Excel mode)" '
+          + 'style="display:none;" disabled>SAVE<span class="erp-save-count" id="erp-tb-save-count">0</span></button>'
+        );
+      }
+      return parts.join("");
+    }
+
+    /** Wire click handlers — dispatch via ErpGridActions registry. */
+    _wireCrudToolbar() {
+      if (!this.crudToolbarEl) return;
+      const self = this;
+      const buttons = this.crudToolbarEl.querySelectorAll("[data-action]");
+      buttons.forEach((btn) => {
+        const actionKey = btn.getAttribute("data-action");
+        btn.addEventListener("click", () => {
+          if (btn.disabled) return;
+          const rowData = self._getFirstSelectedRowData();
+          const gridCode = self.options.gridCode
+            || (self.options.layoutKey ? String(self.options.layoutKey) : null);
+          const coreId = (self.options.coreInfo && self.options.coreInfo.coreId != null)
+            ? self.options.coreInfo.coreId : null;
+          const refreshFn = function () {
+            if (typeof self.options.onRefresh === "function") {
+              try { self.options.onRefresh(); } catch (e) {}
+            } else if (self.gridApi) {
+              try { self.gridApi.refreshCells({force: true}); } catch (e) {}
+            }
+          };
+          window.ErpGridActions.dispatch(actionKey, {
+            gridCode: gridCode,
+            coreId: coreId,
+            rowData: rowData,
+            gridApi: self.gridApi,
+            refreshFn: refreshFn,
+          }).catch((err) => {
+            console.warn("[ErpDataGrid CRUD]", actionKey, "failed:", err);
+          });
+        });
+      });
+    }
+
+    /** Update enabled state pro requiresRow buttons (Oprava/Smazat). */
+    _updateCrudButtonStates(selectedCount) {
+      if (!this.crudToolbarEl) return;
+      const N = Number(selectedCount) || 0;
+      const hasSelection = N > 0;
+      const ga = this.options.gridActions || {};
+      const editCoreId = ga.edit_core_id;
+
+      const targets = this.crudToolbarEl.querySelectorAll('[data-need-row="1"]');
+      targets.forEach((btn) => {
+        const actionKey = btn.getAttribute("data-action");
+        if (actionKey === "edit") {
+          btn.disabled = !hasSelection || N > 1 || !ga.has_edit || !editCoreId;
+        } else if (actionKey === "delete") {
+          btn.disabled = !hasSelection || !ga.has_delete;
+        } else {
+          btn.disabled = !hasSelection;
+        }
+      });
+    }
+
+    /** Helper — fetch first selected row data (or null). */
+    _getFirstSelectedRowData() {
+      if (!this.gridApi) return null;
+      try {
+        const sel = this.gridApi.getSelectedRows();
+        return (Array.isArray(sel) && sel.length > 0) ? sel[0] : null;
+      } catch (e) {
+        return null;
+      }
+    }
+
     _init() {
       // Apply theme class na container
       const themeClass = this.options.theme === "light"
@@ -1013,26 +1157,44 @@
         this.container.style.height = this.options.height;
       }
 
-      // B+5.3: build wrapper structure — toolbar nad gridem (pokud layoutKey set).
-      // Bez layoutKey žádný toolbar (component fungování beze změny pro non-persistent grids).
-      this.gridContainer = this.container;  // default — AG Grid renders přímo do containeru
+      // B+5.3 + Etapa F (24.5.2026): build wrapper structure — toolbars
+      // nad gridem (CRUD toolbar TOP, layout toolbar moves to status bar).
+      this.gridContainer = this.container;  // default
+      const _renderCrud = this._shouldRenderCrudToolbar();
+      if (this.options.layoutKey || _renderCrud) {
+        this.container.classList.add("erp-grid-with-toolbar");
+        this.gridContainer = document.createElement("div");
+        this.gridContainer.className = "erp-grid-inner";
+      }
+
+      // Universal CRUD Etapa F: TOP CRUD toolbar inside container.
+      if (_renderCrud) {
+        this.container.classList.add("erp-grid-with-crud-toolbar");
+        this.crudToolbarEl = document.createElement("div");
+        this.crudToolbarEl.className = "erp-grid-crud-toolbar";
+        this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
+        this.container.appendChild(this.crudToolbarEl);
+      }
+
+      if (this.options.layoutKey || _renderCrud) {
+        this.container.appendChild(this.gridContainer);
+      }
+
       if (this.options.layoutKey) {
-        // B+10++++ (Marti's drobnost 6.5.2026 po návratu): toolbar přesunut
-        // DO status baru (sloučení dvou řádek do jedné). Implementace:
-        // toolbar element vytvořený mimo grid, po onGridReady přesunut do
-        // .ag-status-bar-left-panel (DOM move zachovává event listenery).
-        this.container.classList.add("erp-grid-with-toolbar", "erp-grid-toolbar-in-statusbar");
+        // B+10++++ (Marti's drobnost 6.5.2026 po návratu): layout toolbar
+        // přesunut DO status baru (sestava dropdown + Pravidla + Uložit jako).
+        this.container.classList.add("erp-grid-toolbar-in-statusbar");
         this.toolbarEl = document.createElement("div");
         this.toolbarEl.className = "erp-grid-toolbar erp-grid-toolbar-in-statusbar";
         this.toolbarEl.innerHTML = this._renderToolbarHtml();
-        this.gridContainer = document.createElement("div");
-        this.gridContainer.className = "erp-grid-inner";
-        this.container.appendChild(this.gridContainer);
-        // Toolbar zůstane neviditelný stranou — `_relocateToolbarToStatusBar`
-        // ho po onGridReady přesune do status baru.
         this.toolbarEl.style.display = "none";
         this.container.appendChild(this.toolbarEl);
         this._wireToolbar();
+      }
+
+      // Wire CRUD toolbar click handlers (musi byt po append do DOM)
+      if (_renderCrud) {
+        this._wireCrudToolbar();
       }
 
       // Resolve columnDefs
@@ -2035,6 +2197,12 @@
           }
         },
         onSelectionChanged: (event) => {
+          // Universal CRUD Etapa F (24.5.2026): update internal CRUD toolbar
+          // enabled state per selection. requiresRow actions toggled disabled.
+          try {
+            const rows = event.api.getSelectedRows();
+            this._updateCrudButtonStates(rows ? rows.length : 0);
+          } catch (e) { /* ignore */ }
           if (typeof opts.onSelectionChange === "function") {
             opts.onSelectionChange(event.api.getSelectedRows());
           }

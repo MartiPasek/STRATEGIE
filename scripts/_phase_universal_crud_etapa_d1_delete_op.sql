@@ -40,11 +40,12 @@ INSERT INTO fw.data_source_op (
 )
 SELECT
     (SELECT id FROM fw.data_source WHERE code = 'system_new.framework_data_sources_overview'),
-    NULL,           -- delete op nepotrebuje data_set
-    'delete',
+    NULL,           -- data_set_id: delete op nepotrebuje data_set
+    'delete',       -- operation_kind
     NULL,           -- variant_code NULL allowed (Krok 5.K-B6 doctrine)
-    100,
-    'Universal CRUD Etapa D-1 (24.5.2026 vecer): hard DELETE row z fw.data_source'
+    FALSE,          -- is_default
+    100,            -- sort_order
+    'Universal CRUD Etapa D-1 (24.5.2026 vecer): hard DELETE row z fw.data_source'  -- description
 WHERE EXISTS (
     SELECT 1 FROM fw.data_source WHERE code = 'system_new.framework_data_sources_overview'
 )

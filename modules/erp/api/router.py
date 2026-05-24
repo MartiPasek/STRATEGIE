@@ -10730,18 +10730,13 @@ def _render_full_page(
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
                 data-hint="Obnovit data v aktivním přehledu">🔄</button>
-        <!-- Phase 38.4 Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3/Q4 doctrine):
-             Grid actions toolbar host (Centrala 1 M1 parita). Vedle Refresh
-             s optical gap. Render: page_render.js _renderGridToolbar po
-             page-spec fetch. Buttons (Nový/Oprava/Smazat) visible per
-             root_comp_def.grid_actions. No actions → empty host (only Refresh
-             visible v header). -->
-        <div id="erpGridActionsHost" style="display:flex;align-items:center;gap:6px;margin-left:12px;"></div>
-        <!-- Phase 38.4 Krok 5.Y (23.5.2026, Marti's "save button patri gridu"):
-             erpSaveChangesBtn moved z workspace header DO erpGridActionsHost
-             (renderován _renderGridToolbar jako 4. button po Nový/Oprava/Smazat,
-             stejný design erp-grid-action-btn.warning, visibility gated na
-             Excel mode toggle). Dropped: workspace header save button stub. -->
+        <!-- Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper refactor"
+             "tlacitka musi byt zevnitr fw komponenty"): #erpGridActionsHost
+             DROPPED. CRUD buttons (Novy/Oprava/Smazat/Obnovit) + Save
+             (Krok 5.Y Excel mode) ted renderovany UVNITR ErpDataGrid containeru
+             per-grid instance (master + detail + picker). Drz "stejne
+             zobrazit, stejne funkce" napric. _refreshSaveBtn() v page_render.js
+             stale targets #erp-tb-save per ID (ted v gridu, ne v header). -->
         <!-- Phase 38.5+ (10.5.2026 ráno): Install button pro non-technical users.
              Visible JEN kdyz Chrome nabidne PWA install (beforeinstallprompt event).
              Skryty po install (appinstalled event) nebo v PWA standalone mode. -->

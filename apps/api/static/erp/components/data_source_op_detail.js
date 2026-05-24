@@ -156,6 +156,37 @@
               // suppressSizeToFit + skip sizeColumnsToFit() v init/resize.
               disableColumnFlex: true,
 
+              // Universal CRUD Etapa F (24.5.2026 vecer Marti's "tlacitka
+              // musi byt zevnitr fw komponenty"): nested detail grid taky
+              // dostane vlastni CRUD toolbar. Pro ted: zadne ops (data_source_op
+              // nema vlastni ops zatim) -> gridActions vsechny false -> 4
+              // buttons visible, 3 disabled, jen Obnovit aktivni. Drz
+              // "stejne zobrazit, stejne funkce" napric master + detail.
+              gridActions: {
+                has_insert: false,
+                has_edit: false,
+                has_delete: false,
+                edit_core_id: null,
+              },
+              contextMenuActions: ["create", "edit", "delete", "refresh"],
+
+              // Refresh callback - ErpDataGrid internal Obnovit button vola
+              // tento handler. Re-fetch ops rows pro tohohle master_id.
+              onRefresh: function () {
+                try {
+                  fetch(dataUrl, { credentials: "same-origin" })
+                    .then(function (r) { return r.json(); })
+                    .then(function (j) {
+                      if (j && j.ok && Array.isArray(j.rows) && self._nestedGrid
+                          && self._nestedGrid.gridApi) {
+                        self._nestedGrid.gridApi.setGridOption("rowData", j.rows);
+                      }
+                    });
+                } catch (e) {
+                  console.warn("[detail onRefresh]", e);
+                }
+              },
+
               // Disable kaskáda zatím (level 2 = data_set přijde later)
               enableMasterDetail: false,
             });

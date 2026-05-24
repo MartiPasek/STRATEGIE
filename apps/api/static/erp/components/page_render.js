@@ -538,6 +538,28 @@
               // ErpGridActions registry pro stejne labels/icons/handlers
               // jako toolbar (Marti's "stejne funkce" doctrine).
               contextMenuActions: _ctxMenuActions,
+              // Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper
+              // refactor"): pass gridActions backend signal → ErpDataGrid
+              // renderuje vlastni CRUD toolbar (4 buttons Novy/Oprava/Smazat/
+              // Obnovit) v internim wrapperu nad ag-grid. Drz "tlacitka musi
+              // byt zevnitr fw komponenty". + enableSaveButton: true pro
+              // Excel mode Save (master grid jen, Krok 5.Y).
+              gridActions: _gridActionsForCtx || null,
+              enableSaveButton: true,
+              // Refresh callback — ErpDataGrid internal Obnovit button vola
+              // tento handler. Re-fetch rows z data_source endpoint.
+              onRefresh: function () {
+                try {
+                  if (typeof window._refreshGrid === "function") {
+                    window._refreshGrid();
+                  } else if (gridHost.__erpGridInst
+                             && gridHost.__erpGridInst.gridApi) {
+                    gridHost.__erpGridInst.gridApi.refreshCells({force: true});
+                  }
+                } catch (e) {
+                  console.warn("[page_render onRefresh]", e);
+                }
+              },
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
               // (datagrid.js pass-through z 5.R-D+3 P1 patch).
               defaultColDefExtra: {
@@ -623,167 +645,22 @@
             });
             gridHost.__erpGridInst = gridInst;
 
-            // Krok 5.S Fáze 6 (23.5.2026 rano, Marti's Q3 M1 header relocation):
-            // render grid actions do workspace header (#erpGridActionsHost
-            // vedle Tvoje Marti + 🔄 Refresh). Tab switch cleanup: ohort.innerHTML
-            // se clearuje v _renderGridToolbar start (předchozí tab grid actions).
-            const _toolbarHost = document.getElementById("erpGridActionsHost");
-            let _selectedRowId = null;
-            if (_toolbarHost) {
-              _renderGridToolbar(_toolbarHost, rootCd.grid_actions, {
-                coreId: coreId,
-                onNew: function(editCoreId) {
-                  // Q8=A today MVP — Insert mode v Fáze 5 (DesignFwForm extend
-                  // o rowId=null support → empty form → POST insert).
-                  alert(
-                    "🆕 Nový záznam (CORE " + editCoreId + ")\n\n" +
-                    "Insert mode přijde v Krok 5.S Fáze 5 (DesignFwForm extend " +
-                    "o rowId=null). Zatím přidávejte řádky přes Excel mode " +
-                    "(Ctrl+Shift+E)."
-                  );
-                },
-                onEdit: function(editCoreId) {
-                  if (!_selectedRowId || typeof window.DesignFwForm !== "function") {
-                    console.warn("[toolbar Oprava] no selection or DesignFwForm missing");
-                    return;
-                  }
-                  new window.DesignFwForm({
-                    coreId: editCoreId,
-                    rowId: _selectedRowId,
-                    onSaveSuccess: function() {
-                      // Refresh grid po save (analog openFwFormForRow flow)
-                      try {
-                        const inst = gridHost.__erpGridInst;
-                        if (inst && typeof inst.refresh === "function") inst.refresh();
-                      } catch (_e) {}
-                    },
-                  }).open();
-                },
-                onDelete: async function() {
-                  // Krok 5.X (23.5.2026): batch helper Mód 1 (Centrála 1 cyklicky per-row).
-                  // Collect selected rows; pokud žádné, fallback na _selectedRowId (focused).
-                  let ids = [];
-                  try {
-                    if (gridInst && gridInst.gridApi) {
-                      const sel = gridInst.gridApi.getSelectedRows() || [];
-                      ids = sel.map(r => (r && (r.id != null ? r.id : r.ID))).filter(x => x != null);
-                    }
-                  } catch (_e) {}
-                  if (ids.length === 0 && _selectedRowId != null) {
-                    ids = [_selectedRowId];
-                  }
-                  if (ids.length === 0) {
-                    console.warn("[toolbar Smazat] no selection — abort");
-                    return;
-                  }
-
-                  // Defensive — pokud helper nezavedený, fallback na native confirm
-                  if (typeof window._erpBatchRowAction !== "function") {
-                    console.error("[toolbar Smazat] _erpBatchRowAction not loaded — abort");
-                    alert("Batch helper není zaveden. Hard reload (Ctrl+Shift+R).");
-                    return;
-                  }
-
-                  const result = await window._erpBatchRowAction({
-                    rowIds: ids,
-                    opLabel: "Smazat",
-                    opVerb: "smazat",
-                    destructive: true,
-                    actionFn: async function(rowId, idx, total) {
-                      try {
-                        const resp = await fetch(
-                          "/api/v1/erp/design/" + coreId + "/" + rowId,
-                          { method: "DELETE", credentials: "include" }
-                        );
-                        const json = await resp.json().catch(() => ({}));
-                        if (resp.ok && json && json.ok) {
-                          // Krok 5.W diag drilldown — pokud refresh ukáže still-there,
-                          // backend success ale persistence fail (activity_log abort).
-                          // Tady jen log, refresh post-loop hodnotí state.
-                          console.info("[batch Smazat] " + (idx + 1) + "/" + total +
-                                       " id=" + rowId + " OK (deleted=" + json.deleted_rows + ")");
-                          return { ok: true };
-                        }
-                        const errMsg = (json && json.error) || ("HTTP " + resp.status);
-                        return { ok: false, error: errMsg };
-                      } catch (e) {
-                        return { ok: false, error: "network: " + (e && e.message || e) };
-                      }
-                    },
-                    refreshFn: async function() {
-                      try {
-                        const r = await fetch(fetchUrl, { credentials: 'include' });
-                        const d = await r.json();
-                        if (d && d.ok && Array.isArray(d.rows) && gridInst && gridInst.gridApi) {
-                          // Krok 5.X polish (23.5.2026, Marti's catch): full
-                          // selection reset PŘED setRowData. AG Grid jinak
-                          // auto-restore selection na rows se stejnými IDs
-                          // (zbývající po DELETE zůstanou opticky vybrané).
-                          try {
-                            gridInst.gridApi.deselectAll();
-                            // AG Grid Enterprise range selection (Excel-like
-                            // cell range) — clear separately
-                            if (typeof gridInst.gridApi.clearRangeSelection === 'function') {
-                              gridInst.gridApi.clearRangeSelection();
-                            }
-                            if (typeof gridInst.gridApi.clearFocusedCell === 'function') {
-                              gridInst.gridApi.clearFocusedCell();
-                            }
-                          } catch (_e) {}
-                          gridInst.gridApi.setGridOption('rowData', d.rows);
-                        }
-                      } catch (e) {
-                        console.warn("[batch Smazat] refresh failed:", e);
-                      }
-                    },
-                  });
-
-                  // Krok 5.X polish: pojistka — reset selection state PO refresh
-                  // (refreshFn už deselectAll volal před setRowData, ale tady
-                  // znovu pro toolbar + state lock cleanup).
-                  _selectedRowId = null;
-                  _updateToolbarSelection(_toolbarHost, false, 0);
-                  try {
-                    if (gridInst && gridInst.gridApi) {
-                      gridInst.gridApi.deselectAll();
-                      if (typeof gridInst.gridApi.clearRangeSelection === 'function') {
-                        gridInst.gridApi.clearRangeSelection();
-                      }
-                      if (typeof gridInst.gridApi.clearFocusedCell === 'function') {
-                        gridInst.gridApi.clearFocusedCell();
-                      }
-                    }
-                  } catch (_e) {}
-                },
-                // Krok 5.S Fáze 6: onRefresh dropnut — workspace 🔄 Refresh
-                // už refresh dělá (ErpRefresh.refreshActiveTab) + oranžový rámeček
-                // stale data indication. Marti's Q4 doctrine.
-              });
-
-              // Wire selection change → enable/disable Oprava + Smazat
-              // Krok 5.X (23.5.2026): multi-row aware. _selectedRowId drží
-              // PRVNÍ selected (focused) — pro Oprava single-row fallback.
-              // Smazat se dívá na getSelectedRows() celý array (batch).
-              try {
-                if (gridInst && gridInst.gridApi) {
-                  gridInst.gridApi.addEventListener('selectionChanged', function() {
-                    const sel = gridInst.gridApi.getSelectedRows() || [];
-                    if (sel.length > 0) {
-                      const row = sel[0];
-                      _selectedRowId = row.id != null ? row.id : (row.ID != null ? row.ID : null);
-                      // Toolbar enable: hasSelection=true (Smazat enabled).
-                      // Oprava ignoruje multi-select — opens form pro 1. row.
-                      _updateToolbarSelection(_toolbarHost, _selectedRowId != null, sel.length);
-                    } else {
-                      _selectedRowId = null;
-                      _updateToolbarSelection(_toolbarHost, false, 0);
-                    }
-                  });
-                }
-              } catch (_e) {
-                console.warn("[toolbar] selectionChanged wire failed:", _e);
-              }
-            }
+// Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper refactor"):
+            // External toolbar host (#erpGridActionsHost) DROPPED. CRUD buttons
+            // ted renderovany UVNITR ErpDataGrid containeru (per-grid internal
+            // toolbar). Click handlers via ErpGridActions.dispatch registry.
+            // Selection state managed internally datagrid.js _updateCrudButtonStates.
+            //
+            // Drop:
+            //   - _renderGridToolbar(_toolbarHost, ...) call
+            //   - _updateToolbarSelection wire
+            //   - _selectedRowId tracking (registry _hardDeleteRow uses ctx.rowData)
+            //
+            // Reuse via registry handlers (erp_grid_actions.js):
+            //   - create → _openFwEditForm(gridCode, null, "create", refreshFn)
+            //   - edit   → _openFwEditForm(gridCode, rowId, "edit", refreshFn)
+            //   - delete → _hardDeleteRow(ctx) — single row via _erpBatchRowAction
+            //   - refresh → opts.onRefresh callback (passed do ErpDataGrid)
           } catch (e) {
             console.error("[page_render] ErpDataGrid init failed:", e);
             gridHost.innerHTML =

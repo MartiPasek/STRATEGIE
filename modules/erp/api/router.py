@@ -10741,8 +10741,16 @@ def _render_full_page(
         <!-- Phase 38.5 (9.5.2026 vecer): Refresh aktivniho tab gridu.
              Stav: neutral / .stale (>5 min, orange) / .very-stale (>15 min, pulse).
              Per-tab freshness tracking v ErpRefresh._gridFreshness Mapě. -->
+        <!-- REVERT polish B (24.5.2026 vecer pozde, Marti's catch):
+             Native #erpRefreshBtn HIDDEN. Po Krok 2 tab cache je broken
+             (cache hit = jen unhide pane, no fetch data). Internal Obnovit
+             v #erpGridActionsHost CRUD panel je smooth + state restore.
+             Single source of truth — internal funkcni button vyhrava.
+             Ponechano v DOM (ErpRefresh.init() volani + selectory) jen
+             skryto pro user. -->
         <button type="button" class="erp-refresh-btn" id="erpRefreshBtn"
-                data-hint="Obnovit data v aktivním přehledu">🔄</button>
+                data-hint="Obnovit data v aktivním přehledu"
+                style="display:none">🔄</button>
         <!-- Etapa F toolbarHost (24.5.2026 vecer Marti's final spec):
              #erpGridActionsHost RESTORED — host pro master grid CRUD buttons
              (Novy/Oprava/Smazat/Obnovit + Save Excel mode). ErpDataGrid

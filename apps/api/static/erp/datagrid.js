@@ -1062,15 +1062,11 @@
     /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
      *  + optional Save placeholder. */
     _renderCrudToolbarHtml() {
-      // UI polish (24.5.2026 vecer pozde, Marti's "ikonu Obnovit z panelu
-      // CRUD hned vedle Tvoje Marti uz muzeme zlikvidovat"): external
-      // toolbarHost (master grid, workspace header) skip refresh — native
-      // #erpRefreshBtn vlevo je per-tab correct. Internal nested grids
-      // (detail/picker, no header refresh) keep refresh in their toolbar.
-      const actionKeys = this._toolbarHostExternal
-        ? ["create", "edit", "delete"]
-        : ["create", "edit", "delete", "refresh"];
-      const actions = window.ErpGridActions.list(actionKeys);
+      // REVERT (24.5.2026 vecer pozde, Marti's catch "tu vlevo" myslel
+      // native #erpRefreshBtn, ne internal). Internal Obnovit (smooth
+      // setRowData + Krok 1++ state restore) je hodnotny — vraceno.
+      // Native button hidden v router.py.
+      const actions = window.ErpGridActions.list(["create", "edit", "delete", "refresh"]);
       const ga = this.options.gridActions || {};
       const editCoreId = ga.edit_core_id;
       const stateMap = {
@@ -1447,13 +1443,11 @@
       // Wire CRUD toolbar click handlers (musi byt po append do DOM)
       if (_renderCrud) {
         this._wireCrudToolbar();
-        // UI polish (24.5.2026 vecer pozde, Marti's drop Obnovit z external):
-        // Polling timer jen pro internal toolbar (nested grids). External
-        // toolbar (master grid v workspace header) nema refresh button po
-        // polish — native #erpRefreshBtn handluje per-tab.
-        if (!this._toolbarHostExternal) {
-          this._startFreshnessPolling();
-        }
+        // Etapa F Freshness: start polling timer pro periodic re-evaluation.
+        // REVERT polish B (24.5.2026 vecer pozde): vraceno unconditional
+        // — internal Obnovit je v external host (master grid) i v internal
+        // toolbar (nested grids). Native #erpRefreshBtn vlevo hidden.
+        this._startFreshnessPolling();
       }
 
       // Resolve columnDefs

@@ -2184,10 +2184,30 @@
             //   - flex: 0 (no proportional)
             //   - suppressSizeToFit: true (sizeColumnsToFit ho preskoci)
             // Per-column saved width z DB pak drzi permanentne.
-            const newDefs = currentDefs.map(d => Object.assign({}, d, {
-              flex: 0,
-              suppressSizeToFit: true,
-            }));
+            //
+            // Marti's 24.5.2026 vecer catch (po disableColumnFlex deploy):
+            // PRED fixem cols nemely explicit width (jen flex:1), AG Grid pri
+            // applyColumnState pouzila state.width jako primary. PO fixu
+            // buildAutoColumnDefs nastavi columnDef.width = 160 (default),
+            // setGridOption columnDefs pak reinit cols → AG Grid v32+ priority
+            // columnDef.width > state.width → saved 581 → override na 160.
+            // FIX: merge saved widths + hide do newDefs PRED setGridOption,
+            // aby columnDef.width = saved.width (pixel-perfect parity).
+            const savedByColId = {};
+            (cols || []).forEach(c => {
+              const colId = c.colId || c.field;
+              if (colId) savedByColId[colId] = c;
+            });
+            const newDefs = currentDefs.map(d => {
+              const colId = d.colId || d.field;
+              const saved = savedByColId[colId];
+              const patch = { flex: 0, suppressSizeToFit: true };
+              if (saved) {
+                if (saved.width != null && saved.width > 0) patch.width = saved.width;
+                if (saved.hide != null) patch.hide = !!saved.hide;
+              }
+              return Object.assign({}, d, patch);
+            });
             if (typeof this.gridApi.setGridOption === "function") {
               this.gridApi.setGridOption("columnDefs", newDefs);
             } else if (typeof this.gridApi.updateGridOptions === "function") {

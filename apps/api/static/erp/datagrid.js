@@ -1378,10 +1378,16 @@
                 });
 
                 // Strategy 1: dispatch real MouseEvent sequence na filter button
-                // AG Grid posloucha na mousedown ne synthetic .click()
+                // AG Grid posloucha na mousedown ne synthetic .click().
+                // POZOR: musí být actual <button>, NE wrapper div.
+                // V Quartz v32+: data-ref="eButtonShowMainFilter" = actual button
+                //                data-ref="eButtonWrapper" = div wrapper (nereaguje)
+                // v3 hotfix: querySelector(".ag-floating-filter-button, button")
+                // matchnul WRAPPER div protože je v DOM order PŘED svým child button.
                 var filterBtn = ffCell.querySelector(
-                  ".ag-floating-filter-button button, " +
-                  ".ag-floating-filter-button"
+                  "[data-ref='eButtonShowMainFilter'], " +     // AG Grid Quartz exact
+                  ".ag-floating-filter-button-button, " +       // class name
+                  ".ag-floating-filter-button > button"         // direct child button
                 );
                 if (filterBtn) {
                   console.log("[ErpDataGrid] dispatching MouseEvent sequence on filter button:", filterBtn);

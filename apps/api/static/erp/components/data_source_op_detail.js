@@ -42,8 +42,10 @@
 
     // FW chain code + layoutKey — deploy 24.5.2026 (data_source.id = 44).
     // Pokud někdy bude potřeba změnit code, změnit i layoutKey společně
-    // (musí odpovídat fw.data_source.id pro validátor + fw.comp_grid lookup).
+    // (musí odpovídat fw.data_source.id pro validátor + fw.comp_grid lookup +
+    // coreInfo.coreId pro footer pill).
     var FW_DATA_SOURCE_CODE = "system_new.framework_data_source_ops";
+    var FW_DATA_SOURCE_ID = 44;
     var FW_LAYOUT_KEY = "ds_44";
 
     function ErpDataSourceOpDetailRenderer() {}
@@ -107,6 +109,21 @@
               enableFilters: true,              // floating filter + glow + popup
               rowSelection: "single",           // single row selection v detail
               compact: true,                    // rowHeight 26, headerHeight 32
+
+              // Marti's 24.5.2026 catch po Volba A: pill v paticce
+              // (IDCore + IDref) je native ErpDataGrid feature ovládaná
+              // přes options.coreInfo. Master grid path (page_render.js)
+              // ho injektne, detail nested grid musí taky.
+              //   - coreId: fw.data_source.id detail chain (44)
+              //   - refId: master row id (jeden z fw.data_source rows)
+              //   - coreCode: FW chain code (system_new.framework_data_source_ops)
+              //   - coreLabel: human-readable per master row
+              coreInfo: {
+                coreId: FW_DATA_SOURCE_ID,
+                refId: masterId,
+                coreCode: FW_DATA_SOURCE_CODE,
+                coreLabel: "Operace data sourcu #" + masterId,
+              },
 
               // Marti's 24.5.2026 catch: nested grids s saved layoutem
               // si nepřejí flex distribution — sloupce by se "analogicky

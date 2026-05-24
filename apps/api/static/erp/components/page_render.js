@@ -438,7 +438,10 @@
           const MASTER_DETAIL_REGISTRY = {
             "framework_data_sources": {
               rendererClass: window.ErpDataSourceOpDetailRenderer || null,
-              detailRowHeight: 240,  // ~6 ops viditelné v compact mode
+              // Marti's 24.5.2026 Krok 6 polish: detail container auto-sized
+              // (paticka hned po posledni row, žádný buffer).
+              // detailRowHeight drop — replaced detailRowAutoHeight:true.
+              detailRowAutoHeight: true,
             },
             // future levels — kaskáda:
             // "framework_data_source_ops": {
@@ -469,6 +472,7 @@
               enableMasterDetail: !!_masterDetailReady,
               detailCellRenderer: _masterDetailReady ? _masterDetailCfg.rendererClass : undefined,
               detailRowHeight: _masterDetailReady ? _masterDetailCfg.detailRowHeight : undefined,
+              detailRowAutoHeight: _masterDetailReady ? !!_masterDetailCfg.detailRowAutoHeight : undefined,
               // Marti's 24.5.2026 changed mind: NE auto-expand. User klikne
               // na expand arrow (►) manuálně. Default vše collapsed.
               masterDetailDefaultExpanded: false,

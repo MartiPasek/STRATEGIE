@@ -330,12 +330,15 @@
   border-left: 1px solid var(--border, #3a3d44);
 }
 
-/* Master-detail expansion area. Marti's 24.5.2026 "jemnejsi jako master":
-   detail container má border + radius pro vizuální oddělení od master row.
-   Padding 8-12px po stranách + dolu, méně nahoře (přilepený k master row). */
+/* Master-detail expansion area. Marti's 24.5.2026 polish:
+   - Tree-like indent zleva (Marti's "odsadit jako strom") — 60px
+     (master expand arrow je ~20px + 40px indent breathing room)
+   - Decentní mezera dole (Marti's "mezera pro oddeleni" od dalši master row)
+   - Top padding malý (přilepený k master row, indent visualne navazuje)
+   - Container border + radius pro vizuální oddělení detail blocku */
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-row {
   background-color: var(--bg, #0e0f11);
-  padding: 4px 12px 12px 36px;  /* indent vlevo = pod expand arrow */
+  padding: 4px 12px 12px 60px;  /* L=60 indent jako tree, B=12 mezera */
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-grid {
   border: 1px solid var(--border, #3a3d44);

@@ -1170,7 +1170,7 @@
         rowHeight: opts.compact ? 26 : 32,
         headerHeight: opts.compact ? 32 : 40,
         // Layout
-        domLayout: "normal",
+        domLayout: opts.domLayout || "normal",
         // Selection — Excel/Windows-style standard:
         //   - Single click  = select that row (deselect others)
         //   - Ctrl+click    = toggle individual row (multi-select)
@@ -1287,6 +1287,11 @@
             : undefined
         ),
         detailRowHeight: opts.detailRowHeight || undefined,
+        // Marti's 24.5.2026 Krok 6 polish: detail container auto-resize
+        // podle obsahu (vyhne se prázdné mezeře pod posledním rowem,
+        // pokud detail má méně rows než detailRowHeight buffer).
+        // Vyžaduje aby nested grid mělo domLayout:'autoHeight' taky.
+        detailRowAutoHeight: opts.detailRowAutoHeight === true,
         // groupDefaultExpanded: 1 = expand level 1 only (master rows
         // expanded, ich detail-detail collapsed). Marti's "default
         // expanded jen level 1" doctrine.

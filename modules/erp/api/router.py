@@ -10178,6 +10178,19 @@ def _render_full_page(
       width: 100%;
       overflow: hidden;
     }}
+    /* Etapa F Krok 2 (24.5.2026 vecer pozde, Marti's "prepinani zalozek
+       bez refreshe"): per-tab persistent pane. Switch = hidden toggle,
+       grid state (scroll, selection, filters) drzi prirozene v DOM. */
+    .erp-tab-pane {{
+      display: flex;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+      min-width: 0;
+      width: 100%;
+      height: 100%;
+    }}
+    .erp-tab-pane[hidden] {{ display: none; }}
     /* ── B+8 (6.5.2026): multi-tab přehled bar ───────────────────── */
     /* B+10+++ (Marti's drobnost 6.5.2026): tabs zvýrazněné, těsně nad
        gridem, bez border-bottom (visually splývá s gridem). */
@@ -15690,18 +15703,11 @@ def _render_workspace_page(user_id: int) -> str:
 
       async function switchTab(idx) {
         if (idx < 0 || idx >= tabsState.tabs.length) return;
-        // Save current grid state před switch
-        if (tabsState.activeIndex >= 0 && tabsState.activeIndex < tabsState.tabs.length) {
-          const cur = tabsState.tabs[tabsState.activeIndex];
-          if (cur && activeErpDataGrid && activeErpDataGrid.gridApi) {
-            try {
-              cur.gridState = {
-                columnState: activeErpDataGrid.gridApi.getColumnState(),
-                filterModel: activeErpDataGrid.gridApi.getFilterModel(),
-              };
-            } catch (e) {}
-          }
-        }
+        // Etapa F Krok 2 (24.5.2026 vecer pozde): drop dead gridState
+        // capture. Per-tab pane cache drzi grid state v DOM/AG Grid prirozene
+        // — zadny save/restore needed, switch = hidden toggle.
+        // (Predtim: cur.gridState = {columnState, filterModel} but restore
+        //  was dead code v _renderTabIntoMain za unreachable return.)
         // Fix Q+ (21.5. revize, po Marti's catch "FW tabs neloguji při switch"):
         // per-tab window context caching. tab.coreId/compDefId se ukládá na
         // konci switchTab (po dispatchPageRender běhu). Při switchu zpět
@@ -15788,6 +15794,24 @@ def _render_workspace_page(user_id: int) -> str:
       function closeTab(idx) {
         if (idx < 0 || idx >= tabsState.tabs.length) return;
         const closedCislo = tabsState.tabs[idx].cislo;
+        const closedItemId = tabsState.tabs[idx].itemId;
+        // Etapa F Krok 2 (24.5.2026 vecer pozde): destroy + remove pane DOM
+        // pred splice. Per-tab pane cache cleanup — grid instance destroy
+        // (memory), pane element remove (DOM).
+        try {
+          const closedPaneId = String(closedItemId != null ? closedItemId : closedCislo);
+          const closedPane = mainContent.querySelector(
+            '.erp-tab-pane[data-tab-pane-id="' + closedPaneId + '"]'
+          );
+          if (closedPane) {
+            if (closedPane._erpGridInstance
+                && typeof closedPane._erpGridInstance.destroy === "function") {
+              try { closedPane._erpGridInstance.destroy(); } catch (_eDes) {}
+            }
+            closedPane._erpGridInstance = null;
+            closedPane.remove();
+          }
+        } catch (_eClose) { /* never crash tab close */ }
         tabsState.tabs.splice(idx, 1);
         // B+8.1c: API persist tab close (fire-and-forget)
         _apiCall("DELETE", "/api/v1/erp/tabs/" + closedCislo);
@@ -16032,6 +16056,52 @@ def _render_workspace_page(user_id: int) -> str:
       function _renderTabIntoMain(tab) {
         // B+2: auto-close jádro pane (jiný přehled = jiný kontext)
         if (currentJadro) closeJadroPane();
+
+        // Etapa F Krok 2 (24.5.2026 vecer pozde, Marti's directive
+        // "MY NESMIME PRI PREPINANI ZALOZEK gridu recreate prehledy"):
+        // per-tab persistent DOM pane architecture. Cached pane = no
+        // recreate, grid state drzi prirozene v DOM/AG Grid.
+        const paneId = String(tab.itemId != null ? tab.itemId : tab.cislo);
+
+        // Hide all OTHER existing panes (siblings)
+        mainContent.querySelectorAll('.erp-tab-pane').forEach(function (p) {
+          if (p.dataset.tabPaneId !== paneId) {
+            p.setAttribute('hidden', '');
+          }
+        });
+
+        // Check for cached pane (already built v predchozim switchu/openu)
+        let pane = mainContent.querySelector(
+          '.erp-tab-pane[data-tab-pane-id="' + paneId + '"]'
+        );
+        if (pane) {
+          // CACHED — just unhide, grid state preserved (scroll, selection,
+          // filters, sort, expand). activeErpDataGrid pointer update pro
+          // backward compat (sizeColumnsToFit calls, closeTab destroy).
+          pane.removeAttribute('hidden');
+          activeErpDataGrid = pane._erpGridInstance || null;
+          // AG Grid resize hint po unhide (display:none → display:flex
+          // tranzice muze potrebovat manual sizeColumnsToFit).
+          if (activeErpDataGrid && typeof activeErpDataGrid.sizeColumnsToFit === "function") {
+            setTimeout(function () {
+              try { activeErpDataGrid.sizeColumnsToFit(); } catch (e) {}
+            }, 30);
+          }
+          return;
+        }
+
+        // FIRST TIME — clear any legacy direct mainContent children (old
+        // architecture pred Krok 2) + create new pane + dispatch render
+        Array.from(mainContent.childNodes).forEach(function (n) {
+          if (n.nodeType === 1 && !n.classList.contains('erp-tab-pane')) {
+            n.remove();
+          }
+        });
+        pane = document.createElement('div');
+        pane.className = 'erp-tab-pane';
+        pane.dataset.tabPaneId = paneId;
+        mainContent.appendChild(pane);
+
         // Phase 22.5.2026 (po cislo_def drop refactor): VŠECHNY tab.cislo jsou
         // positive menu_node.id. Žádný synthetic negative range, žádný legacy
         // Centrála 1 negative ID. Dispatch přes core_id lookup z tree cache +
@@ -16049,18 +16119,20 @@ def _render_workspace_page(user_id: int) -> str:
         }
         if (coreId) {
           if (window.ErpPageRender && typeof window.ErpPageRender.dispatchPageRender === "function") {
-            window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, mainContent);
+            // Etapa F Krok 2: dispatchPageRender targets pane (NOT mainContent).
+            // page_render.js assigns pane._erpGridInstance po ErpDataGrid init.
+            window.ErpPageRender.dispatchPageRender(coreId, coreCode, tab, pane);
           } else {
             console.error("[router] ErpPageRender modul neni nacten — hard reload prohlizec.");
-            mainContent.innerHTML =
+            pane.innerHTML =
               '<div style="padding:40px;text-align:center;color:#d4a8a8;">' +
               '❌ page_render.js modul nenacten — hard reload prohlizec (Ctrl+Shift+R).' +
               '</div>';
           }
           return;
         }
-        // No core associated — folder placeholder
-        mainContent.innerHTML =
+        // No core associated — folder placeholder INTO PANE (cached too)
+        pane.innerHTML =
           '<div class="erp-main-empty" style="padding:40px;text-align:center;">' +
           '<h2 style="margin:0 0 12px;color:#a8b4c2;font-weight:500;">📁 ' +
           escapeHtml(tab.label || "Soudeček") + '</h2>' +
@@ -16068,23 +16140,6 @@ def _render_workspace_page(user_id: int) -> str:
           'Soudeček bez asociovaného core přehledu. ' +
           'Pravý-klik → 🎨 Design pro vybrání core.' +
           '</p></div>';
-        return;
-        // Restore grid state pokud cached
-        if (tab.gridState && activeErpDataGrid && activeErpDataGrid.gridApi) {
-          setTimeout(() => {
-            try {
-              if (tab.gridState.columnState) {
-                activeErpDataGrid.gridApi.applyColumnState({
-                  state: tab.gridState.columnState,
-                  applyOrder: true,
-                });
-              }
-              if (tab.gridState.filterModel) {
-                activeErpDataGrid.gridApi.setFilterModel(tab.gridState.filterModel);
-              }
-            } catch (e) {}
-          }, 30);
-        }
       }
 
       // Restore tabs state z localStorage (po loadTree() — potřebujeme tree pro itemId resolve)

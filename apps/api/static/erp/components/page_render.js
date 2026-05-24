@@ -663,6 +663,19 @@
               },
             });
             gridHost.__erpGridInst = gridInst;
+            // Etapa F Krok 2 (24.5.2026 vecer pozde, Marti's "prepinani
+            // zalozek bez refreshe"): assign per-tab pane property pro
+            // closeTab destroy lookup. mainContent v Krok 2 architecture =
+            // per-tab pane element, NE shared mainContent. closeTab finds
+            // pane by data-tab-pane-id → pane._erpGridInstance.destroy().
+            try {
+              mainContent._erpGridInstance = gridInst;
+              // Plus update global activeErpDataGrid (backward compat —
+              // sizeColumnsToFit calls a closeTab cleanup paths).
+              if (typeof window !== "undefined") {
+                window.activeErpDataGrid = gridInst;
+              }
+            } catch (_eAssign) { /* never crash render */ }
 
 // Universal CRUD Etapa F (24.5.2026 vecer Marti's "B proper refactor"):
             // External toolbar host (#erpGridActionsHost) DROPPED. CRUD buttons

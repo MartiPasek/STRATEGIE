@@ -1124,6 +1124,10 @@
             // 1. Capture state PRED refresh
             let savedId = null;
             let savedColId = null;
+            // Etapa F Krok 1++ (24.5.2026 vecer pozde, Marti's directive
+            // "mysli i na Master Detail grid... drzel stav expand i po refresh"):
+            // capture expanded master rows Set pro post-refresh restore.
+            const expandedIds = new Set();
             if (self.gridApi) {
               try {
                 const selRows = self.gridApi.getSelectedRows() || [];
@@ -1146,6 +1150,19 @@
                     } catch (_eFC) {}
                   }
                 }
+                // Etapa F Krok 1++: kapture expanded master rows (pouze
+                // master-detail enabled grids). AG Grid forEachNode
+                // iteruje vsechny master nodes; node.expanded je true
+                // pokud detail panel je open.
+                try {
+                  self.gridApi.forEachNode(function (node) {
+                    if (node && node.expanded && node.data) {
+                      const did = (node.data.id != null ? node.data.id
+                                    : (node.data.ID != null ? node.data.ID : null));
+                      if (did != null) expandedIds.add(did);
+                    }
+                  });
+                } catch (_eExp) {}
               } catch (_eCap) {}
             }
 
@@ -1162,24 +1179,30 @@
               return;  // visual repaint only, no row change, no restore
             }
 
-            // 3. Restore state PO refresh — locate by id
-            if (savedId != null && self.gridApi) {
+            // 3. Restore state PO refresh — locate by id + expand master rows
+            if (self.gridApi) {
               try {
-                let foundNode = null;
+                let foundSelNode = null;
                 self.gridApi.forEachNode(function (node) {
-                  if (foundNode) return;
-                  if (node.data) {
-                    const did = (node.data.id != null ? node.data.id
-                                  : (node.data.ID != null ? node.data.ID : null));
-                    if (did === savedId) foundNode = node;
+                  if (!node || !node.data) return;
+                  const did = (node.data.id != null ? node.data.id
+                                : (node.data.ID != null ? node.data.ID : null));
+                  if (did == null) return;
+                  // Etapa F Krok 1++ restore: re-expand master rows
+                  // (master-detail enabled). setExpanded(true) trigger
+                  // detail panel re-create (nested grid pre-fetch flow).
+                  if (expandedIds.size > 0 && expandedIds.has(did)) {
+                    try { node.setExpanded(true); } catch (_eExp2) {}
                   }
+                  // Krok 1 locate: find selected row node
+                  if (!foundSelNode && did === savedId) foundSelNode = node;
                 });
-                if (foundNode) {
-                  foundNode.setSelected(true);
-                  self.gridApi.ensureNodeVisible(foundNode, "middle");
-                  if (savedColId != null && foundNode.rowIndex != null) {
+                if (foundSelNode) {
+                  foundSelNode.setSelected(true);
+                  self.gridApi.ensureNodeVisible(foundSelNode, "middle");
+                  if (savedColId != null && foundSelNode.rowIndex != null) {
                     try {
-                      self.gridApi.setFocusedCell(foundNode.rowIndex, savedColId);
+                      self.gridApi.setFocusedCell(foundSelNode.rowIndex, savedColId);
                     } catch (_eFoc) {}
                   }
                 }

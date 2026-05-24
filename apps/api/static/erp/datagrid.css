@@ -284,13 +284,23 @@
 }
 
 /* Marti's 24.5.2026 Fáze 2: filter ikona vpravo skrytá — "uz ji
-   nepotrebujeme". Pravý-klik na input už otevírá popup (Fáze 1 v3.1).
-   Button zůstává v DOM (display:none) aby AG Grid event listener držel
-   = JS handler v datagrid.js dispatch MouseEvent na hidden button funguje.
-   Floating filter body má flex:1 → po hidden button input expand do
-   celého space (žádné další CSS úpravy potřebné). */
+   nepotrebujeme". Pravý-klik na input už otevírá popup (Fáze 1 v3.1
+   přes API showColumnFilter — display:none na button by způsobil popup
+   auto-close pri DOM dispatch). Floating filter body má flex:1 → input
+   expand do celého space. */
 .ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter-button {
   display: none !important;
+}
+
+/* Marti's 24.5.2026 Fáze 2+: input pole +25% na výšku (default ~24px
+   → 30px). Plus floating filter row container větší aby fit. */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-row.ag-header-row-floating-filter,
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter {
+  height: 38px !important;
+  min-height: 38px !important;
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input.ag-input-field-input {
+  min-height: 30px !important;
 }
 
 /* Status bar (counts) drobně dimmer */

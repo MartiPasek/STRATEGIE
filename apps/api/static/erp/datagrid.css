@@ -273,14 +273,24 @@
 /* Marti's 24.5.2026 Fáze 1++: visual cue "active filter" — floating filter
    input zaří modře (border + soft outer glow) když je filter vyplněný.
    Class .erp-filter-active toggle z JS (typing real-time + filterChanged).
-   v1: jen 1px sharp ring — Marti's "zare mizi" (málo viditelná soft glow).
-   v2 (this): 2px sharp ring + 6px soft outer glow — drží natrvalo i po
-   blur (AG Grid focus state má jen pri :focus, my chceme perma). */
+   v1: 1px ring (málo). v2: 2px ring + 6px halo (lepší, pořád málo).
+   v3 (this): 4px sharp ring + 10px soft outer glow — Marti's "zvetsi o 2px".
+   Drží natrvalo i po blur (AG Grid focus state má jen pri :focus). */
 .ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter.erp-filter-active input.ag-input-field-input {
   border-color: var(--accent, #4a7ba8) !important;
   box-shadow:
-    0 0 0 2px rgba(74, 123, 168, 0.55),
-    0 0 8px 2px rgba(74, 123, 168, 0.30) !important;
+    0 0 0 4px rgba(74, 123, 168, 0.55),
+    0 0 10px 2px rgba(74, 123, 168, 0.30) !important;
+}
+
+/* Marti's 24.5.2026 Fáze 2: filter ikona vpravo skrytá — "uz ji
+   nepotrebujeme". Pravý-klik na input už otevírá popup (Fáze 1 v3.1).
+   Button zůstává v DOM (display:none) aby AG Grid event listener držel
+   = JS handler v datagrid.js dispatch MouseEvent na hidden button funguje.
+   Floating filter body má flex:1 → po hidden button input expand do
+   celého space (žádné další CSS úpravy potřebné). */
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter-button {
+  display: none !important;
 }
 
 /* Status bar (counts) drobně dimmer */

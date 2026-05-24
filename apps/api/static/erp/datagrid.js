@@ -1223,6 +1223,32 @@
       });
     }
 
+    /** Etapa F Krok 2 HOTFIX (24.5.2026 vecer pozde, Marti's catch
+     *  "vedle Tvoje Marti zmizelo CRUD"): re-populate external toolbarHost
+     *  po tab cache hit. Tab switch nestrida _init (cached pane = unhide),
+     *  ale shared external host muze obsahovat predchoziho grida content
+     *  + handlers bound na nej. Po pane unhide volame teto metode aby:
+     *    1. Innerhtml repopulate s tohoto gridu HTML
+     *    2. Re-wire click handlers na tento grid
+     *    3. Set ownership marker (zombie polling guard)
+     *    4. Sync enabled state z current selection
+     *  Internal toolbar (no toolbarHost) je per-pane DOM, neptrebuje re-populate. */
+    _repopulateCrudToolbar() {
+      if (!this._toolbarHostExternal || !this.crudToolbarEl) return;
+      try {
+        this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
+        this.crudToolbarEl.dataset.erpGridOwnerUid = this._instanceUid;
+        this._wireCrudToolbar();
+        // Sync enabled state from current selection
+        try {
+          const selRows = this._getSelectedRowsSafe();
+          this._updateCrudButtonStates(selRows.length);
+        } catch (_eState) {}
+      } catch (e) {
+        console.warn("[ErpDataGrid] _repopulateCrudToolbar failed:", e);
+      }
+    }
+
     /** Update enabled state pro requiresRow buttons (Oprava/Smazat). */
     _updateCrudButtonStates(selectedCount) {
       if (!this.crudToolbarEl) return;

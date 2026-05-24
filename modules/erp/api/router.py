@@ -16080,6 +16080,14 @@ def _render_workspace_page(user_id: int) -> str:
           // backward compat (sizeColumnsToFit calls, closeTab destroy).
           pane.removeAttribute('hidden');
           activeErpDataGrid = pane._erpGridInstance || null;
+          // Etapa F Krok 2 HOTFIX (Marti's catch "vedle Tvoje Marti zmizelo
+          // CRUD"): external toolbarHost (#erpGridActionsHost) je shared
+          // DOM — po cache hit treba re-populate s tohoto gridu CRUD
+          // buttons + re-wire handlers (predtim mohly byt overwritten
+          // jinym tab gridem). Internal toolbar = per-pane DOM, no-op.
+          if (activeErpDataGrid && typeof activeErpDataGrid._repopulateCrudToolbar === "function") {
+            try { activeErpDataGrid._repopulateCrudToolbar(); } catch (_eRepop) {}
+          }
           // AG Grid resize hint po unhide (display:none → display:flex
           // tranzice muze potrebovat manual sizeColumnsToFit).
           if (activeErpDataGrid && typeof activeErpDataGrid.sizeColumnsToFit === "function") {

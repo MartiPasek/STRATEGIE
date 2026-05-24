@@ -313,10 +313,6 @@
   display: none !important;
 }
 
-/* Marti's 24.5.2026: date filter ikony řešeny per-column property
-   v JS columnDefs builderu (filterParams.browserDatePicker: false +
-   filterPlaceholder: ""). Žádný CSS hack potřebný — AG Grid native cesta. */
-
 /* Status bar (counts) drobně dimmer */
 .ag-theme-quartz-dark.erp-ag-grid .ag-status-bar {
   font-size: 11px;

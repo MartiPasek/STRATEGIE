@@ -514,83 +514,6 @@
     return dateStr + " " + timeStr;
   }
 
-  // ── Marti's 24.5.2026: Custom floating filter pro date columns ──────
-  // Read-only display (žádný typing — Marti's "zadavani je problematicke,
-  // neni intuitivni"). Klik na cell → otevře popup (api.showColumnFilter).
-  // Popup zachová AG Grid native date picker s calendar UI.
-  // Display label = current filter state ("od → do", "= dd.mm.", nebo "").
-  function _ErpDateFloatingFilter() {}
-  _ErpDateFloatingFilter.prototype.init = function (params) {
-    this._api = params.api;
-    this._column = params.column;
-    this._eGui = document.createElement("div");
-    this._eGui.className = "erp-date-floating-filter";
-    this._eGui.style.cssText =
-      "width:100%; height:100%; cursor:pointer; " +
-      "display:flex; align-items:center; padding:0 8px; " +
-      "color: var(--muted, #8a8d96); font-size: 12px; " +
-      "user-select: none;";
-    this._eGui.textContent = "";  // empty initially
-    var self = this;
-    this._eGui.addEventListener("click", function (ev) {
-      ev.preventDefault();
-      ev.stopPropagation();
-      try {
-        var colId = self._column.getColId();
-        if (typeof self._api.showColumnFilter === "function") {
-          self._api.showColumnFilter(colId);
-        } else if (typeof self._api.showColumnMenu === "function") {
-          self._api.showColumnMenu(colId);
-        }
-      } catch (e) {
-        console.warn("[ErpDateFloatingFilter] open popup failed:", e);
-      }
-    });
-  };
-  _ErpDateFloatingFilter.prototype.onParentModelChanged = function (parentModel) {
-    if (!this._eGui) return;
-    if (!parentModel) {
-      this._eGui.textContent = "";
-      this._eGui.style.color = "var(--muted, #8a8d96)";
-      return;
-    }
-    // Display current filter state — basic readable label
-    try {
-      var label = "";
-      var fromDate = parentModel.dateFrom ? String(parentModel.dateFrom).split(" ")[0] : "";
-      var toDate = parentModel.dateTo ? String(parentModel.dateTo).split(" ")[0] : "";
-      var op = parentModel.type || "";
-      if (op === "inRange" && fromDate && toDate) {
-        label = _fmtDateForLabel(fromDate) + " → " + _fmtDateForLabel(toDate);
-      } else if (fromDate) {
-        var opMap = {
-          equals: "= ", notEqual: "≠ ", greaterThan: "> ",
-          lessThan: "< ", greaterThanOrEqual: "≥ ", lessThanOrEqual: "≤ "
-        };
-        label = (opMap[op] || "= ") + _fmtDateForLabel(fromDate);
-      }
-      this._eGui.textContent = label;
-      this._eGui.style.color = "var(--text, #e8eaed)";
-    } catch (e) {
-      this._eGui.textContent = "filter active";
-    }
-  };
-  _ErpDateFloatingFilter.prototype.getGui = function () {
-    return this._eGui;
-  };
-  _ErpDateFloatingFilter.prototype.destroy = function () {
-    if (this._eGui) {
-      this._eGui = null;
-    }
-  };
-  // Helper — yyyy-mm-dd → dd.mm.yyyy (Czech format)
-  function _fmtDateForLabel(isoStr) {
-    if (!isoStr) return "";
-    var parts = isoStr.split("-");
-    if (parts.length !== 3) return isoStr;
-    return parts[2] + "." + parts[1] + "." + parts[0];
-  }
-
   // ── Build columnDefs from raw column names + sample rows ─────────────
   function buildAutoColumnDefs(cols, rows, opts) {
     const idNames = opts.idColumnNames || ["ID", "Id", "id"];
@@ -616,20 +539,6 @@
                : "agTextColumnFilter",
         floatingFilter: opts.enableFilters !== false,
       };
-      // Marti's 24.5.2026: filterParams unified — max 1 condition
-      // (AG Grid Quartz v32+ default je 2 = vždy AND/OR + 2 pole, což
-      // user matlo — "v nativním AG bylo OK"). Set maxNumConditions:1
-      // → jen jedno pole v popup, žádné AND/OR. Aplikováno na všechny
-      // filter types (text/number/date).
-      def.filterParams = {
-        maxNumConditions: 1,
-      };
-      // Date columns: floating row je read-only label, klik otevře popup
-      // (žádný typing, žádné ikony). Popup má AG Grid native date picker.
-      // Custom component _ErpDateFloatingFilter definováno níže.
-      if (colType === "date") {
-        def.floatingFilterComponent = _ErpDateFloatingFilter;
-      }
       if (isId) {
         def.width = 80;
         def.minWidth = 60;

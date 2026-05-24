@@ -292,58 +292,25 @@
   display: none !important;
 }
 
-/* Marti's 24.5.2026 Fáze 2+++: row container větší (36px) s flex centering
-   = symetrický gap nahoře/dole kolem inputu. Input fixed 24px height,
-   border-radius 6px (větší než AG Grid default 4px). */
-.ag-theme-quartz-dark.erp-ag-grid .ag-header-row.ag-header-row-floating-filter {
-  height: 36px !important;
-  min-height: 36px !important;
-}
+/* Marti's 24.5.2026 Fáze 2+: input pole +~8% na výšku (default ~24px → 26px).
+   v1 (30px row 38px): moc + ztratil zaoblené rohy + nesymetrické v buňce.
+   v2 (this): conservative +2px + explicit border-radius zachovat. */
+.ag-theme-quartz-dark.erp-ag-grid .ag-header-row.ag-header-row-floating-filter,
 .ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter {
-  height: 36px !important;
-  min-height: 36px !important;
-  display: flex !important;
-  align-items: center !important;
-  padding: 0 4px !important;
-}
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter-body {
-  display: flex !important;
-  align-items: center !important;
-  flex: 1 !important;
-  min-height: 0 !important;
-}
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-labeled,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-input-field,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-text-field,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-date-field {
-  display: flex !important;
-  align-items: center !important;
-  flex: 1 !important;
-  min-height: 0 !important;
+  height: 34px !important;
+  min-height: 34px !important;
 }
 .ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input.ag-input-field-input {
-  height: 24px !important;
-  min-height: 24px !important;
-  padding: 0 8px !important;
-  border-radius: 6px !important;
-  box-sizing: border-box !important;
+  min-height: 26px !important;
+  border-radius: 4px !important;
 }
 
-/* Marti's 24.5.2026 Fáze 2++ aggressive: skrýt VŠECHNY ikony + mask
-   placeholder v rychlém filtru (text: lupa | date: lupa + calendar +
-   picker button + dd.mm placeholder). Scope jen na .ag-floating-filter
-   — ostatní ag-icon v gridu (sort, menu) zůstávají. */
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-icon,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-picker-field-button,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-picker-field-wrapper,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-picker-field-display,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter [class*='picker-field'] {
+/* Marti's 24.5.2026 Fáze 2++: skrýt rušivé ikony v rychlém filtru
+   (date filter má lupu + calendar icon, text filter má lupu). Marti's
+   "vycisti jej jen na hole zadavaci pole". Scope jen na floating filter
+   input wrapper — ostatní ag-icon v gridu (sort, menu) zůstávají. */
+.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter .ag-input-wrapper .ag-icon {
   display: none !important;
-}
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::placeholder,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::-webkit-input-placeholder,
-.ag-theme-quartz-dark.erp-ag-grid .ag-floating-filter input::-moz-placeholder {
-  color: transparent !important;
 }
 
 /* Status bar (counts) drobně dimmer */

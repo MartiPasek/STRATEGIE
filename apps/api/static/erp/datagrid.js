@@ -1430,37 +1430,69 @@
           // Marti's 24.5.2026 Fáze 1+: visual cue "active filter" —
           // floating filter input zaří modře (jako focus state) když je
           // filter aktivní (= AG Grid přidal modrý puntík na ikoně).
-          // Strategie: filterChanged event → toggle .erp-filter-active class
-          // na floating filter cell per column (match přes aria-colindex).
+          //
+          // v1 (just filterChanged): debounced ~400ms, focus only — zář se
+          //   neaplikovala při typingu okamžite + po blur zmizela
+          // v2 (this): unified — hasValue (real-time input.value check)
+          //   OR isFilterActive (popup-based AG Grid filter). Listener
+          //   na "input" event (no debounce) + "filterChanged" (popup).
+          //   → Marti's "natrvalo když je něco zapsaný"
+          //
           // CSS pattern: viz datagrid.css `.erp-filter-active input`.
           try {
             var gcontFF = this.gridContainer;
             var apiFF = params.api;
             var _syncFloatingFilterActive = function () {
-              if (!gcontFF || !apiFF || typeof apiFF.getColumn !== "function") return;
+              if (!gcontFF) return;
               try {
                 var cells = gcontFF.querySelectorAll(".ag-floating-filter");
                 cells.forEach(function (cell) {
-                  var ariaIdx = cell.getAttribute("aria-colindex");
-                  if (!ariaIdx) return;
-                  // Match s top header row přes aria-colindex (col-id je
-                  // jen na top header, floating cell má jen index)
-                  var topCell = gcontFF.querySelector(
-                    ".ag-header-row:not(.ag-header-row-floating-filter) " +
-                    ".ag-header-cell[aria-colindex='" + ariaIdx + "']"
-                  );
-                  if (!topCell) return;
-                  var colId = topCell.getAttribute("col-id");
-                  if (!colId) return;
-                  var col = apiFF.getColumn(colId);
-                  if (!col || typeof col.isFilterActive !== "function") return;
-                  cell.classList.toggle("erp-filter-active", col.isFilterActive());
+                  // Layer 1: input.value (real-time typing, no debounce)
+                  var input = cell.querySelector("input.ag-input-field-input");
+                  var hasValue = !!(input && input.value && input.value.trim().length > 0);
+
+                  // Layer 2: AG Grid isFilterActive (popup-based,
+                  // multi-select, date range, advanced conditions)
+                  var isFilterActive = false;
+                  if (apiFF && typeof apiFF.getColumn === "function") {
+                    var ariaIdx = cell.getAttribute("aria-colindex");
+                    if (ariaIdx) {
+                      var topCell = gcontFF.querySelector(
+                        ".ag-header-row:not(.ag-header-row-floating-filter) " +
+                        ".ag-header-cell[aria-colindex='" + ariaIdx + "']"
+                      );
+                      if (topCell) {
+                        var colId = topCell.getAttribute("col-id");
+                        if (colId) {
+                          var col = apiFF.getColumn(colId);
+                          if (col && typeof col.isFilterActive === "function") {
+                            isFilterActive = col.isFilterActive();
+                          }
+                        }
+                      }
+                    }
+                  }
+
+                  // OR — vyplnený input NEBO active filter v AG Grid model
+                  cell.classList.toggle("erp-filter-active", hasValue || isFilterActive);
                 });
               } catch (e) {
                 console.warn("[ErpDataGrid] sync floating filter active failed:", e);
               }
             };
+
+            // Trigger 1: AG Grid filterChanged event (popup-based, debounced)
             apiFF.addEventListener("filterChanged", _syncFloatingFilterActive);
+
+            // Trigger 2: real-time input typing (no debounce, capture phase
+            // aby přebilo AG Grid handlers)
+            gcontFF.addEventListener("input", function (ev) {
+              if (!ev.target || !ev.target.matches) return;
+              if (!ev.target.matches("input.ag-input-field-input")) return;
+              if (!ev.target.closest(".ag-floating-filter")) return;
+              _syncFloatingFilterActive();
+            }, true);
+
             // Initial sync (pro layout restore — filter z DB sestavy)
             setTimeout(_syncFloatingFilterActive, 200);
           } catch (e) {

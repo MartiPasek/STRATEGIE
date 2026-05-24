@@ -1862,14 +1862,13 @@
 }
 
 
-/* Universal CRUD Etapa F Fix 1 (24.5.2026 vecer Marti's catch "ikona delete
-   vypada i kdyz je enabled jako disabled"): danger button :not(:disabled)
-   = permanent red tint background + border. Disabled state pak vypada
-   neutralne (opacity 0.4 z .erp-grid-action-btn:disabled), enabled state
-   vizualne signalizuje destructive akci. */
+/* Universal CRUD Etapa F Fix 1 v2 (24.5.2026 vecer pozde, Marti's polish
+   "neprobarvuj cervene okoli ani ramecek kdyz na ni neni mysi fokus.
+   Bude fajn jen kdyz bude cerveny jen ten odpadkovy kos"): default state
+   = jen icon color red, NO background, NO border tint. Hover (mouse focus)
+   = red bg + border OK pro affordance. Disabled = neutral (opacity 0.4). */
 .erp-grid-action-btn.danger:not(:disabled) {
-  background-color: rgba(248, 113, 113, 0.12) !important;
-  border-color: rgba(248, 113, 113, 0.45) !important;
+  color: #f87171 !important;
 }
 .erp-grid-action-btn.danger:not(:disabled):hover {
   background-color: rgba(248, 113, 113, 0.22) !important;

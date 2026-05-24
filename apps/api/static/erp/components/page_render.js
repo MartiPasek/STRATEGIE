@@ -317,8 +317,38 @@
               window._erpSaveBtnRefresh();
             }
           } catch (_e) {}
+          // Excel mode Faze 1 quick win (24.5.2026 vecer pozde, Marti's catch
+          // "ta dirty pamet zustala viset i kdyz Exel mode jiz neni"):
+          // auto-clear dirty per ACTIVE grid pokud Excel mode goes off.
+          // window._erpExcelMode je already updated by event time (datagrid.js
+          // _toggleExcelMode line 4198). Pokud false + active grid drzi
+          // _erpSaveCleanupActive hook → trigger cleanup.
+          try {
+            if (window._erpExcelMode === false
+                && typeof window._erpSaveCleanupActive === "function") {
+              window._erpSaveCleanupActive();
+            }
+          } catch (_eClean) {}
         });
       }
+      // Excel mode Faze 1 quick win (24.5.2026 vecer pozde): per-grid
+      // cleanup hook. Registered jako window._erpSaveCleanupActive (last
+      // active grid wins — same pattern jako _erpSaveBtnRefresh).
+      window._erpSaveCleanupActive = function () {
+        try {
+          if (dirtyRows.size === 0 && dirtyRowData.size === 0) return;
+          dirtyRows.clear();
+          dirtyRowData.clear();
+          if (gridInst && gridInst.gridApi
+              && typeof gridInst.gridApi.refreshCells === "function") {
+            gridInst.gridApi.refreshCells({ force: true });
+          }
+          // Update save btn (count → 0, hide if Excel off)
+          if (typeof window._erpSaveBtnRefresh === "function") {
+            window._erpSaveBtnRefresh();
+          }
+        } catch (_eClnInner) { /* never crash */ }
+      };
       // Register this grid's refresh fn jako global hook
       window._erpSaveBtnRefresh = _refreshSaveBtn;
       async function _onSaveClick() {
@@ -327,6 +357,26 @@
                 ". Long-term: fw.data_source.target_entity_type column.");
           return;
         }
+        // Excel mode Faze 1 quick win (24.5.2026 vecer pozde, Marti's
+        // "dialog ktery se znovu zepta zda ulozit"): confirm PRED PATCH loop.
+        // Pouziva _erpDFH._confirmDarkDialog (existing dark themed helper
+        // z design_form_helpers.js). Pokud user volí Ne → abort (dirty
+        // cells zustanou pro dalsi pokus).
+        const _countToSave = dirtyRows.size;
+        if (_countToSave === 0) return;
+        try {
+          if (window._erpDFH && typeof window._erpDFH._confirmDarkDialog === "function") {
+            const _ok = await window._erpDFH._confirmDarkDialog({
+              title: "Uložit změny",
+              message: "Opravdu uložit <b>" + _countToSave + "</b> "
+                       + (_countToSave === 1 ? "změnu" : (_countToSave < 5 ? "změny" : "změn"))
+                       + " do databáze?",
+              ok: "Uložit",
+              cancel: "Zrušit",
+            });
+            if (!_ok) return;
+          }
+        } catch (_eDlg) { /* never block save on dialog failure */ }
         // Phase 38.4 Krok 14g-H+35 hotfix (22.5.2026 vecer po revert f1e1dec):
         // saveBtn variable byl dropnut v H+35 v1 (redesign na onclick = fn),
         // ale `saveBtn.disabled = true` reference zustaly v _onSaveClick =>

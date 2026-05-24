@@ -1871,6 +1871,29 @@
   color: #f87171 !important;
 }
 
+/* Excel mode Faze 1 quick win (24.5.2026 vecer pozde, Marti's "zvetsit
+   adekvatne tu ikony aby se tam vesel cely ten napis save"): Save button
+   wider padding + min-width pro fit "💾 SAVE 2" obsah. Default
+   .erp-grid-action-btn ma 32×32 fixed size — Save override. */
+.erp-grid-action-btn#erp-tb-save {
+  width: auto !important;
+  min-width: 88px !important;
+  padding: 0 12px !important;
+  gap: 6px !important;
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+}
+.erp-grid-action-btn#erp-tb-save .erp-save-count {
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  padding: 1px 6px !important;
+  border-radius: 8px !important;
+  background: rgba(212, 160, 23, 0.25);
+}
+
 /* UI polish (24.5.2026 vecer pozde, Marti's "ikony uplne vlevo do
    samostatneho prostoru a trochu je zvetsit"): CRUD context menu items
    icon v native AG Grid icon slot. Zvetsit oproti default text size,
@@ -1904,13 +1927,4 @@
 .erp-grid-action-btn[data-action="refresh"].stale {
   color: #d4a017 !important;
   border-color: #d4a017 !important;
-  background: rgba(212, 160, 23, 0.08) !important;
-}
-.erp-grid-action-btn[data-action="refresh"].stale:hover {
-  background: rgba(212, 160, 23, 0.18) !important;
-}
-.erp-grid-action-btn[data-action="refresh"].very-stale {
-  animation: refreshPulse 2.4s ease-in-out infinite;
-}
-/* @keyframes refreshPulse je definovany v router.py inline CSS (workspace
-   header Refresh button — Phase 38.5). Global scope — accessible odsud. */
+  background: rgba(212,

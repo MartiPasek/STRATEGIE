@@ -1882,6 +1882,14 @@
   text-align: center;
   width: 100%;
 }
+/* UI polish (24.5.2026 vecer pozde, Marti's "v kontextovem menu prosim
+   cervenou ikonu kose"): trash icon v Smazat context menu item probarvit
+   cervene (parita s toolbar danger button). cssClasses
+   ["erp-context-menu-destructive"] = AG Grid apply na row container, span
+   icon descendant inherituje barvu. */
+.erp-context-menu-destructive .erp-context-menu-crud-icon {
+  color: #f87171 !important;
+}
 .erp-grid-action-btn.danger:not(:disabled):hover {
   background-color: rgba(248, 113, 113, 0.22) !important;
   border-color: rgba(248, 113, 113, 0.70) !important;

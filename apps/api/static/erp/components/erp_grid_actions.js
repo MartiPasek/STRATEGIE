@@ -82,10 +82,17 @@
           coreId: coreId,
           rowId: rowId,
           mode: mode || (rowId ? "edit" : "create"),
-          onSave: function () {
+          // Etapa F Krok 1+ (24.5.2026 vecer pozde, Marti's directive
+          // "po editaci vety pres fw DesignFwGrid se pak da take refresh"):
+          // FIX parameter name — DesignFwForm cte this.opts.onSaveSuccess
+          // (design_forms.js:3419), ne onSave. Predtim silent drop.
+          // Now: po PATCH success -> opts.onSaveSuccess(respData) -> onSaveCallback
+          // -> ctx.refreshFn (z _wireCrudToolbar dispatch) -> smooth refresh
+          // s locate restore (Krok 1 pattern).
+          onSaveSuccess: function (respData) {
             if (typeof onSaveCallback === "function") {
-              try { onSaveCallback(); } catch (e) {
-                console.warn("[ErpGridActions] onSave callback failed:", e);
+              try { onSaveCallback(respData); } catch (e) {
+                console.warn("[ErpGridActions] onSaveSuccess callback failed:", e);
               }
             }
           },

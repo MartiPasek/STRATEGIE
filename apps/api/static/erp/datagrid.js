@@ -1115,12 +1115,75 @@
             || (self.options.layoutKey ? String(self.options.layoutKey) : null);
           const coreId = (self.options.coreInfo && self.options.coreInfo.coreId != null)
             ? self.options.coreInfo.coreId : null;
-          const refreshFn = function () {
-            // Refresh via callback if provided; jinak repaint cells
+          // Etapa F Krok 1 (24.5.2026 vecer pozde, Marti's directive
+          // "po refresh locate na puvodni oznacenou vetu"): capture state
+          // PRED onRefresh, await Promise (smooth setRowData), restore
+          // by ID PO. forEachNode by id->setSelected+ensureNodeVisible
+          // 'middle'+setFocusedCell. Defensive: no selection = skip restore.
+          const refreshFn = async function () {
+            // 1. Capture state PRED refresh
+            let savedId = null;
+            let savedColId = null;
+            if (self.gridApi) {
+              try {
+                const selRows = self.gridApi.getSelectedRows() || [];
+                if (selRows.length > 0) {
+                  const r0 = selRows[0];
+                  savedId = (r0.id != null ? r0.id
+                              : (r0.ID != null ? r0.ID : null));
+                }
+                const fc = self.gridApi.getFocusedCell();
+                if (fc && fc.column && typeof fc.column.getColId === "function") {
+                  savedColId = fc.column.getColId();
+                  // Fallback: focused cell row id, pokud no selection
+                  if (savedId == null) {
+                    try {
+                      const node = self.gridApi.getDisplayedRowAtIndex(fc.rowIndex);
+                      if (node && node.data) {
+                        savedId = (node.data.id != null ? node.data.id
+                                    : (node.data.ID != null ? node.data.ID : null));
+                      }
+                    } catch (_eFC) {}
+                  }
+                }
+              } catch (_eCap) {}
+            }
+
+            // 2. Call onRefresh (await Promise pokud thenable)
             if (typeof self.options.onRefresh === "function") {
-              try { self.options.onRefresh(); } catch (e) {}
+              try {
+                const ret = self.options.onRefresh();
+                if (ret && typeof ret.then === "function") {
+                  await ret;
+                }
+              } catch (_eRef) {}
             } else if (self.gridApi) {
-              try { self.gridApi.refreshCells({force: true}); } catch (e) {}
+              try { self.gridApi.refreshCells({force: true}); } catch (_e) {}
+              return;  // visual repaint only, no row change, no restore
+            }
+
+            // 3. Restore state PO refresh — locate by id
+            if (savedId != null && self.gridApi) {
+              try {
+                let foundNode = null;
+                self.gridApi.forEachNode(function (node) {
+                  if (foundNode) return;
+                  if (node.data) {
+                    const did = (node.data.id != null ? node.data.id
+                                  : (node.data.ID != null ? node.data.ID : null));
+                    if (did === savedId) foundNode = node;
+                  }
+                });
+                if (foundNode) {
+                  foundNode.setSelected(true);
+                  self.gridApi.ensureNodeVisible(foundNode, "middle");
+                  if (savedColId != null && foundNode.rowIndex != null) {
+                    try {
+                      self.gridApi.setFocusedCell(foundNode.rowIndex, savedColId);
+                    } catch (_eFoc) {}
+                  }
+                }
+              } catch (_eRest) {}
             }
           };
           window.ErpGridActions.dispatch(actionKey, {

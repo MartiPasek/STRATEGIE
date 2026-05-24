@@ -172,26 +172,27 @@
 
               // Refresh callback - ErpDataGrid internal Obnovit button vola
               // tento handler. Re-fetch ops rows pro tohohle master_id.
+              // Etapa F Krok 1 (24.5.2026 vecer pozde): RETURN Promise aby
+              // refreshFn v datagrid.js mohl await + locate restore by ID.
               onRefresh: function () {
-                try {
-                  fetch(dataUrl, { credentials: "same-origin" })
-                    .then(function (r) { return r.json(); })
-                    .then(function (j) {
-                      if (j && j.ok && Array.isArray(j.rows) && self._nestedGrid
-                          && self._nestedGrid.gridApi) {
-                        self._nestedGrid.gridApi.setGridOption("rowData", j.rows);
-                        // Etapa F Freshness mark (24.5.2026 vecer): clear stale
-                        // ramecek po manualnim fetch.
-                        try {
-                          if (typeof self._nestedGrid.markFresh === "function") {
-                            self._nestedGrid.markFresh();
-                          }
-                        } catch (_e) {}
-                      }
-                    });
-                } catch (e) {
-                  console.warn("[detail onRefresh]", e);
-                }
+                return fetch(dataUrl, { credentials: "same-origin" })
+                  .then(function (r) { return r.json(); })
+                  .then(function (j) {
+                    if (j && j.ok && Array.isArray(j.rows) && self._nestedGrid
+                        && self._nestedGrid.gridApi) {
+                      self._nestedGrid.gridApi.setGridOption("rowData", j.rows);
+                      // Etapa F Freshness mark (24.5.2026 vecer): clear stale
+                      // ramecek po manualnim fetch.
+                      try {
+                        if (typeof self._nestedGrid.markFresh === "function") {
+                          self._nestedGrid.markFresh();
+                        }
+                      } catch (_e) {}
+                    }
+                  })
+                  .catch(function (e) {
+                    console.warn("[detail onRefresh]", e);
+                  });
               },
 
               // Disable kaskáda zatím (level 2 = data_set přijde later)

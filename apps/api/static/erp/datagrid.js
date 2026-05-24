@@ -946,6 +946,11 @@
       //   Ctrl+Shift+E v gridu = toggle. Bez persist (reset reload, servisni mod).
       //   Visual: orange pill v footer (coreId:rowId button).
       this._excelMode = false;
+      // Etapa F Freshness (24.5.2026 vecer Marti's catch "oranzovy ramecek
+      // okolo refresh ikony"): port Phase 38.5 ErpRefresh per-tab freshness
+      // tracking do per-grid-instance. State + polling timer per ErpDataGrid.
+      this._lastFetchedAt = null;       // ms timestamp posledniho fetch
+      this._freshnessTimer = null;      // setInterval handle pro polling
       this._init();
       this._setupExcelModeToggle();
     }
@@ -1144,6 +1149,66 @@
       });
     }
 
+    // Etapa F Freshness — constants (reuse ErpRefresh values pokud existuji,
+    // jinak fallback na production defaults 5min/15min/30s).
+    _freshnessConstants() {
+      const er = (typeof window !== "undefined") ? window.ErpRefresh : null;
+      return {
+        STALE: (er && er.STALE_AT_MS) || (5 * 60 * 1000),
+        VERY_STALE: (er && er.VERY_STALE_AT_MS) || (15 * 60 * 1000),
+        POLL: (er && er.POLL_INTERVAL_MS) || (30 * 1000),
+      };
+    }
+
+    /** Mark grid data jako fresh (right after successful fetch). Public API —
+     *  caller (page_render onRefresh, detail renderer fetch) volá po setRowData. */
+    markFresh() {
+      this._lastFetchedAt = Date.now();
+      this._updateRefreshButtonFreshness();
+    }
+
+    /** Apply .stale / .very-stale CSS classes na refresh button per age.
+     *  Paralela s ErpRefresh._updateButton (router.py line 15453). */
+    _updateRefreshButtonFreshness() {
+      if (!this.crudToolbarEl) return;
+      const btn = this.crudToolbarEl.querySelector('[data-action="refresh"]');
+      if (!btn) return;
+      if (!this._lastFetchedAt) {
+        btn.classList.remove('stale', 'very-stale');
+        return;
+      }
+      const c = this._freshnessConstants();
+      const ageMs = Date.now() - this._lastFetchedAt;
+      const ageMin = Math.floor(ageMs / 60000);
+      const ageStr = ageMin < 1 ? '<1 min' : (ageMin + ' min');
+      if (ageMs >= c.VERY_STALE) {
+        btn.classList.add('stale', 'very-stale');
+        btn.setAttribute('data-hint', 'Data stará ' + ageStr + ' — klikni pro obnoveni');
+      } else if (ageMs >= c.STALE) {
+        btn.classList.add('stale');
+        btn.classList.remove('very-stale');
+        btn.setAttribute('data-hint', 'Data stará ' + ageStr + ' — klikni pro obnoveni');
+      } else {
+        btn.classList.remove('stale', 'very-stale');
+        btn.setAttribute('data-hint', 'Data fresh (' + ageStr + '). Klikni pro manualni refresh.');
+      }
+    }
+
+    /** Start polling timer pro periodic freshness re-evaluation. Cleared v destroy. */
+    _startFreshnessPolling() {
+      if (this._freshnessTimer) return;  // already running
+      const c = this._freshnessConstants();
+      const self = this;
+      this._freshnessTimer = setInterval(() => {
+        if (self._destroyed) {
+          clearInterval(self._freshnessTimer);
+          self._freshnessTimer = null;
+          return;
+        }
+        self._updateRefreshButtonFreshness();
+      }, c.POLL);
+    }
+
     /** Helper — fetch first selected row data (or null). */
     _getFirstSelectedRowData() {
       if (!this.gridApi) return null;
@@ -1216,6 +1281,8 @@
       // Wire CRUD toolbar click handlers (musi byt po append do DOM)
       if (_renderCrud) {
         this._wireCrudToolbar();
+        // Etapa F Freshness: start polling timer pro periodic re-evaluation.
+        this._startFreshnessPolling();
       }
 
       // Resolve columnDefs
@@ -2189,6 +2256,8 @@
                     ", heuristics=" + (this._heuristicsEnabled === true) + ")"
                   );
                 }
+                // Etapa F Freshness: initial markFresh po data load.
+                try { this.markFresh(); } catch (_e) {}
               } catch (e) {
                 console.warn("[ErpDataGrid] initialLayout rebuild formatting failed:", e);
               }

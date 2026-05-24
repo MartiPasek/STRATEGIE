@@ -180,6 +180,13 @@
                       if (j && j.ok && Array.isArray(j.rows) && self._nestedGrid
                           && self._nestedGrid.gridApi) {
                         self._nestedGrid.gridApi.setGridOption("rowData", j.rows);
+                        // Etapa F Freshness mark (24.5.2026 vecer): clear stale
+                        // ramecek po manualnim fetch.
+                        try {
+                          if (typeof self._nestedGrid.markFresh === "function") {
+                            self._nestedGrid.markFresh();
+                          }
+                        } catch (_e) {}
                       }
                     });
                 } catch (e) {

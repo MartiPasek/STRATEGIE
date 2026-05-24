@@ -567,6 +567,9 @@
                       }
                     } catch (_e) {}
                     gridInst.gridApi.setGridOption('rowData', d.rows);
+                    // Etapa F Freshness mark (24.5.2026 vecer): refresh button
+                    // ztratil .stale/.very-stale po manualnim fetch.
+                    try { if (typeof gridInst.markFresh === "function") gridInst.markFresh(); } catch (_e) {}
                   }
                 } catch (e) {
                   console.warn("[page_render onRefresh] real fetch failed:", e);

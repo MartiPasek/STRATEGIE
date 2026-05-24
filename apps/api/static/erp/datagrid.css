@@ -1875,3 +1875,23 @@
   background-color: rgba(248, 113, 113, 0.22) !important;
   border-color: rgba(248, 113, 113, 0.70) !important;
 }
+
+
+/* Universal CRUD Etapa F Freshness CSS (24.5.2026 vecer Marti's catch
+   "oranzovy ramecek okolo refresh ikony"): port Phase 38.5 ErpRefresh
+   visual cues do internal CRUD toolbar refresh button. Same orange tint
+   (.stale) + pulse animation (.very-stale) jako .erp-refresh-btn
+   v workspace header. Reuse @keyframes refreshPulse (inline router.py CSS). */
+.erp-grid-action-btn[data-action="refresh"].stale {
+  color: #d4a017 !important;
+  border-color: #d4a017 !important;
+  background: rgba(212, 160, 23, 0.08) !important;
+}
+.erp-grid-action-btn[data-action="refresh"].stale:hover {
+  background: rgba(212, 160, 23, 0.18) !important;
+}
+.erp-grid-action-btn[data-action="refresh"].very-stale {
+  animation: refreshPulse 2.4s ease-in-out infinite;
+}
+/* @keyframes refreshPulse je definovany v router.py inline CSS (workspace
+   header Refresh button — Phase 38.5). Global scope — accessible odsud. */

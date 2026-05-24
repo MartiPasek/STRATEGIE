@@ -11807,6 +11807,11 @@ def _render_workspace_page(user_id: int) -> str:
          cyklicky per-row). Generic _erpBatchRowAction(opts) — reusable napříč
          existing Smazat + future HW/FW dynamic actions. -->
     <script src="/static/erp/components/erp_batch_action.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Universal CRUD Etapa A (24.5.2026 vecer): shared action registry
+         (Novy/Oprava/Smazat/Obnovit) — JEDEN truth source pro 3 vrstvy
+         (context menu, grid header, workspace toolbar). Marti doctrine
+         "stejne zobrazit, stejne funkce". -->
+    <script src="/static/erp/components/erp_grid_actions.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
          Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
          "data_source_op" persistence). Marti's Varianta B — full features

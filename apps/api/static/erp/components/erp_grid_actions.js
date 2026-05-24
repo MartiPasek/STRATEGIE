@@ -1,0 +1,276 @@
+/* eslint-disable */
+/**
+ * erp_grid_actions.js — Universal CRUD action registry (Marti's 24.5.2026 vecer).
+ * ─────────────────────────────────────────────────────────────────────────────
+ *
+ * JEDEN truth source pro Nový/Oprava/Smazat/Obnovit napříč 3 vrstvy:
+ *   1. AG Grid context menu (pravý klik na row)
+ *   2. Grid header toolbar (Krok 5.Y location)
+ *   3. Workspace mainscreen toolbar (Krok 5.S Fáze 6 location)
+ *
+ * Marti's doctrine: "zobrazovat stejne a stejne funkce k nim" — labels +
+ * icons + handlers definované jen tady; konzumenti pull-them dle akce.
+ *
+ * Drží Marti's "fw self edited" doctrine (11.5.) — gridCode → editFormCoreId
+ * mapping přes FW_EDIT_FORM_REGISTRY (per-entity edit form je fw.core row,
+ * žádný hardcoded editor class per entita).
+ *
+ * Public API:
+ *   window.ErpGridActions.get(actionKey) → ActionDef | null
+ *   window.ErpGridActions.list(actionKeys) → ActionDef[] (in order)
+ *   window.ErpGridActions.dispatch(actionKey, ctx) → Promise<void>
+ *   window.ErpGridActions.registerEditForm(gridCode, coreId) — runtime override
+ *
+ * Action handler signature:
+ *   handler(ctx = { gridCode, rowData?, gridApi?, refreshFn? }) → Promise<void>
+ *
+ * Drží Krok 5.O doctrine (jednotná class) — Nový/Oprava volají DesignFwForm
+ * jako jediný entry point, ne power-tool editory.
+ *
+ * Wrapped v _erpLoadModule pattern (Module Health visibility).
+ */
+"use strict";
+
+(function (global) {
+  "use strict";
+
+  var _loader = (typeof global !== "undefined" && global._erpLoadModule)
+    ? global._erpLoadModule
+    : function (id, ver, fn) { try { fn(); } catch (e) { console.error("[" + id + "]", e); } };
+
+  _loader("erp_grid_actions.js", "v1.0.0", function () {
+
+    // ════════════════════════════════════════════════════════════════════
+    // FW_EDIT_FORM_REGISTRY — gridCode → editFormCoreId mapping.
+    // Per-entity edit form = fw.core row, lookup přes /fw-core/{id}/page-spec.
+    // Etapa D dnes seed pro framework_data_sources, ostatní postupně.
+    // ════════════════════════════════════════════════════════════════════
+    var FW_EDIT_FORM_REGISTRY = {
+      // gridCode → coreId of edit form fw.core row
+      // (Etapa D seed dnes: "system_new.framework_data_sources": <coreId>)
+    };
+
+    // ════════════════════════════════════════════════════════════════════
+    // Helpers — internal
+    // ════════════════════════════════════════════════════════════════════
+
+    /** Najít editFormCoreId pro gridCode (registry lookup). */
+    function _lookupEditFormCore(gridCode) {
+      if (!gridCode) return null;
+      return FW_EDIT_FORM_REGISTRY[gridCode] || null;
+    }
+
+    /** Open DesignFwForm (universal FW edit form, Marti's doctrine 17.5.). */
+    function _openFwEditForm(gridCode, rowId, mode, onSaveCallback) {
+      var coreId = _lookupEditFormCore(gridCode);
+      if (!coreId) {
+        alert(
+          "⚠ Edit form není nakonfigurován pro grid '" + gridCode + "'.\n\n" +
+          "Pro povolení Nový/Oprava akcí musí být v fw.core seed-nut " +
+          "edit form pro tuto entitu a registrován v " +
+          "FW_EDIT_FORM_REGISTRY (erp_grid_actions.js).\n\n" +
+          "Marti's doctrine: 'fw self edited' — žádný hardcoded editor."
+        );
+        return Promise.reject(new Error("no_edit_form_registered"));
+      }
+      if (typeof global.DesignFwForm !== "function") {
+        alert("⚠ DesignFwForm komponenta není načtena.");
+        return Promise.reject(new Error("designfwform_missing"));
+      }
+      try {
+        var fwf = new global.DesignFwForm({
+          coreId: coreId,
+          rowId: rowId,
+          mode: mode || (rowId ? "edit" : "create"),
+          onSave: function () {
+            if (typeof onSaveCallback === "function") {
+              try { onSaveCallback(); } catch (e) {
+                console.warn("[ErpGridActions] onSave callback failed:", e);
+              }
+            }
+          },
+        });
+        if (typeof fwf.open === "function") fwf.open();
+        return Promise.resolve();
+      } catch (e) {
+        console.error("[ErpGridActions] DesignFwForm open failed:", e);
+        alert("⚠ Otevření edit formuláře selhalo: " + (e.message || e));
+        return Promise.reject(e);
+      }
+    }
+
+    /** Hard delete via erp_batch_action (Marti's Q3=a hard delete).
+     * ctx must include coreId (= page-spec core_id, used as source table
+     * resolver in backend design_delete_entity handler).
+     */
+    function _hardDeleteRow(ctx) {
+      var rowData = ctx.rowData;
+      var coreId = ctx.coreId;
+      var refreshFn = ctx.refreshFn;
+      if (!rowData || rowData.id == null) {
+        alert("⚠ Smazat: chybí ID řádku.");
+        return Promise.reject(new Error("no_row_id"));
+      }
+      if (coreId == null) {
+        alert("⚠ Smazat: chybí coreId v ctx (page_render.js musí passet).");
+        return Promise.reject(new Error("no_core_id"));
+      }
+      if (typeof global._erpBatchRowAction !== "function") {
+        alert("⚠ erp_batch_action.js není načten.");
+        return Promise.reject(new Error("batch_action_missing"));
+      }
+      // Reuse Krok 5.X Mód 1 cyklicky per-row + existing DELETE endpoint
+      // /api/v1/erp/design/{core_id}/{row_id} (router.py:3585, Krok 5.W).
+      // Marti's doctrine "stejne funkce" — same endpoint jako Krok 5.S Fáze 6
+      // workspace toolbar Smazat, just routed přes registry.
+      return global._erpBatchRowAction({
+        rowIds: [rowData.id],
+        opLabel: "Smazat",
+        opVerb: "smazat",
+        destructive: true,
+        actionFn: function (rowId) {
+          var url = "/api/v1/erp/design/" +
+                    encodeURIComponent(coreId) + "/" +
+                    encodeURIComponent(rowId);
+          return fetch(url, {
+            method: "DELETE",
+            credentials: "include",
+          }).then(function (r) {
+            return r.json().catch(function () { return {}; }).then(function (json) {
+              if (r.ok && json && json.ok) return { ok: true };
+              var errMsg = (json && json.error) || ("HTTP " + r.status);
+              return { ok: false, error: errMsg };
+            });
+          }).catch(function (e) {
+            return { ok: false, error: "network: " + (e && e.message || e) };
+          });
+        },
+        refreshFn: refreshFn,
+      });
+    }
+
+    /** Refresh grid via passed refreshFn (page_render.js zaregistruje). */
+    function _refreshGrid(gridCode, refreshFn) {
+      if (typeof refreshFn === "function") {
+        try { refreshFn(); return Promise.resolve(); }
+        catch (e) {
+          console.error("[ErpGridActions] refresh failed:", e);
+          return Promise.reject(e);
+        }
+      }
+      console.warn("[ErpGridActions] refresh: no refreshFn provided pro", gridCode);
+      return Promise.reject(new Error("no_refresh_fn"));
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // ACTION REGISTRY — single truth source
+    // ════════════════════════════════════════════════════════════════════
+    var ACTIONS = {
+      create: {
+        key: "create",
+        icon: "➕",
+        label: "Nový",
+        hint: "Vytvořit nový záznam (Insert)",
+        cssClass: "erp-action-create",
+        destructive: false,
+        requiresRow: false,  // grid header / context menu i bez selected row
+        handler: function (ctx) {
+          return _openFwEditForm(
+            ctx.gridCode, null, "create", ctx.refreshFn
+          );
+        },
+      },
+      edit: {
+        key: "edit",
+        icon: "✏️",
+        label: "Oprava",
+        hint: "Editovat vybraný záznam (Update)",
+        cssClass: "erp-action-edit",
+        destructive: false,
+        requiresRow: true,
+        handler: function (ctx) {
+          if (!ctx.rowData || ctx.rowData.id == null) {
+            alert("⚠ Oprava: nejprve vyber řádek.");
+            return Promise.reject(new Error("no_row_selected"));
+          }
+          return _openFwEditForm(
+            ctx.gridCode, ctx.rowData.id, "edit", ctx.refreshFn
+          );
+        },
+      },
+      delete: {
+        key: "delete",
+        icon: "🗑",
+        label: "Smazat",
+        hint: "Trvale smazat vybraný záznam (DELETE)",
+        cssClass: "erp-action-delete",
+        destructive: true,
+        requiresRow: true,
+        handler: function (ctx) {
+          if (!ctx.rowData || ctx.rowData.id == null) {
+            alert("⚠ Smazat: nejprve vyber řádek.");
+            return Promise.reject(new Error("no_row_selected"));
+          }
+          return _hardDeleteRow(ctx);
+        },
+      },
+      refresh: {
+        key: "refresh",
+        icon: "🔄",
+        label: "Obnovit",
+        hint: "Načíst grid znovu (Refresh)",
+        cssClass: "erp-action-refresh",
+        destructive: false,
+        requiresRow: false,
+        handler: function (ctx) {
+          return _refreshGrid(ctx.gridCode, ctx.refreshFn);
+        },
+      },
+    };
+
+    // ════════════════════════════════════════════════════════════════════
+    // Public API
+    // ════════════════════════════════════════════════════════════════════
+    global.ErpGridActions = {
+      /** Get single action def by key (returns null if unknown). */
+      get: function (key) { return ACTIONS[key] || null; },
+
+      /** Get array of action defs for given keys (preserves order, skips unknowns). */
+      list: function (keys) {
+        if (!Array.isArray(keys)) return [];
+        return keys
+          .map(function (k) { return ACTIONS[k]; })
+          .filter(function (a) { return !!a; });
+      },
+
+      /** Dispatch action by key with ctx={gridCode, rowData?, refreshFn?}. */
+      dispatch: function (key, ctx) {
+        var action = ACTIONS[key];
+        if (!action) {
+          console.warn("[ErpGridActions] unknown action key:", key);
+          return Promise.reject(new Error("unknown_action: " + key));
+        }
+        ctx = ctx || {};
+        return action.handler(ctx);
+      },
+
+      /** Register edit form coreId pro gridCode (runtime override / seed). */
+      registerEditForm: function (gridCode, coreId) {
+        if (!gridCode || coreId == null) {
+          console.warn("[ErpGridActions] registerEditForm: invalid args",
+                       gridCode, coreId);
+          return;
+        }
+        FW_EDIT_FORM_REGISTRY[gridCode] = coreId;
+        console.info("[ErpGridActions] registered edit form: " +
+                     gridCode + " → coreId=" + coreId);
+      },
+
+      /** Read-only view of registry (pro debug). */
+      _registry: FW_EDIT_FORM_REGISTRY,
+    };
+
+    console.log("[ErpGridActions] registered (v1.0.0) — actions:",
+                Object.keys(ACTIONS).join(", "));
+  });
+})(window);

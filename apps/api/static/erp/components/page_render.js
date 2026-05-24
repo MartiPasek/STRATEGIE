@@ -470,6 +470,31 @@
           // musi uplne zmizet"): native ErpDataGrid toolbar pres layoutKey
           // = "core_<id>" -- dropdown sestav + Pravidla + Ulozit jako
           // + spravovat. Backend persistence pres /grid-layout/{core_id}.
+
+          // Universal CRUD Etapa C (24.5.2026 vecer Marti doctrine
+          // "system pro vsechno"): build context menu actions z grid_actions
+          // backend signal + register edit form mapping do ErpGridActions
+          // registry. Drz Marti "stejne zobrazit, stejne funkce" napric
+          // 3 vrstvy (context menu, grid header, workspace toolbar).
+          const _gridCodeForActions = rootCd.name || ("core_" + coreId);
+          const _gridActionsForCtx = rootCd && rootCd.grid_actions;
+          const _ctxMenuActions = [];
+          if (_gridActionsForCtx) {
+            if (_gridActionsForCtx.has_insert) _ctxMenuActions.push("create");
+            if (_gridActionsForCtx.has_edit) _ctxMenuActions.push("edit");
+            if (_gridActionsForCtx.has_delete) _ctxMenuActions.push("delete");
+          }
+          _ctxMenuActions.push("refresh");  // always available
+          // Register edit form coreId pro gridCode (drz Marti "fw self
+          // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
+          if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id
+              && window.ErpGridActions
+              && typeof window.ErpGridActions.registerEditForm === "function") {
+            window.ErpGridActions.registerEditForm(
+              _gridCodeForActions, _gridActionsForCtx.edit_core_id
+            );
+          }
+
           try {
             const gridInst = new window.ErpDataGrid(gridHost, {
               // Marti's 24.5.2026 master-detail (Krok 6 nested ErpDataGrid):
@@ -508,6 +533,11 @@
                 rootCompDefId: rootCd.id,
                 rootTypeCode: rootCd.type_code || null,
               },
+              // Universal CRUD Etapa C (24.5.2026): context menu actions
+              // opt-in — ErpDataGrid getContextMenuItems pull-uje z
+              // ErpGridActions registry pro stejne labels/icons/handlers
+              // jako toolbar (Marti's "stejne funkce" doctrine).
+              contextMenuActions: _ctxMenuActions,
               // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
               // (datagrid.js pass-through z 5.R-D+3 P1 patch).
               defaultColDefExtra: {

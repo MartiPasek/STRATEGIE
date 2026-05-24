@@ -1844,3 +1844,19 @@
   line-height: 1.4;
   padding: 0 4px !important;
 }
+
+/* Universal CRUD Etapa B (24.5.2026 vecer Marti's doctrine):
+   destructive context menu items (Smazat) — red text + bold hover.
+   AG Grid renderuje cssClasses array na .ag-menu-option element. */
+.ag-theme-quartz-dark .ag-menu-option.erp-context-menu-destructive
+    .ag-menu-option-text {
+  color: #f87171 !important;  /* var(--error) red 400 */
+}
+.ag-theme-quartz-dark .ag-menu-option.erp-context-menu-destructive:hover {
+  background-color: rgba(248, 113, 113, 0.12) !important;
+}
+.ag-theme-quartz-dark .ag-menu-option.erp-context-menu-destructive:hover
+    .ag-menu-option-text {
+  color: #fca5a5 !important;  /* red 300 lighter on hover */
+  font-weight: 600;
+}

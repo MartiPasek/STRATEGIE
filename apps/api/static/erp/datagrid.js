@@ -1361,6 +1361,60 @@
             "cut", "copy", "copyWithHeaders", "copyWithGroupHeaders", "paste",
             "separator", "export",
           ];
+          // Universal CRUD Etapa B+C (24.5.2026 vecer Marti's doctrine):
+          // Nový/Oprava/Smazat/Obnovit items z ErpGridActions registry.
+          // Opt-in přes opts.contextMenuActions=['create','edit','delete','refresh'].
+          // Drží Marti "stejne zobrazit, stejne funkce" — same source jako
+          // workspace toolbar + grid header toolbar (3 vrstvy sync).
+          const crudItems = [];
+          try {
+            const actionKeys = opts.contextMenuActions;
+            if (Array.isArray(actionKeys) && actionKeys.length > 0
+                && window.ErpGridActions
+                && typeof window.ErpGridActions.list === "function") {
+              const actions = window.ErpGridActions.list(actionKeys);
+              const rowData = params.node ? params.node.data : null;
+              const gridCode = opts.gridCode
+                || (opts.layoutKey ? String(opts.layoutKey) : null);
+              // Etapa C: ctx.coreId z opts.coreInfo (= page-spec core_id,
+              // used by Smazat DELETE endpoint resolver).
+              const coreIdForCtx = (opts.coreInfo && opts.coreInfo.coreId != null)
+                ? opts.coreInfo.coreId : null;
+              const refreshFn = function () {
+                try { params.api.refreshCells({force: true}); } catch (e) {}
+                if (typeof opts.onRefresh === "function") {
+                  try { opts.onRefresh(); } catch (e) {}
+                }
+              };
+              actions.forEach(function (action) {
+                const disabled = action.requiresRow && !rowData;
+                crudItems.push({
+                  name: action.icon + " " + action.label,
+                  tooltip: action.hint || "",
+                  disabled: disabled,
+                  cssClasses: action.destructive
+                    ? ["erp-context-menu-destructive"] : [],
+                  action: function () {
+                    if (disabled) return;
+                    window.ErpGridActions.dispatch(action.key, {
+                      gridCode: gridCode,
+                      coreId: coreIdForCtx,
+                      rowData: rowData,
+                      gridApi: params.api,
+                      refreshFn: refreshFn,
+                    }).catch(function (err) {
+                      console.warn("[ErpDataGrid CRUD]", action.key, "failed:", err);
+                    });
+                  },
+                });
+              });
+              if (crudItems.length > 0) {
+                crudItems.push("separator");
+              }
+            }
+          } catch (e) {
+            console.warn("[ErpDataGrid CRUD context menu] build failed:", e);
+          }
           // Phase 38.4 Krok 9-D (10.5.2026): Object Inspector item pokud
           // column má _comp_def_id (= je v fw framework). Marti-AI's
           // 9-iter konzultace UX: pravý-klik na buňce / hlavičce → modal.
@@ -1481,7 +1535,11 @@
               custom = opts.customContextMenuItems;
             }
           } catch (e) { console.warn("customContextMenuItems failed:", e); }
-          const all = [...defaults];
+          // Universal CRUD Etapa B: crudItems FIRST (Marti's priority — Nový/
+          // Oprava/Smazat/Obnovit nahoře, separator, pak built-in cut/copy/export).
+          const all = crudItems.length > 0
+            ? [...crudItems, ...defaults]
+            : [...defaults];
           if (oiItems.length > 0) all.push("separator", ...oiItems);
           if (designItems.length > 0) all.push("separator", ...designItems);
           if (custom.length > 0) all.push("separator", ...custom);

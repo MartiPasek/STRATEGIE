@@ -1870,6 +1870,18 @@
 .erp-grid-action-btn.danger:not(:disabled) {
   color: #f87171 !important;
 }
+
+/* UI polish (24.5.2026 vecer pozde, Marti's "ikony uplne vlevo do
+   samostatneho prostoru a trochu je zvetsit"): CRUD context menu items
+   icon v native AG Grid icon slot. Zvetsit oproti default text size,
+   zachovat center alignment. */
+.erp-context-menu-crud-icon {
+  display: inline-block;
+  font-size: 16px;
+  line-height: 1;
+  text-align: center;
+  width: 100%;
+}
 .erp-grid-action-btn.danger:not(:disabled):hover {
   background-color: rgba(248, 113, 113, 0.22) !important;
   border-color: rgba(248, 113, 113, 0.70) !important;

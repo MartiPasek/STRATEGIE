@@ -1062,7 +1062,15 @@
     /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
      *  + optional Save placeholder. */
     _renderCrudToolbarHtml() {
-      const actions = window.ErpGridActions.list(["create", "edit", "delete", "refresh"]);
+      // UI polish (24.5.2026 vecer pozde, Marti's "ikonu Obnovit z panelu
+      // CRUD hned vedle Tvoje Marti uz muzeme zlikvidovat"): external
+      // toolbarHost (master grid, workspace header) skip refresh — native
+      // #erpRefreshBtn vlevo je per-tab correct. Internal nested grids
+      // (detail/picker, no header refresh) keep refresh in their toolbar.
+      const actionKeys = this._toolbarHostExternal
+        ? ["create", "edit", "delete"]
+        : ["create", "edit", "delete", "refresh"];
+      const actions = window.ErpGridActions.list(actionKeys);
       const ga = this.options.gridActions || {};
       const editCoreId = ga.edit_core_id;
       const stateMap = {
@@ -1439,8 +1447,13 @@
       // Wire CRUD toolbar click handlers (musi byt po append do DOM)
       if (_renderCrud) {
         this._wireCrudToolbar();
-        // Etapa F Freshness: start polling timer pro periodic re-evaluation.
-        this._startFreshnessPolling();
+        // UI polish (24.5.2026 vecer pozde, Marti's drop Obnovit z external):
+        // Polling timer jen pro internal toolbar (nested grids). External
+        // toolbar (master grid v workspace header) nema refresh button po
+        // polish — native #erpRefreshBtn handluje per-tab.
+        if (!this._toolbarHostExternal) {
+          this._startFreshnessPolling();
+        }
       }
 
       // Resolve columnDefs
@@ -1825,7 +1838,13 @@
                 const needRowDisabled = action.requiresRow && !rowData;
                 const disabled = initDisabled || needRowDisabled;
                 crudItems.push({
-                  name: action.icon + " " + action.label,
+                  // UI polish (24.5.2026 vecer pozde, Marti's "ikony uplne
+                  // vlevo do samostatneho prostoru"): split icon + name pro
+                  // native AG Grid layout — icon v dedicated left slot,
+                  // name standalone right. Span class enables CSS size bump.
+                  name: action.label,
+                  icon: '<span class="erp-context-menu-crud-icon">'
+                        + action.icon + '</span>',
                   tooltip: action.hint || "",
                   disabled: disabled,
                   cssClasses: action.destructive

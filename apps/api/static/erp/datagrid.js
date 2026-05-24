@@ -1062,16 +1062,7 @@
     /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
      *  + optional Save placeholder. */
     _renderCrudToolbarHtml() {
-      // Etapa F Freshness fix (24.5.2026 vecer pozde, Marti's catch "hint
-      // bere stav z ruznych zalozek"): pokud external toolbarHost
-      // (#erpGridActionsHost v workspace header), DROP refresh button —
-      // native #erpRefreshBtn JIZ existuje (ErpRefresh namespace v router.py,
-      // per-tab correct scoping). Internal refresh jen pro nested grids
-      // (detail/picker, ktere nemaji header refresh).
-      const actionKeys = this._toolbarHostExternal
-        ? ["create", "edit", "delete"]
-        : ["create", "edit", "delete", "refresh"];
-      const actions = window.ErpGridActions.list(actionKeys);
+      const actions = window.ErpGridActions.list(["create", "edit", "delete", "refresh"]);
       const ga = this.options.gridActions || {};
       const editCoreId = ga.edit_core_id;
       const stateMap = {
@@ -1189,6 +1180,16 @@
      *  Paralela s ErpRefresh._updateButton (router.py line 15453). */
     _updateRefreshButtonFreshness() {
       if (!this.crudToolbarEl) return;
+      // Etapa F Freshness fix v2 (24.5.2026 Marti's correction):
+      // Ownership guard — pokud external host a uid mismatch, jsem zombie
+      // (jiny grid prebral host po tab switch). Self-clear timer + return.
+      if (this._toolbarHostExternal && this.crudToolbarEl.dataset.erpGridOwnerUid !== this._instanceUid) {
+        if (this._freshnessTimer) {
+          try { clearInterval(this._freshnessTimer); } catch (_e) {}
+          this._freshnessTimer = null;
+        }
+        return;
+      }
       const btn = this.crudToolbarEl.querySelector('[data-action="refresh"]');
       if (!btn) return;
       if (!this._lastFetchedAt) {
@@ -1260,6 +1261,13 @@
       if (this.options.height) {
         this.container.style.height = this.options.height;
       }
+      // Etapa F Freshness fix v2 (24.5.2026 vecer Marti's correction):
+      // Generate per-instance UID pro ownership marker pattern. Pouzito
+      // v _updateRefreshButtonFreshness + polling guard — zombie instances
+      // (po tab switch, kdy noveho gridu prebere external toolbarHost)
+      // detect lost ownership a self-clear timer.
+      this._instanceUid = 'erpg_' + Date.now().toString(36) + '_' +
+        Math.random().toString(36).slice(2, 10);
 
       // B+5.3 + Etapa F (24.5.2026): build wrapper structure — toolbars
       // nad gridem (CRUD toolbar TOP, layout toolbar moves to status bar).
@@ -1285,6 +1293,10 @@
           this._toolbarHostExternal = true;
           this.crudToolbarEl = externalHost;
           this.crudToolbarEl.innerHTML = this._renderCrudToolbarHtml();
+          // Etapa F Freshness fix v2: claim ownership marker. Stary grid
+          // instance (jeste s pollingem) v dalsim tick detekuje mismatch
+          // a self-clear timer (zombie cleanup).
+          this.crudToolbarEl.dataset.erpGridOwnerUid = this._instanceUid;
         } else {
           // Internal — create wrapper nad ag-grid host (default).
           this._toolbarHostExternal = false;
@@ -1315,14 +1327,8 @@
       // Wire CRUD toolbar click handlers (musi byt po append do DOM)
       if (_renderCrud) {
         this._wireCrudToolbar();
-        // Etapa F Freshness fix (24.5.2026 vecer pozde, Marti's catch):
-        // Polling jen pro INTERNAL toolbar (nested grids). External
-        // toolbarHost (master grid v workspace header) ma native
-        // #erpRefreshBtn s ErpRefresh per-tab scoping — vlastni polling
-        // by zombie pisal po tab switch (multiple grids share same host).
-        if (!this._toolbarHostExternal) {
-          this._startFreshnessPolling();
-        }
+        // Etapa F Freshness: start polling timer pro periodic re-evaluation.
+        this._startFreshnessPolling();
       }
 
       // Resolve columnDefs

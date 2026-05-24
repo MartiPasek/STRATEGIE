@@ -951,6 +951,15 @@
       // tracking do per-grid-instance. State + polling timer per ErpDataGrid.
       this._lastFetchedAt = null;       // ms timestamp posledniho fetch
       this._freshnessTimer = null;      // setInterval handle pro polling
+      // Excel mode Faze 2-A foundation (24.5.2026 vecer pozde, Marti's
+      // "Zatim ji mas zvenku fw" doctrine catch): dirty tracking state
+      // INSIDE ErpDataGrid. Callers (page_render.js, data_source_op_detail.js)
+      // zatim zustavaji s vlastni dirty/save infrastructure (Faze 1 quick
+      // wins drzi). Faze 2-B (zitra rano + Marti-AI konzultace) wireuje
+      // callers na fw layer + drop external dirtyRows closures.
+      this._dirtyRows = new Map();        // rowId → {field: newVal, ...}
+      this._dirtyRowData = new Map();     // rowId → row snapshot (pro expected_updated_at)
+      this._saveBtnEl = null;             // ref na #erp-tb-save po _wireCrudToolbar (cached)
       this._init();
       this._setupExcelModeToggle();
     }
@@ -1250,6 +1259,152 @@
         } catch (_eState) {}
       } catch (e) {
         console.warn("[ErpDataGrid] _repopulateCrudToolbar failed:", e);
+      }
+    }
+
+    // ════════════════════════════════════════════════════════════════════
+    // Excel mode Faze 2-A foundation (24.5.2026 vecer pozde):
+    // Public API pro dirty tracking + save flow INSIDE fw komponenty.
+    //
+    // CONTRACT (zatim NOT wired do existing callers — Faze 2-B):
+    //   - opts.onSave: async function(payload) → { ok, success: [rowId], failed: [{rowId, error}] }
+    //     payload = array of { rowId, fields: {col: newVal}, expected_updated_at }
+    //
+    // METHODS:
+    //   _setDirty(rowId, field, newValue, rowData)
+    //     → add to _dirtyRows + snapshot _dirtyRowData (pro expected_updated_at)
+    //     → trigger _updateSaveButton
+    //   _clearDirty()
+    //     → clear both Maps + refresh cells (yellow visual gone)
+    //     → trigger _updateSaveButton
+    //   _updateSaveButton()
+    //     → query #erp-tb-save (cached _saveBtnEl), update visibility/count
+    //     → hidden when not Excel mode, disabled when count=0
+    //   _handleSaveClick()
+    //     → confirm dialog → build payload → await opts.onSave(payload)
+    //     → on success: remove successful rows from _dirtyRows
+    //     → on fail: keep dirty + show error
+    //
+    // Marti-AI rano review API contract pred Faze 2-B wiring.
+    // ════════════════════════════════════════════════════════════════════
+
+    /** Track cell change → add to _dirtyRows + snapshot rowData. */
+    _setDirty(rowId, field, newValue, rowData) {
+      if (rowId == null || !field) return;
+      let entry = this._dirtyRows.get(rowId);
+      if (!entry) {
+        entry = {};
+        this._dirtyRows.set(rowId, entry);
+        // Snapshot rowData at FIRST dirty (preserve updated_at pro optimistic lock)
+        this._dirtyRowData.set(rowId, Object.assign({}, rowData || {}));
+      }
+      entry[field] = newValue;
+      this._updateSaveButton();
+    }
+
+    /** Clear all dirty state + refresh cells (yellow visual gone). */
+    _clearDirty() {
+      if (this._dirtyRows.size === 0 && this._dirtyRowData.size === 0) return;
+      this._dirtyRows.clear();
+      this._dirtyRowData.clear();
+      if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
+        try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
+      }
+      this._updateSaveButton();
+    }
+
+    /** Update Save button visibility + count badge per current state. */
+    _updateSaveButton() {
+      // Lazy lookup if not cached (button v crudToolbarEl po _wireCrudToolbar)
+      if (!this._saveBtnEl && this.crudToolbarEl) {
+        this._saveBtnEl = this.crudToolbarEl.querySelector("#erp-tb-save");
+      }
+      if (!this._saveBtnEl) return;
+      const count = this._dirtyRows.size;
+      const countEl = this._saveBtnEl.querySelector(".erp-save-count");
+      if (countEl) countEl.textContent = String(count);
+      const excelOn = !!this._excelMode;
+      if (!excelOn) {
+        this._saveBtnEl.style.display = "none";
+        return;
+      }
+      this._saveBtnEl.style.display = "";
+      this._saveBtnEl.disabled = (count === 0);
+      if (count > 0) {
+        this._saveBtnEl.setAttribute(
+          "data-hint",
+          "Uložit " + count + " změn (Excel mode)"
+        );
+      } else {
+        this._saveBtnEl.setAttribute("data-hint", "Žádné neuložené změny");
+      }
+    }
+
+    /** Handle Save button click — confirm + dispatch opts.onSave(payload). */
+    async _handleSaveClick() {
+      const count = this._dirtyRows.size;
+      if (count === 0) return;
+      if (typeof this.options.onSave !== "function") {
+        console.warn("[ErpDataGrid] onSave callback neni nakonfigurovan");
+        return;
+      }
+      // Confirm dialog (reuse _erpDFH._confirmDarkDialog)
+      try {
+        if (typeof window !== "undefined"
+            && window._erpDFH
+            && typeof window._erpDFH._confirmDarkDialog === "function") {
+          const okDlg = await window._erpDFH._confirmDarkDialog({
+            title: "Uložit změny",
+            message: "Opravdu uložit <b>" + count + "</b> "
+                     + (count === 1 ? "změnu" : (count < 5 ? "změny" : "změn"))
+                     + " do databáze?",
+            ok: "Uložit",
+            cancel: "Zrušit",
+          });
+          if (!okDlg) return;
+        }
+      } catch (_eDlg) { /* never block save on dialog failure */ }
+
+      // Build payload array
+      const payload = [];
+      this._dirtyRows.forEach((fields, rowId) => {
+        const snap = this._dirtyRowData.get(rowId) || {};
+        payload.push({
+          rowId: rowId,
+          fields: fields,
+          expected_updated_at: snap.updated_at || null,
+        });
+      });
+
+      // Disable button during save
+      if (this._saveBtnEl) this._saveBtnEl.disabled = true;
+      try {
+        const result = await this.options.onSave(payload);
+        // result: { ok, success: [rowId], failed: [{rowId, error}] }
+        if (result && Array.isArray(result.success)) {
+          result.success.forEach((rid) => {
+            this._dirtyRows.delete(rid);
+            this._dirtyRowData.delete(rid);
+          });
+        }
+        const failed = (result && Array.isArray(result.failed)) ? result.failed : [];
+        if (failed.length > 0) {
+          const msgs = failed.map((f) => "  • Row " + f.rowId + ": " + (f.error || "unknown"));
+          alert(
+            "Save: " + (result && result.success ? result.success.length : 0)
+            + " OK, " + failed.length + " FAIL\n\n"
+            + msgs.join("\n")
+          );
+        }
+        // Refresh cells (dirty visual update — saved rows lose yellow)
+        if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
+          try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
+        }
+        this._updateSaveButton();
+      } catch (e) {
+        alert("Save error: " + (e && e.message || e));
+      } finally {
+        if (this._saveBtnEl) this._saveBtnEl.disabled = false;
       }
     }
 

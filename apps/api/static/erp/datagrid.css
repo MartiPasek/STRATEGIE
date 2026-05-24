@@ -330,10 +330,21 @@
   border-left: 1px solid var(--border, #3a3d44);
 }
 
-/* Master-detail expansion area */
+/* Master-detail expansion area. Marti's 24.5.2026 "jemnejsi jako master":
+   detail container má border + radius pro vizuální oddělení od master row.
+   Padding 8-12px po stranách + dolu, méně nahoře (přilepený k master row). */
 .ag-theme-quartz-dark.erp-ag-grid .ag-details-row {
   background-color: var(--bg, #0e0f11);
-  padding: 8px;
+  padding: 4px 12px 12px 36px;  /* indent vlevo = pod expand arrow */
+}
+.ag-theme-quartz-dark.erp-ag-grid .ag-details-grid {
+  border: 1px solid var(--border, #3a3d44);
+  border-radius: 4px;
+  overflow: hidden;  /* zachovat radius na rohách */
+}
+/* Detail grid header subtle background — match master header */
+.ag-theme-quartz-dark.erp-ag-grid .ag-details-grid .ag-header {
+  background-color: var(--surface, #1c1e23);
 }
 
 /* Cell editor inputs */

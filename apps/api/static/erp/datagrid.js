@@ -1220,16 +1220,25 @@
                           var detailApi = detailGridInfo && detailGridInfo.api;
                           if (detailApi && typeof detailApi.setGridOption === "function") {
                             var firstRow = rows[0];
+                            // Pretty header — variant_code → "Variant code"
+                            var prettify = function (s) {
+                              if (!s) return s;
+                              var clean = String(s).replace(/_/g, " ").trim();
+                              return clean.charAt(0).toUpperCase() + clean.slice(1);
+                            };
                             var autoCols = Object.keys(firstRow).map(function (k) {
+                              var isIdLike = (k === "id" || k.toLowerCase().endsWith("_id"));
                               return {
                                 field: k,
-                                headerName: k,
+                                headerName: prettify(k),
                                 sortable: true,
                                 resizable: true,
                                 filter: true,
-                                // ID-like sloupce úzké
-                                width: (k === "id" || k.toLowerCase().endsWith("_id")) ? 80 : undefined,
-                                flex: (k === "id" || k.toLowerCase().endsWith("_id")) ? 0 : 1,
+                                // ID-like sloupce úzké + gradient styling
+                                // (cellClass match master grid's .erp-ag-col-id)
+                                width: isIdLike ? 80 : undefined,
+                                flex: isIdLike ? 0 : 1,
+                                cellClass: isIdLike ? "erp-ag-col-id" : undefined,
                               };
                             });
                             detailApi.setGridOption("columnDefs", autoCols);
@@ -1260,10 +1269,19 @@
                     filter: true,
                     floatingFilter: false,  // detail compact — bez floating row
                     flex: 1,
+                    // Marti's 24.5.2026 "jemnejsi jako master": drop column
+                    // menu icon (☰) v header — compact look without weird icons.
+                    suppressMenu: true,
+                    // Drop sort/filter icons z header label (sort indicator
+                    // se ukazuje jen po kliku — cleaner header).
+                    suppressHeaderMenuButton: true,
                   },
                   rowHeight: opts.rowHeight || 32,
                   headerHeight: opts.headerHeight || 36,
                   suppressContextMenu: false,
+                  // Marti's 24.5.2026: detail grid inherit master theme +
+                  // erp-ag-grid class pro styling consistency (border, padding).
+                  // AG Grid native classes pres .ag-details-row / .ag-details-grid.
                 }, opts.detailGridOptions || {}),
               }
             : undefined

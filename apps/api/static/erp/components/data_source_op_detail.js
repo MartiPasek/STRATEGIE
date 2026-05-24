@@ -80,10 +80,13 @@
               rowSelection: "single",           // single row selection v detail
               compact: true,                    // rowHeight 26, headerHeight 32
 
-              // SHARED layout napříč VŠECH master rows (Marti's spec 3)
-              layoutKey: "data_source_op",
-              gridCode: "data_source_op",
-              autoLoadDefault: true,            // restore default sestava
+              // Krok 6 v3 hotfix: drop layoutKey persistence (MVP).
+              // Backend layoutKey validator expects 'core_<id>' OR 'ds_<id>'
+              // — 'data_source_op' nevyhovuje → autoLoadDefault triggers
+              // 404, blokuje grid init flow. Layout persistence per-level
+              // (Marti's spec 3) přijde later s schema design (TODO).
+              // layoutKey: undefined → no toolbar, no save, just sort/filter
+              // session-only — ALE expand funguje.
 
               // Disable kaskáda zatím (level 2 = data_set přijde later)
               enableMasterDetail: false,

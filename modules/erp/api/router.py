@@ -8344,7 +8344,7 @@ def _render_full_page(
                     # override hints (později Object Inspector, drag-drop).
                     user_name_html = (
                         f' · <button type="button" class="erp-footer-user-btn" '
-                        f'id="erpFooterUserBtn" title="Profil & nastavení">'
+                        f'id="erpFooterUserBtn" data-hint="Profil & nastavení">'
                         f'<span class="erp-footer-user">'
                         f'{html.escape(str(name))}</span>'
                         f'<span class="erp-footer-user-caret">▴</span>'
@@ -8362,7 +8362,7 @@ def _render_full_page(
                             tenant_name_html = (
                                 f' · <button type="button" class="erp-footer-tenant-btn" '
                                 f'id="erpFooterTenantBtn" data-tenant-id="{tid}" '
-                                f'title="Přepnout tenant">'
+                                f'data-hint="Přepnout tenant">'
                                 f'<span class="erp-footer-tenant">'
                                 f'{html.escape(t.tenant_name)}</span>'
                                 f'<span class="erp-footer-tenant-caret">▴</span>'
@@ -10750,9 +10750,9 @@ def _render_full_page(
     <!-- B+10++ (Marti's drobnost 6.5.2026): zoom toggle přemístěn z header.
          A− default zmenšuje (−25%), A+ zvětšuje (+25%), A reset. -->
     <div class="erp-zoom-toggle erp-zoom-toggle-footer" role="group" aria-label="Velikost UI">
-      <button type="button" data-zoom="small" title="Zmenšit (−25%)">A−</button>
-      <button type="button" data-zoom="normal" class="active" title="Standard">A</button>
-      <button type="button" data-zoom="large" title="Zvětšit (+25%)">A+</button>
+      <button type="button" data-zoom="small" data-hint="Zmenšit (−25%)">A−</button>
+      <button type="button" data-zoom="normal" class="active" data-hint="Standard velikost">A</button>
+      <button type="button" data-zoom="large" data-hint="Zvětšit (+25%)">A+</button>
     </div>
   </footer>
 </body>
@@ -15821,31 +15821,34 @@ def _render_workspace_page(user_id: int) -> str:
         // Marti's spec: nahrada za stary "+" button, ten zmizel — user otevira
         // nove pres tree click (existing flow). 11.5. revize: normalni × misto ⊗
         // (Marti's UX feedback).
+        // Marti's 25.5. drobnost: convert všechny tab hinty na dark mode pres
+        // data-hint pattern (existing [data-hint]:hover::after styling).
+        // Plus update texty:
+        // - close-all: "kromě připnutých a aktivní" (clarification)
+        // - pinned tab: jen pin info, drop label (label je viditelný v span)
+        // - nepinned tab: učit usera right-click feature
+        // - close × na nepinned: drop hint úplně (visual ×, action obvious)
         html += '<button type="button" class="erp-tab-close-all" id="erpTabCloseAll" ' +
-                'title="Zavřít všechny záložky kromě aktivní">×</button>';
+                'data-hint="Zavřít všechny záložky kromě připnutých a aktivní">×</button>';
         tabsState.tabs.forEach((t, i) => {
           const active = (i === tabsState.activeIndex);
           const pinned = (t.pinned === true);
-          // 11.5. revize: žádný pinned styling na celé záložce (Marti's UX
-          // feedback). Místo toho close ikona vpravo: × pro běžné, 📌 pro pinned.
-          // Right-click toggle pin <=> close (pinned tab close icon = 📌 disabled).
-          // Marti's 24.5. drobnost "vypni hint ze zalozek prehledu": title
-          // tooltip jen pro pinned (info o right-click), pro běžné taby drop
-          // — label je viditelný v erp-tab-label spanu, tooltip redundantní.
-          const tabTitle = pinned
-            ? ' title="' + escapeAttr(t.label) + ' (📌 připnutá — pravý klik pro odepnutí)"'
-            : '';
+          // Tab body hint (data-hint = dark mode tooltip)
+          const tabHint = pinned
+            ? ' data-hint="📌 Připnutá záložka — pravým klikem odepnout"'
+            : ' data-hint="Pravým klikem můžeš záložku připnout"';
           html += '<div class="erp-tab' + (active ? ' active' : '') +
-                  '" data-tab-idx="' + i + '"' + tabTitle + '>';
+                  '" data-tab-idx="' + i + '"' + tabHint + '>';
           html += '<span class="erp-tab-label">' + escapeHtml(t.label) + '</span>';
           const closeChar = pinned ? '📌' : '×';
-          const closeTitle = pinned
-            ? 'Připnutá záložka (pravý klik pro odepnutí)'
-            : 'Zavřít záložku';
+          // Close button: pinned má hint o pravém kliku, nepinned bez hintu
+          // (action je obvious z visual × ikony — netřeba duplicate hintu).
+          const closeHintAttr = pinned
+            ? ' data-hint="Pravým klikem odepnout"'
+            : '';
           html += '<button type="button" class="erp-tab-close' +
                   (pinned ? ' pinned' : '') +
-                  '" data-tab-close="' + i +
-                  '" title="' + closeTitle + '">' + closeChar + '</button>';
+                  '" data-tab-close="' + i + '"' + closeHintAttr + '>' + closeChar + '</button>';
           html += '</div>';
         });
         tabsBarEl.innerHTML = html;

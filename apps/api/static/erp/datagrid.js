@@ -1331,6 +1331,62 @@
               console.warn("[ErpDataGrid] cellFocused wire failed:", e);
             }
           }
+          // Marti's 24.5.2026 Fáze 1: pravý-klik na floating filter
+          // = simulovat klik na filter ikonu vpravo (otevře AG Grid
+          // column filter popup). Levý klik + typing beze změny.
+          // Strategie: najít sibling .ag-floating-filter-button v cell
+          // a click() na něj → AG Grid otevře svůj native popup.
+          // Žádné API version dependency (showColumnFilter vs showColumnMenu).
+          // Capture phase + preventDefault aby browser native input
+          // context menu (Emoji/Vyjmout/Kopírovat) nevyskočilo.
+          try {
+            if (this.gridContainer && this.gridContainer.addEventListener) {
+              console.log("[ErpDataGrid] floating filter contextmenu handler INSTALLED");
+              this.gridContainer.addEventListener("contextmenu", function (ev) {
+                if (!ev.target || !ev.target.closest) return;
+                // Match anywhere uvnitř floating filter cell (input, body,
+                // wrapper — všechny varianty AG Grid Quartz DOM struktury)
+                var ffCell = ev.target.closest(".ag-floating-filter");
+                if (!ffCell) return;
+                // BLOCK browser default input context menu
+                ev.preventDefault();
+                ev.stopPropagation();
+                // Find filter button v stejné header cell (vpravo)
+                var headerCell = ffCell.closest(".ag-header-cell");
+                var colId = headerCell ? headerCell.getAttribute("col-id") : "?";
+                console.log("[ErpDataGrid] floating filter contextmenu FIRED on colId=" + colId);
+                // AG Grid Quartz: filter button má class .ag-floating-filter-button
+                // Inner clickable element: <button> nebo span s onclick
+                var filterBtn = ffCell.querySelector(
+                  ".ag-floating-filter-button button, " +
+                  ".ag-floating-filter-button"
+                );
+                if (filterBtn) {
+                  console.log("[ErpDataGrid] simulating click on filter button");
+                  try {
+                    filterBtn.click();
+                  } catch (e) {
+                    console.warn("[ErpDataGrid] filter button click failed:", e);
+                  }
+                } else {
+                  // Fallback — pokud filter button není (např. suppressMenu),
+                  // zkusíme API přímo
+                  console.log("[ErpDataGrid] no filter button found, fallback to API");
+                  try {
+                    if (typeof params.api.showColumnFilter === "function" && colId !== "?") {
+                      params.api.showColumnFilter(colId);
+                    } else if (typeof params.api.showColumnMenu === "function" && colId !== "?") {
+                      params.api.showColumnMenu(colId);
+                    }
+                  } catch (e) {
+                    console.warn("[ErpDataGrid] API popup failed:", e);
+                  }
+                }
+              }, true);  // capture phase
+            }
+          } catch (e) {
+            console.warn("[ErpDataGrid] floating filter contextmenu wire failed:", e);
+          }
           // B+5.2: setup dirty tracking + auto-load default
           this._setupDirtyTracking();
           // Phase 35-E.4 Krok C+ fix2 (9.5.2026 vecer): pockame na
@@ -2385,7 +2441,7 @@
         ? ('<div class="erp-toolbar-coreinfo-zone" style="display:flex;align-items:center;">' +
            '<button data-erp-coreinfo-btn ' +
            'class="erp-toolbar-coreinfo" ' +
-           'title="Klik: info o jádru" ' +
+           'data-hint="Klik: info o jádru" ' +
            'style="min-width:90px;padding:4px 8px 4px 0;' +
            'background:transparent;border:none;color:#a8b4c2;' +
            'font-family:ui-monospace,Consolas,Monaco,monospace;' +
@@ -2405,13 +2461,13 @@
         '</div>' +
         '<div class="erp-toolbar-right">' +
           '<button class="erp-toolbar-btn" data-erp-fmt-btn ' +
-            'title="Barevná pravidla (per layout)">🎨 Pravidla</button>' +
+            'data-hint="Barevná pravidla (per layout)">🎨 Pravidla</button>' +
           '<button class="erp-toolbar-btn" data-erp-save-btn hidden ' +
-            'title="Uložit změny do aktuální sestavy">💾 Uložit</button>' +
+            'data-hint="Uložit změny do aktuální sestavy">💾 Uložit</button>' +
           '<button class="erp-toolbar-btn" data-erp-saveas-btn ' +
-            'title="Uložit aktuální stav jako novou sestavu">+ Uložit jako…</button>' +
+            'data-hint="Uložit aktuální stav jako novou sestavu">+ Uložit jako…</button>' +
           '<button class="erp-toolbar-btn" data-erp-manage-btn ' +
-            'title="Spravovat sestavy (rename, delete, set default)">⋮</button>' +
+            'data-hint="Spravovat sestavy (rename, delete, set default)">⋮</button>' +
         '</div>'
       );
     }

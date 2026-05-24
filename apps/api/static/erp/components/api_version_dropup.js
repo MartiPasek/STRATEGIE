@@ -176,7 +176,7 @@
     host.innerHTML = `
       <button type="button" class="api-version-pill ${severityClass}${olderFlash}"
               id="erpFooterApiVersionBtn"
-              title="${pin ? "Připnuto na " + activeVersion.version_label + " (klik pro změnu)" : "Aktuální verze (klik pro přepnutí)"}">
+              data-hint="${pin ? "Připnuto na " + activeVersion.version_label + " (klik pro změnu)" : "Aktuální verze (klik pro přepnutí)"}">
         <span class="api-version-pill-label">${_fmtVersionForPill(activeVersion)}</span>
         <span class="api-version-pill-caret">▴</span>
       </button>

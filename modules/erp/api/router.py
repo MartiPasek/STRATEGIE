@@ -11850,6 +11850,11 @@ def _render_workspace_page(user_id: int) -> str:
          cyklicky per-row). Generic _erpBatchRowAction(opts) — reusable napříč
          existing Smazat + future HW/FW dynamic actions. -->
     <script src="/static/erp/components/erp_batch_action.js?v=''' + _STATIC_VERSION + '''"></script>
+    <!-- Master-detail Krok 6 (24.5.2026): custom JS renderer pro Data
+         Sources → Data Source Op detail (nested ErpDataGrid s layoutKey
+         "data_source_op" persistence). Marti's Varianta B — full features
+         v detail (toolbar, filter glow, compact). -->
+    <script src="/static/erp/components/data_source_op_detail.js?v=''' + _STATIC_VERSION + '''"></script>
     <!-- Phase API Versioned Routing Etapa D (23.5.2026): footer version dropup.
          Renders pill v <div id="erpFooterApiVersion"> + dropup menu s pin/unpin/diff.
          Polluje GET /api/v1/erp/api-versions every 60s pro current_pin + versions list. -->

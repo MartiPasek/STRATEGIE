@@ -78,33 +78,57 @@
         return;
       }
 
-      // Generic data_source_runner endpoint s :master_id bind param.
-      // FW chain (fw.data_set + fw.data_source + fw.data_source_op) deploy 24.5.2026.
-      var url = "/api/v1/erp/data/" + encodeURIComponent(FW_DATA_SOURCE_CODE) +
-                "?master_id=" + encodeURIComponent(masterId);
-      console.log("[ErpDataSourceOpDetailRenderer] fetch FW:", url);
+      // Marti's 24.5.2026 vecer doctrine: uniform parity s master grid path
+      // (page_render.js line 401-419). Pre-fetch data + layout přes Promise.all,
+      // předat initialLayout do ErpDataGrid → AG Grid použije initialState.
+      // columnState authority při startup, žádný late _applyLayout race
+      // (saved widths drží pixel-perfect od prvního renderu).
+      //
+      // Marti's intuice: "v master fw gridu jsi injectnul zvenku coreInfo +
+      // initialLayout, detail grid path je asymmetrický → widths broken".
+      // Fix = uniform pre-fetch flow, ne patch _applyLayout pozdě po reflow.
+      var dataUrl = "/api/v1/erp/data/" + encodeURIComponent(FW_DATA_SOURCE_CODE) +
+                    "?master_id=" + encodeURIComponent(masterId);
+      var layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(FW_LAYOUT_KEY) + "/list";
+      console.log("[ErpDataSourceOpDetailRenderer] fetch FW data + layout:", dataUrl, "+", layoutUrl);
 
-      fetch(url, { credentials: "same-origin" })
-        .then(function (r) { return r.json(); })
-        .then(function (json) {
+      Promise.all([
+        fetch(dataUrl, { credentials: "same-origin" }).then(function (r) { return r.json(); }),
+        fetch(layoutUrl, { credentials: "same-origin" }).then(function (r) { return r.json(); })
+                                                         .catch(function () { return null; }),
+      ])
+        .then(function (results) {
+          var dataJson = results[0];
+          var layoutList = results[1];
           // data_source_runner response shape: { ok, rows, columns, ... }
-          var rows = (json && json.ok && Array.isArray(json.rows)) ? json.rows : [];
+          var rows = (dataJson && dataJson.ok && Array.isArray(dataJson.rows)) ? dataJson.rows : [];
+          // grid-layout/list response shape: { ok, shared:[], personal:[], effective_default }
+          var initialLayout = (layoutList && layoutList.ok && layoutList.effective_default)
+                              ? layoutList.effective_default : null;
           console.log("[ErpDataSourceOpDetailRenderer] received", rows.length,
-                      "ops pro masterId=" + masterId);
+                      "ops pro masterId=" + masterId,
+                      "+ layout=", initialLayout ? ("#" + initialLayout.id + " '" + initialLayout.name + "'") : "(none)");
 
           // Vytvoř nested ErpDataGrid s plnou paletou features
           try {
             self._nestedGrid = new window.ErpDataGrid(self._eGui, {
               rowData: rows,
 
-              // FW layout persistence — fw.comp_grid lookup per layoutKey.
-              // Validní formát "ds_<fw.data_source.id>" prochází validatorem.
-              // autoLoadDefault: true → restore user's last saved sestava (sloupce,
-              // šířky, sort, filters, formatting rules). Pokud žádná sestava
-              // ještě neexistuje, fallback na autoColumns (build z first row keys).
+              // FW layout persistence — uniform parity s master grid:
+              //   - layoutKey: fw.comp_grid scope key (ds_44)
+              //   - initialLayout: pre-fetched saved sestava (master path)
+              //     → AG Grid použije initialState.columnState authority při
+              //     startup, applyColumnState s saved widths PRED prvním
+              //     renderem (žádný container-fit override race).
+              //     Plus onFirstDataRendered fix #11 path s 300ms re-apply
+              //     LOCK pro reflow protection (active jen pokud initialLayout).
+              //   - autoLoadDefault DROP: initialLayout ho zastupuje, AG Grid
+              //     hasInitialLayout short-circuit by autoLoadDefault stejně skipl.
+              //   - autoColumns: fallback build z first row keys pokud
+              //     initialLayout=null (žádná saved sestava ještě neexistuje).
               layoutKey: FW_LAYOUT_KEY,
-              autoLoadDefault: true,
-              autoColumns: true,                // fallback pokud žádná saved sestava
+              initialLayout: initialLayout,
+              autoColumns: true,                // fallback pokud initialLayout=null
 
               enableFilters: true,              // floating filter + glow + popup
               rowSelection: "single",           // single row selection v detail

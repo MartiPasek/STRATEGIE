@@ -16088,13 +16088,14 @@ def _render_workspace_page(user_id: int) -> str:
           if (activeErpDataGrid && typeof activeErpDataGrid._repopulateCrudToolbar === "function") {
             try { activeErpDataGrid._repopulateCrudToolbar(); } catch (_eRepop) {}
           }
-          // AG Grid resize hint po unhide (display:none → display:flex
-          // tranzice muze potrebovat manual sizeColumnsToFit).
-          if (activeErpDataGrid && typeof activeErpDataGrid.sizeColumnsToFit === "function") {
-            setTimeout(function () {
-              try { activeErpDataGrid.sizeColumnsToFit(); } catch (e) {}
-            }, 30);
-          }
+          // Etapa F Krok 2 HOTFIX 2 (24.5.2026 vecer pozde, Marti's catch
+          // "sjednoti siri bunek napric celym gridem"): DROP sizeColumnsToFit
+          // call po cache hit. Method IGNORUJE disableColumnFlex doctrine
+          // (Marti's task #436 master-detail Volba A — saved widths drzi
+          // jen pokud disableColumnFlex=true) a sjednocuje widths k
+          // container width. AG Grid v32+ ma built-in ResizeObserver,
+          // detekuje display:none -> flex transition sam — explicit call
+          // byl zbytecny + skodlivy.
           return;
         }
 

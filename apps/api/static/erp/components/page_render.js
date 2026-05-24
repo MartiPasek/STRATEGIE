@@ -438,10 +438,11 @@
           const MASTER_DETAIL_REGISTRY = {
             "framework_data_sources": {
               rendererClass: window.ErpDataSourceOpDetailRenderer || null,
-              // Marti's 24.5.2026 Krok 6 polish: detail container auto-sized
-              // (paticka hned po posledni row, žádný buffer).
-              // detailRowHeight drop — replaced detailRowAutoHeight:true.
-              detailRowAutoHeight: true,
+              // Krok 6 v4: revert na fixed detailRowHeight (autoHeight měl
+              // timing race s async fetch → detail row stayed 0px = "tenka
+              // cara"). 180px = compromise (smaller buffer than 240px).
+              // Polish autoHeight later s lepší fix (např. resize callback).
+              detailRowHeight: 180,
             },
             // future levels — kaskáda:
             // "framework_data_source_ops": {

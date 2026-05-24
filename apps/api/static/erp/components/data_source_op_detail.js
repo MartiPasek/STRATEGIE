@@ -45,9 +45,10 @@
       // (Marti's 24.5.2026 Krok 5 polish).
       self._eGui = document.createElement("div");
       self._eGui.className = "erp-data-source-op-detail";
-      // Marti's 24.5.2026 Krok 6 polish: width 100%, height auto (paired
-      // s domLayout:autoHeight na nested grid + detailRowAutoHeight na master).
-      self._eGui.style.cssText = "width:100%; box-sizing:border-box;";
+      // Krok 6 v4: height 100% (vyplnit detail row container fully).
+      // Pari s detailRowHeight:180 fixed v page_render.js (autoHeight měl
+      // timing race s async fetch → detail row stayed 0px).
+      self._eGui.style.cssText = "width:100%; height:100%; box-sizing:border-box;";
 
       if (!masterId) {
         self._eGui.innerHTML = '<div style="padding:12px;color:var(--muted,#8a8d96);">' +
@@ -91,10 +92,10 @@
               // Disable kaskáda zatím (level 2 = data_set přijde later)
               enableMasterDetail: false,
 
-              // Marti's 24.5.2026 Krok 6 polish: auto-height grid (paticka
-              // hned po posledni rou, žádný empty buffer). Pari s
-              // detailRowAutoHeight:true na master grid (page_render.js).
-              domLayout: "autoHeight",
+              // Krok 6 v4: drop domLayout autoHeight (timing race s async
+              // fetch způsobil detail row stayed 0px). Use default "normal"
+              // → nested grid fills container (180px fixed).
+              // domLayout: "normal" (default — explicit comment).
             });
           } catch (e) {
             console.warn("[ErpDataSourceOpDetailRenderer] nested grid create failed:", e);

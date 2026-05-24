@@ -1062,7 +1062,16 @@
     /** Build HTML pro CRUD toolbar — 4 buttons (Novy/Oprava/Smazat/Obnovit)
      *  + optional Save placeholder. */
     _renderCrudToolbarHtml() {
-      const actions = window.ErpGridActions.list(["create", "edit", "delete", "refresh"]);
+      // Etapa F Freshness fix (24.5.2026 vecer pozde, Marti's catch "hint
+      // bere stav z ruznych zalozek"): pokud external toolbarHost
+      // (#erpGridActionsHost v workspace header), DROP refresh button —
+      // native #erpRefreshBtn JIZ existuje (ErpRefresh namespace v router.py,
+      // per-tab correct scoping). Internal refresh jen pro nested grids
+      // (detail/picker, ktere nemaji header refresh).
+      const actionKeys = this._toolbarHostExternal
+        ? ["create", "edit", "delete"]
+        : ["create", "edit", "delete", "refresh"];
+      const actions = window.ErpGridActions.list(actionKeys);
       const ga = this.options.gridActions || {};
       const editCoreId = ga.edit_core_id;
       const stateMap = {
@@ -1306,8 +1315,14 @@
       // Wire CRUD toolbar click handlers (musi byt po append do DOM)
       if (_renderCrud) {
         this._wireCrudToolbar();
-        // Etapa F Freshness: start polling timer pro periodic re-evaluation.
-        this._startFreshnessPolling();
+        // Etapa F Freshness fix (24.5.2026 vecer pozde, Marti's catch):
+        // Polling jen pro INTERNAL toolbar (nested grids). External
+        // toolbarHost (master grid v workspace header) ma native
+        // #erpRefreshBtn s ErpRefresh per-tab scoping — vlastni polling
+        // by zombie pisal po tab switch (multiple grids share same host).
+        if (!this._toolbarHostExternal) {
+          this._startFreshnessPolling();
+        }
       }
 
       // Resolve columnDefs

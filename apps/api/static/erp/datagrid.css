@@ -335,23 +335,35 @@
      (master expand arrow je ~20px + 40px indent breathing room)
    - Decentní mezera dole (Marti's "mezera pro oddeleni" od dalši master row)
    - Top padding malý (přilepený k master row, indent visualne navazuje)
-   - Container border + radius pro vizuální oddělení detail blocku */
-.ag-theme-quartz-dark.erp-ag-grid .ag-details-row {
+   - Container border + radius pro vizuální oddělení detail blocku
+
+   POZOR: AG Grid Quartz v32+ s custom renderer NEPOUŽÍVÁ .ag-details-row
+   (to platilo jen pro native master/detail). Místo toho používá
+   .ag-full-width-row + .ag-row-level-1 (DOM inspect 24.5.2026 confirmed:
+   "ag-row-odd ag-row-no-focus ag-row ag-row-level-1 ag-full-width-row").
+   Plus row je position:absolute (top/left/width inline), takže targetujeme
+   inner container .erp-data-source-op-detail (můj custom renderer wrapper). */
+.ag-theme-quartz-dark.erp-ag-grid .ag-full-width-row.ag-row-level-1 {
   background-color: var(--bg, #0e0f11) !important;
-  /* Marti's tree indent — AG Grid Quartz může mit inline padding:0,
-     force !important pro override. */
+}
+/* Inner custom renderer container — TADY je padding (ne na row,
+   která má position:absolute + inline left:0/width:100%). */
+.ag-theme-quartz-dark.erp-ag-grid .erp-data-source-op-detail {
   padding-top: 4px !important;
   padding-right: 12px !important;
   padding-bottom: 12px !important;
   padding-left: 60px !important;
+  box-sizing: border-box !important;
 }
-.ag-theme-quartz-dark.erp-ag-grid .ag-details-grid {
+/* Nested grid wrapper uvnitř detail rendereru — border + radius
+   pro vizuální oddělení od master gridu. */
+.ag-theme-quartz-dark.erp-ag-grid .erp-data-source-op-detail .erp-datagrid-wrapper {
   border: 1px solid var(--border, #3a3d44) !important;
   border-radius: 4px !important;
-  overflow: hidden !important;  /* zachovat radius na rohách */
+  overflow: hidden !important;
 }
-/* Detail grid header subtle background — match master header */
-.ag-theme-quartz-dark.erp-ag-grid .ag-details-grid .ag-header {
+/* Nested grid header subtle background — match master header */
+.ag-theme-quartz-dark.erp-ag-grid .erp-data-source-op-detail .ag-header {
   background-color: var(--surface, #1c1e23);
 }
 

@@ -440,9 +440,13 @@
               rendererClass: window.ErpDataSourceOpDetailRenderer || null,
               // Krok 6 v4: revert na fixed detailRowHeight (autoHeight měl
               // timing race s async fetch → detail row stayed 0px = "tenka
-              // cara"). 180px = compromise (smaller buffer than 240px).
+              // cara"). 240px buffer (Marti's 24.5. catch po Volba A LIVE):
+              // 180px nestačí pro 3 ops + header + floating filter +
+              // footer layout toolbar (Default + Pravidla + Uložit + Uložit
+              // jako…) = ~180px sotva sedí, poslední row přečuhne.
+              // 240px = 5-6 ops + footer pohodlně.
               // Polish autoHeight later s lepší fix (např. resize callback).
-              detailRowHeight: 180,
+              detailRowHeight: 240,
             },
             // future levels — kaskáda:
             // "framework_data_source_ops": {

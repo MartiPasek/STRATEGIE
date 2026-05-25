@@ -960,6 +960,12 @@
       this._dirtyRows = new Map();        // rowId → {field: newVal, ...}
       this._dirtyRowData = new Map();     // rowId → row snapshot (pro expected_updated_at)
       this._saveBtnEl = null;             // ref na #erp-tb-save po _wireCrudToolbar (cached)
+      // Faze 2-F P8 (25.5.2026 rano, Marti's catch "F5 v Excel mode = stejny
+      // dialog jako v DesignFwForm"): adapter pro registraci v _erpDFH
+      // _dirtyForms Set. F5 handler iteruje set + reads f._dirty.size —
+      // tento adapter wraps this._dirtyRows. Po _setDirty/_clearDirty/save
+      // success volá _syncDirtyRegistration.
+      this._dirtyAdapter = { _dirty: this._dirtyRows, _erpDataGrid: this };
       this._init();
       this._setupExcelModeToggle();
     }
@@ -1223,6 +1229,8 @@
                 try { self.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
               }
               try { self._updateSaveButton(); } catch (_eUsb) {}
+              // Faze 2-F P8: sync registration po refresh clear
+              try { self._syncDirtyRegistration(); } catch (_eSync) {}
             }
 
             // 3. Restore state PO refresh — locate by id + expand master rows
@@ -1343,6 +1351,25 @@
       if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
         try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
       }
+      // Faze 2-F P8: register adapter v _erpDFH _dirtyForms set
+      // (F5 handler intercept reads f._dirty.size).
+      this._syncDirtyRegistration();
+    }
+
+    /** Faze 2-F P8 (25.5.2026 rano): sync registration v _erpDFH
+     *  _dirtyForms Set. F5 handler v design_form_helpers.js itere přes
+     *  set + reads f._dirty.size. Pokud Excel grid má dirty → add adapter.
+     *  Pokud cleared → remove. Idempotentní (Set.add s same ref no-op). */
+    _syncDirtyRegistration() {
+      if (typeof window === "undefined" || !window._erpDFH
+          || !window._erpDFH._dirtyForms || !this._dirtyAdapter) return;
+      try {
+        if (this._dirtyRows.size > 0) {
+          window._erpDFH._dirtyForms.add(this._dirtyAdapter);
+        } else {
+          window._erpDFH._dirtyForms.delete(this._dirtyAdapter);
+        }
+      } catch (_eReg) {}
     }
 
     /** Clear all dirty state + REVERT cell values from snapshot + refresh
@@ -1374,6 +1401,8 @@
         try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
       }
       this._updateSaveButton();
+      // Faze 2-F P8: unregister adapter z _erpDFH _dirtyForms set
+      this._syncDirtyRegistration();
     }
 
     /** 3-way confirm dialog mirror DesignFwForm._beforeCloseHandler
@@ -1503,6 +1532,9 @@
           try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
         }
         this._updateSaveButton();
+        // Faze 2-F P8: sync registration po success removal (Maps mohly
+        // shrink to 0 → unregister z _dirtyForms set).
+        this._syncDirtyRegistration();
       } catch (e) {
         alert("Save error: " + (e && e.message || e));
       } finally {
@@ -2071,10 +2103,35 @@
               // used by Smazat DELETE endpoint resolver).
               const coreIdForCtx = (opts.coreInfo && opts.coreInfo.coreId != null)
                 ? opts.coreInfo.coreId : null;
-              const refreshFn = function () {
-                try { params.api.refreshCells({force: true}); } catch (e) {}
+              // Faze 2-F P6 (25.5.2026 rano, Marti's catch "po DesignFwForm OK
+              // se neauto-obnoví prehled"): context menu refreshFn = async
+              // parita s _wireCrudToolbar refreshFn (line ~1151). Drop sync
+              // refreshCells-only pattern (visual repaint bez dat fetch).
+              // Plus P5 parita — clear dirty Maps po refresh (data ze serveru
+              // = truth, dirty markers ztrácí smysl).
+              const self_ctx = self;
+              const refreshFn = async function () {
                 if (typeof opts.onRefresh === "function") {
-                  try { opts.onRefresh(); } catch (e) {}
+                  try {
+                    const ret = opts.onRefresh();
+                    if (ret && typeof ret.then === "function") await ret;
+                  } catch (_eRef) {}
+                } else {
+                  try { params.api.refreshCells({force: true}); } catch (_e) {}
+                  return;
+                }
+                // P5 parita: clear dirty Maps po refresh (BEZ revert — data
+                // jsou ze serveru, source of truth).
+                if (self_ctx._dirtyRows && (self_ctx._dirtyRows.size > 0
+                    || self_ctx._dirtyRowData.size > 0)) {
+                  self_ctx._dirtyRows.clear();
+                  self_ctx._dirtyRowData.clear();
+                  if (self_ctx.gridApi && typeof self_ctx.gridApi.refreshCells === "function") {
+                    try { self_ctx.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
+                  }
+                  try { self_ctx._updateSaveButton(); } catch (_eUsb) {}
+                  // P8 parita: sync registrace v _dirtyForms (po clear → unregister)
+                  try { self_ctx._syncDirtyRegistration(); } catch (_eSync) {}
                 }
               };
               // Etapa F Problem B fix (24.5.2026 vecer): disabled state
@@ -4453,26 +4510,35 @@
       // stejny" pattern z DesignFwForm._beforeCloseHandler): pokud going OFF
       // s dirty → 3-way confirm. Save → trigger _handleSaveClick + verify
       // success. Discard → _clearDirty (revert). Cancel → stay on (NO toggle).
+      // Faze 2-F P7 (25.5.2026 rano, Marti's catch "stejny dialog jako F5
+      // — drop 3-way Neuložené změny, je duplicit"): replace _confirmDirtyChanges
+      // 3-way s F5-style 2-button dialog (Ano = discard + toggle off, Ne
+      // = stay on). Parita s _confirmDarkDialog v design_form_helpers.js
+      // line 222 (F5 handler intercept). User chce save → MUSÍ kliknout
+      // Save button PŘED toggle (stejně jako F5: save form PŘED reload).
       if (this._excelMode === true && this._dirtyRows.size > 0) {
-        const decision = await this._confirmDirtyChanges();
-        if (decision === "cancel") {
-          // User press Esc / click outside → stay in Excel mode
-          return;
-        }
-        if (decision === "save") {
-          try {
-            await this._handleSaveClick();
-          } catch (_eSave) {
-            // Save threw → stay on, dirty visible
-            return;
+        const _cnt = this._dirtyRows.size;
+        const _phr = _cnt === 1
+          ? "1 neuloženou změnu"
+          : (_cnt < 5 ? _cnt + " neuložené změny" : _cnt + " neuložených změn");
+        let _ok = false;
+        try {
+          if (typeof window !== "undefined"
+              && window._erpDFH
+              && typeof window._erpDFH._confirmDarkDialog === "function") {
+            _ok = await window._erpDFH._confirmDarkDialog({
+              title: "Vypnout Excel mode?",
+              message: "Máš " + _phr + " v aktivním Excel mode.\n\n"
+                       + "Při vypnutí (Ctrl+Shift+E) se neuložené změny ztratí. "
+                       + "Opravdu chceš vypnout?",
+            });
+          } else {
+            _ok = window.confirm("Vypnout Excel mode? Máš " + _phr + " — ztratí se.");
           }
-          // Partial fail check — pokud save zanechal dirty (server reject),
-          // stay on. User can retry or explicit Discard.
-          if (this._dirtyRows.size > 0) return;
-        } else {
-          // decision === "discard" → revert cell values + clear
-          this._clearDirty();
-        }
+        } catch (_eDlg) { _ok = false; }
+        if (!_ok) return;  // user volí Ne → stay in Excel mode
+        // user volí Ano → discard (revert cell values + clear Maps)
+        this._clearDirty();
       }
       this._excelMode = !this._excelMode;
       const mode = this._excelMode ? "EXCEL" : "PROD";

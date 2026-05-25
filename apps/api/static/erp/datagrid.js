@@ -1207,6 +1207,24 @@
               return;  // visual repaint only, no row change, no restore
             }
 
+            // 2b. Excel mode Faze 2-E P5 (25.5.2026 rano, Marti's catch
+            // "po obnovit zustane aktivni dirty pamet + podbarveni"):
+            // Po refresh data jsou ze serveru = source of truth, dirty
+            // markers ztrací smysl (user nema co ulozit — server uz ma
+            // newest). Clear Maps BEZ revert (na rozdíl od _clearDirty,
+            // ktery REVERTuje hodnoty z snapshot — to by prepsalo cerstve
+            // data zpet na old snapshot, bug). Jen drop Maps + refreshCells
+            // (yellow visual gone) + _updateSaveButton (count badge=0,
+            // button disabled pokud Excel ON, hidden pokud OFF).
+            if (self._dirtyRows && (self._dirtyRows.size > 0 || self._dirtyRowData.size > 0)) {
+              self._dirtyRows.clear();
+              self._dirtyRowData.clear();
+              if (self.gridApi && typeof self.gridApi.refreshCells === "function") {
+                try { self.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
+              }
+              try { self._updateSaveButton(); } catch (_eUsb) {}
+            }
+
             // 3. Restore state PO refresh — locate by id + expand master rows
             if (self.gridApi) {
               try {
@@ -1371,9 +1389,12 @@
         if (typeof window !== "undefined"
             && window._erpDFH
             && typeof window._erpDFH._confirmDarkDialog === "function") {
+          // Excel mode Faze 2-E P2v2 (25.5.2026 rano): inline-styled count
+          // (vzhled parita s _handleSaveClick — amber bold larger).
+          const _cntHtmlD = '<span style="font-weight:700;font-size:1.15em;color:#ffe8a8;">' + count + '</span>';
           const decision = await window._erpDFH._confirmDarkDialog({
             title: "Neuložené změny",
-            message: "Mám uložit tebou " + phrase + "? (" + count + ")",
+            message: "Mám uložit tebou " + phrase + "? (" + _cntHtmlD + ")",
           });
           // Mirror DesignFwForm semantics:
           //   true (Ano)  → save
@@ -1428,9 +1449,15 @@
         if (typeof window !== "undefined"
             && window._erpDFH
             && typeof window._erpDFH._confirmDarkDialog === "function") {
+          // Excel mode Faze 2-E P2v2 (25.5.2026 rano, Marti's catch "stale
+          // neformatuje bold"): replace <b>X</b> za inline-styled span s
+          // explicit font-weight + font-size + color. Bypass jakykoliv
+          // CSS reset na <b> tag (nektery theme strippuje bold). Plus
+          // brighter amber color = vizualne expressivnejsi count number.
+          const _cntHtml = '<span style="font-weight:700;font-size:1.15em;color:#ffe8a8;">' + count + '</span>';
           const okDlg = await window._erpDFH._confirmDarkDialog({
             title: "Uložit změny",
-            message: "Opravdu uložit <b>" + count + "</b> "
+            message: "Opravdu uložit " + _cntHtml + " "
                      + (count === 1 ? "změnu" : (count < 5 ? "změny" : "změn"))
                      + " do databáze?",
             ok: "Uložit",

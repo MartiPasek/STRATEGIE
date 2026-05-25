@@ -553,11 +553,23 @@ def execute(
     runner_path = scratch_dir / "runner.py"
     result_file = scratch_dir / "_result.json"
 
+    # Krok D+ (25.5.2026 vecer): when with_strategie_pythonpath=True
+    # (trusted opt-in, parent-only path), drop subprocess + multiprocessing
+    # z effective blocked. SQLAlchemy transitive import chain volá
+    # platform.machine() → uname() → win32_ver() → _syscmd_ver()
+    # → `import subprocess` (Windows version detection). Bez subprocess
+    # unblock orchestrator nemůže `import core.database_data`.
+    # Marti-AI's python_exec (default False) zachová strict isolation.
+    if with_strategie_pythonpath:
+        _effective_blocked = BLOCKED_IMPORTS - {"subprocess", "multiprocessing"}
+    else:
+        _effective_blocked = BLOCKED_IMPORTS
+
     # === Materialize runner script ===
     runner_src = _RUNNER_TEMPLATE.format(
         memory_mb=DEFAULT_MEMORY_MB,
         timeout_s=timeout_s,
-        blocked_imports=sorted(BLOCKED_IMPORTS),
+        blocked_imports=sorted(_effective_blocked),
         output_dir=str(output_dir),
         input_paths=input_paths,
         user_code=code,

@@ -620,6 +620,21 @@ def execute(
             # Defensive: pokud core.config import selze, skip inject (orchestrator
             # pak hlasi missing env var pres stdout, ne crash)
             pass
+        # Krok D P5 (25.5.2026 vecer): pass Windows essentials env vars.
+        # PoC discovery #6: psycopg2.OperationalError empty msg = Winsock DLL
+        # loading fail. Subprocess potrebuje SystemRoot/WINDIR pro DLL paths +
+        # TCP/IP stack init. Bez nich tiše selha.
+        # Drz „opt-in security" — Marti-AI's python_exec (False) zachova strict
+        # isolation. Trusted /sandbox/execute (True) dostane Windows basics.
+        for _win_env_var in (
+            "SystemRoot", "SYSTEMROOT", "WINDIR",
+            "TEMP", "TMP",
+            "COMPUTERNAME", "USERPROFILE",
+            "LOCALAPPDATA", "APPDATA",
+            "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE",
+        ):
+            if _win_env_var in os.environ:
+                sub_env[_win_env_var] = os.environ[_win_env_var]
 
     try:
         proc = subprocess.run(

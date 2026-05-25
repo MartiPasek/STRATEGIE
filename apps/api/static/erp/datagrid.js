@@ -1303,7 +1303,12 @@
     // Marti-AI rano review API contract pred Faze 2-B wiring.
     // ════════════════════════════════════════════════════════════════════
 
-    /** Track cell change → add to _dirtyRows + snapshot rowData. */
+    /** Track cell change → add to _dirtyRows + snapshot rowData +
+     *  trigger refreshCells (yellow visual reflektuje stav).
+     *  Faze 2-D polish (25.5.2026 rano, Marti's catch #3 "v gridu se
+     *  nepodbarvuji bunky zmenenych fieldu"): pred Faze 2-C cleanup
+     *  page_render.js onCellEdit volal refreshCells po dirty update.
+     *  Po dropu external onCellEdit fw layer musi delat sam. */
     _setDirty(rowId, field, newValue, rowData) {
       if (rowId == null || !field) return;
       let entry = this._dirtyRows.get(rowId);
@@ -1315,6 +1320,11 @@
       }
       entry[field] = newValue;
       this._updateSaveButton();
+      // Trigger AG Grid re-evaluate internal cellClassRules "erp-cell-dirty"
+      // (reads this._dirtyRows). Bez tohoto yellow visual neproblikne.
+      if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
+        try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
+      }
     }
 
     /** Clear all dirty state + REVERT cell values from snapshot + refresh
@@ -4482,6 +4492,14 @@
           detail: { excelMode: this._excelMode, layoutKey: this.options.layoutKey },
         }));
       } catch (_e) {}
+
+      // 5) Excel mode Faze 2-D polish (25.5.2026 rano, Marti's catch #4
+      //    "po vypnuti Excel mode zustane viset SAVE tlacitko disabled"):
+      //    Po flip explicit _updateSaveButton() — pred Faze 2-C cleanup
+      //    page_render.js event listener volal _refreshSaveBtn. Po dropu
+      //    fw layer musi delat sam. Hides button kdyz Excel OFF, shows
+      //    + updates count badge kdyz ON.
+      this._updateSaveButton();
     }
 
     _applyExcelModePillStyle() {

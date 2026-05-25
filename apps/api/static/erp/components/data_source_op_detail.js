@@ -155,12 +155,21 @@
               //   Krok H (pozdejsi iterace) povýší nested na standalone
               //   přehled s vlastním fw.core → coreId pak bude valid.
               //
-              //   - coreId: NULL (nested nemá fw.core)
+              //   - coreId: 54 (nested fw.core pro Operace data sourcu —
+              //     Krok H minimal LIVE 25.5.2026 nocni)
               //   - refId: master row id (jeden z fw.data_source rows)
-              //   - coreCode: FW chain code (informativní, ne pro lookup)
-              //   - coreLabel: human-readable per master row (informativní)
+              //   - coreCode: FW chain code (= fw.core[54].code)
+              //   - coreLabel: human-readable per master row
+              //
+              // Krok H minimal SQL deploy:
+              // scripts/_phase_executable_artifact_poc_krok_h_minimal_nested_core.sql
+              //   - fw.core #54 (code='system_new.framework_data_source_ops',
+              //                  label='Operace data sourcu')
+              //   - fw.comp_def #65 (grid root, data_source_id=44)
+              //   - fw.data_source #44 (Framework: Data Source Operations)
+              //   - fw.data_source_op #33 (select, default per :master_id)
               coreInfo: {
-                coreId: null,
+                coreId: 54,
                 refId: masterId,
                 coreCode: FW_DATA_SOURCE_CODE,
                 coreLabel: "Operace data sourcu #" + masterId,

@@ -1875,7 +1875,7 @@
    adekvatne tu ikony aby se tam vesel cely ten napis save"): Save button
    wider padding + min-width pro fit "💾 SAVE 2" obsah. Default
    .erp-grid-action-btn ma 32×32 fixed size — Save override. */
-.erp-grid-action-btn#erp-tb-save {
+.erp-grid-action-btn[data-erp-tb-save] {
   width: auto !important;
   min-width: 88px !important;
   padding: 0 12px !important;
@@ -1886,12 +1886,19 @@
   align-items: center !important;
   justify-content: center !important;
 }
-.erp-grid-action-btn#erp-tb-save .erp-save-count {
-  font-size: 12px !important;
+.erp-grid-action-btn[data-erp-tb-save] .erp-save-count {
+  /* Excel mode Faze 2-D polish (25.5.2026 rano, Marti's "trochu zvetsi a
+     lehce zvyrazni — velikost jako v gridu"): zvetseni font 12 -> 14px,
+     min-width pro lepsi viditelnost, brighter amber background. */
+  font-size: 14px !important;
   font-weight: 700 !important;
-  padding: 1px 6px !important;
-  border-radius: 8px !important;
-  background: rgba(212, 160, 23, 0.25);
+  padding: 2px 8px !important;
+  min-width: 22px !important;
+  text-align: center !important;
+  border-radius: 10px !important;
+  background: rgba(212, 160, 23, 0.45) !important;
+  color: #ffe8a8 !important;
+  border: 1px solid rgba(212, 160, 23, 0.65) !important;
 }
 
 /* UI polish (24.5.2026 vecer pozde, Marti's "ikony uplne vlevo do

@@ -1207,10 +1207,18 @@
           + action.icon + "</button>";
       });
       if (this.options.enableSaveButton) {
+        // Faze 2-K P15 (25.5.2026 rano, Marti's catch "system o kterej se
+        // musime pevne oprit"): per-instance unique ID via _instanceUid —
+        // drop duplicate #erp-tb-save napříč master + detail grid (HTML
+        // spec violation). Plus data-attribute [data-erp-tb-save] pro
+        // scoped lookup (drop ID dependency entirely). Drop inner
+        // id="erp-tb-save-count" → use .erp-save-count class only.
+        const _saveBtnId = "erp-tb-save-" + this._instanceUid;
         parts.push(
-          '<button id="erp-tb-save" type="button" class="erp-grid-action-btn warning" '
+          '<button id="' + _saveBtnId + '" data-erp-tb-save="1" '
+          + 'type="button" class="erp-grid-action-btn warning" '
           + 'data-hint="Ulozit zmeny editovanych bunek (primy edit)" '
-          + 'style="display:none;" disabled>SAVE<span class="erp-save-count" id="erp-tb-save-count">0</span></button>'
+          + 'style="display:none;" disabled>SAVE<span class="erp-save-count">0</span></button>'
         );
       }
       return parts.join("");
@@ -1223,7 +1231,9 @@
     _wireCrudToolbar() {
       if (!this.crudToolbarEl) return;
       // Faze 2-B wire: lookup + wire Save button (per-instance ref cache).
-      this._saveBtnEl = this.crudToolbarEl.querySelector("#erp-tb-save");
+      // Faze 2-K P15 (25.5.2026 rano): data-attribute scoped lookup
+      // (drop ID dependency, per-instance ID je dekorace pro CSS/debug).
+      this._saveBtnEl = this.crudToolbarEl.querySelector("[data-erp-tb-save]");
       if (this._saveBtnEl) {
         const self_ = this;
         this._saveBtnEl.onclick = function () {
@@ -1231,7 +1241,7 @@
             console.error("[ErpDataGrid] _handleSaveClick rejected:", err);
           });
         };
-        // Initial state — hidden if Excel mode off, disabled if no dirty
+        // Initial state — count=0 → display:none (P14 logic)
         this._updateSaveButton();
       }
       const self = this;
@@ -1551,16 +1561,14 @@
 
     /** Update Save button visibility + count badge per current state. */
     _updateSaveButton() {
-      // Faze 2-J P14 (25.5.2026 rano, Marti's systemova "creatuj jen
-      // kdyz jsou neulozene zmeny — zadne zmeny zmizi z oci"): visibility
-      // je cistě podle count. Drop _excelMode gate (visel disabled po
-      // toggle off = P4 bug, ted elegantne vyresen).
+      // Faze 2-J P14 (25.5.2026 rano) + Faze 2-K P15: count-only visibility.
       //   count=0  → display:none  (bez ohledu na mode)
       //   count>0  → visible + enabled (always actionable)
-      // Lazy lookup if not cached (button v crudToolbarEl po _wireCrudToolbar)
-      if (!this._saveBtnEl && this.crudToolbarEl) {
-        this._saveBtnEl = this.crudToolbarEl.querySelector("#erp-tb-save");
-      }
+      //
+      // Faze 2-K P15: drop lazy lookup. _saveBtnEl je cached PRIMO v
+      // _wireCrudToolbar po renderu (data-attribute scoped). Pokud null,
+      // enableSaveButton=false → silent return (button neexistuje).
+      // Tim padem zadny cross-instance cache contamination.
       if (!this._saveBtnEl) return;
       const count = this._dirtyRows.size;
       if (count === 0) {

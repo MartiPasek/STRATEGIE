@@ -5081,6 +5081,193 @@ async def design_create_fw_core_minimal(req: Request) -> JSONResponse:
     }))
 
 
+# ============================================================================
+# Executable artifact PoC (25.5.2026 vecer, Marti's strategic shift
+# "DESCRIBE-FIRST INSERT epoch + executable_artifact PoC v jednom epochu"):
+# POST /api/v1/erp/sandbox/execute/<code> loads source z fw.executable_artifact
+# + dispatch Python (via existing sandbox) nebo SQL (deferred PoC). Marti
+# edituje source pres DBeaver UPDATE, Phase 45 = UI editor + version lineage.
+#
+# Marti's doctrine: "PoC najde realitu, Production navrhuje refaktor".
+# ============================================================================
+
+# Marti's PoC PoC sentinel marker (idempotence + audit grep):
+#   _executable_artifact_poc_endpoint_v1
+
+@api_router.post("/sandbox/execute/{artifact_code}")
+async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResponse:
+    """Krok B PoC: execute artifact (Python) from fw.executable_artifact.
+
+    Marti's scope 25.5.2026:
+      - Parent-only (is_marti_parent gate)
+      - Python only (artifact_type='python')
+      - SQL → 501 Not Implemented (defer)
+      - Reuse existing sandbox python_runner (Phase 27c)
+      - log_event START + FINISH do fw.diag_log
+
+    Path param:
+      artifact_code: fw.executable_artifact.code (UNIQUE)
+
+    Returns:
+      {
+        ok: bool,
+        artifact_code: str,
+        artifact_type: str,
+        runtime_ms: int,
+        stdout: str,
+        stderr: str,
+        error: str | None,
+        error_kind: str | None,
+      }
+    """
+    from core.database_data import get_data_session as _gds_sx
+    from sqlalchemy import text as _sql_sx
+    from core.log_queue import log_event as _log_event_sx
+
+    # Parent gate (PoC scope — drz security tight)
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    # Lookup artifact
+    ds_sx = _gds_sx()
+    try:
+        row = ds_sx.execute(_sql_sx("""
+            SELECT id, code, artifact_type, source, description
+            FROM fw.executable_artifact
+            WHERE code = :code
+        """), {"code": artifact_code}).fetchone()
+    finally:
+        ds_sx.close()
+
+    if not row:
+        # log_event 'warning' — Marti might typo code
+        try:
+            _log_event_sx(
+                level="warning",
+                source="py",
+                module_id=f"sandbox.execute.{artifact_code}",
+                message=f"Artifact not found: {artifact_code}",
+                extra={"artifact_code": artifact_code, "uid": uid},
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            {"ok": False, "error": f"Artifact '{artifact_code}' not found"},
+            status_code=404,
+        )
+
+    artifact_id = row.id
+    artifact_type = row.artifact_type
+    source = row.source
+
+    # log_event START
+    try:
+        _log_event_sx(
+            level="info",
+            source="py",
+            module_id=f"sandbox.execute.{artifact_code}",
+            message=f"Artifact START: {artifact_code} (type={artifact_type})",
+            extra={
+                "artifact_id": artifact_id,
+                "artifact_code": artifact_code,
+                "artifact_type": artifact_type,
+                "uid": uid,
+            },
+        )
+    except Exception:
+        pass
+
+    # Dispatch
+    if artifact_type == "python":
+        # Reuse existing sandbox (Phase 27c, 1.5.2026)
+        from modules.sandbox.application.python_runner import execute as _sandbox_execute_sx
+        try:
+            result = _sandbox_execute_sx(
+                code=source,
+                timeout_s=60,
+                caller_tenant_id=None,
+                user_id=uid,
+                is_parent=True,  # PoC parent-only enforced above
+            )
+        except Exception as e:
+            # Defensive — sandbox execute by ne measly throw, ale catch all
+            try:
+                _log_event_sx(
+                    level="error",
+                    source="py",
+                    module_id=f"sandbox.execute.{artifact_code}",
+                    message=f"Sandbox dispatch failed: {e}",
+                    extra={"artifact_id": artifact_id, "uid": uid},
+                )
+            except Exception:
+                pass
+            return JSONResponse(
+                {"ok": False, "error": f"Sandbox dispatch failed: {e}"},
+                status_code=500,
+            )
+
+        # log_event FINISH
+        try:
+            _log_event_sx(
+                level="info" if result.ok else "error",
+                source="py",
+                module_id=f"sandbox.execute.{artifact_code}",
+                message=(
+                    f"Artifact FINISH: {artifact_code} "
+                    f"(ok={result.ok}, runtime_ms={result.runtime_ms})"
+                ),
+                extra={
+                    "artifact_id": artifact_id,
+                    "ok": result.ok,
+                    "runtime_ms": result.runtime_ms,
+                    "stdout_len": len(result.stdout or ""),
+                    "stderr_len": len(result.stderr or ""),
+                    "error": result.error,
+                    "error_kind": result.error_kind,
+                },
+            )
+        except Exception:
+            pass
+
+        return JSONResponse({
+            "ok": result.ok,
+            "artifact_code": artifact_code,
+            "artifact_type": artifact_type,
+            "runtime_ms": result.runtime_ms,
+            "stdout": result.stdout or "",
+            "stderr": result.stderr or "",
+            "error": result.error,
+            "error_kind": result.error_kind,
+        })
+
+    elif artifact_type == "sql":
+        # PoC drz minimum — SQL unsupported zatim (defer)
+        try:
+            _log_event_sx(
+                level="warning",
+                source="py",
+                module_id=f"sandbox.execute.{artifact_code}",
+                message=f"SQL artifact type not yet supported in PoC",
+                extra={"artifact_id": artifact_id, "artifact_code": artifact_code},
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": "SQL artifact type not yet supported in PoC. Use 'python' type.",
+            },
+            status_code=501,
+        )
+
+    else:
+        # CHECK constraint by mel toto zachytit, ale defensive
+        return JSONResponse(
+            {"ok": False, "error": f"Unknown artifact_type: {artifact_type}"},
+            status_code=400,
+        )
+
+
 # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's
 # konzultace): seed layouts per root type. Marti-AI's doctrine: "seed layout
 # rika co existuje, ne jak to vypada". User pak v designeru vypln labely,

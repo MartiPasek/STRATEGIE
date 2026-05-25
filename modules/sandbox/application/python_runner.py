@@ -357,6 +357,7 @@ def execute(
     is_parent: bool = False,
     code_file_path: str | None = None,
     with_strategie_pythonpath: bool = False,
+    extra_env: dict | None = None,
 ) -> PythonExecResult:
     """
     Spusti Python kod v izolovanem subprocess sandboxu.
@@ -635,6 +636,14 @@ def execute(
         ):
             if _win_env_var in os.environ:
                 sub_env[_win_env_var] = os.environ[_win_env_var]
+
+    # Krok F (25.5.2026 vecer, Marti's PoC): merge extra_env (callers can pass
+    # arbitrary env vars, typicky SANDBOX_CONTEXT JSON). Drz string-only
+    # (env vars musi byt strings). Defensive — skip non-string values.
+    if extra_env:
+        for _ek, _ev in extra_env.items():
+            if isinstance(_ek, str) and isinstance(_ev, str):
+                sub_env[_ek] = _ev
 
     try:
         proc = subprocess.run(

@@ -4104,9 +4104,19 @@
       if (action === "create-edit-core") {
         menu.remove();
         var self_e = this;
+        // Krok F (25.5.2026 vecer): pass grid context v POST body.
+        // Backend inject SANDBOX_CONTEXT env var → orchestrator parse.
+        var ctxBody = {
+          coreId: ci.coreId,
+          coreCode: ci.coreCode || null,
+          coreLabel: ci.coreLabel || null,
+          rowId: rowId,
+        };
         fetch("/api/v1/erp/sandbox/execute/vytvor_edit_jadro", {
           method: "POST",
           credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(ctxBody),
         })
           .then(function (res) { return res.json(); })
           .then(function (data) {

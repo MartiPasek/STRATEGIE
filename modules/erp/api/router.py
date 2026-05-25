@@ -5128,6 +5128,19 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
     uid = _get_uid(req)
     _require_parent(uid)
 
+    # Krok F (25.5.2026 vecer, Marti's PoC): parse optional POST body
+    # pro context (coreId, coreCode, rowId, atd.). Orchestrator dostane
+    # serialized JSON v env var SANDBOX_CONTEXT pres sandbox extra_env.
+    _sandbox_ctx_json_sx = "{}"
+    try:
+        _body_sx = await req.json()
+        if isinstance(_body_sx, dict):
+            import json as _json_sx_F
+            _sandbox_ctx_json_sx = _json_sx_F.dumps(_body_sx, ensure_ascii=True, default=str)
+    except Exception:
+        # No body or non-JSON — orchestrator dostane prazdny {}
+        pass
+
     # Lookup artifact
     ds_sx = _gds_sx()
     try:
@@ -5189,6 +5202,7 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
                 user_id=uid,
                 is_parent=True,  # PoC parent-only enforced above
                 with_strategie_pythonpath=True,  # Krok D: orchestrator needs DB access
+                extra_env={"SANDBOX_CONTEXT": _sandbox_ctx_json_sx},  # Krok F
             )
         except Exception as e:
             # Defensive — sandbox execute by ne measly throw, ale catch all

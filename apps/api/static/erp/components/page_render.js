@@ -533,7 +533,16 @@
                   onSaveSuccess: function() {
                     try {
                       const inst = gridHost.__erpGridInst;
-                      if (inst && typeof inst.refresh === "function") inst.refresh();
+                      // Faze 2-G P9 (25.5.2026 rano, Marti's catch "po
+                      // DesignFwForm OK Save se neobnovi data"): use
+                      // refreshFromSource (real fetch + dirty clean) namisto
+                      // refresh (visual only — sizeColumnsToFit). Pred Faze
+                      // 2-G save → callback → refresh() → repaint stale rows.
+                      if (inst && typeof inst.refreshFromSource === "function") {
+                        inst.refreshFromSource();
+                      } else if (inst && typeof inst.refresh === "function") {
+                        inst.refresh();  // legacy fallback
+                      }
                     } catch (_e) {}
                   },
                 }).open();
@@ -550,7 +559,12 @@
                   onSaveSuccess: function() {
                     try {
                       const inst = gridHost.__erpGridInst;
-                      if (inst && typeof inst.refresh === "function") inst.refresh();
+                      // Faze 2-G P9 — same fix jako dvojklik handler
+                      if (inst && typeof inst.refreshFromSource === "function") {
+                        inst.refreshFromSource();
+                      } else if (inst && typeof inst.refresh === "function") {
+                        inst.refresh();  // legacy fallback
+                      }
                     } catch (_e) {}
                   },
                 }).open();

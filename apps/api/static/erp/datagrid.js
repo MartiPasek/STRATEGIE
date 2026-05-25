@@ -1200,6 +1200,14 @@
               } catch (_eCap) {}
             }
 
+            // 2pre. Excel mode Faze 2-G P10 (25.5.2026 rano, Marti's catch
+            //      "refresh v Excel mode s dirty = stejny dialog jako F5"):
+            //      pokud Excel ON + dirty → F5-style dialog. Cancel = abort.
+            try {
+              const _okR = await self._confirmRefreshDialog();
+              if (!_okR) return;
+            } catch (_eC) {}
+
             // 2. Call onRefresh (await Promise pokud thenable)
             if (typeof self.options.onRefresh === "function") {
               try {
@@ -2111,6 +2119,11 @@
               // = truth, dirty markers ztrácí smysl).
               const self_ctx = self;
               const refreshFn = async function () {
+                // Faze 2-G P10 — F5-style dialog pokud Excel dirty
+                try {
+                  const _okR = await self_ctx._confirmRefreshDialog();
+                  if (!_okR) return;
+                } catch (_eC) {}
                 if (typeof opts.onRefresh === "function") {
                   try {
                     const ret = opts.onRefresh();
@@ -2940,6 +2953,62 @@
       if (this._destroyed || !this.gridApi) return;
       try { this.gridApi.refreshCells({ force: true }); } catch (e) {}
       try { this.gridApi.sizeColumnsToFit(); } catch (e) {}
+    }
+
+    /** Faze 2-G P9 (25.5.2026 rano, Marti's catch "po DesignFwForm OK Save
+     *  se neobnovi data"): public API pro caller-driven full refresh.
+     *  Pred Faze 2-G page_render.js dvojklik/Enter volal inst.refresh() =
+     *  visual only (refreshCells + sizeColumnsToFit). NEFETCHOVAL data.
+     *  refreshFromSource awaits opts.onRefresh (real fetch + setGridOption
+     *  rowData) + P5 parita (clear dirty Maps po refresh = data = truth). */
+    async refreshFromSource() {
+      if (this._destroyed) return;
+      if (typeof this.options.onRefresh === "function") {
+        try {
+          const ret = this.options.onRefresh();
+          if (ret && typeof ret.then === "function") await ret;
+        } catch (_eRef) {}
+        // P5 parita — clear dirty Maps po refresh (data ze serveru = truth,
+        // BEZ revert na rozdíl od _clearDirty).
+        if (this._dirtyRows && (this._dirtyRows.size > 0 || this._dirtyRowData.size > 0)) {
+          this._dirtyRows.clear();
+          this._dirtyRowData.clear();
+          if (this.gridApi && typeof this.gridApi.refreshCells === "function") {
+            try { this.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
+          }
+          try { this._updateSaveButton(); } catch (_eUsb) {}
+          try { this._syncDirtyRegistration(); } catch (_eSync) {}
+        }
+      } else if (this.gridApi) {
+        // Fallback (žádný onRefresh) — visual repaint only
+        try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
+      }
+    }
+
+    /** Faze 2-G P10 (25.5.2026 rano, Marti's catch "refresh v Excel mode
+     *  s dirty = stejny F5-style dialog"): helper pro CRUD toolbar Refresh
+     *  + context menu Refresh dispatchere. Returns true = OK refresh, false
+     *  = cancel (stay dirty). Pokud Excel OFF nebo no dirty → return true
+     *  (no-op, vždy OK). */
+    async _confirmRefreshDialog() {
+      if (!this._excelMode || this._dirtyRows.size === 0) return true;
+      const _cnt = this._dirtyRows.size;
+      const _phr = _cnt === 1
+        ? "1 neuloženou změnu"
+        : (_cnt < 5 ? _cnt + " neuložené změny" : _cnt + " neuložených změn");
+      try {
+        if (typeof window !== "undefined"
+            && window._erpDFH
+            && typeof window._erpDFH._confirmDarkDialog === "function") {
+          return !!(await window._erpDFH._confirmDarkDialog({
+            title: "Obnovit data?",
+            message: "Máš " + _phr + " v aktivním Excel mode.\n\n"
+                     + "Při obnovení (Refresh) se neuložené změny ztratí. "
+                     + "Opravdu chceš obnovit?",
+          }));
+        }
+      } catch (_eDlg) {}
+      return window.confirm("Obnovit data? Máš " + _phr + " — ztratí se.");
     }
 
     sizeColumnsToFit() {

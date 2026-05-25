@@ -1551,29 +1551,31 @@
 
     /** Update Save button visibility + count badge per current state. */
     _updateSaveButton() {
+      // Faze 2-J P14 (25.5.2026 rano, Marti's systemova "creatuj jen
+      // kdyz jsou neulozene zmeny — zadne zmeny zmizi z oci"): visibility
+      // je cistě podle count. Drop _excelMode gate (visel disabled po
+      // toggle off = P4 bug, ted elegantne vyresen).
+      //   count=0  → display:none  (bez ohledu na mode)
+      //   count>0  → visible + enabled (always actionable)
       // Lazy lookup if not cached (button v crudToolbarEl po _wireCrudToolbar)
       if (!this._saveBtnEl && this.crudToolbarEl) {
         this._saveBtnEl = this.crudToolbarEl.querySelector("#erp-tb-save");
       }
       if (!this._saveBtnEl) return;
       const count = this._dirtyRows.size;
-      const countEl = this._saveBtnEl.querySelector(".erp-save-count");
-      if (countEl) countEl.textContent = String(count);
-      const excelOn = !!this._excelMode;
-      if (!excelOn) {
+      if (count === 0) {
         this._saveBtnEl.style.display = "none";
         return;
       }
+      // count > 0 → visible + enabled + actionable hint
       this._saveBtnEl.style.display = "";
-      this._saveBtnEl.disabled = (count === 0);
-      if (count > 0) {
-        this._saveBtnEl.setAttribute(
-          "data-hint",
-          "Uložit " + count + " změn (přímý edit)"
-        );
-      } else {
-        this._saveBtnEl.setAttribute("data-hint", "Žádné neuložené změny");
-      }
+      this._saveBtnEl.disabled = false;
+      const countEl = this._saveBtnEl.querySelector(".erp-save-count");
+      if (countEl) countEl.textContent = String(count);
+      this._saveBtnEl.setAttribute(
+        "data-hint",
+        "Uložit " + count + " změn (přímý edit)"
+      );
     }
 
     /** Handle Save button click — confirm + dispatch opts.onSave(payload). */

@@ -1876,15 +1876,18 @@
    wider padding + min-width pro fit "💾 SAVE 2" obsah. Default
    .erp-grid-action-btn ma 32×32 fixed size — Save override. */
 .erp-grid-action-btn[data-erp-tb-save] {
+  /* Faze 2-L P16 (25.5.2026 rano, Marti's catch "po hard Reset je
+     tlacitko visible+disabled"): DROP display:inline-flex !important +
+     align/justify. CSS !important by override inline style="display:none"
+     v HTML template — button by vzdy visible. Native <button> ma
+     inline-block, span uvnitr centruje prirozene. Width/padding/gap/font
+     zachovany pro layout (Save button vetsi nez default 32x32). */
   width: auto !important;
   min-width: 88px !important;
   padding: 0 12px !important;
   gap: 6px !important;
   font-size: 13px !important;
   font-weight: 600 !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  justify-content: center !important;
 }
 .erp-grid-action-btn[data-erp-tb-save] .erp-save-count {
   /* Excel mode Faze 2-D polish (25.5.2026 rano, Marti's "trochu zvetsi a

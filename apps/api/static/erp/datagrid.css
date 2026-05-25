@@ -1889,6 +1889,35 @@
   font-size: 13px !important;
   font-weight: 600 !important;
 }
+/* Faze 2-M P17 (25.5.2026 rano, Marti's "u detailu gridu nadpis +
+   CRUD posuneme doprava, obdobne jako head aplikace Vedle Tvoje Marti"):
+   Internal toolbar layout — title left flex:1 (grow + ellipsis),
+   actions right flex:0 (gap mezi buttons, padding od title). External
+   toolbar (workspace header) layout drzi caller (router.py CSS). */
+.erp-grid-crud-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 4px 8px;
+}
+.erp-grid-crud-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text, #e8eef5);
+  padding-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.erp-grid-crud-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
 .erp-grid-action-btn[data-erp-tb-save] .erp-save-count {
   /* Excel mode Faze 2-D polish (25.5.2026 rano, Marti's "trochu zvetsi a
      lehce zvyrazni — velikost jako v gridu"): zvetseni font 12 -> 14px,

@@ -1221,7 +1221,24 @@
           + 'style="display:none;" disabled>SAVE<span class="erp-save-count">0</span></button>'
         );
       }
-      return parts.join("");
+      // Faze 2-M P17 (25.5.2026 rano, Marti's "u detailu gridu nadpis...
+      // CRUD posuneme s fixnim oddelenim smerem doprava. Obdobne jako
+      // v head aplikace Vedle Tvoje Marti"): wrap parts pro INTERNAL
+      // toolbar s title-left + actions-right (parita s workspace header).
+      // External (workspace header) unchanged — caller drzi vlastni layout.
+      if (this._toolbarHostExternal) {
+        return parts.join("");  // external: no wrapper, caller layout
+      }
+      // Internal: title left flex:1, actions right flex:0
+      const _title = this.options.toolbarTitle
+        || (this.options.coreInfo && this.options.coreInfo.coreLabel)
+        || "";
+      return '<span class="erp-grid-crud-title">'
+        + this._escapeHtml(_title)
+        + '</span>'
+        + '<span class="erp-grid-crud-actions">'
+        + parts.join("")
+        + '</span>';
     }
 
     /** Wire click handlers — dispatch via ErpGridActions registry.

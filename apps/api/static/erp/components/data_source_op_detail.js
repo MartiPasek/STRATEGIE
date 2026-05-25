@@ -90,21 +90,42 @@
       var dataUrl = "/api/v1/erp/data/" + encodeURIComponent(FW_DATA_SOURCE_CODE) +
                     "?master_id=" + encodeURIComponent(masterId);
       var layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(FW_LAYOUT_KEY) + "/list";
-      console.log("[ErpDataSourceOpDetailRenderer] fetch FW data + layout:", dataUrl, "+", layoutUrl);
+      // Krok H+1 26.5.2026 ranni: 3rd parallel fetch pro grid_actions z page-spec.
+      // Mirror master path (page_render.js) — backend vrati grid_actions na
+      // zaklade fw.data_source_op rows pro tento core's data_source.
+      // CRUD ikony se aktivuji nativne podle DB state, ne hardcoded false.
+      // (Q3 Marti doctrine: "pokud je CRUD uvnitr fw gridu a je tam core,
+      //  musi fungovat nativne bez upravy".)
+      var NESTED_CORE_ID = 54;  // Krok H minimal LIVE 25.5.2026 nocni
+      var pageSpecUrl = "/api/v1/erp/fw-core/" + NESTED_CORE_ID + "/page-spec";
+      console.log("[ErpDataSourceOpDetailRenderer] fetch FW data + layout + page-spec:",
+                  dataUrl, "+", layoutUrl, "+", pageSpecUrl);
 
       Promise.all([
         fetch(dataUrl, { credentials: "same-origin" }).then(function (r) { return r.json(); }),
         fetch(layoutUrl, { credentials: "same-origin" }).then(function (r) { return r.json(); })
                                                          .catch(function () { return null; }),
+        fetch(pageSpecUrl, { credentials: "same-origin" }).then(function (r) { return r.json(); })
+                                                          .catch(function () { return null; }),
       ])
         .then(function (results) {
           var dataJson = results[0];
           var layoutList = results[1];
+          var pageSpecJson = results[2];
           // data_source_runner response shape: { ok, rows, columns, ... }
           var rows = (dataJson && dataJson.ok && Array.isArray(dataJson.rows)) ? dataJson.rows : [];
           // grid-layout/list response shape: { ok, shared:[], personal:[], effective_default }
           var initialLayout = (layoutList && layoutList.ok && layoutList.effective_default)
                               ? layoutList.effective_default : null;
+          // page-spec response shape: { ok, core, root_comp_def: { ..., grid_actions }, has_root }
+          // Extract grid_actions (fallback na disabled state pri chybe).
+          var dynGridActions = (pageSpecJson && pageSpecJson.ok
+                                && pageSpecJson.root_comp_def
+                                && pageSpecJson.root_comp_def.grid_actions)
+                               ? pageSpecJson.root_comp_def.grid_actions
+                               : { has_insert: false, has_edit: false,
+                                   has_delete: false, edit_core_id: null };
+          console.log("[ErpDataSourceOpDetailRenderer] grid_actions:", dynGridActions);
           console.log("[ErpDataSourceOpDetailRenderer] received", rows.length,
                       "ops pro masterId=" + masterId,
                       "+ layout=", initialLayout ? ("#" + initialLayout.id + " '" + initialLayout.name + "'") : "(none)");
@@ -233,12 +254,12 @@
               // nema vlastni ops zatim) -> gridActions vsechny false -> 4
               // buttons visible, 3 disabled, jen Obnovit aktivni. Drz
               // "stejne zobrazit, stejne funkce" napric master + detail.
-              gridActions: {
-                has_insert: false,
-                has_edit: false,
-                has_delete: false,
-                edit_core_id: null,
-              },
+              // Krok H+1 26.5.2026 ranni: dynamic gridActions z page-spec.
+              // Backend vrati grid_actions na zaklade fw.data_source_op rows
+              // pro nested data_source #44. Marti's Q3 doctrine — CRUD se
+              // aktivuje nativne bez hardcoded false. Pokud data_source ma
+              // edit/insert/delete op, button aktivni. Pokud ne, disabled.
+              gridActions: dynGridActions,
               contextMenuActions: ["create", "edit", "delete", "refresh"],
 
               // Refresh callback - ErpDataGrid internal Obnovit button vola

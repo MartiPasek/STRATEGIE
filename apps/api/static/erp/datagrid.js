@@ -1284,207 +1284,12 @@
           // PRED onRefresh, await Promise (smooth setRowData), restore
           // by ID PO. forEachNode by id->setSelected+ensureNodeVisible
           // 'middle'+setFocusedCell. Defensive: no selection = skip restore.
-          const refreshFn = async function () {
-            // 1. Capture state PRED refresh
-            let savedId = null;
-            let savedColId = null;
-            // Faze 2-N P18 (25.5.2026 rano, Marti's "po DELETE locate nevi
-            // kam jit... Muzes zustat na pribliznem miste"): savedRowIndex
-            // pro rowIndex preserve fallback (tier C).
-            let savedRowIndex = null;
-            // Etapa F Krok 1++ (24.5.2026 vecer pozde, Marti's directive
-            // "mysli i na Master Detail grid... drzel stav expand i po refresh"):
-            // capture expanded master rows Set pro post-refresh restore.
-            const expandedIds = new Set();
-            if (self.gridApi) {
-              try {
-                const selRows = self.gridApi.getSelectedRows() || [];
-                if (selRows.length > 0) {
-                  const r0 = selRows[0];
-                  savedId = (r0.id != null ? r0.id
-                              : (r0.ID != null ? r0.ID : null));
-                }
-                const fc = self.gridApi.getFocusedCell();
-                if (fc && fc.column && typeof fc.column.getColId === "function") {
-                  savedColId = fc.column.getColId();
-                  // Fallback: focused cell row id, pokud no selection
-                  if (savedId == null) {
-                    try {
-                      const node = self.gridApi.getDisplayedRowAtIndex(fc.rowIndex);
-                      if (node && node.data) {
-                        savedId = (node.data.id != null ? node.data.id
-                                    : (node.data.ID != null ? node.data.ID : null));
-                      }
-                    } catch (_eFC) {}
-                  }
-                  // P18: focused cell rowIndex je primary source pro
-                  // savedRowIndex (presnejsi nez selection scan).
-                  if (fc.rowIndex != null) savedRowIndex = fc.rowIndex;
-                }
-                // P18: pokud savedRowIndex stale null, najdi via forEachNode
-                // — index prvni nody se savedId. Defensive — selection bez
-                // focused cell flow.
-                if (savedRowIndex == null && savedId != null) {
-                  try {
-                    let idx = 0;
-                    self.gridApi.forEachNode(function (node) {
-                      if (savedRowIndex != null || !node || !node.data) {
-                        idx++;
-                        return;
-                      }
-                      const did = (node.data.id != null ? node.data.id
-                                    : (node.data.ID != null ? node.data.ID : null));
-                      if (did === savedId) savedRowIndex = idx;
-                      idx++;
-                    });
-                  } catch (_eIdx) {}
-                }
-                // Etapa F Krok 1++: kapture expanded master rows (pouze
-                // master-detail enabled grids). AG Grid forEachNode
-                // iteruje vsechny master nodes; node.expanded je true
-                // pokud detail panel je open.
-                try {
-                  self.gridApi.forEachNode(function (node) {
-                    if (node && node.expanded && node.data) {
-                      const did = (node.data.id != null ? node.data.id
-                                    : (node.data.ID != null ? node.data.ID : null));
-                      if (did != null) expandedIds.add(did);
-                    }
-                  });
-                } catch (_eExp) {}
-              } catch (_eCap) {}
-            }
-
-            // 2pre. Excel mode Faze 2-G P10 (25.5.2026 rano, Marti's catch
-            //      "refresh v Excel mode s dirty = stejny dialog jako F5"):
-            //      pokud Excel ON + dirty → F5-style dialog. Cancel = abort.
-            try {
-              const _okR = await self._confirmRefreshDialog();
-              if (!_okR) return;
-            } catch (_eC) {}
-
-            // 2. Call onRefresh (await Promise pokud thenable)
-            if (typeof self.options.onRefresh === "function") {
-              try {
-                const ret = self.options.onRefresh();
-                if (ret && typeof ret.then === "function") {
-                  await ret;
-                }
-              } catch (_eRef) {}
-            } else if (self.gridApi) {
-              try { self.gridApi.refreshCells({force: true}); } catch (_e) {}
-              return;  // visual repaint only, no row change, no restore
-            }
-
-            // 2b. Excel mode Faze 2-E P5 (25.5.2026 rano, Marti's catch
-            // "po obnovit zustane aktivni dirty pamet + podbarveni"):
-            // Po refresh data jsou ze serveru = source of truth, dirty
-            // markers ztrací smysl (user nema co ulozit — server uz ma
-            // newest). Clear Maps BEZ revert (na rozdíl od _clearDirty,
-            // ktery REVERTuje hodnoty z snapshot — to by prepsalo cerstve
-            // data zpet na old snapshot, bug). Jen drop Maps + refreshCells
-            // (yellow visual gone) + _updateSaveButton (count badge=0,
-            // button disabled pokud Excel ON, hidden pokud OFF).
-            if (self._dirtyRows && (self._dirtyRows.size > 0 || self._dirtyRowData.size > 0)) {
-              self._dirtyRows.clear();
-              self._dirtyRowData.clear();
-              if (self.gridApi && typeof self.gridApi.refreshCells === "function") {
-                try { self.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
-              }
-              try { self._updateSaveButton(); } catch (_eUsb) {}
-              // Faze 2-F P8: sync registration po refresh clear
-              try { self._syncDirtyRegistration(); } catch (_eSync) {}
-            }
-
-            // 3. Restore state PO refresh — locate by id + expand master rows
-            // Faze 2-N P18 (25.5.2026 rano, Marti's "po DELETE locate nevi
-            // kam jit"): 3-tier fallback chain:
-            //   Tier A: exact savedId match (existing — primary)
-            //   Tier B: closest ID (lower preferred, then upper) — DELETE
-            //           recovery scenario
-            //   Tier C: rowIndex preserve — getDisplayedRowAtIndex
-            //           (fallback pro non-numeric ID grids)
-            if (self.gridApi) {
-              try {
-                let foundSelNode = null;
-                // P18: collect new IDs + node map pro closest-ID fallback
-                const newIdsForFallback = [];
-                const nodesByIdMap = new Map();
-                self.gridApi.forEachNode(function (node) {
-                  if (!node || !node.data) return;
-                  const did = (node.data.id != null ? node.data.id
-                                : (node.data.ID != null ? node.data.ID : null));
-                  if (did == null) return;
-                  // Etapa F Krok 1++ restore: re-expand master rows
-                  // (master-detail enabled). setExpanded(true) trigger
-                  // detail panel re-create (nested grid pre-fetch flow).
-                  if (expandedIds.size > 0 && expandedIds.has(did)) {
-                    try { node.setExpanded(true); } catch (_eExp2) {}
-                  }
-                  // Tier A: exact savedId match
-                  if (!foundSelNode && did === savedId) foundSelNode = node;
-                  // P18: collect pro Tier B fallback
-                  newIdsForFallback.push(did);
-                  nodesByIdMap.set(did, node);
-                });
-                // P18 Tier B: pokud savedId nenalezen + savedId existoval,
-                // najdi closest ID (lower preferred, pak upper). Numeric IDs
-                // prirozene sortuji (subtraction), non-numeric padaji na
-                // string compare.
-                if (!foundSelNode && savedId != null && newIdsForFallback.length > 0) {
-                  try {
-                    const sorted = newIdsForFallback.slice().sort(function (a, b) {
-                      if (typeof a === "number" && typeof b === "number") return a - b;
-                      return String(a).localeCompare(String(b));
-                    });
-                    let lowerCandidate = null;
-                    let upperCandidate = null;
-                    for (const id of sorted) {
-                      const cmp = (typeof id === "number" && typeof savedId === "number")
-                                  ? (id - savedId)
-                                  : String(id).localeCompare(String(savedId));
-                      if (cmp < 0) {
-                        lowerCandidate = id;  // keep updating, last lower wins
-                      } else if (cmp > 0) {
-                        upperCandidate = id;  // first upper wins, break
-                        break;
-                      }
-                    }
-                    const fallbackId = lowerCandidate != null
-                                       ? lowerCandidate : upperCandidate;
-                    if (fallbackId != null) {
-                      foundSelNode = nodesByIdMap.get(fallbackId);
-                    }
-                  } catch (_eClosest) {}
-                }
-                // P18 Tier C: rowIndex preserve — pro non-numeric ID grids
-                // nebo edge cases (no IDs at all). getDisplayedRowAtIndex
-                // s clamp na current rowCount.
-                if (!foundSelNode && savedRowIndex != null) {
-                  try {
-                    const totalRows = (typeof self.gridApi.getDisplayedRowCount === "function")
-                                      ? self.gridApi.getDisplayedRowCount() : 0;
-                    if (totalRows > 0) {
-                      const targetIdx = Math.min(savedRowIndex, totalRows - 1);
-                      if (targetIdx >= 0) {
-                        const node = self.gridApi.getDisplayedRowAtIndex(targetIdx);
-                        if (node) foundSelNode = node;
-                      }
-                    }
-                  } catch (_eIdxFb) {}
-                }
-                if (foundSelNode) {
-                  foundSelNode.setSelected(true);
-                  self.gridApi.ensureNodeVisible(foundSelNode, "middle");
-                  if (savedColId != null && foundSelNode.rowIndex != null) {
-                    try {
-                      self.gridApi.setFocusedCell(foundSelNode.rowIndex, savedColId);
-                    } catch (_eFoc) {}
-                  }
-                }
-              } catch (_eRest) {}
-            }
-          };
+          // Faze 2-O P19 (25.5.2026 rano, Marti's catch "neni cisty CRUD —
+          // context menu refresh neumi locate fallback co workspace header"):
+          // use shared _makeRefreshFn helper (single source of truth).
+          // Capture (P18) + dialog (P10) + fetch + dirty clean (P5) + 3-tier
+          // restore fallback (P18) je v _makeRefreshFn metoda na class.
+          const refreshFn = self._makeRefreshFn(self.gridApi);
           window.ErpGridActions.dispatch(actionKey, {
             gridCode: gridCode,
             coreId: coreId,
@@ -2347,35 +2152,10 @@
               // Plus P5 parita — clear dirty Maps po refresh (data ze serveru
               // = truth, dirty markers ztrácí smysl).
               const self_ctx = self;
-              const refreshFn = async function () {
-                // Faze 2-G P10 — F5-style dialog pokud Excel dirty
-                try {
-                  const _okR = await self_ctx._confirmRefreshDialog();
-                  if (!_okR) return;
-                } catch (_eC) {}
-                if (typeof opts.onRefresh === "function") {
-                  try {
-                    const ret = opts.onRefresh();
-                    if (ret && typeof ret.then === "function") await ret;
-                  } catch (_eRef) {}
-                } else {
-                  try { params.api.refreshCells({force: true}); } catch (_e) {}
-                  return;
-                }
-                // P5 parita: clear dirty Maps po refresh (BEZ revert — data
-                // jsou ze serveru, source of truth).
-                if (self_ctx._dirtyRows && (self_ctx._dirtyRows.size > 0
-                    || self_ctx._dirtyRowData.size > 0)) {
-                  self_ctx._dirtyRows.clear();
-                  self_ctx._dirtyRowData.clear();
-                  if (self_ctx.gridApi && typeof self_ctx.gridApi.refreshCells === "function") {
-                    try { self_ctx.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
-                  }
-                  try { self_ctx._updateSaveButton(); } catch (_eUsb) {}
-                  // P8 parita: sync registrace v _dirtyForms (po clear → unregister)
-                  try { self_ctx._syncDirtyRegistration(); } catch (_eSync) {}
-                }
-              };
+              // Faze 2-O P19 (25.5.2026 rano, Marti's catch "context menu
+              // CRUD neumi locate fallback"): use shared _makeRefreshFn
+              // helper. Same as workspace header refresh (DRY).
+              const refreshFn = self_ctx._makeRefreshFn(params.api);
               // Etapa F Problem B fix (24.5.2026 vecer): disabled state
               // respektuje gridActions backend signal (paralela
               // _renderCrudToolbarHtml stateMap). Marti's "creatovat vsude,
@@ -3212,6 +2992,171 @@
         // Fallback (žádný onRefresh) — visual repaint only
         try { this.gridApi.refreshCells({ force: true }); } catch (_e) {}
       }
+    }
+
+    /** Faze 2-O P19 (25.5.2026 rano, Marti's catch "neni cisty CRUD —
+     *  context menu refresh neumi locate fallback co workspace header"):
+     *  Shared async refresh closure pro obě CRUD cesty (workspace header
+     *  _wireCrudToolbar + context menu getContextMenuItems). Single source
+     *  of truth — P5 dirty clean + P10 confirm dialog + P18 3-tier locate
+     *  fallback. Marti's "system o kterej se musime pevne oprit" doctrine.
+     *
+     *  Caller pass `api` (gridApi reference — workspace = self.gridApi,
+     *  context menu = params.api). Fallback to self.gridApi pokud null. */
+    _makeRefreshFn(api) {
+      const self = this;
+      const _api = api || self.gridApi;
+      return async function () {
+        // ── CAPTURE state PRED refresh (P18) ──────────────────────────
+        let savedId = null;
+        let savedColId = null;
+        let savedRowIndex = null;
+        const expandedIds = new Set();
+        if (_api) {
+          try {
+            const selRows = _api.getSelectedRows() || [];
+            if (selRows.length > 0) {
+              const r0 = selRows[0];
+              savedId = (r0.id != null ? r0.id
+                          : (r0.ID != null ? r0.ID : null));
+            }
+            const fc = _api.getFocusedCell();
+            if (fc && fc.column && typeof fc.column.getColId === "function") {
+              savedColId = fc.column.getColId();
+              if (savedId == null) {
+                try {
+                  const node = _api.getDisplayedRowAtIndex(fc.rowIndex);
+                  if (node && node.data) {
+                    savedId = (node.data.id != null ? node.data.id
+                                : (node.data.ID != null ? node.data.ID : null));
+                  }
+                } catch (_eFC) {}
+              }
+              if (fc.rowIndex != null) savedRowIndex = fc.rowIndex;
+            }
+            if (savedRowIndex == null && savedId != null) {
+              try {
+                let idx = 0;
+                _api.forEachNode(function (node) {
+                  if (savedRowIndex != null || !node || !node.data) {
+                    idx++; return;
+                  }
+                  const did = (node.data.id != null ? node.data.id
+                                : (node.data.ID != null ? node.data.ID : null));
+                  if (did === savedId) savedRowIndex = idx;
+                  idx++;
+                });
+              } catch (_eIdx) {}
+            }
+            try {
+              _api.forEachNode(function (node) {
+                if (node && node.expanded && node.data) {
+                  const did = (node.data.id != null ? node.data.id
+                                : (node.data.ID != null ? node.data.ID : null));
+                  if (did != null) expandedIds.add(did);
+                }
+              });
+            } catch (_eExp) {}
+          } catch (_eCap) {}
+        }
+
+        // ── DIALOG (P10) — F5-style pokud Excel ON + dirty ────────────
+        try {
+          const _okR = await self._confirmRefreshDialog();
+          if (!_okR) return;
+        } catch (_eC) {}
+
+        // ── FETCH (await onRefresh nebo visual fallback) ──────────────
+        if (typeof self.options.onRefresh === "function") {
+          try {
+            const ret = self.options.onRefresh();
+            if (ret && typeof ret.then === "function") await ret;
+          } catch (_eRef) {}
+        } else if (_api) {
+          try { _api.refreshCells({ force: true }); } catch (_e) {}
+          return;
+        }
+
+        // ── DIRTY CLEAN po refresh (P5 + P8 sync) ─────────────────────
+        if (self._dirtyRows && (self._dirtyRows.size > 0
+            || self._dirtyRowData.size > 0)) {
+          self._dirtyRows.clear();
+          self._dirtyRowData.clear();
+          if (self.gridApi && typeof self.gridApi.refreshCells === "function") {
+            try { self.gridApi.refreshCells({ force: true }); } catch (_eRc) {}
+          }
+          try { self._updateSaveButton(); } catch (_eUsb) {}
+          try { self._syncDirtyRegistration(); } catch (_eSync) {}
+        }
+
+        // ── RESTORE state PO refresh (P18 3-tier fallback) ────────────
+        if (_api) {
+          try {
+            let foundSelNode = null;
+            const newIdsForFallback = [];
+            const nodesByIdMap = new Map();
+            _api.forEachNode(function (node) {
+              if (!node || !node.data) return;
+              const did = (node.data.id != null ? node.data.id
+                            : (node.data.ID != null ? node.data.ID : null));
+              if (did == null) return;
+              if (expandedIds.size > 0 && expandedIds.has(did)) {
+                try { node.setExpanded(true); } catch (_eExp2) {}
+              }
+              // Tier A: exact savedId
+              if (!foundSelNode && did === savedId) foundSelNode = node;
+              newIdsForFallback.push(did);
+              nodesByIdMap.set(did, node);
+            });
+            // Tier B: closest ID (lower preferred, then upper)
+            if (!foundSelNode && savedId != null && newIdsForFallback.length > 0) {
+              try {
+                const sorted = newIdsForFallback.slice().sort(function (a, b) {
+                  if (typeof a === "number" && typeof b === "number") return a - b;
+                  return String(a).localeCompare(String(b));
+                });
+                let lowerCandidate = null;
+                let upperCandidate = null;
+                for (const id of sorted) {
+                  const cmp = (typeof id === "number" && typeof savedId === "number")
+                              ? (id - savedId)
+                              : String(id).localeCompare(String(savedId));
+                  if (cmp < 0) lowerCandidate = id;
+                  else if (cmp > 0) { upperCandidate = id; break; }
+                }
+                const fallbackId = lowerCandidate != null
+                                   ? lowerCandidate : upperCandidate;
+                if (fallbackId != null) {
+                  foundSelNode = nodesByIdMap.get(fallbackId);
+                }
+              } catch (_eClosest) {}
+            }
+            // Tier C: rowIndex preserve
+            if (!foundSelNode && savedRowIndex != null) {
+              try {
+                const totalRows = (typeof _api.getDisplayedRowCount === "function")
+                                  ? _api.getDisplayedRowCount() : 0;
+                if (totalRows > 0) {
+                  const targetIdx = Math.min(savedRowIndex, totalRows - 1);
+                  if (targetIdx >= 0) {
+                    const node = _api.getDisplayedRowAtIndex(targetIdx);
+                    if (node) foundSelNode = node;
+                  }
+                }
+              } catch (_eIdxFb) {}
+            }
+            if (foundSelNode) {
+              foundSelNode.setSelected(true);
+              _api.ensureNodeVisible(foundSelNode, "middle");
+              if (savedColId != null && foundSelNode.rowIndex != null) {
+                try {
+                  _api.setFocusedCell(foundSelNode.rowIndex, savedColId);
+                } catch (_eFoc) {}
+              }
+            }
+          } catch (_eRest) {}
+        }
+      };
     }
 
     /** Faze 2-G P10 (25.5.2026 rano, Marti's catch "refresh v Excel mode

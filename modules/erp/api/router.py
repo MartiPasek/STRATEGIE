@@ -5188,6 +5188,7 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
                 caller_tenant_id=None,
                 user_id=uid,
                 is_parent=True,  # PoC parent-only enforced above
+                with_strategie_pythonpath=True,  # Krok D: orchestrator needs DB access
             )
         except Exception as e:
             # Defensive — sandbox execute by ne measly throw, ale catch all

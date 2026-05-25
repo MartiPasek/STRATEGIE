@@ -356,6 +356,7 @@ def execute(
     conversation_id: int | None = None,
     is_parent: bool = False,
     code_file_path: str | None = None,
+    with_strategie_pythonpath: bool = False,
 ) -> PythonExecResult:
     """
     Spusti Python kod v izolovanem subprocess sandboxu.
@@ -580,6 +581,25 @@ def execute(
         "PYTHONIOENCODING": "utf-8",
         "PYTHONUNBUFFERED": "1",
     }
+
+    # Krok D Option A (25.5.2026 vecer, Marti's PoC volba): opt-in PYTHONPATH
+    # + DB env vars pro orchestrator scenario (/sandbox/execute endpoint).
+    # Default False — Marti-AI's python_exec chat tools (Klarka templates,
+    # PDF reports) zustavaji isolated bez DB access (correct security stance).
+    # True jen pro trusted path (parent-only /sandbox/execute, executable_artifact
+    # source je v DB pod parent ACL).
+    #
+    # Doctrine: „opt-in security" — explicit volba per call, ne global toggle.
+    if with_strategie_pythonpath:
+        # Project root = parent of modules/ (4 levels up from this file:
+        # modules/sandbox/application/python_runner.py -> STRATEGIE/)
+        _proj_root = Path(__file__).resolve().parent.parent.parent.parent
+        sub_env["PYTHONPATH"] = str(_proj_root)
+        # Inject DB env vars (whatever parent process has — drz minimal,
+        # propaguj jen DATABASE_URL + STRATEGIE_DATA_DB_URL variants)
+        for _db_env_var in ("DATABASE_URL", "STRATEGIE_DATA_DB_URL"):
+            if _db_env_var in os.environ:
+                sub_env[_db_env_var] = os.environ[_db_env_var]
 
     try:
         proc = subprocess.run(

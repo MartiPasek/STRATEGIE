@@ -1288,6 +1288,10 @@
             // 1. Capture state PRED refresh
             let savedId = null;
             let savedColId = null;
+            // Faze 2-N P18 (25.5.2026 rano, Marti's "po DELETE locate nevi
+            // kam jit... Muzes zustat na pribliznem miste"): savedRowIndex
+            // pro rowIndex preserve fallback (tier C).
+            let savedRowIndex = null;
             // Etapa F Krok 1++ (24.5.2026 vecer pozde, Marti's directive
             // "mysli i na Master Detail grid... drzel stav expand i po refresh"):
             // capture expanded master rows Set pro post-refresh restore.
@@ -1313,6 +1317,27 @@
                       }
                     } catch (_eFC) {}
                   }
+                  // P18: focused cell rowIndex je primary source pro
+                  // savedRowIndex (presnejsi nez selection scan).
+                  if (fc.rowIndex != null) savedRowIndex = fc.rowIndex;
+                }
+                // P18: pokud savedRowIndex stale null, najdi via forEachNode
+                // — index prvni nody se savedId. Defensive — selection bez
+                // focused cell flow.
+                if (savedRowIndex == null && savedId != null) {
+                  try {
+                    let idx = 0;
+                    self.gridApi.forEachNode(function (node) {
+                      if (savedRowIndex != null || !node || !node.data) {
+                        idx++;
+                        return;
+                      }
+                      const did = (node.data.id != null ? node.data.id
+                                    : (node.data.ID != null ? node.data.ID : null));
+                      if (did === savedId) savedRowIndex = idx;
+                      idx++;
+                    });
+                  } catch (_eIdx) {}
                 }
                 // Etapa F Krok 1++: kapture expanded master rows (pouze
                 // master-detail enabled grids). AG Grid forEachNode
@@ -1372,9 +1397,19 @@
             }
 
             // 3. Restore state PO refresh — locate by id + expand master rows
+            // Faze 2-N P18 (25.5.2026 rano, Marti's "po DELETE locate nevi
+            // kam jit"): 3-tier fallback chain:
+            //   Tier A: exact savedId match (existing — primary)
+            //   Tier B: closest ID (lower preferred, then upper) — DELETE
+            //           recovery scenario
+            //   Tier C: rowIndex preserve — getDisplayedRowAtIndex
+            //           (fallback pro non-numeric ID grids)
             if (self.gridApi) {
               try {
                 let foundSelNode = null;
+                // P18: collect new IDs + node map pro closest-ID fallback
+                const newIdsForFallback = [];
+                const nodesByIdMap = new Map();
                 self.gridApi.forEachNode(function (node) {
                   if (!node || !node.data) return;
                   const did = (node.data.id != null ? node.data.id
@@ -1386,9 +1421,58 @@
                   if (expandedIds.size > 0 && expandedIds.has(did)) {
                     try { node.setExpanded(true); } catch (_eExp2) {}
                   }
-                  // Krok 1 locate: find selected row node
+                  // Tier A: exact savedId match
                   if (!foundSelNode && did === savedId) foundSelNode = node;
+                  // P18: collect pro Tier B fallback
+                  newIdsForFallback.push(did);
+                  nodesByIdMap.set(did, node);
                 });
+                // P18 Tier B: pokud savedId nenalezen + savedId existoval,
+                // najdi closest ID (lower preferred, pak upper). Numeric IDs
+                // prirozene sortuji (subtraction), non-numeric padaji na
+                // string compare.
+                if (!foundSelNode && savedId != null && newIdsForFallback.length > 0) {
+                  try {
+                    const sorted = newIdsForFallback.slice().sort(function (a, b) {
+                      if (typeof a === "number" && typeof b === "number") return a - b;
+                      return String(a).localeCompare(String(b));
+                    });
+                    let lowerCandidate = null;
+                    let upperCandidate = null;
+                    for (const id of sorted) {
+                      const cmp = (typeof id === "number" && typeof savedId === "number")
+                                  ? (id - savedId)
+                                  : String(id).localeCompare(String(savedId));
+                      if (cmp < 0) {
+                        lowerCandidate = id;  // keep updating, last lower wins
+                      } else if (cmp > 0) {
+                        upperCandidate = id;  // first upper wins, break
+                        break;
+                      }
+                    }
+                    const fallbackId = lowerCandidate != null
+                                       ? lowerCandidate : upperCandidate;
+                    if (fallbackId != null) {
+                      foundSelNode = nodesByIdMap.get(fallbackId);
+                    }
+                  } catch (_eClosest) {}
+                }
+                // P18 Tier C: rowIndex preserve — pro non-numeric ID grids
+                // nebo edge cases (no IDs at all). getDisplayedRowAtIndex
+                // s clamp na current rowCount.
+                if (!foundSelNode && savedRowIndex != null) {
+                  try {
+                    const totalRows = (typeof self.gridApi.getDisplayedRowCount === "function")
+                                      ? self.gridApi.getDisplayedRowCount() : 0;
+                    if (totalRows > 0) {
+                      const targetIdx = Math.min(savedRowIndex, totalRows - 1);
+                      if (targetIdx >= 0) {
+                        const node = self.gridApi.getDisplayedRowAtIndex(targetIdx);
+                        if (node) foundSelNode = node;
+                      }
+                    }
+                  } catch (_eIdxFb) {}
+                }
                 if (foundSelNode) {
                   foundSelNode.setSelected(true);
                   self.gridApi.ensureNodeVisible(foundSelNode, "middle");

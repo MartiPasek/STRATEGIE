@@ -138,12 +138,29 @@
               // (IDCore + IDref) je native ErpDataGrid feature ovládaná
               // přes options.coreInfo. Master grid path (page_render.js)
               // ho injektne, detail nested grid musí taky.
-              //   - coreId: fw.data_source.id detail chain (44)
+              //
+              // Krok G++ fix 25.5.2026 vecer (Marti's volba A):
+              //   coreId MUSI byt fw.core.id (sémanticky). Nested detail
+              //   NEMÁ vlastní fw.core (Scenario B potvrzeno introspection
+              //   25.5. — žádný fw.core pro framework_data_source_ops).
+              //   Dříve tam byl FW_DATA_SOURCE_ID (=44, fw.data_source.id),
+              //   coz zpusobilo NAHODNOU collision s outer Diag log's
+              //   fw.core.id=44 → orchestrator pracoval ve špatném contextu.
+              //
+              //   Volba A: coreId=null = "nemam fw.core". Orchestrator
+              //   defensive check (G++) to detekuje a vrátí jasnou hlášku
+              //   "coreId is None". Drop-up menu funguje, ale uživatel
+              //   vidí, že nested context nemůže vytvářet edit jádro.
+              //
+              //   Krok H (pozdejsi iterace) povýší nested na standalone
+              //   přehled s vlastním fw.core → coreId pak bude valid.
+              //
+              //   - coreId: NULL (nested nemá fw.core)
               //   - refId: master row id (jeden z fw.data_source rows)
-              //   - coreCode: FW chain code (system_new.framework_data_source_ops)
-              //   - coreLabel: human-readable per master row
+              //   - coreCode: FW chain code (informativní, ne pro lookup)
+              //   - coreLabel: human-readable per master row (informativní)
               coreInfo: {
-                coreId: FW_DATA_SOURCE_ID,
+                coreId: null,
                 refId: masterId,
                 coreCode: FW_DATA_SOURCE_CODE,
                 coreLabel: "Operace data sourcu #" + masterId,

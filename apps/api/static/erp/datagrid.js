@@ -4042,11 +4042,21 @@
 
       // ── Akce section
       var pillText = String(ci.coreId != null ? ci.coreId : "?") + ":" + (rowId != null ? rowId : "");
+      // Krok E (25.5.2026 vecer, Marti's PoC volba): pridat 4. polozku
+      // „Vytvořit edit jádro" pod existing „Otevřít Design jádra". Gated na
+      // window._erpDesignMode === true. Univerzalne v fw komponente gridu.
+      // Vyvola POST /sandbox/execute/vytvor_edit_jadro → popup s stdout.
+      var _createEditCoreBtn = (window._erpDesignMode === true)
+        ? '<button type="button" data-erp-menu-action="create-edit-core" ' +
+          'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+          '✨ Vytvořit edit jádro</button>'
+        : '';
       var actions =
         '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
         '<button type="button" data-erp-menu-action="design-core" ' +
           'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
           '🎨 Otevřít Design jádra</button>' +
+        _createEditCoreBtn +
         (ci.hardcoded || ci.coreId == null || ci.coreId < 0
           ? ''
           : '<button type="button" data-erp-menu-action="row-form" ' +
@@ -4088,6 +4098,56 @@
 
     _handleMenuAction(action, ci, rowId, pillText, menu) {
       // Phase 38.4 Krok 5.R-C+8 (18.5.2026): drop-up menu actions
+      // Krok E (25.5.2026 vecer, Marti's PoC): „Vytvořit edit jádro" volá
+      // POST /sandbox/execute/vytvor_edit_jadro + popup s stdout via
+      // window._erpDFH._confirmDarkDialog (drz dark theme parita).
+      if (action === "create-edit-core") {
+        menu.remove();
+        var self_e = this;
+        fetch("/api/v1/erp/sandbox/execute/vytvor_edit_jadro", {
+          method: "POST",
+          credentials: "include",
+        })
+          .then(function (res) { return res.json(); })
+          .then(function (data) {
+            var msg = "";
+            if (data && data.stdout) {
+              msg += data.stdout;
+            }
+            if (data && data.error) {
+              msg += "\n\nERROR: " + data.error;
+              if (data.stderr) msg += "\n\nSTDERR:\n" + data.stderr;
+            }
+            if (!msg) msg = "(žádný výstup)";
+            var helpers = window._erpDFH;
+            if (helpers && typeof helpers._confirmDarkDialog === "function") {
+              helpers._confirmDarkDialog({
+                title: "✨ Vytvořit edit jádro — výsledek",
+                message: msg,
+                ok: "Zavřít",
+                cancel: null,
+              });
+            } else {
+              alert(msg);
+            }
+          })
+          .catch(function (err) {
+            console.error("[create-edit-core] fetch failed:", err);
+            var helpers = window._erpDFH;
+            var errMsg = "Selhalo: " + (err.message || err);
+            if (helpers && typeof helpers._confirmDarkDialog === "function") {
+              helpers._confirmDarkDialog({
+                title: "✨ Vytvořit edit jádro — chyba",
+                message: errMsg,
+                ok: "Zavřít",
+                cancel: null,
+              });
+            } else {
+              alert(errMsg);
+            }
+          });
+        return;
+      }
       if (action === "copy-id") {
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {

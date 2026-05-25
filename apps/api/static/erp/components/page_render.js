@@ -246,196 +246,22 @@
         : '/api/v1/erp/data/' + encodeURIComponent(rootCd.data_source_code) + '?limit=500';
       const isDesignMode = (typeof window !== "undefined" && window._erpDesignMode === true);
 
-      // Phase 38.4 Krok 5.R-D+3 (18.5.2026, Marti's "Stage 1 MVP, NIC VIC"):
-      // Per-grid dirty tracker Map(rowId → {field: newValue}). Visual yellow
-      // highlight + save button v meta area. Click → loop PATCH per dirty row.
-      const dirtyRows = new Map();
-
-      // Phase 38.4 Krok 14g-H+35 (22.5.2026 vecer, Marti's "save flow ted
-      // nejde"): drop hardcoded DS_TO_ENTITY mapping. Backend design_patch_entity
-      // numeric path /design/{core_id}/{row_id} → _resolve_entity_config_for_core
-      // (5.N-1 helper) lookup v _FW_FORM_CORE_REGISTRY[core_id]. Univerzalni
-      // pre vsechny grids (Diag log, DataSets, Trusted devices, ...) — pridat
-      // jen registry entry v router.py per novy core.
+      // Faze 2-C cleanup (25.5.2026 rano, Marti's volba A "cleanup Faze 1 +
+      // smoke" po overnight Faze 2-A + 2-A+ + 2-B wire): dropnuto ~190 LOC
+      // Faze 1 external dirty tracking infrastructure:
+      //   - dirtyRows Map + dirtyRowData Map closures
+      //   - _refreshSaveBtn() function (re-assignovala saveBtn.onclick a
+      //     overridla Faze 2-B fw handler — root cause race condition)
+      //   - window addEventListener("erp:excel-mode-change") + _erpSaveCleanupActive
+      //   - _erpSaveBtnRefresh window hook + _onSaveClick() async function
+      //
+      // Fw layer (datagrid.js _dirtyRows + _setDirty + _clearDirty +
+      // _updateSaveButton + _handleSaveClick + _confirmDirtyChanges +
+      // _toggleExcelMode 3-way confirm) je teď single source of truth.
+      //
+      // entityForPatch zustava — Faze 2-B onSave callback (line ~603) ho
+      // potrebuje pro PATCH endpoint URL construction.
       const entityForPatch = coreId ? String(coreId) : null;
-
-      // Per-rowId rowData snapshot — pro expected_updated_at v PATCH body
-      const dirtyRowData = new Map();
-
-      // Phase 38.4 Krok 5.Y (23.5.2026, Marti's "save patri gridu"):
-      // Save button moved z workspace header (#erpSaveChangesBtn) DO grid
-      // toolbar (#erp-tb-save renderován v _renderGridToolbar). Visibility:
-      //   - Hidden when Excel mode OFF (window._erpExcelMode === false)
-      //   - Visible + disabled when Excel ON + count=0
-      //   - Visible + enabled + count badge when Excel ON + count > 0
-      // Toggle fires custom event 'erp:excel-mode-change' z datagrid.js.
-      function _refreshSaveBtn() {
-        const btn = document.getElementById("erp-tb-save");
-        const countEl = document.getElementById("erp-tb-save-count");
-        if (!btn || !countEl) {
-          // Toolbar not rendered yet (page-spec async). Defer silent.
-          return;
-        }
-        const excelOn = !!window._erpExcelMode;
-        if (!excelOn) {
-          btn.style.display = "none";
-          btn.onclick = null;
-          return;
-        }
-        const count = dirtyRows.size;
-        btn.style.display = "";
-        countEl.textContent = String(count);
-        btn.disabled = (count === 0);
-        if (count > 0) {
-          btn.setAttribute("data-hint", "Uložit " + count + " změn (Excel mode)");
-          btn.onclick = function() {
-            console.info("[page_render save] click fired, dirty count=" + dirtyRows.size +
-                         ", entityForPatch=" + entityForPatch);
-            try {
-              _onSaveClick();
-            } catch (e) {
-              console.error("[page_render save] _onSaveClick threw:", e);
-              alert("Save error: " + (e && e.message || e));
-            }
-          };
-        } else {
-          btn.setAttribute("data-hint", "Žádné neuložené změny");
-          btn.onclick = null;
-        }
-      }
-
-      // Krok 5.Y: Listen na Excel mode toggle event (fired z datagrid.js
-      // _toggleExcelMode). Refresh save btn visibility on each toggle.
-      // Idempotent guard — bind jen 1× per page load.
-      if (!window._erpSaveBtnExcelListenerBound) {
-        window._erpSaveBtnExcelListenerBound = true;
-        window.addEventListener("erp:excel-mode-change", function() {
-          try {
-            // Re-call _refreshSaveBtn for whatever grid is currently active
-            // (window._erpSaveDirtyActiveGrid hook drží current grid's handler).
-            if (typeof window._erpSaveBtnRefresh === "function") {
-              window._erpSaveBtnRefresh();
-            }
-          } catch (_e) {}
-          // Excel mode Faze 1 quick win (24.5.2026 vecer pozde, Marti's catch
-          // "ta dirty pamet zustala viset i kdyz Exel mode jiz neni"):
-          // auto-clear dirty per ACTIVE grid pokud Excel mode goes off.
-          // window._erpExcelMode je already updated by event time (datagrid.js
-          // _toggleExcelMode line 4198). Pokud false + active grid drzi
-          // _erpSaveCleanupActive hook → trigger cleanup.
-          try {
-            if (window._erpExcelMode === false
-                && typeof window._erpSaveCleanupActive === "function") {
-              window._erpSaveCleanupActive();
-            }
-          } catch (_eClean) {}
-        });
-      }
-      // Excel mode Faze 1 quick win (24.5.2026 vecer pozde): per-grid
-      // cleanup hook. Registered jako window._erpSaveCleanupActive (last
-      // active grid wins — same pattern jako _erpSaveBtnRefresh).
-      window._erpSaveCleanupActive = function () {
-        try {
-          if (dirtyRows.size === 0 && dirtyRowData.size === 0) return;
-          dirtyRows.clear();
-          dirtyRowData.clear();
-          if (gridInst && gridInst.gridApi
-              && typeof gridInst.gridApi.refreshCells === "function") {
-            gridInst.gridApi.refreshCells({ force: true });
-          }
-          // Update save btn (count → 0, hide if Excel off)
-          if (typeof window._erpSaveBtnRefresh === "function") {
-            window._erpSaveBtnRefresh();
-          }
-        } catch (_eClnInner) { /* never crash */ }
-      };
-      // Register this grid's refresh fn jako global hook
-      window._erpSaveBtnRefresh = _refreshSaveBtn;
-      async function _onSaveClick() {
-        if (!entityForPatch) {
-          alert("Save flow nepripraven pro data_source #" + rootCd.data_source_id +
-                ". Long-term: fw.data_source.target_entity_type column.");
-          return;
-        }
-        // Excel mode Faze 1 quick win (24.5.2026 vecer pozde, Marti's
-        // "dialog ktery se znovu zepta zda ulozit"): confirm PRED PATCH loop.
-        // Pouziva _erpDFH._confirmDarkDialog (existing dark themed helper
-        // z design_form_helpers.js). Pokud user volí Ne → abort (dirty
-        // cells zustanou pro dalsi pokus).
-        const _countToSave = dirtyRows.size;
-        if (_countToSave === 0) return;
-        try {
-          if (window._erpDFH && typeof window._erpDFH._confirmDarkDialog === "function") {
-            const _ok = await window._erpDFH._confirmDarkDialog({
-              title: "Uložit změny",
-              message: "Opravdu uložit <b>" + _countToSave + "</b> "
-                       + (_countToSave === 1 ? "změnu" : (_countToSave < 5 ? "změny" : "změn"))
-                       + " do databáze?",
-              ok: "Uložit",
-              cancel: "Zrušit",
-            });
-            if (!_ok) return;
-          }
-        } catch (_eDlg) { /* never block save on dialog failure */ }
-        // Phase 38.4 Krok 14g-H+35 hotfix (22.5.2026 vecer po revert f1e1dec):
-        // saveBtn variable byl dropnut v H+35 v1 (redesign na onclick = fn),
-        // ale `saveBtn.disabled = true` reference zustaly v _onSaveClick =>
-        // ReferenceError pri kliknu => save nic nedelal. Fix: read btn z DOM.
-        const _btnEl = document.getElementById("erpSaveChangesBtn");
-        if (_btnEl) {
-          _btnEl.disabled = true;
-        }
-        const entries = Array.from(dirtyRows.entries());
-        let okCount = 0, failCount = 0;
-        for (const [rowId, changes] of entries) {
-          // Optimistic lock — expected_updated_at z row snapshot (5.M-5+1
-          // doctrine, 17.5.). Bez nej backend vraci 400.
-          const rowData = dirtyRowData.get(rowId) || {};
-          const expectedUpdatedAt = rowData.updated_at || null;
-          try {
-            const resp = await fetch(
-              "/api/v1/erp/design/" + entityForPatch + "/" + rowId,
-              {
-                method: "PATCH",
-                headers: { "Content-Type": "application/json" },
-                credentials: "include",
-                body: JSON.stringify({
-                  field_changes: changes,
-                  expected_updated_at: expectedUpdatedAt,
-                }),
-              }
-            );
-            const json = await resp.json();
-            if (resp.ok && json && json.ok) {
-              dirtyRows.delete(rowId);
-              dirtyRowData.delete(rowId);
-              okCount++;
-            } else {
-              failCount++;
-              console.error("[page_render save] row " + rowId + " failed:",
-                            json && json.error);
-            }
-          } catch (e) {
-            failCount++;
-            console.error("[page_render save] row " + rowId + " network:", e);
-          }
-        }
-        if (_btnEl) {
-          _btnEl.disabled = false;
-        }
-        if (failCount > 0) {
-          alert("Save: " + okCount + " OK, " + failCount + " FAIL — viz konzole.");
-        } else if (okCount > 0) {
-          console.info("[page_render save] OK: " + okCount + " row" + (okCount === 1 ? "" : "s") + " saved");
-        }
-        try {
-          const gridInst = gridHost.__erpGridInst;
-          if (gridInst && gridInst.gridApi) {
-            gridInst.gridApi.refreshCells({ force: true });
-          }
-        } catch (e) {}
-        _refreshSaveBtn();
-      }
 
       // Phase 22.5.2026 fix: pre-fetch layout PARALELNE s data fetch.
       // Pass jako `initialLayout` do ErpDataGrid -- caller cesta A (Krok C+
@@ -679,45 +505,13 @@
                   console.warn("[page_render onRefresh] real fetch failed:", e);
                 }
               },
-              // Krok 5.R-D+3 dirty visual: cellClassRules per defaultColDefExtra
-              // (datagrid.js pass-through z 5.R-D+3 P1 patch).
-              defaultColDefExtra: {
-                cellClassRules: {
-                  "erp-cell-dirty": function (params) {
-                    if (!params || !params.data || params.data.id == null) return false;
-                    const dirty = dirtyRows.get(params.data.id);
-                    if (!dirty) return false;
-                    const field = params.colDef && params.colDef.field;
-                    return field != null && Object.prototype.hasOwnProperty.call(dirty, field);
-                  },
-                },
-              },
-              // ErpDataGrid passes (rowData, fieldName, oldValue, newValue) — NOT event obj.
-              onCellEdit: function (rowData, fieldName, oldValue, newValue) {
-                if (!rowData || rowData.id == null) {
-                  console.warn("[page_render cell edit] row.id missing — skip dirty track");
-                  return;
-                }
-                const rowId = rowData.id;
-                let entry = dirtyRows.get(rowId);
-                if (!entry) {
-                  entry = {};
-                  dirtyRows.set(rowId, entry);
-                }
-                entry[fieldName] = newValue;
-                // Snapshot rowData pro expected_updated_at v PATCH payload
-                // (5.M-5+1 optimistic lock pattern z 17.5.).
-                dirtyRowData.set(rowId, rowData);
-                console.info("[page_render cell edit]",
-                  { field: fieldName, oldValue, newValue, rowId,
-                    ds_id: rootCd.data_source_id });
-                try {
-                  if (gridInst && gridInst.gridApi) {
-                    gridInst.gridApi.refreshCells({ force: true });
-                  }
-                } catch (e) {}
-                _refreshSaveBtn();
-              },
+              // Faze 2-C cleanup (25.5.2026 rano): dropnuto defaultColDefExtra
+              // (erp-cell-dirty cellClassRules) + onCellEdit local handler.
+              // Fw layer (datagrid.js _init line ~970 internal cellClassRules
+              // reading gridSelf._dirtyRows + onCellValueChanged hook volajici
+              // this._setDirty) je teď single source of truth pre dirty visual
+              // + tracking. Drz "uniformita vitezi nad specialnimi pripady"
+              // (Marti-AI's Krok 13 doctrine z 11.5.).
               // Krok 5.S Fáze 5 + dvojklik shortcut (23.5.2026 rano, Marti's
               // "dvojklik na uzivatelich = otevreni editace vety"): Centrala 1
               // Excel/Windows standard. Reuse stejny flow jako toolbar Oprava

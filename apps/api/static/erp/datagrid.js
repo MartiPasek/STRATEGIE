@@ -1486,17 +1486,19 @@
         if (typeof window !== "undefined"
             && window._erpDFH
             && typeof window._erpDFH._confirmDarkDialog === "function") {
-          // Excel mode Faze 2-E P2v2 (25.5.2026 rano, Marti's catch "stale
-          // neformatuje bold"): replace <b>X</b> za inline-styled span s
-          // explicit font-weight + font-size + color. Bypass jakykoliv
-          // CSS reset na <b> tag (nektery theme strippuje bold). Plus
-          // brighter amber color = vizualne expressivnejsi count number.
-          const _cntHtml = '<span style="font-weight:700;font-size:1.15em;color:#ffe8a8;">' + count + '</span>';
+          // Excel mode Faze 2-H P11 (25.5.2026 rano, Marti's catch "stale
+          // nefunguje bold, nahrad ve stylu DesignFwForm 'Mám uložit tebou
+          // provedenou změnu? (1)'"): drop HTML span entirely (browser
+          // cache / CSS reset risk). Use plain Czech plural formát parita
+          // s _confirmDirtyChanges (Faze 2-A+) = jednoduchá pravda nad HTML.
+          // Czech plural: 1 → "provedenou změnu", 2-4 → "provedené změny",
+          // 5+ → "provedených změn". Count v ()  parenthesis suffix.
+          const _phrSave = count === 1
+            ? "provedenou změnu"
+            : (count < 5 ? "provedené změny" : "provedených změn");
           const okDlg = await window._erpDFH._confirmDarkDialog({
-            title: "Uložit změny",
-            message: "Opravdu uložit " + _cntHtml + " "
-                     + (count === 1 ? "změnu" : (count < 5 ? "změny" : "změn"))
-                     + " do databáze?",
+            title: "Neuložené změny",
+            message: "Mám uložit tebou " + _phrSave + "? (" + count + ")",
             ok: "Uložit",
             cancel: "Zrušit",
           });

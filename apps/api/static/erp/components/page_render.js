@@ -108,7 +108,7 @@
       // Stejný design jako Nový/Oprava/Smazat (36×36, 27px icon, data-hint).
       parts.push(
         '<button id="erp-tb-save" type="button" class="erp-grid-action-btn warning" ' +
-        'data-hint="Uložit změny editovaných buněk (Excel mode)" ' +
+        'data-hint="Uložit změny editovaných buněk (přímý edit)" ' +
         'style="display:none;" disabled>💾<span class="erp-save-count" id="erp-tb-save-count">0</span></button>'
       );
       toolbarHost.innerHTML = parts.join('');

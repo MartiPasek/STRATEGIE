@@ -922,6 +922,109 @@
     }
   }
 
+  // ── Faze 2-I P12 (25.5.2026 rano, Marti's "primy edit parita s
+  // DesignFwForm — single-click + kurzor na misto kliknuti"): Global
+  // mouse coordinate tracker. Capture phase listener na document — pred
+  // AG Grid edit init zachyti coordinates. ErpInlineCellEditor pak
+  // afterGuiAttached() pocita char position via canvas.measureText. ──────
+  if (typeof window !== "undefined" && !window._erpCellClickTrackerInstalled) {
+    window._erpCellClickTrackerInstalled = true;
+    window._erpLastCellClick = null;
+    document.addEventListener("mousedown", function (ev) {
+      try {
+        // Walk up DOM to find .ag-cell (max 5 levels — performance)
+        let el = ev.target;
+        for (let i = 0; i < 5 && el; i++) {
+          if (el.classList && el.classList.contains("ag-cell")) {
+            window._erpLastCellClick = {
+              x: ev.clientX,
+              y: ev.clientY,
+              t: Date.now(),
+            };
+            return;
+          }
+          el = el.parentElement;
+        }
+      } catch (_eTrk) {}
+    }, true);  // capture phase — runs PRED AG Grid edit init
+  }
+
+  // ── Faze 2-I P12 (25.5.2026 rano): Custom AG Grid cellEditor.
+  // Pattern: AG Grid v32+ JS class with init/getGui/afterGuiAttached/
+  // getValue/isCancelBeforeStart/isPopup. afterGuiAttached calculates
+  // cursor position via canvas.measureText based on last click X.
+  // Bez selectAll, bez double-click. Marti's request paryta s DesignFwForm. ──
+  class ErpInlineCellEditor {
+    init(params) {
+      this.params = params;
+      this.eInput = document.createElement("input");
+      this.eInput.type = "text";
+      this.eInput.value = params.value != null ? String(params.value) : "";
+      // Inherit AG cell styling — fill cell area
+      this.eInput.style.cssText =
+        "width:100%;height:100%;border:none;outline:none;" +
+        "padding:0 7px;background:transparent;color:inherit;" +
+        "font:inherit;box-sizing:border-box;";
+    }
+    getGui() { return this.eInput; }
+    afterGuiAttached() {
+      try { this.eInput.focus(); } catch (_eF) {}
+      const click = window._erpLastCellClick;
+      const text = this.eInput.value || "";
+      // Mouse-initiated edit (click within last 1s) → cursor at click X
+      // Keyboard-initiated (F2/Enter, no recent click) → cursor at end
+      if (click && (Date.now() - click.t) < 1000 && text.length > 0) {
+        try {
+          const rect = this.eInput.getBoundingClientRect();
+          // Subtract input padding (7px left from style above)
+          const innerX = (click.x - rect.left) - 7;
+          if (innerX <= 0) {
+            this.eInput.setSelectionRange(0, 0);
+          } else {
+            // Canvas text measurement — match input font
+            const cs = window.getComputedStyle(this.eInput);
+            const font = (cs.fontStyle || "normal") + " " +
+                         (cs.fontWeight || "400") + " " +
+                         (cs.fontSize || "13px") + " " +
+                         (cs.fontFamily || "sans-serif");
+            if (!ErpInlineCellEditor._canvas) {
+              ErpInlineCellEditor._canvas = document.createElement("canvas");
+            }
+            const ctx = ErpInlineCellEditor._canvas.getContext("2d");
+            ctx.font = font;
+            // Binary-ish linear scan — find char index closest to innerX
+            let pos = text.length;
+            let prevW = 0;
+            for (let i = 1; i <= text.length; i++) {
+              const w = ctx.measureText(text.substring(0, i)).width;
+              if (w >= innerX) {
+                pos = (innerX - prevW < w - innerX) ? (i - 1) : i;
+                break;
+              }
+              prevW = w;
+            }
+            this.eInput.setSelectionRange(pos, pos);
+          }
+        } catch (_ePos) {
+          // Fallback: end
+          try { this.eInput.setSelectionRange(text.length, text.length); }
+          catch (_e2) {}
+        }
+      } else {
+        // Keyboard edit: cursor at end (standard)
+        try { this.eInput.setSelectionRange(text.length, text.length); }
+        catch (_eEnd) {}
+      }
+    }
+    getValue() { return this.eInput.value; }
+    isCancelBeforeStart() { return false; }
+    isCancelAfterEnd() { return false; }
+    isPopup() { return false; }
+  }
+  if (typeof window !== "undefined") {
+    window.ErpInlineCellEditor = ErpInlineCellEditor;
+  }
+
   // ── Component class ──────────────────────────────────────────────────
   class ErpDataGrid {
     constructor(container, options) {
@@ -1106,7 +1209,7 @@
       if (this.options.enableSaveButton) {
         parts.push(
           '<button id="erp-tb-save" type="button" class="erp-grid-action-btn warning" '
-          + 'data-hint="Ulozit zmeny editovanych bunek (Excel mode)" '
+          + 'data-hint="Ulozit zmeny editovanych bunek (primy edit)" '
           + 'style="display:none;" disabled>SAVE<span class="erp-save-count" id="erp-tb-save-count">0</span></button>'
         );
       }
@@ -1466,7 +1569,7 @@
       if (count > 0) {
         this._saveBtnEl.setAttribute(
           "data-hint",
-          "Uložit " + count + " změn (Excel mode)"
+          "Uložit " + count + " změn (přímý edit)"
         );
       } else {
         this._saveBtnEl.setAttribute("data-hint", "Žádné neuložené změny");
@@ -1889,6 +1992,11 @@
             filter: opts.enableFilters !== false,
             floatingFilter: opts.enableFilters !== false,
             editable: opts.enableEdit === true,
+            // Faze 2-I P12 (25.5.2026 rano, Marti's "primy edit kurzor
+            // na misto kliknuti"): default cellEditor = ErpInlineCellEditor.
+            // Caller override pres defaultColDefExtra.cellEditor pokud
+            // potreba (per-column cellEditor stale wins via columnDefs).
+            cellEditor: "erpInlineCellEditor",
           }, opts.defaultColDefExtra || {});
           // Internal cellClassRules — append "erp-cell-dirty" reading
           // this._dirtyRows. Caller cellClassRules zachovany pro JINE keys.
@@ -1910,6 +2018,14 @@
         undoRedoCellEditing: true,
         undoRedoCellEditingLimit: 50,
         stopEditingWhenCellsLoseFocus: true,
+        // Faze 2-I P12 (25.5.2026 rano, Marti's "primy edit single-click +
+        // kurzor na misto kliknuti"): register custom ErpInlineCellEditor.
+        // Default singleClickEdit:false (PROD = double-click standard).
+        // Toggle dynamic v _toggleExcelMode (line ~4640 setGridOption).
+        components: Object.assign({}, opts.components || {}, {
+          erpInlineCellEditor: ErpInlineCellEditor,
+        }),
+        singleClickEdit: false,
         // Row height (compact = denser display)
         rowHeight: opts.compact ? 26 : 32,
         headerHeight: opts.compact ? 32 : 40,
@@ -3004,7 +3120,7 @@
             && typeof window._erpDFH._confirmDarkDialog === "function") {
           return !!(await window._erpDFH._confirmDarkDialog({
             title: "Obnovit data?",
-            message: "Máš " + _phr + " v aktivním Excel mode.\n\n"
+            message: "Máš " + _phr + " v aktivním režimu přímého editu.\n\n"
                      + "Při obnovení (Refresh) se neuložené změny ztratí. "
                      + "Opravdu chceš obnovit?",
           }));
@@ -4598,13 +4714,13 @@
               && window._erpDFH
               && typeof window._erpDFH._confirmDarkDialog === "function") {
             _ok = await window._erpDFH._confirmDarkDialog({
-              title: "Vypnout Excel mode?",
-              message: "Máš " + _phr + " v aktivním Excel mode.\n\n"
+              title: "Vypnout přímý edit?",
+              message: "Máš " + _phr + " v aktivním režimu přímého editu.\n\n"
                        + "Při vypnutí (Ctrl+Shift+E) se neuložené změny ztratí. "
                        + "Opravdu chceš vypnout?",
             });
           } else {
-            _ok = window.confirm("Vypnout Excel mode? Máš " + _phr + " — ztratí se.");
+            _ok = window.confirm("Vypnout přímý edit? Máš " + _phr + " — ztratí se.");
           }
         } catch (_eDlg) { _ok = false; }
         if (!_ok) return;  // user volí Ne → stay in Excel mode
@@ -4631,9 +4747,15 @@
             } else if (typeof this.gridApi.setColumnDefs === "function") {
               this.gridApi.setColumnDefs(colDefs);
             }
+            // Faze 2-I P12 (25.5.2026 rano): toggle singleClickEdit per mode.
+            // ON = single-click vstupi do edit (parita s DesignFwForm primy
+            // edit). OFF = double-click standard PROD behavior.
+            try {
+              this.gridApi.setGridOption("singleClickEdit", this._excelMode);
+            } catch (_eSCE) {}
           }
         } catch (e) {
-          console.warn("[ErpDataGrid] Excel mode AG refresh failed:", e);
+          console.warn("[ErpDataGrid] Primy edit AG refresh failed:", e);
         }
       }
 
@@ -4643,7 +4765,7 @@
       // 3) Toast notification
       this._toast(
         this._excelMode
-          ? "⚠ EXCEL mode ON — inline cell edit povolen (servisní)"
+          ? "⚠ PŘÍMÝ EDIT ON — single-click inline edit povolen (servisní)"
           : "🔒 PROD mode — editování gridu zakázáno",
         this._excelMode ? "error" : null
       );

@@ -2151,7 +2151,13 @@
               // refreshCells-only pattern (visual repaint bez dat fetch).
               // Plus P5 parita — clear dirty Maps po refresh (data ze serveru
               // = truth, dirty markers ztrácí smysl).
-              const self_ctx = self;
+              // Faze 2-O P19a (25.5.2026 rano, Marti's catch "CRUD prestal
+              // zobrazovat v kontextovem menu po P19 deploy"): getContextMenuItems
+              // je arrow function, 'self' nebyl ve scope -> fallback na global
+              // window.self = window -> window._makeRefreshFn = undefined ->
+              // TypeError tichy catch -> prazdny crudItems. Fix: 'this' =
+              // ErpDataGrid instance (arrow function this binding).
+              const self_ctx = this;
               // Faze 2-O P19 (25.5.2026 rano, Marti's catch "context menu
               // CRUD neumi locate fallback"): use shared _makeRefreshFn
               // helper. Same as workspace header refresh (DRY).

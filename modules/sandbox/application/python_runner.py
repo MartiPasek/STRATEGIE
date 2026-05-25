@@ -607,11 +607,19 @@ def execute(
         # modules/sandbox/application/python_runner.py -> STRATEGIE/)
         _proj_root = Path(__file__).resolve().parent.parent.parent.parent
         sub_env["PYTHONPATH"] = str(_proj_root)
-        # Inject DB env vars (whatever parent process has — drz minimal,
-        # propaguj jen DATABASE_URL + STRATEGIE_DATA_DB_URL variants)
-        for _db_env_var in ("DATABASE_URL", "STRATEGIE_DATA_DB_URL"):
-            if _db_env_var in os.environ:
-                sub_env[_db_env_var] = os.environ[_db_env_var]
+        # Krok D fix (25.5.2026 vecer): Pydantic Settings v core/config.py
+        # cte database_data_url PRIMO z .env (settings.database_data_url),
+        # NE pres shell os.environ. Tj. inject z Pydantic Settings, bypass
+        # os.environ (parent STRATEGIE-API process nema DB URL v shell env).
+        try:
+            from core.config import settings as _spg_settings_sx
+            _db_url = getattr(_spg_settings_sx, "database_data_url", "") or ""
+            if _db_url:
+                sub_env["STRATEGIE_DATA_DB_URL"] = _db_url
+        except Exception:
+            # Defensive: pokud core.config import selze, skip inject (orchestrator
+            # pak hlasi missing env var pres stdout, ne crash)
+            pass
 
     try:
         proc = subprocess.run(

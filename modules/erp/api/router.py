@@ -2771,8 +2771,15 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             schema_name = entity_config["schema"]
             table_name = entity_config["table"]
             id_column = entity_config["id_column"]
-            cols_list = entity_config["select_columns"]
-            cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+            cols_list = entity_config.get("select_columns")
+            # Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "NULL = trust
+            # frontend"): None = no whitelist, SELECT * z target table.
+            # DB-driven resolver (_resolve_entity_config_from_db) returns
+            # select_columns=None — server trust frontend payload.
+            if cols_list:
+                cols_sql = ", ".join(f'"{c}"' for c in cols_list)
+            else:
+                cols_sql = "*"
             data_query = (
                 f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
                 f'WHERE "{id_column}" = :row_id'

@@ -8178,13 +8178,39 @@ def design_list_entity_columns(
             status_code=404,
         )
     id_col = config["id_column"]
-    cols_list = config["select_columns"]
+    cols_list = config.get("select_columns")
 
     # Load comp_types lookup pro suggested_type_code mapping
     from core.database_data import get_data_session as _gds_lec
     from sqlalchemy import text as _sql_text_lec
     ds_lec = _gds_lec()
     try:
+        # Phase 38.4 Krok 5.N-2 (22.5.2026 vecer, Marti's "NULL = trust frontend"):
+        # DB-driven cores (select_columns=None) — introspect columns ze
+        # information_schema. SKIP audit + immutable columns (id, created_at,
+        # updated_at, audit FKs) — same SKIP_COLUMNS jako orchestrator
+        # vytvorit_edit_jadro_2.
+        if cols_list is None:
+            schema_name = config["schema"]
+            table_name = config["table"]
+            intro_rows = ds_lec.execute(_sql_text_lec("""
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = :schema
+                  AND table_name = :table
+                ORDER BY ordinal_position ASC
+            """), {"schema": schema_name, "table": table_name}).mappings().all()
+            _SKIP = {
+                "id", "created_at", "updated_at",
+                "created_by_id", "created_by_text",
+                "updated_by_id", "updated_by_text",
+                "version",
+            }
+            cols_list = [
+                r["column_name"] for r in intro_rows
+                if r["column_name"] not in _SKIP
+            ]
+
         ct_rows = ds_lec.execute(_sql_text_lec("""
             SELECT id, code FROM fw.comp_type WHERE preview_html IS NOT NULL
         """)).mappings().all()

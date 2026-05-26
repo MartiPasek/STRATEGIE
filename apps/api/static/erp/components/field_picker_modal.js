@@ -404,17 +404,9 @@
       counter.textContent = "Vybráno: " + this._selected.size;
       footer.appendChild(counter);
 
-      // OK button visible jen na tab 'available' (akcni tab)
-      if (this._activeTab === "available") {
-        const okBtn = document.createElement("button");
-        okBtn.type = "button";
-        okBtn.style.cssText =
-          "min-width:110px;padding:6px 16px;background:#3a5a8a;border:1px solid #4a7ba8;" +
-          "border-radius:3px;color:#e8eef5;cursor:pointer;font-size:13px;font-weight:600;";
-        okBtn.innerHTML = '<span style="color:#5dbf5d;font-weight:700;margin-right:6px;">✓</span>Přidat vybraná';
-        okBtn.addEventListener("click", () => this._handleSubmit(okBtn));
-        footer.appendChild(okBtn);
-      }
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr"): drop "Přidat
+      // vybraná" submit button. Checkbox = instant POST single column (live
+      // sync s formem). Žádný batch flow, žádné Submit.
 
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";
@@ -482,11 +474,10 @@
         removeBtn.style.borderColor = "#3a4754";
       });
       removeBtn.addEventListener("click", async () => {
-        const confirmed = await _confirmDarkDialog({
-          title: "Odebrat pole '" + (col.existing_label || col.name) + "'?",
-          message: "Pole zmizí z formuláře, ale data v DB zůstanou (soft delete is_active=false). Lze později vrátit.",
-        });
-        if (!confirmed) return;
+        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr"):
+        // Drop confirm dialog — klik X = instant DELETE. Soft delete je
+        // reverzibilní (is_active=false), takze zadny "harm" pri nahodnem
+        // kliku. Live sync s formem pres onComplete reload.
         removeBtn.disabled = true;
         try {
           const r = await fetch("/api/v1/erp/design/comp-def/" + col.existing_comp_def_id, {
@@ -821,15 +812,62 @@
         row.style.background = this._selected.has(col.name) ? "#1a2530" : "transparent";
       });
 
-      // 1. Checkbox
+      // 1. Checkbox — Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr"):
+      // Instant POST single column na check. Žádný submit button, žádný batch.
+      // Klik = okamžitě komponenta na formu + live sync (onComplete reload).
+      // Uncheck = no-op (jen UI affordance pro vizuální feedback).
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.style.cssText = "width:16px;height:16px;cursor:pointer;";
-      cb.addEventListener("change", () => {
-        if (cb.checked) this._selected.add(col.name);
-        else this._selected.delete(col.name);
-        row.style.background = cb.checked ? "#1a2530" : "transparent";
-        this._updateCounter();
+      cb.addEventListener("change", async () => {
+        if (!cb.checked) {
+          // Uncheck — jen UI state reset (komponenta uz na formu pres prvni
+          // check + POST). Pro delete uziva X button v "Jiz na forme" tab.
+          row.style.background = "transparent";
+          return;
+        }
+        // Check → instant POST
+        cb.disabled = true;
+        row.style.background = "#1a2530";
+        const typeId = this._typeOverrides[col.name] || col.suggested_type_id;
+        try {
+          const r = await fetch("/api/v1/erp/design/comp-def", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parent_comp_def_id: this.opts.parentCompDefId,
+              name: col.name,
+              caption: col.caption_default,
+              type_id: typeId,
+              region_slot: "main",
+            }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) {
+            throw new Error(d.error || ("HTTP " + r.status));
+          }
+          _showToast("Přidáno: " + col.name, "success", 1500);
+          // Move column z available → onForm (in-memory) + re-render
+          col.existing_comp_def_id = d.comp_def_id || d.id || null;
+          col.existing_label = col.caption_default;
+          col.existing_region_slot = "main";
+          col.existing_type_id = typeId;
+          this._columnsOnForm.push(col);
+          this._columnsAvailable = this._columnsAvailable.filter(c => c !== col);
+          this._render();
+          // Live sync — parent form reload (komponenta se okamžitě zobrazí)
+          if (typeof this.opts.onComplete === "function") {
+            try { this.opts.onComplete({ added: 1 }); }
+            catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+          }
+        } catch (e) {
+          console.error("[FieldPickerModal] instant add failed:", e);
+          _showToast("Přidání selhalo: " + (e.message || e), "error", 3000);
+          cb.checked = false;
+          cb.disabled = false;
+          row.style.background = "transparent";
+        }
       });
 
       // 2. Column name + caption

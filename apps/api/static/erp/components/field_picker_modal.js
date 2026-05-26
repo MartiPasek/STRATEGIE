@@ -470,7 +470,7 @@
       labelWrap.appendChild(labelName);
       labelWrap.appendChild(labelCap);
 
-      // 2. Region slot badge + comp_def id (info)
+      // 2. Region slot badge + type label + comp_def id (info)
       const meta = document.createElement("div");
       meta.style.cssText = "color:#8a96a4;font-size:11px;";
       const ct = this._compTypesById[col.existing_type_id];
@@ -479,10 +479,59 @@
         (col.existing_region_slot || "main") + "</span>" +
         (ct ? ct.label : "type#" + col.existing_type_id);
 
-      // 3. Type label (current)
-      const typeBadge = document.createElement("div");
-      typeBadge.style.cssText = "font-size:11px;color:#7ed4e8;font-family:ui-monospace,Consolas,monospace;";
-      typeBadge.textContent = "id=" + col.existing_comp_def_id;
+      // 3. Type dropdown — Phase 38.4 Krok H+5 (26.5.2026, Marti's "menit
+      // dynamicky"): change comp_type live na existing field. PATCH
+      // /design/comp-def/update/{id} s type_id. Po success: form re-render
+      // (onComplete trigger).
+      const typeSel = document.createElement("select");
+      typeSel.title = "Změnit typ komponenty (PATCH live)";
+      typeSel.style.cssText =
+        "padding:4px 8px;background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
+        "border-radius:3px;font-size:12px;cursor:pointer;";
+      for (const ct of this._compTypes) {
+        const opt = document.createElement("option");
+        opt.value = String(ct.id);
+        opt.textContent = ct.label + " (id=" + ct.id + ")";
+        if (ct.id === col.existing_type_id) opt.selected = true;
+        typeSel.appendChild(opt);
+      }
+      typeSel.addEventListener("change", async () => {
+        const newId = parseInt(typeSel.value, 10);
+        const oldId = col.existing_type_id;
+        if (newId === oldId) return;
+        typeSel.disabled = true;
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-def/update/" + col.existing_comp_def_id,
+            {
+              method: "PATCH",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ type_id: newId }),
+            }
+          );
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) {
+            throw new Error(d.error || ("HTTP " + r.status));
+          }
+          col.existing_type_id = newId;
+          _showToast(
+            "Typ změněn: " + (this._compTypesById[newId] || {}).label,
+            "success", 1500
+          );
+          // Live sync — parent form reload (component re-render s novym typem)
+          if (typeof this.opts.onComplete === "function") {
+            try { this.opts.onComplete({ typeChanged: 1 }); }
+            catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+          }
+        } catch (e) {
+          console.error("[FieldPickerModal] type change failed:", e);
+          _showToast("Změna typu selhala: " + (e.message || e), "error", 3000);
+          typeSel.value = String(oldId);  // revert UI
+        } finally {
+          typeSel.disabled = false;
+        }
+      });
 
       // 4. ✕ remove button
       const removeBtn = document.createElement("button");
@@ -540,7 +589,7 @@
       row.appendChild(removeBtn);
       row.appendChild(labelWrap);
       row.appendChild(meta);
-      row.appendChild(typeBadge);
+      row.appendChild(typeSel);
       return row;
     }
 
@@ -866,6 +915,16 @@
             throw new Error(d.error || ("HTTP " + r.status));
           }
           _showToast("Přidáno: " + ct.label, "success", 1500);
+          // Phase 38.4 Krok H+5 (26.5.2026, Marti's "neobcerstvi Jiz na forme"):
+          // Refresh paleta state — novy container se objevi v "Jiz na forme"
+          // tab. Bez tohoto refresh paleta vlastni state je stale (jen onComplete
+          // refreshuje form, ne paletu).
+          try {
+            await this._refreshState();
+            this._render();
+          } catch (refErr) {
+            console.error("[FieldPickerModal] refresh after container add failed:", refErr);
+          }
           // Live sync — parent form reload
           if (typeof this.opts.onComplete === "function") {
             try { this.opts.onComplete({ added: 1, container: true }); }

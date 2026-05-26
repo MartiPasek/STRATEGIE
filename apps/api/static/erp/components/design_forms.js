@@ -769,24 +769,40 @@
         parentCompDefId: formId,
         onComplete: async (result) => {
           console.info("[DesignFwForm] FieldPicker complete:", result);
-          // Reload form spec — fields by se měly objevit v main panel
+          // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr on time"):
+          // Live sync paleta ↔ form. Po add/remove v palete refetch form
+          // spec + re-render. Pouzij ID-first endpoint (drafted cores maji
+          // core.code=NULL → "/fw-form/null/X" 404). Fallback na code-based
+          // endpoint pro legacy cores bez core.id.
           try {
-            const r = await fetch(
-              "/api/v1/erp/fw-form/" +
-                encodeURIComponent(this._spec.core.code) + "/" +
-                encodeURIComponent(this._spec.data.id || 0),
-              { credentials: "include" }
-            );
+            const coreId = this._spec.core && this._spec.core.id;
+            const coreCode = this._spec.core && this._spec.core.code;
+            const rowId = (this._spec.data && this._spec.data.id) || 0;
+            let url;
+            if (coreId != null) {
+              url = "/api/v1/erp/fw-form/by-id/" +
+                    encodeURIComponent(coreId) + "/" +
+                    encodeURIComponent(rowId);
+            } else if (coreCode) {
+              url = "/api/v1/erp/fw-form/" +
+                    encodeURIComponent(coreCode) + "/" +
+                    encodeURIComponent(rowId);
+            } else {
+              console.error("[DesignFwForm] reload: no core.id nor core.code");
+              return;
+            }
+            const r = await fetch(url, { credentials: "include" });
             if (r.ok) {
               const newSpec = await r.json();
               if (newSpec.ok) {
                 this._spec = newSpec;
                 this._render(); // re-render s novými fields
               }
+            } else {
+              console.error("[DesignFwForm] reload HTTP", r.status, url);
             }
           } catch (e) {
             console.error("[DesignFwForm] reload after picker failed:", e);
-            alert("Pole přidána, ale reload selhal. Zavři a otevři modal znovu.");
           }
         },
       });

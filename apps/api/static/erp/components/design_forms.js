@@ -1939,18 +1939,167 @@
           'Prázdný core kontejner' +
           '</div>' +
           '<div style="font-size:13px;max-width:480px;line-height:1.6;text-align:center;">' +
-          '<code style="color:#8fb8d4;">' +
-          _esc(core.code || ("id=" + (core.id || "?"))) +
+          '<code style="color:#8fb8d4;">id=' + (core.id || "?") +
           '</code> ' +
           'zatím nemá žádnou root komponentu. ' +
           'Marti doctrine: <em>„core = plocha, na ní se rozhodne uživatelsky ' +
           'co vložit (form 302, list, dashboard, ...)."</em>' +
-          '</div>' +
-          '<div style="font-size:12px;color:#6a7684;font-style:italic;margin-top:4px;">' +
-          'Picker root komponenty přijde v Krok 5.D ' +
-          '(po konzultaci s Marti-AI).' +
           '</div>';
         empty.appendChild(big);
+
+        // ─────────────────────────────────────────────────────────────────
+        // Krok 14g-H+5 (26.5.2026, Marti's "Vytvorit edit jadro 2"):
+        // Akcni karta v prazdnem containeru — nabidka spustit orchestrator
+        // pro auto-generation comp_def hierarchy (form root + main panel +
+        // per-column inputs + footer + OK/Storno buttons).
+        //
+        // Marti's design (26.5. odpoledne):
+        //   - PUVODNI orchestrator (vytvorit_edit_jadro) BEZE ZMENY
+        //   - NOVY skript v fw.executable_artifact: 'vytvorit_edit_jadro_2'
+        //   - Klik Ano → POST /sandbox/execute/vytvorit_edit_jadro_2 s
+        //     body {coreId: <thisCoreId>} → po success reload form
+        // ─────────────────────────────────────────────────────────────────
+        const genCard = document.createElement("div");
+        genCard.style.cssText =
+          "background:rgba(74,123,168,0.08);" +
+          "border:1px solid rgba(74,123,168,0.3);" +
+          "border-radius:6px;padding:18px 24px;" +
+          "max-width:540px;width:100%;" +
+          "display:flex;flex-direction:column;gap:14px;" +
+          "margin-top:8px;";
+
+        const genHead = document.createElement("div");
+        genHead.style.cssText =
+          "font-size:14px;color:#a8c5dc;text-align:center;line-height:1.5;";
+        genHead.innerHTML =
+          '<div style="font-size:24px;margin-bottom:6px;">🪄</div>' +
+          '<div><strong>Chceš abych vygenerovala root komponenty</strong>' +
+          ' pro tento edit core?</div>' +
+          '<div style="font-size:11px;color:#6a7684;margin-top:6px;font-style:italic;">' +
+          'Orchestrator <code style="color:#8fb8d4;">vytvorit_edit_jadro_2</code> ' +
+          'vytvoří form root + main panel + per-column inputs + footer.' +
+          '</div>';
+        genCard.appendChild(genHead);
+
+        const genBtnRow = document.createElement("div");
+        genBtnRow.style.cssText =
+          "display:flex;justify-content:center;gap:12px;margin-top:4px;";
+
+        const btnYes = document.createElement("button");
+        btnYes.type = "button";
+        btnYes.textContent = "✓ Ano, vygeneruj";
+        btnYes.style.cssText =
+          "padding:8px 18px;font-size:13px;font-weight:600;border-radius:4px;" +
+          "background:rgba(74,154,74,0.18);" +
+          "border:1px solid rgba(74,154,74,0.5);color:#7fc77f;" +
+          "cursor:pointer;min-width:140px;";
+        btnYes.onmouseenter = function () {
+          btnYes.style.background = "rgba(74,154,74,0.28)";
+        };
+        btnYes.onmouseleave = function () {
+          btnYes.style.background = "rgba(74,154,74,0.18)";
+        };
+
+        const btnNo = document.createElement("button");
+        btnNo.type = "button";
+        btnNo.textContent = "Ne";
+        btnNo.style.cssText =
+          "padding:8px 18px;font-size:13px;border-radius:4px;" +
+          "background:rgba(138,150,164,0.12);" +
+          "border:1px solid rgba(138,150,164,0.35);color:#8a96a4;" +
+          "cursor:pointer;min-width:100px;";
+        btnNo.onmouseenter = function () {
+          btnNo.style.background = "rgba(138,150,164,0.22)";
+        };
+        btnNo.onmouseleave = function () {
+          btnNo.style.background = "rgba(138,150,164,0.12)";
+        };
+
+        const self = this;
+        btnNo.onclick = function () {
+          // Hide card — zustane jen empty placeholder
+          genCard.style.display = "none";
+        };
+
+        btnYes.onclick = async function () {
+          btnYes.disabled = true;
+          btnNo.disabled = true;
+          btnYes.textContent = "⏳ Generuji…";
+          try {
+            const r = await fetch(
+              "/api/v1/erp/sandbox/execute/vytvorit_edit_jadro_2",
+              {
+                method: "POST",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ coreId: core.id }),
+              }
+            ).then(function (rr) { return rr.json(); });
+
+            if (r && r.ok) {
+              // Success — toast + reload form (re-fetch spec)
+              try {
+                _showToast(
+                  "Root komponenty vygenerovány — načítám…",
+                  "success",
+                  2500
+                );
+              } catch (e) {}
+              // Reload: zavri + znovu otevri stejny coreId
+              try {
+                self._shell.close();
+              } catch (e) {}
+              // Re-open po krátké pauze (modal cleanup race)
+              setTimeout(function () {
+                try {
+                  const fwf2 = new global.DesignFwForm({
+                    coreId: core.id,
+                    rowId: self.opts.rowId,  // null pro CREATE mode
+                    mode: self.opts.mode,
+                    onSaveSuccess: self.opts.onSaveSuccess,
+                  });
+                  if (typeof fwf2.open === "function") fwf2.open();
+                } catch (e) {
+                  console.error("[H+5] Re-open after generate failed:", e);
+                }
+              }, 400);
+            } else {
+              // Error — show toast + restore buttons
+              const errMsg = (r && r.error) || "unknown";
+              btnYes.disabled = false;
+              btnNo.disabled = false;
+              btnYes.textContent = "✓ Ano, vygeneruj";
+              try {
+                _showToast(
+                  "Generování selhalo: " + errMsg,
+                  "error",
+                  4500
+                );
+              } catch (e) {
+                alert("Generování selhalo: " + errMsg);
+              }
+            }
+          } catch (e) {
+            btnYes.disabled = false;
+            btnNo.disabled = false;
+            btnYes.textContent = "✓ Ano, vygeneruj";
+            try {
+              _showToast(
+                "Generování selhalo (network): " + (e.message || e),
+                "error",
+                4500
+              );
+            } catch (e2) {
+              alert("Generování selhalo: " + (e.message || e));
+            }
+          }
+        };
+
+        genBtnRow.appendChild(btnYes);
+        genBtnRow.appendChild(btnNo);
+        genCard.appendChild(genBtnRow);
+        empty.appendChild(genCard);
+
         this._shell.body.appendChild(empty);
         return;
       }

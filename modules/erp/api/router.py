@@ -3614,11 +3614,16 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
 # Marti's Q7=A "drz jednoduchost" — hard delete bez soft delete branch.
 # ────────────────────────────────────────────────────────────────────
 
-@api_router.delete("/design/{core_id}/{row_id}")
+@api_router.delete("/design/{core_id:int}/{row_id:int}")
 async def design_delete_entity(core_id: int, row_id: int, req: Request) -> JSONResponse:
     """Hard DELETE row z entity table.
 
     URL: DELETE /api/v1/erp/design/{core_id}/{row_id}
+
+    Phase 38.4 Krok H+5 (26.5.2026): :int path converter — Starlette
+    matchuje jen kdyz oba segmenty jsou integers. Zabranuje route
+    collision s /design/comp-def/{comp_def_id} + /design/db-connection/...
+    + /design/fw-data-source/... (Pydantic 422 fix).
 
     Resolves target table via _resolve_entity_config_for_core (DB-first
     z 5.N-2 v2 SQL parse, fallback _FW_FORM_CORE_REGISTRY pro user/core).
@@ -4420,9 +4425,13 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
 # Audit Marti-AI (created_by_*).
 # ────────────────────────────────────────────────────────────────────
 
-@api_router.post("/design/{core_id}")
+@api_router.post("/design/{core_id:int}")
 async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
     """CREATE flow POST endpoint pro DesignFwForm Nový (C) button.
+
+    Phase 38.4 Krok H+5 (26.5.2026): :int path converter — same lesson
+    jako DELETE /design/{core_id}/{row_id} (route collision s /design/comp-def
+    + /design/db-connection atd.).
 
     Body: {
         "field_changes": {"label": "Nový label", ...},

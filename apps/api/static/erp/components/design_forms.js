@@ -5928,6 +5928,40 @@
         (fromCompPre.caption || fromCompPre.name || ("#" + fromId));
 
       const targetParentId = toComp.parent_comp_def_id;
+
+      // Phase 38.4 Krok H+5++ (26.5.2026 vecer, Marti's "drop hlasi chybu"):
+      // Guard #1 — self-parent: nelze udelat komponentu nadrazenou sobe.
+      // Tipicky scenario: drag main_panel row → drop na jeho child →
+      // targetParentId == fromId → PATCH self-parent → backend 400.
+      if (targetParentId === fromId) {
+        _showToast(
+          "Nelze přesunout komponentu dovnitř sebe sama. " +
+          "Pro změnu pořadí použij přetažení v rámci stejného containeru.",
+          "warning", 3500
+        );
+        return;
+      }
+      // Guard #2 — cycle detection: targetParent nesmi byt potomek fromId
+      // (jinak by vznikl kruh A→B→A). Walk parent chain od targetParentId
+      // smerem nahoru a zkontroluj, ze v cele ceste nenarazime na fromId.
+      const _byId = new Map(fields.map((f) => [f.id, f]));
+      let _ancestor = _byId.get(targetParentId);
+      let _hops = 0;
+      while (_ancestor && _hops < 50) {
+        if (_ancestor.id === fromId) {
+          _showToast(
+            "Nelze přesunout komponentu dovnitř jejího potomka " +
+            "(vznikl by kruh).",
+            "warning", 3500
+          );
+          return;
+        }
+        _ancestor = _ancestor.parent_comp_def_id != null
+          ? _byId.get(_ancestor.parent_comp_def_id)
+          : null;
+        _hops += 1;
+      }
+
       // Build new sibling list v target parent (excluding fromId pro pripad
       // ze tam uz neni)
       const targetSiblings = fields

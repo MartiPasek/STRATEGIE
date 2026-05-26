@@ -276,16 +276,24 @@ def main():
             # NOT NULL columns (per Marti's audit 26.5.):
             #   is_active, created_by_text, updated_by_text → must provide
             #   created_at, updated_at → DB defaults handle
+            # Krok H+5 fix #3 (26.5. ~13:15, "data nezobrazene" Marti's catch):
+            #   region_slot='main' + data_source_id=ds_id na form root →
+            #   backend _resolve_entity_config_from_db matchne form root
+            #   (JOIN cd.core_id=c.id AND cd.region_slot='main' AND
+            #   cd.data_source_id NOT NULL) → resolve target table →
+            #   load data row → inputs zobrazi values.
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
                     type_id, core_id, parent_comp_def_id,
                     name, caption, layout, sort_order, region_slot,
+                    data_source_id,
                     is_active,
                     created_by_id, created_by_text,
                     updated_by_id, updated_by_text
                 ) VALUES (
-                    %s, %s, NULL, %s, %s, %s::jsonb, 0, NULL,
+                    %s, %s, NULL, %s, %s, %s::jsonb, 0, %s,
+                    %s,
                     TRUE,
                     %s, %s, %s, %s
                 )
@@ -295,12 +303,14 @@ def main():
                 'form_root',
                 c_label or 'Editace záznamu',
                 '{}',
+                'main',  # region_slot
+                ds_id,   # data_source_id
                 MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
                 MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
             ))
             root_id = cur.fetchone()[0]
             cur.close()
-            print(f"  ✓ comp_def #{root_id} (form root)")
+            print(f"  ✓ comp_def #{root_id} (form root, ds_id={ds_id})")
 
             # 8b — main panel
             cur = conn.cursor()

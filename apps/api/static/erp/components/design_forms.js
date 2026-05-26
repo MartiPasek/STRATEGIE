@@ -767,10 +767,26 @@
       const picker = new global.FieldPickerModal({
         entityType: core.id != null ? String(core.id) : (core.code || core.data_entity_type),
         parentCompDefId: formId,
-        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit oznacenej
-        // panel na forme"): callback po klik radio v palete — highlight
-        // container DOM element s green outline + glow. Single-select,
-        // takze deactivate predchozi pri kazdem volani.
+        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "vyjit z rozchozenych
+        // komponent"): paleta deleguje ⚙ klik na existing _openFieldSettings.
+        // Najde field v this._spec.fields by id + zavolá popup. Existing
+        // popup uz ma per-type detection (entity_picker tab, max_length pro
+        // text inputy, atd.) — Marti's "kazda komponenta jinak" priorita.
+        onOpenSettings: (compDefId) => {
+          try {
+            const fields = (this._spec && this._spec.fields) || [];
+            const field = fields.find(f => f.id === compDefId);
+            if (!field) {
+              console.warn("[DesignFwForm] onOpenSettings: field id=" + compDefId + " nenalezen v spec.fields");
+              alert("Komponenta id=" + compDefId + " nebyla nalezena ve formuláři (možná smazána). Obnov paletu.");
+              return;
+            }
+            this._openFieldSettings(field);
+          } catch (e) {
+            console.error("[DesignFwForm] onOpenSettings failed:", e);
+            alert("Settings popup selhal: " + (e.message || e));
+          }
+        },
         onActiveContainerChange: (compDefId) => {
           try {
             const root = this._shell && this._shell.body;
@@ -5147,6 +5163,92 @@
         await this._performFieldDelete(field);
       });
       footer.appendChild(deleteBtn);
+
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "load/save default per
+      // comp_type"): 📥 Načíst výchozí + 📌 Uložit jako výchozí.
+      // GET/PUT /design/comp-type/{id}/defaults — ct.default_props JSONB.
+      // "Kazda komponenta jinak" doctrine — defaults jsou per comp_type
+      // (panel jine nez edit jine nez memo).
+      const _loadDefBtn = document.createElement("button");
+      _loadDefBtn.type = "button";
+      _loadDefBtn.innerHTML = "📥 Načíst výchozí";
+      _loadDefBtn.title = "Načte výchozí parametry pro typ " + (field.comp_type_code || ("type#" + field.type_id));
+      _loadDefBtn.style.cssText =
+        "padding:6px 12px;background:#1f2530;border:1px solid #2a3340;color:#a8b4c2;" +
+        "border-radius:3px;cursor:pointer;font-size:12px;";
+      _loadDefBtn.addEventListener("click", async () => {
+        _loadDefBtn.disabled = true;
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-type/" + field.type_id + "/defaults",
+            { credentials: "include" }
+          );
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "HTTP " + r.status);
+          const dp = d.default_props || {};
+          const dpLay = dp.layout || {};
+          // Apply na vsechny known fieldy v popup
+          if (dpLay.min_width != null) minWidthInput.value = dpLay.min_width;
+          if (dpLay.max_width != null) maxWidthInput.value = dpLay.max_width;
+          if (dpLay.min_length != null) minLenInput.value = dpLay.min_length;
+          if (dpLay.max_length != null) maxLenInput.value = dpLay.max_length;
+          if (typeof placeholderInput !== "undefined" && dpLay.placeholder)
+            placeholderInput.value = dpLay.placeholder;
+          if (typeof roCb !== "undefined" && dpLay.readonly != null)
+            roCb.checked = !!dpLay.readonly;
+          if (typeof reqCb !== "undefined" && dpLay.required != null)
+            reqCb.checked = !!dpLay.required;
+          _showToast("✓ Načteno z výchozí pro " + (d.label || d.code), "success", 2000);
+        } catch (e) {
+          _showToast("✗ Načtení výchozí selhalo: " + (e.message || e), "error", 3000);
+        } finally {
+          _loadDefBtn.disabled = false;
+        }
+      });
+      footer.appendChild(_loadDefBtn);
+
+      const _saveDefBtn = document.createElement("button");
+      _saveDefBtn.type = "button";
+      _saveDefBtn.innerHTML = "📌 Uložit jako výchozí";
+      _saveDefBtn.title = "Uloží aktuální parametry jako výchozí pro typ " + (field.comp_type_code || ("type#" + field.type_id));
+      _saveDefBtn.style.cssText =
+        "padding:6px 12px;background:#2a3a4a;border:1px solid #4a7ba8;color:#cfd6df;" +
+        "border-radius:3px;cursor:pointer;font-size:12px;";
+      _saveDefBtn.addEventListener("click", async () => {
+        _saveDefBtn.disabled = true;
+        try {
+          const lay = {};
+          if (minWidthInput.value.trim()) lay.min_width = parseInt(minWidthInput.value, 10);
+          if (maxWidthInput.value.trim()) lay.max_width = parseInt(maxWidthInput.value, 10);
+          if (minLenInput.value.trim()) lay.min_length = parseInt(minLenInput.value, 10);
+          if (maxLenInput.value.trim()) lay.max_length = parseInt(maxLenInput.value, 10);
+          if (typeof placeholderInput !== "undefined" && placeholderInput.value.trim())
+            lay.placeholder = placeholderInput.value.trim();
+          if (typeof roCb !== "undefined") lay.readonly = roCb.checked;
+          if (typeof reqCb !== "undefined") lay.required = reqCb.checked;
+          const payload = { default_props: { layout: lay } };
+          const r = await fetch(
+            "/api/v1/erp/design/comp-type/" + field.type_id + "/defaults",
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            }
+          );
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "HTTP " + r.status);
+          _showToast(
+            "✓ Uloženo jako výchozí pro " + (field.comp_type_code || ("type#" + field.type_id)),
+            "success", 2000
+          );
+        } catch (e) {
+          _showToast("✗ Uložení výchozí selhalo: " + (e.message || e), "error", 3000);
+        } finally {
+          _saveDefBtn.disabled = false;
+        }
+      });
+      footer.appendChild(_saveDefBtn);
 
       const cancelBtn = document.createElement("button");
       cancelBtn.type = "button";

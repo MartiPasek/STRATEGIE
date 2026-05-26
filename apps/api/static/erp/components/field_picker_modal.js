@@ -54,24 +54,24 @@
     }
 
     /**
-     * Phase 38.4 Krok H+5 (26.5.2026, Marti's "tlacitko nastaveni pro
-     * popup"): build ⚙ settings button — reusable napric "Schazi pridat"
-     * + "Jiz na forme" + container rows.
+     * Phase 38.4 Krok H+5 (26.5.2026, Marti's "vyjit z rozchozenych
+     * komponent" + "kazda komponenta jinak"):
+     * ⚙ settings button delegate na parent DesignFwForm._openFieldSettings(field).
+     * Existing popup uz ma per-comp_type detection (entity_picker tab, atd.) —
+     * reuse misto vlastniho duplikatu. Per-type fields (panel align /
+     * groupbox border_mode / edit max_length / atd.) jsou pak v jedne
+     * code path, snadno udrzitelne.
      *
      * @param {Object} opts
-     * @param {Object} opts.col            — column data (col.name, col.suggested_type_id, col.existing_*)
-     * @param {string} opts.mode           — 'available' | 'onform' | 'container'
-     * @param {number} [opts.compDefId]    — pro onform/container (PATCH target)
-     * @param {number} opts.typeId         — comp_type_id (pro defaults endpointy)
-     * @param {string} [opts.caption]      — initial caption
-     * @param {Object} [opts.layout]       — initial layout JSONB
+     * @param {number} opts.compDefId — PATCH target (parent najde field
+     *                                  v this._spec.fields / containers by id)
      * @returns {HTMLElement} settings button
      */
     _makeSettingsBtn(opts) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = "⚙";
-      btn.title = "Nastavení komponenty (caption, layout, výchozí)";
+      btn.title = "Nastavení komponenty";
       btn.style.cssText =
         "width:28px;height:28px;background:transparent;border:1px solid #2a3340;" +
         "color:#a8b4c2;cursor:pointer;border-radius:3px;font-size:14px;";
@@ -87,7 +87,16 @@
       });
       btn.addEventListener("click", (ev) => {
         ev.stopPropagation();
-        this._openCompSettingsPopup(opts);
+        // Delegate na parent (DesignFwForm) — reuse existing popup
+        if (typeof this.opts.onOpenSettings === "function") {
+          try { this.opts.onOpenSettings(opts.compDefId); }
+          catch (e) {
+            console.error("[FieldPickerModal] onOpenSettings failed:", e);
+            _showToast("Settings popup selhal: " + (e.message || e), "error", 3000);
+          }
+        } else {
+          _showToast("Settings popup není dostupný (chybí onOpenSettings handler)", "warn", 2500);
+        }
       });
       return btn;
     }
@@ -1272,7 +1281,7 @@
     _renderColumnRow(col) {
       const row = document.createElement("div");
       row.style.cssText =
-        "display:grid;grid-template-columns:24px 200px 1fr 160px 32px;" +
+        "display:grid;grid-template-columns:24px 200px 1fr 160px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "cursor:pointer;transition:background 0.1s;";
       row.addEventListener("mouseenter", () => row.style.background = "#141a20");
@@ -1384,22 +1393,10 @@
       // Predtim klik doprostred kompounenty (label/preview) trigger POST,
       // coz vedlo k nahodnym pridanim.
 
-      // ⚙ Settings button (Krok H+5) — popup pro per-column override pred POST.
-      // mode='available' → cached v _availableOverrides[col.name] (TODO apply
-      // pres _resolveAddOverrides() v checkbox handler). Plus Load/Save default
-      // pres comp_type endpoint.
-      const settingsBtn = this._makeSettingsBtn({
-        col: col,
-        mode: "available",
-        typeId: this._typeOverrides[col.name] || col.suggested_type_id,
-        caption: col.caption_default,
-      });
-
       row.appendChild(cb);
       row.appendChild(labelWrap);
       row.appendChild(previewWrap);
       row.appendChild(typeSel);
-      row.appendChild(settingsBtn);
       return row;
     }
 

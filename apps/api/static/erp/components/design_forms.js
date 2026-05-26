@@ -767,6 +767,31 @@
       const picker = new global.FieldPickerModal({
         entityType: core.id != null ? String(core.id) : (core.code || core.data_entity_type),
         parentCompDefId: formId,
+        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit oznacenej
+        // panel na forme"): callback po klik radio v palete — highlight
+        // container DOM element s green outline + glow. Single-select,
+        // takze deactivate predchozi pri kazdem volani.
+        onActiveContainerChange: (compDefId) => {
+          try {
+            const root = this._shell && this._shell.body;
+            if (!root) return;
+            // Drop predchozi highlight
+            root.querySelectorAll(".erp-design-active-container").forEach(el => {
+              el.classList.remove("erp-design-active-container");
+            });
+            // Apply na novy target
+            if (compDefId != null) {
+              const target = root.querySelector(
+                '[data-comp-def-id="' + compDefId + '"]'
+              );
+              if (target) {
+                target.classList.add("erp-design-active-container");
+              }
+            }
+          } catch (e) {
+            console.error("[DesignFwForm] active container highlight failed:", e);
+          }
+        },
         onComplete: async (result) => {
           console.info("[DesignFwForm] FieldPicker complete:", result);
           // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr on time"):

@@ -526,6 +526,37 @@
       ".erp-design-modal .desc-memo-system label {\n" +
       "  color: #c9943a !important;\n" +
       "}\n" +
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit oznacenej
+      // panel na forme"): green outline + animated glow pro active
+      // container target. FieldPickerModal radio button toggle ↔ aplikace
+      // class .erp-design-active-container. Single-select pattern —
+      // jen jeden container na formu zvyrazneny.
+      "@keyframes erpActiveContainerPulse {\n" +
+      "  0%, 100% { box-shadow: 0 0 0 3px rgba(93, 191, 93, 0.45), 0 0 12px rgba(93, 191, 93, 0.25); }\n" +
+      "  50% { box-shadow: 0 0 0 3px rgba(93, 191, 93, 0.75), 0 0 18px rgba(93, 191, 93, 0.45); }\n" +
+      "}\n" +
+      ".erp-design-modal .erp-design-active-container {\n" +
+      "  outline: 2px solid #5dbf5d !important;\n" +
+      "  outline-offset: 2px;\n" +
+      "  animation: erpActiveContainerPulse 2s ease-in-out infinite;\n" +
+      "  border-radius: 4px;\n" +
+      "  position: relative;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-design-active-container::before {\n" +
+      "  content: '🎯 Aktivní cíl';\n" +
+      "  position: absolute;\n" +
+      "  top: -10px;\n" +
+      "  right: 12px;\n" +
+      "  background: #5dbf5d;\n" +
+      "  color: #0f1418;\n" +
+      "  font-size: 10px;\n" +
+      "  font-weight: 700;\n" +
+      "  padding: 2px 8px;\n" +
+      "  border-radius: 3px;\n" +
+      "  z-index: 10;\n" +
+      "  pointer-events: none;\n" +
+      "  letter-spacing: 0.3px;\n" +
+      "}\n" +
       // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
       // "drag jen ta komponenta uvnitr, ne cela karta"):
       // Scoped CSS pro inline preview komponenty v gallery cards.
@@ -829,7 +860,13 @@
 
       const body = document.createElement("div");
       body.style.cssText = "padding:16px;color:#cfd6df;font-size:13px;line-height:1.5;white-space:pre-wrap;";
-      body.textContent = message;
+      // Excel mode Faze 2-D polish (25.5.2026 rano, Marti's catch "v dialogu
+      // se neukazuje tucne to cislo — konflikt s formatovanim"): caller
+      // muze poslat HTML v message (<b>4</b>, <em>, atd.). Pred Faze 2-D
+      // textContent escapoval. Pri jeho innerHTML render funguje tucne +
+      // ostatni HTML tagy. Caller je parent-gated (DESIGN mode service),
+      // XSS risk acceptable. Pro plain text bez HTML chova se identicky.
+      body.innerHTML = message;
       dlg.appendChild(body);
 
       const ftr = document.createElement("div");

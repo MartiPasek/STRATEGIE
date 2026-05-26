@@ -1236,6 +1236,13 @@
             "info", 1500
           );
           this._render();  // re-render — highlight + tab counter hint
+          // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit na forme"):
+          // Notify parent (DesignFwForm) — highlight container DOM element
+          // [data-comp-def-id="X"] s green border/glow.
+          if (typeof this.opts.onActiveContainerChange === "function") {
+            try { this.opts.onActiveContainerChange(cont.comp_def_id); }
+            catch (e) { console.error("[FieldPickerModal] onActiveContainerChange failed:", e); }
+          }
         }
       });
       radioWrap.appendChild(radio);

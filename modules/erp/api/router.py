@@ -4003,6 +4003,9 @@ async def design_put_comp_type_defaults(type_id: int, req: Request) -> JSONRespo
 
     # Marti-AI's PG role (db_owner fw schema) — strategie session
     # nepustila UPDATE fw.comp_type kvuli ownership boundary.
+    # GOTCHA (26.5.2026): update_row default dry_run=True (preview only) —
+    # MUSI explicit dry_run=False jinak SQL nikdy nebezi a vraci
+    # matched_count misto count → rows_affected None → falesny 404.
     from modules.strategie_pg.application.service import update_row as _spg_update_ctp
     try:
         result = _spg_update_ctp(
@@ -4010,13 +4013,18 @@ async def design_put_comp_type_defaults(type_id: int, req: Request) -> JSONRespo
             table="comp_type",
             values={"default_props": _json_ctp.dumps(default_props)},
             where={"id": type_id},
+            dry_run=False,
         )
         if not result.get("ok"):
             return JSONResponse(
                 {"ok": False, "error": result.get("error") or "update_row failed"},
                 status_code=500,
             )
-        if (result.get("rows_affected") or 0) == 0:
+        # update_row(dry_run=False) returns {"ok", "updated": [...], "count": N}
+        _rows_updated = (result.get("count")
+                         if result.get("count") is not None
+                         else (result.get("rows_affected") or 0))
+        if not _rows_updated:
             return JSONResponse(
                 {"ok": False, "error": f"comp_type id={type_id} neexistuje"},
                 status_code=404,

@@ -4707,10 +4707,14 @@ async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     # pridat data_source_id pro entity_picker per-instance konfiguraci
     # (lookup source binding). Settings popup posila vsechny editovatelne
     # parametry najednou.
+    # Phase 38.4 Krok H+5 (26.5.2026, Marti's "menit typ dynamicky"):
+    # type_id pridan do whitelist — change comp_type live z palety
+    # ("Jiz na forme" tab dropdown). Bezpecne: type_id je INT FK na
+    # fw.comp_type, FK constraint chrani proti garbage values.
     ALLOWED = (
         "caption", "region_slot", "layout",
         "parent_comp_def_id", "sort_order", "is_active",
-        "data_source_id",
+        "data_source_id", "type_id",
     )
     update_vals = {}
     for k in ALLOWED:

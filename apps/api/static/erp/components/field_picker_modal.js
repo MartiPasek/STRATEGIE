@@ -1040,8 +1040,41 @@
         newSortOrder = (neighbor.sort != null ? neighbor.sort : 10) - 5;
       } else {
         // ↓ — insert AFTER neighbor (becomes my "prev")
-        newParentId = neighbor.parentId;
-        newSortOrder = (neighbor.sort != null ? neighbor.sort : 10) + 5;
+        //
+        // Phase 38.4 Krok H+11 (26.5.2026, Marti's "Description ↓ ma
+        // zalezt do active panelu, ne sletet az dolu"):
+        // Pokud neighbor je CONTAINER a NE moje stavajici parent, drill
+        // INSIDE jako first child. Matches "depth-first next position"
+        // — uzivatel ocekava postupne projizdeni stromu vcetne entry/exit
+        // containeru, ne preskakovani celych podstromu.
+        //
+        // Edge case: neighbor je container ALE muj parent (= jsem prvni
+        // sibling-after containeru s parent=container.parent) → drill
+        // by vznikl cycle (sebe-rodicovstvi). Default sibling-after.
+        const neighborIsContainer = (this._existingContainers || []).some(
+          (c) => c.comp_def_id === neighbor.id
+        );
+        if (neighborIsContainer && neighbor.id !== myNode.parentId &&
+            neighbor.id !== compDefId) {
+          // Drill INTO container — become FIRST child
+          newParentId = neighbor.id;
+          // Find existing first child's sort, place before. Pokud container
+          // je prazdny, default sort 10.
+          let firstChildSort = null;
+          for (const node of tree) {
+            if (node.parentId === neighbor.id) {
+              firstChildSort = node.sort;
+              break;  // tree je sorted depth-first, first match = first child
+            }
+          }
+          newSortOrder = (firstChildSort != null)
+            ? Math.max(1, firstChildSort - 5)
+            : 10;
+        } else {
+          // Default: insert as sibling-after neighbor
+          newParentId = neighbor.parentId;
+          newSortOrder = (neighbor.sort != null ? neighbor.sort : 10) + 5;
+        }
       }
 
       // Cycle guard: ne nelze udelat sebe vlastnim potomkem (kdyz tahnu

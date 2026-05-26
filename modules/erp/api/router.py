@@ -8219,13 +8219,26 @@ def design_list_entity_columns(
         # Phase 38.4 Krok 14c+1: existing comp_def merge per name
         # (case-insensitive defensive — Centrala 1 ma legacy mixed-case
         # column names, fw.comp_def.name typicky lowercase).
+        # Phase 38.4 Krok H+5 (26.5.2026, Marti's "paleta nerespektuje parents"):
+        # Recursive descent z form root — najde komponenty napric celou
+        # hierarchii (panel/groupbox/tabsheet/per-column inputs), ne jen
+        # direct children. Orchestrator vytvori inputy pod main_panel,
+        # ne direct pod form root.
         existing_by_name: dict[str, dict[str, object]] = {}
         if parent_comp_def_id is not None:
             existing_rows = ds_lec.execute(_sql_text_lec("""
-                SELECT id, name, caption, region_slot, type_id
-                FROM fw.comp_def
-                WHERE parent_comp_def_id = :pid
-                  AND is_active = true
+                WITH RECURSIVE descendants AS (
+                    SELECT id, name, caption, region_slot, type_id
+                    FROM fw.comp_def
+                    WHERE parent_comp_def_id = :pid
+                      AND is_active = true
+                    UNION ALL
+                    SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id
+                    FROM fw.comp_def cd
+                    INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
+                    WHERE cd.is_active = true
+                )
+                SELECT * FROM descendants
             """), {"pid": parent_comp_def_id}).mappings().all()
             for ex_row in existing_rows:
                 key = (ex_row["name"] or "").lower().strip()

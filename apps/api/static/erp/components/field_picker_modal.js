@@ -1098,7 +1098,110 @@
         ancestor = this._findParentOf(ancestor);
       }
 
-      // PATCH parent_comp_def_id + sort_order v jednom volani.
+      // Phase 38.4 Krok H+12 (26.5.2026, Marti's "sort_order musi byt
+      // non-negative — co s tim? Prepocitat po desitkach?"):
+      // Opakovane drill-in (Krok H+11) a ↑ poistuju sort o -5 kazdy krok,
+      // takze sort eventualne padne na 0/negativni. Backend rejectne.
+      // Fallback strategy: pokud newSortOrder < 1, switch na "renumber"
+      // — 2-step transakce:
+      //   1. PATCH parent_comp_def_id (sort = temp 999999, prepise se)
+      //   2. PUT /reorder s prepocitanymi sort_order = (idx+1)*10 pro
+      //      vsechny siblings v novem parentovi.
+      // Tim se gap-based scheme zachova bez zaporneho rozsahu — Marti's
+      // "prepocitat a znovu nastavit po desitkach" doctrine.
+      const NEEDS_RENUMBER = (newSortOrder < 1);
+
+      if (NEEDS_RENUMBER) {
+        // Build new sibling list pro target parent
+        const allInNewParent = this._getAllSiblings(newParentId)
+          .filter((s) => s.id !== compDefId);
+        // Compute insert position podle direction a wasDrill
+        const wasDrill = (newParentId === neighbor.id);
+        let insertIdx;
+        if (wasDrill) {
+          insertIdx = 0;  // drill = first child
+        } else {
+          const neighborIdx = allInNewParent.findIndex(
+            (s) => s.id === neighbor.id
+          );
+          if (neighborIdx < 0) {
+            // Defensive — neighbor zmizel z newSiblings list (shouldn't
+            // happen since neighbor je v linearized tree). Fallback na
+            // clamp = 1 + single PATCH.
+            console.warn("[FieldPickerModal] renumber fallback: neighbor not in newSiblings");
+            insertIdx = -1;
+          } else {
+            insertIdx = (direction < 0) ? neighborIdx : neighborIdx + 1;
+          }
+        }
+
+        if (insertIdx >= 0) {
+          // Build clean renumber payload
+          const reordered = allInNewParent.slice();
+          reordered.splice(insertIdx, 0, { id: compDefId, sort: 0 });
+          const renumberPayload = reordered.map((s, i) => ({
+            id: s.id,
+            sort_order: (i + 1) * 10,
+          }));
+          try {
+            // Step 1: PATCH parent_comp_def_id + temp sort (will be overwritten)
+            const r1 = await fetch(
+              "/api/v1/erp/design/comp-def/update/" + compDefId,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  parent_comp_def_id: newParentId,
+                  sort_order: 999999,  // temp — bude prepsano reorderem
+                }),
+              }
+            );
+            if (!r1.ok) {
+              const eb = await r1.json().catch(() => ({}));
+              throw new Error("PATCH HTTP " + r1.status + ": " +
+                              (eb.error || r1.statusText));
+            }
+            // Step 2: PUT /reorder s clean renumber (multiples of 10)
+            const r2 = await fetch(
+              "/api/v1/erp/design/comp-def/reorder",
+              {
+                method: "PUT",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ field_orders: renumberPayload }),
+              }
+            );
+            if (!r2.ok) {
+              const eb = await r2.json().catch(() => ({}));
+              throw new Error("REORDER HTTP " + r2.status + ": " +
+                              (eb.error || r2.statusText));
+            }
+            const crossed = (myNode.parentId !== newParentId);
+            _showToast(
+              (direction < 0 ? "↑" : "↓") +
+              (crossed ? " Přesunuto do jiného containeru" : " Posunuto") +
+              " (přečíslováno)",
+              "success", 1800
+            );
+            await this._refreshState();
+            this._render();
+            if (typeof this.opts.onComplete === "function") {
+              try { this.opts.onComplete({ moved: 1, renumbered: 1 }); }
+              catch (e) {}
+            }
+            return;
+          } catch (e) {
+            console.error("[FieldPickerModal] renumber move failed:", e);
+            _showToast("Posun selhal: " + (e.message || e), "error", 3000);
+            return;
+          }
+        }
+        // Defensive fallback: clamp newSortOrder a fall through na default
+        newSortOrder = 1;
+      }
+
+      // Default path: PATCH parent_comp_def_id + sort_order v jednom volani.
       try {
         const r = await fetch(
           "/api/v1/erp/design/comp-def/update/" + compDefId,

@@ -18,7 +18,7 @@ Output (stdout):
   - Introspect: information_schema.columns pro target table
   - Skip system columns (id, created_at, audit fields)
   - INSERT atomic:
-      1. comp_def root (type='form', parent_core_id=coreId)
+      1. comp_def root (type='form', core_id=coreId)
       2. comp_def main panel (type='panel', parent_comp_def_id=root.id,
          region_slot='main')
       3. per column INSERT input (type='edit', parent=main, name=col,
@@ -276,7 +276,7 @@ def main():
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
-                    type_id, parent_core_id, parent_comp_def_id,
+                    type_id, core_id, parent_comp_def_id,
                     name, caption, layout, sort_order, region_slot
                 ) VALUES (%s, %s, NULL, %s, %s, %s::jsonb, 0, NULL)
                 RETURNING id
@@ -294,7 +294,7 @@ def main():
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
-                    type_id, parent_core_id, parent_comp_def_id,
+                    type_id, core_id, parent_comp_def_id,
                     name, caption, layout, sort_order, region_slot
                 ) VALUES (%s, NULL, %s, %s, %s, %s::jsonb, 0, %s)
                 RETURNING id
@@ -320,7 +320,7 @@ def main():
                 cur = conn.cursor()
                 cur.execute("""
                     INSERT INTO fw.comp_def (
-                        type_id, parent_core_id, parent_comp_def_id,
+                        type_id, core_id, parent_comp_def_id,
                         name, caption, layout, sort_order, region_slot
                     ) VALUES (%s, NULL, %s, %s, %s, %s::jsonb, %s, NULL)
                     RETURNING id
@@ -371,3 +371,7 @@ except Exception as e:
     print(f"ORCHESTRATOR EXCEPTION: {type(e).__name__}: {e}")
     print("=" * 70)
     print(traceback.format_exc())
+    # Krok H+5 fix #2 (26.5.2026 ~13:00, Marti's "ok=True ale nic v DB"
+    # diagnostika): explicit exit code 1 → sandbox vrátí ok=False → frontend
+    # ukáže error toast místo silent success.
+    sys.exit(1)

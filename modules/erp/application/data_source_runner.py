@@ -193,7 +193,17 @@ def _apply_column_aliases(
 
 # Whitelist operation_kind pro generic runner (SELECT-only po Marti's
 # *„nejdrive read, az pak write"* doctrine z 7.5. dopoledne).
-ALLOWED_KINDS = {"select"}
+#
+# Krok H+3 26.5.2026 ranni — add 'select-detail':
+#   Polymorphic select kinds — same data_source, different SQL variants
+#   pro standalone vs nested context. 'select' = standalone (bez :master_id),
+#   'select-detail' = per-master nested (s :master_id filter).
+#   Marti's "uniformita vitezi" doctrine (11.5. Krok 13) — jeden data_source
+#   + N ops ruzneho kind, ne N data_sources.
+#
+# Vsechny kindy zde MUSI byt SELECT-only (read-only). Write ops (insert/edit/
+# delete) maji vlastni endpoints (PATCH /design/<entity>/<id> atd.).
+ALLOWED_KINDS = {"select", "select-detail"}
 
 # Max LIMIT cap pro generic endpoint (defense — nikdy fetch nelimitovaný).
 HARD_LIMIT_CAP = 100_000

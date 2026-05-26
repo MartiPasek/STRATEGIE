@@ -1141,7 +1141,7 @@
     // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
     //   ↑/↓ = LINEARIZED tree navigation. Cross-container move = single
     //   click. Disabled jen na first/last v celem stromu (ne jen sibling).
-    _makeMoveButtons(compDefId, parentId, sortOrder, layout) {
+    _makeMoveButtons(compDefId, parentId, sortOrder, layout, isContainer) {
       const wrap = document.createElement("div");
       wrap.style.cssText = "display:flex;gap:4px;align-items:center;justify-content:flex-start;";
 
@@ -1156,14 +1156,35 @@
       const isPinned = !!lay.always_new_row;
 
       const self = this;
-      // ← (pinned toggle — always_new_row)
-      wrap.appendChild(this._mkArrowBtn("←", true,
-        isPinned
-          ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
-          : "Vždy na novém řádku — VYP. Klikni pro zapnutí.",
-        () => self._togglePinned(compDefId, layout),
-        isPinned  // active state visualization
-      ));
+
+      // Phase 38.4 Krok H+9 (26.5.2026, Marti's "panel v panelu nemuzu
+      // dostat ven... zkus tu sipku vlevo — u panelu pinned nikdy nebude"):
+      // ← ma dvojí semantiku per role:
+      //   - field (isContainer=false) → TOGGLE pinned (always_new_row)
+      //   - container (isContainer=true) → OUTDENT (vyjet ven o uroven
+      //     z parent containeru). Pro panely/groupboxů/pagecontrol/tabsheet
+      //     ma vetsi smysl outdent nez pinned (panely neflowuji v gridu).
+      if (isContainer === true) {
+        // Container: ← = outdent (move to grandparent)
+        // canOutdent = true pokud parent neni form root (grandparent existuje)
+        const grandParentId = this._findParentOf(parentId);
+        const canOutdent = grandParentId != null;
+        wrap.appendChild(this._mkArrowBtn("←", canOutdent,
+          canOutdent
+            ? "Vyjmout o úroveň výš (přesunout mimo aktuální container)"
+            : "Už je na nejvyšší úrovni",
+          () => self._moveOutdent(compDefId, parentId)
+        ));
+      } else {
+        // Field: ← = pinned toggle (existing behavior, mirror ⬅ na komponente)
+        wrap.appendChild(this._mkArrowBtn("←", true,
+          isPinned
+            ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
+            : "Vždy na novém řádku — VYP. Klikni pro zapnutí.",
+          () => self._togglePinned(compDefId, layout),
+          isPinned  // active state visualization
+        ));
+      }
       // ↑ (linearized up — cross-container OK)
       wrap.appendChild(this._mkArrowBtn("↑", canUp,
         canUp ? "Posunout výš ve stromu (i napříč containery)"
@@ -2276,13 +2297,16 @@
       });
 
       // Krok H+5+++ (26.5.2026): move buttons (← ↑ ↓) mezi meta a idBadge.
-      // Krok H+5++++: ← je teted pinned toggle (always_new_row) — predat
-      // layout pro initial state.
+      // Krok H+9 (26.5.2026, Marti's "panel v panelu nemuzu ven"): isContainer=true
+      // → ← znamena OUTDENT (move to grandparent), ne pinned toggle. Pro
+      // panely/groupboxů/pagecontrol/tabsheet ma vetsi smysl outdent (panely
+      // neflowuji v gridu, takze pinned je no-op).
       const moveBtns = this._makeMoveButtons(
         cont.comp_def_id,
         cont.parent_comp_def_id,
         cont.sort_order,
-        cont.layout
+        cont.layout,
+        true  // isContainer
       );
 
       row.appendChild(removeBtn);

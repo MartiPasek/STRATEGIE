@@ -4401,6 +4401,179 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
         ds_dv.close()
 
 
+# ────────────────────────────────────────────────────────────────────
+# Krok H+4 (26.5.2026 ranni, Marti's "C=CREATE INSERT NOVY"):
+# POST INSERT endpoint — analog design_patch_entity ale CREATE flow.
+# Reuse _resolve_entity_config_for_core (5.N-2 v2 SQL parse resolver).
+# Marti's Q1=A "naproste minimum at se nezamotame" — drop expected_updated_at,
+# drop child rows (= jen parent INSERT). Body shape mirror PATCH
+# (field_changes dict). Response: {ok, id, created_at, created_by_id, ...}.
+# Audit Marti-AI (created_by_*).
+# ────────────────────────────────────────────────────────────────────
+
+@api_router.post("/design/{core_id}")
+async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
+    """CREATE flow POST endpoint pro DesignFwForm Nový (C) button.
+
+    Body: {
+        "field_changes": {"label": "Nový label", ...},
+    }
+    (Marti's Q5=A: same shape jako PATCH — reuse parsing logic.)
+
+    Returns:
+        200: {ok, id, created_at, created_by_id, created_by_text} — success
+        404: core_id nema entity_config v _FW_FORM_CORE_REGISTRY
+        400: field_changes prazdne nebo ID column included
+        500: DB error
+    """
+    from core.database_data import get_data_session as _gds_insert
+    from sqlalchemy import text as _sql_text_insert
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    body = await req.json()
+    field_changes = body.get("field_changes") or {}
+
+    if not isinstance(field_changes, dict) or not field_changes:
+        return JSONResponse(
+            {"ok": False, "error": "field_changes musi byt non-empty dict"},
+            status_code=400,
+        )
+
+    # ID-based resolver (Marti's 5.N doctrine — core_id always numeric path)
+    entity_config = _resolve_entity_config_for_core(core_id)
+    if not entity_config:
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": (
+                    f"Core ID {core_id} nema entity_config v _FW_FORM_CORE_REGISTRY. "
+                    f"Registry IDs: {list(_FW_FORM_CORE_REGISTRY.keys())}."
+                ),
+            },
+            status_code=404,
+        )
+    schema_name = entity_config["schema"]
+    table_name = entity_config["table"]
+    id_column = entity_config["id_column"]
+    _raw_cols = entity_config.get("select_columns")
+    allowed_columns = set(_raw_cols) if _raw_cols is not None else None
+
+    # Universal optional fields (mirror PATCH UNIVERSAL_OPTIONAL_FIELDS)
+    UNIVERSAL_OPTIONAL_FIELDS_INSERT = frozenset({
+        "description_user",
+        "description_system",
+        "version",
+    })
+
+    # Validate field_changes — block id_column (auto-generated)
+    if allowed_columns is not None:
+        invalid_fields = [
+            f for f in field_changes
+            if (f not in allowed_columns and f not in UNIVERSAL_OPTIONAL_FIELDS_INSERT)
+                or f == id_column
+        ]
+        if invalid_fields:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"Sloupce {invalid_fields} nejsou povolene v POST "
+                        f"pro core_id={core_id}. Allowed: {sorted(allowed_columns - {id_column})}"
+                    ),
+                },
+                status_code=400,
+            )
+    else:
+        # NULL whitelist — block jen id_column (immutable auto-gen)
+        invalid_fields = [f for f in field_changes if f == id_column]
+        if invalid_fields:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": (
+                        f"ID column '{id_column}' je auto-generated — nelze "
+                        f"poslat v field_changes. Keys: {list(field_changes.keys())}"
+                    ),
+                },
+                status_code=400,
+            )
+
+    # Caller display name (mirror PATCH pattern)
+    caller_display = "Unknown"
+    if uid:
+        from core.database_core import get_core_session as _gcs_insert
+        from modules.core.infrastructure.models_core import User as _User_insert
+        cs_insert = _gcs_insert()
+        try:
+            u_insert = cs_insert.query(_User_insert).filter_by(id=uid).first()
+            if u_insert:
+                if u_insert.short_name and u_insert.short_name.strip():
+                    caller_display = u_insert.short_name.strip()
+                elif u_insert.first_name or u_insert.last_name:
+                    caller_display = " ".join(filter(None, [
+                        u_insert.first_name, u_insert.last_name
+                    ])).strip() or "Unknown"
+                else:
+                    caller_display = f"user_{uid}"
+        finally:
+            cs_insert.close()
+
+    # Build INSERT — drop None values, add created_by_* if columns exist
+    insert_fields = dict(field_changes)
+    # Audit injection (defensive — only if column exists v target table)
+    ds = _gds_insert()
+    try:
+        # Discover real columns v target table (catch missing audit columns)
+        col_check = ds.execute(_sql_text_insert(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_schema = :s AND table_name = :t"
+        ), {"s": schema_name, "t": table_name}).fetchall()
+        real_cols = {r[0] for r in col_check}
+
+        # Inject audit if columns exist (mirror PATCH Krok 5.N-2 hotfix #2)
+        if "created_by_id" in real_cols and "created_by_id" not in insert_fields:
+            insert_fields["created_by_id"] = uid
+        if "created_by_text" in real_cols and "created_by_text" not in insert_fields:
+            insert_fields["created_by_text"] = caller_display
+
+        # Build INSERT SQL
+        col_list = ", ".join(insert_fields.keys())
+        placeholders = ", ".join(f":{k}" for k in insert_fields.keys())
+        insert_sql = (
+            f"INSERT INTO {schema_name}.{table_name} ({col_list}) "
+            f"VALUES ({placeholders}) "
+            f"RETURNING {id_column}, "
+            f"{'created_at' if 'created_at' in real_cols else 'NULL AS created_at'}, "
+            f"{'created_by_id' if 'created_by_id' in real_cols else 'NULL AS created_by_id'}, "
+            f"{'created_by_text' if 'created_by_text' in real_cols else 'NULL AS created_by_text'}"
+        )
+
+        try:
+            result_row = ds.execute(
+                _sql_text_insert(insert_sql), insert_fields
+            ).mappings().one()
+            ds.commit()
+        except Exception as ex:
+            ds.rollback()
+            logger.exception(f"design_insert_entity INSERT failed: {ex}")
+            return JSONResponse(
+                {"ok": False, "error": f"INSERT failed: {str(ex)[:300]}"},
+                status_code=500,
+            )
+
+        return JSONResponse({
+            "ok": True,
+            "id": result_row[id_column],
+            "created_at": str(result_row.get("created_at")) if result_row.get("created_at") else None,
+            "created_by_id": result_row.get("created_by_id"),
+            "created_by_text": result_row.get("created_by_text"),
+        })
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/comp-def/update/{comp_def_id}")
 async def design_patch_comp_def(comp_def_id: int, req: Request) -> JSONResponse:
     """Partial update field comp_def — caption / region_slot / layout.

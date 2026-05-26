@@ -955,11 +955,14 @@
       // Pokud jen coreId, fetch /fw-form/by-id/{coreId}/{rowId} (Step A endpoint)
       // vrátí spec včetně core.code → store this.opts.coreCode pro subsequent
       // URL builds (children/save/refresh — Step C migrate na coreId paths).
-      const rowId = this.opts.rowId;
-      if (rowId == null) {
-        console.error("DesignFwForm: rowId required");
-        return;
-      }
+      // Krok 14g-H+4 (25.5.2026 Marti's Q1=A "naprosté minimum"): CREATE mode
+      // rowId == null (z erp_grid_actions.js _openFwEditForm action 'create').
+      // Backend /fw-form/by-id/{core_id}/{row_id} s row_id=0 vrací spec
+      // (core + form + fields) bez data row (data_row_raw=None → data=None).
+      // _spec.data defaults to {} v _render() — empty form rendered.
+      // _handleSaveAndClose dispatchne POST /design/{core_id} misto PATCH.
+      const isCreateMode = (this.opts.rowId == null);
+      const rowId = isCreateMode ? 0 : this.opts.rowId;
       if (!this.opts.coreCode && this.opts.coreId) {
         // coreId-only call: resolve via by-id endpoint
         // (Step A backend, /fw-form/by-id/{core_id}/{row_id})
@@ -1061,7 +1064,9 @@
       // Phase 38.4 Krok 14g Etapa F Krok 5.C: fallback label pro drafted
       // core (coreCode=null).
       const _loadLabel = coreCode || ("id=" + this.opts.coreId);
-      loading.textContent = "Načítám " + _loadLabel + " #" + rowId + "…";
+      loading.textContent = isCreateMode
+        ? ("Připravuji nový záznam · " + _loadLabel + "…")
+        : ("Načítám " + _loadLabel + " #" + rowId + "…");
       this._shell.body.appendChild(loading);
 
       try {
@@ -1951,8 +1956,16 @@
       }
 
       // Title z core.label (preferuj nad form.caption)
+      // Krok 14g-H+4 (25.5.2026): CREATE mode prefix "Nový záznam · " (Marti's
+      // Q1=A "naprosté minimum at se nezamotame"). isCreateMode detection via
+      // this.opts.rowId (null = CREATE, ne via this._spec.data — to je vždy
+      // {} v CREATE mode, nelze rozeznat od edit no-data edge case).
+      const _isCreate = (this.opts.rowId == null);
       if (this._shell.title) {
-        this._shell.title.textContent = core.label || form.caption || core.code;
+        const _baseTitle = core.label || form.caption || core.code || "";
+        this._shell.title.textContent = _isCreate
+          ? ("Nový záznam · " + _baseTitle)
+          : _baseTitle;
       }
 
       // Root content container — Phase 38.4 Krok 14b+5 polish #4
@@ -3242,11 +3255,56 @@
           return;
         }
 
-        // Krok 5.I-G: PATCH 1 — core entity (existing behavior, pokud
-        // jsou core field changes)
+        // Krok 14g-H+4 (25.5.2026): CREATE mode dispatch — POST namisto PATCH.
+        // Marti's Q1=A "naprosté minimum at se nezamotame": pri CREATE mode
+        // (this.opts.rowId == null) ignorujeme compDefChanges + menuNodePatch
+        // (picker save flow patri jen k existing rows). Jen field_changes →
+        // POST /api/v1/erp/design/{core_id} (backend design_insert_entity).
+        const _isCreateSave = (this.opts.rowId == null);
         let savedFieldsCount = 0;
         let lastRespData = null;
-        if (Object.keys(fieldChanges).length > 0) {
+        if (_isCreateSave) {
+          if (Object.keys(fieldChanges).length === 0) {
+            alert(
+              "Nový záznam: nezadal jsi žádnou hodnotu.\n\n" +
+              "Vyplň alespoň jedno pole (description_user nebo některé z " +
+              "ostatních polí formuláře) a zkus to znovu."
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+          if (!core.id) {
+            alert("Save selhal: core.id chybí v _spec.");
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+          const rPost = await fetch(
+            "/api/v1/erp/design/" + encodeURIComponent(core.id),
+            {
+              method: "POST",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ field_changes: fieldChanges }),
+            }
+          );
+          if (!rPost.ok) {
+            const errData = await rPost.json().catch(() => ({}));
+            alert(
+              "Vytvoření nového záznamu selhalo: HTTP " + rPost.status + "\n" +
+              (errData.error || "(žádný error message)")
+            );
+            btnEl.disabled = false;
+            btnEl.innerHTML = originalHtml;
+            return;
+          }
+          lastRespData = await rPost.json();
+          savedFieldsCount = Object.keys(fieldChanges).length;
+          console.info("[DesignFwForm] POST CREATE success:", lastRespData);
+          // Skip PATCH 2 (comp_def) + PATCH 3 (menu_node) — irrelevant pro CREATE.
+          // Pokracujeme rovnou na "200 OK — toast + close" blok nize.
+        } else if (Object.keys(fieldChanges).length > 0) {
           // Krok 5.I-G hotfix (16.5.2026 ~22:45): validace entity context
           // PRESUNUTA sem (early exit v top byla too strict — blokovalo i
           // picker-only changes pres comp_def root). Aktivuje se jen pokud
@@ -3306,8 +3364,10 @@
 
         // Krok 5.I-G: PATCH 2 — comp_def root (Picker #3 + future per-instance
         // settings). Optimistic lock pres form.updated_at (Krok 5.I-A2 trigger).
+        // Krok 14g-H+4 (25.5.2026): skip PATCH 2 v CREATE mode (picker save flow
+        // patri jen k existing rows; nove row dostane pickery z defaults).
         const formRoot = this._spec.form || {};
-        if (Object.keys(compDefChanges).length > 0) {
+        if (!_isCreateSave && Object.keys(compDefChanges).length > 0) {
           if (formRoot.id == null || !formRoot.updated_at) {
             alert(
               "Save selhal: form root comp_def chybi id nebo updated_at.\\n" +
@@ -3361,7 +3421,9 @@
         // Phase 38.4 Krok 5.M-5+1 (17.5.2026, Marti's "priradit prehled
         // ke kazdemu soudecku"): PATCH 3 — menu_node.core_id (Picker #2
         // Prehled save). Runtime menu_node_pk z context menu fix.
-        if (Object.keys(menuNodePatch).length > 0) {
+        // Krok 14g-H+4 (25.5.2026): skip v CREATE mode (menu_node binding
+        // patri k existing core id; novy row nezna context menu).
+        if (!_isCreateSave && Object.keys(menuNodePatch).length > 0) {
           const r3 = await fetch(
             "/api/v1/erp/design/menu_node/" + encodeURIComponent(runtimeMenuNodePk),
             {
@@ -3396,7 +3458,7 @@
         // Visual feedback — green flash krátce před close
         btnEl.style.background = "#3a7a3a";
         btnEl.style.borderColor = "#4a9a4a";
-        btnEl.innerHTML = "✅ Uloženo";
+        btnEl.innerHTML = _isCreateSave ? "✅ Vytvořeno" : "✅ Uloženo";
 
         // Clear dirty state (modal close handler nepokusí dirty check)
         const _changeCount = this._dirty.size;
@@ -3405,13 +3467,21 @@
 
         // Phase 38.4 Krok 14b+9-A (13.5.2026 ~21:30): toast notification
         // misto silent close. Marti's prezentace polish.
+        // Krok 14g-H+4 (25.5.2026): CREATE mode toast "Vytvořeno — id=X"
+        // s nove vygenerovanym ID z POST response (lastRespData.id).
         const _wToast = _changeCount === 1 ? "změna" : (_changeCount < 5 ? "změny" : "změn");
-        _showToast(
-          _changeCount > 0
-            ? "Uloženo — " + _changeCount + " " + _wToast
-            : "Uloženo",
-          "success"
-        );
+        let _toastMsg;
+        if (_isCreateSave) {
+          const _newId = lastRespData && lastRespData.id;
+          _toastMsg = _newId != null
+            ? ("Vytvořeno — nový záznam #" + _newId)
+            : "Vytvořeno";
+        } else if (_changeCount > 0) {
+          _toastMsg = "Uloženo — " + _changeCount + " " + _wToast;
+        } else {
+          _toastMsg = "Uloženo";
+        }
+        _showToast(_toastMsg, "success");
 
         // Phase 38.4 Krok 14b+5 polish (13.5.2026 ~18:35, Marti's
         // "refresh gridu po save" request): trigger callback s response

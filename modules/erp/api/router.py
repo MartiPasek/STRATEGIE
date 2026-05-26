@@ -8367,13 +8367,13 @@ def design_list_entity_columns(
             existing_rows = ds_lec.execute(_sql_text_lec("""
                 WITH RECURSIVE descendants AS (
                     SELECT id, name, caption, region_slot, type_id,
-                           parent_comp_def_id, sort_order
+                           parent_comp_def_id, sort_order, layout
                     FROM fw.comp_def
                     WHERE parent_comp_def_id = :pid
                       AND is_active = true
                     UNION ALL
                     SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id,
-                           cd.parent_comp_def_id, cd.sort_order
+                           cd.parent_comp_def_id, cd.sort_order, cd.layout
                     FROM fw.comp_def cd
                     INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
                     WHERE cd.is_active = true
@@ -8390,6 +8390,10 @@ def design_list_entity_columns(
                         "type_id": ex_row["type_id"],
                         "parent_comp_def_id": ex_row["parent_comp_def_id"],
                         "sort_order": ex_row["sort_order"],
+                        # Krok H+5++++ (26.5.2026 vecer, Marti's "sipka pinned
+                        # = trigger jako na komponente"): layout JSONB pro
+                        # always_new_row toggle state.
+                        "layout": ex_row["layout"] or {},
                     }
     finally:
         ds_lec.close()
@@ -8417,6 +8421,8 @@ def design_list_entity_columns(
                 ex_match["parent_comp_def_id"] if ex_match else None
             ),
             "existing_sort_order": ex_match["sort_order"] if ex_match else None,
+            # Krok H+5++++ (26.5.2026): layout JSONB pro pinned toggle UI state.
+            "existing_layout": ex_match["layout"] if ex_match else None,
         })
 
     # Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
@@ -8433,6 +8439,7 @@ def design_list_entity_columns(
                 WITH RECURSIVE descendants AS (
                     SELECT cd.id, cd.name, cd.caption, cd.region_slot,
                            cd.type_id, cd.parent_comp_def_id, cd.sort_order,
+                           cd.layout,
                            ct.code AS type_code, ct.label AS type_label,
                            ct.kind AS type_kind
                     FROM fw.comp_def cd
@@ -8442,6 +8449,7 @@ def design_list_entity_columns(
                     UNION ALL
                     SELECT cd.id, cd.name, cd.caption, cd.region_slot,
                            cd.type_id, cd.parent_comp_def_id, cd.sort_order,
+                           cd.layout,
                            ct.code, ct.label, ct.kind
                     FROM fw.comp_def cd
                     JOIN fw.comp_type ct ON ct.id = cd.type_id
@@ -8465,6 +8473,8 @@ def design_list_entity_columns(
                     "parent_comp_def_id": cont["parent_comp_def_id"],
                     # Krok H+5+++ (26.5.2026): sort_order pro arrow buttons.
                     "sort_order": cont["sort_order"],
+                    # Krok H+5++++ (26.5.2026): layout pro pinned toggle.
+                    "layout": cont["layout"] or {},
                 })
         finally:
             ds_lec2.close()

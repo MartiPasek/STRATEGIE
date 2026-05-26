@@ -769,16 +769,21 @@
     // Read-only display (name, caption, current type) + ✕ remove button.
     // ─────────────────────────────────────────────────────────────────
     // Phase 38.4 Krok H+5+++ (26.5.2026 vecer, Marti's "sipky misto
-    // drag-drop"): explicit ← ↑ ↓ tlacitka pro reorder/unnest.
+    // drag-drop") + H+5++++ (Marti's "sipka pinned = trigger jako na
+    // komponente, pinned-unpinned"): explicit ← ↑ ↓ tlacitka.
     //
     // Drag-drop UX je krehky (drop target ambiguity → "self-parent"
     // toasts pri omylu). Explicit buttons jsou spolehlive:
-    //   ← outdent (move to parent's parent)
-    //   ↑ swap sort_order s prev sibling
-    //   ↓ swap sort_order s next sibling
+    //   ← pinned toggle (always_new_row) — mirror ⬅ button na rendrovane
+    //     komponente v DesignFwForm. ON state = cyan accent visible.
+    //   ↑ swap sort_order s prev sibling (PUT /comp-def/reorder)
+    //   ↓ swap sort_order s next sibling (PUT /comp-def/reorder)
     //
-    // Backend: PATCH /comp-def/update (parent_comp_def_id) + PUT
+    // Backend: PATCH /comp-def/update (layout.always_new_row) + PUT
     // /comp-def/reorder (sort_order multiples of 10).
+    //
+    // _moveOutdent zustava jako utility (dnes nepouzita) pro future
+    // outdent feature pokud Marti rozhodne pridat 4. tlacitko.
     // ─────────────────────────────────────────────────────────────────
 
     // Build sibling list (fields + containers s same parent) sorted by sort_order.
@@ -823,33 +828,46 @@
     }
 
     // Single arrow button factory (←, ↑, ↓).
-    _mkArrowBtn(label, enabled, tooltip, onClick) {
+    // Krok H+5++++ (26.5.2026): rozsireno o "active" state pro toggle buttons.
+    _mkArrowBtn(label, enabled, tooltip, onClick, active) {
       const btn = document.createElement("button");
       btn.type = "button";
       btn.textContent = label;
       btn.title = tooltip;
       btn.disabled = !enabled;
+      // 3 stavy:
+      //   active=true  → ON (cyan bg + accent border, Marti vidi stav)
+      //   enabled=true → normal (transparent bg, cyan text, hover effect)
+      //   enabled=false→ disabled (gray, opacity 0.5)
       btn.style.cssText =
         "width:30px;height:28px;border-radius:3px;font-size:14px;font-weight:600;line-height:1;" +
-        (enabled
-          ? "background:#1f2530;border:1px solid #3a4754;color:#7ed4e8;cursor:pointer;"
-          : "background:#0f1418;border:1px solid #1f2530;color:#3a4754;cursor:not-allowed;opacity:0.5;");
+        (active
+          ? "background:rgba(126,212,232,0.25);border:1px solid #7ed4e8;color:#bfe9f3;cursor:pointer;"
+          : (enabled
+            ? "background:#1f2530;border:1px solid #3a4754;color:#7ed4e8;cursor:pointer;"
+            : "background:#0f1418;border:1px solid #1f2530;color:#3a4754;cursor:not-allowed;opacity:0.5;"));
       if (enabled) {
-        btn.addEventListener("mouseenter", () => {
-          btn.style.background = "#2a3340";
-          btn.style.borderColor = "#7ed4e8";
-        });
-        btn.addEventListener("mouseleave", () => {
-          btn.style.background = "#1f2530";
-          btn.style.borderColor = "#3a4754";
-        });
+        if (!active) {
+          btn.addEventListener("mouseenter", () => {
+            btn.style.background = "#2a3340";
+            btn.style.borderColor = "#7ed4e8";
+          });
+          btn.addEventListener("mouseleave", () => {
+            btn.style.background = "#1f2530";
+            btn.style.borderColor = "#3a4754";
+          });
+        }
         btn.addEventListener("click", onClick);
       }
       return btn;
     }
 
     // Build wrapper s 3 buttons (← ↑ ↓) pro dany comp_def_id.
-    _makeMoveButtons(compDefId, parentId, sortOrder) {
+    // Krok H+5++++ (26.5.2026, Marti's "sipka pinned = trigger jako na
+    // komponente, pinned-unpinned"): ← je teted TOGGLE pro layout.always_new_row
+    // (stejne jako ⬅ button na rendrovane komponente v form). Pinned ON =
+    // komponenta vždy na novem radku; OFF = grid wrap default.
+    _makeMoveButtons(compDefId, parentId, sortOrder, layout) {
       const wrap = document.createElement("div");
       wrap.style.cssText = "display:flex;gap:4px;align-items:center;justify-content:flex-start;";
 
@@ -858,16 +876,19 @@
       const canUp = myIdx > 0;
       const canDown = myIdx >= 0 && myIdx < siblings.length - 1;
 
-      const formRootId = this.opts.parentCompDefId;
-      // ← outdent: parent musi byt != form_root (jinak uz jsme nejvyse)
-      const canLeft = parentId != null && parentId !== formRootId;
+      // Pinned state z layout.always_new_row (boolean)
+      const lay = (layout && typeof layout === "object") ? layout : {};
+      const isPinned = !!lay.always_new_row;
 
       const self = this;
-      // ← (outdent)
-      wrap.appendChild(this._mkArrowBtn("←", canLeft,
-        canLeft ? "Vyjmout o úroveň výš (move to parent's parent)"
-                : "Už je na nejvyšší úrovni",
-        () => self._moveOutdent(compDefId, parentId)));
+      // ← (pinned toggle — always_new_row)
+      wrap.appendChild(this._mkArrowBtn("←", true,
+        isPinned
+          ? "Vždy na novém řádku — ZAP. Klikni pro vypnutí."
+          : "Vždy na novém řádku — VYP. Klikni pro zapnutí.",
+        () => self._togglePinned(compDefId, layout),
+        isPinned  // active state visualization
+      ));
       // ↑ (up)
       wrap.appendChild(this._mkArrowBtn("↑", canUp,
         canUp ? "Posunout výš mezi sourozenci"
@@ -880,6 +901,45 @@
         () => self._moveUpDown(compDefId, parentId, +1)));
 
       return wrap;
+    }
+
+    // Krok H+5++++ (26.5.2026): toggle layout.always_new_row. Mirror
+    // _performFieldToggleAlwaysLeft v DesignFwForm — same PATCH endpoint,
+    // same behavior. UX parita: ← v palete = ⬅ na komponente.
+    async _togglePinned(compDefId, currentLayout) {
+      const lay = (currentLayout && typeof currentLayout === "object")
+        ? currentLayout : {};
+      const wasOn = !!lay.always_new_row;
+      const newLayout = Object.assign({}, lay, { always_new_row: !wasOn });
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + compDefId,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ layout: newLayout }),
+          }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (eb.error || r.statusText));
+        }
+        _showToast(
+          !wasOn
+            ? "← Pinned ZAP (vždy na novém řádku)"
+            : "← Pinned VYP (default grid wrap)",
+          "success", 1500
+        );
+        await this._refreshState();
+        this._render();
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ pinnedToggled: 1 }); } catch (e) {}
+        }
+      } catch (e) {
+        console.error("[FieldPickerModal] pinned toggle failed:", e);
+        _showToast("Přepnutí pinned selhalo: " + (e.message || e), "error", 3000);
+      }
     }
 
     // Move up/down: swap sort_order s adjacent sibling, PUT reorder vsech.
@@ -1107,10 +1167,13 @@
       });
 
       // Krok H+5+++ (26.5.2026): move buttons (← ↑ ↓) mezi meta a typeSel.
+      // Krok H+5++++: ← je teted pinned toggle (always_new_row) — predat
+      // layout pro initial state.
       const moveBtns = this._makeMoveButtons(
         col.existing_comp_def_id,
         col.existing_parent_comp_def_id,
-        col.existing_sort_order
+        col.existing_sort_order,
+        col.existing_layout
       );
 
       // X jako prvni — symetrie s "Schazi pridat" checkbox left placement
@@ -1740,6 +1803,24 @@
       this._columnsOnForm = this._columns.filter(c => c.existing_comp_def_id != null);
       // Phase 38.4 Krok H+5 (26.5.2026): refresh existing_containers
       this._existingContainers = d.existing_containers || [];
+
+      // Krok H+5++++ (26.5.2026 vecer, Marti's "prohod radky pri zmene poradi"):
+      // Backend vrací columns v information_schema order (alphabetic). Pro
+      // "Jiz na forme" tab chceme prikazne sort_order — jinak ↑/↓ swap se
+      // v UI nezobrazi (DB se zmeni, ale rows zustanou alphabetic).
+      const _sortBySO = (a, b) => {
+        const aso = (a.existing_sort_order != null ? a.existing_sort_order : 999999);
+        const bso = (b.existing_sort_order != null ? b.existing_sort_order : 999999);
+        if (aso !== bso) return aso - bso;
+        // Tiebreaker: alphabetic by name
+        return (a.name || "").localeCompare(b.name || "");
+      };
+      this._columnsOnForm.sort(_sortBySO);
+      this._existingContainers.sort((a, b) => {
+        const aso = (a.sort_order != null ? a.sort_order : 999999);
+        const bso = (b.sort_order != null ? b.sort_order : 999999);
+        return aso - bso;
+      });
     }
 
     // Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
@@ -1882,10 +1963,13 @@
       });
 
       // Krok H+5+++ (26.5.2026): move buttons (← ↑ ↓) mezi meta a idBadge.
+      // Krok H+5++++: ← je teted pinned toggle (always_new_row) — predat
+      // layout pro initial state.
       const moveBtns = this._makeMoveButtons(
         cont.comp_def_id,
         cont.parent_comp_def_id,
-        cont.sort_order
+        cont.sort_order,
+        cont.layout
       );
 
       row.appendChild(removeBtn);

@@ -2172,6 +2172,7 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
             # select_columns = None: Marti's "NULL = all editable" design.
             # Server trust frontend payload. Future: read fw.comp_grid.layout_json
             # for active user + use editable_columns / visible columns as whitelist.
+            "select_columns": None,
         }
     except Exception as exc:
         logger.warning(f"_resolve_entity_config_from_db(core_id={core_id}) failed: {exc}")

@@ -628,9 +628,10 @@
           }
         }
       } else if (this._activeTab === "onform") {
-        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
-        // Render containers + inputs uniformne. Containers first (structural
-        // top), pak inputs (data fields).
+        // Phase 38.4 Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat
+        // strom"): depth-first tree traversal misto flat seznamu. Panely
+        // first, jejich potomci indented pod nimi, dalsi panel, jeho
+        // potomci, atd. Vizualne = strom; data = flat DOM s marginLeft.
         const containers = this._existingContainers || [];
         if (this._columnsOnForm.length === 0 && containers.length === 0) {
           const empty = document.createElement("div");
@@ -638,11 +639,15 @@
           empty.innerHTML = "Form je zatím prázdný — žádné pole ani container.";
           content.appendChild(empty);
         } else {
-          for (const cont of containers) {
-            content.appendChild(this._renderOnFormContainerRow(cont));
-          }
-          for (const col of this._columnsOnForm) {
-            content.appendChild(this._renderOnFormRow(col));
+          const tree = this._buildLinearizedTree();
+          for (const node of tree) {
+            let row;
+            if (node.kind === "container") {
+              row = this._renderOnFormContainerRow(node.item, node.depth);
+            } else {
+              row = this._renderOnFormRow(node.item, node.depth);
+            }
+            content.appendChild(row);
           }
         }
       } else if (this._activeTab === "preview") {
@@ -827,6 +832,186 @@
       return null;
     }
 
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
+    // Linearized tree — depth-first traversal vsech containers + fields.
+    // Vrati flat array [{item, kind, sort, id, parentId, depth}].
+    // Kind: 'container' | 'field'.
+    //
+    // Pouziti: render (depth = indent CSS marginLeft) + ↑/↓ navigation
+    // (current index ±1 → cross-container move s prepocitanym
+    // parent_comp_def_id + sort_order).
+    // ─────────────────────────────────────────────────────────────────
+    _buildLinearizedTree() {
+      const formRoot = this.opts.parentCompDefId;
+      const byParent = new Map();  // parentId → array of {item, kind, sort, id, parentId}
+
+      // Index containers
+      for (const cn of (this._existingContainers || [])) {
+        const pid = cn.parent_comp_def_id;
+        const arr = byParent.get(pid) || [];
+        arr.push({
+          item: cn,
+          kind: "container",
+          sort: cn.sort_order != null ? cn.sort_order : 999999,
+          id: cn.comp_def_id,
+          parentId: pid,
+        });
+        byParent.set(pid, arr);
+      }
+      // Index fields (jen ty na forme, ne dostupne)
+      for (const c of (this._columnsOnForm || [])) {
+        if (c.existing_comp_def_id == null) continue;
+        const pid = c.existing_parent_comp_def_id;
+        const arr = byParent.get(pid) || [];
+        arr.push({
+          item: c,
+          kind: "field",
+          sort: c.existing_sort_order != null ? c.existing_sort_order : 999999,
+          id: c.existing_comp_def_id,
+          parentId: pid,
+        });
+        byParent.set(pid, arr);
+      }
+
+      // Sort kazdou sibling group by sort_order (tiebreaker = id pro stabilitu)
+      for (const arr of byParent.values()) {
+        arr.sort((a, b) => {
+          if (a.sort !== b.sort) return a.sort - b.sort;
+          return (a.id || 0) - (b.id || 0);
+        });
+      }
+
+      // Depth-first walk z form root
+      const result = [];
+      const visited = new Set();
+      const visit = (parentId, depth) => {
+        const children = byParent.get(parentId) || [];
+        for (const child of children) {
+          if (visited.has(child.id)) continue;  // defense proti cycle
+          visited.add(child.id);
+          result.push({ ...child, depth: depth });
+          if (child.kind === "container") {
+            visit(child.id, depth + 1);
+          }
+        }
+      };
+      visit(formRoot, 0);
+
+      // Orphans (parent neni form_root ani znamy container — defensive):
+      // appendni na konec at depth=0. Marti tak vidi, ze tam jsou.
+      for (const arr of byParent.values()) {
+        for (const node of arr) {
+          if (!visited.has(node.id)) {
+            visited.add(node.id);
+            result.push({ ...node, depth: 0 });
+          }
+        }
+      }
+
+      return result;
+    }
+
+    // ─────────────────────────────────────────────────────────────────
+    // Linearized ↑/↓ navigation: cross-container moves.
+    //
+    // ↑ click: target = pozice IMMEDIATELY BEFORE linear_prev.
+    //   new_parent = linear_prev.parentId
+    //   new_sort_order = linear_prev.sort - 5 (po refresh renumber na 10)
+    //
+    // ↓ click: target = pozice IMMEDIATELY AFTER linear_next.
+    //   new_parent = linear_next.parentId
+    //   new_sort_order = linear_next.sort + 5
+    //
+    // Marti's intent ("simulovat strom" + "pohybovat se mezi
+    // komponentama"): single ↑ click muze fyzicky presunout component
+    // pres container boundary (napr. ven z panelu do nadrazene urovne,
+    // nebo do sousedniho panelu jako jeho dite).
+    // ─────────────────────────────────────────────────────────────────
+    async _moveInLinearizedTree(compDefId, direction) {
+      const tree = this._buildLinearizedTree();
+      const myIdx = tree.findIndex((n) => n.id === compDefId);
+      if (myIdx < 0) {
+        console.warn("[FieldPickerModal] _moveInLinearizedTree: compDefId not in tree", compDefId);
+        return;
+      }
+      const targetIdx = myIdx + direction;
+      if (targetIdx < 0 || targetIdx >= tree.length) {
+        // Out of bounds — should be disabled by canUp/canDown, defensive no-op
+        return;
+      }
+      const myNode = tree[myIdx];
+      const neighbor = tree[targetIdx];
+
+      // Compute new parent + sort_order
+      let newParentId;
+      let newSortOrder;
+      if (direction < 0) {
+        // ↑ — insert BEFORE neighbor (becomes my "next")
+        newParentId = neighbor.parentId;
+        newSortOrder = (neighbor.sort != null ? neighbor.sort : 10) - 5;
+      } else {
+        // ↓ — insert AFTER neighbor (becomes my "prev")
+        newParentId = neighbor.parentId;
+        newSortOrder = (neighbor.sort != null ? neighbor.sort : 10) + 5;
+      }
+
+      // Cycle guard: ne nelze udelat sebe vlastnim potomkem (kdyz tahnu
+      // panel A do A's child). Backend ma backstop, frontend ma cisty toast.
+      // Walk: ancestors of newParentId nesmi obsahovat myNode.id.
+      if (newParentId === compDefId) {
+        _showToast("Nelze přesunout komponentu dovnitř sebe sama.",
+                   "warning", 2500);
+        return;
+      }
+      let ancestor = newParentId;
+      const guardSet = new Set();
+      while (ancestor != null && !guardSet.has(ancestor)) {
+        guardSet.add(ancestor);
+        if (ancestor === compDefId) {
+          _showToast("Nelze přesunout komponentu dovnitř jejího potomka " +
+                     "(vznikl by kruh).",
+                     "warning", 2500);
+          return;
+        }
+        ancestor = this._findParentOf(ancestor);
+      }
+
+      // PATCH parent_comp_def_id + sort_order v jednom volani.
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + compDefId,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parent_comp_def_id: newParentId,
+              sort_order: newSortOrder,
+            }),
+          }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (eb.error || r.statusText));
+        }
+        // Toast podle kontextu: same parent = simple swap, jiny parent = cross-container
+        const crossed = (myNode.parentId !== newParentId);
+        _showToast(
+          (direction < 0 ? "↑" : "↓") + (crossed ? " Přesunuto do jiného containeru" : " Posunuto"),
+          "success", 1500
+        );
+        await this._refreshState();
+        this._render();
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ moved: 1 }); } catch (e) {}
+        }
+      } catch (e) {
+        console.error("[FieldPickerModal] linearized move failed:", e);
+        _showToast("Posun selhal: " + (e.message || e), "error", 3000);
+      }
+    }
+
     // Single arrow button factory (←, ↑, ↓).
     // Krok H+5++++ (26.5.2026): rozsireno o "active" state pro toggle buttons.
     _mkArrowBtn(label, enabled, tooltip, onClick, active) {
@@ -863,18 +1048,20 @@
     }
 
     // Build wrapper s 3 buttons (← ↑ ↓) pro dany comp_def_id.
-    // Krok H+5++++ (26.5.2026, Marti's "sipka pinned = trigger jako na
-    // komponente, pinned-unpinned"): ← je teted TOGGLE pro layout.always_new_row
-    // (stejne jako ⬅ button na rendrovane komponente v form). Pinned ON =
-    // komponenta vždy na novem radku; OFF = grid wrap default.
+    // Krok H+5++++ (26.5.2026, Marti's "sipka pinned = trigger"):
+    //   ← = TOGGLE pinned (layout.always_new_row), mirror ⬅ na komponente.
+    // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
+    //   ↑/↓ = LINEARIZED tree navigation. Cross-container move = single
+    //   click. Disabled jen na first/last v celem stromu (ne jen sibling).
     _makeMoveButtons(compDefId, parentId, sortOrder, layout) {
       const wrap = document.createElement("div");
       wrap.style.cssText = "display:flex;gap:4px;align-items:center;justify-content:flex-start;";
 
-      const siblings = this._getAllSiblings(parentId);
-      const myIdx = siblings.findIndex((s) => s.id === compDefId);
+      // Linearized tree pro canUp/canDown (cross-container aware)
+      const tree = this._buildLinearizedTree();
+      const myIdx = tree.findIndex((n) => n.id === compDefId);
       const canUp = myIdx > 0;
-      const canDown = myIdx >= 0 && myIdx < siblings.length - 1;
+      const canDown = myIdx >= 0 && myIdx < tree.length - 1;
 
       // Pinned state z layout.always_new_row (boolean)
       const lay = (layout && typeof layout === "object") ? layout : {};
@@ -889,16 +1076,16 @@
         () => self._togglePinned(compDefId, layout),
         isPinned  // active state visualization
       ));
-      // ↑ (up)
+      // ↑ (linearized up — cross-container OK)
       wrap.appendChild(this._mkArrowBtn("↑", canUp,
-        canUp ? "Posunout výš mezi sourozenci"
-              : "Už je první v rámci containeru",
-        () => self._moveUpDown(compDefId, parentId, -1)));
-      // ↓ (down)
+        canUp ? "Posunout výš ve stromu (i napříč containery)"
+              : "Už je úplně nahoře",
+        () => self._moveInLinearizedTree(compDefId, -1)));
+      // ↓ (linearized down — cross-container OK)
       wrap.appendChild(this._mkArrowBtn("↓", canDown,
-        canDown ? "Posunout níž mezi sourozenci"
-                : "Už je poslední v rámci containeru",
-        () => self._moveUpDown(compDefId, parentId, +1)));
+        canDown ? "Posunout níž ve stromu (i napříč containery)"
+                : "Už je úplně dole",
+        () => self._moveInLinearizedTree(compDefId, +1)));
 
       return wrap;
     }
@@ -1019,17 +1206,22 @@
       }
     }
 
-    _renderOnFormRow(col) {
+    _renderOnFormRow(col, depth) {
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "X jako prvni"):
       // Grid template column order: 32px (remove) | 200px | 1fr | 140px.
       // Symetrie s "Schazi pridat" tab kde checkbox je prvni (left).
       const row = document.createElement("div");
       // Krok H+5+++ (26.5.2026): pridana sloupec pro arrow buttons (110px)
       // mezi meta a typeSel — Marti's "do druhe tretiny vpravo".
+      // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
+      // marginLeft podle depth (20px na uroven) — vizualni hierarchie
+      // ve flat DOM. Field = leaf, vetsinou depth >= 1 (uvnitr panelu).
+      const _d = depth || 0;
       row.style.cssText =
         "display:grid;grid-template-columns:32px 200px 1fr 110px 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
-        "background:rgba(126,212,232,0.04);";
+        "background:rgba(126,212,232,0.04);" +
+        (_d > 0 ? "margin-left:" + (_d * 20) + "px;" : "");
 
       // 1. Column name + caption
       const labelWrap = document.createElement("div");
@@ -1827,20 +2019,25 @@
     // Container row v "Jiz na forme" tab. Symetrie s _renderOnFormRow
     // (column input), ale meta = type_label badge (panel/groupbox/...).
     // X click = instant DELETE (Marti's "orchestr") + live sync.
-    _renderOnFormContainerRow(cont) {
+    _renderOnFormContainerRow(cont, depth) {
       const isActive = this._activeContainerCompDefId === cont.comp_def_id;
       const row = document.createElement("div");
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
       // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 110px (arrows) | 140px (id) | 32px (settings).
       // Krok H+5+++ (26.5.2026 vecer, Marti's "sipky"): pridana sloupec
       // pro move buttons (← ↑ ↓) mezi meta a id badge.
+      // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
+      // depth-based marginLeft (20px/uroven). Container = parent uzel,
+      // depth zacina od 0 (root panel pod form root).
       // Aktivni container ma green tint background + bold label.
+      const _d = depth || 0;
       row.style.cssText =
         "display:grid;grid-template-columns:32px 24px 200px 1fr 110px 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         (isActive
           ? "background:rgba(93,191,93,0.12);border-left:3px solid #5dbf5d;"
-          : "background:rgba(168,140,212,0.06);");
+          : "background:rgba(168,140,212,0.06);") +
+        (_d > 0 ? "margin-left:" + (_d * 20) + "px;" : "");
 
       // X remove button (PRVNI sloupec — parita s "Schazi pridat" cb)
       const removeBtn = document.createElement("button");

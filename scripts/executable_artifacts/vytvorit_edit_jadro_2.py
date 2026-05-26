@@ -273,18 +273,30 @@ def main():
 
         try:
             # 8a — form root
+            # NOT NULL columns (per Marti's audit 26.5.):
+            #   is_active, created_by_text, updated_by_text → must provide
+            #   created_at, updated_at → DB defaults handle
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
                     type_id, core_id, parent_comp_def_id,
-                    name, caption, layout, sort_order, region_slot
-                ) VALUES (%s, %s, NULL, %s, %s, %s::jsonb, 0, NULL)
+                    name, caption, layout, sort_order, region_slot,
+                    is_active,
+                    created_by_id, created_by_text,
+                    updated_by_id, updated_by_text
+                ) VALUES (
+                    %s, %s, NULL, %s, %s, %s::jsonb, 0, NULL,
+                    TRUE,
+                    %s, %s, %s, %s
+                )
                 RETURNING id
             """, (
                 form_type_id, core_id,
                 'form_root',
                 c_label or 'Editace záznamu',
                 '{}',
+                MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
+                MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
             ))
             root_id = cur.fetchone()[0]
             cur.close()
@@ -295,14 +307,23 @@ def main():
             cur.execute("""
                 INSERT INTO fw.comp_def (
                     type_id, core_id, parent_comp_def_id,
-                    name, caption, layout, sort_order, region_slot
-                ) VALUES (%s, NULL, %s, %s, %s, %s::jsonb, 0, %s)
+                    name, caption, layout, sort_order, region_slot,
+                    is_active,
+                    created_by_id, created_by_text,
+                    updated_by_id, updated_by_text
+                ) VALUES (
+                    %s, NULL, %s, %s, %s, %s::jsonb, 0, %s,
+                    TRUE,
+                    %s, %s, %s, %s
+                )
                 RETURNING id
             """, (
                 panel_type_id, root_id,
                 'main_panel', '',
                 '{"align": "client"}',
                 'main',
+                MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
+                MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
             ))
             main_panel_id = cur.fetchone()[0]
             cur.close()
@@ -321,13 +342,22 @@ def main():
                 cur.execute("""
                     INSERT INTO fw.comp_def (
                         type_id, core_id, parent_comp_def_id,
-                        name, caption, layout, sort_order, region_slot
-                    ) VALUES (%s, NULL, %s, %s, %s, %s::jsonb, %s, NULL)
+                        name, caption, layout, sort_order, region_slot,
+                        is_active,
+                        created_by_id, created_by_text,
+                        updated_by_id, updated_by_text
+                    ) VALUES (
+                        %s, NULL, %s, %s, %s, %s::jsonb, %s, NULL,
+                        TRUE,
+                        %s, %s, %s, %s
+                    )
                     RETURNING id
                 """, (
                     input_type_id, main_panel_id,
                     col_name, caption, layout_json,
                     (idx + 1) * 10,
+                    MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
+                    MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
                 ))
                 inp_id = cur.fetchone()[0]
                 cur.close()

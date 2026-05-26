@@ -425,9 +425,12 @@
     // Phase 38.4 Krok 14c+1: render row v tabu "Již na formě".
     // Read-only display (name, caption, current type) + ✕ remove button.
     _renderOnFormRow(col) {
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "X jako prvni"):
+      // Grid template column order: 32px (remove) | 200px | 1fr | 140px.
+      // Symetrie s "Schazi pridat" tab kde checkbox je prvni (left).
       const row = document.createElement("div");
       row.style.cssText =
-        "display:grid;grid-template-columns:200px 1fr 140px 32px;" +
+        "display:grid;grid-template-columns:32px 200px 1fr 140px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "background:rgba(126,212,232,0.04);";
 
@@ -509,10 +512,11 @@
         }
       });
 
+      // X jako prvni — symetrie s "Schazi pridat" checkbox left placement
+      row.appendChild(removeBtn);
       row.appendChild(labelWrap);
       row.appendChild(meta);
       row.appendChild(typeBadge);
-      row.appendChild(removeBtn);
       return row;
     }
 
@@ -788,15 +792,77 @@
       meta.innerHTML = '<span style="background:#1f2530;padding:1px 5px;border-radius:2px;margin-right:4px;">container</span>' + hint;
       card.appendChild(meta);
 
-      // Click na card → toast (discoverability)
-      card.addEventListener("click", (ev) => {
-        if (visualWrap.contains(ev.target)) return;
-        _showToast(
-          ct.label + " (" + ct.code + ") — drag ikonu nahoře na formulář",
-          "info",
-          2200
-        );
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr i pro layout"):
+      // Click na card = instant POST + live sync s formem (paralel s
+      // checkbox checked v "Schazi pridat"). Container muze byt vicekrat —
+      // auto-generated unique name (e.g. "panel_2", "groupbox_3").
+      // Visual feedback: "+" badge top-right, cursor pointer, hover green.
+      const addBadge = document.createElement("div");
+      addBadge.textContent = "+";
+      addBadge.title = "Klik = pridat na formular";
+      addBadge.style.cssText =
+        "position:absolute;top:6px;right:6px;width:22px;height:22px;" +
+        "background:#3a7a3a;color:#e8eef5;border-radius:50%;" +
+        "display:flex;align-items:center;justify-content:center;" +
+        "font-size:16px;font-weight:700;line-height:1;cursor:pointer;" +
+        "transition:background 0.12s, transform 0.12s;";
+      addBadge.addEventListener("mouseenter", () => {
+        addBadge.style.background = "#4a9a4a";
+        addBadge.style.transform = "scale(1.15)";
       });
+      addBadge.addEventListener("mouseleave", () => {
+        addBadge.style.background = "#3a7a3a";
+        addBadge.style.transform = "scale(1)";
+      });
+      card.appendChild(addBadge);
+
+      const doAdd = async () => {
+        // Auto-generate unique name: <code>_<N> kde N = pocet existing + 1
+        // (defensive — backend dela uniqueness check stejne).
+        const ts = Date.now().toString(36).slice(-4);
+        const autoName = ct.code + "_" + ts;
+        addBadge.style.pointerEvents = "none";
+        addBadge.textContent = "…";
+        try {
+          const r = await fetch("/api/v1/erp/design/comp-def", {
+            method: "POST",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              parent_comp_def_id: this.opts.parentCompDefId,
+              name: autoName,
+              caption: ct.label,
+              type_id: ct.id,
+              region_slot: "main",
+              layout: defaultLayout,
+            }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) {
+            throw new Error(d.error || ("HTTP " + r.status));
+          }
+          _showToast("Přidáno: " + ct.label, "success", 1500);
+          // Live sync — parent form reload
+          if (typeof this.opts.onComplete === "function") {
+            try { this.opts.onComplete({ added: 1, container: true }); }
+            catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+          }
+        } catch (e) {
+          console.error("[FieldPickerModal] container add failed:", e);
+          _showToast("Přidání selhalo: " + (e.message || e), "error", 3000);
+        } finally {
+          addBadge.style.pointerEvents = "auto";
+          addBadge.textContent = "+";
+        }
+      };
+
+      // Click na card OR add badge → instant POST (drag visualWrap je
+      // separe; chovani pres dataTransfer setData).
+      card.addEventListener("click", (ev) => {
+        if (visualWrap.contains(ev.target) && ev.target !== visualWrap) return;
+        doAdd();
+      });
+      card.style.cursor = "pointer";
 
       return card;
     }

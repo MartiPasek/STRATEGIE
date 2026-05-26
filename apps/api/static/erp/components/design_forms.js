@@ -4772,6 +4772,18 @@
       // + Tab 2 "Komponenta" (6 entity_picker specific parametrů). Marti's
       // "Zakladni nastaveni uz jsem tam videl, jen je treba pridat tab sheet".
       const isEntityPicker = (field.comp_type_code === "entity_picker");
+      // Phase 38.4 Krok H+6 (26.5.2026, Marti's "Combobox: jak editovat
+      // list, kdyz potrebuju pridat neco co jeste v DB neni"):
+      // ComboBox/lookup editor pro layout.enum_values — manual add/edit/
+      // remove + "Doplnit z DB" button. Persistent v fw.comp_def.layout.
+      const isLookupField = (
+        field.comp_type_code === "lookup" ||
+        field.comp_type_code === "combobox" ||
+        field.comp_type_code === "dropdown"
+      );
+      let enumValuesList = null;  // mutable array for the editor
+      let enumValuesListEl = null;  // DOM ref pro re-render
+      let _renderEnumListFn = null;  // assigned inside isLookupField block
       let basicPaneEl = null;
       let componentPaneEl = null;
       let tabButtonsState = null;
@@ -5129,6 +5141,163 @@
         componentPaneEl.appendChild(_row("Quick actions", qaWrap));
       }
 
+      // Phase 38.4 Krok H+6 (26.5.2026, Marti's "Combobox jak editovat
+      // list, kdyz potrebuju pridat neco co jeste v DB neni"):
+      // ComboBox/lookup editor pro layout.enum_values — manual add +
+      // remove + "🎯 Doplnit z DB" button (appends only NEW values).
+      // Persistent v fw.comp_def.layout.enum_values JSONB array.
+      if (isLookupField) {
+        // Initialize editable array from current layout
+        enumValuesList = Array.isArray(currentLayout.enum_values)
+          ? currentLayout.enum_values.slice()
+          : [];
+
+        // Section header
+        const enumHeader = document.createElement("div");
+        enumHeader.style.cssText =
+          "margin-top:14px;padding:8px 10px;background:#0f141a;border-left:3px solid #7ed4e8;" +
+          "border-radius:3px;color:#a8b4c2;font-size:12px;line-height:1.5;";
+        enumHeader.innerHTML =
+          "📋 <b style=\"color:#7ed4e8;\">Hodnoty</b> — seznam možností pro ComboBox.<br>" +
+          "<span style=\"color:#7a8696;font-size:11px;\">Můžeš přidat hodnoty co v DB ještě nejsou (perzistentní). " +
+          "Tlačítko 🎯 doplní z DB jen nové (existující nezdvojí).</span>";
+        basicPaneEl.appendChild(enumHeader);
+
+        // List of values (re-renders on add/remove)
+        enumValuesListEl = document.createElement("div");
+        enumValuesListEl.style.cssText =
+          "display:flex;flex-direction:column;gap:4px;max-height:220px;overflow-y:auto;" +
+          "padding:8px;background:#0a0e13;border:1px solid #2a3340;border-radius:3px;";
+        basicPaneEl.appendChild(enumValuesListEl);
+
+        const _renderEnumList = () => {
+          enumValuesListEl.innerHTML = "";
+          if (enumValuesList.length === 0) {
+            const empty = document.createElement("div");
+            empty.style.cssText = "color:#5a6470;font-size:12px;font-style:italic;padding:4px;";
+            empty.textContent = "(žádné hodnoty — přidej ručně nebo zavolej 🎯)";
+            enumValuesListEl.appendChild(empty);
+            return;
+          }
+          enumValuesList.forEach((val, idx) => {  // eslint-disable-line no-loop-func
+            const row = document.createElement("div");
+            row.style.cssText =
+              "display:flex;align-items:center;gap:6px;padding:3px 6px;" +
+              "background:#0f141a;border:1px solid #1f2530;border-radius:3px;";
+            const txt = document.createElement("span");
+            txt.style.cssText = "flex:1;color:#cfd6df;font-size:12px;font-family:monospace;";
+            txt.textContent = String(val);
+            row.appendChild(txt);
+            const rmBtn = document.createElement("button");
+            rmBtn.type = "button";
+            rmBtn.textContent = "✕";
+            rmBtn.title = "Odebrat hodnotu";
+            rmBtn.style.cssText =
+              "background:transparent;border:none;color:#7a3838;font-size:14px;" +
+              "cursor:pointer;padding:0 4px;line-height:1;";
+            rmBtn.addEventListener("mouseenter", () => { rmBtn.style.color = "#e57373"; });
+            rmBtn.addEventListener("mouseleave", () => { rmBtn.style.color = "#7a3838"; });
+            rmBtn.addEventListener("click", () => {
+              enumValuesList.splice(idx, 1);
+              _renderEnumList();
+            });
+            row.appendChild(rmBtn);
+            enumValuesListEl.appendChild(row);
+          });
+        };
+        _renderEnumListFn = _renderEnumList;  // hoist for Load defaults
+        _renderEnumList();
+
+        // Add input + button row
+        const addWrap = document.createElement("div");
+        addWrap.style.cssText = "display:flex;gap:6px;align-items:stretch;margin-top:2px;";
+        const addInput = document.createElement("input");
+        addInput.type = "text";
+        addInput.placeholder = "Nová hodnota (Enter = přidat)";
+        addInput.style.cssText = _inputStyle + "flex:1;";
+        const addBtn = document.createElement("button");
+        addBtn.type = "button";
+        addBtn.textContent = "+ Přidat";
+        addBtn.style.cssText =
+          "padding:6px 12px;background:#2a3340;border:1px solid #3a4754;color:#cfd6df;" +
+          "border-radius:3px;cursor:pointer;font-size:12px;white-space:nowrap;";
+        const _doAdd = () => {
+          const v = addInput.value.trim();
+          if (!v) return;
+          if (enumValuesList.indexOf(v) !== -1) {
+            _showToast("Hodnota '" + v + "' už v seznamu existuje", "info", 2000);
+            addInput.value = "";
+            return;
+          }
+          enumValuesList.push(v);
+          addInput.value = "";
+          _renderEnumList();
+          addInput.focus();
+        };
+        addBtn.addEventListener("click", _doAdd);
+        addInput.addEventListener("keydown", (ev) => {
+          if (ev.key === "Enter") {
+            ev.preventDefault();
+            _doAdd();
+          }
+        });
+        addWrap.appendChild(addInput);
+        addWrap.appendChild(addBtn);
+        basicPaneEl.appendChild(addWrap);
+
+        // 🎯 Doplnit z DB button (calls existing distinct-values endpoint,
+        // appends ONLY new values that aren't already in the list).
+        const detectBtn = document.createElement("button");
+        detectBtn.type = "button";
+        detectBtn.innerHTML = "🎯 Doplnit z DB (jen nové)";
+        detectBtn.title = "Načte distinct hodnoty z DB sloupce a přidá jen ty, které v seznamu ještě nejsou";
+        detectBtn.style.cssText =
+          "padding:6px 12px;background:#1f2530;border:1px solid #2a3340;color:#a8b4c2;" +
+          "border-radius:3px;cursor:pointer;font-size:12px;margin-top:2px;align-self:flex-start;";
+        detectBtn.addEventListener("click", async () => {
+          detectBtn.disabled = true;
+          const _origTxt = detectBtn.innerHTML;
+          detectBtn.innerHTML = "⏳ Načítám…";
+          try {
+            const r = await fetch(
+              "/api/v1/erp/design/comp-def/" + encodeURIComponent(field.id) + "/distinct-values",
+              { credentials: "include" }
+            );
+            if (!r.ok) {
+              const errBody = await r.json().catch(() => ({}));
+              throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+            }
+            const data = await r.json();
+            if (!data.ok) throw new Error(data.error || "unknown");
+            if (!Array.isArray(data.values) || data.values.length === 0) {
+              _showToast("Žádné distinct hodnoty v DB pro '" + field.name + "'", "info", 2500);
+              return;
+            }
+            // Append only NEW values
+            let added = 0;
+            data.values.forEach((v) => {
+              const s = String(v);
+              if (enumValuesList.indexOf(s) === -1) {
+                enumValuesList.push(s);
+                added += 1;
+              }
+            });
+            _renderEnumList();
+            if (added > 0) {
+              _showToast("Přidáno " + added + " nových hodnot z DB (" + (data.values.length - added) + " už bylo v seznamu)", "success", 2500);
+            } else {
+              _showToast("Všechny DB hodnoty (" + data.values.length + ") už jsou v seznamu", "info", 2500);
+            }
+          } catch (e) {
+            _showToast("Načtení z DB selhalo: " + (e.message || e), "error", 3000);
+          } finally {
+            detectBtn.disabled = false;
+            detectBtn.innerHTML = _origTxt;
+          }
+        });
+        basicPaneEl.appendChild(detectBtn);
+      }
+
       modal.appendChild(body);
 
       // Footer
@@ -5198,6 +5367,14 @@
             roCb.checked = !!dpLay.readonly;
           if (typeof reqCb !== "undefined" && dpLay.required != null)
             reqCb.checked = !!dpLay.required;
+          // Phase 38.4 Krok H+6 (26.5.2026): Load enum_values z defaults
+          // (Marti's "Defaults = výchozí enum_values" volba). Replace mode
+          // — uživatelův manuální list je nahrazen defaults.
+          if (isLookupField && Array.isArray(dpLay.enum_values) && _renderEnumListFn) {
+            enumValuesList.length = 0;  // clear in-place (preserve reference)
+            dpLay.enum_values.forEach((v) => enumValuesList.push(v));
+            _renderEnumListFn();
+          }
           _showToast("✓ Načteno z výchozí pro " + (d.label || d.code), "success", 2000);
         } catch (e) {
           _showToast("✗ Načtení výchozí selhalo: " + (e.message || e), "error", 3000);
@@ -5226,6 +5403,12 @@
             lay.placeholder = placeholderInput.value.trim();
           if (typeof roCb !== "undefined") lay.readonly = roCb.checked;
           if (typeof reqCb !== "undefined") lay.required = reqCb.checked;
+          // Phase 38.4 Krok H+6 (26.5.2026): Save enum_values do defaults
+          // (Marti's "Defaults = výchozí enum_values"). Per-comp_type
+          // baseline pro budoucí nové fieldy stejného typu.
+          if (isLookupField && Array.isArray(enumValuesList) && enumValuesList.length > 0) {
+            lay.enum_values = enumValuesList.slice();
+          }
           const payload = { default_props: { layout: lay } };
           const r = await fetch(
             "/api/v1/erp/design/comp-type/" + field.type_id + "/defaults",
@@ -5354,6 +5537,18 @@
             if (qaCreateCheck.checked) qaList.push("create_new");
             if (qaList.length > 0) newLayout.show_quick_actions = qaList;
             else delete newLayout.show_quick_actions;
+          }
+
+          // Phase 38.4 Krok H+6 (26.5.2026): ComboBox/lookup enum_values
+          // editor — write editable list back do layout.enum_values.
+          // Marti's "Persistent enum v layout.enum_values" — perzistuje
+          // i manuálně přidané hodnoty co v DB ještě nejsou.
+          if (isLookupField && Array.isArray(enumValuesList)) {
+            if (enumValuesList.length > 0) {
+              newLayout.enum_values = enumValuesList.slice();
+            } else {
+              delete newLayout.enum_values;
+            }
           }
 
           const newCaption = captionInput.value.trim();

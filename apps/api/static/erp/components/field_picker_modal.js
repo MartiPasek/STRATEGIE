@@ -491,8 +491,10 @@
         this._columnsOnForm = this._columns.filter(
           c => c.existing_comp_def_id != null
         );
-        // Active tab — default 'available' (kde user akce sedi)
-        this._activeTab = "available";
+        // Krok H+5++++++ (26.5.2026 vecer, Marti's "prohod listy"):
+        // Default tab = 'onform' (Již na formě). Marti tam dela vetsinu
+        // prace (reorder + pinned + settings), "Schazi pridat" je sekundarni.
+        this._activeTab = "onform";
 
         this._render();
       } catch (e) {
@@ -521,19 +523,21 @@
       // tab): paleta panel + groupbox pro drag-drop na formular. Marti's
       // choice A: rozsireni existing FieldPickerModal o novy tab (vs
       // samostatny PanelPickerModal).
+      // Krok H+5++++++ (26.5.2026 vecer, Marti's "prohod listy"): Jiz na
+      // forme = PRVNI (Marti's primary workspace), Schazi pridat = druhy.
       const tabs = [
-        {
-          key: "available",
-          label: "Schází přidat",
-          count: this._columnsAvailable.length,
-          accent: "#5dbf5d",
-        },
         {
           key: "onform",
           // Phase 38.4 Krok H+5: count includes containers (panel/groupbox/...)
           label: "Již na formě",
           count: this._columnsOnForm.length + (this._existingContainers || []).length,
           accent: "#7ed4e8",
+        },
+        {
+          key: "available",
+          label: "Schází přidat",
+          count: this._columnsAvailable.length,
+          accent: "#5dbf5d",
         },
         {
           key: "preview",

@@ -4471,47 +4471,83 @@ async def design_get_distinct_values(comp_def_id: int, req: Request) -> JSONResp
                 status_code=400,
             )
 
-        # Phase 38.4 Krok 5.M-2 (17.5.2026): lookup pres core.code.
-        core = ds_dv.execute(_sql_text_dv("""
+        # Phase 38.4 Krok H+5++++++ (26.5.2026 vecer, Marti's "rozchodit
+        # kombobox"): pouzit univerzalni resolver misto code-only path.
+        # _resolve_entity_config_for_core(core_id) zvlada:
+        #   1. DB-driven pres fw.data_source.target_xxx (Krok 5.N-2, PRIMARY)
+        #   2. _FW_FORM_CORE_REGISTRY (legacy id-keyed)
+        #   3. _FW_FORM_ENTITY_MAP (legacy code-keyed)
+        # → funguje i pro drafted cores s code=NULL (Krok 5.A doctrine).
+        core_row = ds_dv.execute(_sql_text_dv("""
             SELECT id, code
             FROM fw.core WHERE id = :id
         """), {"id": core_id}).mappings().one_or_none()
-        if not core or not core["code"]:
+        if not core_row:
             return JSONResponse(
-                {"ok": False, "error": "Core nema code"},
+                {"ok": False, "error": f"Core id={core_id} neexistuje"},
                 status_code=400,
             )
-
-        entity_type = core["code"]
-        config = _FW_FORM_ENTITY_MAP.get(entity_type)
+        config = _resolve_entity_config_for_core(dict(core_row))
         if not config:
             return JSONResponse(
                 {
                     "ok": False,
-                    "error": f"Entity type '{entity_type}' nezaregistrovan v _FW_FORM_ENTITY_MAP",
-                },
-                status_code=400,
-            )
-
-        # 4. Column whitelist check (anti-PII, anti-SQL-injection)
-        col_name = cd["name"]
-        allowed_cols = set(config["select_columns"])
-        if col_name not in allowed_cols:
-            return JSONResponse(
-                {
-                    "ok": False,
                     "error": (
-                        f"Column '{col_name}' neni v whitelist "
-                        f"_FW_FORM_ENTITY_MAP[{entity_type}].select_columns"
+                        f"Nelze resolve entity config pro core_id={core_id} "
+                        f"(code={core_row['code']!r}) — chybí target_table na "
+                        f"fw.data_source nebo neni v _FW_FORM_CORE_REGISTRY."
                     ),
                 },
                 status_code=400,
             )
 
-        # 5. SELECT DISTINCT — col_name + table_name jsou whitelisted/server-side,
-        # bezpecne pres f-string interpolation (no user input)
+        # 4. Column whitelist check (anti-PII, anti-SQL-injection)
+        # Krok H+5++++++ (26.5.2026 vecer): select_columns=None znamena
+        # "trust frontend" (Marti's Krok 5.N-2 doctrine) — DB-driven cores
+        # nemaji explicit whitelist. Fallback validace pres
+        # information_schema.columns: col_name musi existovat v target table.
+        # Tim drzime SQL injection guard bez per-entity registrace.
+        col_name = cd["name"]
+        allowed_cols = config.get("select_columns")
         schema_name = config.get("schema", "public")
         table_name = config["table"]
+        if allowed_cols is not None:
+            # Explicit whitelist (legacy _FW_FORM_ENTITY_MAP / _FW_FORM_CORE_REGISTRY)
+            if col_name not in set(allowed_cols):
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"Column '{col_name}' neni v whitelist "
+                            f"select_columns pro tuto entitu."
+                        ),
+                    },
+                    status_code=400,
+                )
+        else:
+            # DB-driven (Krok 5.N-2): validate via information_schema.columns
+            col_check = ds_dv.execute(_sql_text_dv("""
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = :s
+                  AND table_name = :t
+                  AND column_name = :c
+                LIMIT 1
+            """), {"s": schema_name, "t": table_name, "c": col_name}).scalar()
+            if not col_check:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"Column '{col_name}' neexistuje v "
+                            f"{schema_name}.{table_name}."
+                        ),
+                    },
+                    status_code=400,
+                )
+
+        # 5. SELECT DISTINCT — col_name + table_name jsou whitelisted/server-side,
+        # bezpecne pres f-string interpolation (no user input)
         sql = (
             f'SELECT DISTINCT "{col_name}" AS val '
             f'FROM "{schema_name}"."{table_name}" '

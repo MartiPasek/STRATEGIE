@@ -1931,7 +1931,8 @@ _FW_FORM_ENTITY_MAP: dict = {
         # ews credentials, atd.). Per-field permission gating jde přes
         # fw.comp_def.layout.readonly later (Phase 38.4 Krok 14b-write).
         "select_columns": [
-            "id", "status", "legal_name", "first_name", "last_name",
+            "id", "status", "login_name",
+            "legal_name", "first_name", "last_name",
             "short_name", "ews_email", "ews_display_email",
             "trust_rating", "is_marti_parent", "is_admin",
             "last_active_tenant_id",

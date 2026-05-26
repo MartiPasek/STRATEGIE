@@ -87,8 +87,20 @@
       // Marti's intuice: "v master fw gridu jsi injectnul zvenku coreInfo +
       // initialLayout, detail grid path je asymmetrický → widths broken".
       // Fix = uniform pre-fetch flow, ne patch _applyLayout pozdě po reflow.
+      // Krok H+3 26.5.2026 ranni: explicit kind=select-detail pro per-master
+      // SQL filter (data_set #32 s :master_id). Default backend kind='select'
+      // je teď standalone (= bez :master_id, vrátil by VŠECHNY ops napříč
+      // všemi data_sources — regression z 26.5. ranní confirmed Marti).
+      //
+      // TODO (drz minimum dnes — generalize až bude víc nested contextů):
+      //   Hardcoded 'select-detail' je OK pro Volba A renderer (specific
+      //   pro framework_data_source_ops). Až bude víc nested grids
+      //   (master-detail napříč různými data_sources), pass kind jako
+      //   constructor option do renderer (= flexible per-instance config)
+      //   nebo registry per data_source.code.
       var dataUrl = "/api/v1/erp/data/" + encodeURIComponent(FW_DATA_SOURCE_CODE) +
-                    "?master_id=" + encodeURIComponent(masterId);
+                    "?master_id=" + encodeURIComponent(masterId) +
+                    "&kind=select-detail";
       var layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(FW_LAYOUT_KEY) + "/list";
       console.log("[ErpDataSourceOpDetailRenderer] fetch FW data + layout:", dataUrl, "+", layoutUrl);
 

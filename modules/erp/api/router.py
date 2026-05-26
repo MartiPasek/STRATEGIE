@@ -1154,13 +1154,23 @@ def data_source_execute(
     code: str,
     req: Request,
     variant: str = "default",
+    kind: str = "select",
 ) -> JSONResponse:
     """Phase 38.4 Krok 12 — generic A3 runtime executor.
 
-    URL: GET /api/v1/erp/data/{code}?variant=default&limit=100&tenant_id=...
+    URL: GET /api/v1/erp/data/{code}?variant=default&kind=select&limit=100&tenant_id=...
 
     Path: code — fw.data_source.code (audit_audited, framework_data_sources, ...)
-    Query: variant (default 'default') + libovolné named params pro sql_text
+    Query:
+      - variant (default 'default')
+      - kind (default 'select') — Krok H+3 26.5.2026 ranni: support pre
+        polymorphic operation_kind (select, select-detail, atd.). Per-master
+        nested grids (Volba A z 24.5.) posilaji 'select-detail' pro
+        per-master SQL filter (:master_id), zatimco standalone soudecky
+        posilaji default 'select' (= bez :master_id).
+        Marti's "uniformita vitezi" doctrine (11.5. Krok 13) — jeden
+        data_source + N ops ruzneho kind, ne N data_sources.
+      - libovolné další named params pro sql_text (master_id, atd.)
 
     Returns: JSON s rows + applied_params + data_source/operation metadata.
     """
@@ -1172,6 +1182,7 @@ def data_source_execute(
 
     raw_params = dict(req.query_params)
     raw_params.pop("variant", None)  # variant je explicit kwarg
+    raw_params.pop("kind", None)     # kind je explicit kwarg (Krok H+3)
 
     session = _gds_data()
     try:
@@ -1181,7 +1192,7 @@ def data_source_execute(
                 code=code,
                 raw_params=raw_params,
                 variant=variant,
-                kind="select",
+                kind=kind,
             )
         except ds_runner.DataSourceNotFoundError as exc:
             return JSONResponse(

@@ -53,6 +53,316 @@
       return this._activeContainerCompDefId || this.opts.parentCompDefId;
     }
 
+    /**
+     * Phase 38.4 Krok H+5 (26.5.2026, Marti's "tlacitko nastaveni pro
+     * popup"): build ⚙ settings button — reusable napric "Schazi pridat"
+     * + "Jiz na forme" + container rows.
+     *
+     * @param {Object} opts
+     * @param {Object} opts.col            — column data (col.name, col.suggested_type_id, col.existing_*)
+     * @param {string} opts.mode           — 'available' | 'onform' | 'container'
+     * @param {number} [opts.compDefId]    — pro onform/container (PATCH target)
+     * @param {number} opts.typeId         — comp_type_id (pro defaults endpointy)
+     * @param {string} [opts.caption]      — initial caption
+     * @param {Object} [opts.layout]       — initial layout JSONB
+     * @returns {HTMLElement} settings button
+     */
+    _makeSettingsBtn(opts) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = "⚙";
+      btn.title = "Nastavení komponenty (caption, layout, výchozí)";
+      btn.style.cssText =
+        "width:28px;height:28px;background:transparent;border:1px solid #2a3340;" +
+        "color:#a8b4c2;cursor:pointer;border-radius:3px;font-size:14px;";
+      btn.addEventListener("mouseenter", () => {
+        btn.style.background = "#1a2530";
+        btn.style.borderColor = "#7ed4e8";
+        btn.style.color = "#7ed4e8";
+      });
+      btn.addEventListener("mouseleave", () => {
+        btn.style.background = "transparent";
+        btn.style.borderColor = "#2a3340";
+        btn.style.color = "#a8b4c2";
+      });
+      btn.addEventListener("click", (ev) => {
+        ev.stopPropagation();
+        this._openCompSettingsPopup(opts);
+      });
+      return btn;
+    }
+
+    /**
+     * Settings popup — caption + layout (width/height/min) + region_slot.
+     * 3 action buttons: Uložit / Uložit jako výchozí / Načíst výchozí.
+     *
+     * mode='available' → Uložit = cached override v _availableOverrides[col.name]
+     * mode='onform' / 'container' → Uložit = PATCH live /design/comp-def/update/{id}
+     */
+    async _openCompSettingsPopup(opts) {
+      const { col, mode, compDefId, typeId } = opts;
+      const ct = this._compTypesById[typeId] || {};
+      const compLabel = (col && (col.caption_default || col.name)) ||
+                       (opts.caption) || ct.label || "komponenta";
+
+      // Init values — priority: opts.caption/layout > col existing > defaults
+      const initLayout = opts.layout || (col && col.existing_layout) || {};
+      const initCaption = opts.caption ||
+                         (col && (col.existing_label || col.caption_default)) || "";
+      const initRegionSlot = (col && col.existing_region_slot) || "main";
+
+      // Backdrop + dialog
+      const backdrop = document.createElement("div");
+      backdrop.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+        "display:flex;align-items:center;justify-content:center;";
+      const dialog = document.createElement("div");
+      dialog.style.cssText =
+        "background:#0f1418;border:1px solid #2a3340;border-radius:6px;" +
+        "width:460px;max-width:90vw;padding:20px;color:#cfd6df;" +
+        "display:flex;flex-direction:column;gap:14px;";
+
+      // Header
+      const header = document.createElement("div");
+      header.style.cssText = "display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #2a3340;padding-bottom:10px;";
+      const title = document.createElement("div");
+      title.style.cssText = "font-size:14px;font-weight:600;color:#e8eef5;";
+      title.innerHTML = "⚙ Nastavení: " + _esc(compLabel) +
+        " <span style=\"color:#7ed4e8;font-size:11px;font-family:ui-monospace,Consolas,monospace;margin-left:8px;\">" +
+        _esc(ct.label || ("type#" + typeId)) + "</span>";
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button";
+      closeBtn.textContent = "✕";
+      closeBtn.style.cssText = "background:transparent;border:none;color:#8a96a4;cursor:pointer;font-size:18px;";
+      closeBtn.addEventListener("click", () => backdrop.remove());
+      header.appendChild(title);
+      header.appendChild(closeBtn);
+      dialog.appendChild(header);
+
+      // Helper — field row
+      const makeField = (label, inputEl) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:grid;grid-template-columns:140px 1fr;gap:10px;align-items:center;";
+        const lbl = document.createElement("label");
+        lbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        lbl.textContent = label;
+        row.appendChild(lbl);
+        row.appendChild(inputEl);
+        return row;
+      };
+      const styleInput = (el) =>
+        "padding:5px 8px;background:#1f2530;border:1px solid #2a3340;color:#cfd6df;" +
+        "border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;";
+
+      // Caption
+      const captionInput = document.createElement("input");
+      captionInput.type = "text";
+      captionInput.value = initCaption;
+      captionInput.style.cssText = styleInput();
+      dialog.appendChild(makeField("Caption (label)", captionInput));
+
+      // Region slot
+      const regionSel = document.createElement("select");
+      regionSel.style.cssText = styleInput();
+      for (const slot of ["header", "main", "footer"]) {
+        const opt = document.createElement("option");
+        opt.value = slot;
+        opt.textContent = slot;
+        if (slot === initRegionSlot) opt.selected = true;
+        regionSel.appendChild(opt);
+      }
+      dialog.appendChild(makeField("Region slot", regionSel));
+
+      // Width / height / min_width / min_height (number inputs)
+      const numFields = {};
+      for (const [key, label] of [
+        ["width", "Width (px)"],
+        ["height", "Height (px)"],
+        ["min_width", "Min width (px)"],
+        ["min_height", "Min height (px)"],
+      ]) {
+        const inp = document.createElement("input");
+        inp.type = "number";
+        inp.min = "0";
+        inp.placeholder = "—";
+        if (initLayout[key] != null) inp.value = initLayout[key];
+        inp.style.cssText = styleInput();
+        numFields[key] = inp;
+        dialog.appendChild(makeField(label, inp));
+      }
+
+      // Hint
+      const hint = document.createElement("div");
+      hint.style.cssText = "color:#8a96a4;font-size:11px;font-style:italic;padding:4px 0;";
+      hint.textContent = "Prázdné = automatický (CSS default). Uložit jako výchozí = aplikuje na nové komponenty tohoto typu.";
+      dialog.appendChild(hint);
+
+      // Status row
+      const status = document.createElement("div");
+      status.style.cssText = "color:#7ed4e8;font-size:11px;min-height:14px;";
+      dialog.appendChild(status);
+
+      // Build payload helper
+      const collectValues = () => {
+        const layout = {};
+        for (const [k, inp] of Object.entries(numFields)) {
+          if (inp.value !== "" && !isNaN(parseInt(inp.value, 10))) {
+            layout[k] = parseInt(inp.value, 10);
+          }
+        }
+        return {
+          caption: captionInput.value.trim(),
+          region_slot: regionSel.value,
+          layout: layout,
+        };
+      };
+      const applyValues = (props) => {
+        if (props.caption != null) captionInput.value = props.caption || "";
+        if (props.region_slot) regionSel.value = props.region_slot;
+        const lay = props.layout || {};
+        for (const [k, inp] of Object.entries(numFields)) {
+          inp.value = (lay[k] != null) ? lay[k] : "";
+        }
+      };
+
+      // Action buttons
+      const actions = document.createElement("div");
+      actions.style.cssText = "display:flex;gap:8px;justify-content:flex-end;border-top:1px solid #2a3340;padding-top:12px;";
+
+      // Načíst výchozí
+      const loadDefBtn = document.createElement("button");
+      loadDefBtn.type = "button";
+      loadDefBtn.innerHTML = "📥 Načíst výchozí";
+      loadDefBtn.style.cssText =
+        "padding:6px 12px;background:#1f2530;border:1px solid #2a3340;color:#a8b4c2;" +
+        "border-radius:3px;cursor:pointer;font-size:12px;";
+      loadDefBtn.addEventListener("click", async () => {
+        loadDefBtn.disabled = true;
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-type/" + typeId + "/defaults",
+            { credentials: "include" }
+          );
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "HTTP " + r.status);
+          applyValues(d.default_props || {});
+          status.textContent = "✓ Načteno z výchozí konfigurace " + (d.label || ct.label || "");
+          status.style.color = "#5dbf5d";
+        } catch (e) {
+          status.textContent = "✗ Načtení selhalo: " + (e.message || e);
+          status.style.color = "#d4888a";
+        } finally {
+          loadDefBtn.disabled = false;
+        }
+      });
+
+      // Uložit jako výchozí
+      const saveDefBtn = document.createElement("button");
+      saveDefBtn.type = "button";
+      saveDefBtn.innerHTML = "📌 Uložit jako výchozí";
+      saveDefBtn.style.cssText =
+        "padding:6px 12px;background:#2a3a4a;border:1px solid #4a7ba8;color:#cfd6df;" +
+        "border-radius:3px;cursor:pointer;font-size:12px;";
+      saveDefBtn.addEventListener("click", async () => {
+        saveDefBtn.disabled = true;
+        try {
+          const vals = collectValues();
+          const payload = {
+            default_props: {
+              default_caption: vals.caption || null,
+              layout: vals.layout,
+            },
+          };
+          const r = await fetch(
+            "/api/v1/erp/design/comp-type/" + typeId + "/defaults",
+            {
+              method: "PUT",
+              credentials: "include",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(payload),
+            }
+          );
+          const d = await r.json();
+          if (!r.ok || !d.ok) throw new Error(d.error || "HTTP " + r.status);
+          status.textContent = "✓ Uloženo jako výchozí pro " + (ct.label || ("type#" + typeId));
+          status.style.color = "#5dbf5d";
+        } catch (e) {
+          status.textContent = "✗ Uložení selhalo: " + (e.message || e);
+          status.style.color = "#d4888a";
+        } finally {
+          saveDefBtn.disabled = false;
+        }
+      });
+
+      // Uložit (mode-specific)
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.innerHTML = "💾 Uložit";
+      saveBtn.style.cssText =
+        "padding:6px 14px;background:#3a5a8a;border:1px solid #4a7ba8;color:#e8eef5;" +
+        "border-radius:3px;cursor:pointer;font-size:12px;font-weight:600;";
+      saveBtn.addEventListener("click", async () => {
+        const vals = collectValues();
+        if (mode === "available") {
+          // Cached override — applied při add POST z _resolveAddOverrides()
+          if (!this._availableOverrides) this._availableOverrides = {};
+          this._availableOverrides[col.name] = vals;
+          status.textContent = "✓ Override uložen (aplikuje se při přidání na formulář)";
+          status.style.color = "#5dbf5d";
+          setTimeout(() => backdrop.remove(), 1200);
+        } else {
+          // PATCH live (onform / container)
+          if (compDefId == null) {
+            status.textContent = "✗ comp_def_id chybí — nelze uložit";
+            status.style.color = "#d4888a";
+            return;
+          }
+          saveBtn.disabled = true;
+          try {
+            const payload = {};
+            if (vals.caption) payload.caption = vals.caption;
+            if (vals.region_slot) payload.region_slot = vals.region_slot;
+            payload.layout = vals.layout;
+            const r = await fetch(
+              "/api/v1/erp/design/comp-def/update/" + compDefId,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload),
+              }
+            );
+            const d = await r.json();
+            if (!r.ok || !d.ok) throw new Error(d.error || "HTTP " + r.status);
+            status.textContent = "✓ Uloženo na formuláři";
+            status.style.color = "#5dbf5d";
+            // Live sync — parent form re-render
+            if (typeof this.opts.onComplete === "function") {
+              try { this.opts.onComplete({ updated: 1 }); }
+              catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+            }
+            setTimeout(() => backdrop.remove(), 1200);
+          } catch (e) {
+            status.textContent = "✗ Uložení selhalo: " + (e.message || e);
+            status.style.color = "#d4888a";
+            saveBtn.disabled = false;
+          }
+        }
+      });
+
+      actions.appendChild(loadDefBtn);
+      actions.appendChild(saveDefBtn);
+      actions.appendChild(saveBtn);
+      dialog.appendChild(actions);
+
+      backdrop.appendChild(dialog);
+      backdrop.addEventListener("click", (ev) => {
+        if (ev.target === backdrop) backdrop.remove();
+      });
+      document.body.appendChild(backdrop);
+      captionInput.focus();
+    }
+
     async open() {
       // Phase 38.4 Krok 14c+2 part A.2 (14.5.2026 odpoledne, Marti's
       // "musi se chovat jako normalni samostatne okno, ne modal"):
@@ -454,7 +764,7 @@
       // Symetrie s "Schazi pridat" tab kde checkbox je prvni (left).
       const row = document.createElement("div");
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 200px 1fr 140px;" +
+        "display:grid;grid-template-columns:32px 200px 1fr 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "background:rgba(126,212,232,0.04);";
 
@@ -585,11 +895,20 @@
         }
       });
 
+      // ⚙ Settings button (Krok H+5) — popup s caption + layout + defaults
+      const settingsBtn = this._makeSettingsBtn({
+        col: col,
+        mode: "onform",
+        compDefId: col.existing_comp_def_id,
+        typeId: col.existing_type_id,
+      });
+
       // X jako prvni — symetrie s "Schazi pridat" checkbox left placement
       row.appendChild(removeBtn);
       row.appendChild(labelWrap);
       row.appendChild(meta);
       row.appendChild(typeSel);
+      row.appendChild(settingsBtn);
       return row;
     }
 
@@ -953,7 +1272,7 @@
     _renderColumnRow(col) {
       const row = document.createElement("div");
       row.style.cssText =
-        "display:grid;grid-template-columns:24px 200px 1fr 160px;" +
+        "display:grid;grid-template-columns:24px 200px 1fr 160px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "cursor:pointer;transition:background 0.1s;";
       row.addEventListener("mouseenter", () => row.style.background = "#141a20");
@@ -1065,10 +1384,22 @@
       // Predtim klik doprostred kompounenty (label/preview) trigger POST,
       // coz vedlo k nahodnym pridanim.
 
+      // ⚙ Settings button (Krok H+5) — popup pro per-column override pred POST.
+      // mode='available' → cached v _availableOverrides[col.name] (TODO apply
+      // pres _resolveAddOverrides() v checkbox handler). Plus Load/Save default
+      // pres comp_type endpoint.
+      const settingsBtn = this._makeSettingsBtn({
+        col: col,
+        mode: "available",
+        typeId: this._typeOverrides[col.name] || col.suggested_type_id,
+        caption: col.caption_default,
+      });
+
       row.appendChild(cb);
       row.appendChild(labelWrap);
       row.appendChild(previewWrap);
       row.appendChild(typeSel);
+      row.appendChild(settingsBtn);
       return row;
     }
 
@@ -1223,7 +1554,7 @@
       // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 140px (id).
       // Aktivni container ma green tint background + bold label.
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 24px 200px 1fr 140px;" +
+        "display:grid;grid-template-columns:32px 24px 200px 1fr 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         (isActive
           ? "background:rgba(93,191,93,0.12);border-left:3px solid #5dbf5d;"
@@ -1339,11 +1670,22 @@
       idBadge.style.cssText = "font-size:11px;color:#a88cd4;font-family:ui-monospace,Consolas,monospace;";
       idBadge.textContent = "id=" + cont.comp_def_id;
 
+      // ⚙ Settings button (Krok H+5) — popup s caption + layout + defaults
+      const settingsBtn = this._makeSettingsBtn({
+        col: cont,
+        mode: "container",
+        compDefId: cont.comp_def_id,
+        typeId: cont.type_id,
+        caption: cont.caption,
+        layout: cont.layout,
+      });
+
       row.appendChild(removeBtn);
       row.appendChild(radioWrap);
       row.appendChild(labelWrap);
       row.appendChild(meta);
       row.appendChild(idBadge);
+      row.appendChild(settingsBtn);
       return row;
     }
   }

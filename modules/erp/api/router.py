@@ -3908,7 +3908,8 @@ def design_list_comp_types(req: Request) -> JSONResponse:
         # OR kind='container' AND status='active'. Plus vratit status +
         # renderer_hint pro frontend filtering.
         rows = ds.execute(_sql_text_ct("""
-            SELECT id, code, label, kind, preview_html, status, renderer_hint
+            SELECT id, code, label, kind, preview_html, status, renderer_hint,
+                   default_props
             FROM fw.comp_type
             WHERE preview_html IS NOT NULL
                OR (kind = 'container' AND status = 'active')
@@ -3922,6 +3923,118 @@ def design_list_comp_types(req: Request) -> JSONResponse:
         }))
     finally:
         ds.close()
+
+
+@api_router.get("/design/comp-type/{type_id:int}/defaults")
+def design_get_comp_type_defaults(type_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok H+5 (26.5.2026, Marti's "Nacist vychozi"):
+    Vrati fw.comp_type.default_props pro dany type_id. Frontend popup
+    "Nacist vychozi" tlacitko zavola tento endpoint + fill form fields.
+
+    Returns:
+        200: {ok, type_id, code, label, default_props}
+        404: type_id neexistuje
+    """
+    from core.database_data import get_data_session as _gds_ctd
+    from sqlalchemy import text as _sql_text_ctd
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds = _gds_ctd()
+    try:
+        row = ds.execute(_sql_text_ctd("""
+            SELECT id, code, label, default_props
+            FROM fw.comp_type
+            WHERE id = :id
+        """), {"id": type_id}).mappings().one_or_none()
+        if not row:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_type id={type_id} neexistuje"},
+                status_code=404,
+            )
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "type_id": row["id"],
+            "code": row["code"],
+            "label": row["label"],
+            "default_props": row["default_props"] or {},
+        }))
+    finally:
+        ds.close()
+
+
+@api_router.put("/design/comp-type/{type_id:int}/defaults")
+async def design_put_comp_type_defaults(type_id: int, req: Request) -> JSONResponse:
+    """Phase 38.4 Krok H+5 (26.5.2026, Marti's "Ulozit jako vychozi"):
+    SET fw.comp_type.default_props pro dany type_id. Frontend popup
+    "Ulozit jako vychozi" tlacitko posila aktualni form values jako
+    JSON. Pristi add tohoto typu dostane defaults.
+
+    Body:
+        {default_props: dict}  # complete replace (ne merge)
+
+    Returns:
+        200: {ok, type_id, default_props}
+        400: invalid body
+        404: type_id neexistuje
+    """
+    from core.database_data import get_data_session as _gds_ctp
+    from sqlalchemy import text as _sql_text_ctp
+    import json as _json_ctp
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    try:
+        body = await req.json()
+    except Exception:
+        return JSONResponse(
+            {"ok": False, "error": "Body musi byt JSON"},
+            status_code=400,
+        )
+
+    default_props = body.get("default_props")
+    if not isinstance(default_props, dict):
+        return JSONResponse(
+            {"ok": False, "error": "default_props musi byt dict (objekt)"},
+            status_code=400,
+        )
+
+    # Marti-AI's PG role (db_owner fw schema) — strategie session
+    # nepustila UPDATE fw.comp_type kvuli ownership boundary.
+    from modules.strategie_pg.application.service import update_row as _spg_update_ctp
+    try:
+        result = _spg_update_ctp(
+            schema="fw",
+            table="comp_type",
+            values={"default_props": _json_ctp.dumps(default_props)},
+            where={"id": type_id},
+        )
+        if not result.get("ok"):
+            return JSONResponse(
+                {"ok": False, "error": result.get("error") or "update_row failed"},
+                status_code=500,
+            )
+        if (result.get("rows_affected") or 0) == 0:
+            return JSONResponse(
+                {"ok": False, "error": f"comp_type id={type_id} neexistuje"},
+                status_code=404,
+            )
+        return JSONResponse(jsonable_encoder({
+            "ok": True,
+            "type_id": type_id,
+            "default_props": default_props,
+        }))
+    except Exception as exc:
+        logger.error(
+            f"design_put_comp_type_defaults failed: {exc}",
+            extra={"type_id": type_id},
+        )
+        return JSONResponse(
+            {"ok": False, "error": str(exc)},
+            status_code=500,
+        )
 
 
 @api_router.post("/design/comp-def")

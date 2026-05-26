@@ -232,22 +232,31 @@ def main():
             print(f"  - {col_name}: {col_type}{len_mark} {null_mark}")
         print()
 
-        # ── Step 7: Resolve comp_type IDs ──────────────────────────────────
+        # ── Step 7: Resolve comp_type IDs + default_props ──────────────────
+        # Phase 38.4 Krok H+5+ (26.5.2026 odp., Marti's "respektovat default
+        # parametry"): fw.comp_type.default_props JSONB drzi per-type defaults
+        # (layout + default_caption). Pri INSERT noveho comp_def musime tyto
+        # defaults pouzit jako baseline, structural overrides aplikujeme jen
+        # tam kde to vyzaduje role komponenty (main panel align=client).
         cur = conn.cursor()
         cur.execute("""
-            SELECT id, code
+            SELECT id, code, default_props
             FROM fw.comp_type
             WHERE code IN ('form', 'panel', 'edit', 'input')
         """)
         ct_rows = cur.fetchall()
         cur.close()
-        ct_map = {code: cid for cid, code in ct_rows}
+        ct_map = {row[1]: row[0] for row in ct_rows}
+        # defaults_map[code] = {layout: {...}, default_caption: "..."}
+        defaults_map = {row[1]: (row[2] or {}) for row in ct_rows}
 
         # Required types pro hierarchy
         form_type_id = ct_map.get('form')
         panel_type_id = ct_map.get('panel')
         # Prefer 'edit' (Centrala 1 compat); fallback 'input' (modern)
         input_type_id = ct_map.get('edit') or ct_map.get('input')
+        # Code pro defaults lookup (musi sedet s pouzitym type_id)
+        input_code = 'edit' if ct_map.get('edit') else 'input'
 
         if not form_type_id:
             print(f"✗ comp_type 'form' nenalezen v fw.comp_type.")
@@ -262,7 +271,34 @@ def main():
         print(f"comp_type IDs:")
         print(f"  form:  {form_type_id}")
         print(f"  panel: {panel_type_id}")
-        print(f"  input: {input_type_id}")
+        print(f"  input: {input_type_id} (code={input_code})")
+        print()
+
+        # Helper — merge per-type defaults.layout + per-instance structural
+        # overrides. Defaults FIRST (Marti's "respektovat default parametry"),
+        # structural overrides win na klicovem konfliktu (napr. main panel
+        # align=client je strukturalni, ne uzivatelska volba).
+        def _merge_layout(type_code, structural_overrides=None):
+            base = dict((defaults_map.get(type_code) or {}).get('layout') or {})
+            if structural_overrides:
+                base.update(structural_overrides)
+            return base
+
+        # Helper — default_caption fallback chain (per-instance > per-type
+        # default_caption > hardcoded fallback).
+        def _resolved_caption(type_code, per_instance, hardcoded_fallback):
+            if per_instance:
+                return per_instance
+            return (defaults_map.get(type_code) or {}).get('default_caption') \
+                   or hardcoded_fallback
+
+        # Print defaults summary pro audit (Marti vidi co script aplikuje)
+        print("Defaults aplikovane z fw.comp_type.default_props:")
+        for _code in ('form', 'panel', input_code):
+            _dp = defaults_map.get(_code) or {}
+            _lay = _dp.get('layout') or {}
+            _cap = _dp.get('default_caption') or '(none)'
+            print(f"  {_code:5s}: layout={json.dumps(_lay)}  default_caption={_cap}")
         print()
 
         # ── Step 8: INSERT atomic hierarchy ────────────────────────────────
@@ -282,6 +318,12 @@ def main():
             #   (JOIN cd.core_id=c.id AND cd.region_slot='main' AND
             #   cd.data_source_id NOT NULL) → resolve target table →
             #   load data row → inputs zobrazi values.
+            # Krok H+5+ (26.5. odp., Marti's "respektovat default parametry"):
+            #   layout + caption derived z fw.comp_type.default_props
+            #   (defaults_map) — per-instance c_label wins na captionu,
+            #   layout je pure defaults (form root nema strukturalni override).
+            form_layout = _merge_layout('form')
+            form_caption = _resolved_caption('form', c_label, 'Editace záznamu')
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
@@ -301,8 +343,8 @@ def main():
             """, (
                 form_type_id, core_id,
                 'form_root',
-                c_label or 'Editace záznamu',
-                '{}',
+                form_caption,
+                json.dumps(form_layout),
                 'main',  # region_slot
                 ds_id,   # data_source_id
                 MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
@@ -310,9 +352,16 @@ def main():
             ))
             root_id = cur.fetchone()[0]
             cur.close()
-            print(f"  ✓ comp_def #{root_id} (form root, ds_id={ds_id})")
+            print(f"  ✓ comp_def #{root_id} (form root, ds_id={ds_id}, "
+                  f"caption='{form_caption}', layout={json.dumps(form_layout)})")
 
             # 8b — main panel
+            # Krok H+5+: defaults FIRST, pak structural override align=client
+            # (main panel MUSI fillovat root prostor — nezavisi na user
+            # preferenci v default_props). Caption: defaults.default_caption
+            # fallback, ale pro main panel chceme zustat prazdny (panel je
+            # neviditelny container, caption by se zobrazil jako redundant).
+            panel_layout = _merge_layout('panel', {"align": "client"})
             cur = conn.cursor()
             cur.execute("""
                 INSERT INTO fw.comp_def (
@@ -330,24 +379,30 @@ def main():
             """, (
                 panel_type_id, root_id,
                 'main_panel', '',
-                '{"align": "client"}',
+                json.dumps(panel_layout),
                 'main',
                 MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
                 MARTI_AI_USER_ID, MARTI_AI_USER_TEXT,
             ))
             main_panel_id = cur.fetchone()[0]
             cur.close()
-            print(f"  ✓ comp_def #{main_panel_id} (main panel, slot=main)")
+            print(f"  ✓ comp_def #{main_panel_id} (main panel, slot=main, "
+                  f"layout={json.dumps(panel_layout)})")
 
             # 8c — per-column inputs
+            # Krok H+5+: input layout FIRST z defaults_map[input_code].layout,
+            # fallback DEFAULT_FIELD_WIDTH=400 pokud defaults neobsahuji width
+            # ani min_width (zachovava zpetnou kompatibilitu).
+            input_defaults_layout = (defaults_map.get(input_code) or {}).get('layout') or {}
             input_ids = []
             for idx, (col_name, col_type, col_nullable, col_maxlen) in enumerate(user_columns):
                 # Caption — friendly version of column name (first letter upper)
                 caption = col_name.replace('_', ' ').capitalize()
-                # Layout — min_width default
-                layout_json = json.dumps({
-                    "min_width": DEFAULT_FIELD_WIDTH,
-                })
+                # Layout — defaults FIRST + fallback min_width
+                input_layout = dict(input_defaults_layout)
+                if 'width' not in input_layout and 'min_width' not in input_layout:
+                    input_layout['min_width'] = DEFAULT_FIELD_WIDTH
+                layout_json = json.dumps(input_layout)
                 cur = conn.cursor()
                 cur.execute("""
                     INSERT INTO fw.comp_def (

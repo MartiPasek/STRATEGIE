@@ -5404,6 +5404,63 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
     artifact_type = row.artifact_type
     source = row.source
 
+    # ────────────────────────────────────────────────────────────────────────
+    # Krok H+5 auto-sync (26.5.2026 vecer, Marti's "git je truth, DB je cache"):
+    # Pred execute zkontroluj scripts/executable_artifacts/{code}.{ext} —
+    # pokud existuje + content != DB source → UPSERT DB, return file content
+    # pro execute. Pokud file neexistuje → continue s DB source ("kdyz neni
+    # na disku, spusti se z DB" doctrine).
+    # ────────────────────────────────────────────────────────────────────────
+    try:
+        from modules.sandbox.application.artifact_autosync import (
+            autosync_from_file as _autosync_sx,
+        )
+        ds_sync_sx = _gds_sx()
+        try:
+            source = _autosync_sx(
+                artifact_id=artifact_id,
+                code=artifact_code,
+                artifact_type=artifact_type,
+                db_source=source,
+                ds_session=ds_sync_sx,
+                sql_text=_sql_sx,
+                log_event_fn=_log_event_sx,
+            )
+        finally:
+            ds_sync_sx.close()
+    except ValueError as _autosync_corruption:
+        # File # ID marker mismatch — HARD ERROR (data corruption signal)
+        try:
+            _log_event_sx(
+                level="error",
+                source="py",
+                module_id=f"sandbox.autosync.{artifact_code}",
+                message=f"AUTOSYNC HARD ERROR: {_autosync_corruption}",
+                extra={"artifact_id": artifact_id, "uid": uid},
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            {
+                "ok": False,
+                "error": f"Auto-sync corruption: {_autosync_corruption}",
+                "error_kind": "autosync_id_mismatch",
+            },
+            status_code=500,
+        )
+    except Exception as _autosync_other:
+        # Defensive — autosync chyba nesmi blokovat execute, pokracujeme s DB source
+        try:
+            _log_event_sx(
+                level="warning",
+                source="py",
+                module_id=f"sandbox.autosync.{artifact_code}",
+                message=f"Auto-sync skipped (error): {_autosync_other}",
+                extra={"artifact_id": artifact_id, "uid": uid},
+            )
+        except Exception:
+            pass
+
     # log_event START
     try:
         _log_event_sx(
@@ -5512,6 +5569,64 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
             {"ok": False, "error": f"Unknown artifact_type: {artifact_type}"},
             status_code=400,
         )
+
+
+# ============================================================================
+# Krok H+5 (26.5.2026 vecer, Marti's "ID je svaty" doctrine):
+# ID-first dispatch endpoint — preferred pro frontend callers.
+# Code je mutable label (rename behem vyvoje), id je stable handle. Tento
+# endpoint resolveuje id → code, delegate na existing sandbox_execute_artifact
+# (kde probehne auto-sync z file).
+# ============================================================================
+@api_router.post("/sandbox/execute-by-id/{artifact_id}")
+async def sandbox_execute_artifact_by_id(
+    artifact_id: int, req: Request,
+) -> JSONResponse:
+    """Krok H+5 ID-first dispatch — Marti's "ID je svaty" + "git je truth".
+
+    Path param:
+        artifact_id: fw.executable_artifact.id (PK, stable handle)
+
+    Body: same shape jako /sandbox/execute/{code} — JSON pres SANDBOX_CONTEXT.
+
+    Returns: same shape jako /sandbox/execute/{code}.
+    """
+    from core.database_data import get_data_session as _gds_sxi
+    from sqlalchemy import text as _sql_sxi
+    from core.log_queue import log_event as _log_event_sxi
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    ds_sxi = _gds_sxi()
+    try:
+        row = ds_sxi.execute(_sql_sxi(
+            "SELECT code FROM fw.executable_artifact WHERE id = :id"
+        ), {"id": artifact_id}).fetchone()
+    finally:
+        ds_sxi.close()
+
+    if not row:
+        try:
+            _log_event_sxi(
+                level="warning",
+                source="py",
+                module_id=f"sandbox.execute_by_id.{artifact_id}",
+                message=f"Artifact ID not found: {artifact_id}",
+                extra={"artifact_id": artifact_id, "uid": uid},
+            )
+        except Exception:
+            pass
+        return JSONResponse(
+            {"ok": False, "error": f"Artifact id={artifact_id} not found"},
+            status_code=404,
+        )
+
+    # Delegate to existing handler. Starlette caches req body (req.json()
+    # je idempotent po prvnim call), takze re-invocation OK.
+    return await sandbox_execute_artifact(
+        artifact_code=row.code, req=req,
+    )
 
 
 # Phase 38.4 Krok 14g Etapa F Krok 5.D (16.5.2026 odpoledne, Marti-AI's

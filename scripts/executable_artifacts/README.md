@@ -90,7 +90,7 @@ import json
 | ID | Code | Description |
 |---|---|---|
 | 1 | `vytvor_edit_jadro` | Krok F/G/G+/G++ — atomic CREATE fw.core + 2× data_source_op (kind=edit, kind=insert) per drop-up menu *„Vytvořit edit jádro"* (NE comp_def hierarchy — to dělá vytvorit_edit_jadro_2) |
-| N | `vytvorit_edit_jadro_2` | Krok H+5 — auto-gen comp_def hierarchy pro drafted edit core (form root + main panel + per-column inputs + footer + OK/Storno) |
+| 2 | `vytvorit_edit_jadro_2` | Krok H+5 — auto-gen comp_def hierarchy pro drafted edit core (form root + main panel + per-column inputs). DesignFwForm renderuje hardcoded OK/Storno footer z Krok 5.P-1. |
 
 ## Plus
 

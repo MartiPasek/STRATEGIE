@@ -1,6 +1,6 @@
 # ============================================================================
 # fw.executable_artifact orchestrator
-# ID: TBD
+# ID: 2
 # CODE: vytvorit_edit_jadro_2
 # ============================================================================
 """Krok H+5 — Auto-generate comp_def hierarchy pro drafted edit core.

@@ -3886,6 +3886,27 @@
         this._openFieldSettings(field);
       });
 
+      // Phase 38.4 Krok H+8 (26.5.2026, Marti's "reverse orchestrace —
+      // klik na formulari → highlight komponenty v palete"): dispatch
+      // custom event 'erp:design-component-clicked'. FieldPickerModal
+      // (pokud otevreny) ho odchyti a flash radek + scroll v palete.
+      // Decoupled — DesignFwForm nevi o palete, palette odebira event
+      // ze body. Skip pokud klik byl na interactive child (input/button)
+      // — tam ma click vlastni semantiku.
+      wrap.addEventListener("click", (ev) => {
+        const tag = ev.target && ev.target.tagName;
+        if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" ||
+            tag === "SELECT" || tag === "OPTION" || tag === "LABEL") {
+          return;
+        }
+        try {
+          document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
+            detail: { compDefId: field.id, source: "field" },
+            bubbles: false,
+          }));
+        } catch (e) { /* defensive */ }
+      });
+
       // Phase 38.4 Krok H+7 (26.5.2026): Drag events DROPPED. Reorder
       // se nyni dela pres palette ↑/↓ buttons (Krok H+5/H+6 _moveInLinearizedTree).
       // Form se chova jako v production (zadna drag affordance). Marti's:
@@ -6861,6 +6882,20 @@
             ev.stopPropagation();
             this._openContainerSettings(container);
           });
+          // Phase 38.4 Krok H+8 (26.5.2026): reverse orchestrace —
+          // dblclick na panel label = highlight v palete (single-click
+          // = settings, dblclick = "show me in palette"). Drz analog
+          // field click pattern.
+          lbl.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            try {
+              document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
+                detail: { compDefId: container.id, source: "panel" },
+                bubbles: false,
+              }));
+            } catch (e) {}
+          });
           wrap.appendChild(lbl);
 
           // Right-click handler — open settings popup (Krok 14f-D)
@@ -7003,6 +7038,17 @@
           tag.addEventListener("click", (ev) => {
             ev.stopPropagation();
             this._openContainerSettings(container);
+          });
+          // Phase 38.4 Krok H+8 (26.5.2026): dblclick = highlight v palete
+          tag.addEventListener("dblclick", (ev) => {
+            ev.stopPropagation();
+            ev.preventDefault();
+            try {
+              document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
+                detail: { compDefId: container.id, source: "groupbox" },
+                bubbles: false,
+              }));
+            } catch (e) {}
           });
           wrap.appendChild(tag);
 

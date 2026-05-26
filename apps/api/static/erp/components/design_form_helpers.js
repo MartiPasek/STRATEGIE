@@ -573,6 +573,16 @@
       "  border-radius: 4px;\n" +
       "  animation: erpFlashHighlight 1500ms ease-out forwards;\n" +
       "}\n" +
+      // Krok H+8 (26.5.2026, Marti's "obracene orchestrace"): palette row
+      // flash highlight — symetrie s .erp-design-flash-highlight ale
+      // s inset background (řadek v listu, ne komponenta s borderem).
+      "@keyframes erpPaletteRowFlash {\n" +
+      "  0% { background: rgba(255, 165, 80, 0.35); box-shadow: inset 4px 0 0 #ffa550; }\n" +
+      "  100% { background: transparent; box-shadow: inset 0 0 0 transparent; }\n" +
+      "}\n" +
+      ".erp-palette-row-flash {\n" +
+      "  animation: erpPaletteRowFlash 1500ms ease-out forwards;\n" +
+      "}\n" +
       // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
       // "drag jen ta komponenta uvnitr, ne cela karta"):
       // Scoped CSS pro inline preview komponenty v gallery cards.

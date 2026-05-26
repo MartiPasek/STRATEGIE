@@ -391,6 +391,73 @@
       });
       document.body.appendChild(this._shell.overlay);
 
+      // Phase 38.4 Krok H+8 (26.5.2026, Marti's "obracene orchestrace —
+      // klik na komponentu na formulari → highlight radek v palete"):
+      // Listen for custom event z DesignFwForm (field click / panel
+      // label dblclick). Find row by data-comp-def-id + flash highlight
+      // + scroll into view. Plus switch tab na "Jiz na forme" pokud
+      // user je v jinem tabu.
+      this._reverseOrchestrationHandler = (ev) => {
+        try {
+          const compDefId = ev && ev.detail && ev.detail.compDefId;
+          if (compDefId == null) return;
+          // Switch na onform tab pokud je jinde
+          if (this._activeTab !== "onform") {
+            this._activeTab = "onform";
+            try { this._render(); } catch (e) {}
+          }
+          // Find row v palette body (defer 1 frame — re-render async)
+          requestAnimationFrame(() => {
+            try {
+              const body = this._shell && this._shell.body;
+              if (!body) return;
+              const row = body.querySelector(
+                '[data-comp-def-id="' + compDefId + '"]'
+              );
+              if (!row) {
+                console.info("[FieldPickerModal] reverse orchestration: row id=" + compDefId + " nenalezen (asi neexistuje v aktualnim tabu)");
+                return;
+              }
+              // Drop predchozi flash
+              body.querySelectorAll(".erp-palette-row-flash").forEach(el => {
+                el.classList.remove("erp-palette-row-flash");
+              });
+              // Scroll do view (center)
+              try {
+                row.scrollIntoView({ behavior: "smooth", block: "center" });
+              } catch (e) {
+                try { row.scrollIntoView(); } catch (e2) {}
+              }
+              // Flash class na ~1.5s (CSS animation z design_form_helpers.js
+              // .erp-palette-row-flash analog k .erp-design-flash-highlight)
+              row.classList.add("erp-palette-row-flash");
+              setTimeout(() => {
+                try { row.classList.remove("erp-palette-row-flash"); } catch (e) {}
+              }, 1500);
+            } catch (e) {
+              console.error("[FieldPickerModal] reverse orchestration render failed:", e);
+            }
+          });
+        } catch (e) {
+          console.error("[FieldPickerModal] reverse orchestration handler failed:", e);
+        }
+      };
+      document.body.addEventListener(
+        "erp:design-component-clicked",
+        this._reverseOrchestrationHandler
+      );
+      // Cleanup pri zavreni palety — pri shell close odregistruj listener.
+      const _originalClose = this._shell.close;
+      this._shell.close = () => {
+        try {
+          document.body.removeEventListener(
+            "erp:design-component-clicked",
+            this._reverseOrchestrationHandler
+          );
+        } catch (e) {}
+        try { _originalClose.call(this._shell); } catch (e) {}
+      };
+
       // Phase 38.4 Krok 14c+2 part B (14.5.2026 odpoledne, Marti's
       // "Drzi se stale vevnitr"): "Detach do okna" button v header.
       // Click → window.open() popup window, lze přesunout na druhý
@@ -1215,6 +1282,10 @@
       // Grid template column order: 32px (remove) | 200px | 1fr | 140px.
       // Symetrie s "Schazi pridat" tab kde checkbox je prvni (left).
       const row = document.createElement("div");
+      // Krok H+8 (26.5.2026): tag row pro reverse orchestrace lookup.
+      if (col.existing_comp_def_id != null) {
+        row.dataset.compDefId = String(col.existing_comp_def_id);
+      }
       // Krok H+5+++ (26.5.2026): pridana sloupec pro arrow buttons (110px)
       // mezi meta a typeSel — Marti's "do druhe tretiny vpravo".
       // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
@@ -2046,6 +2117,10 @@
     _renderOnFormContainerRow(cont, depth) {
       const isActive = this._activeContainerCompDefId === cont.comp_def_id;
       const row = document.createElement("div");
+      // Krok H+8 (26.5.2026): tag row pro reverse orchestrace lookup.
+      if (cont.comp_def_id != null) {
+        row.dataset.compDefId = String(cont.comp_def_id);
+      }
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
       // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 110px (arrows) | 140px (id) | 32px (settings).
       // Krok H+5+++ (26.5.2026 vecer, Marti's "sipky"): pridana sloupec

@@ -557,6 +557,22 @@
       "  pointer-events: none;\n" +
       "  letter-spacing: 0.3px;\n" +
       "}\n" +
+      // Phase 38.4 Krok H+7 (26.5.2026, Marti's "klik v palete -> zvyraznit
+      // komponentu na forme"): transient flash (orange outline ~1.5s)
+      // pro orchestraci click → highlight komponenty. Jiny effect nez
+      // .erp-design-active-container (zelena infinite pulse) — flash je
+      // single-shot reakce na klik.
+      "@keyframes erpFlashHighlight {\n" +
+      "  0% { box-shadow: 0 0 0 4px rgba(255, 165, 80, 0.85), 0 0 18px rgba(255, 165, 80, 0.55); outline-color: #ffa550; }\n" +
+      "  100% { box-shadow: 0 0 0 0 rgba(255, 165, 80, 0.0), 0 0 0 rgba(255, 165, 80, 0.0); outline-color: transparent; }\n" +
+      "}\n" +
+      ".erp-design-modal .erp-design-flash-highlight,\n" +
+      ".erp-design-flash-highlight {\n" +
+      "  outline: 2px solid #ffa550;\n" +
+      "  outline-offset: 2px;\n" +
+      "  border-radius: 4px;\n" +
+      "  animation: erpFlashHighlight 1500ms ease-out forwards;\n" +
+      "}\n" +
       // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
       // "drag jen ta komponenta uvnitr, ne cela karta"):
       // Scoped CSS pro inline preview komponenty v gallery cards.

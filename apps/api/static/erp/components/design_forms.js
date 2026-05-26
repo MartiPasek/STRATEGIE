@@ -808,6 +808,44 @@
             console.error("[DesignFwForm] active container highlight failed:", e);
           }
         },
+        // Phase 38.4 Krok H+7 (26.5.2026, Marti's "fajn orchestrovat klikem
+        // na komponentu i komponentu v druhem okne. Zvyraznit ji"):
+        // Klik na radek v palete "Jiz na forme" → flash highlight komponenty
+        // na formulari. Selector [data-comp-def-id="X"] matchne fields
+        // (unified pres dataset.compDefId = field.id) i containers
+        // (panel/groupbox/pagecontrol/tabsheet). Scroll do view + transient
+        // flash (orange outline ~1.5s) — Marti vidi presne kde komponenta
+        // sedi i kdyz je v jinem tab sheetu nebo mimo viewport.
+        onHighlightComponent: (compDefId) => {
+          try {
+            const root = this._shell && this._shell.body;
+            if (!root || compDefId == null) return;
+            const target = root.querySelector(
+              '[data-comp-def-id="' + compDefId + '"]'
+            );
+            if (!target) {
+              console.info("[DesignFwForm] highlightComponent: id=" + compDefId + " nenalezen v DOM (možná uvnitr neaktivniho tabu)");
+              return;
+            }
+            // Drop predchozi flash (jednotlive highlighty)
+            root.querySelectorAll(".erp-design-flash-highlight").forEach(el => {
+              el.classList.remove("erp-design-flash-highlight");
+            });
+            // Scroll do view (smooth, center pokud lze)
+            try {
+              target.scrollIntoView({ behavior: "smooth", block: "center" });
+            } catch (e) {
+              try { target.scrollIntoView(); } catch (e2) {}
+            }
+            // Flash class na ~1.5s
+            target.classList.add("erp-design-flash-highlight");
+            setTimeout(() => {
+              try { target.classList.remove("erp-design-flash-highlight"); } catch (e) {}
+            }, 1500);
+          } catch (e) {
+            console.error("[DesignFwForm] onHighlightComponent failed:", e);
+          }
+        },
         onComplete: async (result) => {
           console.info("[DesignFwForm] FieldPicker complete:", result);
           // Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr on time"):
@@ -1418,34 +1456,13 @@
         // PROD mode: short-circuit — pouze static render bez drag/context.
         // Pokracuj k table rendering (data display) niz.
       } else {
-        // Phase 38.4 Krok 14d-D+ (14.5.2026 vecer, Marti's "dragable"):
-        // Per-section drag handle + dragover/drop reorder. MVP — in-memory
-        // state přes this._childOrder. Section wrap dostane draggable=true,
-        // grip ⋮⋮ vlevo (visual hint), drop target = jiná section / form.
-        sec.wrap.draggable = true;
+        // Phase 38.4 Krok H+7 (26.5.2026, Marti's "smaz tecky pro drag"):
+        // Drag handle ⋮⋮ + draggable + dragstart/dragover/drop handlers
+        // DROPPED. Child section reorder se nyni dela pres palette ↑/↓
+        // (linearized tree navigation). Marti's "form se bude chovat
+        // jako v production". Zustava jen right-click → settings popup
+        // (Krok 14f-I) jako DESIGN-only action.
         sec.wrap.dataset.childSectionKey = childKey;
-        sec.wrap.style.cursor = "default";  // default — grab jen na grip
-
-        // Drag handle grip (visual + cursor:grab on hover)
-        const grip = document.createElement("div");
-        grip.textContent = "⋮⋮";
-        grip.title = "Drag pro přesun sekce nahoru/dolů";
-        grip.style.cssText =
-          "position:absolute;left:4px;top:8px;width:18px;height:24px;" +
-          "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
-          "user-select:none;display:flex;align-items:center;justify-content:center;" +
-          "z-index:2;transition:color 0.15s;";
-        grip.addEventListener("mouseenter", () => grip.style.color = "#7ed4e8");
-        grip.addEventListener("mouseleave", () => grip.style.color = "#5d6975");
-        sec.wrap.style.position = "relative";
-        sec.wrap.style.paddingLeft = "28px";  // make room pro grip
-        sec.wrap.appendChild(grip);
-
-        // Drag handlers — only initiate drag z grip area (mousedown na grip)
-        let _dragArmed = false;
-        grip.addEventListener("mousedown", () => { _dragArmed = true; });
-        // Globální mouseup fallback — pokud user neuvolnil dragstart
-        document.addEventListener("mouseup", () => { _dragArmed = false; }, { once: true });
 
         // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "dodelat
         // nastaveni gridu, minimalne tlacitko odebrat"): right-click na
@@ -1459,59 +1476,8 @@
           ev.stopPropagation();
           this._openChildSectionSettings(childKey, childInfo);
         });
-
-        sec.wrap.addEventListener("dragstart", (ev) => {
-          if (!_dragArmed) {
-            ev.preventDefault();  // ignore drag pokud ne z grip
-            return;
-          }
-          sec.wrap.style.opacity = "0.5";
-          ev.dataTransfer.effectAllowed = "move";
-          ev.dataTransfer.setData(
-            "application/x-erp-child-section",
-            childKey
-          );
-        });
-        sec.wrap.addEventListener("dragend", () => {
-          sec.wrap.style.opacity = "1";
-          _dragArmed = false;
-        });
-
-        sec.wrap.addEventListener("dragover", (ev) => {
-          const types = ev.dataTransfer && ev.dataTransfer.types;
-          if (!types || !Array.from(types).includes("application/x-erp-child-section")) return;
-          ev.preventDefault();
-          ev.dataTransfer.dropEffect = "move";
-          sec.wrap.style.borderTop = "2px solid #7ed4e8";
-        });
-        sec.wrap.addEventListener("dragleave", (ev) => {
-          if (ev.target === sec.wrap) {
-            sec.wrap.style.borderTop = "";
-          }
-        });
-        sec.wrap.addEventListener("drop", (ev) => {
-          ev.preventDefault();
-          sec.wrap.style.borderTop = "";
-          const draggedKey = ev.dataTransfer.getData("application/x-erp-child-section");
-          if (!draggedKey || draggedKey === childKey) return;
-
-          // Reorder this._childOrder — move dragged key before this section
-          const order = this._childOrder || [];
-          const draggedIdx = order.indexOf(draggedKey);
-          const targetIdx = order.indexOf(childKey);
-          if (draggedIdx < 0 || targetIdx < 0) return;
-
-          order.splice(draggedIdx, 1);
-          // Insert dragged BEFORE target (Marti's "dat nahoru" pattern)
-          // Recompute targetIdx after splice (may have shifted)
-          const newTargetIdx = order.indexOf(childKey);
-          order.splice(newTargetIdx, 0, draggedKey);
-          this._childOrder = order;
-
-          // Re-render (preserve form data via this._spec, fresh DOM)
-          this._render();
-          this._attachDropTargetForGalleryDrag();
-        });
+        // Krok H+7 (26.5.2026): child section drop handler DROPPED
+        // (drag affordance pryc — reorder pres palette ↑/↓).
       }  // /designMode
 
       // Hidden cols z select_columns (interní metadata)
@@ -3721,22 +3687,31 @@
     _wrapFieldForDesign(fieldEl, field, index, total) {
       const wrap = document.createElement("div");
       wrap.className = "erp-field-design-wrap";
-      wrap.draggable = true;
+      // Phase 38.4 Krok H+7 (26.5.2026, Marti's "smaz tecky pro drag —
+      // form se bude chovat jako v production"): drop draggable + grip.
+      // Reorder se nyni dela pres palette ↑/↓ buttons (Krok H+5/H+6).
+      // DESIGN-only features (action buttons ✕ ⚙ ⬅ 🎯, contextmenu,
+      // dblclick rename, flash) ZUSTAVAJI — Marti's "DESIGN ma actions,
+      // jen drag affordance pryc".
       wrap.dataset.fieldId = String(field.id);
       wrap.dataset.fieldIndex = String(index);
+      // Krok H+7 (26.5.2026, Marti's "klik v palete -> highlight komponenty"):
+      // unified data-comp-def-id pro orchestraci. Field.id IS comp_def.id —
+      // selector [data-comp-def-id="X"] matchne fields i containers stejne.
+      wrap.dataset.compDefId = String(field.id);
       // Phase 38.4 Krok 14c+3.1 (14.5.2026 odpoledne, Marti's polish
       // po dnešním testu):
       //   "rendruj ty mazaci krizky na pravy okrak komponenty, ne mimo ni.
       //    Tu sipku vlevo pinned rendruj hned vedle toho krizku vlevo."
       //
       // Refactor: action buttons (✕ delete, ⬅ pinned, 🎯 detect-values)
-      // jsou teted absolute overlay v pravem hornim rohu content. Grid
-      // template = jen grip (20px) + content (1fr) — žádné side columns.
+      // jsou teted absolute overlay v pravem hornim rohu content.
       // Content má position:relative pro absolute child positioning.
+      // Krok H+7: drop grip column (20px) — grid_template = single 1fr.
+      // Plus cursor:default (no grab).
       wrap.style.cssText =
-        "display:grid;grid-template-columns:20px 1fr;gap:6px;align-items:start;" +
-        "padding:4px 6px;border:1px dashed transparent;border-radius:4px;" +
-        "cursor:grab;position:relative;";
+        "display:block;padding:4px 6px;border:1px dashed transparent;" +
+        "border-radius:4px;cursor:default;position:relative;min-width:0;";
 
       // Krok 14b+9-C (13.5.2026 ~21:35): pending flash animation —
       // pokud _pendingFlashFieldId match field.id, apply flash class +
@@ -3750,19 +3725,9 @@
         }, 800);
       }
 
-      // Grip handle vlevo (drag icon)
-      const grip = document.createElement("div");
-      grip.className = "erp-field-design-grip";
-      grip.style.cssText =
-        "display:flex;align-items:center;justify-content:center;" +
-        "color:#5d6975;font-size:14px;line-height:1;cursor:grab;" +
-        "user-select:none;height:24px;margin-top:18px;";
-      grip.textContent = "⋮⋮";  // double-vertical-dots grip
-      grip.title = "Drag pro zmenu poradi pole";
-      wrap.appendChild(grip);
-
       // Field content — position:relative pro absolute overlay buttons
       // (Krok 14c+3.1, Marti's "rendruj na pravy okrak komponenty").
+      // Krok H+7: content je teted prime dite wrap (no grip column).
       const content = document.createElement("div");
       content.style.cssText = "min-width:0;position:relative;";
       content.appendChild(fieldEl);
@@ -3921,66 +3886,10 @@
         this._openFieldSettings(field);
       });
 
-      // Drag events
-      wrap.addEventListener("dragstart", (ev) => {
-        wrap.style.opacity = "0.5";
-        wrap.style.cursor = "grabbing";
-        this._dragState = {
-          fieldId: field.id,
-          fromIndex: index,
-          el: wrap,
-        };
-        try {
-          ev.dataTransfer.effectAllowed = "move";
-          ev.dataTransfer.setData("text/plain", String(field.id));
-        } catch (e) {}
-      });
-      wrap.addEventListener("dragend", (ev) => {
-        wrap.style.opacity = "";
-        wrap.style.cursor = "grab";
-        // Clean drop indicators
-        const parent = wrap.parentElement;
-        if (parent) {
-          parent.querySelectorAll(".erp-field-design-wrap").forEach((el) => {
-            el.style.borderTopColor = "transparent";
-            el.style.borderBottomColor = "transparent";
-          });
-        }
-        this._dragState = null;
-      });
-      wrap.addEventListener("dragover", (ev) => {
-        if (!this._dragState) return;
-        if (this._dragState.fieldId === field.id) return; // sam sebe nemuze
-        ev.preventDefault();
-        try { ev.dataTransfer.dropEffect = "move"; } catch (e) {}
-        // Visual indicator — pred / za podle vertical mouse position
-        const rect = wrap.getBoundingClientRect();
-        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
-        wrap.style.borderTopColor = isAbove ? "#7ed4e8" : "transparent";
-        wrap.style.borderBottomColor = isAbove ? "transparent" : "#7ed4e8";
-      });
-      wrap.addEventListener("dragleave", (ev) => {
-        wrap.style.borderTopColor = "transparent";
-        wrap.style.borderBottomColor = "transparent";
-      });
-      wrap.addEventListener("drop", (ev) => {
-        ev.preventDefault();
-        // Phase 38.4 Krok 14g-A (15.5.2026 rano, Marti's "drop se
-        // neuskutecni"): stopPropagation — bez nej event bubble do
-        // container.drop (panel/groupbox), ktery dual-fire _performFieldMove
-        // bez position. Field.drop ma authoritative position info (Y coord
-        // relative k field rect), takze drop ZASTAVIT zde.
-        ev.stopPropagation();
-        if (!this._dragState) return;
-        const fromId = this._dragState.fieldId;
-        const toId = field.id;
-        if (fromId === toId) return;
-        const rect = wrap.getBoundingClientRect();
-        const isAbove = (ev.clientY - rect.top) < (rect.height / 2);
-        // _performFieldReorder detekuje cross-parent automaticky (Krok 14g-A)
-        // → delegate na _performCrossParentMove. Same-parent → existing flow.
-        this._performFieldReorder(fromId, toId, isAbove);
-      });
+      // Phase 38.4 Krok H+7 (26.5.2026): Drag events DROPPED. Reorder
+      // se nyni dela pres palette ↑/↓ buttons (Krok H+5/H+6 _moveInLinearizedTree).
+      // Form se chova jako v production (zadna drag affordance). Marti's:
+      // "form se bude chovat jako v production".
 
       return wrap;
     }
@@ -6919,13 +6828,14 @@
           : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;";
 
         if (designMode) {
-          // Visible wrapper s drag affordance
+          // Visible wrapper (dashed border + label tag = DESIGN identifier).
+          // Krok H+7 (26.5.2026): draggable DROPPED — Marti's "form se
+          // bude chovat jako v production". Reorder pres palette ↑/↓.
           wrap.style.cssText = baseStyle +
             "border:1px dashed rgba(122, 134, 150, 0.3);" +
             "border-radius:4px;" +
             "padding:8px;" +
             "margin:2px;";
-          wrap.draggable = true;
 
           // Label "panel" v levem hornim rohu — clickable pro settings (Krok 14f-D)
           const lbl = document.createElement("div");
@@ -6965,8 +6875,10 @@
             this._openContainerSettings(container);
           });
 
-          // Drag listeners (analog _wrapFieldForDesign)
-          this._attachContainerDragEvents(wrap, container);
+          // Krok H+7 (26.5.2026): drag listeners DROPPED — Marti's
+          // "form se bude chovat jako v production". Container reorder
+          // se nyni dela pres palette ↑/↓ buttons. Label tag + dashed
+          // border zustavaji jako DESIGN-only identifier (ne grip).
         } else {
           // PROD: invisible wrapper but s flex sizing
           wrap.style.cssText = baseStyle;
@@ -7064,7 +6976,7 @@
             "margin:8px 0 2px 0;" +
             "grid-column:1/-1;" +
             "min-width:0;position:relative;";
-          wrap.draggable = true;
+          // Krok H+7 (26.5.2026): wrap.draggable DROPPED.
 
           // Label tag v levem hornim rohu — clickable settings
           const tag = document.createElement("div");
@@ -7105,10 +7017,9 @@
             this._openContainerSettings(container);
           });
 
-          // Drag listeners — analog panel (reorder + cross-container move
-          // pres _attachContainerDragEvents). Marti muze drag groupbox
-          // mezi panely / reorder uvnitr panelu.
-          this._attachContainerDragEvents(wrap, container);
+          // Krok H+7 (26.5.2026): drag listeners DROPPED. Reorder pres
+          // palette ↑/↓ buttons (Krok H+5/H+6). Label tag + dashed border
+          // zustavaji jako DESIGN-only identifier — bez drag affordance.
         } else {
           // PROD mode: existing visual styling (border-top / 'all')
           if (borderMode === "all") {

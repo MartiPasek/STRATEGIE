@@ -1379,6 +1379,26 @@
       row.appendChild(moveBtns);
       row.appendChild(typeSel);
       row.appendChild(settingsBtn);
+
+      // Phase 38.4 Krok H+7 (26.5.2026, Marti's "fajn orchestrovat klikem
+      // na komponentu v druhem okne. Zvyraznit ji"): klik na radek →
+      // highlight komponenty na formulari (flash outline). Skip pokud
+      // klik byl na interactive element (button / select / input) —
+      // tam ma click vlastni semantiku (delete / type change / settings).
+      row.style.cursor = "pointer";
+      row.title = "Klikni pro zvýraznění komponenty na formuláři";
+      row.addEventListener("click", (ev) => {
+        const tag = ev.target && ev.target.tagName;
+        if (tag === "BUTTON" || tag === "SELECT" || tag === "INPUT" ||
+            tag === "TEXTAREA" || tag === "OPTION") {
+          return;  // necht native action chodi
+        }
+        if (typeof this.opts.onHighlightComponent === "function" &&
+            col.existing_comp_def_id != null) {
+          try { this.opts.onHighlightComponent(col.existing_comp_def_id); }
+          catch (e) { console.error("[FieldPickerModal] onHighlightComponent failed:", e); }
+        }
+      });
       return row;
     }
 
@@ -2180,6 +2200,26 @@
       row.appendChild(moveBtns);
       row.appendChild(idBadge);
       row.appendChild(settingsBtn);
+
+      // Phase 38.4 Krok H+7 (26.5.2026, Marti's "orchestrovat klikem na
+      // komponentu v druhem okne i komponentu"): symetrie s _renderOnFormRow.
+      // Klik na radek containeru (panel/groupbox/pagecontrol/tabsheet) →
+      // flash highlight na formulari. Skip pokud klik byl na interactive
+      // element (button/radio/select) — tam ma click vlastni semantiku.
+      row.style.cursor = "pointer";
+      row.title = "Klikni pro zvýraznění komponenty na formuláři";
+      row.addEventListener("click", (ev) => {
+        const tag = ev.target && ev.target.tagName;
+        if (tag === "BUTTON" || tag === "SELECT" || tag === "INPUT" ||
+            tag === "TEXTAREA" || tag === "OPTION" || tag === "LABEL") {
+          return;
+        }
+        if (typeof this.opts.onHighlightComponent === "function" &&
+            cont.comp_def_id != null) {
+          try { this.opts.onHighlightComponent(cont.comp_def_id); }
+          catch (e) { console.error("[FieldPickerModal] onHighlightComponent failed:", e); }
+        }
+      });
       return row;
     }
   }

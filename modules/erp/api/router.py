@@ -8360,14 +8360,20 @@ def design_list_entity_columns(
         # ne direct pod form root.
         existing_by_name: dict[str, dict[str, object]] = {}
         if parent_comp_def_id is not None:
+            # Phase 38.4 Krok H+5+++ (26.5.2026 vecer, Marti's "sipky misto
+            # drag-drop"): rozsireno o parent_comp_def_id + sort_order pro
+            # frontend reorder/unnest tlacitka. Drag-drop UX neni spolehlivy
+            # (drop target ambiguity); explicit ↑ ↓ ← arrows are reliable.
             existing_rows = ds_lec.execute(_sql_text_lec("""
                 WITH RECURSIVE descendants AS (
-                    SELECT id, name, caption, region_slot, type_id
+                    SELECT id, name, caption, region_slot, type_id,
+                           parent_comp_def_id, sort_order
                     FROM fw.comp_def
                     WHERE parent_comp_def_id = :pid
                       AND is_active = true
                     UNION ALL
-                    SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id
+                    SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id,
+                           cd.parent_comp_def_id, cd.sort_order
                     FROM fw.comp_def cd
                     INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
                     WHERE cd.is_active = true
@@ -8382,6 +8388,8 @@ def design_list_entity_columns(
                         "caption": ex_row["caption"],
                         "region_slot": ex_row["region_slot"],
                         "type_id": ex_row["type_id"],
+                        "parent_comp_def_id": ex_row["parent_comp_def_id"],
+                        "sort_order": ex_row["sort_order"],
                     }
     finally:
         ds_lec.close()
@@ -8403,6 +8411,12 @@ def design_list_entity_columns(
             "existing_label": ex_match["caption"] if ex_match else None,
             "existing_region_slot": ex_match["region_slot"] if ex_match else None,
             "existing_type_id": ex_match["type_id"] if ex_match else None,
+            # Krok H+5+++ (26.5.2026): pro arrow buttons frontend potrebuje
+            # parent + sort_order. Bez nich nelze spocitat siblings / target.
+            "existing_parent_comp_def_id": (
+                ex_match["parent_comp_def_id"] if ex_match else None
+            ),
+            "existing_sort_order": ex_match["sort_order"] if ex_match else None,
         })
 
     # Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
@@ -8418,7 +8432,7 @@ def design_list_entity_columns(
             cont_rows = ds_lec2.execute(_sql_text_lec("""
                 WITH RECURSIVE descendants AS (
                     SELECT cd.id, cd.name, cd.caption, cd.region_slot,
-                           cd.type_id, cd.parent_comp_def_id,
+                           cd.type_id, cd.parent_comp_def_id, cd.sort_order,
                            ct.code AS type_code, ct.label AS type_label,
                            ct.kind AS type_kind
                     FROM fw.comp_def cd
@@ -8427,7 +8441,7 @@ def design_list_entity_columns(
                       AND cd.is_active = true
                     UNION ALL
                     SELECT cd.id, cd.name, cd.caption, cd.region_slot,
-                           cd.type_id, cd.parent_comp_def_id,
+                           cd.type_id, cd.parent_comp_def_id, cd.sort_order,
                            ct.code, ct.label, ct.kind
                     FROM fw.comp_def cd
                     JOIN fw.comp_type ct ON ct.id = cd.type_id
@@ -8449,6 +8463,8 @@ def design_list_entity_columns(
                     "type_label": cont["type_label"],
                     "region_slot": cont["region_slot"],
                     "parent_comp_def_id": cont["parent_comp_def_id"],
+                    # Krok H+5+++ (26.5.2026): sort_order pro arrow buttons.
+                    "sort_order": cont["sort_order"],
                 })
         finally:
             ds_lec2.close()

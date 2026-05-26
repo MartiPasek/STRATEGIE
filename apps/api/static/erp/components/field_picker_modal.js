@@ -767,13 +767,207 @@
 
     // Phase 38.4 Krok 14c+1: render row v tabu "Již na formě".
     // Read-only display (name, caption, current type) + ✕ remove button.
+    // ─────────────────────────────────────────────────────────────────
+    // Phase 38.4 Krok H+5+++ (26.5.2026 vecer, Marti's "sipky misto
+    // drag-drop"): explicit ← ↑ ↓ tlacitka pro reorder/unnest.
+    //
+    // Drag-drop UX je krehky (drop target ambiguity → "self-parent"
+    // toasts pri omylu). Explicit buttons jsou spolehlive:
+    //   ← outdent (move to parent's parent)
+    //   ↑ swap sort_order s prev sibling
+    //   ↓ swap sort_order s next sibling
+    //
+    // Backend: PATCH /comp-def/update (parent_comp_def_id) + PUT
+    // /comp-def/reorder (sort_order multiples of 10).
+    // ─────────────────────────────────────────────────────────────────
+
+    // Build sibling list (fields + containers s same parent) sorted by sort_order.
+    _getAllSiblings(parentId) {
+      const result = [];
+      for (const c of (this._columnsOnForm || [])) {
+        if (c.existing_comp_def_id != null
+            && c.existing_parent_comp_def_id === parentId) {
+          result.push({
+            id: c.existing_comp_def_id,
+            sort: c.existing_sort_order || 0,
+          });
+        }
+      }
+      for (const cn of (this._existingContainers || [])) {
+        if (cn.parent_comp_def_id === parentId) {
+          result.push({
+            id: cn.comp_def_id,
+            sort: cn.sort_order || 0,
+          });
+        }
+      }
+      result.sort((a, b) => (a.sort || 0) - (b.sort || 0));
+      return result;
+    }
+
+    // Lookup parent_comp_def_id pro dany comp_def_id (pro outdent grandparent).
+    _findParentOf(compDefId) {
+      for (const c of (this._columnsOnForm || [])) {
+        if (c.existing_comp_def_id === compDefId) {
+          return c.existing_parent_comp_def_id != null
+            ? c.existing_parent_comp_def_id : null;
+        }
+      }
+      for (const cn of (this._existingContainers || [])) {
+        if (cn.comp_def_id === compDefId) {
+          return cn.parent_comp_def_id != null
+            ? cn.parent_comp_def_id : null;
+        }
+      }
+      return null;
+    }
+
+    // Single arrow button factory (←, ↑, ↓).
+    _mkArrowBtn(label, enabled, tooltip, onClick) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.textContent = label;
+      btn.title = tooltip;
+      btn.disabled = !enabled;
+      btn.style.cssText =
+        "width:30px;height:28px;border-radius:3px;font-size:14px;font-weight:600;line-height:1;" +
+        (enabled
+          ? "background:#1f2530;border:1px solid #3a4754;color:#7ed4e8;cursor:pointer;"
+          : "background:#0f1418;border:1px solid #1f2530;color:#3a4754;cursor:not-allowed;opacity:0.5;");
+      if (enabled) {
+        btn.addEventListener("mouseenter", () => {
+          btn.style.background = "#2a3340";
+          btn.style.borderColor = "#7ed4e8";
+        });
+        btn.addEventListener("mouseleave", () => {
+          btn.style.background = "#1f2530";
+          btn.style.borderColor = "#3a4754";
+        });
+        btn.addEventListener("click", onClick);
+      }
+      return btn;
+    }
+
+    // Build wrapper s 3 buttons (← ↑ ↓) pro dany comp_def_id.
+    _makeMoveButtons(compDefId, parentId, sortOrder) {
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "display:flex;gap:4px;align-items:center;justify-content:flex-start;";
+
+      const siblings = this._getAllSiblings(parentId);
+      const myIdx = siblings.findIndex((s) => s.id === compDefId);
+      const canUp = myIdx > 0;
+      const canDown = myIdx >= 0 && myIdx < siblings.length - 1;
+
+      const formRootId = this.opts.parentCompDefId;
+      // ← outdent: parent musi byt != form_root (jinak uz jsme nejvyse)
+      const canLeft = parentId != null && parentId !== formRootId;
+
+      const self = this;
+      // ← (outdent)
+      wrap.appendChild(this._mkArrowBtn("←", canLeft,
+        canLeft ? "Vyjmout o úroveň výš (move to parent's parent)"
+                : "Už je na nejvyšší úrovni",
+        () => self._moveOutdent(compDefId, parentId)));
+      // ↑ (up)
+      wrap.appendChild(this._mkArrowBtn("↑", canUp,
+        canUp ? "Posunout výš mezi sourozenci"
+              : "Už je první v rámci containeru",
+        () => self._moveUpDown(compDefId, parentId, -1)));
+      // ↓ (down)
+      wrap.appendChild(this._mkArrowBtn("↓", canDown,
+        canDown ? "Posunout níž mezi sourozenci"
+                : "Už je poslední v rámci containeru",
+        () => self._moveUpDown(compDefId, parentId, +1)));
+
+      return wrap;
+    }
+
+    // Move up/down: swap sort_order s adjacent sibling, PUT reorder vsech.
+    async _moveUpDown(compDefId, parentId, direction) {
+      const siblings = this._getAllSiblings(parentId);
+      const myIdx = siblings.findIndex((s) => s.id === compDefId);
+      if (myIdx < 0) return;
+      const targetIdx = myIdx + direction;
+      if (targetIdx < 0 || targetIdx >= siblings.length) return;
+
+      // Swap positions
+      const reordered = siblings.slice();
+      const tmp = reordered[myIdx];
+      reordered[myIdx] = reordered[targetIdx];
+      reordered[targetIdx] = tmp;
+      // Renumber multiples of 10
+      const payload = reordered.map((s, i) => ({
+        id: s.id,
+        sort_order: (i + 1) * 10,
+      }));
+
+      try {
+        const r = await fetch("/api/v1/erp/design/comp-def/reorder", {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ field_orders: payload }),
+        });
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (eb.error || r.statusText));
+        }
+        _showToast(direction < 0 ? "↑ Posunuto výš" : "↓ Posunuto níž",
+                   "success", 1500);
+        await this._refreshState();
+        this._render();
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ reordered: 1 }); } catch (e) {}
+        }
+      } catch (e) {
+        console.error("[FieldPickerModal] move up/down failed:", e);
+        _showToast("Posun selhal: " + (e.message || e), "error", 3000);
+      }
+    }
+
+    // Outdent: PATCH parent_comp_def_id = grandparent.
+    async _moveOutdent(compDefId, currentParentId) {
+      const grandParentId = this._findParentOf(currentParentId);
+      if (grandParentId == null) {
+        _showToast("Nelze posunout dál (už je na nejvyšší úrovni)",
+                   "info", 2000);
+        return;
+      }
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + compDefId,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parent_comp_def_id: grandParentId }),
+          }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (eb.error || r.statusText));
+        }
+        _showToast("← Vyjmuto o úroveň výš", "success", 1500);
+        await this._refreshState();
+        this._render();
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ outdented: 1 }); } catch (e) {}
+        }
+      } catch (e) {
+        console.error("[FieldPickerModal] outdent failed:", e);
+        _showToast("Vyjmutí selhalo: " + (e.message || e), "error", 3000);
+      }
+    }
+
     _renderOnFormRow(col) {
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "X jako prvni"):
       // Grid template column order: 32px (remove) | 200px | 1fr | 140px.
       // Symetrie s "Schazi pridat" tab kde checkbox je prvni (left).
       const row = document.createElement("div");
+      // Krok H+5+++ (26.5.2026): pridana sloupec pro arrow buttons (110px)
+      // mezi meta a typeSel — Marti's "do druhe tretiny vpravo".
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 200px 1fr 140px 32px;" +
+        "display:grid;grid-template-columns:32px 200px 1fr 110px 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "background:rgba(126,212,232,0.04);";
 
@@ -912,10 +1106,18 @@
         typeId: col.existing_type_id,
       });
 
+      // Krok H+5+++ (26.5.2026): move buttons (← ↑ ↓) mezi meta a typeSel.
+      const moveBtns = this._makeMoveButtons(
+        col.existing_comp_def_id,
+        col.existing_parent_comp_def_id,
+        col.existing_sort_order
+      );
+
       // X jako prvni — symetrie s "Schazi pridat" checkbox left placement
       row.appendChild(removeBtn);
       row.appendChild(labelWrap);
       row.appendChild(meta);
+      row.appendChild(moveBtns);
       row.appendChild(typeSel);
       row.appendChild(settingsBtn);
       return row;
@@ -1548,10 +1750,12 @@
       const isActive = this._activeContainerCompDefId === cont.comp_def_id;
       const row = document.createElement("div");
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
-      // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 140px (id).
+      // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 110px (arrows) | 140px (id) | 32px (settings).
+      // Krok H+5+++ (26.5.2026 vecer, Marti's "sipky"): pridana sloupec
+      // pro move buttons (← ↑ ↓) mezi meta a id badge.
       // Aktivni container ma green tint background + bold label.
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 24px 200px 1fr 140px 32px;" +
+        "display:grid;grid-template-columns:32px 24px 200px 1fr 110px 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         (isActive
           ? "background:rgba(93,191,93,0.12);border-left:3px solid #5dbf5d;"
@@ -1677,10 +1881,18 @@
         layout: cont.layout,
       });
 
+      // Krok H+5+++ (26.5.2026): move buttons (← ↑ ↓) mezi meta a idBadge.
+      const moveBtns = this._makeMoveButtons(
+        cont.comp_def_id,
+        cont.parent_comp_def_id,
+        cont.sort_order
+      );
+
       row.appendChild(removeBtn);
       row.appendChild(radioWrap);
       row.appendChild(labelWrap);
       row.appendChild(meta);
+      row.appendChild(moveBtns);
       row.appendChild(idBadge);
       row.appendChild(settingsBtn);
       return row;

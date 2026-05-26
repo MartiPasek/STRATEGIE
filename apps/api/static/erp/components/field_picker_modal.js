@@ -1185,6 +1185,31 @@
           isPinned  // active state visualization
         ));
       }
+
+      // Phase 38.4 Krok H+10 (26.5.2026, Marti's "potrebuju dostat Core,
+      // Refresh a Status do panelu — bez sipky doprava si neporadime"):
+      // → indent — vnorit do predchoziho sibling containeru. Universalne
+      // pro fields i containers (kazda komponenta muze byt vnorena pokud
+      // ma predchoziho container souroda).
+      // canIndent = je-li mezi predchozimi siblings nejaky container.
+      const siblings = this._getAllSiblings(parentId);
+      const myIdxInSiblings = siblings.findIndex((s) => s.id === compDefId);
+      let hasPrecedingContainer = false;
+      if (myIdxInSiblings > 0) {
+        for (let i = myIdxInSiblings - 1; i >= 0; i--) {
+          const sib = siblings[i];
+          if ((this._existingContainers || []).some(c => c.comp_def_id === sib.id)) {
+            hasPrecedingContainer = true;
+            break;
+          }
+        }
+      }
+      wrap.appendChild(this._mkArrowBtn("→", hasPrecedingContainer,
+        hasPrecedingContainer
+          ? "Vnořit do předchozího containeru (panel/groupbox/tab)"
+          : "Není kam vnořit (žádný container před touto komponentou)",
+        () => self._moveIndent(compDefId, parentId)
+      ));
       // ↑ (linearized up — cross-container OK)
       wrap.appendChild(this._mkArrowBtn("↑", canUp,
         canUp ? "Posunout výš ve stromu (i napříč containery)"
@@ -1281,6 +1306,64 @@
       }
     }
 
+    // Phase 38.4 Krok H+10 (26.5.2026, Marti's "potrebuju dostat Core,
+    // Refresh a Status do panelu — bez sipky doprava si neporadime"):
+    // Indent — vnorit komponentu do PREDCHOZIHO sibling containeru.
+    // Pattern: find siblings of compDefId, walk backward, najit prvni
+    // container (panel/groupbox/pagecontrol/tabsheet), PATCH parent_comp_def_id.
+    // Sort order zustava — Marti pak muze pres ↑/↓ uvnitr noveho parenta.
+    async _moveIndent(compDefId, currentParentId) {
+      const siblings = this._getAllSiblings(currentParentId);
+      const myIdx = siblings.findIndex((s) => s.id === compDefId);
+      if (myIdx <= 0) {
+        _showToast("Není kam vnořit (žádná předchozí komponenta)", "info", 2000);
+        return;
+      }
+      // Walk backward, najit prvni container mezi predchozimi siblings.
+      // Container = jen ten je v _existingContainers list (panel/groupbox/
+      // pagecontrol/tabsheet). Fields tam nejsou.
+      let targetContainerId = null;
+      for (let i = myIdx - 1; i >= 0; i--) {
+        const sib = siblings[i];
+        const isContainer = (this._existingContainers || []).some(
+          (c) => c.comp_def_id === sib.id
+        );
+        if (isContainer) {
+          targetContainerId = sib.id;
+          break;
+        }
+      }
+      if (targetContainerId == null) {
+        _showToast("Není kam vnořit (žádný container před touto komponentou)",
+                   "info", 2500);
+        return;
+      }
+      try {
+        const r = await fetch(
+          "/api/v1/erp/design/comp-def/update/" + compDefId,
+          {
+            method: "PATCH",
+            credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ parent_comp_def_id: targetContainerId }),
+          }
+        );
+        if (!r.ok) {
+          const eb = await r.json().catch(() => ({}));
+          throw new Error("HTTP " + r.status + ": " + (eb.error || r.statusText));
+        }
+        _showToast("→ Vnořeno do containeru", "success", 1500);
+        await this._refreshState();
+        this._render();
+        if (typeof this.opts.onComplete === "function") {
+          try { this.opts.onComplete({ indented: 1 }); } catch (e) {}
+        }
+      } catch (e) {
+        console.error("[FieldPickerModal] indent failed:", e);
+        _showToast("Vnoření selhalo: " + (e.message || e), "error", 3000);
+      }
+    }
+
     // Outdent: PATCH parent_comp_def_id = grandparent.
     async _moveOutdent(compDefId, currentParentId) {
       const grandParentId = this._findParentOf(currentParentId);
@@ -1331,7 +1414,7 @@
       // ve flat DOM. Field = leaf, vetsinou depth >= 1 (uvnitr panelu).
       const _d = depth || 0;
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 200px 1fr 110px 140px 32px;" +
+        "display:grid;grid-template-columns:32px 200px 1fr 140px 140px 32px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "background:rgba(126,212,232,0.04);" +
         (_d > 0 ? "margin-left:" + (_d * 20) + "px;" : "");

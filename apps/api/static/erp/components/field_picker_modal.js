@@ -37,6 +37,20 @@
       this._columns = [];         // [{name, caption_default, suggested_type_id, ...}]
       this._selected = new Set(); // column names checked
       this._typeOverrides = {};   // column.name -> type_id (override)
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
+      // Active container = target parent pro nove komponenty z palety.
+      // null = pridava do form root (default). Klik na radio v "Jiz na forme"
+      // container row prepne active. Single-select (jeden na formular).
+      this._activeContainerCompDefId = null;
+    }
+
+    /**
+     * Resolve target parent_comp_def_id pro novou komponentu:
+     * - active container (Marti's radio button volba) pokud existuje
+     * - fallback form root (parentCompDefId)
+     */
+    _resolveTargetParentId() {
+      return this._activeContainerCompDefId || this.opts.parentCompDefId;
     }
 
     async open() {
@@ -839,7 +853,7 @@
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              parent_comp_def_id: this.opts.parentCompDefId,
+              parent_comp_def_id: this._resolveTargetParentId(),
               name: autoName,
               caption: ct.label,
               type_id: ct.id,
@@ -912,7 +926,7 @@
             credentials: "include",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              parent_comp_def_id: this.opts.parentCompDefId,
+              parent_comp_def_id: this._resolveTargetParentId(),
               name: col.name,
               caption: col.caption_default,
               type_id: typeId,
@@ -1144,11 +1158,17 @@
     // (column input), ale meta = type_label badge (panel/groupbox/...).
     // X click = instant DELETE (Marti's "orchestr") + live sync.
     _renderOnFormContainerRow(cont) {
+      const isActive = this._activeContainerCompDefId === cont.comp_def_id;
       const row = document.createElement("div");
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
+      // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 140px (id).
+      // Aktivni container ma green tint background + bold label.
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 200px 1fr 140px;" +
+        "display:grid;grid-template-columns:32px 24px 200px 1fr 140px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
-        "background:rgba(168,140,212,0.06);";  // purple tint pro containers
+        (isActive
+          ? "background:rgba(93,191,93,0.12);border-left:3px solid #5dbf5d;"
+          : "background:rgba(168,140,212,0.06);");
 
       // X remove button (PRVNI sloupec — parita s "Schazi pridat" cb)
       const removeBtn = document.createElement("button");
@@ -1194,6 +1214,38 @@
         }
       });
 
+      // Radio button — single-select active container (Marti's pattern).
+      // Klik = activate this container (deactivate predchozi), nove
+      // komponenty pak jdou jako deti tohoto containeru.
+      const radioWrap = document.createElement("div");
+      radioWrap.style.cssText =
+        "display:flex;align-items:center;justify-content:center;cursor:pointer;";
+      radioWrap.title = isActive
+        ? "Aktivní cíl — nové komponenty z palety půjdou sem"
+        : "Klik = nastavit jako aktivní cíl (jeden na formuláři)";
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "fpm_active_container";  // single-select group
+      radio.checked = isActive;
+      radio.style.cssText = "width:16px;height:16px;cursor:pointer;accent-color:#5dbf5d;";
+      radio.addEventListener("change", () => {
+        if (radio.checked) {
+          this._activeContainerCompDefId = cont.comp_def_id;
+          _showToast(
+            "Aktivní cíl: " + (cont.caption || cont.type_label),
+            "info", 1500
+          );
+          this._render();  // re-render — highlight + tab counter hint
+        }
+      });
+      radioWrap.appendChild(radio);
+      radioWrap.addEventListener("click", (ev) => {
+        if (ev.target !== radio) {
+          radio.checked = true;
+          radio.dispatchEvent(new Event("change"));
+        }
+      });
+
       // Caption + name (analog input row)
       const labelWrap = document.createElement("div");
       labelWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;";
@@ -1201,7 +1253,9 @@
       labelName.style.cssText = "font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#a88cd4;";
       labelName.textContent = cont.name || "(no name)";
       const labelCap = document.createElement("div");
-      labelCap.style.cssText = "font-size:13px;color:#e8eef5;";
+      labelCap.style.cssText =
+        "font-size:13px;color:#e8eef5;" +
+        (isActive ? "font-weight:700;" : "");
       labelCap.textContent = cont.caption || cont.type_label;
       labelWrap.appendChild(labelName);
       labelWrap.appendChild(labelCap);
@@ -1220,6 +1274,7 @@
       idBadge.textContent = "id=" + cont.comp_def_id;
 
       row.appendChild(removeBtn);
+      row.appendChild(radioWrap);
       row.appendChild(labelWrap);
       row.appendChild(meta);
       row.appendChild(idBadge);

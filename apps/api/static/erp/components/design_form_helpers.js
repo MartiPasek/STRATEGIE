@@ -573,15 +573,24 @@
       "  border-radius: 4px;\n" +
       "  animation: erpFlashHighlight 1500ms ease-out forwards;\n" +
       "}\n" +
-      // Krok H+8 (26.5.2026, Marti's "obracene orchestrace"): palette row
-      // flash highlight — symetrie s .erp-design-flash-highlight ale
-      // s inset background (řadek v listu, ne komponenta s borderem).
-      "@keyframes erpPaletteRowFlash {\n" +
-      "  0% { background: rgba(255, 165, 80, 0.35); box-shadow: inset 4px 0 0 #ffa550; }\n" +
-      "  100% { background: transparent; box-shadow: inset 0 0 0 transparent; }\n" +
+      // Krok H+8.1 (26.5.2026, Marti's "hover = transient, klik = persistent"):
+      // 2 separate state classes pro palette row.
+      // .erp-palette-row-hover — transient (cursor preview, subtle bg)
+      // .erp-palette-row-selected — persistent (klik na komponente na forme,
+      //                              single-select pattern, drz az do dalsi).
+      ".erp-palette-row-hover {\n" +
+      "  background: rgba(126, 212, 232, 0.10) !important;\n" +
+      "  box-shadow: inset 3px 0 0 rgba(126, 212, 232, 0.5);\n" +
+      "  transition: background 120ms ease, box-shadow 120ms ease;\n" +
       "}\n" +
-      ".erp-palette-row-flash {\n" +
-      "  animation: erpPaletteRowFlash 1500ms ease-out forwards;\n" +
+      ".erp-palette-row-selected {\n" +
+      "  background: rgba(126, 212, 232, 0.18) !important;\n" +
+      "  box-shadow: inset 4px 0 0 #7ed4e8;\n" +
+      "  transition: background 150ms ease, box-shadow 150ms ease;\n" +
+      "}\n" +
+      // Pokud hover + selected — selected vyhrava (silnejsi accent).
+      ".erp-palette-row-selected.erp-palette-row-hover {\n" +
+      "  background: rgba(126, 212, 232, 0.22) !important;\n" +
       "}\n" +
       // Phase 38.4 Krok 14c+2 part A.1 (14.5.2026 odpoledne, Marti's
       // "drag jen ta komponenta uvnitr, ne cela karta"):

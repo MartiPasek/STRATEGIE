@@ -391,59 +391,76 @@
       });
       document.body.appendChild(this._shell.overlay);
 
-      // Phase 38.4 Krok H+8 (26.5.2026, Marti's "obracene orchestrace —
-      // klik na komponentu na formulari → highlight radek v palete"):
-      // Listen for custom event z DesignFwForm (field click / panel
-      // label dblclick). Find row by data-comp-def-id + flash highlight
-      // + scroll into view. Plus switch tab na "Jiz na forme" pokud
-      // user je v jinem tabu.
+      // Phase 38.4 Krok H+8.1 (26.5.2026, Marti's "hover = transient,
+      // klik = persistent"):
+      // Listen for 'erp:design-component-orchestrate' z DesignFwForm.
+      // 3 akce:
+      //   hover-in → add .erp-palette-row-hover (transient subtle bg)
+      //   hover-out → remove .erp-palette-row-hover
+      //   select → drop all .erp-palette-row-selected, add to current
+      //            row, switch tab + scroll into view (persistent
+      //            single-select pattern)
       this._reverseOrchestrationHandler = (ev) => {
         try {
-          const compDefId = ev && ev.detail && ev.detail.compDefId;
-          if (compDefId == null) return;
-          // Switch na onform tab pokud je jinde
-          if (this._activeTab !== "onform") {
-            this._activeTab = "onform";
-            try { this._render(); } catch (e) {}
+          const detail = (ev && ev.detail) || {};
+          const action = detail.action;
+          const compDefId = detail.compDefId;
+          if (!action) return;
+          const body = this._shell && this._shell.body;
+          if (!body) return;
+
+          if (action === "hover-out") {
+            // Drop hover class globally (cheap — typically 0-1 active rows)
+            body.querySelectorAll(".erp-palette-row-hover").forEach(el => {
+              el.classList.remove("erp-palette-row-hover");
+            });
+            return;
           }
-          // Find row v palette body (defer 1 frame — re-render async)
-          requestAnimationFrame(() => {
-            try {
-              const body = this._shell && this._shell.body;
-              if (!body) return;
-              const row = body.querySelector(
-                '[data-comp-def-id="' + compDefId + '"]'
-              );
-              if (!row) {
-                console.info("[FieldPickerModal] reverse orchestration: row id=" + compDefId + " nenalezen (asi neexistuje v aktualnim tabu)");
-                return;
-              }
-              // Drop predchozi flash
-              body.querySelectorAll(".erp-palette-row-flash").forEach(el => {
-                el.classList.remove("erp-palette-row-flash");
-              });
-              // Scroll do view (center)
-              try {
-                row.scrollIntoView({ behavior: "smooth", block: "center" });
-              } catch (e) {
-                try { row.scrollIntoView(); } catch (e2) {}
-              }
-              // Flash class na ~1.5s (CSS animation z design_form_helpers.js
-              // .erp-palette-row-flash analog k .erp-design-flash-highlight)
-              row.classList.add("erp-palette-row-flash");
-              setTimeout(() => {
-                try { row.classList.remove("erp-palette-row-flash"); } catch (e) {}
-              }, 1500);
-            } catch (e) {
-              console.error("[FieldPickerModal] reverse orchestration render failed:", e);
+          if (compDefId == null) return;
+
+          if (action === "hover-in") {
+            // Drop predchozi hover + apply na novy (single hover at a time)
+            body.querySelectorAll(".erp-palette-row-hover").forEach(el => {
+              el.classList.remove("erp-palette-row-hover");
+            });
+            const row = body.querySelector('[data-comp-def-id="' + compDefId + '"]');
+            if (row) row.classList.add("erp-palette-row-hover");
+            return;
+          }
+
+          if (action === "select") {
+            // Persistent selection — switch na onform tab + scroll +
+            // drop predchozi selected + apply na novy.
+            if (this._activeTab !== "onform") {
+              this._activeTab = "onform";
+              try { this._render(); } catch (e) {}
             }
-          });
+            requestAnimationFrame(() => {
+              try {
+                const _body = this._shell && this._shell.body;
+                if (!_body) return;
+                _body.querySelectorAll(".erp-palette-row-selected").forEach(el => {
+                  el.classList.remove("erp-palette-row-selected");
+                });
+                const row = _body.querySelector('[data-comp-def-id="' + compDefId + '"]');
+                if (!row) return;
+                row.classList.add("erp-palette-row-selected");
+                try {
+                  row.scrollIntoView({ behavior: "smooth", block: "center" });
+                } catch (e) {
+                  try { row.scrollIntoView(); } catch (e2) {}
+                }
+              } catch (e) {
+                console.error("[FieldPickerModal] select render failed:", e);
+              }
+            });
+          }
         } catch (e) {
           console.error("[FieldPickerModal] reverse orchestration handler failed:", e);
         }
       };
       document.body.addEventListener(
-        "erp:design-component-clicked",
+        "erp:design-component-orchestrate",
         this._reverseOrchestrationHandler
       );
       // Cleanup pri zavreni palety — pri shell close odregistruj listener.
@@ -451,7 +468,7 @@
       this._shell.close = () => {
         try {
           document.body.removeEventListener(
-            "erp:design-component-clicked",
+            "erp:design-component-orchestrate",
             this._reverseOrchestrationHandler
           );
         } catch (e) {}

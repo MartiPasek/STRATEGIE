@@ -1152,6 +1152,74 @@
         // - Vertical: 16px → 8px (na polovinu)
         // Compact ale stale visible breathing room od edges modalu.
         this._shell.body.style.padding = "8px 12px";
+
+        // Phase 38.4 Krok H+8.1 (26.5.2026, Marti's "stejnym zpusobem
+        // jako ikonky pri hover — klik = persistent"):
+        // Document-level orchestrace na shell.body. Hover (mouseover)
+        // dispatches 'hover-in', mouseleave shell.body dispatches
+        // 'hover-out'. Click dispatches 'select' (persistent v palete).
+        // Pres closest('[data-comp-def-id]') najdeme nejvnitrnejsi
+        // komponentu — pattern handluje nested fields v panelech (hover
+        // transit field→panel→field chodi spravne).
+        const _orchBody = this._shell.body;
+        const _dispatchOrch = (action, compDefId) => {
+          try {
+            document.body.dispatchEvent(new CustomEvent("erp:design-component-orchestrate", {
+              detail: { action: action, compDefId: compDefId },
+              bubbles: false,
+            }));
+          } catch (e) { /* defensive */ }
+        };
+        this._lastHoverCompDefId = null;
+        const _onOrchMouseover = (ev) => {
+          // Skip pokud over interactive child — necht native UX
+          const tag = ev.target && ev.target.tagName;
+          if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" ||
+              tag === "SELECT" || tag === "OPTION") {
+            return;
+          }
+          const comp = ev.target.closest && ev.target.closest("[data-comp-def-id]");
+          const newId = comp ? comp.dataset.compDefId : null;
+          if (newId === this._lastHoverCompDefId) return;  // dedup
+          if (this._lastHoverCompDefId != null) {
+            _dispatchOrch("hover-out", this._lastHoverCompDefId);
+          }
+          this._lastHoverCompDefId = newId;
+          if (newId != null) _dispatchOrch("hover-in", newId);
+        };
+        const _onOrchMouseleave = () => {
+          if (this._lastHoverCompDefId != null) {
+            _dispatchOrch("hover-out", this._lastHoverCompDefId);
+            this._lastHoverCompDefId = null;
+          }
+        };
+        const _onOrchClick = (ev) => {
+          const tag = ev.target && ev.target.tagName;
+          if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" ||
+              tag === "SELECT" || tag === "OPTION" || tag === "LABEL") {
+            return;  // necht native action chodi (delete/edit/dropdown)
+          }
+          const comp = ev.target.closest && ev.target.closest("[data-comp-def-id]");
+          if (!comp) return;
+          const compDefId = comp.dataset.compDefId;
+          if (compDefId == null) return;
+          _dispatchOrch("select", compDefId);
+        };
+        _orchBody.addEventListener("mouseover", _onOrchMouseover);
+        _orchBody.addEventListener("mouseleave", _onOrchMouseleave);
+        _orchBody.addEventListener("click", _onOrchClick);
+        // Cleanup pri shell close (memory leak prevent)
+        try {
+          const _origClose = this._shell.close;
+          this._shell.close = () => {
+            try {
+              _orchBody.removeEventListener("mouseover", _onOrchMouseover);
+              _orchBody.removeEventListener("mouseleave", _onOrchMouseleave);
+              _orchBody.removeEventListener("click", _onOrchClick);
+            } catch (e) {}
+            try { _origClose.call(this._shell); } catch (e) {}
+          };
+        } catch (e) {}
       }
 
       const loading = document.createElement("div");
@@ -3886,26 +3954,12 @@
         this._openFieldSettings(field);
       });
 
-      // Phase 38.4 Krok H+8 (26.5.2026, Marti's "reverse orchestrace —
-      // klik na formulari → highlight komponenty v palete"): dispatch
-      // custom event 'erp:design-component-clicked'. FieldPickerModal
-      // (pokud otevreny) ho odchyti a flash radek + scroll v palete.
-      // Decoupled — DesignFwForm nevi o palete, palette odebira event
-      // ze body. Skip pokud klik byl na interactive child (input/button)
-      // — tam ma click vlastni semantiku.
-      wrap.addEventListener("click", (ev) => {
-        const tag = ev.target && ev.target.tagName;
-        if (tag === "INPUT" || tag === "BUTTON" || tag === "TEXTAREA" ||
-            tag === "SELECT" || tag === "OPTION" || tag === "LABEL") {
-          return;
-        }
-        try {
-          document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
-            detail: { compDefId: field.id, source: "field" },
-            bubbles: false,
-          }));
-        } catch (e) { /* defensive */ }
-      });
+      // Phase 38.4 Krok H+8.1 (26.5.2026, Marti's "intuitivnejsi pres
+      // hover + persistent click"): per-wrap click handler DROPPED.
+      // Hover/click dispatch je centralized v `open()` pres document-level
+      // listener na shell.body (mouseover/click bubble + closest()).
+      // Lepsi pro nested fields v panelech (hover transit field→panel→field
+      // chodi spravne pres closest, bez per-layer mouseenter/mouseleave race).
 
       // Phase 38.4 Krok H+7 (26.5.2026): Drag events DROPPED. Reorder
       // se nyni dela pres palette ↑/↓ buttons (Krok H+5/H+6 _moveInLinearizedTree).
@@ -6882,20 +6936,9 @@
             ev.stopPropagation();
             this._openContainerSettings(container);
           });
-          // Phase 38.4 Krok H+8 (26.5.2026): reverse orchestrace —
-          // dblclick na panel label = highlight v palete (single-click
-          // = settings, dblclick = "show me in palette"). Drz analog
-          // field click pattern.
-          lbl.addEventListener("dblclick", (ev) => {
-            ev.stopPropagation();
-            ev.preventDefault();
-            try {
-              document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
-                detail: { compDefId: container.id, source: "panel" },
-                bubbles: false,
-              }));
-            } catch (e) {}
-          });
+          // Krok H+8.1 (26.5.2026): dblclick handler DROPPED — reverse
+          // orchestrace je teted pres document-level hover/click v open()
+          // (Marti's "intuitivnejsi pres hover + persistent click").
           wrap.appendChild(lbl);
 
           // Right-click handler — open settings popup (Krok 14f-D)
@@ -7039,17 +7082,8 @@
             ev.stopPropagation();
             this._openContainerSettings(container);
           });
-          // Phase 38.4 Krok H+8 (26.5.2026): dblclick = highlight v palete
-          tag.addEventListener("dblclick", (ev) => {
-            ev.stopPropagation();
-            ev.preventDefault();
-            try {
-              document.body.dispatchEvent(new CustomEvent("erp:design-component-clicked", {
-                detail: { compDefId: container.id, source: "groupbox" },
-                bubbles: false,
-              }));
-            } catch (e) {}
-          });
+          // Krok H+8.1 (26.5.2026): dblclick handler DROPPED — orchestrace
+          // teted centralized v open() pres mouseover/click (hover + select).
           wrap.appendChild(tag);
 
           // Right-click handler — open settings popup (Krok 14f-D)

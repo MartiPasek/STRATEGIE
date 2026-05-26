@@ -148,6 +148,8 @@
         this._compTypesById = {};
         for (const ct of this._compTypes) this._compTypesById[ct.id] = ct;
         this._columns = ecData.columns || [];
+        // Phase 38.4 Krok H+5 (26.5.2026): containers v "Jiz na forme"
+        this._existingContainers = ecData.existing_containers || [];
 
         // Phase 38.4 Krok 14c+1: rozdeleni do dvou kolekci podle existing
         this._columnsAvailable = this._columns.filter(
@@ -195,8 +197,9 @@
         },
         {
           key: "onform",
+          // Phase 38.4 Krok H+5: count includes containers (panel/groupbox/...)
           label: "Již na formě",
-          count: this._columnsOnForm.length,
+          count: this._columnsOnForm.length + (this._existingContainers || []).length,
           accent: "#7ed4e8",
         },
         {
@@ -292,12 +295,19 @@
           }
         }
       } else if (this._activeTab === "onform") {
-        if (this._columnsOnForm.length === 0) {
+        // Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
+        // Render containers + inputs uniformne. Containers first (structural
+        // top), pak inputs (data fields).
+        const containers = this._existingContainers || [];
+        if (this._columnsOnForm.length === 0 && containers.length === 0) {
           const empty = document.createElement("div");
           empty.style.cssText = "padding:24px;text-align:center;color:#8a96a4;font-size:13px;";
-          empty.innerHTML = "Form je zatím prázdný — žádné pole.";
+          empty.innerHTML = "Form je zatím prázdný — žádné pole ani container.";
           content.appendChild(empty);
         } else {
+          for (const cont of containers) {
+            content.appendChild(this._renderOnFormContainerRow(cont));
+          }
           for (const col of this._columnsOnForm) {
             content.appendChild(this._renderOnFormRow(col));
           }
@@ -977,13 +987,10 @@
         previewWrap.appendChild(newIframe);
       });
 
-      // Row click toggle (except direct interaction with cb/typeSel)
-      row.addEventListener("click", (ev) => {
-        if (ev.target === cb || ev.target === typeSel ||
-            typeSel.contains(ev.target) || iframe.contains(ev.target)) return;
-        cb.checked = !cb.checked;
-        cb.dispatchEvent(new Event("change"));
-      });
+      // Phase 38.4 Krok H+5 (26.5.2026, Marti's "jen pres checkbox"):
+      // Drop row click toggle — akce jen na explicit checkbox click.
+      // Predtim klik doprostred kompounenty (label/preview) trigger POST,
+      // coz vedlo k nahodnym pridanim.
 
       row.appendChild(cb);
       row.appendChild(labelWrap);
@@ -1128,6 +1135,95 @@
       this._columns = d.columns || [];
       this._columnsAvailable = this._columns.filter(c => c.existing_comp_def_id == null);
       this._columnsOnForm = this._columns.filter(c => c.existing_comp_def_id != null);
+      // Phase 38.4 Krok H+5 (26.5.2026): refresh existing_containers
+      this._existingContainers = d.existing_containers || [];
+    }
+
+    // Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
+    // Container row v "Jiz na forme" tab. Symetrie s _renderOnFormRow
+    // (column input), ale meta = type_label badge (panel/groupbox/...).
+    // X click = instant DELETE (Marti's "orchestr") + live sync.
+    _renderOnFormContainerRow(cont) {
+      const row = document.createElement("div");
+      row.style.cssText =
+        "display:grid;grid-template-columns:32px 200px 1fr 140px;" +
+        "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
+        "background:rgba(168,140,212,0.06);";  // purple tint pro containers
+
+      // X remove button (PRVNI sloupec — parita s "Schazi pridat" cb)
+      const removeBtn = document.createElement("button");
+      removeBtn.type = "button";
+      removeBtn.textContent = "✕";
+      removeBtn.title = "Odebrat container z formuláře (soft delete)";
+      removeBtn.style.cssText =
+        "width:28px;height:28px;background:transparent;border:1px solid #3a4754;" +
+        "color:#d4888a;cursor:pointer;border-radius:3px;font-size:14px;";
+      removeBtn.addEventListener("mouseenter", () => {
+        removeBtn.style.background = "#3a1f1f";
+        removeBtn.style.borderColor = "#d4888a";
+      });
+      removeBtn.addEventListener("mouseleave", () => {
+        removeBtn.style.background = "transparent";
+        removeBtn.style.borderColor = "#3a4754";
+      });
+      removeBtn.addEventListener("click", async () => {
+        removeBtn.disabled = true;
+        try {
+          const r = await fetch(
+            "/api/v1/erp/design/comp-def/" + cont.comp_def_id,
+            { method: "DELETE", credentials: "include" }
+          );
+          if (!r.ok) {
+            const errBody = await r.json().catch(() => ({}));
+            throw new Error("HTTP " + r.status + ": " + (errBody.error || r.statusText));
+          }
+          _showToast("Container odebrán", "success");
+          // Refresh state + re-render
+          this._existingContainers = this._existingContainers.filter(
+            c => c.comp_def_id !== cont.comp_def_id
+          );
+          this._render();
+          if (typeof this.opts.onComplete === "function") {
+            try { this.opts.onComplete({ removed: 1, container: true }); }
+            catch (e) { console.error("[FieldPickerModal] onComplete failed:", e); }
+          }
+        } catch (e) {
+          console.error("[FieldPickerModal] container remove failed:", e);
+          _showToast("Odebrání selhalo: " + (e.message || e), "error", 3500);
+          removeBtn.disabled = false;
+        }
+      });
+
+      // Caption + name (analog input row)
+      const labelWrap = document.createElement("div");
+      labelWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+      const labelName = document.createElement("div");
+      labelName.style.cssText = "font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#a88cd4;";
+      labelName.textContent = cont.name || "(no name)";
+      const labelCap = document.createElement("div");
+      labelCap.style.cssText = "font-size:13px;color:#e8eef5;";
+      labelCap.textContent = cont.caption || cont.type_label;
+      labelWrap.appendChild(labelName);
+      labelWrap.appendChild(labelCap);
+
+      // Meta — type_label badge + region_slot
+      const meta = document.createElement("div");
+      meta.style.cssText = "color:#a88cd4;font-size:11px;";
+      meta.innerHTML =
+        "<span style=\"background:#2a1f3a;padding:2px 6px;border-radius:3px;margin-right:6px;color:#a88cd4;\">" +
+        (cont.type_code || "container") + "</span>" +
+        (cont.type_label || "");
+
+      // ID badge
+      const idBadge = document.createElement("div");
+      idBadge.style.cssText = "font-size:11px;color:#a88cd4;font-family:ui-monospace,Consolas,monospace;";
+      idBadge.textContent = "id=" + cont.comp_def_id;
+
+      row.appendChild(removeBtn);
+      row.appendChild(labelWrap);
+      row.appendChild(meta);
+      row.appendChild(idBadge);
+      return row;
     }
   }
 

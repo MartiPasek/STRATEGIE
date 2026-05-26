@@ -8280,11 +8280,60 @@ def design_list_entity_columns(
             "existing_type_id": ex_match["type_id"] if ex_match else None,
         })
 
+    # Phase 38.4 Krok H+5 (26.5.2026, Marti's "panel je komponenta"):
+    # Containers (panel/groupbox/pagecontrol/tabsheet) existing v form
+    # hierarchy — vrati separate list pro frontend "Jiz na forme" tab.
+    # Container = comp_type.kind = 'container' (nebo code in container set).
+    # Recursive descent z form root (parent_comp_def_id) — najde nested
+    # panely + groupboxy napric celou hierarchii.
+    containers_out = []
+    if parent_comp_def_id is not None:
+        ds_lec2 = _gds_lec()
+        try:
+            cont_rows = ds_lec2.execute(_sql_text_lec("""
+                WITH RECURSIVE descendants AS (
+                    SELECT cd.id, cd.name, cd.caption, cd.region_slot,
+                           cd.type_id, cd.parent_comp_def_id,
+                           ct.code AS type_code, ct.label AS type_label,
+                           ct.kind AS type_kind
+                    FROM fw.comp_def cd
+                    JOIN fw.comp_type ct ON ct.id = cd.type_id
+                    WHERE cd.parent_comp_def_id = :pid
+                      AND cd.is_active = true
+                    UNION ALL
+                    SELECT cd.id, cd.name, cd.caption, cd.region_slot,
+                           cd.type_id, cd.parent_comp_def_id,
+                           ct.code, ct.label, ct.kind
+                    FROM fw.comp_def cd
+                    JOIN fw.comp_type ct ON ct.id = cd.type_id
+                    INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
+                    WHERE cd.is_active = true
+                )
+                SELECT * FROM descendants
+                WHERE type_kind = 'container'
+                   OR type_code IN ('panel', 'groupbox', 'pagecontrol', 'tabsheet')
+                ORDER BY id ASC
+            """), {"pid": parent_comp_def_id}).mappings().all()
+            for cont in cont_rows:
+                containers_out.append({
+                    "comp_def_id": cont["id"],
+                    "name": cont["name"],
+                    "caption": cont["caption"],
+                    "type_id": cont["type_id"],
+                    "type_code": cont["type_code"],
+                    "type_label": cont["type_label"],
+                    "region_slot": cont["region_slot"],
+                    "parent_comp_def_id": cont["parent_comp_def_id"],
+                })
+        finally:
+            ds_lec2.close()
+
     return JSONResponse(jsonable_encoder({
         "ok": True,
         "entity_type": entity_type,
         "parent_comp_def_id": parent_comp_def_id,
         "columns": columns_out,
+        "existing_containers": containers_out,
     }))
 
 

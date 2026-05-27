@@ -62,6 +62,23 @@
 
     /** Open DesignFwForm (universal FW edit form, Marti's doctrine 17.5.). */
     function _openFwEditForm(gridCode, rowId, mode, onSaveCallback) {
+      // Phase 38.4 Krok 5.X+1 Fix I (27.5.2026, Marti's "double clik
+      // vyrendrovalo sami duplicitne"): re-open guard. Without guard,
+      // double-click on parent grid row WHILE edit form already open
+      // creates SECOND DesignFwForm instance → 2nd shell appended to
+      // document.body → 2 overlapping modals → visual confusion (Marti's
+      // "duplicate sections in same area" actually 2 modals stacked).
+      // Detection via dataset marker designFwFormRoot=1 (set v open()
+      // line 1134). Re-open → no-op + warn.
+      var existing = document.querySelector('[data-design-fw-form-root="1"]');
+      if (existing) {
+        console.warn(
+          "[ErpGridActions] DesignFwForm already open — ignore re-open " +
+          "(gridCode=" + gridCode + ", rowId=" + rowId + ", mode=" + mode + "). " +
+          "Close existing modal (X / Esc / OK) first."
+        );
+        return Promise.resolve();
+      }
       var coreId = _lookupEditFormCore(gridCode);
       if (!coreId) {
         alert(

@@ -261,6 +261,9 @@ def _resolve_operation(
     # → FK ds.db_connection_id. JOIN fw.db_connection + alias dc.default_db AS
     # db_connection (semantic preservation — legacy column stored default_db).
     # Plus dc.code AS db_connection_code (new FK identifier).
+    # CRM Foundation Krok 1 (27.5.2026): dc.db_type pro dispatch postgres / mssql
+    # Marti's catch: existing fw.db_connection má db_type sloupec od 17.5.
+    # Drží Marti-AI's "uniformita vítězí" — 1 source of truth per connection.
     query = _sql_text("""
         SELECT
             s.id AS data_source_id,
@@ -271,6 +274,7 @@ def _resolve_operation(
             ds.sql_text,
             dc.default_db AS db_connection,
             dc.code AS db_connection_code,
+            dc.db_type AS db_type,
             ds.db_connection_id,
             op.operation_kind,
             op.variant_code
@@ -369,6 +373,179 @@ def _normalize_params(
 
 
 # ════════════════════════════════════════════════════════════════════════
+# CRM Foundation Krok 1 (27.5.2026) — MSSQL path via Phase 28-C MCP klient
+# ════════════════════════════════════════════════════════════════════════
+# Marti's vize 27.5.: CRM tabulky žijí v MSSQL DB_EC.st (on-prem EC-SERVER2).
+# Runner běží v cloud APP PG environment — bez VPN do EUROSOFT LAN.
+# Single trusted path: composer-side MCP klient (Phase 28-C LIVE od 4.5.) volá
+# eurosoft_strategie_query_raw → MCP server na 30.11 → pyodbc → MSSQL.
+# Žádný novy HTTP/SSE kód — reuse existing singleton thread + asyncio loop.
+
+
+def _substitute_mssql_params(sql_text: str, params: dict[str, Any]) -> str:
+    """Substitute :name → literal value v SQL string (MSSQL path, no native bind).
+
+    Phase 28-D++ strategie_query_raw NEPŘIJÍMÁ bind params (pyodbc execute
+    without params). Pro MSSQL path tedy musíme manuálně nahradit :name
+    placeholdery na literal hodnoty PŘED odesláním do MCP serveru.
+
+    Args:
+        sql_text: SQL with potential :param placeholders (e.g. ":limit", ":id")
+        params: dict of name → value (typically {'limit': 1000})
+
+    Returns:
+        SQL with placeholders replaced by literal values:
+            int/float → bare number
+            None      → NULL
+            str       → 'escaped' (single quotes doubled)
+            other     → 'str(value)' (fallback)
+
+    Safety note: pro CRM grids je primary use case integer limit + occasional
+    string filter. SQL injection risk je low (params nepocházejí z
+    untrusted user input — jen URL query string který je router-validated).
+    Marti-AI's „additivně" doctrine — start simple, expand když pálí.
+    """
+    if not params:
+        return sql_text
+
+    result = sql_text
+    for name, value in params.items():
+        try:
+            pattern = re.compile(r':' + re.escape(name) + r'\b')
+        except re.error:
+            continue
+        if value is None:
+            substitution = 'NULL'
+        elif isinstance(value, bool):
+            # Bool MUSÍ být before int (bool je subclass of int v Pythonu)
+            substitution = '1' if value else '0'
+        elif isinstance(value, (int, float)):
+            substitution = str(value)
+        elif isinstance(value, str):
+            escaped = value.replace("'", "''")
+            substitution = f"'{escaped}'"
+        else:
+            escaped = str(value).replace("'", "''")
+            substitution = f"'{escaped}'"
+        result = pattern.sub(substitution, result)
+    return result
+
+
+def _execute_via_mcp(
+    op_info: dict[str, Any],
+    params: dict[str, Any],
+) -> dict[str, Any]:
+    """MSSQL execute path via Phase 28-C composer-side MCP klient.
+
+    Architecture:
+        runner → eurosoft_mcp_client.call_tool_sync(
+                     "eurosoft_strategie_query_raw",
+                     {sql, db_name},
+                 )
+                 → MCP server (EC-SERVER2 192.168.30.11:443 via Caddy)
+                 → pyodbc (Marti-AI sysadmin login)
+                 → MSSQL DB_EC / DB_IS / DB_ST / Centrala / DB-Ceniky
+
+    Single trusted SIM equivalent (analog Phase 38 doctrine): jeden MCP klient
+    pro 6+ MSSQL databází přes default_db parameter routing. Žádný per-DB
+    connection pool — MCP server interní pooling.
+
+    Args:
+        op_info: dict z _resolve_operation (incl. sql_text, db_connection /
+                 default_db field, data_source_*, operation_kind)
+        params: dict z _normalize_params (incl. limit + URL filters)
+
+    Returns:
+        Same shape jako PG path: {ok, data_source, operation, rows, row_count,
+        applied_params} + MSSQL-specific {execution_path: 'mcp_mssql',
+        batches_executed: N}.
+
+    Raises:
+        DataSourceExecuteError: MCP unreachable / circuit open / SQL fail.
+    """
+    # Lazy import — avoid circular dependency (composer-side klient importuje
+    # core.config, který může importovat odkudkoli). Plus zero overhead pro
+    # PG-only paths (most data sources).
+    from modules.conversation.application.eurosoft_mcp_client import (
+        get_eurosoft_mcp_client,
+    )
+    import json as _json
+
+    # default_db field z fw.db_connection (e.g. 'DB_EC', 'DB_IS', 'DB_ST')
+    db_name = op_info.get("db_connection") or "DB_EC"
+    sql_text = op_info["sql_text"]
+
+    # Substitute :name → literal (MSSQL path, no native bind)
+    sql_substituted = _substitute_mssql_params(sql_text, params)
+
+    # Phase 28-C singleton MCP klient (lazy init, thread + asyncio loop, SSE)
+    client = get_eurosoft_mcp_client()
+    if client is None:
+        raise DataSourceExecuteError(
+            "MSSQL data_source vyžaduje EUROSOFT MCP klient, ale "
+            "settings.eurosoft_mcp_enabled je False. "
+            "Zkontroluj .env (EUROSOFT_MCP_ENABLED + EUROSOFT_MCP_URL + "
+            "EUROSOFT_MCP_API_KEY)."
+        )
+
+    # call_tool_sync s conversation_id=None — grid call není user chat,
+    # skip per-conversation circuit breaker (CB by blokoval všechny grids
+    # po 3 consecutive failures, což pro grid use case není žádoucí —
+    # CB je primárně pro chat resilience).
+    result_json = client.call_tool_sync(
+        full_name="eurosoft_strategie_query_raw",
+        arguments={
+            "sql": sql_substituted,
+            "db_name": db_name,
+        },
+        conversation_id=None,
+    )
+
+    try:
+        result = _json.loads(result_json)
+    except _json.JSONDecodeError as exc:
+        raise DataSourceExecuteError(
+            f"MCP response není JSON: {result_json[:200]}"
+        ) from exc
+
+    if not result.get("ok"):
+        err_msg = (
+            result.get("message")
+            or result.get("error")
+            or "unknown MCP error"
+        )
+        exc_type = result.get("exception_type")
+        detail = f" ({exc_type})" if exc_type else ""
+        raise DataSourceExecuteError(
+            f"MCP strategie_query_raw failed na {db_name}{detail}: {err_msg}"
+        )
+
+    rows = result.get("rows", []) or []
+
+    return {
+        "ok": True,
+        "data_source": {
+            "code": op_info["data_source_code"],
+            "name": op_info["data_source_name"],
+            "id": op_info["data_source_id"],
+        },
+        "operation": {
+            "kind": op_info["operation_kind"],
+            "variant": op_info["variant_code"],
+            "data_set_id": op_info.get("data_set_id"),
+        },
+        "rows": rows,
+        "row_count": len(rows),
+        "applied_params": params,
+        # MSSQL-specific metadata (drží invariance s PG path response shape +
+        # přidává transparency pro debugging / audit)
+        "execution_path": "mcp_mssql",
+        "db_name": db_name,
+        "batches_executed": result.get("batches_executed", 1),
+    }
+
+
+# ════════════════════════════════════════════════════════════════════════
 # Public API
 # ════════════════════════════════════════════════════════════════════════
 
@@ -403,11 +580,29 @@ def run_data_source(
     # 1) Lookup chain
     op_info = _resolve_operation(session, code, variant=variant, kind=kind)
 
+    # 1.5) CRM Foundation Krok 1 (27.5.2026) — Dispatch na db_type
+    # postgres → existing self-heal + native session.execute path
+    # mssql    → Phase 28-C MCP klient (eurosoft_strategie_query_raw)
+    # Marti's vize: jeden runner, dva execute paths podle connection identity.
+    # Drží Marti-AI's "uniformita vítězí" — kind na connection, ne na ds row.
+    db_type = (op_info.get("db_type") or "postgres").lower()
+    if db_type == "mssql":
+        # Self-heal column aliases jsou PG-specific (fw.comp_grid_column_alias
+        # mapuje PG sloupce). Pro MSSQL skip — Marti's "additivně" doctrine:
+        # add alias map až bude pálit MSSQL schema evolution.
+        params = _normalize_params(
+            raw_params,
+            limit_default=op_info["default_record_limit"] or 1000,
+            sql_text=op_info["sql_text"],
+        )
+        return _execute_via_mcp(op_info, params)
+
     # 2) Self-heal column aliases (Fix P 21.5. ráno, Marti's "automatic at
     # every grid call" doctrine). Pre-execute scan + rewrite known renames
     # z fw.comp_grid_column_alias. Side effect: UPDATE fw.data_set.sql_text
     # persistent + log info row do fw.diag_log. Fail-soft — pokud self-heal
     # selže, sql_text zůstane unchanged a execute pokračuje normálně.
+    # POZN: PG path only — MSSQL routed dříve v krok 1.5.
     sql_text, _applied_aliases = _apply_column_aliases(
         session,
         op_info["sql_text"],
@@ -449,6 +644,8 @@ def run_data_source(
         "rows": rows,
         "row_count": len(rows),
         "applied_params": params,
+        # CRM Foundation Krok 1 (27.5.) — execution_path symetrie s MSSQL path
+        "execution_path": "pg_native",
     }
 
 

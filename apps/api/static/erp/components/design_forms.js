@@ -764,9 +764,26 @@
       // numeric vs string a routes podle _FW_FORM_CORE_REGISTRY (ID-based)
       // nebo _FW_FORM_ENTITY_MAP (legacy string fallback). Marti's rename
       // code na cokoliv neproblém — ID je truth.
+      // Krok H+13.4 (27.5.2026, Marti's "nested gridy nejsou v palete"):
+      // Memory-only child grids (TELEFONY/EMAILY) — z this._spec.children.
+      // Nejsou v fw.comp_def DB (per Krok 5.J-B7 volba A), ale UI je vidí.
+      // Předáme do palety jako extra context — render v "Již na formě" jako
+      // 3. sekce vedle containers + fields.
+      const _childComponents = (() => {
+        const ch = (this._spec && this._spec.children) || {};
+        return Object.keys(ch).map((key) => {
+          const childData = ch[key] || {};
+          return {
+            key: key,
+            label: (childData.label || key).toUpperCase(),
+            row_count: Array.isArray(childData.rows) ? childData.rows.length : 0,
+          };
+        });
+      })();
       const picker = new global.FieldPickerModal({
         entityType: core.id != null ? String(core.id) : (core.code || core.data_entity_type),
         parentCompDefId: formId,
+        childComponents: _childComponents,
         // Phase 38.4 Krok H+5 (26.5.2026, Marti's "vyjit z rozchozenych
         // komponent"): paleta deleguje ⚙ klik na existing _openFieldSettings.
         // Najde field v this._spec.fields by id + zavolá popup. Existing
@@ -3856,9 +3873,12 @@
       // State pro ⬅ ON visible přes border + bg accent (modry), Marti uvidí
       // při hover. Pro long-term state visibility: future polish field-level
       // left border accent (4px modra pinned indicator).
-      // Krok H+13.3 (27.5.2026, Marti's "nastaveni napravo, krizek nalevo"):
-      // ⚙ je teted nejvic vpravo (right:4), proto ⬅ + 🎯 posunute o 26px
-      // doleva. ⬅ je tedy 30+26=56 (or 56+26=82 pokud lookup ma jeste 🎯).
+      // Krok H+13.3.1 (27.5.2026, Marti's "krizek hned vedle ostatnich
+      // ikonek vlevo, ne na edge"): ✕ je teted v PRAVE skupine (vlevo od
+      // ⚙/⬅/🎯), ne na left:4 edge — tam se trískal s názvem komponenty.
+      // Nove poradi zprava doleva: ⚙ (right:4) | ⬅ (right:30) |
+      //   bez lookup: ✕ (right:56)
+      //   s lookup:   🎯 (right:56) | ✕ (right:82)
       const leftBtn = _mkActionBtn(
         "⬅",
         alwaysNewRow
@@ -3867,7 +3887,7 @@
         alwaysNewRow ? "rgba(58,138,168,0.2)" : "transparent",
         alwaysNewRow ? "#3a8aa8" : "#2a3340",
         alwaysNewRow ? "#7ed4e8" : "#5d6975",
-        56 + (isLookupField ? 26 : 0)  // posun o 26 doleva (⚙ ted vpravo)
+        30  // 2. zprava (vedle ⚙)
       );
       leftBtn.className = "erp-field-design-leftpin erp-field-design-action-hoveronly";
       leftBtn.addEventListener("click", async (ev) => {
@@ -3886,7 +3906,7 @@
           "rgba(58,138,168,0.2)",
           "#3a8aa8",
           "#7ed4e8",
-          56  // Krok H+13.3: posun o 26 doleva (⚙ ted vpravo); vedle ⬅
+          82  // 4. zprava (vlevo od ✕, jen lookup) — Marti's "✕ hned pred ⬅"
         );
         detectValsBtn.className = "erp-field-design-detectvals erp-field-design-action-hoveronly";
         detectValsBtn.addEventListener("click", async (ev) => {
@@ -3917,17 +3937,17 @@
       });
       content.appendChild(settingsBtn);
 
-      // ✕ Delete button — Krok H+13.3 (27.5.2026, Marti's "krizek nalevo"):
-      // anchor "left" — destruktivni akce uplne nalevo (vyssi visual distance
-      // od neutrálnich actions vpravo, snizuje misclick risk).
+      // ✕ Delete button — Krok H+13.3.2 (27.5.2026, Marti's "Jeste pred
+      // pinned ikonku"): ✕ je VŽDY 3. zprava (hned vlevo od ⬅), bez ohledu
+      // na lookup. 🎯 (jen lookup) je posunut na 4. zpravo. Pořadí zleva-
+      // doprava: [✕ 🎯 ⬅ ⚙] (lookup) / [✕ ⬅ ⚙] (bez lookup).
       const delBtn = _mkActionBtn(
         "✕",
         "Smazat pole '" + (field.caption || field.name) + "'",
         "transparent",
         "#5a2828",
         "#e57373",
-        4,       // levy okraj komponenty
-        "left"   // anchor side
+        56  // 3. zprava (vedle ⬅) — always
       );
       delBtn.className = "erp-field-design-delete erp-field-design-action-hoveronly";
       delBtn.addEventListener("click", async (ev) => {

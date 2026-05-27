@@ -609,17 +609,21 @@
       // samostatny PanelPickerModal).
       // Krok H+5++++++ (26.5.2026 vecer, Marti's "prohod listy"): Jiz na
       // forme = PRVNI (Marti's primary workspace), Schazi pridat = druhy.
+      const _childCount = (this.opts && Array.isArray(this.opts.childComponents))
+        ? this.opts.childComponents.length : 0;
       const tabs = [
         {
           key: "onform",
           // Phase 38.4 Krok H+5: count includes containers (panel/groupbox/...)
+          // Krok H+13.4 (27.5.2026): + nested grids (memory-only child grids).
           label: "Již na formě",
-          count: this._columnsOnForm.length + (this._existingContainers || []).length,
+          count: this._columnsOnForm.length + (this._existingContainers || []).length + _childCount,
           accent: "#7ed4e8",
         },
         {
           key: "available",
-          label: "Schází přidat",
+          // Krok H+13.4.1 (27.5.2026, Marti): "Schází přidat" → "Nezařazeno"
+          label: "Nezařazeno",
           count: this._columnsAvailable.length,
           accent: "#5dbf5d",
         },
@@ -721,7 +725,11 @@
         // first, jejich potomci indented pod nimi, dalsi panel, jeho
         // potomci, atd. Vizualne = strom; data = flat DOM s marginLeft.
         const containers = this._existingContainers || [];
-        if (this._columnsOnForm.length === 0 && containers.length === 0) {
+        // Krok H+13.4 (27.5.2026): nested child grids (TELEFONY/EMAILY) —
+        // memory-only z DesignFwForm._spec.children, ne v fw.comp_def DB.
+        const childComps = (this.opts && Array.isArray(this.opts.childComponents))
+          ? this.opts.childComponents : [];
+        if (this._columnsOnForm.length === 0 && containers.length === 0 && childComps.length === 0) {
           const empty = document.createElement("div");
           empty.style.cssText = "padding:24px;text-align:center;color:#8a96a4;font-size:13px;";
           empty.innerHTML = "Form je zatím prázdný — žádné pole ani container.";
@@ -736,6 +744,58 @@
               row = this._renderOnFormRow(node.item, node.depth);
             }
             content.appendChild(row);
+          }
+          // Krok H+13.4: render child grids sekce na konci (separator
+          // + per-child read-only row). Marti's "nejsou videt" — ted ano.
+          if (childComps.length > 0) {
+            const sep = document.createElement("div");
+            sep.style.cssText =
+              "margin-top:14px;padding:8px 12px;background:#0a0e13;" +
+              "border-top:1px dashed #2a3340;border-bottom:1px solid #2a3340;" +
+              "color:#7ed4e8;font-size:11px;font-weight:600;letter-spacing:0.5px;";
+            sep.textContent = "🔗 NESTED GRIDY · " + childComps.length + " (memory-only)";
+            content.appendChild(sep);
+            for (const child of childComps) {
+              const row = document.createElement("div");
+              row.style.cssText =
+                "display:grid;grid-template-columns:32px 1fr auto;gap:10px;" +
+                "align-items:center;padding:8px 12px;border-bottom:1px solid #1a1f26;" +
+                "color:#cfd6df;font-size:13px;";
+              // Disabled-look placeholder pro ✕ (memory-only, ne mazatelné)
+              const ph = document.createElement("div");
+              ph.style.cssText = "color:#3a4754;font-size:11px;text-align:center;";
+              ph.textContent = "—";
+              ph.title = "Nested grid je memory-only — neexistuje v fw.comp_def, nelze odebrat tady";
+              row.appendChild(ph);
+              // Label
+              const labelWrap = document.createElement("div");
+              labelWrap.style.cssText = "display:flex;flex-direction:column;gap:2px;";
+              const nameEl = document.createElement("div");
+              nameEl.style.cssText = "color:#7a8696;font-size:10px;font-family:ui-monospace,Consolas,monospace;";
+              nameEl.textContent = child.key || "(no key)";
+              const labelEl = document.createElement("div");
+              labelEl.style.cssText = "color:#cfd6df;font-size:13px;font-weight:500;";
+              labelEl.textContent = child.label || child.key;
+              labelWrap.appendChild(nameEl);
+              labelWrap.appendChild(labelEl);
+              row.appendChild(labelWrap);
+              // Right info: row count + type badge
+              const info = document.createElement("div");
+              info.style.cssText =
+                "display:flex;gap:8px;align-items:center;color:#7a8696;font-size:11px;";
+              const typeBadge = document.createElement("span");
+              typeBadge.style.cssText =
+                "padding:2px 8px;background:rgba(126,212,232,0.10);" +
+                "border:1px solid #2a3340;border-radius:3px;color:#7ed4e8;" +
+                "font-size:10px;font-weight:500;";
+              typeBadge.textContent = "nested_grid";
+              info.appendChild(typeBadge);
+              const rcEl = document.createElement("span");
+              rcEl.textContent = (child.row_count || 0) + " řádků";
+              info.appendChild(rcEl);
+              row.appendChild(info);
+              content.appendChild(row);
+            }
           }
         }
       } else if (this._activeTab === "preview") {

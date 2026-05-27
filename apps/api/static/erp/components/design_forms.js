@@ -1530,6 +1530,21 @@
         "child:" + childKey
       );
 
+      // Phase 38.4 Krok 5.X+1 Fix F (27.5.2026, Marti's Volba B "pinned-CSS"):
+      // Nested_grid je HYBRID — backend kind='container' (children data),
+      // UI semantika field-like. Pinned toggle (layout.pinned=true) → CSS
+      // shift v ramci panelu (max-width 60%, margin-right:auto = left
+      // align). Doctrine z 27.5. odpoledne: "nested grid se ve formu
+      // presune doleva" jako field-pinned, ne jako container-outdent.
+      // Layout JSONB pass-through z backend fw_form_load_by_id (Fix E).
+      const _ngLayout = (childInfo && childInfo.layout) || {};
+      if (_ngLayout.pinned === true) {
+        sec.wrap.style.maxWidth = "60%";
+        sec.wrap.style.marginRight = "auto";
+        sec.wrap.style.marginLeft = "0";
+        sec.wrap.dataset.pinned = "1";
+      }
+
       // Phase 38.4 Krok 14f-O (14.5.2026 vecer, Marti's "v production mode
       // jsou gridy dragabled... to ma byt jen v design mode"):
       // Drag handle + grip + contextmenu jsou DESIGN-only features.

@@ -2474,28 +2474,44 @@ def _resolve_child_config(core_code: str, child_key: str, ds) -> tuple[dict, dic
     original entity keys (user, core, comp_def, menu_node). No DB read
     needed pro entity_type lookup.
 
+    Phase 38.4 Krok 5.X+1 hotfix (27.5.2026, Marti's "Pridavani polozek
+    do gridu selhava — 404 po code rename"):
+    Lookup chain id-or-code (analog Krok 5.N-1/-2/-2b dispatch):
+      1. _FW_FORM_ENTITY_MAP by core_code (legacy, pre-rename codes
+         like 'user', 'user_edit')
+      2. _FW_FORM_CORE_REGISTRY by core_id (id-keyed, survives code
+         rename — Marti's '22aBBB' fw.core.code rename z 27.5. ranní
+         testing)
+    ID-first dispatch je robustni proti uzivatelskemu rename
+    fw.core.code (uniform parity s Krok 5.N pattern).
+
     Returns (entity_config, child_config). Raises ValueError pokud anything
     missing.
     """
     from sqlalchemy import text as _sql_text_rcc
-    # Just verify core exists (existence + form layout check)
+    # Resolve core_code → fw.core row (existence check + capture id for fallback)
     core_row = ds.execute(_sql_text_rcc("""
         SELECT id FROM fw.core
         WHERE code = :code AND is_active = true
     """), {"code": core_code}).mappings().one_or_none()
     if not core_row:
         raise ValueError(f"fw.core code='{core_code}' (form) nenalezen")
-    # Use core_code directly jako map key (aliases handle user_edit→user, etc.)
-    if core_code not in _FW_FORM_ENTITY_MAP:
+    core_id = core_row["id"]
+    # Lookup chain: code first (legacy), then id-keyed registry (rename-safe)
+    entity_config = _FW_FORM_ENTITY_MAP.get(core_code)
+    if entity_config is None and core_id in _FW_FORM_CORE_REGISTRY:
+        entity_config = _FW_FORM_CORE_REGISTRY[core_id]
+    if entity_config is None:
         raise ValueError(
-            f"Core code='{core_code}' neni v _FW_FORM_ENTITY_MAP. "
-            f"Registered: {list(_FW_FORM_ENTITY_MAP.keys())}"
+            f"Core code='{core_code}' (id={core_id}) neni v _FW_FORM_ENTITY_MAP "
+            f"ani _FW_FORM_CORE_REGISTRY. "
+            f"ENTITY_MAP keys: {list(_FW_FORM_ENTITY_MAP.keys())}. "
+            f"CORE_REGISTRY ids: {list(_FW_FORM_CORE_REGISTRY.keys())}"
         )
-    entity_config = _FW_FORM_ENTITY_MAP[core_code]
     children = entity_config.get("children") or {}
     if child_key not in children:
         raise ValueError(
-            f"Child '{child_key}' neni v core '{core_code}' children. "
+            f"Child '{child_key}' neni v core '{core_code}' (id={core_id}) children. "
             f"Available: {list(children.keys())}"
         )
     return entity_config, children[child_key]
@@ -2838,6 +2854,9 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 # má prioritu nad entity_config.label. comp_def_id +
                 # parent_comp_def_id + sort_order pro frontend orchestrace
                 # (palette ✕ delete, ⚙ settings, ←→↑↓ reorder).
+                # Krok 5.X+1 Fix E (27.5.2026, Marti's Volba B "pinned-CSS"):
+                # layout JSONB pass-through pro frontend pinned rendering
+                # (layout.pinned=true → left-align CSS class).
                 children_dict[child_key] = {
                     "rows": [dict(r) for r in child_rows],
                     "label": fld.get("caption") or child_cfg.get("label") or child_key,
@@ -2846,6 +2865,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                     "comp_def_id": fld.get("id"),
                     "parent_comp_def_id": fld.get("parent_comp_def_id"),
                     "sort_order": fld.get("sort_order"),
+                    "layout": lay,
                 }
 
             # Legacy fallback: forms bez Krok 5.X DDL migration ještě

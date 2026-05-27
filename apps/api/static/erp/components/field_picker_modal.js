@@ -1112,11 +1112,29 @@
         // Edge case: neighbor je container ALE muj parent (= jsem prvni
         // sibling-after containeru s parent=container.parent) → drill
         // by vznikl cycle (sebe-rodicovstvi). Default sibling-after.
+        //
+        // Phase 38.4 Krok 5.X+1 Fix C (27.5.2026, Marti's "nemel by
+        // skakat do pozice ditete k druhemu nested gridu"):
+        // Nested_grid je HYBRID — backend kind='container' (kvuli children
+        // data), ale UI semantika = field-like (data leaf, ne nadrazena
+        // struktura panel/groupbox/pagecontrol/tabsheet). Drill INTO
+        // nested_grid by udelal nested_grid parent jineho nested_gridu —
+        // semanticky chyba (nested grids nejsou hierarchicke containers,
+        // jsou to peer 1:N child views). Skip drill pro nested_grid —
+        // fallback na default sibling-after.
+        const nestedGridIds = new Set(
+          (this._existingContainers || [])
+            .filter((c) => c.type_code === "nested_grid")
+            .map((c) => c.comp_def_id)
+        );
+        const neighborIsNestedGrid = nestedGridIds.has(neighbor.id);
+        const selfIsNestedGrid = nestedGridIds.has(compDefId);
         const neighborIsContainer = (this._existingContainers || []).some(
           (c) => c.comp_def_id === neighbor.id
         );
         if (neighborIsContainer && neighbor.id !== myNode.parentId &&
-            neighbor.id !== compDefId) {
+            neighbor.id !== compDefId &&
+            !neighborIsNestedGrid && !selfIsNestedGrid) {
           // Drill INTO container — become FIRST child
           newParentId = neighbor.id;
           // Find existing first child's sort, place before. Pokud container
@@ -2504,44 +2522,60 @@
         }
       });
 
+      // Krok 5.X+1 (27.5.2026, Marti's "nested grid neni kontejner,
+      // nema mit radio button"): nested_grid je kind='container' v DB
+      // (per pre-existing fw.comp_type), ale UI-behavior wise je field-like:
+      // - Nehosti fields (žádný "active target" semantics)
+      // - ← arrow = pinned toggle (ne outdent)
+      // - ↑↓ = sibling-only (no drill-into / drill-from)
+      // Detekce: cont.type_code === 'nested_grid'.
+      const _isNestedGrid = (cont.type_code === "nested_grid");
+
       // Radio button — single-select active container (Marti's pattern).
       // Klik = activate this container (deactivate predchozi), nove
       // komponenty pak jdou jako deti tohoto containeru.
+      // Krok 5.X+1: SKIP pro nested_grid → placeholder div pro consistent
+      // grid template (24px column width preservation).
       const radioWrap = document.createElement("div");
       radioWrap.style.cssText =
-        "display:flex;align-items:center;justify-content:center;cursor:pointer;";
-      radioWrap.title = isActive
-        ? "Aktivní cíl — nové komponenty z palety půjdou sem"
-        : "Klik = nastavit jako aktivní cíl (jeden na formuláři)";
-      const radio = document.createElement("input");
-      radio.type = "radio";
-      radio.name = "fpm_active_container";  // single-select group
-      radio.checked = isActive;
-      radio.style.cssText = "width:16px;height:16px;cursor:pointer;accent-color:#5dbf5d;";
-      radio.addEventListener("change", () => {
-        if (radio.checked) {
-          this._activeContainerCompDefId = cont.comp_def_id;
-          _showToast(
-            "Aktivní cíl: " + (cont.caption || cont.type_label),
-            "info", 1500
-          );
-          this._render();  // re-render — highlight + tab counter hint
-          // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit na forme"):
-          // Notify parent (DesignFwForm) — highlight container DOM element
-          // [data-comp-def-id="X"] s green border/glow.
-          if (typeof this.opts.onActiveContainerChange === "function") {
-            try { this.opts.onActiveContainerChange(cont.comp_def_id); }
-            catch (e) { console.error("[FieldPickerModal] onActiveContainerChange failed:", e); }
+        "display:flex;align-items:center;justify-content:center;" +
+        (_isNestedGrid ? "" : "cursor:pointer;");
+      if (_isNestedGrid) {
+        // Placeholder — nothing rendered (nested_grid není active target)
+      } else {
+        radioWrap.title = isActive
+          ? "Aktivní cíl — nové komponenty z palety půjdou sem"
+          : "Klik = nastavit jako aktivní cíl (jeden na formuláři)";
+        const radio = document.createElement("input");
+        radio.type = "radio";
+        radio.name = "fpm_active_container";  // single-select group
+        radio.checked = isActive;
+        radio.style.cssText = "width:16px;height:16px;cursor:pointer;accent-color:#5dbf5d;";
+        radio.addEventListener("change", () => {
+          if (radio.checked) {
+            this._activeContainerCompDefId = cont.comp_def_id;
+            _showToast(
+              "Aktivní cíl: " + (cont.caption || cont.type_label),
+              "info", 1500
+            );
+            this._render();  // re-render — highlight + tab counter hint
+            // Phase 38.4 Krok H+5 (26.5.2026, Marti's "zvyraznit na forme"):
+            // Notify parent (DesignFwForm) — highlight container DOM element
+            // [data-comp-def-id="X"] s green border/glow.
+            if (typeof this.opts.onActiveContainerChange === "function") {
+              try { this.opts.onActiveContainerChange(cont.comp_def_id); }
+              catch (e) { console.error("[FieldPickerModal] onActiveContainerChange failed:", e); }
+            }
           }
-        }
-      });
-      radioWrap.appendChild(radio);
-      radioWrap.addEventListener("click", (ev) => {
-        if (ev.target !== radio) {
-          radio.checked = true;
-          radio.dispatchEvent(new Event("change"));
-        }
-      });
+        });
+        radioWrap.appendChild(radio);
+        radioWrap.addEventListener("click", (ev) => {
+          if (ev.target !== radio) {
+            radio.checked = true;
+            radio.dispatchEvent(new Event("change"));
+          }
+        });
+      }
 
       // Caption + name (analog input row)
       const labelWrap = document.createElement("div");
@@ -2585,12 +2619,17 @@
       // → ← znamena OUTDENT (move to grandparent), ne pinned toggle. Pro
       // panely/groupboxů/pagecontrol/tabsheet ma vetsi smysl outdent (panely
       // neflowuji v gridu, takze pinned je no-op).
+      // Krok 5.X+1 (27.5.2026, Marti's "← jako pinned, ne outdent"):
+      // Nested_grid je v containers_out kvuli kind='container', ale UI-wise
+      // se chova jako field — pass isContainer=false → ← = pinned toggle
+      // (nepouziva outdent na grandparent). Stejne, panely/groupboxy/etc.
+      // zachovaji outdent behavior (isContainer=true).
       const moveBtns = this._makeMoveButtons(
         cont.comp_def_id,
         cont.parent_comp_def_id,
         cont.sort_order,
         cont.layout,
-        true  // isContainer
+        !_isNestedGrid  // isContainer: false pro nested_grid (field-like ←)
       );
       // Krok H+13.2 (27.5.2026): ⚙ do skupiny arrows (uplne napravo).
       moveBtns.appendChild(settingsBtn);

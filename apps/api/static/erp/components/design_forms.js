@@ -1120,6 +1120,16 @@
       });
       document.body.appendChild(this._shell.overlay);
 
+      // Krok H+13 (27.5.2026 ráno): marker attribute pro helpers.js
+      // _installFieldLabelRightClick global handler — skip uvnitř
+      // DesignFwForm shell (vlastní per-label handler v _wrapFieldForDesign
+      // otevírá unified modal s defaultTab="user").
+      try {
+        if (this._shell && this._shell.overlay) {
+          this._shell.overlay.dataset.designFwFormRoot = "1";
+        }
+      } catch (e) {}
+
       // Phase 38.4 Krok 14b+7 (13.5.2026 ~20:00, Marti's "PROD/DESIGN
       // trigger i na tom formu"): attach toggle button v header. Visible
       // jen pokud global _erpDesignMode = true. Default form mode =
@@ -3928,21 +3938,35 @@
       // Krok 14b+9-B (13.5.2026 ~21:35): inline rename label (dvojklik).
       // Najit label el v fieldEl + attach dblclick. Vsechny comp_type
       // pouzivaji bud .erp-input-label nebo similar label div.
+      //
+      // Krok H+13 (27.5.2026 ráno): + per-label contextmenu handler →
+      // unified modal s defaultTab="user". stopImmediatePropagation()
+      // zabrání global capture handler v helpers.js _installFieldLabelRightClick
+      // (který by jinak otevřel separate Popup A pro label/hint/color).
       try {
         const labelEl = fieldEl.querySelector(".erp-input-label, .erp-design-section-title, label");
         if (labelEl) {
-          labelEl.style.cursor = "text";
-          labelEl.title = "Dvojklik pro přejmenování";
+          labelEl.style.cursor = "context-menu";
+          labelEl.title = "Dvojklik pro přejmenování · Pravý klik → nastavení (záložka Uživatel)";
           labelEl.addEventListener("dblclick", (ev) => {
             ev.stopPropagation();
             this._startInlineRename(labelEl, field);
           });
+          // Krok H+13: pravý klik na label → unified modal, default Tab "Uživatel"
+          labelEl.addEventListener("contextmenu", (ev) => {
+            ev.preventDefault();
+            ev.stopPropagation();
+            ev.stopImmediatePropagation();  // zabrání global capture handler
+            this._openFieldSettings(field, { defaultTab: "user" });
+          }, true);  // capture phase — runs PŘED global helpers.js handler
         }
       } catch (e) {
         console.warn("[DesignFwForm] inline rename attach failed:", e);
       }
 
       // Phase 38.4 Krok 14f-M (14.5.2026 vecer): right-click → field settings
+      // Krok H+13 (27.5.2026 ráno): wrap right-click → defaultTab="component"
+      // (existing UX — uživatel klikl mimo label = zájem o komponenta config).
       wrap.addEventListener("contextmenu", (ev) => {
         const tag = ev.target && ev.target.tagName;
         // Skip pokud na child input/button — necht native context menu
@@ -3951,7 +3975,7 @@
         }
         ev.preventDefault();
         ev.stopPropagation();
-        this._openFieldSettings(field);
+        this._openFieldSettings(field, { defaultTab: "component" });
       });
 
       // Phase 38.4 Krok H+8.1 (26.5.2026, Marti's "intuitivnejsi pres
@@ -4750,11 +4774,16 @@
       header.appendChild(closeBtn);
       modal.appendChild(header);
 
-      // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:15, Marti's
-      // vize "abychom mohli pres UI stavet dalsi core a prehledy"):
-      // entity_picker dostane tab sheet — Tab 1 "Základní" (existing fields)
-      // + Tab 2 "Komponenta" (6 entity_picker specific parametrů). Marti's
-      // "Zakladni nastaveni uz jsem tam videl, jen je treba pridat tab sheet".
+      // Phase 38.4 Krok H+13 (27.5.2026 ráno, Marti's "sloučit ty parametry
+      // komponent do dvou listu"): UNIFIED 2-tab modal pro VŠECHNY komponenty.
+      //   Tab 1 "Uživatel"   = Label / Hint / Color override (localStorage)
+      //   Tab 2 "Komponenta" = Caption / Placeholder / widths / lengths /
+      //                        readonly / required + entity_picker subsekce
+      //                        + enum_values editor (PATCH /comp-def/update)
+      // opts.defaultTab = "user" | "component" (default "component").
+      // Pravý klik na label → "user", pravý klik na wrap nebo ⚙ → "component".
+      const _defaultTab = (opts && opts.defaultTab === "user") ? "user" : "component";
+
       const isEntityPicker = (field.comp_type_code === "entity_picker");
       // Phase 38.4 Krok H+6 (26.5.2026, Marti's "Combobox: jak editovat
       // list, kdyz potrebuju pridat neco co jeste v DB neni"):
@@ -4769,72 +4798,214 @@
       let enumValuesListEl = null;  // DOM ref pro re-render
       let _renderEnumListFn = null;  // assigned inside isLookupField block
       let basicPaneEl = null;
-      let componentPaneEl = null;
-      let tabButtonsState = null;
+      let userPaneEl = null;
+
+      // Krok H+13: build fieldKey pro user overrides (same pattern jako
+      // _renderField line 7172): core.code + "." + field.name. Resolves
+      // user-defined label/hint/color z localStorage _USER_OVERRIDES.
+      const _coreCode = (this._spec && this._spec.core && this._spec.core.code) || "fw_form";
+      const _fieldKey = _coreCode + "." + (field.name || ("field_" + field.id));
+
+      // Krok H+13 dirty tracking — split per tab pro single Save split flow.
+      let _userDirty = false;
+      let _componentDirty = false;
+      const _markComponentDirty = () => { _componentDirty = true; };
 
       // Body
       const body = document.createElement("div");
       body.style.cssText = "padding:0;display:flex;flex-direction:column;";
 
-      // Tab bar (only for entity_picker)
-      if (isEntityPicker) {
-        const tabBar = document.createElement("div");
-        tabBar.style.cssText =
-          "display:flex;border-bottom:1px solid #2a3340;background:#0f141a;" +
-          "padding:0 16px;gap:0;";
+      // Krok H+13: UNCONDITIONAL 2-tab bar (Uživatel + Komponenta).
+      const tabBar = document.createElement("div");
+      tabBar.style.cssText =
+        "display:flex;border-bottom:1px solid #2a3340;background:#0f141a;" +
+        "padding:0 16px;gap:0;";
 
-        const _mkTab = (label, isActive) => {
-          const btn = document.createElement("button");
-          btn.type = "button";
-          btn.textContent = label;
-          btn.style.cssText =
-            "padding:10px 18px;background:transparent;border:none;" +
-            "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
-            "color:" + (isActive ? "#e8eef5" : "#8a96a4") + ";" +
-            "font-size:13px;font-weight:" + (isActive ? "600" : "400") + ";" +
-            "cursor:pointer;outline:none;";
-          return btn;
-        };
+      const _mkTab = (label, isActive) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.textContent = label;
+        btn.style.cssText =
+          "padding:10px 18px;background:transparent;border:none;" +
+          "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
+          "color:" + (isActive ? "#e8eef5" : "#8a96a4") + ";" +
+          "font-size:13px;font-weight:" + (isActive ? "600" : "400") + ";" +
+          "cursor:pointer;outline:none;";
+        return btn;
+      };
 
-        const basicTabBtn = _mkTab("Základní", true);
-        const componentTabBtn = _mkTab("Komponenta", false);
-        tabBar.appendChild(basicTabBtn);
-        tabBar.appendChild(componentTabBtn);
-        body.appendChild(tabBar);
+      const userTabBtn = _mkTab("Uživatel", _defaultTab === "user");
+      const componentTabBtn = _mkTab("Komponenta", _defaultTab !== "user");
+      tabBar.appendChild(userTabBtn);
+      tabBar.appendChild(componentTabBtn);
+      body.appendChild(tabBar);
 
-        tabButtonsState = { basicTabBtn, componentTabBtn };
-      }
-
-      // Inner content wrapper (basicPane lives here, padding inside)
+      // Inner content wrapper (padding inside)
       const bodyInner = document.createElement("div");
       bodyInner.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;";
 
-      // Basic pane wrapper (existing fields go here below)
+      // Tab 1 "Uživatel" pane — label/hint/color (localStorage overrides)
+      userPaneEl = document.createElement("div");
+      userPaneEl.style.cssText =
+        (_defaultTab === "user" ? "display:flex;" : "display:none;") +
+        "flex-direction:column;gap:12px;";
+      bodyInner.appendChild(userPaneEl);
+
+      // Tab 2 "Komponenta" pane (existing basicPaneEl — keep name for inline appendChild refs below)
       basicPaneEl = document.createElement("div");
-      basicPaneEl.style.cssText = "display:flex;flex-direction:column;gap:10px;";
+      basicPaneEl.style.cssText =
+        (_defaultTab === "user" ? "display:none;" : "display:flex;") +
+        "flex-direction:column;gap:10px;";
       bodyInner.appendChild(basicPaneEl);
 
-      // Component pane (only for entity_picker — populated after basic fields)
-      if (isEntityPicker) {
-        componentPaneEl = document.createElement("div");
-        componentPaneEl.style.cssText = "display:none;flex-direction:column;gap:10px;";
-        bodyInner.appendChild(componentPaneEl);
+      // Wire tab switching
+      const _switchTab = (toUser) => {
+        userPaneEl.style.display = toUser ? "flex" : "none";
+        basicPaneEl.style.display = toUser ? "none" : "flex";
+        userTabBtn.style.borderBottomColor = toUser ? "#7ed4e8" : "transparent";
+        userTabBtn.style.color = toUser ? "#e8eef5" : "#8a96a4";
+        userTabBtn.style.fontWeight = toUser ? "600" : "400";
+        componentTabBtn.style.borderBottomColor = toUser ? "transparent" : "#7ed4e8";
+        componentTabBtn.style.color = toUser ? "#8a96a4" : "#e8eef5";
+        componentTabBtn.style.fontWeight = toUser ? "400" : "600";
+      };
+      userTabBtn.addEventListener("click", () => _switchTab(true));
+      componentTabBtn.addEventListener("click", () => _switchTab(false));
 
-        // Wire tab switching
-        const { basicTabBtn, componentTabBtn } = tabButtonsState;
-        const _switchTab = (toComponent) => {
-          basicPaneEl.style.display = toComponent ? "none" : "flex";
-          componentPaneEl.style.display = toComponent ? "flex" : "none";
-          basicTabBtn.style.borderBottomColor = toComponent ? "transparent" : "#7ed4e8";
-          basicTabBtn.style.color = toComponent ? "#8a96a4" : "#e8eef5";
-          basicTabBtn.style.fontWeight = toComponent ? "400" : "600";
-          componentTabBtn.style.borderBottomColor = toComponent ? "#7ed4e8" : "transparent";
-          componentTabBtn.style.color = toComponent ? "#e8eef5" : "#8a96a4";
-          componentTabBtn.style.fontWeight = toComponent ? "600" : "400";
-        };
-        basicTabBtn.addEventListener("click", () => _switchTab(false));
-        componentTabBtn.addEventListener("click", () => _switchTab(true));
-      }
+      // ════════════════════════════════════════════════════════════════
+      // Tab 1 "Uživatel" content — port z _openFieldSettingsPopup
+      // (design_form_helpers.js:1827). 3 fields + "Vrátit na výchozí":
+      //   1. Uživatelský název (label override)
+      //   2. Hint (popis při hover > 1s)
+      //   3. Barva pole (color swatches)
+      // Save → _saveUserOverride("labels"/"hints"/"colors", _fieldKey, val)
+      //       + _reapplyOverridesInDOM(_fieldKey) (immediate DOM apply).
+      // ════════════════════════════════════════════════════════════════
+      const _currentUserLabel = (LABEL_OVERRIDES[_fieldKey] || "");
+      const _currentUserHint = (HINT_OVERRIDES[_fieldKey] || "");
+      const _currentUserHex = _resolveColor(_fieldKey);
+      const _currentUserColorId = _currentUserHex
+        ? (DESIGN_FIELD_PALETTE.find(c => c.hex === _currentUserHex) || {}).id || null
+        : null;
+      // Read raw _USER_OVERRIDES via _resolveLabel/_resolveHint chain:
+      // tyto helpery vrací user override (priorita 1) nebo LABEL_OVERRIDES
+      // (priorita 2). Pro initial popup hodnotu chceme RAW user override
+      // (žádný fallback) — pokud user nemá vlastní, input je prázdný.
+      // _resolveLabel(_fieldKey, "") s prazdnym fallbackem vrátí user override
+      // nebo "" (system label by se vrátil jen pokud byl v LABEL_OVERRIDES).
+      const _rawUserLabel = _resolveLabel(_fieldKey, "");
+      const _rawUserHint = _resolveHint(_fieldKey) || "";
+
+      // 1. Label override input
+      const userLabelWrap = document.createElement("div");
+      userLabelWrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      const userLabelLbl = document.createElement("label");
+      userLabelLbl.textContent = "Uživatelský název (zobrazí se místo systémového)";
+      userLabelLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      userLabelWrap.appendChild(userLabelLbl);
+      const userLabelInp = document.createElement("input");
+      userLabelInp.type = "text";
+      userLabelInp.value = _rawUserLabel;
+      userLabelInp.placeholder = "(nechej prázdné pro výchozí — '" + (field.caption || field.name || "") + "')";
+      userLabelInp.style.cssText =
+        "padding:6px 8px;background:#0f141a;border:1px solid #2a3340;" +
+        "border-radius:3px;color:#cfd6df;font-size:13px;";
+      userLabelInp.addEventListener("input", () => { _userDirty = true; });
+      userLabelWrap.appendChild(userLabelInp);
+      userPaneEl.appendChild(userLabelWrap);
+
+      // 2. Hint textarea
+      const userHintWrap = document.createElement("div");
+      userHintWrap.style.cssText = "display:flex;flex-direction:column;gap:4px;";
+      const userHintLbl = document.createElement("label");
+      userHintLbl.textContent = "Hint (popis při hover > 1s)";
+      userHintLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      userHintWrap.appendChild(userHintLbl);
+      const userHintArea = document.createElement("textarea");
+      userHintArea.value = _rawUserHint;
+      userHintArea.placeholder = "(nechej prázdné pro žádný hint)";
+      userHintArea.rows = 4;
+      userHintArea.style.cssText =
+        "padding:8px 10px;background:#0f141a;border:1px solid #2a3340;" +
+        "border-radius:3px;color:#cfd6df;font-size:12px;font-family:inherit;" +
+        "resize:vertical;line-height:1.5;";
+      userHintArea.addEventListener("input", () => { _userDirty = true; });
+      userHintWrap.appendChild(userHintArea);
+      userPaneEl.appendChild(userHintWrap);
+
+      // 3. Barva pole swatches
+      const userColorWrap = document.createElement("div");
+      userColorWrap.style.cssText = "display:flex;flex-direction:column;gap:6px;";
+      const userColorLbl = document.createElement("label");
+      userColorLbl.textContent = "Barva pole (organizační — barva textu fieldu)";
+      userColorLbl.style.cssText = "font-size:11px;color:#8a96a4;font-weight:500;";
+      userColorWrap.appendChild(userColorLbl);
+      const userSwatches = document.createElement("div");
+      userSwatches.style.cssText = "display:flex;flex-wrap:wrap;gap:6px;align-items:center;";
+      let _selectedUserColorId = _currentUserColorId;
+      const _renderUserSwatches = () => {
+        userSwatches.innerHTML = "";
+        DESIGN_FIELD_PALETTE.forEach((c) => {
+          const sw = document.createElement("button");
+          sw.type = "button";
+          sw.title = c.name;
+          sw.dataset.colorId = c.id || "";
+          const isSelected = (c.id || null) === (_selectedUserColorId || null);
+          const isClear = (c.id === null || c.id === undefined);
+          if (isClear) {
+            sw.textContent = "✕";
+            sw.style.cssText =
+              "width:28px;height:28px;border-radius:50%;border:1.5px solid " +
+              (isSelected ? "#d4b88a" : "#3a4754") +
+              ";background:transparent;color:#8a96a4;cursor:pointer;font-size:11px;" +
+              "display:flex;align-items:center;justify-content:center;line-height:1;";
+          } else {
+            sw.style.cssText =
+              "width:28px;height:28px;border-radius:50%;border:" +
+              (isSelected ? "3px solid #e8eef5" : "1.5px solid " + c.hex) +
+              ";background:" + c.hex + ";cursor:pointer;padding:0;";
+          }
+          sw.addEventListener("click", () => {
+            _selectedUserColorId = c.id || null;
+            _userDirty = true;
+            _renderUserSwatches();
+          });
+          userSwatches.appendChild(sw);
+        });
+      };
+      _renderUserSwatches();
+      userColorWrap.appendChild(userSwatches);
+      userPaneEl.appendChild(userColorWrap);
+
+      // 4. "Vrátit na výchozí" link button (clear all overrides)
+      const userClearWrap = document.createElement("div");
+      userClearWrap.style.cssText =
+        "display:flex;justify-content:flex-end;margin-top:4px;padding-top:8px;" +
+        "border-top:1px dashed #2a3340;";
+      const userClearBtn = document.createElement("button");
+      userClearBtn.type = "button";
+      userClearBtn.textContent = "↺ Vrátit na výchozí (smazat moje overrides)";
+      userClearBtn.style.cssText =
+        "padding:6px 12px;background:transparent;border:1px solid #3a4754;" +
+        "border-radius:3px;color:#8a96a4;cursor:pointer;font-size:11px;";
+      userClearBtn.addEventListener("click", () => {
+        userLabelInp.value = "";
+        userHintArea.value = "";
+        _selectedUserColorId = null;
+        _renderUserSwatches();
+        _userDirty = true;
+      });
+      userClearWrap.appendChild(userClearBtn);
+      userPaneEl.appendChild(userClearWrap);
+
+      // Persistence note
+      const userNote = document.createElement("div");
+      userNote.style.cssText =
+        "font-size:11px;color:#5d6975;font-style:italic;line-height:1.5;margin-top:4px;";
+      userNote.textContent =
+        "Tab Uživatel se ukládá do prohlížeče (localStorage) — viditelné jen tobě. " +
+        "Tab Komponenta jde do DB (sdílené napříč všemi).";
+      userPaneEl.appendChild(userNote);
 
       body.appendChild(bodyInner);
 
@@ -4968,7 +5139,18 @@
       let qaUnlinkCheck = null;
       let qaCreateCheck = null;
 
-      if (isEntityPicker && componentPaneEl) {
+      if (isEntityPicker) {
+        // Krok H+13 (27.5.2026 ráno): entity_picker section appenduje
+        // do basicPaneEl (Tab "Komponenta") — drop componentPaneEl
+        // separate-tab pattern. Visual separator nahoře drží awareness,
+        // že je to entity_picker-specific subsekce.
+        const epSep = document.createElement("div");
+        epSep.style.cssText =
+          "margin-top:14px;padding-top:10px;border-top:1px dashed #2a3340;" +
+          "font-size:11px;color:#7ed4e8;font-weight:600;letter-spacing:0.5px;";
+        epSep.textContent = "🧩 ENTITY PICKER · specifická parametrizace";
+        basicPaneEl.appendChild(epSep);
+
         // 0. Info — comp_def.id + parent context (read-only)
         const infoEp = document.createElement("div");
         infoEp.style.cssText =
@@ -4976,7 +5158,7 @@
           "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
         infoEp.innerHTML = "🧩 entity_picker · comp_def #<code style=\"color:#7ed4e8;\">" + field.id + "</code>" +
                             " · parent #<code style=\"color:#a8b4c2;\">" + (field.parent_comp_def_id || "—") + "</code>";
-        componentPaneEl.appendChild(infoEp);
+        basicPaneEl.appendChild(infoEp);
 
         // 1. Data source picker
         // Initial state z field.data_source_id + field.data_source_code/name
@@ -5050,7 +5232,7 @@
         dsButtonWrap.appendChild(dsPickerBtn);
         dsButtonWrap.appendChild(dsClearBtn);
         dsButtonWrap.appendChild(dsDisplay);
-        componentPaneEl.appendChild(_row("Data source", dsButtonWrap));
+        basicPaneEl.appendChild(_row("Data source", dsButtonWrap));
 
         // 2. Display mode radio (origin / self / editable)
         const dmCurrent = currentLayout.display_mode || "editable";
@@ -5073,7 +5255,7 @@
           dmWrap.appendChild(lbl);
           displayModeRadios[mode] = radio;
         });
-        componentPaneEl.appendChild(_row("Display mode", dmWrap));
+        basicPaneEl.appendChild(_row("Display mode", dmWrap));
 
         // 3. Field extern (string, save target column)
         fieldExternInput = document.createElement("input");
@@ -5081,7 +5263,7 @@
         fieldExternInput.style.cssText = _inputStyle;
         fieldExternInput.value = currentLayout.field_extern || "";
         fieldExternInput.placeholder = "např. data_source_id (sloupec ve form root comp_def)";
-        componentPaneEl.appendChild(_row("Field extern", fieldExternInput));
+        basicPaneEl.appendChild(_row("Field extern", fieldExternInput));
 
         // 4. Lookup ID field (default "id")
         lookupIdInput = document.createElement("input");
@@ -5089,7 +5271,7 @@
         lookupIdInput.style.cssText = _inputStyle;
         lookupIdInput.value = currentLayout.lookup_id_field || "";
         lookupIdInput.placeholder = "id (column ve picker source — default 'id')";
-        componentPaneEl.appendChild(_row("Lookup ID field", lookupIdInput));
+        basicPaneEl.appendChild(_row("Lookup ID field", lookupIdInput));
 
         // 5. Lookup display field (default "label")
         lookupDisplayInput = document.createElement("input");
@@ -5097,7 +5279,7 @@
         lookupDisplayInput.style.cssText = _inputStyle;
         lookupDisplayInput.value = currentLayout.lookup_display_field || "";
         lookupDisplayInput.placeholder = "label (column ve picker source — default 'label', pro fw.data_source = 'name')";
-        componentPaneEl.appendChild(_row("Lookup display", lookupDisplayInput));
+        basicPaneEl.appendChild(_row("Lookup display", lookupDisplayInput));
 
         // 6. Quick actions (3 checkboxes — link / unlink / create_new)
         const qaCurrent = Array.isArray(currentLayout.show_quick_actions)
@@ -5122,7 +5304,7 @@
         qaLinkCheck = _mkQaCheck("link", "🔗 link");
         qaUnlinkCheck = _mkQaCheck("unlink", "🚫 unlink");
         qaCreateCheck = _mkQaCheck("create_new", "➕ create");
-        componentPaneEl.appendChild(_row("Quick actions", qaWrap));
+        basicPaneEl.appendChild(_row("Quick actions", qaWrap));
       }
 
       // Phase 38.4 Krok H+6 (26.5.2026, Marti's "Combobox jak editovat
@@ -5436,6 +5618,30 @@
         saveBtn.disabled = true;
         saveBtn.style.opacity = "0.6";
         try {
+          // ════════════════════════════════════════════════════════════
+          // Krok H+13 (27.5.2026 ráno): SPLIT save flow — Tab "Uživatel"
+          // (localStorage) + Tab "Komponenta" (PATCH). Oba běží uvnitř
+          // jednoho saveBtn click pokud dirty flag = true.
+          // ════════════════════════════════════════════════════════════
+
+          // Tab 1 "Uživatel" — localStorage save (label/hint/color overrides)
+          // Jen pokud user touched (_userDirty = true). Drop user-only save
+          // pokud dirty=false → no localStorage churn, žádný re-apply.
+          if (_userDirty) {
+            const newUserLabel = userLabelInp.value.trim();
+            const newUserHint = userHintArea.value.trim();
+            const newUserColorId = _selectedUserColorId || null;
+            _saveUserOverride("labels", _fieldKey, newUserLabel || null);
+            _saveUserOverride("hints", _fieldKey, newUserHint || null);
+            _saveUserOverride("colors", _fieldKey, newUserColorId);
+            _reapplyOverridesInDOM(_fieldKey);
+          }
+
+          // Tab 2 "Komponenta" — existing PATCH flow (always proběhne pro
+          // backward compat existing UX expectation). Drobný no-op PATCH
+          // pokud user neměnil nic v Tab Komponenta — acceptable trade-off
+          // pro single Save button semantics.
+
           // Build new layout (merge with existing — preserve other keys)
           const newLayout = Object.assign({}, currentLayout);
 

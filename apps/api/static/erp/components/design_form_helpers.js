@@ -2111,6 +2111,13 @@
       if (!labelEl) return;
       // Jen v design modu (Marti's request)
       if (!window._erpDesignMode) return;
+      // Krok H+13 (27.5.2026 ráno): SKIP pokud uvnitř DesignFwForm shell —
+      // ten má vlastní per-label handler v _wrapFieldForDesign který otevírá
+      // unified modal s defaultTab="user". Bez tohoto skip by se otevřely
+      // dva modaly (Popup A globally + unified modal labelEl-level).
+      if (ev.target.closest && ev.target.closest("[data-design-fw-form-root]")) {
+        return;
+      }
       ev.preventDefault();
       ev.stopPropagation();
       const fieldKey = labelEl.getAttribute("data-design-fieldkey");

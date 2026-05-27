@@ -2790,8 +2790,36 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             if data_row_raw:
                 data_row = dict(data_row_raw)
 
-            # Children sub-grids (per entity_config.children)
-            for child_key, child_cfg in (entity_config.get("children") or {}).items():
+            # Krok 5.X (27.5.2026, Marti's "Jsou to normalni komponenty"):
+            # Nested grids = fw.comp_def rows (type_id=304 'nested_grid'),
+            # parent_comp_def_id na main panel. layout.child_key references
+            # entity_config.children[key] for SELECT config. Doctrine:
+            # "uniformita vítězí" (Krok 13, 11.5.) + "fw self edited" (22.5.).
+            #
+            # Backward compat fallback: pokud nested_grid comp_defs neexistuji
+            # (jiny form bez DDL migration) ALE entity_config.children
+            # non-empty → legacy iteration (warning log).
+            child_config_map = entity_config.get("children") or {}
+            _nested_grid_seen = False
+            for fld in fields_list:
+                if fld.get("comp_type_code") != "nested_grid":
+                    continue
+                _nested_grid_seen = True
+                lay = fld.get("layout") or {}
+                child_key = lay.get("child_key") if isinstance(lay, dict) else None
+                if not child_key:
+                    logger.warning(
+                        "[fw_form_load_by_id] nested_grid comp_def #%s missing layout.child_key, skipping",
+                        fld.get("id"),
+                    )
+                    continue
+                child_cfg = child_config_map.get(child_key)
+                if not child_cfg:
+                    logger.warning(
+                        "[fw_form_load_by_id] nested_grid comp_def #%s references unknown child_key=%r (entity_config keys: %s)",
+                        fld.get("id"), child_key, list(child_config_map.keys()),
+                    )
+                    continue
                 child_cols_sql = ", ".join(f'"{c}"' for c in child_cfg["select_columns"])
                 where_parts = [f'"{child_cfg["fk_column"]}" = :parent_id']
                 filter_params = {"parent_id": row_id}
@@ -2806,12 +2834,49 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 child_rows = ds.execute(
                     _sql_fwid(child_query), filter_params
                 ).mappings().all()
+                # Krok 5.X: caption z comp_def (Marti's user-editable label)
+                # má prioritu nad entity_config.label. comp_def_id +
+                # parent_comp_def_id + sort_order pro frontend orchestrace
+                # (palette ✕ delete, ⚙ settings, ←→↑↓ reorder).
                 children_dict[child_key] = {
                     "rows": [dict(r) for r in child_rows],
-                    "label": child_cfg.get("label") or child_key,
+                    "label": fld.get("caption") or child_cfg.get("label") or child_key,
                     "default_label": child_cfg.get("default_label"),
                     "id_column": child_cfg.get("id_column", "id"),
+                    "comp_def_id": fld.get("id"),
+                    "parent_comp_def_id": fld.get("parent_comp_def_id"),
+                    "sort_order": fld.get("sort_order"),
                 }
+
+            # Legacy fallback: forms bez Krok 5.X DDL migration ještě
+            # nemají nested_grid comp_defs → použij entity_config iteration.
+            if not _nested_grid_seen and child_config_map:
+                logger.warning(
+                    "[fw_form_load_by_id] core %s: entity_config has children %s but no nested_grid comp_defs in fields_list — using legacy memory-only fallback (run Krok 5.X DDL pro full parita)",
+                    core_id, list(child_config_map.keys()),
+                )
+                for child_key, child_cfg in child_config_map.items():
+                    child_cols_sql = ", ".join(f'"{c}"' for c in child_cfg["select_columns"])
+                    where_parts = [f'"{child_cfg["fk_column"]}" = :parent_id']
+                    filter_params = {"parent_id": row_id}
+                    for fc, fv in (child_cfg.get("filter") or {}).items():
+                        key = f"_filter_{fc}"
+                        where_parts.append(f'"{fc}" = :{key}')
+                        filter_params[key] = fv
+                    child_query = (
+                        f'SELECT {child_cols_sql} FROM "public"."{child_cfg["table"]}" '
+                        f'WHERE {" AND ".join(where_parts)} ORDER BY id ASC'
+                    )
+                    child_rows = ds.execute(
+                        _sql_fwid(child_query), filter_params
+                    ).mappings().all()
+                    children_dict[child_key] = {
+                        "rows": [dict(r) for r in child_rows],
+                        "label": child_cfg.get("label") or child_key,
+                        "default_label": child_cfg.get("default_label"),
+                        "id_column": child_cfg.get("id_column", "id"),
+                        # No comp_def_id → frontend ví že je legacy memory-only
+                    }
 
         # Phase fw.core slim 20.5.2026: template_id sloupec dropnut (Marti's 2A)
         template_dict = None

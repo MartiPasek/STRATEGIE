@@ -764,26 +764,14 @@
       // numeric vs string a routes podle _FW_FORM_CORE_REGISTRY (ID-based)
       // nebo _FW_FORM_ENTITY_MAP (legacy string fallback). Marti's rename
       // code na cokoliv neproblém — ID je truth.
-      // Krok H+13.4 (27.5.2026, Marti's "nested gridy nejsou v palete"):
-      // Memory-only child grids (TELEFONY/EMAILY) — z this._spec.children.
-      // Nejsou v fw.comp_def DB (per Krok 5.J-B7 volba A), ale UI je vidí.
-      // Předáme do palety jako extra context — render v "Již na formě" jako
-      // 3. sekce vedle containers + fields.
-      const _childComponents = (() => {
-        const ch = (this._spec && this._spec.children) || {};
-        return Object.keys(ch).map((key) => {
-          const childData = ch[key] || {};
-          return {
-            key: key,
-            label: (childData.label || key).toUpperCase(),
-            row_count: Array.isArray(childData.rows) ? childData.rows.length : 0,
-          };
-        });
-      })();
+      // Krok 5.X (27.5.2026): nested grids jsou teted fw.comp_def rows
+      // (type_id=304 'nested_grid', kind='container'). Palette uvidi
+      // automaticky pres existing recursive descent (existing_containers_out
+      // query WHERE type_kind='container'). H+13.4 fake childComponents
+      // passing dropped — no longer needed.
       const picker = new global.FieldPickerModal({
         entityType: core.id != null ? String(core.id) : (core.code || core.data_entity_type),
         parentCompDefId: formId,
-        childComponents: _childComponents,
         // Phase 38.4 Krok H+5 (26.5.2026, Marti's "vyjit z rozchozenych
         // komponent"): paleta deleguje ⚙ klik na existing _openFieldSettings.
         // Najde field v this._spec.fields by id + zavolá popup. Existing
@@ -4437,6 +4425,17 @@
       if (CONTAINER_CODES.has(code)) {
         return this._renderContainerNode(comp);
       }
+      // Krok 5.X (27.5.2026): nested_grid je rendered INSIDE _renderContainerNode
+      // panel branch (special _renderChildSection dispatch). Pokud nested_grid
+      // padne sem (komponenta s parent != panel), skip — sirota, no render.
+      if (code === "nested_grid") {
+        console.warn(
+          "[DesignFwForm] nested_grid #" + comp.id +
+          " mimo panel parent — skipped (parent_comp_def_id=" +
+          comp.parent_comp_def_id + ")"
+        );
+        return null;
+      }
       // Leaf field — existing behavior
       return this._renderLeafField(comp, idx, total);
     }
@@ -7212,43 +7211,53 @@
           this._childrenRenderedInAnyPanel = true;  // mark for subsequent panels
         }
 
+        // Krok 5.X (27.5.2026, Marti's "Jsou to normalni komponenty"):
+        // Nested grids jsou teted fw.comp_def rows (type=nested_grid),
+        // children k panelu pres parent_comp_def_id. Render loop dispatch:
+        //   - nested_grid type → _renderChildSection(layout.child_key, childrenData[key])
+        //   - jine typy        → _renderComponentTree (existing recursive render)
+        // Sort_order na comp_def nahrazuje _childPosition / _childOrder /
+        // _childHidden (sort_order + is_active jsou v DB).
+        //
+        // Backward compat: pokud children-only legacy fallback (form bez
+        // Krok 5.X DDL) → backend nevrati comp_def_id v childrenData[key],
+        // a tyto children NEJSOU v `children` array. Pojď rerender legacy
+        // memory-only flow (before-main pre-loop) pokud detected.
         const childrenData = (this._spec && this._spec.children) || {};
-        const childKeys = Object.keys(childrenData);
-        const childPosition = this._childPosition || {};
-        const childOrder = Array.isArray(this._childOrder) && this._childOrder.length === childKeys.length
-          ? this._childOrder
-          : childKeys.slice();
-        // Phase 38.4 Krok 14f-I (14.5.2026 vecer, Marti's "settings pro
-        // gridy s Odebrat"): filter hidden child keys (this._childHidden)
-        const childHidden = this._childHidden || {};
-        const visibleChildOrder = childOrder.filter((k) => !childHidden[k]);
-        const beforeGroupbox = shouldRenderChildren ? visibleChildOrder.filter(
-          (k) => (childPosition[k] || "before-main") === "before-main"
-        ) : [];
-        const afterGroupbox = shouldRenderChildren ? visibleChildOrder.filter(
-          (k) => childPosition[k] === "after-main"
-        ) : [];
-
-        // Render child sections BEFORE groupbox
-        for (const childKey of beforeGroupbox) {
-          const childInfo = childrenData[childKey];
-          if (!childInfo) continue;
-          const sec = this._renderChildSection(childKey, childInfo);
-          if (sec) wrap.appendChild(sec);
+        const _legacyKeys = Object.keys(childrenData).filter(
+          (k) => childrenData[k] && childrenData[k].comp_def_id == null
+        );
+        if (shouldRenderChildren && _legacyKeys.length > 0) {
+          // Legacy memory-only fallback (no Krok 5.X DDL on this form)
+          for (const childKey of _legacyKeys) {
+            const childInfo = childrenData[childKey];
+            if (!childInfo) continue;
+            const sec = this._renderChildSection(childKey, childInfo);
+            if (sec) wrap.appendChild(sec);
+          }
         }
 
-        // Render container children (typically groupbox)
+        // Render container children — Krok 5.X dispatch nested_grid → child section.
         for (let i = 0; i < children.length; i++) {
-          const childEl = this._renderComponentTree(children[i], i, children.length);
+          const childComp = children[i];
+          if (childComp && childComp.comp_type_code === "nested_grid") {
+            const lay = childComp.layout || {};
+            const childKey = lay.child_key;
+            const childInfo = childKey ? childrenData[childKey] : null;
+            if (childInfo) {
+              const sec = this._renderChildSection(childKey, childInfo);
+              if (sec) wrap.appendChild(sec);
+            } else {
+              console.warn(
+                "[DesignFwForm] nested_grid #" + childComp.id +
+                " has no childInfo (child_key=" + childKey +
+                ", available: " + Object.keys(childrenData).join(",") + ")"
+              );
+            }
+            continue;
+          }
+          const childEl = this._renderComponentTree(childComp, i, children.length);
           if (childEl) wrap.appendChild(childEl);
-        }
-
-        // Render child sections AFTER groupbox
-        for (const childKey of afterGroupbox) {
-          const childInfo = childrenData[childKey];
-          if (!childInfo) continue;
-          const sec = this._renderChildSection(childKey, childInfo);
-          if (sec) wrap.appendChild(sec);
         }
 
         return wrap;

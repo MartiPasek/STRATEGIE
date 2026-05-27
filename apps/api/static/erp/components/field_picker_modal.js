@@ -609,15 +609,16 @@
       // samostatny PanelPickerModal).
       // Krok H+5++++++ (26.5.2026 vecer, Marti's "prohod listy"): Jiz na
       // forme = PRVNI (Marti's primary workspace), Schazi pridat = druhy.
-      const _childCount = (this.opts && Array.isArray(this.opts.childComponents))
-        ? this.opts.childComponents.length : 0;
+      // Krok 5.X (27.5.2026): nested grids jsou ted fw.comp_def rows
+      // (kind='container') — automaticky v _existingContainers count.
+      // H+13.4 _childCount + childComponents dropped.
       const tabs = [
         {
           key: "onform",
-          // Phase 38.4 Krok H+5: count includes containers (panel/groupbox/...)
-          // Krok H+13.4 (27.5.2026): + nested grids (memory-only child grids).
+          // Phase 38.4 Krok H+5: count includes containers (panel/groupbox/
+          // pagecontrol/tabsheet/nested_grid — all kind='container').
           label: "Již na formě",
-          count: this._columnsOnForm.length + (this._existingContainers || []).length + _childCount,
+          count: this._columnsOnForm.length + (this._existingContainers || []).length,
           accent: "#7ed4e8",
         },
         {

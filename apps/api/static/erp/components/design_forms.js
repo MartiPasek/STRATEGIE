@@ -1051,6 +1051,27 @@
     }
 
     async open() {
+      // Phase 38.4 Krok 5.X+1 Fix I++ (27.5.2026, Marti's "IDENTICKY STAV
+      // I PO DEPLOY"): re-open guard at SOURCE (DesignFwForm.open). Fix I
+      // v erp_grid_actions.js _openFwEditForm pokrylo registry callsite
+      // ale NEpokrývalo inline JS callsite v router.py openFwFormForRow
+      // (line 14368, dvojklik grid row dispatch). Drz guard pres DOM
+      // marker query — kdykoliv otevreny existing modal, no-op re-open
+      // bez ohledu na callsite path.
+      try {
+        var _existing = document.querySelector('[data-design-fw-form-root="1"]');
+        if (_existing) {
+          console.warn(
+            "[DesignFwForm] re-open ignored — instance already open. " +
+            "Close existing modal (X / Esc / OK) first. " +
+            "(opts.coreId=" + this.opts.coreId +
+            ", opts.coreCode=" + this.opts.coreCode +
+            ", opts.rowId=" + this.opts.rowId + ")"
+          );
+          return;
+        }
+      } catch (e) { /* fail-safe — querySelector pad → continue (puvodni behavior) */ }
+
       // Phase 38.4 Krok 14g Etapa F Step B: dual {coreId|coreCode, rowId} support.
       // Pokud jen coreId, fetch /fw-form/by-id/{coreId}/{rowId} (Step A endpoint)
       // vrátí spec včetně core.code → store this.opts.coreCode pro subsequent

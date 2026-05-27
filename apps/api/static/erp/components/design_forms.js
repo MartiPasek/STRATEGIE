@@ -4740,7 +4740,7 @@
     // (merge with existing). After save → _reloadSpec + re-render.
     // Re-render automaticky pouzije nove layout.max_length pres _renderField.
     // ════════════════════════════════════════════════════════════════
-    _openFieldSettings(field) {
+    _openFieldSettings(field, opts) {
       const currentLayout = field.layout || {};
 
       const overlay = document.createElement("div");

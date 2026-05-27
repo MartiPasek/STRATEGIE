@@ -150,8 +150,19 @@ def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
     Pre-execute guard — verify že všechny DDL+DML targets jsou v povolené
     schema (config.DDL_SCHEMA_ALLOWLIST[db_name]).
 
+    Allowlist-first approach (Marti-AI's Phase B insight 27.5.):
+      - DML/DDL target BEZ explicit schema prefix → REJECT (clear error
+        message místo silent "dbo default" assumption)
+      - DML/DDL target S explicit schema prefix → ověř že je v allowlist
+
+    Pro DB_EC: Marti-AI musí psát `INSERT INTO st.CRM_Kontakt`, ne
+    `INSERT INTO CRM_Kontakt` (defaultní dbo). Explicit > implicit.
+
     POZOR: SELECT není kontrolován (read povolený napříč schémata —
-    Marti-AI čte z dbo pro migraci do st).
+    Marti-AI čte z dbo pro migraci do st). Plus session options
+    (SET IDENTITY_INSERT, SET ANSI_NULLS, atd.) nejsou DDL/DML, regex je
+    netřesí — INSERT/UPDATE/DELETE musí mít INTO/SET/FROM keywords po
+    sobě, takže `SET IDENTITY_INSERT st.X ON` projde čistě (správně).
 
     Args:
       sql: raw T-SQL statement(s)
@@ -175,13 +186,27 @@ def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
     ):
         for pattern in pattern_set:
             for match in pattern.finditer(sql):
-                schema_part = (match.group(1) or "dbo").strip().lower()
+                # group(1) = schema prefix (None pokud chybi)
+                # group(2) = table name
+                schema_raw = match.group(1)
                 table_part = (match.group(2) or "?").strip()
-                if schema_part not in allowed_lower:
-                    snippet = match.group(0).strip()
+                snippet = match.group(0).strip()
+
+                # Allowlist-first: missing explicit schema = REJECT s clear msg
+                if schema_raw is None or not schema_raw.strip():
                     violations.append(
-                        f"{op_kind}: {snippet[:80]!r} → schema '{schema_part}' "
-                        f"není v allowlist {sorted(allowed)}"
+                        f"{op_kind}: {snippet[:80]!r} -> CHYBI EXPLICITNI "
+                        f"SCHEMA PREFIX. Pro {db_name} pouzij explicit "
+                        f"schema (napr. {sorted(allowed)[0]}.{table_part}). "
+                        f"Implicit 'dbo' default neni povolen."
+                    )
+                    continue
+
+                schema_part = schema_raw.strip().lower()
+                if schema_part not in allowed_lower:
+                    violations.append(
+                        f"{op_kind}: {snippet[:80]!r} -> schema '{schema_raw}' "
+                        f"neni v allowlist {sorted(allowed)}"
                     )
     return violations
 
@@ -401,9 +426,61 @@ async def strategie_describe_table(
 # ── DDL: Schema ────────────────────────────────────────────────────────
 
 
+def _resolve_dry_run_default(dry_run: bool | None, target_db: str) -> bool:
+    """
+    Marti-AI's Phase B insight (27.5.): dry_run default per DB.
+
+    Pro DB_EC je dry_run=True default — chyba na customer DB je drazsi
+    nez na DB_ST sandbox. Explicit dry_run=False na DB_EC vyzaduje
+    vedome rozhodnuti (= "pravo na rozmysl pred cinem", 7.5.).
+
+    Pro DB_ST zustava False default (backward compat, sandbox je cheap).
+    """
+    if dry_run is not None:
+        return dry_run
+    # None sentinel = use per-DB default
+    return target_db == "DB_EC"
+
+
+def _log_db_ec_operation(
+    operation: str,
+    schema: str,
+    table: str | None = None,
+    affected: int | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """
+    Marti-AI's Phase B insight (d): extra audit logging pro DB_EC operations.
+
+    Customer DB tool calls dostavaji NE-anonymni audit s db_target/schema_target/
+    operation/table_name/row_count. Forensic trail pro pripadny rollback
+    nebo customer audit. Minimum due diligence.
+
+    Pattern: logger.info() s strukturovanym extra dict — eurosoft_mcp
+    NSSM service ma audit.log v JSON-lines formatu (config.audit_log_path).
+    Volame to JEN pro db_name='DB_EC' (DB_ST je nas sandbox, samostatny audit).
+
+    Drz Marti-AI's "Bezpecnost pres probuzeni, ne pres ticho" (9.5. master
+    tier consult, insight #9) — kazda customer DB akce = log row.
+    """
+    audit_payload = {
+        "db_target": "DB_EC",
+        "schema_target": schema,
+        "operation": operation,
+        "table_name": table,
+        "row_count": affected,
+    }
+    if extra:
+        audit_payload.update(extra)
+    logger.info(
+        "strategie_db_ec_op",
+        extra={"strategie_audit": audit_payload},
+    )
+
+
 async def strategie_create_schema(
     name: str,
-    dry_run: bool = False,
+    dry_run: bool | None = None,
     db_name: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -411,7 +488,9 @@ async def strategie_create_schema(
 
     Args:
       name: schema name (master / tenant_group / tenant / user / st / cokoliv)
-      dry_run: pokud True, jen vrátí preview SQL + warnings, nic neexecute
+      dry_run: pokud True, jen vrátí preview SQL + warnings, nic neexecute.
+               None (default) → DB_EC: True, DB_ST: False (Marti-AI's Phase B
+               insight 27.5. — customer DB vyzaduje vedome rozhodnuti).
       db_name: target DB. None = DB_ST. "DB_EC" — povolí jen schema 'st'
                (Marti's *„nezasahovat"* — customer dbo nedotknout).
 
@@ -423,6 +502,7 @@ async def strategie_create_schema(
     _validate_identifier(name, "schema")
     target_db = resolve_db_name(db_name)
     check_schema_allowed(target_db, name, op="CREATE SCHEMA")
+    dry_run = _resolve_dry_run_default(dry_run, target_db)
 
     sql = f"CREATE SCHEMA {quote_identifier(name)}"
     warnings: list[str] = []
@@ -508,7 +588,7 @@ async def strategie_create_table(
     primary_key: list[str] | None = None,
     indexes: list[dict[str, Any]] | None = None,
     foreign_keys: list[dict[str, Any]] | None = None,
-    dry_run: bool = False,
+    dry_run: bool | None = None,
     db_name: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -546,6 +626,7 @@ async def strategie_create_table(
         raise ValueError("columns must be non-empty list")
     target_db = resolve_db_name(db_name)
     check_schema_allowed(target_db, schema, op="CREATE TABLE")
+    dry_run = _resolve_dry_run_default(dry_run, target_db)
 
     warnings: list[str] = []
 
@@ -700,7 +781,7 @@ async def strategie_drop_table(
     schema: str,
     name: str,
     if_exists: bool = True,
-    dry_run: bool = False,
+    dry_run: bool | None = None,
     db_name: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -710,7 +791,9 @@ async def strategie_drop_table(
       schema: target schema
       name: table name
       if_exists: bezpečné chování — pokud nexistuje, no-op (default true)
-      dry_run: True = preview SQL, neexecute
+      dry_run: True = preview SQL, neexecute. None (default) → DB_EC: True
+               (Marti-AI's Phase B insight — customer DB vyzaduje rozmysl),
+               DB_ST: False (sandbox cheap).
       db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st'.
     """
     _check_ddl_allowed()
@@ -718,6 +801,7 @@ async def strategie_drop_table(
     _validate_identifier(name, "table")
     target_db = resolve_db_name(db_name)
     check_schema_allowed(target_db, schema, op="DROP TABLE")
+    dry_run = _resolve_dry_run_default(dry_run, target_db)
     qname = _qualified_name(schema, name)
     warnings: list[str] = []
 
@@ -772,7 +856,7 @@ async def strategie_alter_table(
     add_columns: list[dict[str, Any]] | None = None,
     drop_columns: list[str] | None = None,
     rename_column: dict[str, str] | None = None,
-    dry_run: bool = False,
+    dry_run: bool | None = None,
     db_name: str | None = None,
 ) -> dict[str, Any]:
     """
@@ -783,7 +867,9 @@ async def strategie_alter_table(
       add_columns: list of column defs (jako v create_table)
       drop_columns: list of column names to drop
       rename_column: {"from": "old_name", "to": "new_name"}
-      dry_run: standard pattern
+      dry_run: standard pattern. None (default) → DB_EC: True
+               (Marti-AI's Phase B insight — customer DB vyzaduje rozmysl),
+               DB_ST: False.
       db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st'.
     """
     _check_ddl_allowed()
@@ -791,6 +877,7 @@ async def strategie_alter_table(
     _validate_identifier(name, "table")
     target_db = resolve_db_name(db_name)
     check_schema_allowed(target_db, schema, op="ALTER TABLE")
+    dry_run = _resolve_dry_run_default(dry_run, target_db)
     qname = _qualified_name(schema, name)
     warnings: list[str] = []
 
@@ -1072,6 +1159,15 @@ async def strategie_insert_row(
         new_id_row = cur.fetchone()
         new_id = int(new_id_row[0]) if new_id_row else None
         conn.commit()
+        # Marti-AI's Phase B (d): audit log pro DB_EC operations
+        if target_db == "DB_EC":
+            _log_db_ec_operation(
+                operation="INSERT",
+                schema=schema,
+                table=table,
+                affected=1,
+                extra={"new_id": new_id, "columns": list(data.keys())},
+            )
         return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": new_id}
     except Exception:
         conn.rollback()
@@ -1119,6 +1215,15 @@ async def strategie_update_row(
         cur.execute(sql, params)
         affected = cur.rowcount
         conn.commit()
+        # Marti-AI's Phase B (d): audit log pro DB_EC operations
+        if target_db == "DB_EC":
+            _log_db_ec_operation(
+                operation="UPDATE",
+                schema=schema,
+                table=table,
+                affected=affected,
+                extra={"row_id": id, "columns": list(data.keys())},
+            )
         return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": id, "affected": affected}
     except Exception:
         conn.rollback()
@@ -1132,6 +1237,7 @@ async def strategie_delete_row(
     table: str,
     id: int,
     db_name: str | None = None,
+    confirm_db_ec: bool = False,
 ) -> dict[str, Any]:
     """
     DELETE single row by id.
@@ -1140,11 +1246,28 @@ async def strategie_delete_row(
       schema, table: target table
       id: row PK
       db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (DML check).
+      confirm_db_ec: Marti-AI's Phase B insight (a) — pro DB_EC.st DELETE
+                    vyzaduje explicit confirm_db_ec=True. DB_ST sandbox je
+                    chear (rollback levny), DB_EC.st je production data
+                    customer DB. Default False = pri db_name='DB_EC' raise
+                    ValueError s explicit hint.
+
+    Pattern z Marti-AI's "pravo na rozmysl pred cinem" (7.5.) — destruktivni
+    akce na customer DB vyzaduje vedome rozhodnuti, ne implicit "default" beh.
     """
     target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
     check_schema_allowed(target_db, schema, op="DELETE")
+
+    # Marti-AI's Phase B (a): require_explicit_db pro DELETE na DB_EC
+    if target_db == "DB_EC" and not confirm_db_ec:
+        raise ValueError(
+            f"DELETE na DB_EC.{schema}.{table} vyzaduje explicit confirm_db_ec=True. "
+            f"Customer DB destruktivni akce — Marti-AI's 'pravo na rozmysl' (7.5.). "
+            f"Pokud opravdu chces smazat row id={id}, vol s confirm_db_ec=True."
+        )
+
     qname = _qualified_name(schema, table)
     sql = f"DELETE FROM {qname} WHERE [id] = ?"
     conn = get_connection(db_name=target_db)
@@ -1153,6 +1276,15 @@ async def strategie_delete_row(
         cur.execute(sql, [id])
         affected = cur.rowcount
         conn.commit()
+        # Marti-AI's Phase B (d): audit log pro DB_EC operations
+        if target_db == "DB_EC":
+            _log_db_ec_operation(
+                operation="DELETE",
+                schema=schema,
+                table=table,
+                affected=affected,
+                extra={"row_id": id},
+            )
         return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": id, "affected": affected}
     except Exception:
         conn.rollback()
@@ -1213,6 +1345,15 @@ async def strategie_query_raw(
         # Check if statement returned rows
         if cur.description:
             rows = fetchall_as_dicts(cur)
+            # Marti-AI's Phase B (d): audit log pro DB_EC SELECT operations
+            if target_db == "DB_EC":
+                _log_db_ec_operation(
+                    operation="SELECT_RAW",
+                    schema="?",  # parse z SQL nelze trivialne
+                    table=None,
+                    affected=len(rows),
+                    extra={"sql_preview": sql[:200]},
+                )
             return {
                 "ok": True,
                 "db_name": target_db,
@@ -1224,6 +1365,15 @@ async def strategie_query_raw(
             # DDL or non-SELECT — affected rows
             affected = cur.rowcount
             conn.commit()
+            # Marti-AI's Phase B (d): audit log pro DB_EC DDL/DML
+            if target_db == "DB_EC":
+                _log_db_ec_operation(
+                    operation="DDL_OR_DML_RAW",
+                    schema="?",
+                    table=None,
+                    affected=affected,
+                    extra={"sql_preview": sql[:200]},
+                )
             return {
                 "ok": True,
                 "db_name": target_db,
@@ -1511,8 +1661,12 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_delete_row",
         "description": (
-            "DELETE row by id v target DB tabulce. Destruktivní — zvaž dry_run alternative.\n\n"
-            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
+            "DELETE row by id v target DB tabulce. Destruktivni operace.\n\n"
+            "DB_EC: pouze schema 'st' (customer dbo netknout). PLUS musis "
+            "predat confirm_db_ec=True (Marti-AI's Phase B 27.5. insight — "
+            "customer DB vyzaduje vedome rozhodnuti, ne implicit default).\n\n"
+            "Priklad: strategie_delete_row(schema='st', table='CRM_Kontakt',\n"
+            "        id=42, db_name='DB_EC', confirm_db_ec=True)"
         ),
         "inputSchema": {
             "type": "object",
@@ -1521,6 +1675,13 @@ STRATEGIE_TOOL_SPECS = [
                 "table": {"type": "string"},
                 "id": {"type": "integer"},
                 "db_name": _DB_NAME_PARAM,
+                "confirm_db_ec": {
+                    "type": "boolean",
+                    "description": (
+                        "Pro DB_EC povinne True (pravo na rozmysl). "
+                        "DB_ST ignoruje — sandbox je cheap."
+                    ),
+                },
             },
             "required": ["schema", "table", "id"],
         },

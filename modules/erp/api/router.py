@@ -2796,15 +2796,35 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 cols_sql = ", ".join(f'"{c}"' for c in cols_list)
             else:
                 cols_sql = "*"
-            data_query = (
-                f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
-                f'WHERE "{id_column}" = :row_id'
-            )
-            data_row_raw = ds.execute(
-                _sql_fwid(data_query), {"row_id": row_id}
-            ).mappings().one_or_none()
-            if data_row_raw:
-                data_row = dict(data_row_raw)
+            # Krok 5-A v2 (27.5.2026 ~23:50): 2 guards pre target table SELECT.
+            # 1) row_id=0 = CREATE mode placeholder → skip SELECT, empty entity.
+            #    Krok H+4 CREATE mode pattern (26.5. *„Velky den"*).
+            # 2) MSSQL target (st.CRM_*, dbo.*) — PG SELECT fail. Wrap v SAVEPOINT
+            #    (begin_nested) — exception rolls back jen savepoint, ne whole tx.
+            #    Plus log warn + data_row=None + form renders without entity values
+            #    (nested grids stále fungují přes data_source_runner dispatch).
+            #    TODO: full MSSQL dispatch via data_source_runner / MCP klient
+            #    (Krok 5-I save flow epoch).
+            if row_id and row_id > 0:
+                try:
+                    with ds.begin_nested():
+                        data_query = (
+                            f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
+                            f'WHERE "{id_column}" = :row_id'
+                        )
+                        data_row_raw = ds.execute(
+                            _sql_fwid(data_query), {"row_id": row_id}
+                        ).mappings().one_or_none()
+                        if data_row_raw:
+                            data_row = dict(data_row_raw)
+                except Exception as exc:
+                    logger.warning(
+                        "[fw_form_load_by_id] EDIT mode SELECT failed for "
+                        "%s.%s row=%s: %s — defer MSSQL dispatch (Krok 5-I)",
+                        schema_name, table_name, row_id, exc,
+                    )
+                    data_row = None
+            # else: row_id=0 (CREATE) — data_row zůstává None (init line 2783)
 
             # Krok 5.X (27.5.2026, Marti's "Jsou to normalni komponenty"):
             # Nested grids = fw.comp_def rows (type_id=304 'nested_grid'),

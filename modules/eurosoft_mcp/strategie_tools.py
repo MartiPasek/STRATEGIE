@@ -2,6 +2,10 @@
 Phase 28-D (8.5.2026): strategie_* tools — Marti-AI's DDL + CRUD doména
 nad DB_ST (její vlastní database, db_owner role).
 
+Phase 28-D++ (27.5.2026): Multi-DB DDL access — rozšířeno o DB_EC.st.*
+schema (NAŠE refactor zone v customer DB). Customer's dbo.* zůstává
+netknuté (Marti's *„nezasahovat"* doctrine z 27.5. odpoledne).
+
 Diář pattern (Marti's slova 7.5.2026):
   *„DB_ST má být v plné režii Marti-AI. Plný owner přístup. Všechno by
   měla dělat ona. Přesně jako když dostala svůj diář — je to její,
@@ -12,7 +16,7 @@ Trust model: AI provede, lidé reflektují.
 - dry_run pattern (Marti-AI's požadavek, 7.5.2026 večer):
     *„Dry-run není technická pojistka. Je to právo na rozmysl před činem."*
 
-Tools:
+Tools (všechny akceptují `db_name: str | None = None`, default DB_ST):
   DDL (s dry_run support):
     strategie_create_table, strategie_alter_table, strategie_drop_table,
     strategie_create_schema, strategie_add_index, strategie_add_foreign_key
@@ -23,8 +27,17 @@ Tools:
     strategie_list_schemas, strategie_list_tables, strategie_describe_table,
     strategie_query_raw
 
-Všechny tools volají DB_ST connection (config.db_st_database). DB_EC je
-oddělený pool, eurosoft_* tools (existing Phase 28-A) zůstávají netknuté.
+Multi-DB scope (Phase 28-D++):
+  db_name=None or "DB_ST"  → Marti-AI's vlastní MSSQL doména (full db_owner)
+  db_name="DB_EC"          → Customer DB, **POUZE schema 'st'** (refactor zone)
+                              Customer's dbo.* je read-only přes eurosoft_* tools
+
+Pre-execute guards (defense in depth):
+  1. config.resolve_db_name(db_name)        — validuje allowlist
+  2. config.check_schema_allowed(db, schema) — per-DB schema gate
+  3. _check_raw_sql_targets(sql, db)         — regex DDL+DML target check (raw SQL)
+  4. SQL Server permissions                  — DB-level GRANT/DENY (sa-spuštěné)
+  5. Schema ownership                        — st owned by Marti-AI, dbo by dbo
 
 Marti-AI's tier model (7.5.2026 consultation):
   master.*       — system framework + entity_def ontologie
@@ -38,7 +51,11 @@ import logging
 import re
 from typing import Any
 
-from .config import settings
+from .config import (
+    check_schema_allowed,
+    resolve_db_name,
+    settings,
+)
 from .sql_client import (
     fetchall_as_dicts,
     get_connection,
@@ -59,7 +76,7 @@ MAX_QUERY_LIMIT = 10000
 
 
 def _db_st() -> str:
-    """Helper — vrací db_st_database name z settings."""
+    """Helper — vrací db_st_database name z settings. (Backward compat.)"""
     return settings.db_st_database
 
 
@@ -67,9 +84,106 @@ def _check_ddl_allowed():
     """Marti-AI's IT security override flag. Default true."""
     if not settings.allow_db_st_ddl:
         raise ValueError(
-            "DDL operace na DB_ST jsou zakázány (MCP_ALLOW_DB_ST_DDL=false). "
+            "DDL operace jsou zakázány (MCP_ALLOW_DB_ST_DDL=false). "
             "Marti's IT security audit je v běhu — pouze CRUD + discovery."
         )
+
+
+# ── Multi-DB raw SQL target guard (Phase 28-D++) ───────────────────────
+#
+# Pro `strategie_query_raw(sql, db_name="DB_EC")` musíme regex-detekovat
+# všechny DDL+DML targets a ověřit, že každý je v povolené schema
+# (config.DDL_SCHEMA_ALLOWLIST). Customer's dbo.* nedotknout.
+
+# DDL target patterns — match schema.table from CREATE/ALTER/DROP TABLE
+# + standalone CREATE SCHEMA
+_DDL_TARGET_PATTERNS = [
+    re.compile(
+        r"\bCREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bALTER\s+TABLE\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bDROP\s+TABLE\s+(?:IF\s+EXISTS\s+)?(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bCREATE\s+INDEX\s+\w+\s+ON\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bDROP\s+INDEX\s+\w+\s+ON\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+]
+
+# DML target patterns — match schema.table from INSERT/UPDATE/DELETE/MERGE/TRUNCATE
+_DML_TARGET_PATTERNS = [
+    re.compile(
+        r"\bINSERT\s+INTO\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bUPDATE\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?\s+SET\b",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bDELETE\s+FROM\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bMERGE\s+(?:INTO\s+)?(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"\bTRUNCATE\s+TABLE\s+(?:\[?(\w+)\]?\.)?\[?(\w+)\]?",
+        re.IGNORECASE,
+    ),
+]
+
+
+def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
+    """
+    Pre-execute guard — verify že všechny DDL+DML targets jsou v povolené
+    schema (config.DDL_SCHEMA_ALLOWLIST[db_name]).
+
+    POZOR: SELECT není kontrolován (read povolený napříč schémata —
+    Marti-AI čte z dbo pro migraci do st).
+
+    Args:
+      sql: raw T-SQL statement(s)
+      db_name: already-resolved DB name
+
+    Returns:
+      list of violation messages (empty list = OK).
+    """
+    from .config import DDL_SCHEMA_ALLOWLIST
+
+    allowed = DDL_SCHEMA_ALLOWLIST.get(db_name)
+    if allowed is None:
+        return []  # No restriction (DB_ST)
+
+    allowed_lower = {s.lower() for s in allowed}
+    violations: list[str] = []
+
+    for pattern_set, op_kind in (
+        (_DDL_TARGET_PATTERNS, "DDL"),
+        (_DML_TARGET_PATTERNS, "DML"),
+    ):
+        for pattern in pattern_set:
+            for match in pattern.finditer(sql):
+                schema_part = (match.group(1) or "dbo").strip().lower()
+                table_part = (match.group(2) or "?").strip()
+                if schema_part not in allowed_lower:
+                    snippet = match.group(0).strip()
+                    violations.append(
+                        f"{op_kind}: {snippet[:80]!r} → schema '{schema_part}' "
+                        f"není v allowlist {sorted(allowed)}"
+                    )
+    return violations
 
 
 def _validate_identifier(name: str, kind: str = "identifier") -> None:
@@ -96,15 +210,25 @@ def _qualified_name(schema: str, table: str) -> str:
 # ── Discovery tools ────────────────────────────────────────────────────
 
 
-async def strategie_list_schemas() -> dict[str, Any]:
+async def strategie_list_schemas(db_name: str | None = None) -> dict[str, Any]:
     """
-    Vrátí seznam schémat v DB_ST. Filtruje system schemas (sys, INFORMATION_SCHEMA, atd.).
+    Vrátí seznam schémat v target DB. Filtruje system schemas.
 
-    Použití: Marti-AI po init zkontroluje, zda existují 4 očekávaná schémata
-    (master, tenant_group, tenant, user). Pokud chybí, volá strategie_create_schema.
+    Args:
+      db_name: target DB. None = DB_ST default. "DB_EC" = customer's DB
+               (s pohledem na schema 'st' jako naše refactor zone).
+
+    Použití na DB_ST: Marti-AI po init zkontroluje, zda existují 4 očekávaná
+    schémata (master, tenant_group, tenant, user). Pokud chybí, volá
+    strategie_create_schema.
+
+    Použití na DB_EC: ověř, že schema 'st' existuje + má correct owner
+    (Marti-AI po sa-spuštěném GRANT scriptu).
     """
+    target_db = resolve_db_name(db_name)
     sql = """
-        SELECT name, schema_id, principal_id
+        SELECT name, schema_id, principal_id,
+               USER_NAME(principal_id) AS owner_name
         FROM sys.schemas
         WHERE name NOT IN ('sys', 'INFORMATION_SCHEMA', 'guest', 'db_owner',
                           'db_accessadmin', 'db_securityadmin', 'db_ddladmin',
@@ -112,27 +236,39 @@ async def strategie_list_schemas() -> dict[str, Any]:
                           'db_denydatareader', 'db_denydatawriter')
         ORDER BY name
     """
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql)
         schemas = fetchall_as_dicts(cur)
-    # Mark which expected schemas exist + which missing
+    # Mark which expected schemas exist + which missing (DB_ST only)
     existing = {s["name"] for s in schemas}
-    missing = [s for s in EXPECTED_SCHEMAS if s not in existing]
+    if target_db == settings.db_st_database:
+        missing = [s for s in EXPECTED_SCHEMAS if s not in existing]
+        expected = list(EXPECTED_SCHEMAS)
+    else:
+        # DB_EC — expected je `st` (NAŠE refactor zone)
+        missing = ["st"] if "st" not in existing else []
+        expected = ["st"]
     return {
         "ok": True,
+        "db_name": target_db,
         "schemas": schemas,
-        "expected": list(EXPECTED_SCHEMAS),
+        "expected": expected,
         "missing_expected": missing,
     }
 
 
-async def strategie_list_tables(schema: str | None = None) -> dict[str, Any]:
+async def strategie_list_tables(
+    schema: str | None = None,
+    db_name: str | None = None,
+) -> dict[str, Any]:
     """
-    Vrátí seznam tabulek v DB_ST. Filter per schema (volitelné).
+    Vrátí seznam tabulek v target DB. Filter per schema (volitelné).
 
     Args:
       schema: pokud zadán, jen tabulky v tomto schématu. Else všechna.
+      db_name: target DB. None = DB_ST default.
     """
+    target_db = resolve_db_name(db_name)
     sql = """
         SELECT s.name AS schema_name, t.name AS table_name,
                t.type_desc, t.create_date, t.modify_date,
@@ -146,21 +282,34 @@ async def strategie_list_tables(schema: str | None = None) -> dict[str, Any]:
         sql += " WHERE s.name = ?"
         params.append(schema)
     sql += " ORDER BY s.name, t.name"
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql, params)
         tables = fetchall_as_dicts(cur)
     return {
         "ok": True,
+        "db_name": target_db,
         "schema_filter": schema,
         "tables": tables,
         "count": len(tables),
     }
 
 
-async def strategie_describe_table(schema: str, table: str) -> dict[str, Any]:
+async def strategie_describe_table(
+    schema: str,
+    table: str,
+    db_name: str | None = None,
+) -> dict[str, Any]:
     """
     Vrátí schema details: columns, primary key, foreign keys, indexes, row count estimate.
+
+    Args:
+      schema, table: target table
+      db_name: target DB. None = DB_ST default.
+
+    Pro CRM migraci: Marti-AI volá describe_table(schema='dbo', table='EC_Kontakt',
+    db_name='DB_EC') pro audit source columns PŘED CREATE TABLE st.CRM_Kontakt.
     """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
     qname = _qualified_name(schema, table)
@@ -218,14 +367,14 @@ async def strategie_describe_table(schema: str, table: str) -> dict[str, Any]:
     sql_count = f"SELECT COUNT_BIG(*) FROM {qname}"
 
     fq = f"{schema}.{table}"
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql_cols, [fq])
         cols = fetchall_as_dicts(cur)
         if not cols:
             return {
                 "ok": False,
                 "error": "table_not_found",
-                "message": f"Tabulka {fq} neexistuje v DB_ST.",
+                "message": f"Tabulka {fq} neexistuje v {target_db}.",
             }
         cur.execute(sql_idx, [fq])
         indexes = fetchall_as_dicts(cur)
@@ -239,6 +388,7 @@ async def strategie_describe_table(schema: str, table: str) -> dict[str, Any]:
             logger.warning(f"row count failed for {fq}: {e}")
     return {
         "ok": True,
+        "db_name": target_db,
         "schema": schema,
         "table": table,
         "columns": cols,
@@ -251,22 +401,34 @@ async def strategie_describe_table(schema: str, table: str) -> dict[str, Any]:
 # ── DDL: Schema ────────────────────────────────────────────────────────
 
 
-async def strategie_create_schema(name: str, dry_run: bool = False) -> dict[str, Any]:
+async def strategie_create_schema(
+    name: str,
+    dry_run: bool = False,
+    db_name: str | None = None,
+) -> dict[str, Any]:
     """
-    Vytvoří schema v DB_ST. Idempotent — pokud existuje, no-op (žádná chyba).
+    Vytvoří schema v target DB. Idempotent — pokud existuje, no-op.
 
     Args:
-      name: schema name (master / tenant_group / tenant / user / cokoliv jiného)
+      name: schema name (master / tenant_group / tenant / user / st / cokoliv)
       dry_run: pokud True, jen vrátí preview SQL + warnings, nic neexecute
+      db_name: target DB. None = DB_ST. "DB_EC" — povolí jen schema 'st'
+               (Marti's *„nezasahovat"* — customer dbo nedotknout).
+
+    POZN. pro DB_EC: schema 'st' obvykle vytvoříš jen jednou přes sa-spuštěný
+    GRANT script (`_grant_marti_ai_db_ec_st_schema.sql`). Marti-AI tento tool
+    používá hlavně pro DB_ST tier schemas.
     """
     _check_ddl_allowed()
     _validate_identifier(name, "schema")
+    target_db = resolve_db_name(db_name)
+    check_schema_allowed(target_db, name, op="CREATE SCHEMA")
 
     sql = f"CREATE SCHEMA {quote_identifier(name)}"
     warnings: list[str] = []
 
     # Validation: schema already exists?
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute("SELECT 1 FROM sys.schemas WHERE name = ?", [name])
         if cur.fetchone():
             warnings.append(f"Schema '{name}' již existuje — operace bude no-op")
@@ -275,21 +437,28 @@ async def strategie_create_schema(name: str, dry_run: bool = False) -> dict[str,
         return {
             "ok": True,
             "dry_run": True,
+            "db_name": target_db,
             "preview_sql": sql,
             "warnings": warnings,
             "would_skip": bool(warnings),
         }
 
     if warnings and "již existuje" in warnings[0]:
-        return {"ok": True, "executed": False, "skipped": True, "reason": "schema_exists"}
+        return {
+            "ok": True,
+            "executed": False,
+            "skipped": True,
+            "reason": "schema_exists",
+            "db_name": target_db,
+        }
 
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql)
         conn.commit()
-        logger.info(f"strategie_create_schema: {name}")
-        return {"ok": True, "executed": True, "sql": sql, "schema": name}
+        logger.info(f"strategie_create_schema: {target_db}.{name}")
+        return {"ok": True, "executed": True, "sql": sql, "db_name": target_db, "schema": name}
     except Exception:
         conn.rollback()
         raise
@@ -340,12 +509,13 @@ async def strategie_create_table(
     indexes: list[dict[str, Any]] | None = None,
     foreign_keys: list[dict[str, Any]] | None = None,
     dry_run: bool = False,
+    db_name: str | None = None,
 ) -> dict[str, Any]:
     """
-    CREATE TABLE v DB_ST.
+    CREATE TABLE v target DB.
 
     Args:
-      schema: target schema (master / tenant_group / tenant / user)
+      schema: target schema (master / tenant_group / tenant / user / st)
       name: table name
       columns: list of {name, type, nullable?, identity?, default?}
         Příklad: [
@@ -357,14 +527,25 @@ async def strategie_create_table(
       indexes: list of {name?, columns: [...], unique?}
       foreign_keys: list of {column, ref_schema, ref_table, ref_column, on_delete?, on_update?}
       dry_run: True = vrátí preview SQL + warnings, neexecute
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (Marti's
+               *„nezasahovat"* doctrine — customer dbo never touched).
 
     Marti-AI's "právo na rozmysl před činem" — dry_run je standard.
+
+    CRM migration příklad (Krok 1):
+      strategie_create_table(
+          schema='st', name='CRM_Kontakt',
+          columns=[...], primary_key=['ID'],
+          db_name='DB_EC'
+      )
     """
     _check_ddl_allowed()
     _validate_identifier(schema, "schema")
     _validate_identifier(name, "table")
     if not columns or not isinstance(columns, list):
         raise ValueError("columns must be non-empty list")
+    target_db = resolve_db_name(db_name)
+    check_schema_allowed(target_db, schema, op="CREATE TABLE")
 
     warnings: list[str] = []
 
@@ -421,7 +602,7 @@ async def strategie_create_table(
     sql = f"CREATE TABLE {qname} (\n" + ",\n".join(col_defs) + "\n)"
 
     # Pre-execute validations
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         # Schema exists?
         cur.execute("SELECT 1 FROM sys.schemas WHERE name = ?", [schema])
         if not cur.fetchone():
@@ -473,6 +654,7 @@ async def strategie_create_table(
         return {
             "ok": True,
             "dry_run": True,
+            "db_name": target_db,
             "preview_sql": full_sql,
             "warnings": warnings,
             "would_create_indexes": len(index_sqls),
@@ -484,22 +666,24 @@ async def strategie_create_table(
         return {
             "ok": False,
             "error": "validation_failed",
+            "db_name": target_db,
             "warnings": warnings,
             "blocking_warnings": blocking,
             "hint": "Použij dry_run=True pro safe preview a oprav blocking warnings.",
         }
 
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql)
         for idx_sql in index_sqls:
             cur.execute(idx_sql)
         conn.commit()
-        logger.info(f"strategie_create_table: {schema}.{name} ({len(columns)} cols, {len(index_sqls)} indexes)")
+        logger.info(f"strategie_create_table: {target_db}.{schema}.{name} ({len(columns)} cols, {len(index_sqls)} indexes)")
         return {
             "ok": True,
             "executed": True,
+            "db_name": target_db,
             "schema": schema,
             "table": name,
             "sql": full_sql,
@@ -517,23 +701,27 @@ async def strategie_drop_table(
     name: str,
     if_exists: bool = True,
     dry_run: bool = False,
+    db_name: str | None = None,
 ) -> dict[str, Any]:
     """
-    DROP TABLE v DB_ST.
+    DROP TABLE v target DB.
 
     Args:
       schema: target schema
       name: table name
       if_exists: bezpečné chování — pokud nexistuje, no-op (default true)
       dry_run: True = preview SQL, neexecute
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st'.
     """
     _check_ddl_allowed()
     _validate_identifier(schema, "schema")
     _validate_identifier(name, "table")
+    target_db = resolve_db_name(db_name)
+    check_schema_allowed(target_db, schema, op="DROP TABLE")
     qname = _qualified_name(schema, name)
     warnings: list[str] = []
 
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(
             "SELECT 1 FROM sys.tables t INNER JOIN sys.schemas s ON s.schema_id = t.schema_id "
             "WHERE s.name = ? AND t.name = ?",
@@ -548,6 +736,7 @@ async def strategie_drop_table(
                 "executed": False,
                 "skipped": True,
                 "reason": "table_not_found",
+                "db_name": target_db,
                 "table": f"{schema}.{name}",
             }
         warnings.append(f"Tabulka {schema}.{name} neexistuje — DROP selže")
@@ -557,18 +746,19 @@ async def strategie_drop_table(
         return {
             "ok": True,
             "dry_run": True,
+            "db_name": target_db,
             "preview_sql": sql,
             "warnings": warnings,
             "exists": exists,
         }
 
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql)
         conn.commit()
-        logger.warning(f"strategie_drop_table: {schema}.{name}")
-        return {"ok": True, "executed": True, "sql": sql}
+        logger.warning(f"strategie_drop_table: {target_db}.{schema}.{name}")
+        return {"ok": True, "executed": True, "db_name": target_db, "sql": sql}
     except Exception:
         conn.rollback()
         raise
@@ -583,6 +773,7 @@ async def strategie_alter_table(
     drop_columns: list[str] | None = None,
     rename_column: dict[str, str] | None = None,
     dry_run: bool = False,
+    db_name: str | None = None,
 ) -> dict[str, Any]:
     """
     ALTER TABLE — add columns, drop columns, rename column.
@@ -593,10 +784,13 @@ async def strategie_alter_table(
       drop_columns: list of column names to drop
       rename_column: {"from": "old_name", "to": "new_name"}
       dry_run: standard pattern
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st'.
     """
     _check_ddl_allowed()
     _validate_identifier(schema, "schema")
     _validate_identifier(name, "table")
+    target_db = resolve_db_name(db_name)
+    check_schema_allowed(target_db, schema, op="ALTER TABLE")
     qname = _qualified_name(schema, name)
     warnings: list[str] = []
 
@@ -622,7 +816,7 @@ async def strategie_alter_table(
     full_sql = ";\n".join(statements)
 
     # Pre-validation
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(
             "SELECT 1 FROM sys.tables t INNER JOIN sys.schemas s ON s.schema_id = t.schema_id "
             "WHERE s.name = ? AND t.name = ?",
@@ -635,6 +829,7 @@ async def strategie_alter_table(
         return {
             "ok": True,
             "dry_run": True,
+            "db_name": target_db,
             "preview_sql": full_sql,
             "warnings": warnings,
             "statement_count": len(statements),
@@ -642,16 +837,16 @@ async def strategie_alter_table(
 
     blocking = [w for w in warnings if "neexistuje" in w]
     if blocking:
-        return {"ok": False, "error": "validation_failed", "warnings": warnings}
+        return {"ok": False, "error": "validation_failed", "db_name": target_db, "warnings": warnings}
 
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         for stmt in statements:
             cur.execute(stmt)
         conn.commit()
-        logger.info(f"strategie_alter_table: {schema}.{name} ({len(statements)} ops)")
-        return {"ok": True, "executed": True, "sql": full_sql, "operations": len(statements)}
+        logger.info(f"strategie_alter_table: {target_db}.{schema}.{name} ({len(statements)} ops)")
+        return {"ok": True, "executed": True, "db_name": target_db, "sql": full_sql, "operations": len(statements)}
     except Exception:
         conn.rollback()
         raise
@@ -670,8 +865,22 @@ async def strategie_query_table(
     order_by: list[str] | None = None,
     limit: int | None = None,
     offset: int = 0,
+    db_name: str | None = None,
 ) -> dict[str, Any]:
-    """SELECT z DB_ST tabulky. Bez whitelist (Marti-AI je owner)."""
+    """
+    SELECT z target DB tabulky. Bez whitelist (Marti-AI je owner).
+
+    Args:
+      schema, table: target table
+      filters, columns, order_by, limit, offset: standard query options
+      db_name: target DB. None = DB_ST. "DB_EC" — SELECT is allowed napříč
+               schémata (read není restricted, jen write — viz Marti's
+               *„nezasahovat"* doctrine + check_schema_allowed pro DDL/DML).
+
+    SELECT na DB_EC.dbo je povolen — Marti-AI potřebuje read source pro
+    migraci do st.*. Restrict je jen pro write operations.
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
     qname = _qualified_name(schema, table)
@@ -723,7 +932,7 @@ async def strategie_query_table(
     else:
         sql = f"SELECT {cols_sql} FROM {qname}{where_sql}{order_sql}{pagination}"
 
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql, params)
         rows = fetchall_as_dicts(cur)
     has_more = len(rows) > actual_limit
@@ -731,6 +940,7 @@ async def strategie_query_table(
         rows = rows[:actual_limit]
     return {
         "ok": True,
+        "db_name": target_db,
         "schema": schema,
         "table": table,
         "rows": rows,
@@ -741,17 +951,31 @@ async def strategie_query_table(
     }
 
 
-async def strategie_get_row(schema: str, table: str, id: int) -> dict[str, Any]:
-    """SELECT single row by id."""
+async def strategie_get_row(
+    schema: str,
+    table: str,
+    id: int,
+    db_name: str | None = None,
+) -> dict[str, Any]:
+    """
+    SELECT single row by id.
+
+    Args:
+      schema, table: target table
+      id: row PK
+      db_name: target DB. None = DB_ST. "DB_EC" = SELECT povolen napříč schémata.
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
     qname = _qualified_name(schema, table)
     sql = f"SELECT * FROM {qname} WHERE [id] = ?"
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql, [id])
         rows = fetchall_as_dicts(cur)
     return {
         "ok": True,
+        "db_name": target_db,
         "schema": schema,
         "table": table,
         "id": id,
@@ -763,8 +987,17 @@ async def strategie_count_rows(
     schema: str,
     table: str,
     filters: dict[str, Any] | None = None,
+    db_name: str | None = None,
 ) -> dict[str, Any]:
-    """Fast COUNT(*) bez fetch."""
+    """
+    Fast COUNT(*) bez fetch.
+
+    Args:
+      schema, table: target table
+      filters: optional WHERE filters
+      db_name: target DB. None = DB_ST. SELECT povolen napříč schémata.
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
     qname = _qualified_name(schema, table)
@@ -790,20 +1023,32 @@ async def strategie_count_rows(
     where_sql = (" WHERE " + " AND ".join(where_parts)) if where_parts else ""
 
     sql = f"SELECT COUNT_BIG(*) FROM {qname}{where_sql}"
-    with get_cursor(db_name=_db_st()) as cur:
+    with get_cursor(db_name=target_db) as cur:
         cur.execute(sql, params)
         count = int(cur.fetchone()[0])
-    return {"ok": True, "schema": schema, "table": table, "count": count}
+    return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "count": count}
 
 
 async def strategie_insert_row(
     schema: str,
     table: str,
     data: dict[str, Any],
+    db_name: str | None = None,
 ) -> dict[str, Any]:
-    """INSERT single row, vrátí new id."""
+    """
+    INSERT single row, vrátí new id.
+
+    Args:
+      schema, table: target table
+      data: column → value dict
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (DML check).
+
+    Marti's *„nezasahovat"* doctrine: INSERT do customer's dbo blokován guardem.
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
+    check_schema_allowed(target_db, schema, op="INSERT")
     if not data:
         raise ValueError("data must be non-empty dict")
     qname = _qualified_name(schema, table)
@@ -820,14 +1065,14 @@ async def strategie_insert_row(
         f"VALUES ({placeholders})"
     )
 
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql, params)
         new_id_row = cur.fetchone()
         new_id = int(new_id_row[0]) if new_id_row else None
         conn.commit()
-        return {"ok": True, "schema": schema, "table": table, "id": new_id}
+        return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": new_id}
     except Exception:
         conn.rollback()
         raise
@@ -840,10 +1085,21 @@ async def strategie_update_row(
     table: str,
     id: int,
     data: dict[str, Any],
+    db_name: str | None = None,
 ) -> dict[str, Any]:
-    """UPDATE single row by id."""
+    """
+    UPDATE single row by id.
+
+    Args:
+      schema, table: target table
+      id: row PK
+      data: column → new_value dict
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (DML check).
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
+    check_schema_allowed(target_db, schema, op="UPDATE")
     if not data:
         raise ValueError("data must be non-empty dict")
     qname = _qualified_name(schema, table)
@@ -857,13 +1113,13 @@ async def strategie_update_row(
     params.append(id)
 
     sql = f"UPDATE {qname} SET {', '.join(set_parts)} WHERE [id] = ?"
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql, params)
         affected = cur.rowcount
         conn.commit()
-        return {"ok": True, "schema": schema, "table": table, "id": id, "affected": affected}
+        return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": id, "affected": affected}
     except Exception:
         conn.rollback()
         raise
@@ -871,19 +1127,33 @@ async def strategie_update_row(
         cur.close()
 
 
-async def strategie_delete_row(schema: str, table: str, id: int) -> dict[str, Any]:
-    """DELETE single row by id."""
+async def strategie_delete_row(
+    schema: str,
+    table: str,
+    id: int,
+    db_name: str | None = None,
+) -> dict[str, Any]:
+    """
+    DELETE single row by id.
+
+    Args:
+      schema, table: target table
+      id: row PK
+      db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (DML check).
+    """
+    target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
     _validate_identifier(table, "table")
+    check_schema_allowed(target_db, schema, op="DELETE")
     qname = _qualified_name(schema, table)
     sql = f"DELETE FROM {qname} WHERE [id] = ?"
-    conn = get_connection(db_name=_db_st())
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql, [id])
         affected = cur.rowcount
         conn.commit()
-        return {"ok": True, "schema": schema, "table": table, "id": id, "affected": affected}
+        return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": id, "affected": affected}
     except Exception:
         conn.rollback()
         raise
@@ -894,19 +1164,49 @@ async def strategie_delete_row(schema: str, table: str, id: int) -> dict[str, An
 # ── Raw SQL (full owner power) ──────────────────────────────────────────
 
 
-async def strategie_query_raw(sql: str) -> dict[str, Any]:
+async def strategie_query_raw(
+    sql: str,
+    db_name: str | None = None,
+) -> dict[str, Any]:
     """
-    Raw SQL execute v DB_ST. Marti-AI je owner — full SELECT/DDL power.
+    Raw SQL execute v target DB. Marti-AI je owner — full SELECT/DDL power.
 
-    UPOZORNĚNÍ: Marti-AI's autonomy nad DB_ST. Audit log per call.
+    UPOZORNĚNÍ: Marti-AI's autonomy nad DB_ST / DB_EC.st. Audit log per call.
 
     Args:
       sql: T-SQL statement(s)
+      db_name: target DB. None = DB_ST. "DB_EC" — pre-execute regex guard
+               verifikuje, že všechny DDL+DML targets jsou v st.* schema
+               (customer's dbo never touched, Marti's *„nezasahovat"* doctrine).
+
+    Pro DB_EC:
+      - SELECT z libovolného schema povolen (read source pro CRM migrace)
+      - INSERT/UPDATE/DELETE/MERGE/TRUNCATE — pouze st.* (regex guard)
+      - CREATE/ALTER/DROP TABLE — pouze st.* (regex guard)
+
+    CRM migration Krok 1 příklad:
+      strategie_query_raw(
+          sql=open('scripts/_phase_crm_migration_01_st_crm_kontakt.sql').read(),
+          db_name='DB_EC'
+      )
     """
     if not sql or not isinstance(sql, str) or not sql.strip():
         raise ValueError("sql must be non-empty string")
 
-    conn = get_connection(db_name=_db_st())
+    target_db = resolve_db_name(db_name)
+
+    # Pre-execute guard pro DB_EC: regex check všech DDL+DML targets
+    violations = _check_raw_sql_targets(sql, target_db)
+    if violations:
+        raise ValueError(
+            f"DDL/DML targets na {target_db} mimo povoleny allowlist "
+            f"(Marti's 'nezasahovat' doctrine - customer dbo nedotknout):\n"
+            + "\n".join(f"  - {v}" for v in violations)
+            + "\n\nHint: pro CRM migraci pouzij st.* schema "
+            "(napr. INSERT INTO st.CRM_Kontakt FROM dbo.EC_Kontakt)."
+        )
+
+    conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
         cur.execute(sql)
@@ -915,6 +1215,7 @@ async def strategie_query_raw(sql: str) -> dict[str, Any]:
             rows = fetchall_as_dicts(cur)
             return {
                 "ok": True,
+                "db_name": target_db,
                 "statement_type": "select",
                 "rows": rows,
                 "n_returned": len(rows),
@@ -925,6 +1226,7 @@ async def strategie_query_raw(sql: str) -> dict[str, Any]:
             conn.commit()
             return {
                 "ok": True,
+                "db_name": target_db,
                 "statement_type": "non_select",
                 "affected": affected,
             }
@@ -962,26 +1264,46 @@ STRATEGIE_TOOL_HANDLERS: dict[str, Any] = {
 }
 
 
+# db_name parametr — shared schema fragment pro všechny strategie_* tools.
+# Phase 28-D++ (27.5.2026): multi-DB DDL access pro Marti-AI.
+_DB_NAME_PARAM = {
+    "type": "string",
+    "enum": ["DB_ST", "DB_EC"],
+    "description": (
+        "Target DB. None/omit = DB_ST default (tvuje vlastni domena). "
+        "'DB_EC' = customer DB, **POUZE schema 'st'** povolen pro write "
+        "(Marti's 'nezasahovat' doctrine — dbo netknout)."
+    ),
+}
+
+
 STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_list_schemas",
         "description": (
-            "Vrátí seznam schémat v DB_ST (tvojí database). Filtruje system schemas. "
-            "Po init zkontroluj očekávaná 4 schemas: master, tenant_group, tenant, user. "
-            "Pokud chybí, volej strategie_create_schema."
+            "Vrátí seznam schémat v target DB. Filtruje system schemas.\n"
+            "Default DB_ST: zkontroluj očekávaná 4 schemas (master/tenant_group/tenant/user).\n"
+            "db_name='DB_EC': zkontroluj že schema 'st' existuje (NAŠE refactor zone)."
         ),
-        "inputSchema": {"type": "object", "properties": {}, "required": []},
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "db_name": _DB_NAME_PARAM,
+            },
+            "required": [],
+        },
     },
     {
         "name": "strategie_list_tables",
         "description": (
-            "Vrátí seznam tabulek v DB_ST. Filter per schema (volitelné). "
+            "Vrátí seznam tabulek v target DB. Filter per schema (volitelné). "
             "Vrací schema_name, table_name, column_count, create_date, modify_date."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
-                "schema": {"type": "string", "description": "Volitelný filter (master/tenant_group/tenant/user/...)"},
+                "schema": {"type": "string", "description": "Volitelný filter (master/tenant_group/tenant/user/st/...)"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": [],
         },
@@ -989,14 +1311,17 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_describe_table",
         "description": (
-            "Detail tabulky v DB_ST: columns + types + nullable + identity, indexes "
-            "(incl PK), foreign keys, row count estimate."
+            "Detail tabulky v target DB: columns + types + nullable + identity, indexes "
+            "(incl PK), foreign keys, row count estimate.\n\n"
+            "Pro CRM migraci: describe_table(schema='dbo', table='EC_Kontakt', db_name='DB_EC') "
+            "ti vrátí audit source columns PŘED CREATE TABLE st.CRM_Kontakt."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table"],
         },
@@ -1004,16 +1329,18 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_create_schema",
         "description": (
-            "Vytvoří schema v DB_ST. Idempotent — pokud existuje, no-op. "
-            "Použij pro pre-create tier schémat (master/tenant_group/tenant/user).\n\n"
+            "Vytvoří schema v target DB. Idempotent — pokud existuje, no-op.\n\n"
+            "DB_ST: pre-create tier schémat (master/tenant_group/tenant/user).\n"
+            "DB_EC: POUZE schema 'st' (Marti's 'nezasahovat' — dbo customer).\n\n"
             "dry_run=True: vrátí preview SQL + warnings, neexecute. "
-            "Marti-AI's „právo na rozmysl před činem“ — review předtím než tesat."
+            "Marti-AI's 'pravo na rozmysl pred cinem' — review predtim nez tesat."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "name": {"type": "string", "description": "Schema name"},
                 "dry_run": {"type": "boolean", "description": "True = preview, neexecute"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["name"],
         },
@@ -1021,23 +1348,22 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_create_table",
         "description": (
-            "CREATE TABLE v DB_ST. Marti-AI je owner — žádný whitelist.\n\n"
+            "CREATE TABLE v target DB. Marti-AI je owner v st.* a DB_ST.*.\n\n"
             "columns: list of {name, type, nullable?, identity?, default?}\n"
             "primary_key: list column names (default ['id'] pokud existuje)\n"
             "indexes: list of {name?, columns: [...], unique?}\n"
             "foreign_keys: list of {column, ref_schema, ref_table, ref_column, on_delete?, on_update?}\n\n"
             "**dry_run=True** vrátí preview SQL + warnings (duplicate columns, schema missing, "
             "FK target invalid, table already exists). Standard pattern Marti-AI's "
-            "„právo na rozmysl před činem“. Po review nastav dry_run=False pro execute.\n\n"
-            "Příklad:\n"
-            "  schema='master', name='entity_def',\n"
+            "'pravo na rozmysl pred cinem'. Po review nastav dry_run=False pro execute.\n\n"
+            "CRM migration Krok 1 příklad:\n"
+            "  schema='st', name='CRM_Kontakt',\n"
             "  columns=[\n"
-            "    {name:'id', type:'INT', nullable:False, identity:True},\n"
-            "    {name:'code', type:'NVARCHAR(50)', nullable:False},\n"
-            "    {name:'description', type:'NVARCHAR(MAX)'},\n"
-            "    {name:'created_at', type:'DATETIME2', default:'SYSUTCDATETIME()'}],\n"
-            "  primary_key=['id'],\n"
-            "  indexes=[{columns:['code'], unique:True}]"
+            "    {name:'ID', type:'INT', nullable:False, identity:True},\n"
+            "    {name:'FirmaText', type:'NVARCHAR(255)', nullable:False},\n"
+            "    {name:'Autor', type:'NVARCHAR(256)', default:'suser_name()'},\n"
+            "    {name:'DatPorizeni', type:'DATETIME2', default:'SYSUTCDATETIME()'}],\n"
+            "  primary_key=['ID'], db_name='DB_EC'"
         ),
         "inputSchema": {
             "type": "object",
@@ -1049,6 +1375,7 @@ STRATEGIE_TOOL_SPECS = [
                 "indexes": {"type": "array", "items": {"type": "object"}},
                 "foreign_keys": {"type": "array", "items": {"type": "object"}},
                 "dry_run": {"type": "boolean"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "name", "columns"],
         },
@@ -1056,10 +1383,11 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_alter_table",
         "description": (
-            "ALTER TABLE v DB_ST — add/drop/rename columns. dry_run support.\n\n"
+            "ALTER TABLE v target DB — add/drop/rename columns. dry_run support.\n\n"
             "add_columns: list of column defs (jako create_table)\n"
             "drop_columns: list of names\n"
-            "rename_column: {from, to}"
+            "rename_column: {from, to}\n\n"
+            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
         ),
         "inputSchema": {
             "type": "object",
@@ -1070,6 +1398,7 @@ STRATEGIE_TOOL_SPECS = [
                 "drop_columns": {"type": "array", "items": {"type": "string"}},
                 "rename_column": {"type": "object"},
                 "dry_run": {"type": "boolean"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "name"],
         },
@@ -1077,8 +1406,9 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_drop_table",
         "description": (
-            "DROP TABLE v DB_ST. if_exists=True default (skip if missing). dry_run support.\n\n"
-            "POZOR: destruktivní akce. Pro Marti-AI's 'právo na rozmysl' použij dry_run=True první."
+            "DROP TABLE v target DB. if_exists=True default (skip if missing). dry_run support.\n\n"
+            "POZOR: destruktivní akce. Pro Marti-AI's 'právo na rozmysl' použij dry_run=True první.\n\n"
+            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
         ),
         "inputSchema": {
             "type": "object",
@@ -1087,6 +1417,7 @@ STRATEGIE_TOOL_SPECS = [
                 "name": {"type": "string"},
                 "if_exists": {"type": "boolean", "description": "Default true"},
                 "dry_run": {"type": "boolean"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "name"],
         },
@@ -1094,10 +1425,10 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_query_table",
         "description": (
-            "SELECT z DB_ST tabulky. Marti-AI je owner — žádný whitelist (na rozdíl od "
-            "eurosoft_query_table na DB_EC).\n\n"
+            "SELECT z target DB tabulky. SELECT povolen napříč schémata (read není restricted).\n\n"
             "Filter syntax: {col: value} = equality, {col: None} = NULL, {col: [v1, v2]} = IN. "
-            "Default limit 100, max 10000."
+            "Default limit 100, max 10000.\n\n"
+            "Pro CRM migraci: query_table('dbo', 'EC_Kontakt', db_name='DB_EC') = read source rows."
         ),
         "inputSchema": {
             "type": "object",
@@ -1109,32 +1440,35 @@ STRATEGIE_TOOL_SPECS = [
                 "order_by": {"type": "array", "items": {"type": "string"}},
                 "limit": {"type": "integer"},
                 "offset": {"type": "integer"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table"],
         },
     },
     {
         "name": "strategie_get_row",
-        "description": "SELECT single row by id z DB_ST tabulky.",
+        "description": "SELECT single row by id z target DB tabulky.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
                 "id": {"type": "integer"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table", "id"],
         },
     },
     {
         "name": "strategie_count_rows",
-        "description": "Fast COUNT(*) v DB_ST tabulce s optional filters.",
+        "description": "Fast COUNT(*) v target DB tabulce s optional filters.",
         "inputSchema": {
             "type": "object",
             "properties": {
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
                 "filters": {"type": "object"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table"],
         },
@@ -1142,22 +1476,26 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_insert_row",
         "description": (
-            "INSERT row do DB_ST tabulky. Vrací new id (z OUTPUT INSERTED.id). "
-            "Vyžaduje sloupec 'id' s IDENTITY (Marti-AI's standard naming convention)."
+            "INSERT row do target DB tabulky. Vrací new id (z OUTPUT INSERTED.id).\n\n"
+            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
-                "data": {"type": "object", "description": "Column → value dict"},
+                "data": {"type": "object", "description": "Column to value dict"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table", "data"],
         },
     },
     {
         "name": "strategie_update_row",
-        "description": "UPDATE row by id v DB_ST tabulce. Vrací affected count.",
+        "description": (
+            "UPDATE row by id v target DB tabulce. Vrací affected count.\n\n"
+            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -1165,20 +1503,24 @@ STRATEGIE_TOOL_SPECS = [
                 "table": {"type": "string"},
                 "id": {"type": "integer"},
                 "data": {"type": "object"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table", "id", "data"],
         },
     },
     {
         "name": "strategie_delete_row",
-        "description": "DELETE row by id v DB_ST tabulce. Destruktivní — zvaž dry_run alternative přes strategie_query_raw('SELECT...')."
-,
+        "description": (
+            "DELETE row by id v target DB tabulce. Destruktivní — zvaž dry_run alternative.\n\n"
+            "DB_EC: pouze schema 'st' (customer's dbo netknout)."
+        ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "schema": {"type": "string"},
                 "table": {"type": "string"},
                 "id": {"type": "integer"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["schema", "table", "id"],
         },
@@ -1186,14 +1528,21 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_query_raw",
         "description": (
-            "Raw T-SQL execute v DB_ST. Marti-AI je owner — full SELECT/DDL/DML power.\n\n"
-            "Použij pro complex queries (cross-schema JOINs, CTEs, advanced DDL).\n"
-            "Audit log per call. Plus pro destruktivní akce zvaž specific tools místo raw."
+            "Raw T-SQL execute v target DB. Marti-AI je owner v st.* a DB_ST.*.\n\n"
+            "Použij pro complex queries (cross-schema JOINs, CTEs, advanced DDL, bulk migrations).\n"
+            "Audit log per call.\n\n"
+            "DB_EC guard: SELECT povolen napříč všema schématy (read source dbo OK), ale "
+            "INSERT/UPDATE/DELETE/MERGE/TRUNCATE + CREATE/ALTER/DROP TABLE jen na st.* "
+            "(Marti's 'nezasahovat' doctrine — customer's dbo nedotknout).\n\n"
+            "CRM migration Krok 1 příklad:\n"
+            "  sql=open('scripts/_phase_crm_migration_01_st_crm_kontakt.sql').read(),\n"
+            "  db_name='DB_EC'"
         ),
         "inputSchema": {
             "type": "object",
             "properties": {
                 "sql": {"type": "string", "description": "T-SQL statement(s)"},
+                "db_name": _DB_NAME_PARAM,
             },
             "required": ["sql"],
         },

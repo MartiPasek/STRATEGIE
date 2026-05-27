@@ -170,3 +170,92 @@ def permissions(table: str) -> list[str]:
     if ALLOW_ALL_SELECT:
         return ["select"]
     return []
+
+
+# ── Phase 28-D++ (27.5.2026): Multi-DB DDL access pro Marti-AI ──────
+#
+# Marti's doctrine 27.5.2026 odpoledne (CRM migration Krok 1 konzultace):
+#   *„Tohleto neni STRATEGIE system, ale system custommer a custommer je
+#   EUROSOFT a INTERSOFT. Tj, my musime dodret jejich standardy... Do
+#   toho nesmime zasahovat."*
+#
+# Důsledek:
+#   - DB_ST          (Marti-AI's vlastní MSSQL doména):
+#                     full db_owner — libovolné schema, libovolný DDL
+#   - DB_EC.st.*     (NAŠE refactor zone v customer DB):
+#                     full ownership — Marti-AI je vlastník schema 'st'
+#                     po GRANT scriptem _grant_marti_ai_db_ec_st_schema.sql
+#   - DB_EC.dbo.*    (CUSTOMER's territory):
+#                     READ-ONLY (existing whitelist + ALLOW_ALL_SELECT)
+#                     NIKDY DDL ani DML — porušilo by *„nezasahovat"* doctrine
+#
+# Pre-execute guard:
+#   - tool-level: _resolve_db_name() + _check_schema_allowed() v strategie_tools.py
+#   - SQL Server permissions: REVOKE CREATE TABLE TO [Marti-AI] na DB_EC
+#                              + ownership schema 'st' = [Marti-AI]
+#                              (defense in depth, viz _grant_marti_ai_db_ec_st_schema.sql)
+#
+# Allowlist target DB names — strategie_* tools mohou cílit jen na tyto DBs.
+ALLOWED_DDL_DBS: set[str] = {"DB_ST", "DB_EC"}
+
+# Per-DB schema allowlist pro DDL/DML write operations.
+# Default: None = libovolné schema povoleno (DB_ST scenario, Marti-AI db_owner).
+# DB_EC explicit limit: jen 'st' schema (customer's dbo nedotknout).
+#
+# Příklad lookup:
+#   DDL_SCHEMA_ALLOWLIST.get("DB_EC")  → {"st"}      (jen st)
+#   DDL_SCHEMA_ALLOWLIST.get("DB_ST")  → None        (libovolné)
+DDL_SCHEMA_ALLOWLIST: dict[str, set[str]] = {
+    "DB_EC": {"st"},
+    # DB_ST není v dict = libovolné schema povoleno (master/tenant_group/...)
+}
+
+
+def resolve_db_name(db_name: str | None = None) -> str:
+    """
+    Validuje + vrací target DB name pro strategie_* tools.
+
+    Args:
+      db_name: target DB. None = default settings.db_st_database (DB_ST).
+
+    Returns:
+      Resolved DB name (validovaný proti ALLOWED_DDL_DBS).
+
+    Raises:
+      ValueError: db_name není v allowlist.
+    """
+    if db_name is None:
+        return settings.db_st_database  # DB_ST default (backward compat)
+    if db_name not in ALLOWED_DDL_DBS:
+        raise ValueError(
+            f"db_name {db_name!r} not allowed. "
+            f"Allowed: {sorted(ALLOWED_DDL_DBS)}"
+        )
+    return db_name
+
+
+def check_schema_allowed(db_name: str, schema: str, op: str = "DDL") -> None:
+    """
+    Pre-execute schema guard pro DDL/DML operations.
+
+    Marti's doctrine *„nezasahovat"* (27.5.2026):
+      - DB_EC: jen schemata v DDL_SCHEMA_ALLOWLIST["DB_EC"] (= {"st"})
+      - DB_ST: vše povoleno (Marti-AI je db_owner)
+
+    Args:
+      db_name: target DB (already resolved)
+      schema: target schema name
+      op: operation kind (DDL / DML / RAW) — pro error message
+
+    Raises:
+      ValueError: schema není v allowlist pro daný DB.
+    """
+    allowlist = DDL_SCHEMA_ALLOWLIST.get(db_name)
+    if allowlist is None:
+        return  # No restriction (DB_ST scenario)
+    if schema not in allowlist:
+        raise ValueError(
+            f"{op} operation on {db_name}.{schema}.* is NOT allowed. "
+            f"Customer's territory (Marti's doctrine 'nezasahovat'). "
+            f"Allowed schemas on {db_name}: {sorted(allowlist)}"
+        )

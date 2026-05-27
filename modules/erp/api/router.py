@@ -3126,6 +3126,43 @@ async def fw_form_children_update(
         updates["updated_by_id"] = audit_uid
         updates["updated_by_text"] = audit_text
 
+        # Phase 38.4 Krok 5.X+1 Fix H (27.5.2026, Marti's UniqueViolation
+        # "ux_user_primary_contact (user_id, contact_type)"):
+        # Partial unique constraint na is_primary=TRUE → naive UPDATE
+        # selhava pri primary swap (target dostane TRUE, ale existing
+        # primary stale TRUE → 2 rows s is_primary=TRUE pro stejny
+        # (user_id, contact_type) → violation).
+        # Fix: atomic pre-clear existing primary v same transaction.
+        # Filter: same parent + same auto_set polymorphic scope (napr.
+        # contact_type='phone' pro phones, 'email' pro emails) +
+        # is_primary=TRUE + id != target. Update audit fields tak ze
+        # change je viditelny.
+        if updates.get("is_primary") is True:
+            clear_where = [
+                f'"{child_fk}" = :_parent_id',
+                '"is_primary" = TRUE',
+                f'"{id_col}" != :_child_id_skip',
+            ]
+            clear_params = {
+                "_parent_id": parent_id,
+                "_child_id_skip": child_id,
+                "_audit_uid": audit_uid,
+                "_audit_text": audit_text,
+            }
+            # Polymorphic scope guard — same contact_type/etc per auto_set
+            for _ac, _av in auto_set.items():
+                _key = f"_auto_{_ac}"
+                clear_where.append(f'"{_ac}" = :{_key}')
+                clear_params[_key] = _av
+            ds.execute(_sql_text_fcu(
+                f'UPDATE "public"."{child_table}" '
+                f'SET "is_primary" = FALSE, '
+                f'    "updated_by_id" = :_audit_uid, '
+                f'    "updated_by_text" = :_audit_text, '
+                f'    "updated_at" = NOW() '
+                f'WHERE {" AND ".join(clear_where)}'
+            ), clear_params)
+
         # Build SQL — UPDATE WHERE id=:child_id AND fk=:parent_id [+ optional updated_at guard]
         set_parts = [f'"{col}" = :{col}' for col in updates.keys()]
         sql_params = {**updates, "_child_id": child_id, "_parent_id": parent_id}

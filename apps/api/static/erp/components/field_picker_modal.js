@@ -1550,7 +1550,7 @@
       // ve flat DOM. Field = leaf, vetsinou depth >= 1 (uvnitr panelu).
       const _d = depth || 0;
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 200px 1fr 140px 140px 32px;" +
+        "display:grid;grid-template-columns:32px 200px 1fr 140px 170px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "background:rgba(126,212,232,0.04);" +
         (_d > 0 ? "margin-left:" + (_d * 20) + "px;" : "");
@@ -1699,14 +1699,17 @@
         col.existing_sort_order,
         col.existing_layout
       );
+      // Krok H+13.2 (27.5.2026, Marti's "presun ikonku nastaveni do skupiny
+      // k tem sipcickam, uplne napravo"): ⚙ append do moveBtns wrap jako
+      // posledni button (po ↓). Visual grouping s ←→↑↓ arrows.
+      moveBtns.appendChild(settingsBtn);
 
       // X jako prvni — symetrie s "Schazi pridat" checkbox left placement
       row.appendChild(removeBtn);
       row.appendChild(labelWrap);
       row.appendChild(meta);
-      row.appendChild(moveBtns);
       row.appendChild(typeSel);
-      row.appendChild(settingsBtn);
+      row.appendChild(moveBtns);
 
       // Phase 38.4 Krok H+7 (26.5.2026, Marti's "fajn orchestrovat klikem
       // na komponentu v druhem okne. Zvyraznit ji"): klik na radek →
@@ -2379,7 +2382,8 @@
         row.dataset.compDefId = String(cont.comp_def_id);
       }
       // Phase 38.4 Krok H+5 (26.5.2026, Marti's "radio button single-select"):
-      // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 110px (arrows) | 140px (id) | 32px (settings).
+      // Grid: 32px (X) | 24px (radio) | 200px (caption) | 1fr (meta) | 140px (id) | 140px (arrows+settings).
+      // Krok H+13.2 (27.5.2026): settings (⚙) moved INTO arrows group → 110→140 + drop separate 32px.
       // Krok H+5+++ (26.5.2026 vecer, Marti's "sipky"): pridana sloupec
       // pro move buttons (← ↑ ↓) mezi meta a id badge.
       // Krok H+5+++++ (26.5.2026 vecer, Marti's "simulovat strom"):
@@ -2388,7 +2392,7 @@
       // Aktivni container ma green tint background + bold label.
       const _d = depth || 0;
       row.style.cssText =
-        "display:grid;grid-template-columns:32px 24px 200px 1fr 110px 140px 32px;" +
+        "display:grid;grid-template-columns:32px 24px 200px 1fr 140px 140px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         (isActive
           ? "background:rgba(93,191,93,0.12);border-left:3px solid #5dbf5d;"
@@ -2527,14 +2531,15 @@
         cont.layout,
         true  // isContainer
       );
+      // Krok H+13.2 (27.5.2026): ⚙ do skupiny arrows (uplne napravo).
+      moveBtns.appendChild(settingsBtn);
 
       row.appendChild(removeBtn);
       row.appendChild(radioWrap);
       row.appendChild(labelWrap);
       row.appendChild(meta);
-      row.appendChild(moveBtns);
       row.appendChild(idBadge);
-      row.appendChild(settingsBtn);
+      row.appendChild(moveBtns);
 
       // Phase 38.4 Krok H+7 (26.5.2026, Marti's "orchestrovat klikem na
       // komponentu v druhem okne i komponentu"): symetrie s _renderOnFormRow.

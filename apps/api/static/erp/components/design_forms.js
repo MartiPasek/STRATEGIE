@@ -3826,13 +3826,16 @@
                             field.comp_type_code === "combobox";
 
       // Helper pro consistent button styling
-      const _mkActionBtn = (text, title, bg, border, color, right) => {
+      // Krok H+13.3 (27.5.2026, Marti's "krizek nalevo, nastaveni napravo"):
+      // 7th param `anchor` = "right" (default) | "left" — switches CSS anchor.
+      const _mkActionBtn = (text, title, bg, border, color, offset, anchor) => {
         const b = document.createElement("button");
         b.type = "button";
         b.textContent = text;
         b.title = title;
+        const _anchorSide = (anchor === "left") ? "left" : "right";
         b.style.cssText =
-          "position:absolute;top:2px;right:" + right + "px;" +
+          "position:absolute;top:2px;" + _anchorSide + ":" + offset + "px;" +
           "background:" + bg + ";border:1px solid " + border + ";" +
           "color:" + color + ";padding:0;width:22px;height:22px;" +
           "border-radius:3px;cursor:pointer;font-size:11px;line-height:1;" +
@@ -3853,6 +3856,9 @@
       // State pro ⬅ ON visible přes border + bg accent (modry), Marti uvidí
       // při hover. Pro long-term state visibility: future polish field-level
       // left border accent (4px modra pinned indicator).
+      // Krok H+13.3 (27.5.2026, Marti's "nastaveni napravo, krizek nalevo"):
+      // ⚙ je teted nejvic vpravo (right:4), proto ⬅ + 🎯 posunute o 26px
+      // doleva. ⬅ je tedy 30+26=56 (or 56+26=82 pokud lookup ma jeste 🎯).
       const leftBtn = _mkActionBtn(
         "⬅",
         alwaysNewRow
@@ -3861,7 +3867,7 @@
         alwaysNewRow ? "rgba(58,138,168,0.2)" : "transparent",
         alwaysNewRow ? "#3a8aa8" : "#2a3340",
         alwaysNewRow ? "#7ed4e8" : "#5d6975",
-        30 + (isLookupField ? 26 : 0)  // pokud 🎯 visible, ⬅ se posune doleva
+        56 + (isLookupField ? 26 : 0)  // posun o 26 doleva (⚙ ted vpravo)
       );
       leftBtn.className = "erp-field-design-leftpin erp-field-design-action-hoveronly";
       leftBtn.addEventListener("click", async (ev) => {
@@ -3880,7 +3886,7 @@
           "rgba(58,138,168,0.2)",
           "#3a8aa8",
           "#7ed4e8",
-          30  // vedle ⬅
+          56  // Krok H+13.3: posun o 26 doleva (⚙ ted vpravo); vedle ⬅
         );
         detectValsBtn.className = "erp-field-design-detectvals erp-field-design-action-hoveronly";
         detectValsBtn.addEventListener("click", async (ev) => {
@@ -3894,13 +3900,14 @@
       // Phase 38.4 Krok 14f-M (14.5.2026 vecer, Marti's "max_length /
       // min_length parametrizace"): ⚙ Settings button v action overlay.
       // Right-most position posunut o 26px doleva (delete zustava na 4).
+      // Krok H+13.3 (27.5.2026): ⚙ uplne napravo (right:4), drop offset chain
       const settingsBtn = _mkActionBtn(
         "⚙",
         "Nastavení komponenty — caption, max/min length, readonly, required",
         "rgba(168, 140, 212, 0.15)",
         "#7a5fa8",
         "#a88cd4",
-        30 + (isLookupField ? 26 : 0) + 26  // vlevo od ⬅ (ktery je vedle 🎯)
+        4  // nejvíc vpravo
       );
       settingsBtn.className = "erp-field-design-settings erp-field-design-action-hoveronly";
       settingsBtn.addEventListener("click", (ev) => {
@@ -3910,14 +3917,17 @@
       });
       content.appendChild(settingsBtn);
 
-      // ✕ Delete button — nejvic vpravo (destruktivni action)
+      // ✕ Delete button — Krok H+13.3 (27.5.2026, Marti's "krizek nalevo"):
+      // anchor "left" — destruktivni akce uplne nalevo (vyssi visual distance
+      // od neutrálnich actions vpravo, snizuje misclick risk).
       const delBtn = _mkActionBtn(
         "✕",
         "Smazat pole '" + (field.caption || field.name) + "'",
         "transparent",
         "#5a2828",
         "#e57373",
-        4  // pravy okraj komponenty
+        4,       // levy okraj komponenty
+        "left"   // anchor side
       );
       delBtn.className = "erp-field-design-delete erp-field-design-action-hoveronly";
       delBtn.addEventListener("click", async (ev) => {

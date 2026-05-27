@@ -1570,6 +1570,13 @@
       // jsou gridy dragabled... to ma byt jen v design mode"):
       // Drag handle + grip + contextmenu jsou DESIGN-only features.
       // V PROD mode child section je read-only display.
+      // Phase 38.4 Krok 5.X+1 Fix J (27.5.2026, Marti's "2x render me rusi"):
+      // Marker pres sekce univerzalne (oba modes) → enables targeted
+      // _rerenderChildSection without full _reloadSpec() ping-pong.
+      // Marker uvnitr design-only branch byl gated (Phase 38.4 Krok 14f-O),
+      // ale targeted update potrebuje marker vzdy.
+      sec.wrap.dataset.childSectionKey = childKey;
+
       const designMode = this._formDesignMode === true;
       if (!designMode) {
         // PROD mode: short-circuit — pouze static render bez drag/context.
@@ -1837,8 +1844,44 @@
         if (!r.ok || !d.ok) {
           throw new Error(d.error || "HTTP " + r.status);
         }
+
+        // Phase 38.4 Krok 5.X+1 Fix J (27.5.2026, Marti's "2x render me rusi"):
+        // Targeted update misto full _reloadSpec ping-pong.
+        //
+        // Local row mutate na top + handle Fix H atomic primary swap:
+        // pokud is_primary=TRUE byl nastaven, backend (Fix H atomic
+        // pre-clear) zmenil OSTATNI rows v same scope na FALSE. Frontend
+        // misto re-fetch celeho spec mutate local rows (childInfo.rows
+        // shared reference s this._spec.children[childKey].rows).
+        //
+        // Server response d.row = updated row (truth source pro updated_at +
+        // ostatni cascaded changes). Use to refresh local copy.
+        if (d.row) {
+          Object.assign(row, d.row);
+        } else {
+          row[col] = newVal;
+        }
+        if (col === "is_primary" && newVal === true &&
+            Array.isArray(childInfo.rows)) {
+          // Backend Fix H atomic pre-clear → ostatni rows v scope musi byt
+          // false. Local mutate aby UI matchnul DB state bez re-fetch.
+          // Note: updated_at ostatnich rows je teted stale (server tick +1ms),
+          // pri pristim PATCH narazime na optimistic lock 409 → reload
+          // (graceful degradation).
+          for (const otherRow of childInfo.rows) {
+            if (otherRow.id !== row.id && otherRow.is_primary) {
+              otherRow.is_primary = false;
+            }
+          }
+        }
+
+        // Targeted re-render jen this child section. Pokud marker missing
+        // (defensive), fallback na full _reloadSpec.
+        const rerendered = this._rerenderChildSection(childKey, childInfo);
+        if (!rerendered) {
+          await this._reloadSpec();
+        }
         _showToast("Uloženo: " + col, "success", 2000);
-        await this._reloadSpec();
       } catch (e) {
         console.error("[DesignFwForm] _editChildCell failed:", e);
         _showToast("Edit selhal: " + (e.message || e), "error", 3500);
@@ -1875,6 +1918,42 @@
         console.error("[DesignFwForm] _archiveChildRow failed:", e);
         _showToast("Archive selhal: " + (e.message || e), "error", 3500);
       }
+    }
+
+    // Phase 38.4 Krok 5.X+1 Fix J (27.5.2026, Marti's "2x render me rusi"):
+    // Targeted re-render JEN dotcene child section (TELEFONY / EMAILY
+    // nested grid) bez full _reloadSpec ping-pong. Marker
+    // data-child-section-key="<childKey>" je nastaven v _renderChildSection
+    // (Fix J marker move out of designMode gate).
+    //
+    // Use case: inline cell edit (is_primary toggle, contact_value rename) →
+    // PATCH success → local row mutate → targeted DOM replace bez touching
+    // form root / other sections. 1 render misto 2.
+    //
+    // Pokud marker nenalezen (defensive), fallback na _reloadSpec (puvodni
+    // behavior — full re-fetch + _render).
+    _rerenderChildSection(childKey, childInfo) {
+      const body = this._shell && this._shell.body;
+      if (!body) return false;
+      const oldSec = body.querySelector(
+        `[data-child-section-key="${CSS.escape(childKey)}"]`
+      );
+      if (!oldSec) {
+        console.warn(
+          "[DesignFwForm] _rerenderChildSection: section marker not found " +
+          "for childKey=" + childKey + " — fallback na full _reloadSpec"
+        );
+        return false;
+      }
+      const newSec = this._renderChildSection(childKey, childInfo);
+      if (!newSec) {
+        console.warn(
+          "[DesignFwForm] _rerenderChildSection: _renderChildSection vratila null"
+        );
+        return false;
+      }
+      oldSec.replaceWith(newSec);
+      return true;
     }
 
     // Reload spec po CRUD operations (parent + children refresh)

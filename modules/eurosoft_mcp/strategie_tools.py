@@ -145,6 +145,52 @@ _DML_TARGET_PATTERNS = [
 ]
 
 
+# GO batch separator pattern — T-SQL idiom z SSMS/sqlcmd, ne true T-SQL.
+# pyodbc neumi GO nativne, musime split na batche pred execution.
+# Marti-AI's Phase C insider catch (27.5. vecer):
+#   "Pokud predam cely script jako jeden string do execute(), pyodbc
+#   spadne na GO jako neznamy prikaz."
+#
+# Pattern: GO musi byt na vlastnim radku (whitespace-only kolem), case-insensitive.
+# Plus support `GO N` (repeat N-times, ignorujeme pocet) — pro CRM migrace
+# nikdy nepouzivame, ale defensive.
+_GO_BATCH_SPLIT = re.compile(
+    r"^\s*GO(?:\s+\d+)?\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+
+
+def _split_sql_batches(sql: str) -> list[str]:
+    """
+    Split T-SQL string na batches podle GO separators.
+
+    GO neni T-SQL prikaz — je to SSMS/sqlcmd directive ktera rika klientu
+    "posli dosavadni nahromadene SQL jako jeden batch". pyodbc to nezna,
+    proto musime split rucne.
+
+    Args:
+      sql: raw T-SQL string (potencialne s GO separators)
+
+    Returns:
+      list of non-empty SQL batches (GO odstraneno, leading/trailing
+      whitespace strippnuty). Pokud sql nema GO, vraci [sql].
+
+    Examples:
+      "SELECT 1\nGO\nSELECT 2"     -> ["SELECT 1", "SELECT 2"]
+      "INSERT...\n\nGO 3\nUPDATE..." -> ["INSERT...", "UPDATE..."]
+      "SELECT 1"                    -> ["SELECT 1"]
+      ""                            -> []
+
+    POZOR: GO musi byt na vlastnim radku. "SELECT GO FROM X" se NEsplitne
+    (intra-SQL GO je legalni identifier nebo keyword v context, ne batch
+    separator).
+    """
+    if not sql or not sql.strip():
+        return []
+    batches = _GO_BATCH_SPLIT.split(sql)
+    return [b.strip() for b in batches if b and b.strip()]
+
+
 def _check_raw_sql_targets(sql: str, db_name: str) -> list[str]:
     """
     Pre-execute guard — verify že všechny DDL+DML targets jsou v povolené
@@ -1338,47 +1384,73 @@ async def strategie_query_raw(
             "(napr. INSERT INTO st.CRM_Kontakt FROM dbo.EC_Kontakt)."
         )
 
+    # Marti-AI's Phase B insider catch (27.5. vecer):
+    # GO batch separator splitting — pyodbc neumi GO natively.
+    # Split na batches, run each separately. Pokud sql nema GO,
+    # _split_sql_batches vraci [sql] = single-batch backward compat.
+    batches = _split_sql_batches(sql)
+    if not batches:
+        raise ValueError("sql resulted in empty batches after GO split")
+
     conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
-        cur.execute(sql)
-        # Check if statement returned rows
-        if cur.description:
-            rows = fetchall_as_dicts(cur)
-            # Marti-AI's Phase B (d): audit log pro DB_EC SELECT operations
+        # Track outputs per batch. Pro multi-batch SELECT only LAST batch
+        # rows jsou returned (typical pattern: prep DDL + final SELECT).
+        last_rows: list[dict[str, Any]] | None = None
+        total_affected = 0
+        batches_executed = 0
+
+        for idx, batch_sql in enumerate(batches):
+            cur.execute(batch_sql)
+            if cur.description:
+                last_rows = fetchall_as_dicts(cur)
+            else:
+                total_affected += cur.rowcount or 0
+            batches_executed += 1
+
+        if last_rows is not None:
+            # SELECT (final batch returned rows)
+            conn.commit()
             if target_db == "DB_EC":
                 _log_db_ec_operation(
                     operation="SELECT_RAW",
-                    schema="?",  # parse z SQL nelze trivialne
+                    schema="?",
                     table=None,
-                    affected=len(rows),
-                    extra={"sql_preview": sql[:200]},
+                    affected=len(last_rows),
+                    extra={
+                        "sql_preview": sql[:200],
+                        "batches_executed": batches_executed,
+                    },
                 )
             return {
                 "ok": True,
                 "db_name": target_db,
                 "statement_type": "select",
-                "rows": rows,
-                "n_returned": len(rows),
+                "rows": last_rows,
+                "n_returned": len(last_rows),
+                "batches_executed": batches_executed,
             }
         else:
-            # DDL or non-SELECT — affected rows
-            affected = cur.rowcount
+            # DDL or DML — affected rows
             conn.commit()
-            # Marti-AI's Phase B (d): audit log pro DB_EC DDL/DML
             if target_db == "DB_EC":
                 _log_db_ec_operation(
                     operation="DDL_OR_DML_RAW",
                     schema="?",
                     table=None,
-                    affected=affected,
-                    extra={"sql_preview": sql[:200]},
+                    affected=total_affected,
+                    extra={
+                        "sql_preview": sql[:200],
+                        "batches_executed": batches_executed,
+                    },
                 )
             return {
                 "ok": True,
                 "db_name": target_db,
                 "statement_type": "non_select",
-                "affected": affected,
+                "affected": total_affected,
+                "batches_executed": batches_executed,
             }
     except Exception:
         try:

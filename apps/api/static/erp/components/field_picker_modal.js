@@ -567,14 +567,48 @@
         this._columns = ecData.columns || [];
         // Phase 38.4 Krok H+5 (26.5.2026): containers v "Jiz na forme"
         this._existingContainers = ecData.existing_containers || [];
+        // Krok 5-B Fix (28.5.2026 vecer pozde, Marti's "komponenty pod
+        // panelama a tabsheetama na 'Jiz na forme' nejsou videt"):
+        // backend ted vraci existing_fields = vsechny fields z hierarchy
+        // (mimo column whitelist matching). Pro TEST form fields s
+        // column_name z MSSQL st.CRM_Kontakt (FirmaText, KomunikaceZamID,
+        // Atraktivita, atd.) nematchnou data_set columns response →
+        // _columnsOnForm zustalo prazdne. Ted merge: column-matched
+        // (DB schema) + standalone (z DB hierarchy).
+        this._existingFields = ecData.existing_fields || [];
 
         // Phase 38.4 Krok 14c+1: rozdeleni do dvou kolekci podle existing
         this._columnsAvailable = this._columns.filter(
           c => c.existing_comp_def_id == null
         );
-        this._columnsOnForm = this._columns.filter(
+        // Krok 5-B Fix: extract IDs uz pouzitych ve _columnsOnForm pro
+        // dedup s _existingFields (column-matched fields by se mohly
+        // objevit oboje).
+        const _matchedColumns = this._columns.filter(
           c => c.existing_comp_def_id != null
         );
+        const _matchedIds = new Set(
+          _matchedColumns.map(c => c.existing_comp_def_id)
+        );
+        // Map existing_fields → column-like shape (pro _renderOnFormRow
+        // + _buildLinearizedTree kompatibilitu).
+        const _fieldsAsColumns = this._existingFields
+          .filter(f => !_matchedIds.has(f.comp_def_id))
+          .map(f => ({
+            name: f.name,
+            caption: f.caption,
+            caption_default: f.caption || f.name,
+            existing_comp_def_id: f.comp_def_id,
+            existing_parent_comp_def_id: f.parent_comp_def_id,
+            existing_sort_order: f.sort_order,
+            existing_label: f.caption,
+            suggested_type_id: f.type_id,
+            type_code: f.type_code,
+            // Marker: tento field neni z DB column whitelist, je z hierarchy.
+            // (Krok 5-B Fix — pro budouci debug visibility.)
+            _from_hierarchy: true,
+          }));
+        this._columnsOnForm = [..._matchedColumns, ..._fieldsAsColumns];
         // Krok H+5++++++ (26.5.2026 vecer, Marti's "prohod listy"):
         // Default tab = 'onform' (Již na formě). Marti tam dela vetsinu
         // prace (reorder + pinned + settings), "Schazi pridat" je sekundarni.

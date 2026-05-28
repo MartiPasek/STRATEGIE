@@ -9107,27 +9107,60 @@ def design_list_entity_columns(
                     WHERE cd.is_active = true
                 )
                 SELECT * FROM descendants
-                WHERE type_kind = 'container'
-                   OR type_code IN ('panel', 'groupbox', 'pagecontrol', 'tabsheet')
                 ORDER BY id ASC
             """), {"pid": parent_comp_def_id}).mappings().all()
+            # Krok 5-B Fix (28.5.2026 vecer pozde): split rows do containers
+            # + fields. Drop WHERE filter v query — Marti's TEST form ma
+            # fields s column_name z MSSQL st.CRM_Kontakt (FirmaText, atd.)
+            # ktere nematchnou data_set columns response → _columnsOnForm
+            # zustalo prazdne, fields neviditelne v palete. Backend ted
+            # vraci kompletni hierarchy; frontend rozezna containers/fields
+            # po type_kind. Plus extrakce column_name z layout (fallback).
+            _CONTAINER_TYPE_CODES = ("panel", "groupbox", "pagecontrol", "tabsheet")
+            fields_out = []
             for cont in cont_rows:
-                containers_out.append({
-                    "comp_def_id": cont["id"],
-                    "name": cont["name"],
-                    "caption": cont["caption"],
-                    "type_id": cont["type_id"],
-                    "type_code": cont["type_code"],
-                    "type_label": cont["type_label"],
-                    "region_slot": cont["region_slot"],
-                    "parent_comp_def_id": cont["parent_comp_def_id"],
-                    # Krok H+5+++ (26.5.2026): sort_order pro arrow buttons.
-                    "sort_order": cont["sort_order"],
-                    # Krok H+5++++ (26.5.2026): layout pro pinned toggle.
-                    "layout": cont["layout"] or {},
-                })
+                is_container = (
+                    cont["type_kind"] == "container"
+                    or cont["type_code"] in _CONTAINER_TYPE_CODES
+                )
+                if is_container:
+                    containers_out.append({
+                        "comp_def_id": cont["id"],
+                        "name": cont["name"],
+                        "caption": cont["caption"],
+                        "type_id": cont["type_id"],
+                        "type_code": cont["type_code"],
+                        "type_label": cont["type_label"],
+                        "region_slot": cont["region_slot"],
+                        "parent_comp_def_id": cont["parent_comp_def_id"],
+                        # Krok H+5+++ (26.5.2026): sort_order pro arrow buttons.
+                        "sort_order": cont["sort_order"],
+                        # Krok H+5++++ (26.5.2026): layout pro pinned toggle.
+                        "layout": cont["layout"] or {},
+                    })
+                else:
+                    # Field (edit, memo, date_modern, label_readonly, atd.):
+                    # extract column_name z layout (Marti's idiom — column_name
+                    # v layout JSONB mapuje field na DB column z target table).
+                    layout = cont["layout"] or {}
+                    if not isinstance(layout, dict):
+                        layout = {}
+                    column_name = layout.get("column_name") or cont["name"]
+                    fields_out.append({
+                        "comp_def_id": cont["id"],
+                        "name": column_name,  # column DB name (FirmaText) nebo technical name fallback
+                        "caption": cont["caption"],
+                        "type_id": cont["type_id"],
+                        "type_code": cont["type_code"],
+                        "type_label": cont["type_label"],
+                        "parent_comp_def_id": cont["parent_comp_def_id"],
+                        "sort_order": cont["sort_order"],
+                        "layout": layout,
+                    })
         finally:
             ds_lec2.close()
+    else:
+        fields_out = []
 
     return JSONResponse(jsonable_encoder({
         "ok": True,
@@ -9135,6 +9168,11 @@ def design_list_entity_columns(
         "parent_comp_def_id": parent_comp_def_id,
         "columns": columns_out,
         "existing_containers": containers_out,
+        # Krok 5-B Fix (28.5.2026 vecer pozde): fields z hierarchy (mimo
+        # column whitelist matching). Marti's TEST form fields s column_name
+        # z MSSQL target nemaji match v columns_out (data_set entity), ale
+        # frontend je musi videt v "Jiz na forme" tab.
+        "existing_fields": fields_out,
     }))
 
 

@@ -7352,23 +7352,90 @@
             "gap:6px 14px;align-items:start;min-width:0;position:relative;"
           : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;";
 
-        if (designMode) {
-          // Visible wrapper (dashed border + label tag = DESIGN identifier).
-          // Krok H+7 (26.5.2026): draggable DROPPED — Marti's "form se
-          // bude chovat jako v production". Reorder pres palette ↑/↓.
-          wrap.style.cssText = baseStyle +
-            "border:1px dashed rgba(122, 134, 150, 0.3);" +
-            "border-radius:4px;" +
-            "padding:8px;" +
-            "margin:2px;";
+        // Phase CRM Foundation Krok 5-B (28.5.2026 vecer, Marti's "zaktivnit
+        // viditelne Label a viditelny ramecek a linku nahore dle nastaveni
+        // parametru"): panel teted respektuje layout.border_mode + caption.
+        //   - border_mode='all'  → full ramecek + caption jako inset label
+        //                          (left-top corner, na border)
+        //   - border_mode='top'  → linka nahore + caption inline nad
+        //   - border_mode='none' → invisible (current behavior, default)
+        //   - caption empty      → border ANO, ale bez labelu
+        //
+        // V DESIGN mode: PROD styling se aplikuje (uzivatel vidi vysledek)
+        //   + DESIGN identifier overlay (▦ panel #ID tag v rohu).
+        //
+        // Pattern paralele groupbox vetev pod (analog styling). Drz Marti's
+        // doctrine "uniformita vítězí" — panel + groupbox sdileji visual
+        // border pattern, lisí se chovanim children (panel = structural
+        // container pro alClient layout, groupbox = visual grouping).
+        const panelBorderMode = (layout.border_mode || "none").toLowerCase();
+        const panelCaption = (container.caption != null && String(container.caption).trim().length > 0)
+          ? String(container.caption).trim()
+          : null;
 
-          // Label "panel" v levem hornim rohu — clickable pro settings (Krok 14f-D)
+        // PROD styling — applies v obou modes (DESIGN dostane identifier overlay
+        // jako dodatek, ne místo PROD border)
+        let prodBorderStyle = "";
+        let prodPaddingStyle = "";
+        if (panelBorderMode === "all") {
+          prodBorderStyle = "border:1px solid #2a3340;border-radius:4px;";
+          prodPaddingStyle = panelCaption
+            ? "padding:14px 12px 10px 12px;margin:6px 0;"
+            : "padding:10px 12px;margin:6px 0;";
+        } else if (panelBorderMode === "top") {
+          prodBorderStyle = "border-top:1px solid #2a3340;";
+          prodPaddingStyle = panelCaption
+            ? "padding:14px 0 4px 0;margin:6px 0 0 0;"
+            : "padding:10px 0 4px 0;margin:6px 0 0 0;";
+        }
+        // 'none' → no border, no extra padding
+
+        if (designMode) {
+          // DESIGN: PROD styling + DESIGN identifier overlay (dashed outline
+          // around the panel for boundary visibility). Krok H+7 (26.5.2026):
+          // draggable DROPPED — reorder pres palette ↑/↓.
+          //
+          // Pokud panel ma border_mode='all' nebo 'top', zachova PROD border
+          // + pridame subtle dashed outline jako DESIGN identifier.
+          // Pokud panel ma border_mode='none', dashed outline funguje jako
+          // jediny visual marker (current behavior preserved).
+          const designIdentifierBorder = (panelBorderMode === "none")
+            ? "border:1px dashed rgba(122, 134, 150, 0.3);border-radius:4px;"
+            : prodBorderStyle + "outline:1px dashed rgba(122, 134, 150, 0.3);outline-offset:2px;";
+          const designPadding = (panelBorderMode === "none")
+            ? "padding:8px;margin:2px;"
+            : prodPaddingStyle;
+          wrap.style.cssText = baseStyle + designIdentifierBorder + designPadding;
+
+          // PROD caption (pokud caption + border_mode != 'none') — zobrazime
+          // jako PROD by ji vykreslila, ne jako DESIGN identifier
+          if (panelCaption && panelBorderMode !== "none") {
+            const prodLbl = document.createElement("div");
+            prodLbl.className = "erp-design-panel-label";
+            prodLbl.textContent = panelCaption;
+            prodLbl.style.cssText =
+              "display:inline-block;" +
+              "background:#0d1117;" +
+              "color:#7a8696;" +
+              "font-size:11px;" +
+              "font-weight:600;" +
+              "text-transform:uppercase;" +
+              "letter-spacing:0.5px;" +
+              "padding:2px 8px;" +
+              "margin-bottom:8px;" +
+              (panelBorderMode === "top" ? "margin-top:-18px;" : "margin-top:-20px;");
+            wrap.appendChild(prodLbl);
+          }
+
+          // DESIGN identifier "panel" v levem hornim rohu — clickable pro
+          // settings (Krok 14f-D). Zustava i pri PROD borderu — slouzi jako
+          // identifier ne label.
           const lbl = document.createElement("div");
           const alignLabel = (container.layout && container.layout.align) || "client";
           lbl.textContent = "▦ panel #" + container.id + " · " + alignLabel + " ⚙";
           lbl.title = "Klikni pro nastaveni panelu (nebo right-click)";
           lbl.style.cssText =
-            "position:absolute;top:-8px;left:8px;" +
+            "position:absolute;top:-8px;right:8px;" +  // top-right corner (vlevo je teted PROD caption)
             "background:#0d1117;color:#5d6975;" +
             "font-size:10px;padding:2px 8px;" +
             "border-radius:2px;letter-spacing:0.5px;" +
@@ -7408,8 +7475,27 @@
           // se nyni dela pres palette ↑/↓ buttons. Label tag + dashed
           // border zustavaji jako DESIGN-only identifier (ne grip).
         } else {
-          // PROD: invisible wrapper but s flex sizing
-          wrap.style.cssText = baseStyle;
+          // PROD: aplikujeme border_mode + caption styling
+          wrap.style.cssText = baseStyle + prodBorderStyle + prodPaddingStyle;
+
+          // PROD caption (pokud caption + border_mode != 'none')
+          if (panelCaption && panelBorderMode !== "none") {
+            const prodLbl = document.createElement("div");
+            prodLbl.className = "erp-design-panel-label";
+            prodLbl.textContent = panelCaption;
+            prodLbl.style.cssText =
+              "display:inline-block;" +
+              "background:#0d1117;" +
+              "color:#7a8696;" +
+              "font-size:11px;" +
+              "font-weight:600;" +
+              "text-transform:uppercase;" +
+              "letter-spacing:0.5px;" +
+              "padding:2px 8px;" +
+              "margin-bottom:8px;" +
+              (panelBorderMode === "top" ? "margin-top:-18px;" : "margin-top:-20px;");
+            wrap.appendChild(prodLbl);
+          }
         }
 
         // Phase 38.4 Krok 14e-G (Marti's Q3, volba A memory-only):

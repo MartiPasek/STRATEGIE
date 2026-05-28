@@ -220,12 +220,21 @@
         destructive: false,
         requiresRow: true,
         handler: function (ctx) {
-          if (!ctx.rowData || ctx.rowData.id == null) {
+          // MSSQL/MCP data (Centrála 1) ma 'ID' uppercase, PG ma 'id' lowercase.
+          // Tired-Marti UX (28.5.2026 #3): accept oboje (mirror cellFocused
+          // listener v datagrid.js). Marti's catch — MSSQL gridy z MCP
+          // connection vraci row keys v case-as-aliased (Centrala 1 SELECT
+          // SELECT TOP (:limit) KA.ID, ...).
+          var rowId = null;
+          if (ctx.rowData) {
+            rowId = ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID;
+          }
+          if (rowId == null) {
             alert("⚠ Oprava: nejprve vyber řádek.");
             return Promise.reject(new Error("no_row_selected"));
           }
           return _openFwEditForm(
-            ctx.gridCode, ctx.rowData.id, "edit", ctx.refreshFn
+            ctx.gridCode, rowId, "edit", ctx.refreshFn
           );
         },
       },
@@ -238,7 +247,12 @@
         destructive: true,
         requiresRow: true,
         handler: function (ctx) {
-          if (!ctx.rowData || ctx.rowData.id == null) {
+          // MSSQL/MCP uppercase ID parity (viz edit handler vyse).
+          var rowIdDel = null;
+          if (ctx.rowData) {
+            rowIdDel = ctx.rowData.id != null ? ctx.rowData.id : ctx.rowData.ID;
+          }
+          if (rowIdDel == null) {
             alert("⚠ Smazat: nejprve vyber řádek.");
             return Promise.reject(new Error("no_row_selected"));
           }

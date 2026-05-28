@@ -522,14 +522,19 @@
                   console.info("[page_render dblclick] no edit_core_id — no-op");
                   return;
                 }
-                if (!rowData || rowData.id == null) return;
+                // MSSQL/MCP uppercase ID parity (28.5.2026 #3 — viz erp_grid_actions.js).
+                var _rid = null;
+                if (rowData) {
+                  _rid = rowData.id != null ? rowData.id : rowData.ID;
+                }
+                if (_rid == null) return;
                 if (typeof window.DesignFwForm !== "function") {
                   console.warn("[page_render dblclick] DesignFwForm not loaded");
                   return;
                 }
                 new window.DesignFwForm({
                   coreId: ga.edit_core_id,
-                  rowId: rowData.id,
+                  rowId: _rid,
                   onSaveSuccess: function() {
                     try {
                       const inst = gridHost.__erpGridInst;

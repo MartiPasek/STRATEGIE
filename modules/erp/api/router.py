@@ -2858,6 +2858,16 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                                 mcp_db_name = _dc_code[len("eurosoft_"):].upper()
 
                             # Krok 5-B Fix C: wrap data_set SQL or fallback na naive get_row.
+                            # DIAG_K5B_FIXC (28.5.2026 brutal stderr print pro guaranteed visibility)
+                            import sys as _sys_diag
+                            print(
+                                f"[DIAG_K5B_FIXC] ENTRY MSSQL branch core={rd.get('id')} row={row_id} "
+                                f"_db_type={_db_type!r} _dc_code={_dc_code!r} "
+                                f"_ds_sql_raw_is_none={_ds_sql_raw is None} "
+                                f"_ds_sql_raw_len={len(_ds_sql_raw) if _ds_sql_raw else 0} "
+                                f"mcp_db_name={mcp_db_name!r}",
+                                file=_sys_diag.stderr, flush=True,
+                            )
                             if _ds_sql_raw and _ds_sql_raw.strip():
                                 # Strip TOP-LEVEL ORDER BY (MSSQL subquery constraint
                                 # without TOP). HOTFIX 28.5.2026 vecer: Marti's grid SQL
@@ -2938,6 +2948,14 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                                     "[fw_form_load_by_id] MSSQL edit-form data_set SQL wrap pro core=%s row=%s (sql_text_len=%d)",
                                     rd.get("id"), row_id, len(_ds_sql_raw),
                                 )
+                                # DIAG_K5B_FIXC: print wrapped SQL preview + has_id_placeholder outcome
+                                print(
+                                    f"[DIAG_K5B_FIXC] WRAPPED SQL core={rd.get('id')} row={row_id} "
+                                    f"has_id_placeholder={_has_id_placeholder} "
+                                    f"wrapped_sql_len={len(_wrapped_sql)} "
+                                    f"preview={_wrapped_sql[:200]!r}",
+                                    file=_sys_diag.stderr, flush=True,
+                                )
                                 result_json = mcp.call_tool_sync(
                                     "eurosoft_strategie_query_raw",
                                     {
@@ -2947,6 +2965,15 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                                     conversation_id=None,
                                 )
                                 result = _json_fwid.loads(result_json) if isinstance(result_json, str) else result_json
+                                # DIAG_K5B_FIXC: print MCP query_raw result shape
+                                print(
+                                    f"[DIAG_K5B_FIXC] MCP RESULT core={rd.get('id')} row={row_id} "
+                                    f"result_type={type(result).__name__} "
+                                    f"result_ok={result.get('ok') if isinstance(result, dict) else 'N/A'} "
+                                    f"result_keys={list(result.keys()) if isinstance(result, dict) else 'N/A'} "
+                                    f"result_preview={str(result)[:300]!r}",
+                                    file=_sys_diag.stderr, flush=True,
+                                )
                                 if isinstance(result, dict) and result.get("ok"):
                                     _rows = result.get("rows") or []
                                     if _rows:
@@ -2993,6 +3020,14 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                         logger.warning(
                             "[fw_form_load_by_id] MSSQL MCP dispatch failed for core=%s row=%s: %s",
                             rd.get("id"), row_id, exc,
+                        )
+                        # DIAG_K5B_FIXC: print full traceback
+                        import traceback as _tb_diag
+                        print(
+                            f"[DIAG_K5B_FIXC] EXCEPTION core={rd.get('id')} row={row_id} "
+                            f"exc_type={type(exc).__name__} exc={exc!r}\n"
+                            f"{_tb_diag.format_exc()}",
+                            file=_sys_diag.stderr, flush=True,
                         )
                         data_row = None
                 else:

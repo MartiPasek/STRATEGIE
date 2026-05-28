@@ -956,24 +956,45 @@
         visited.add(fk);
         try {
           const orig = wrap._origVal;
-          // Set value zpet — depend na widget type
+          // Krok 5-A v3+ hotfix (28.5.2026 vecer pozde, Marti's "Zrusit
+          // nevraci puvodni hodnoty"): setValue() jako PRIMARY path.
+          //
+          // Predtim wrap._inst.input.value = ... direct setoval DOM, ale
+          // ErpInput interne cachuje _displayValue/_rawValue v setValue()
+          // (input.js line 479-491). Direct .value bypass = internal state
+          // stale → save flow inst.value() pak vratil staru post-edit
+          // hodnotu, ne revertovanou.
+          //
+          // ErpInput/ErpMemo/ErpDropdown VŠECHNY maji setValue() — single
+          // unified path. Checkbox je jediny special case (no setValue).
           if (wrap._inst.input && "checked" in wrap._inst.input) {
-            // Checkbox
+            // Checkbox — special case (no setValue API)
             wrap._inst.input.checked = !!orig;
             const valLabel = wrap.querySelector("span");
-            if (valLabel && valLabel.textContent === "Ano" || valLabel && valLabel.textContent === "Ne") {
+            if ((valLabel && valLabel.textContent === "Ano") || (valLabel && valLabel.textContent === "Ne")) {
               valLabel.textContent = wrap._inst.input.checked ? "Ano" : "Ne";
             }
-          } else if (wrap._inst.input) {
-            // Input / textarea
-            wrap._inst.input.value = orig == null ? "" : String(orig);
-            // Reset visual dirty marker (amber border-left)
-            wrap._inst.input.style.borderLeft = "";
-            wrap._inst.input.style.background = "";
           } else if (typeof wrap._inst.setValue === "function") {
-            // Dropdown / UI Kit widget
-            wrap._inst.setValue(orig);
+            // PREFERRED — ErpInput/ErpMemo/ErpDropdown unified path.
+            // Aktualizuje internal state + DOM + validation visual.
+            wrap._inst.setValue(orig == null ? "" : orig);
+          } else if (wrap._inst.input) {
+            // Last-resort fallback pro raw <input> (non-UI-Kit widget)
+            wrap._inst.input.value = orig == null ? "" : String(orig);
           }
+          // Reset visual dirty marker (amber border-left + background) —
+          // per widget type (input vs textarea vs trigger). setValue()
+          // typically resets validation visual ale dirty amber marker
+          // (z onChange handler v _field/_memo/_dropdown) zustava bez explicit clear.
+          try {
+            const visEl = (wrap._inst.input && !("checked" in wrap._inst.input))
+              ? wrap._inst.input
+              : (wrap._inst.textarea || wrap._inst.trigger || null);
+            if (visEl && visEl.style) {
+              visEl.style.borderLeft = "";
+              visEl.style.background = "";
+            }
+          } catch (_eVis) {}
         } catch (e) {
           console.warn("[DesignFwForm] revert field failed:", fk, e);
         }

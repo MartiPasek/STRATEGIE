@@ -3603,6 +3603,155 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
         finally:
             cs_patch.close()
 
+    # ── Krok 5-A v3 (28.5.2026 vecer): MSSQL save dispatch ───────────
+    # Marti's "(α) MCP retry via HTTP loopback" doctrine 28.5.2026 ráno.
+    # Mirror pattern z fw_form_load_by_id (line ~2820). Optimistic lock
+    # OFF (Marti's "becko by si komplikovalo progres"). Audit user-facing
+    # fields only (Marti's "zatim a" — no auto-fill DatZmeny/Zmenil).
+    # Cross-DB audit do PG public.activity_log zustava.
+    _db_type_patch = (entity_config.get("db_type") or "pg").lower()
+    _dc_code_patch = entity_config.get("dc_code") or ""
+    if _db_type_patch == "mssql":
+        import json as _json_patch_mssql
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import (
+                get_eurosoft_mcp_client,
+            )
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                logger.warning(
+                    "[design_patch_entity] MCP client None (eurosoft_mcp_enabled=False?) — MSSQL save abort"
+                )
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "MCP client neni dostupny (eurosoft_mcp_enabled=False?). "
+                            "MSSQL save flow vyzaduje MCP."
+                        ),
+                    },
+                    status_code=503,
+                )
+
+            # dc_code = 'eurosoft_db_ec' → MCP db_name = 'DB_EC' (parity s form_load)
+            mcp_db_name = "DB_EC"
+            if _dc_code_patch and _dc_code_patch.lower().startswith("eurosoft_"):
+                mcp_db_name = _dc_code_patch[len("eurosoft_"):].upper()
+
+            # UPDATE row via MCP eurosoft_strategie_update_row
+            upd_json = mcp.call_tool_sync(
+                "eurosoft_strategie_update_row",
+                {
+                    "schema": schema_name,
+                    "table": table_name,
+                    "id": int(row_id),
+                    "data": dict(field_changes),
+                    "db_name": mcp_db_name,
+                },
+                conversation_id=None,
+            )
+            upd = (
+                _json_patch_mssql.loads(upd_json)
+                if isinstance(upd_json, str) else upd_json
+            )
+            if not (isinstance(upd, dict) and upd.get("ok")):
+                err_msg = (
+                    (upd or {}).get("error")
+                    if isinstance(upd, dict)
+                    else str(upd)
+                )
+                logger.warning(
+                    "[design_patch_entity] MSSQL MCP update failed %s.%s id=%s db=%s: %r",
+                    schema_name, table_name, row_id, mcp_db_name, upd,
+                )
+                return JSONResponse(
+                    {"ok": False, "error": f"MSSQL UPDATE failed: {err_msg}"},
+                    status_code=500,
+                )
+
+            affected = upd.get("affected", 0)
+            logger.info(
+                "[design_patch_entity] MSSQL row updated via MCP: %s.%s id=%s db=%s (affected=%s, fields=%s)",
+                schema_name, table_name, row_id, mcp_db_name,
+                affected, sorted(field_changes.keys()),
+            )
+
+            # Re-fetch updated row pro response (frontend needs fresh values)
+            fetched_row = None
+            try:
+                fetch_json = mcp.call_tool_sync(
+                    "eurosoft_strategie_get_row",
+                    {
+                        "schema": schema_name,
+                        "table": table_name,
+                        "id": int(row_id),
+                        "db_name": mcp_db_name,
+                    },
+                    conversation_id=None,
+                )
+                fetched = (
+                    _json_patch_mssql.loads(fetch_json)
+                    if isinstance(fetch_json, str) else fetch_json
+                )
+                if isinstance(fetched, dict) and fetched.get("ok"):
+                    fetched_row = fetched.get("row")
+            except Exception as _fe:
+                logger.warning(
+                    "[design_patch_entity] MSSQL post-update re-fetch failed: %s",
+                    _fe,
+                )
+
+            # Audit log INSERT do PG public.activity_log (cross-DB OK)
+            try:
+                ds_audit = _gds_patch()
+                try:
+                    ds_audit.execute(_sql_text_patch("""
+                        INSERT INTO public.activity_log
+                          (user_id, persona_id, category, actor,
+                           summary, change_source, ts)
+                        VALUES
+                          (:uid, NULL, 'design_save', 'user',
+                           :summary, 'ui', NOW())
+                    """), {
+                        "uid": uid,
+                        "summary": (
+                            f"PATCH (MSSQL) {schema_name}.{table_name} id={row_id} "
+                            f"db={mcp_db_name} by {caller_display}: "
+                            f"changed fields = {sorted(field_changes.keys())}"
+                        ),
+                    })
+                    ds_audit.commit()
+                finally:
+                    ds_audit.close()
+            except Exception as _act_e:
+                logger.warning(
+                    "[design_patch_entity] MSSQL audit INSERT failed (non-fatal): %s",
+                    _act_e,
+                )
+
+            return JSONResponse(jsonable_encoder({
+                "ok": True,
+                "entity_type": entity_type,
+                "row_id": row_id,
+                "updated_at": None,  # MSSQL DB_EC dbo nemá updated_at v naší convention
+                "updated_by_id": uid,
+                "updated_by_text": caller_display,
+                "field_changes_applied": list(field_changes.keys()),
+                "row": fetched_row or {},
+                "_db_type": "mssql",
+                "_db_name": mcp_db_name,
+            }))
+        except Exception as exc:
+            logger.exception(
+                "[design_patch_entity] MSSQL MCP dispatch failed for %s.%s row=%s: %s",
+                schema_name, table_name, row_id, exc,
+            )
+            return JSONResponse(
+                {"ok": False, "error": f"MSSQL PATCH dispatch failed: {exc}"},
+                status_code=500,
+            )
+    # ── End MSSQL dispatch — PG path continues below ─────────────────
+
     ds = _gds_patch()
     try:
         # 1. Load current row + optimistic lock check

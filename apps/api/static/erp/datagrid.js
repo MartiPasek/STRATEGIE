@@ -1680,15 +1680,20 @@
       try {
         const sel = this.gridApi.getSelectedRows();
         if (Array.isArray(sel) && sel.length > 0) return sel;
-        // Tired-Marti UX fallback (28.5.2026): pokud zadny selected row,
-        // pouzij focused row (modry podsvit z click). Drzi Marti's instinkt
-        // "kliknul jsem na radek = mam ho oznaceny" — bez nutnosti
-        // checkbox/Ctrl+click. Patika ukazuje 62:11337 ale getSelectedRows
-        // vraci [] (AG Grid v32+ range vs row selection split).
+        // Tired-Marti UX fallback #1 (28.5.2026): aktualne focused row
+        // (klik = modry podsvit, ale getSelectedRows() vraci [] kdyz nebyl
+        // checkbox/Ctrl+click — AG Grid v32+ range vs row selection split).
         const focused = this.gridApi.getFocusedCell();
         if (focused && focused.rowIndex != null) {
           const node = this.gridApi.getDisplayedRowAtIndex(focused.rowIndex);
           if (node && node.data) return [node.data];
+        }
+        // Tired-Marti UX fallback #2 (28.5.2026 #2): last focused row
+        // zachyceny v cellFocused listeneru (viz onGridReady). Drzi i kdyz
+        // uzivatel klikne na Opravu button MIMO grid (grid ztrati focus,
+        // getFocusedCell() -> null, ale _lastFocusedRow zustava).
+        if (this._lastFocusedRow) {
+          return [this._lastFocusedRow];
         }
         return [];
       } catch (e) {
@@ -2386,6 +2391,12 @@
                   if (!focused) return;
                   var node = params.api.getDisplayedRowAtIndex(focused.rowIndex);
                   if (!node || !node.data) return;
+                  // Tired-Marti UX (28.5.2026 #2): capture last focused row
+                  // tak, ze prezije focus loss (uzivatel klikne Opravu button
+                  // mimo grid → getFocusedCell() vrati null → fallback v
+                  // _getSelectedRowsSafe selze). Bez tohoto _lastFocusedRow
+                  // by Oprava vzdy hlasila "no_row_selected".
+                  selfFocus._lastFocusedRow = node.data;
                   var rowId = (node.data.id != null) ? node.data.id
                     : (node.data.ID != null) ? node.data.ID : null;
                   selfFocus._updateCoreInfoPill(rowId);

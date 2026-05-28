@@ -3580,28 +3580,42 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 status_code=400,
             )
 
-    # Resolve caller display name (Marti-AI's "non-app actor" doctrine —
-    # users muze byt placeholder bez full activity, ale display name vzdy
-    # filled z first_name + last_name nebo short_name fallback)
-    caller_display = "Unknown"
-    if uid:
-        from core.database_core import get_core_session as _gcs_patch
-        from modules.core.infrastructure.models_core import User as _User_patch
-        cs_patch = _gcs_patch()
+    # Phase Audit Actor (28.5.2026 vecer pozde, Marti's "Krok C audit
+    # columns autofill univerzalne"): sjednoceno pres resolve_audit_actor.
+    # Pro PG branch potrebujeme pg_text (users.short_name). Pro MSSQL
+    # branch (nize) navic mssql_text (user_tenants.db_login per tenant).
+    #
+    # uid IS NULL → fallback na STRATEGIE_USER_ID=3 (Marti's "STRATEGIE
+    # = normalni user", system actor convention).
+    from modules.auth.application.audit_actor import (
+        resolve_audit_actor as _audit_resolve,
+        resolve_tenant_id_from_dc_code as _audit_tenant_from_dc,
+    )
+    # Tmp: caller_display naplnen dale podle target db_kind. Pro PG branch
+    # (default fallthrough) = audit_pg["pg_text"]. Pro MSSQL branch
+    # (nize, early return) audit resolve znovu s target_db_kind="mssql".
+    audit_pg = None
+    try:
+        # Need fresh ds for audit lookup (data_db session). _gds_patch is
+        # imported above (line ~3463).
+        _ds_audit = _gds_patch()
         try:
-            u_patch = cs_patch.query(_User_patch).filter_by(id=uid).first()
-            if u_patch:
-                # Priority: short_name > first_name + last_name > "user_NN"
-                if u_patch.short_name and u_patch.short_name.strip():
-                    caller_display = u_patch.short_name.strip()
-                elif u_patch.first_name or u_patch.last_name:
-                    caller_display = " ".join(filter(None, [
-                        u_patch.first_name, u_patch.last_name
-                    ])).strip()
-                else:
-                    caller_display = f"user_{uid}"
+            audit_pg = _audit_resolve(
+                uid=uid,
+                target_tenant_id=None,
+                target_db_kind="pg",
+                ds=_ds_audit,
+            )
         finally:
-            cs_patch.close()
+            _ds_audit.close()
+        caller_display = audit_pg["pg_text"]
+    except ValueError as _audit_exc:
+        # Fail visible — pokud audit resolver raise, return 500
+        logger.exception(f"design_patch_entity audit resolve failed: {_audit_exc}")
+        return JSONResponse(
+            {"ok": False, "error": f"Audit actor resolve failed: {_audit_exc}"},
+            status_code=500,
+        )
 
     # ── Krok 5-A v3 (28.5.2026 vecer): MSSQL save dispatch ───────────
     # Marti's "(α) MCP retry via HTTP loopback" doctrine 28.5.2026 ráno.
@@ -3638,6 +3652,68 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             if _dc_code_patch and _dc_code_patch.lower().startswith("eurosoft_"):
                 mcp_db_name = _dc_code_patch[len("eurosoft_"):].upper()
 
+            # ── Phase Audit Actor (Fáze E, 28.5.2026 vecer pozde): ─────
+            # MSSQL audit columns autofill — Zmenil + DatZmeny per
+            # Centrala 1 idiom. Pre-introspect target columns (cached),
+            # inject jen pokud column existuje (defense in depth proti
+            # "column does not exist" v UPDATE).
+            #
+            # Resolve audit actor s target_db_kind="mssql" → mssql_text =
+            # user_tenants.db_login per (uid, tenant_id). NULL db_login
+            # → ValueError = fail visible (Marti's "kdyz nevyplneno, tak
+            # chyba zatim" 28.5.).
+            from modules.conversation.application.eurosoft_mcp_client import (
+                get_mssql_columns_cached as _get_mssql_cols,
+            )
+            from datetime import datetime as _dt_audit
+
+            _audit_tenant_id = _audit_tenant_from_dc(_dc_code_patch)
+            if not _audit_tenant_id:
+                logger.warning(
+                    "[design_patch_entity] MSSQL audit: tenant_id neresolved "
+                    "z dc_code=%r — skip audit autofill (proceeds bez Zmenil/DatZmeny)",
+                    _dc_code_patch,
+                )
+
+            audit_mssql_text = None
+            if _audit_tenant_id:
+                try:
+                    _ds_audit_mssql = _gds_patch()
+                    try:
+                        audit_mssql = _audit_resolve(
+                            uid=uid,
+                            target_tenant_id=_audit_tenant_id,
+                            target_db_kind="mssql",
+                            ds=_ds_audit_mssql,
+                        )
+                    finally:
+                        _ds_audit_mssql.close()
+                    audit_mssql_text = audit_mssql["mssql_text"]
+                except ValueError as _audit_mssql_exc:
+                    # Fail visible — db_login chybi pro tenant
+                    logger.exception(
+                        f"design_patch_entity MSSQL audit resolve failed: {_audit_mssql_exc}"
+                    )
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": f"MSSQL audit actor resolve failed: {_audit_mssql_exc}",
+                        },
+                        status_code=500,
+                    )
+
+            # Pre-introspect target columns (cached)
+            _mssql_cols = _get_mssql_cols(mcp_db_name, schema_name, table_name)
+
+            # Build data dict s autofill
+            _patch_data = dict(field_changes)
+            if _mssql_cols and audit_mssql_text:
+                if "Zmenil" in _mssql_cols:
+                    _patch_data["Zmenil"] = audit_mssql_text
+                if "DatZmeny" in _mssql_cols:
+                    # ISO 8601 — MSSQL DATETIME parsuje ISO format
+                    _patch_data["DatZmeny"] = _dt_audit.now().isoformat(timespec="seconds")
+
             # UPDATE row via MCP eurosoft_strategie_update_row
             upd_json = mcp.call_tool_sync(
                 "eurosoft_strategie_update_row",
@@ -3645,7 +3721,7 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                     "schema": schema_name,
                     "table": table_name,
                     "id": int(row_id),
-                    "data": dict(field_changes),
+                    "data": _patch_data,
                     "db_name": mcp_db_name,
                 },
                 conversation_id=None,

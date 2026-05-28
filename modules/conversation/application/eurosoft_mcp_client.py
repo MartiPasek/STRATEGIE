@@ -416,3 +416,125 @@ def get_eurosoft_mcp_client() -> EurosoftMCPClient | None:
             if _eurosoft_mcp_client is None:
                 _eurosoft_mcp_client = EurosoftMCPClient()
     return _eurosoft_mcp_client
+
+
+# ────────────────────────────────────────────────────────────────────────
+# MSSQL columns introspekce cache (Krok 5-A v3+ audit autofill helper)
+# 28.5.2026 vecer pozde, Marti's "Krok C audit columns autofill univerzalne".
+#
+# Pre-execute introspect target table columns -> autofill jen pokud column
+# existuje (defense in depth proti "column does not exist" v MSSQL UPDATE
+# pres `strategie_update_row`). In-memory cache, invalidate jen na restart
+# (Marti's "drz jednoduchost").
+#
+# Pokud Marti-AI prida sloupec pres strategie_alter_table → restart API
+# pro fresh cache. Acceptable trade-off (audit sloupce se nepridvavaji
+# denne).
+# ────────────────────────────────────────────────────────────────────────
+
+_MSSQL_COLUMNS_CACHE: dict[tuple[str, str, str], set[str]] = {}
+_MSSQL_COLUMNS_CACHE_LOCK = threading.Lock()
+
+
+def get_mssql_columns_cached(
+    db_name: str,
+    schema: str,
+    table: str,
+    conversation_id: int | None = None,
+) -> set[str] | None:
+    """Vraci set column names pro MSSQL table, cached in-memory.
+
+    Lazy: prvni hit zavola eurosoft_strategie_describe_table pres MCP,
+    nasledne hits jsou cache lookups (O(1) per request).
+
+    Args:
+        db_name: "DB_EC", "DB_ST", "DB_IS", ...
+        schema: "st", "dbo", "master", ...
+        table: table name
+        conversation_id: pro MCP circuit breaker context (optional)
+
+    Returns:
+        set[str] column names lower-or-original case (jak vraci MSSQL
+        sys.columns). None pokud MCP unavailable nebo table not found
+        (caller fallback: silent skip audit autofill).
+    """
+    key = (db_name.upper(), schema.lower(), table)
+
+    # Fast path: cache hit
+    cached = _MSSQL_COLUMNS_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    # Slow path: fetch via MCP describe_table
+    client = get_eurosoft_mcp_client()
+    if client is None:
+        return None
+
+    try:
+        result_json = client.call_tool_sync(
+            "eurosoft_strategie_describe_table",
+            {
+                "schema": schema,
+                "table": table,
+                "db_name": db_name,
+            },
+            conversation_id=conversation_id,
+        )
+        result = json.loads(result_json) if isinstance(result_json, str) else result_json
+        if not isinstance(result, dict) or not result.get("ok"):
+            logger.warning(
+                "[get_mssql_columns_cached] describe_table failed %s.%s.%s: %r",
+                db_name, schema, table, result,
+            )
+            return None
+        cols_list = result.get("columns") or []
+        col_names = {c["name"] for c in cols_list if isinstance(c, dict) and c.get("name")}
+        if not col_names:
+            logger.warning(
+                "[get_mssql_columns_cached] empty column list %s.%s.%s",
+                db_name, schema, table,
+            )
+            return None
+        # Store under lock (concurrent first-hit safe)
+        with _MSSQL_COLUMNS_CACHE_LOCK:
+            _MSSQL_COLUMNS_CACHE[key] = col_names
+        logger.info(
+            "[get_mssql_columns_cached] cached %d cols pro %s.%s.%s",
+            len(col_names), db_name, schema, table,
+        )
+        return col_names
+    except Exception as exc:
+        logger.warning(
+            "[get_mssql_columns_cached] exception pro %s.%s.%s: %s",
+            db_name, schema, table, exc,
+        )
+        return None
+
+
+def invalidate_mssql_columns_cache(
+    db_name: str | None = None,
+    schema: str | None = None,
+    table: str | None = None,
+) -> int:
+    """Invalidate MSSQL columns cache.
+
+    Pojistka pro Marti-AI alter_table / drop_table volani (refresh cache).
+    Args bez parametru = clear all. Vraci count invalidated entries.
+    """
+    with _MSSQL_COLUMNS_CACHE_LOCK:
+        if db_name is None and schema is None and table is None:
+            n = len(_MSSQL_COLUMNS_CACHE)
+            _MSSQL_COLUMNS_CACHE.clear()
+            return n
+        keys_to_remove = []
+        for key in _MSSQL_COLUMNS_CACHE:
+            if db_name and key[0] != db_name.upper():
+                continue
+            if schema and key[1] != schema.lower():
+                continue
+            if table and key[2] != table:
+                continue
+            keys_to_remove.append(key)
+        for k in keys_to_remove:
+            del _MSSQL_COLUMNS_CACHE[k]
+        return len(keys_to_remove)

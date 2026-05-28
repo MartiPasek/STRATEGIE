@@ -45,15 +45,72 @@ MARTI_AI_USER_ID = 2
 MARTI_AI_USER_TEXT = 'Marti-AI'
 
 # System columns to skip when generating inputs (auto-managed by DB or audit)
+# PG convention (lowercase) + Centrála 1 / MSSQL convention (PascalCase, Czech).
 SKIP_COLUMNS = frozenset({
+    # PG modern
     'id', 'created_at', 'updated_at',
     'created_by_id', 'created_by_text',
     'updated_by_id', 'updated_by_text',
     'version',
+    # Centrála 1 / MSSQL (case-insensitive match downstream via .lower())
+    'datporizeni', 'datzmeny', 'autor', 'zmenil',
 })
 
 # Default field width (px) for generated inputs
 DEFAULT_FIELD_WIDTH = 400
+
+
+def _introspect_mssql_via_mcp(schema_name, table_name, db_name='DB_EC'):
+    """MSSQL introspection (Krok H+5 v3, 28.5.2026).
+
+    PG-only `information_schema.columns` selhal pro MSSQL target. Vola MCP
+    `eurosoft_strategie_describe_table` cestou eurosoft_mcp_client.
+
+    Returns: list of tuples (column_name, data_type, is_nullable, max_length)
+             — same shape jako PG `information_schema.columns` query.
+    Returns []: on failure (log printed).
+    """
+    try:
+        from modules.conversation.application.eurosoft_mcp_client import eurosoft_mcp_client
+    except Exception as e:
+        print(f"⚠ Nelze import eurosoft_mcp_client: {e}")
+        return []
+
+    try:
+        result_json = eurosoft_mcp_client.call_tool_sync(
+            "eurosoft_strategie_describe_table",
+            {"schema": schema_name, "table": table_name, "db_name": db_name},
+            conversation_id=None,
+        )
+        result = json.loads(result_json) if isinstance(result_json, str) else result_json
+    except Exception as e:
+        print(f"⚠ MCP describe_table call failed: {e}")
+        return []
+
+    if not isinstance(result, dict) or not result.get("ok", True) is True:
+        err = result.get("error") if isinstance(result, dict) else str(result)
+        print(f"⚠ MCP describe_table returned error: {err}")
+        return []
+
+    cols = result.get("columns", []) or []
+    normalized = []
+    for c in cols:
+        if not isinstance(c, dict):
+            continue
+        col_name = c.get("name") or c.get("column_name") or ""
+        data_type = c.get("data_type") or c.get("type") or "varchar"
+        # MSSQL is_nullable: bool. PG is_nullable: 'YES'/'NO'.
+        is_nullable_raw = c.get("is_nullable")
+        if isinstance(is_nullable_raw, bool):
+            is_nullable = "YES" if is_nullable_raw else "NO"
+        else:
+            is_nullable = str(is_nullable_raw or "YES").upper()
+        max_length = c.get("max_length") or c.get("character_maximum_length")
+        # Negative max_length (MSSQL -1 = varchar(MAX)) → NULL for downstream
+        if isinstance(max_length, int) and max_length < 0:
+            max_length = None
+        normalized.append((col_name, data_type, is_nullable, max_length))
+    return normalized
 
 
 def main():
@@ -117,14 +174,18 @@ def main():
             return
 
         # ── Step 4: Find linked data_source via data_source_op ─────────────
+        # Krok H+5 v3 (28.5.2026): JOIN db_connection pro db_type detect
+        # (PG vs MSSQL dispatch v Step 6 introspection).
         cur = conn.cursor()
         cur.execute("""
             SELECT op.id, op.operation_kind, op.data_source_id, op.data_set_id,
                    ds.name AS ds_name,
-                   dset.sql_text
+                   dset.sql_text,
+                   dc.db_type
             FROM fw.data_source_op op
             JOIN fw.data_source ds ON ds.id = op.data_source_id
             LEFT JOIN fw.data_set dset ON dset.id = op.data_set_id
+            LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
             WHERE op.core_id = %s
               AND op.operation_kind IN ('edit', 'insert')
             ORDER BY
@@ -141,11 +202,12 @@ def main():
             print(f"  Spustil jsi vytvor_edit_jadro nejdriv? (Krok F/G)")
             return
 
-        op_id, op_kind, ds_id, ds_set_id, ds_name, sql_text = op_row
+        op_id, op_kind, ds_id, ds_set_id, ds_name, sql_text, db_type = op_row
         print(f"Linked op:")
         print(f"  op_id:           {op_id} (kind={op_kind})")
         print(f"  data_source_id:  {ds_id} ({ds_name})")
         print(f"  data_set_id:     {ds_set_id or '(NULL — Krok 5.N-2 v2 path?)'}")
+        print(f"  db_type:         {db_type or '(NULL — lookup z default select op v Step 5)'}")
         print()
 
         # ── Step 5: Resolve target table (SQL parse) ───────────────────────
@@ -153,14 +215,16 @@ def main():
         target_table = None
 
         if sql_text:
-            # Krok 5.N-2 path — parse FROM z linked data_set.sql_text
+            # Krok 5.N-2 path — parse FROM z linked data_set.sql_text.
+            # Krok H+5 v3 (28.5.2026): preserve case pro MSSQL PascalCase
+            # (st.CRM_Kontakt_ZemeCis). PG path Step 6 si lowercase shape sam.
             match = re.search(
-                r"\bFROM\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)",
+                r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
                 sql_text, re.IGNORECASE,
             )
             if match:
-                target_schema = match.group(1).lower()
-                target_table = match.group(2).lower()
+                target_schema = match.group(1)
+                target_table = match.group(2)
                 print(f"Target table (z data_set.sql_text):")
                 print(f"  {target_schema}.{target_table}")
                 print()
@@ -170,13 +234,15 @@ def main():
             # Krok 5.N-2 v2 path — fallback resolve via op.data_set_id null,
             # SQL parse z fw.data_set linked to data_source's default
             # 'select' op (mirror _resolve_entity_config_from_db).
+            # Krok H+5 v3 (28.5.2026): JOIN db_connection pro db_type fallback.
             print(f"⚠ op.data_set_id is NULL. Fallback: lookup default 'select' "
                   f"op z data_source #{ds_id}.")
             cur = conn.cursor()
             cur.execute("""
-                SELECT dset.sql_text
+                SELECT dset.sql_text, dc.db_type
                 FROM fw.data_source_op op
                 JOIN fw.data_set dset ON dset.id = op.data_set_id
+                LEFT JOIN fw.db_connection dc ON dc.id = dset.db_connection_id
                 WHERE op.data_source_id = %s
                   AND op.operation_kind = 'select'
                 ORDER BY op.is_default DESC NULLS LAST, op.id ASC
@@ -186,16 +252,23 @@ def main():
             cur.close()
 
             if select_row and select_row[0]:
+                # Preserve case (Centrála 1 MSSQL idiom: PascalCase table names).
+                # MSSQL CRM_Kontakt_ZemeCis nesmi byt lowercased — describe_table
+                # by failed na OBJECT_ID('st.crm_kontakt_zemecis').
                 match = re.search(
-                    r"\bFROM\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)",
+                    r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
                     select_row[0], re.IGNORECASE,
                 )
                 if match:
-                    target_schema = match.group(1).lower()
-                    target_table = match.group(2).lower()
+                    target_schema = match.group(1)
+                    target_table = match.group(2)
                     print(f"Target table (z default 'select' op):")
                     print(f"  {target_schema}.{target_table}")
                     print()
+                # Adopt db_type z fallback (puvodni op edit/insert mel NULL).
+                if not db_type:
+                    db_type = select_row[1]
+                    print(f"  db_type (z fallback):  {db_type or '(NULL)'}")
 
         if not (target_schema and target_table):
             print(f"✗ Nelze resolve target table pro core #{core_id}.")
@@ -204,25 +277,38 @@ def main():
             return
 
         # ── Step 6: Introspect target table columns ─────────────────────────
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT column_name, data_type, is_nullable,
-                   character_maximum_length
-            FROM information_schema.columns
-            WHERE table_schema = %s AND table_name = %s
-            ORDER BY ordinal_position
-        """, (target_schema, target_table))
-        columns = cur.fetchall()
-        cur.close()
+        # Krok H+5 v3 (28.5.2026): db_type dispatch — MSSQL → MCP describe_table,
+        # PG → information_schema.columns. Marti's "Pojd opravit ten orchestrator"
+        # after silent skip pro st.CRM_Kontakt_ZemeCis (DB_EC).
+        db_type_norm = (db_type or '').lower().strip()
+        if db_type_norm == 'mssql':
+            print(f"db_type=mssql → introspekce přes MCP eurosoft_strategie_describe_table.")
+            # PG-side schema may be lowercased v Step 5 parse (case-insensitive
+            # regex). MSSQL OBJECT_ID needs original case. Keep as parsed (already
+            # preserved v Krok H+5 v3 fallback path above).
+            columns = _introspect_mssql_via_mcp(target_schema, target_table)
+        else:
+            # PG (default) — use information_schema.columns na local data_db.
+            cur = conn.cursor()
+            cur.execute("""
+                SELECT column_name, data_type, is_nullable,
+                       character_maximum_length
+                FROM information_schema.columns
+                WHERE table_schema = %s AND table_name = %s
+                ORDER BY ordinal_position
+            """, (target_schema.lower(), target_table.lower()))
+            columns = cur.fetchall()
+            cur.close()
 
         if not columns:
             print(f"✗ Target table {target_schema}.{target_table} neexistuje "
-                  f"nebo nema sloupce.")
+                  f"nebo nema sloupce (db_type={db_type_norm or 'pg'}).")
             return
 
-        # Filter — skip system columns
+        # Filter — skip system columns (case-insensitive: SKIP_COLUMNS je
+        # lowercased, MSSQL PascalCase 'ID' / 'DatPorizeni' / ... match po .lower()).
         user_columns = [
-            c for c in columns if c[0] not in SKIP_COLUMNS
+            c for c in columns if (c[0] or '').lower() not in SKIP_COLUMNS
         ]
         print(f"Target sloupce: {len(columns)} total, "
               f"{len(user_columns)} user-facing (po skip system)")

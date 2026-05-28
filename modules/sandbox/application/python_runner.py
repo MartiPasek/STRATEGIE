@@ -617,6 +617,16 @@ def execute(
             _db_url = getattr(_spg_settings_sx, "database_data_url", "") or ""
             if _db_url:
                 sub_env["STRATEGIE_DATA_DB_URL"] = _db_url
+            # Krok H+5 v3 (28.5.2026 rano, Marti's "Pojd opravit ten orchestrator"):
+            # inject EUROSOFT_MCP_* env pro MSSQL introspekce. Sandbox subprocess
+            # ma separatni Pydantic Settings init — bez env vars je MCP off,
+            # get_eurosoft_mcp_client() vraci None, orchestrator silent skip.
+            _mcp_url = getattr(_spg_settings_sx, "eurosoft_mcp_url", "") or ""
+            _mcp_key = getattr(_spg_settings_sx, "eurosoft_mcp_api_key", "") or ""
+            if _mcp_url:
+                sub_env["EUROSOFT_MCP_URL"] = _mcp_url
+            if _mcp_key:
+                sub_env["EUROSOFT_MCP_API_KEY"] = _mcp_key
         except Exception:
             # Defensive: pokud core.config import selze, skip inject (orchestrator
             # pak hlasi missing env var pres stdout, ne crash)

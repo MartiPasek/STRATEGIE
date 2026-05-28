@@ -2187,6 +2187,15 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
             "dc_code": row["dc_code"],  # napr. 'eurosoft_db_ec' pro MCP db_name
             # select_columns = None: Marti's "NULL = all editable" design.
             "select_columns": None,
+            # Phase CRM Foundation Krok 5-B Fix C (28.5.2026 vecer, Marti's
+            # "SELECT je TABULKA Fieldu, ne fyzicka tabulka v DB"):
+            # pass-through raw data_set SQL pro MSSQL edit form read flow.
+            # Backend wrappne jako:
+            #   SELECT * FROM (<sql_text>) AS sub WHERE [ID] = <row_id>
+            # -> vraci row s aliases z SELECT projection (FirmaText, Firma,
+            # Kategorie, Zeme, PoslAkceNazev, TelKontakt, MaZajemORozvadece, ...)
+            # bez data migration (Centrala 1 paradigm: edit form display = grid SELECT).
+            "sql_text": sql_text,
         }
     except Exception as exc:
         logger.warning(f"_resolve_entity_config_from_db(core_id={core_id}) failed: {exc}")
@@ -2818,13 +2827,25 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             _dc_code = entity_config.get("dc_code") or ""
             if row_id and row_id > 0:
                 if _db_type == "mssql":
-                    # Krok 5-Z (28.5.2026 ranni, Marti's "(α) MCP retry"):
-                    # Volame eurosoft_mcp_client primo (main API process, MCP
-                    # singleton chodi). Subprocess (orchestrator) potrebuje
-                    # HTTP loopback — deferred do save flow epoch.
+                    # Phase CRM Foundation Krok 5-B Fix C (28.5.2026 vecer,
+                    # Marti's "SELECT je TABULKA Fieldu, ne fyzicka tabulka v DB"):
+                    # MSSQL edit form read = wrap data_set SQL jako subquery
+                    # s WHERE [ID] = <row_id>. Tj. stejny SELECT jako grid,
+                    # jen jeden radek. Centrala 1 paradigm bez data migration.
+                    #
+                    # Dispatch: eurosoft_strategie_query_raw misto get_row.
+                    # Vraci row s aliases z SELECT projection (FirmaText, Firma,
+                    # Kategorie, Zeme, PoslAkceNazev, TelKontakt, MaZajemORozvadece,
+                    # ID, Autor, atd.) napric joinovanych tables — bez NULL bias
+                    # z naive SELECT * FROM <base>.
+                    #
+                    # Fallback: pokud data_set SQL prazdne (entity_config.sql_text=None),
+                    # ponecha naive get_row jako legacy compat path.
+                    _ds_sql_raw = entity_config.get("sql_text") if entity_config else None
                     try:
                         from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
                         import json as _json_fwid
+                        import re as _re_fwid
                         mcp = get_eurosoft_mcp_client()
                         if mcp is None:
                             logger.warning(
@@ -2832,36 +2853,85 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                             )
                         else:
                             # dc_code = 'eurosoft_db_ec' → MCP db_name = 'DB_EC'.
-                            # Convention: dc_code prefix 'eurosoft_' stripped + uppercase suffix.
                             mcp_db_name = "DB_EC"
                             if _dc_code and _dc_code.lower().startswith("eurosoft_"):
                                 mcp_db_name = _dc_code[len("eurosoft_"):].upper()
-                            result_json = mcp.call_tool_sync(
-                                "eurosoft_strategie_get_row",
-                                {
-                                    "schema": schema_name,
-                                    "table": table_name,
-                                    "id": int(row_id),
-                                    "db_name": mcp_db_name,
-                                },
-                                conversation_id=None,
-                            )
-                            result = _json_fwid.loads(result_json) if isinstance(result_json, str) else result_json
-                            if isinstance(result, dict) and result.get("ok") and result.get("row"):
-                                data_row = result["row"]
+
+                            # Krok 5-B Fix C: wrap data_set SQL or fallback na naive get_row.
+                            if _ds_sql_raw and _ds_sql_raw.strip():
+                                # Strip ORDER BY (MSSQL subquery constraint without TOP).
+                                _sql_clean = _ds_sql_raw.rstrip().rstrip(";").rstrip()
+                                _sql_clean = _re_fwid.sub(
+                                    r"\bORDER\s+BY\b.*$",
+                                    "",
+                                    _sql_clean,
+                                    flags=_re_fwid.IGNORECASE | _re_fwid.DOTALL,
+                                ).rstrip()
+                                # Wrap as subquery + WHERE — INT row_id (no bind risk).
+                                _row_id_int = int(row_id)
+                                _wrapped_sql = (
+                                    f"SELECT * FROM (\n{_sql_clean}\n) AS _edit_form_sub "
+                                    f"WHERE [ID] = {_row_id_int}"
+                                )
                                 logger.info(
-                                    "[fw_form_load_by_id] MSSQL row loaded via MCP: %s.%s id=%s (%d cols)",
-                                    schema_name, table_name, row_id, len(data_row),
+                                    "[fw_form_load_by_id] MSSQL edit-form data_set SQL wrap pro core=%s row=%s (sql_text_len=%d)",
+                                    rd.get("id"), row_id, len(_ds_sql_raw),
                                 )
+                                result_json = mcp.call_tool_sync(
+                                    "eurosoft_strategie_query_raw",
+                                    {
+                                        "sql": _wrapped_sql,
+                                        "db_name": mcp_db_name,
+                                    },
+                                    conversation_id=None,
+                                )
+                                result = _json_fwid.loads(result_json) if isinstance(result_json, str) else result_json
+                                if isinstance(result, dict) and result.get("ok"):
+                                    _rows = result.get("rows") or []
+                                    if _rows:
+                                        data_row = _rows[0]
+                                        logger.info(
+                                            "[fw_form_load_by_id] MSSQL edit-form row loaded via data_set SQL wrap: core=%s id=%s (%d cols)",
+                                            rd.get("id"), row_id, len(data_row),
+                                        )
+                                    else:
+                                        logger.warning(
+                                            "[fw_form_load_by_id] MSSQL data_set SQL wrap vratil 0 rows pro core=%s id=%s",
+                                            rd.get("id"), row_id,
+                                        )
+                                else:
+                                    logger.warning(
+                                        "[fw_form_load_by_id] MSSQL data_set SQL wrap failed pro core=%s id=%s: %r",
+                                        rd.get("id"), row_id, result,
+                                    )
                             else:
-                                logger.warning(
-                                    "[fw_form_load_by_id] MCP get_row vratil prazdno/error pro %s.%s id=%s: %r",
-                                    schema_name, table_name, row_id, result,
+                                # LEGACY FALLBACK: data_set sql_text neexistuje -> naive get_row.
+                                result_json = mcp.call_tool_sync(
+                                    "eurosoft_strategie_get_row",
+                                    {
+                                        "schema": schema_name,
+                                        "table": table_name,
+                                        "id": int(row_id),
+                                        "db_name": mcp_db_name,
+                                    },
+                                    conversation_id=None,
                                 )
+                                result = _json_fwid.loads(result_json) if isinstance(result_json, str) else result_json
+                                if isinstance(result, dict) and result.get("ok") and result.get("row"):
+                                    data_row = result["row"]
+                                    logger.info(
+                                        "[fw_form_load_by_id] MSSQL legacy get_row pro %s.%s id=%s (%d cols, naive SELECT *)",
+                                        schema_name, table_name, row_id, len(data_row),
+                                    )
+                                else:
+                                    logger.warning(
+                                        "[fw_form_load_by_id] MCP get_row vratil prazdno/error pro %s.%s id=%s: %r",
+                                        schema_name, table_name, row_id, result,
+                                    )
                     except Exception as exc:
                         logger.warning(
-                            "[fw_form_load_by_id] MSSQL MCP dispatch failed for %s.%s row=%s: %s",
-                            schema_name, table_name, row_id, exc,
+                            "[fw_form_load_by_id] MSSQL MCP dispatch failed for core=%s row=%s: %s",
+                            rd.get("id"), row_id, exc,
                         )
                         data_row = None
                 else:

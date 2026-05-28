@@ -1679,7 +1679,18 @@
       if (!this.gridApi) return [];
       try {
         const sel = this.gridApi.getSelectedRows();
-        return Array.isArray(sel) ? sel : [];
+        if (Array.isArray(sel) && sel.length > 0) return sel;
+        // Tired-Marti UX fallback (28.5.2026): pokud zadny selected row,
+        // pouzij focused row (modry podsvit z click). Drzi Marti's instinkt
+        // "kliknul jsem na radek = mam ho oznaceny" — bez nutnosti
+        // checkbox/Ctrl+click. Patika ukazuje 62:11337 ale getSelectedRows
+        // vraci [] (AG Grid v32+ range vs row selection split).
+        const focused = this.gridApi.getFocusedCell();
+        if (focused && focused.rowIndex != null) {
+          const node = this.gridApi.getDisplayedRowAtIndex(focused.rowIndex);
+          if (node && node.data) return [node.data];
+        }
+        return [];
       } catch (e) {
         return [];
       }

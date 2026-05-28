@@ -71,13 +71,18 @@ def _introspect_mssql_via_mcp(schema_name, table_name, db_name='DB_EC'):
     Returns []: on failure (log printed).
     """
     try:
-        from modules.conversation.application.eurosoft_mcp_client import eurosoft_mcp_client
+        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
     except Exception as e:
-        print(f"⚠ Nelze import eurosoft_mcp_client: {e}")
+        print(f"⚠ Nelze import get_eurosoft_mcp_client: {e}")
+        return []
+
+    mcp_client = get_eurosoft_mcp_client()
+    if mcp_client is None:
+        print(f"⚠ MCP client None — settings.eurosoft_mcp_enabled je False?")
         return []
 
     try:
-        result_json = eurosoft_mcp_client.call_tool_sync(
+        result_json = mcp_client.call_tool_sync(
             "eurosoft_strategie_describe_table",
             {"schema": schema_name, "table": table_name, "db_name": db_name},
             conversation_id=None,

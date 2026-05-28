@@ -982,7 +982,15 @@
           //
           // ErpInput/ErpMemo/ErpDropdown VŠECHNY maji setValue() — single
           // unified path. Checkbox je jediny special case (no setValue).
-          if (wrap._inst.input && "checked" in wrap._inst.input) {
+          //
+          // ROOT CAUSE FIX (28.5.2026 vecer pozde, Marti's "edit text
+          // nefunguje, combobox ano"): predtim `"checked" in input` test
+          // chytal VSECHNY <input> elementy (HTMLInputElement ma checked
+          // property nativne, nejen checkbox). ErpInput tak vzdy hit
+          // checkbox vetev → input.checked = !!orig (no-op pro text) →
+          // setValue() se NIKDY nezavolal. Discriminace musi byt
+          // input.type === "checkbox", ne pouhe "checked" in input.
+          if (wrap._inst.input && wrap._inst.input.type === "checkbox") {
             // Checkbox — special case (no setValue API)
             wrap._inst.input.checked = !!orig;
             const valLabel = wrap.querySelector("span");
@@ -996,8 +1004,10 @@
             // BELT+SUSPENDERS (28.5.2026 pozde, Marti's "DOM stale BelgieA"):
             // Po setValue() vynucenej DOM update PRO PRIPAD ze nektery
             // event handler (focus/blur/restore-from-cache) prepise zpet.
+            // Discriminace input.type !== "checkbox" (ne "checked" in input —
+            // HTMLInputElement ma checked nativne, vsechny by hit jinak).
             const _safeOrig = orig == null ? "" : String(orig);
-            if (wrap._inst.input && !("checked" in wrap._inst.input)) {
+            if (wrap._inst.input && wrap._inst.input.type !== "checkbox") {
               wrap._inst.input.value = _safeOrig;
             } else if (wrap._inst.textarea) {
               wrap._inst.textarea.value = _safeOrig;
@@ -1020,7 +1030,8 @@
           // typically resets validation visual ale dirty amber marker
           // (z onChange handler v _field/_memo/_dropdown) zustava bez explicit clear.
           try {
-            const visEl = (wrap._inst.input && !("checked" in wrap._inst.input))
+            // Discriminace: input.type !== "checkbox" (ne "checked" in input)
+            const visEl = (wrap._inst.input && wrap._inst.input.type !== "checkbox")
               ? wrap._inst.input
               : (wrap._inst.textarea || wrap._inst.trigger || null);
             if (visEl && visEl.style) {

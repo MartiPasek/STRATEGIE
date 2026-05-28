@@ -2060,6 +2060,24 @@ _FW_FORM_ENTITY_MAP: dict = {
         "id_column": "id",
         "select_columns": None,  # NULL = no whitelist (trust frontend)
     },
+    # Krok 5-B Fix (28.5.2026 vecer pozde, Marti's "dnesni den blbec"):
+    # DataSets edit form crash — _FW_FORM_ENTITY_MAP nemelo entries pro
+    # data_set ani data_source entity. Frontend resolved fw.core code='fw_form'
+    # a dispatch na PATCH endpoint /design/fw_form/{id} → backend KeyError →
+    # API worker crash → 503. Fix: pridat data_set + data_source entries +
+    # alias 'fw_form' → data_set (Marti's DataSets core code).
+    "data_set": {
+        "schema": "fw",
+        "table": "data_set",
+        "id_column": "id",
+        "select_columns": None,  # NULL = trust frontend
+    },
+    "data_source": {
+        "schema": "fw",
+        "table": "data_source",
+        "id_column": "id",
+        "select_columns": None,  # NULL = trust frontend
+    },
 }
 
 # Phase 38.4 Krok 5.M-2 (17.5.2026, Marti's "core nenese entitu, nese ji
@@ -2071,6 +2089,10 @@ _FW_FORM_ENTITY_MAP["user_edit"] = _FW_FORM_ENTITY_MAP["user"]
 _FW_FORM_ENTITY_MAP["core_design"] = _FW_FORM_ENTITY_MAP["core"]
 _FW_FORM_ENTITY_MAP["comp_def_design"] = _FW_FORM_ENTITY_MAP["comp_def"]
 _FW_FORM_ENTITY_MAP["menu_node_design"] = _FW_FORM_ENTITY_MAP["menu_node"]
+# Krok 5-B Fix (28.5.2026 vecer pozde): DataSets fw.core has code='fw_form'.
+_FW_FORM_ENTITY_MAP["fw_form"] = _FW_FORM_ENTITY_MAP["data_set"]
+_FW_FORM_ENTITY_MAP["data_set_design"] = _FW_FORM_ENTITY_MAP["data_set"]
+_FW_FORM_ENTITY_MAP["data_source_design"] = _FW_FORM_ENTITY_MAP["data_source"]
 
 # Phase 38.4 Krok 5.N-2 LIVE (22.5.2026 vecer, Marti's "čistý stůl"):
 # System cores (Diag log, DataSets, DataSources, DB Connections, Knowledge

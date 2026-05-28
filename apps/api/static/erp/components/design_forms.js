@@ -942,6 +942,8 @@
       // Pro checkbox/_dropdown vlastni reset.
       if (!this._shell || !this._shell.body) return;
       const fieldEls = this._shell.body.querySelectorAll("[data-design-fieldkey]");
+      console.group("[DesignFwForm._revertAllChanges] DIAG");
+      console.log("fieldEls count:", fieldEls.length, "dirty set size:", this._dirty.size);
       const visited = new Set();
       fieldEls.forEach((el) => {
         // Find ancestor with _inst + _origVal (field wrapper)
@@ -956,6 +958,19 @@
         visited.add(fk);
         try {
           const orig = wrap._origVal;
+          // DIAG (28.5.2026 vecer pozde): log every revert attempt
+          const _diagCurDom = wrap._inst.input
+            ? wrap._inst.input.value
+            : (wrap._inst.textarea ? wrap._inst.textarea.value : "?");
+          console.log(
+            "[revert]", fk,
+            "| _origVal=", JSON.stringify(orig),
+            "| DOM.value PRED=", JSON.stringify(_diagCurDom),
+            "| has setValue=", typeof wrap._inst.setValue === "function",
+            "| has .input=", !!wrap._inst.input,
+            "| has .textarea=", !!wrap._inst.textarea,
+            "| _inst ctor=", wrap._inst.constructor && wrap._inst.constructor.name,
+          );
           // Krok 5-A v3+ hotfix (28.5.2026 vecer pozde, Marti's "Zrusit
           // nevraci puvodni hodnoty"): setValue() jako PRIMARY path.
           //
@@ -978,10 +993,28 @@
             // PREFERRED — ErpInput/ErpMemo/ErpDropdown unified path.
             // Aktualizuje internal state + DOM + validation visual.
             wrap._inst.setValue(orig == null ? "" : orig);
+            // BELT+SUSPENDERS (28.5.2026 pozde, Marti's "DOM stale BelgieA"):
+            // Po setValue() vynucenej DOM update PRO PRIPAD ze nektery
+            // event handler (focus/blur/restore-from-cache) prepise zpet.
+            const _safeOrig = orig == null ? "" : String(orig);
+            if (wrap._inst.input && !("checked" in wrap._inst.input)) {
+              wrap._inst.input.value = _safeOrig;
+            } else if (wrap._inst.textarea) {
+              wrap._inst.textarea.value = _safeOrig;
+            }
           } else if (wrap._inst.input) {
             // Last-resort fallback pro raw <input> (non-UI-Kit widget)
             wrap._inst.input.value = orig == null ? "" : String(orig);
           }
+          // DIAG po revert: DOM.value PO
+          const _diagDomAfter = wrap._inst.input
+            ? wrap._inst.input.value
+            : (wrap._inst.textarea ? wrap._inst.textarea.value : "?");
+          console.log(
+            "[revert]", fk,
+            "| DOM.value PO=", JSON.stringify(_diagDomAfter),
+            _diagDomAfter === (orig == null ? "" : String(orig)) ? "✓ MATCH" : "✗ MISMATCH"
+          );
           // Reset visual dirty marker (amber border-left + background) —
           // per widget type (input vs textarea vs trigger). setValue()
           // typically resets validation visual ale dirty amber marker
@@ -999,6 +1032,7 @@
           console.warn("[DesignFwForm] revert field failed:", fk, e);
         }
       });
+      console.groupEnd();
       // Clear dirty set + update UI
       this._dirty.clear();
       _markFormDirty(this, false);

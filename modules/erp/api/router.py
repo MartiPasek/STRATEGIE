@@ -2859,14 +2859,55 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
 
                             # Krok 5-B Fix C: wrap data_set SQL or fallback na naive get_row.
                             if _ds_sql_raw and _ds_sql_raw.strip():
-                                # Strip ORDER BY (MSSQL subquery constraint without TOP).
+                                # Strip TOP-LEVEL ORDER BY (MSSQL subquery constraint
+                                # without TOP). HOTFIX 28.5.2026 vecer: Marti's grid SQL
+                                # ma multiple ORDER BY (uvnitr outer apply subqueries
+                                # + top-level). Naive regex \bORDER\s+BY\b.*$ s DOTALL
+                                # smaze prvni (v subquery) -> broken SQL -> 0 rows.
+                                # Pojd paren-depth-aware: najdi posledni ORDER BY
+                                # kde paren depth=0, strip od nej.
                                 _sql_clean = _ds_sql_raw.rstrip().rstrip(";").rstrip()
-                                _sql_clean = _re_fwid.sub(
-                                    r"\bORDER\s+BY\b.*$",
-                                    "",
-                                    _sql_clean,
-                                    flags=_re_fwid.IGNORECASE | _re_fwid.DOTALL,
-                                ).rstrip()
+                                _last_top_order_by = -1
+                                _depth = 0
+                                _in_string = False
+                                _string_char = ""
+                                _i = 0
+                                _n = len(_sql_clean)
+                                while _i < _n:
+                                    _ch = _sql_clean[_i]
+                                    if _in_string:
+                                        if _ch == _string_char:
+                                            # Doubled char = escaped quote (SQL idiom)
+                                            if _i + 1 < _n and _sql_clean[_i + 1] == _string_char:
+                                                _i += 2
+                                                continue
+                                            _in_string = False
+                                        _i += 1
+                                        continue
+                                    if _ch in ("'", '"'):
+                                        _in_string = True
+                                        _string_char = _ch
+                                        _i += 1
+                                        continue
+                                    if _ch == "(":
+                                        _depth += 1
+                                        _i += 1
+                                        continue
+                                    if _ch == ")":
+                                        _depth -= 1
+                                        _i += 1
+                                        continue
+                                    # Detect "ORDER BY" at top level (depth=0)
+                                    if _depth == 0 and _i + 8 <= _n:
+                                        _chunk = _sql_clean[_i:_i + 8].upper()
+                                        if _chunk == "ORDER BY":
+                                            # Word boundary check (prev char non-alnum or start)
+                                            _prev = _sql_clean[_i - 1] if _i > 0 else " "
+                                            if not (_prev.isalnum() or _prev == "_"):
+                                                _last_top_order_by = _i
+                                    _i += 1
+                                if _last_top_order_by >= 0:
+                                    _sql_clean = _sql_clean[:_last_top_order_by].rstrip()
                                 # Wrap as subquery + WHERE — INT row_id (no bind risk).
                                 _row_id_int = int(row_id)
                                 _wrapped_sql = (

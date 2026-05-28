@@ -2128,8 +2128,11 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
 
     ds = _gds_resolve()
     try:
+        # Krok 5-Z (28.5.2026): JOIN db_connection pro db_type detect.
+        # PG path: existing direct SELECT, MSSQL path: dispatch via MCP
+        # eurosoft_strategie_get_row (Marti's (α) doctrine 28.5. ranni).
         row = ds.execute(_sql_resolve("""
-            SELECT dset.sql_text
+            SELECT dset.sql_text, dc.db_type, dc.code AS dc_code
             FROM fw.core c
             JOIN fw.comp_def cd
                 ON cd.core_id = c.id
@@ -2142,6 +2145,8 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
                AND op.operation_kind = 'select'
             JOIN fw.data_set dset
                 ON dset.id = op.data_set_id
+            LEFT JOIN fw.db_connection dc
+                ON dc.id = dset.db_connection_id
             WHERE c.id = :core_id
             ORDER BY op.is_default DESC NULLS LAST, op.id ASC
             LIMIT 1
@@ -2150,10 +2155,13 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
             logger.info(f"_resolve_entity_config_from_db: no core/data_set chain for core_id={core_id}")
             return None
         sql_text = row["sql_text"] or ""
-        # Regex extract: FROM <schema>.<table> (case-insensitive, allow aliases)
-        # Pattern matches: "FROM fw.core c", "FROM public.users", "FROM fw.diag_log dl WHERE..."
+        db_type = (row["db_type"] or "").lower().strip() or "pg"  # default PG
+        # Regex extract: FROM <schema>.<table>
+        # Krok 5-Z (28.5.): preserve case pro MSSQL (Centrála 1 PascalCase
+        # — st.CRM_Kontakt_ZemeCis — vs PG lowercase). PG path lower() na end,
+        # MSSQL path zachova case.
         match = _re_resolve.search(
-            r"\bFROM\s+([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)",
+            r"\bFROM\s+([A-Za-z_][A-Za-z0-9_]*)\.([A-Za-z_][A-Za-z0-9_]*)",
             sql_text,
             _re_resolve.IGNORECASE,
         )
@@ -2163,15 +2171,21 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
                 f"data_set sql_text pro core_id={core_id} (composite SQL? CTE? subquery?)"
             )
             return None
-        schema = match.group(1).lower()
-        table = match.group(2).lower()
+        if db_type == "mssql":
+            schema = match.group(1)  # preserve case (st, dbo)
+            table = match.group(2)   # preserve case (CRM_Kontakt_ZemeCis)
+            id_col = "ID"            # Centrála 1 idiom uppercase
+        else:
+            schema = match.group(1).lower()
+            table = match.group(2).lower()
+            id_col = "id"
         return {
             "schema": schema,
             "table": table,
-            "id_column": "id",
+            "id_column": id_col,
+            "db_type": db_type,
+            "dc_code": row["dc_code"],  # napr. 'eurosoft_db_ec' pro MCP db_name
             # select_columns = None: Marti's "NULL = all editable" design.
-            # Server trust frontend payload. Future: read fw.comp_grid.layout_json
-            # for active user + use editable_columns / visible columns as whitelist.
             "select_columns": None,
         }
     except Exception as exc:
@@ -2796,34 +2810,79 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 cols_sql = ", ".join(f'"{c}"' for c in cols_list)
             else:
                 cols_sql = "*"
-            # Krok 5-A v2 (27.5.2026 ~23:50): 2 guards pre target table SELECT.
-            # 1) row_id=0 = CREATE mode placeholder → skip SELECT, empty entity.
-            #    Krok H+4 CREATE mode pattern (26.5. *„Velky den"*).
-            # 2) MSSQL target (st.CRM_*, dbo.*) — PG SELECT fail. Wrap v SAVEPOINT
-            #    (begin_nested) — exception rolls back jen savepoint, ne whole tx.
-            #    Plus log warn + data_row=None + form renders without entity values
-            #    (nested grids stále fungují přes data_source_runner dispatch).
-            #    TODO: full MSSQL dispatch via data_source_runner / MCP klient
-            #    (Krok 5-I save flow epoch).
+            # Krok 5-A v2 (27.5.2026 ~23:50) + Krok 5-Z (28.5.2026): db_type dispatch.
+            # row_id=0 = CREATE mode placeholder → skip SELECT.
+            # PG target → direct SELECT.
+            # MSSQL target → MCP eurosoft_strategie_get_row (Marti's (α) doctrine).
+            _db_type = (entity_config.get("db_type") or "pg").lower()
+            _dc_code = entity_config.get("dc_code") or ""
             if row_id and row_id > 0:
-                try:
-                    with ds.begin_nested():
-                        data_query = (
-                            f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
-                            f'WHERE "{id_column}" = :row_id'
+                if _db_type == "mssql":
+                    # Krok 5-Z (28.5.2026 ranni, Marti's "(α) MCP retry"):
+                    # Volame eurosoft_mcp_client primo (main API process, MCP
+                    # singleton chodi). Subprocess (orchestrator) potrebuje
+                    # HTTP loopback — deferred do save flow epoch.
+                    try:
+                        from modules.conversation.application.eurosoft_mcp_client import get_eurosoft_mcp_client
+                        import json as _json_fwid
+                        mcp = get_eurosoft_mcp_client()
+                        if mcp is None:
+                            logger.warning(
+                                "[fw_form_load_by_id] MCP client None (eurosoft_mcp_enabled=False?) — data_row=None"
+                            )
+                        else:
+                            # dc_code = 'eurosoft_db_ec' → MCP db_name = 'DB_EC'.
+                            # Convention: dc_code prefix 'eurosoft_' stripped + uppercase suffix.
+                            mcp_db_name = "DB_EC"
+                            if _dc_code and _dc_code.lower().startswith("eurosoft_"):
+                                mcp_db_name = _dc_code[len("eurosoft_"):].upper()
+                            result_json = mcp.call_tool_sync(
+                                "eurosoft_strategie_get_row",
+                                {
+                                    "schema": schema_name,
+                                    "table": table_name,
+                                    "id": int(row_id),
+                                    "db_name": mcp_db_name,
+                                },
+                                conversation_id=None,
+                            )
+                            result = _json_fwid.loads(result_json) if isinstance(result_json, str) else result_json
+                            if isinstance(result, dict) and result.get("ok") and result.get("row"):
+                                data_row = result["row"]
+                                logger.info(
+                                    "[fw_form_load_by_id] MSSQL row loaded via MCP: %s.%s id=%s (%d cols)",
+                                    schema_name, table_name, row_id, len(data_row),
+                                )
+                            else:
+                                logger.warning(
+                                    "[fw_form_load_by_id] MCP get_row vratil prazdno/error pro %s.%s id=%s: %r",
+                                    schema_name, table_name, row_id, result,
+                                )
+                    except Exception as exc:
+                        logger.warning(
+                            "[fw_form_load_by_id] MSSQL MCP dispatch failed for %s.%s row=%s: %s",
+                            schema_name, table_name, row_id, exc,
                         )
-                        data_row_raw = ds.execute(
-                            _sql_fwid(data_query), {"row_id": row_id}
-                        ).mappings().one_or_none()
-                        if data_row_raw:
-                            data_row = dict(data_row_raw)
-                except Exception as exc:
-                    logger.warning(
-                        "[fw_form_load_by_id] EDIT mode SELECT failed for "
-                        "%s.%s row=%s: %s — defer MSSQL dispatch (Krok 5-I)",
-                        schema_name, table_name, row_id, exc,
-                    )
-                    data_row = None
+                        data_row = None
+                else:
+                    # PG path — existing direct SELECT, savepoint pojistka.
+                    try:
+                        with ds.begin_nested():
+                            data_query = (
+                                f'SELECT {cols_sql} FROM "{schema_name}"."{table_name}" '
+                                f'WHERE "{id_column}" = :row_id'
+                            )
+                            data_row_raw = ds.execute(
+                                _sql_fwid(data_query), {"row_id": row_id}
+                            ).mappings().one_or_none()
+                            if data_row_raw:
+                                data_row = dict(data_row_raw)
+                    except Exception as exc:
+                        logger.warning(
+                            "[fw_form_load_by_id] PG SELECT failed for %s.%s row=%s: %s",
+                            schema_name, table_name, row_id, exc,
+                        )
+                        data_row = None
             # else: row_id=0 (CREATE) — data_row zůstává None (init line 2783)
 
             # Krok 5.X (27.5.2026, Marti's "Jsou to normalni komponenty"):

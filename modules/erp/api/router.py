@@ -2908,12 +2908,32 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                                     _i += 1
                                 if _last_top_order_by >= 0:
                                     _sql_clean = _sql_clean[:_last_top_order_by].rstrip()
-                                # Wrap as subquery + WHERE — INT row_id (no bind risk).
+                                # Krok 5-B Fix C+1 (28.5.2026 vecer pozde):
+                                # Detect :ID bind placeholder (Marti's detail SQL
+                                # idiom). pyodbc neumi :named, jen ? positional —
+                                # substituujeme :ID za int(row_id) pred dispatch.
+                                # Plus pokud SQL ma vlastni WHERE K.ID = :ID
+                                # (single-row filtered), skip outer wrap.
                                 _row_id_int = int(row_id)
-                                _wrapped_sql = (
-                                    f"SELECT * FROM (\n{_sql_clean}\n) AS _edit_form_sub "
-                                    f"WHERE [ID] = {_row_id_int}"
-                                )
+                                _has_id_placeholder = ":ID" in _sql_clean
+                                if _has_id_placeholder:
+                                    # Substitute :ID -> int row_id, skip outer wrap.
+                                    # Word boundary defensive: jen ":ID" jako standalone
+                                    # token (nebo na konci stringu). MSSQL ID column
+                                    # nazev nepouziva ":" prefix, takze :ID je vzdy
+                                    # bind placeholder.
+                                    _wrapped_sql = _sql_clean.replace(":ID", str(_row_id_int))
+                                    logger.info(
+                                        "[fw_form_load_by_id] :ID placeholder substitute (single-row filtered, no outer wrap) pro core=%s row=%s",
+                                        rd.get("id"), row_id,
+                                    )
+                                else:
+                                    # Outer wrap pattern (existing Fix C behavior pro
+                                    # grid SELECT bez vlastniho filteru).
+                                    _wrapped_sql = (
+                                        f"SELECT * FROM (\n{_sql_clean}\n) AS _edit_form_sub "
+                                        f"WHERE [ID] = {_row_id_int}"
+                                    )
                                 logger.info(
                                     "[fw_form_load_by_id] MSSQL edit-form data_set SQL wrap pro core=%s row=%s (sql_text_len=%d)",
                                     rd.get("id"), row_id, len(_ds_sql_raw),

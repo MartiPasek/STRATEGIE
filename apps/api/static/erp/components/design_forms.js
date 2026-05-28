@@ -4618,7 +4618,29 @@
         return null;
       }
       // Leaf field — existing behavior
-      return this._renderLeafField(comp, idx, total);
+      // Phase CRM Foundation Krok 5-B (28.5.2026 vecer, Marti's mutual
+      // immunity doctrine "komponenta selze, ostatni by mely fungovat"):
+      // per-field try/catch chrani zbytek formu pred single-field crash.
+      // Diagnostic console.error + DOM placeholder (cervena hlaska) misto
+      // null return — uzivatel vidi, ktera komponenta selhala.
+      try {
+        return this._renderLeafField(comp, idx, total);
+      } catch (err) {
+        console.error(
+          "[DesignFwForm] _renderLeafField failed for comp #" + comp.id +
+          " (name='" + comp.name + "', type='" + (comp.comp_type_code || "?") + "'):",
+          err
+        );
+        const placeholder = document.createElement("div");
+        placeholder.style.cssText =
+          "padding:6px 8px;background:#3a1a1a;border:1px solid #8c2828;" +
+          "border-radius:3px;color:#e88;font-size:11px;font-family:monospace;";
+        placeholder.textContent =
+          "⚠ " + (comp.name || "comp#" + comp.id) +
+          " (" + (comp.comp_type_code || "?") + ") — render failed: " +
+          (err && err.message ? err.message : String(err));
+        return placeholder;
+      }
     }
 
     // ════════════════════════════════════════════════════════════════
@@ -6877,7 +6899,19 @@
       const data = ctx.data || {};
       const D = ctx.onDirty || (() => {});
 
-      const value = data[comp.name];
+      // Phase CRM Foundation Krok 5-B (28.5.2026 vecer, Marti's "data
+      // bez bunek" diagnoza CRM Kontakt edit form): prefer
+      // layout.column_name (MSSQL PascalCase column, e.g. "FirmaText")
+      // pred comp.name (e.g. "field_kontakt_FirmaText"). Backward compat:
+      // legacy forms (user_edit) maji column_name=NULL → fallback na
+      // comp.name (matches data klic pres snake_case naming).
+      //
+      // Doctrine: column_name je zdrojem pravdy pro data binding,
+      // comp.name je interni FW identifier (drag-drop, parent_comp_def_id
+      // refs). Marti: "PascalCase MSSQL columns musi byt v data dict
+      // bez prevodu".
+      const dataKey = (comp.layout && comp.layout.column_name) || comp.name;
+      const value = data[dataKey];
       const fieldEl = this._renderField(comp, value, D);
       if (!fieldEl) return null;
 

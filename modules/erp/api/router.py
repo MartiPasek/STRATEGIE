@@ -2207,6 +2207,9 @@ def _resolve_entity_config_from_db(core_id: int) -> dict | None:
             "id_column": id_col,
             "db_type": db_type,
             "dc_code": row["dc_code"],  # napr. 'eurosoft_db_ec' pro MCP db_name
+            # Krok 5-B Fix #15 sidecar (30.5.2026): core_id pro fieldKey
+            # column_name resolve v MSSQL UPDATE branch design_patch_entity.
+            "core_id": core_id,
             # select_columns = None: Marti's "NULL = all editable" design.
             "select_columns": None,
             # Phase CRM Foundation Krok 5-B Fix C (28.5.2026 vecer, Marti's
@@ -3893,8 +3896,55 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             # Pre-introspect target columns (cached)
             _mssql_cols = _get_mssql_cols(mcp_db_name, schema_name, table_name)
 
-            # Build data dict s autofill
-            _patch_data = dict(field_changes)
+            # ── Krok 5-B Fix #15 (30.5.2026, Marti's "ciselne hodnoty
+            # se ukladaji, ale text hodi chybu"): resolve fieldKey → real
+            # DB column_name z fw.comp_def.layout JSONB. Frontend posila
+            # field.name jako klic, ale Marti's test grid (a obecne joined
+            # source fields) maji layout.column_name override.
+            #
+            # Strategy: pokud entity_config ma core_id (Krok 5.N-1
+            # ID-based path), query fw.comp_def WHERE core_id = X AND
+            # parent_comp_def_id IS NOT NULL (leaf fields, ne containers).
+            # Build {name: layout.column_name OR name} map. Resolve
+            # _patch_data keys pres map.
+            _column_name_map = {}
+            _resolve_core_id = entity_config.get("core_id")
+            if _resolve_core_id:
+                try:
+                    _ds_resolve = _gds_patch()
+                    try:
+                        _rows_resolve = _ds_resolve.execute(
+                            _sql_text_patch(
+                                "SELECT name, COALESCE(layout->>'column_name', name) AS col "
+                                "FROM fw.comp_def "
+                                "WHERE core_id = :cid AND parent_comp_def_id IS NOT NULL "
+                                "AND is_active = true"
+                            ),
+                            {"cid": _resolve_core_id},
+                        ).mappings().all()
+                        _column_name_map = {r["name"]: r["col"] for r in _rows_resolve}
+                    finally:
+                        _ds_resolve.close()
+                except Exception as _resolve_exc:
+                    logger.warning(
+                        "[design_patch_entity] MSSQL column_name resolve failed "
+                        "(core_id=%s): %r — proceeding bez resolve (verbatim keys)",
+                        _resolve_core_id, _resolve_exc,
+                    )
+                    _column_name_map = {}
+
+            # Build data dict s autofill + column_name resolve
+            _patch_data = {}
+            for _fk_name, _fk_val in field_changes.items():
+                # Resolve via map (fallback na verbatim pokud nema override)
+                _real_col = _column_name_map.get(_fk_name, _fk_name)
+                _patch_data[_real_col] = _fk_val
+            if _column_name_map:
+                logger.info(
+                    "[design_patch_entity] MSSQL column_name resolve: %s → %s",
+                    list(field_changes.keys()), list(_patch_data.keys()),
+                )
+
             if _mssql_cols and audit_mssql_text:
                 if "Zmenil" in _mssql_cols:
                     _patch_data["Zmenil"] = audit_mssql_text

@@ -3990,6 +3990,39 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                 affected, sorted(field_changes.keys()),
             )
 
+            # ── Krok 5-B Fix #16 (30.5.2026, Marti's "tvarilo se to jako
+            # OK, ale field se neupdatnul"): silent success detection.
+            # MCP eurosoft_strategie_update_row vraci ok=true i kdyz
+            # affected=0 (silently dropped unknown column nebo WHERE
+            # nematchne). Drz "Bezpecnost pres probuzeni, ne pres ticho"
+            # doctrine (Marti-AI 9.5. master tier insight #9).
+            #
+            # Edge case: affected=0 + field_changes empty = valid no-op
+            # (jen audit autofill bez user changes) — skip 422.
+            if affected == 0 and field_changes:
+                _diagnostic_keys = sorted(_patch_data.keys())
+                logger.warning(
+                    "[design_patch_entity] MSSQL UPDATE affected=0 ALE field_changes "
+                    "non-empty! Probably MCP silent column drop. %s.%s id=%s, "
+                    "resolved keys=%s, original field_changes=%s",
+                    schema_name, table_name, row_id,
+                    _diagnostic_keys, sorted(field_changes.keys()),
+                )
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"MSSQL UPDATE probehl ale 0 rows affected. "
+                            f"Mozne priciny: (1) sloupce {_diagnostic_keys} "
+                            f"neexistuji v {schema_name}.{table_name} — "
+                            f"zkontroluj fw.comp_def.layout.column_name vs "
+                            f"information_schema.columns; (2) row id={row_id} "
+                            f"neexistuje; (3) hodnoty se nezmenily oproti DB."
+                        ),
+                    },
+                    status_code=422,
+                )
+
             # Re-fetch updated row pro response (frontend needs fresh values)
             fetched_row = None
             try:

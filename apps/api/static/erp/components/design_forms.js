@@ -7004,8 +7004,24 @@
         // (alLeft/alRight/alClient). align-items:stretch dela equal height jen
         // pokud zadny child nema explicit height OR vsichni maji stejnou.
         // Krok 5-B: respect layout.height pokud user explicit set + min/max.
+        //
+        // Krok 5-B (29.5.2026 odpoledne, Marti's "Panel left nerespektuje
+        // svuj sandbox a prelejza svoje hranice"): force box-sizing:border-box
+        // + drop vertical margin pro middle row children. Default content-box
+        // pridava padding+border MIMO height (300px → ~326px rendered).
+        // Plus prodPaddingStyle ma margin:6px 0; ktery pridava +12px svisle.
+        // Result: panel s height:300 visual = 300+border+padding+margin = ~338px
+        // → overflow z middle row 300px.
+        //
+        // Fix: box-sizing:border-box (height includes padding+border) +
+        // margin-top:0 + margin-bottom:0 (drop vertical margin). Horizontal
+        // margin zustava (panel-to-panel gap mezi alLeft/alClient/alRight).
         const _applyHeightConstraints = (el, c) => {
           const layout = c.layout || {};
+          // Force border-box + drop vertical margin pro precise height respekt
+          el.style.boxSizing = "border-box";
+          el.style.marginTop = "0";
+          el.style.marginBottom = "0";
           if (layout.height != null && layout.height !== "auto") {
             const v = (typeof layout.height === "number") ? layout.height + "px" : String(layout.height);
             el.style.height = v;
@@ -7571,10 +7587,17 @@
           c.comp_type_code !== "panel" && c.comp_type_code !== "groupbox"
         );
         const useImplicitGrid = !hasContainerChild && hasLeafChild;
+        // Krok 5-B (29.5.2026 odpoledne, Marti's "panel prelejza svoje
+        // hranice"): box-sizing:border-box univerzalne pro panel wraps —
+        // pokud user nastavi Height/Max width, hodnota INCLUDES padding+border
+        // (predtim content-box = explicit height byl jen content, padding +
+        // border + margin se pridavaly NAD a vedlo to k overflow).
         const baseStyle = useImplicitGrid
           ? "display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));" +
-            "gap:6px 14px;align-items:start;min-width:0;position:relative;"
-          : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;";
+            "gap:6px 14px;align-items:start;min-width:0;position:relative;" +
+            "box-sizing:border-box;"
+          : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;" +
+            "box-sizing:border-box;";
 
         // Phase CRM Foundation Krok 5-B (28.5.2026 vecer, Marti's "zaktivnit
         // viditelne Label a viditelny ramecek a linku nahore dle nastaveni

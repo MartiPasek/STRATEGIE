@@ -4725,28 +4725,34 @@
       captionInput.placeholder = "(empty = invisible label)";
       body.appendChild(_row("Caption", captionInput));
 
-      // layout.align (jen pro panel — groupbox je vždy uvnitř panelu)
-      let alignSelect = null;
-      if (isPanel) {
-        alignSelect = document.createElement("select");
-        alignSelect.style.cssText = _inputStyle;
-        const aligns = [
-          ["client", "alClient — fill remaining (default)"],
-          ["top", "alTop — full width strip nahore"],
-          ["bottom", "alBottom — full width strip dole"],
-          ["left", "alLeft — vertical strip vlevo"],
-          ["right", "alRight — vertical strip vpravo"],
-          ["none", "alNone — absolute (top/left/width/height)"],
-        ];
-        for (const [val, label] of aligns) {
-          const opt = document.createElement("option");
-          opt.value = val;
-          opt.textContent = label;
-          if ((currentLayout.align || "client") === val) opt.selected = true;
-          alignSelect.appendChild(opt);
-        }
-        body.appendChild(_row("Align", alignSelect));
+      // layout.align — Krok 5-B (29.5.2026 rano, Marti's "v parametrech
+      // panelu musim VZDY videt align"): drop isPanel gate, show align
+      // selector for ALL containers (panel/groupbox/tabsheet/pagecontrol).
+      // Pro groupbox/tabsheet/pagecontrol je 'client' typicky correct
+      // default — ale Marti chce moznost zmenit. Drz "uniformita vítězí
+      // nad speciálními případy" (Krok 13 doctrine).
+      //
+      // Defensive: pokud container.comp_type_code chybi (občas backend
+      // nepošle), drive zobrazil select jen kdyz isPanel. Po H+5 refactoru
+      // backend vraci type_code spolehlive, ale show always = safe.
+      let alignSelect = document.createElement("select");
+      alignSelect.style.cssText = _inputStyle;
+      const aligns = [
+        ["client", "alClient — fill remaining (default)"],
+        ["top", "alTop — full width strip nahore"],
+        ["bottom", "alBottom — full width strip dole"],
+        ["left", "alLeft — vertical strip vlevo"],
+        ["right", "alRight — vertical strip vpravo"],
+        ["none", "alNone — absolute (top/left/width/height)"],
+      ];
+      for (const [val, label] of aligns) {
+        const opt = document.createElement("option");
+        opt.value = val;
+        opt.textContent = label;
+        if ((currentLayout.align || "client") === val) opt.selected = true;
+        alignSelect.appendChild(opt);
       }
+      body.appendChild(_row("Align", alignSelect));
 
       // layout.width (pro left/right panely)
       const widthInput = document.createElement("input");
@@ -4883,7 +4889,8 @@
         try {
           // Build new layout (merge with existing)
           const newLayout = Object.assign({}, currentLayout);
-          if (alignSelect) newLayout.align = alignSelect.value;
+          // Krok 5-B (29.5.2026): alignSelect je always defined, drop nil check
+          newLayout.align = alignSelect.value;
 
           // Parse width/height — pokud cislo, ulozit jako int; pokud string s '%' nebo 'auto', ulozit string
           const _parseSize = (v) => {

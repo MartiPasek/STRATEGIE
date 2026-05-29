@@ -613,6 +613,12 @@
         // Default tab = 'onform' (Již na formě). Marti tam dela vetsinu
         // prace (reorder + pinned + settings), "Schazi pridat" je sekundarni.
         this._activeTab = "onform";
+        // Krok 5-B (29.5.2026 rano, Marti's "Mas dva systemy pro
+        // zobrazeni prvku na Jiz na forme... nutne mit trigger ktery
+        // to prepiname"): layout-only filter. Default false = show all
+        // (containers + fields). True = skip fields, only containers.
+        // Toggle button v _renderTabStrip header (visible jen on 'onform').
+        if (this._layoutOnlyFilter == null) this._layoutOnlyFilter = false;
 
         this._render();
       } catch (e) {
@@ -680,7 +686,14 @@
         const btn = document.createElement("button");
         btn.type = "button";
         const active = this._activeTab === t.key;
-        const countStr = t.count != null ? " (" + t.count + ")" : "";
+        // Krok 5-B (29.5.2026 rano, Marti's "Layout-only toggle"):
+        // pro 'onform' tab pri aktivnim _layoutOnlyFilter ukaze JEN
+        // pocet containers (skip fields), jinak total.
+        let count = t.count;
+        if (t.key === "onform" && this._layoutOnlyFilter) {
+          count = (this._existingContainers || []).length;
+        }
+        const countStr = count != null ? " (" + count + ")" : "";
         btn.textContent = t.label + countStr;
         btn.style.cssText =
           "padding:6px 14px;background:" + (active ? "#1f2530" : "transparent") +
@@ -699,6 +712,46 @@
           if (!active) btn.style.color = "#8a96a4";
         });
         strip.appendChild(btn);
+      }
+
+      // Krok 5-B (29.5.2026 rano, Marti's "trigger v Head Palete komponent"):
+      // Layout-only toggle button na konci tab strip (margin-left:auto =
+      // push-to-right). Visible jen pro 'onform' tab (kde dava smysl).
+      // OFF = "🗂 Vše" (containers + fields, current behavior).
+      // ON  = "📐 Jen layout" (containers only — panel/groupbox/tabsheet/
+      // pagecontrol/nested_grid). Marti's primary workflow pri staveni
+      // jadra: nejdriv layout, pak fields.
+      if (this._activeTab === "onform") {
+        const toggleBtn = document.createElement("button");
+        toggleBtn.type = "button";
+        const isLayoutOnly = this._layoutOnlyFilter === true;
+        toggleBtn.textContent = isLayoutOnly ? "📐 Jen layout" : "🗂 Vše";
+        toggleBtn.title = isLayoutOnly
+          ? "Klik = zobrazit i fields (containers + pole)"
+          : "Klik = zobrazit jen containers (panel/groupbox/tabsheet)";
+        toggleBtn.style.cssText =
+          "padding:6px 14px;background:" + (isLayoutOnly ? "#1a2028" : "transparent") +
+          ";border:1px solid " + (isLayoutOnly ? "#a88cd4" : "#3a4754") +
+          ";border-radius:3px;color:" + (isLayoutOnly ? "#a88cd4" : "#8a96a4") +
+          ";cursor:pointer;font-size:12px;font-weight:" + (isLayoutOnly ? "600" : "400") +
+          ";margin-left:auto;align-self:center;transition:color 0.15s, background 0.15s;";
+        toggleBtn.addEventListener("click", () => {
+          this._layoutOnlyFilter = !this._layoutOnlyFilter;
+          this._render();
+        });
+        toggleBtn.addEventListener("mouseenter", () => {
+          if (!isLayoutOnly) {
+            toggleBtn.style.color = "#cfd6df";
+            toggleBtn.style.background = "#1a2028";
+          }
+        });
+        toggleBtn.addEventListener("mouseleave", () => {
+          if (!isLayoutOnly) {
+            toggleBtn.style.color = "#8a96a4";
+            toggleBtn.style.background = "transparent";
+          }
+        });
+        strip.appendChild(toggleBtn);
       }
       return strip;
     }
@@ -720,10 +773,21 @@
           "pres dropdown vpravo. <b>" + this._columnsAvailable.length +
           "</b> sloupců zbývá přidat.";
       } else if (this._activeTab === "onform") {
-        hint.innerHTML =
-          "<b>" + this._columnsOnForm.length + "</b> polí už je na formě. " +
-          "Klikni na ✕ vpravo pro odebrání (soft delete — komponenta zmizí " +
-          "z formu, ale data v DB zůstanou).";
+        // Krok 5-B (29.5.2026 rano, Marti's "Layout-only toggle"):
+        // Hint reflects active filter — pokud Jen layout, ukaze container
+        // count + tip jak vratit zpet.
+        if (this._layoutOnlyFilter) {
+          const cCount = (this._existingContainers || []).length;
+          hint.innerHTML =
+            "<b style=\"color:#a88cd4;\">📐 Jen layout</b> — " +
+            "<b>" + cCount + "</b> containers (panel/groupbox/tabsheet) " +
+            "na formě. Klik na \"🗂 Vše\" vpravo pro zobrazení fieldů.";
+        } else {
+          hint.innerHTML =
+            "<b>" + this._columnsOnForm.length + "</b> polí už je na formě. " +
+            "Klikni na ✕ vpravo pro odebrání (soft delete — komponenta zmizí " +
+            "z formu, ale data v DB zůstanou).";
+        }
       } else if (this._activeTab === "preview") {
         hint.innerHTML =
           "Preview formuláře po insertu vybraných polí. " +
@@ -1043,18 +1107,24 @@
         byParent.set(pid, arr);
       }
       // Index fields (jen ty na forme, ne dostupne)
-      for (const c of (this._columnsOnForm || [])) {
-        if (c.existing_comp_def_id == null) continue;
-        const pid = c.existing_parent_comp_def_id;
-        const arr = byParent.get(pid) || [];
-        arr.push({
-          item: c,
-          kind: "field",
-          sort: c.existing_sort_order != null ? c.existing_sort_order : 999999,
-          id: c.existing_comp_def_id,
-          parentId: pid,
-        });
-        byParent.set(pid, arr);
+      // Krok 5-B (29.5.2026 rano, Marti's "Layout-only toggle"): pokud
+      // _layoutOnlyFilter aktivni, skip fields entirely → tree obsahuje
+      // jen containers (panel/groupbox/tabsheet/pagecontrol/nested_grid).
+      // Marti's workflow pri staveni jadra: 1. nastavit layout, 2. fields.
+      if (!this._layoutOnlyFilter) {
+        for (const c of (this._columnsOnForm || [])) {
+          if (c.existing_comp_def_id == null) continue;
+          const pid = c.existing_parent_comp_def_id;
+          const arr = byParent.get(pid) || [];
+          arr.push({
+            item: c,
+            kind: "field",
+            sort: c.existing_sort_order != null ? c.existing_sort_order : 999999,
+            id: c.existing_comp_def_id,
+            parentId: pid,
+          });
+          byParent.set(pid, arr);
+        }
       }
 
       // Sort kazdou sibling group by sort_order (tiebreaker = id pro stabilitu)

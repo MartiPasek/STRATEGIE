@@ -3099,8 +3099,71 @@
           const viewportCap = Math.floor(window.innerHeight * 0.9);
           this._shell.dialog.style.minHeight = Math.min(totalMin, viewportCap) + "px";
         }
+
+        // Phase 38.4 Krok 5-B Fix #10 (29.5.2026 pozde, Marti's "To
+        // samy udelej s sirkou formulare"): mirror Fix #9 logiku pro
+        // width. Pro main slot s Delphi VCL alignLayout:
+        //   left strip = SUM(alLeft min_widths) [stacked horizontally]
+        //   middle = MAX(alClient min_widths)
+        //   right strip = SUM(alRight min_widths)
+        //   top/bottom strips = MAX(top/bottom min_widths) [full width]
+        //   slot width = MAX(topW, leftW+midW+rightW, botW)
+        // Pro header/footer/other slot: MAX(children min_widths).
+        // Total form width = MAX vsech slot widths (vsechny slots jsou
+        // full-width vrstvy v root grid).
+        const _computeSlotMinWidth = (slotKey) => {
+          const sFields = fieldsBySlot[slotKey] || [];
+          if (sFields.length === 0) return 0;
+          const _mw = (f) => {
+            const v = f.layout && f.layout.min_width;
+            if (v == null) return 0;
+            if (typeof v === "number") return v;
+            const n = parseInt(v, 10);
+            return isNaN(n) ? 0 : n;
+          };
+          if (slotKey === "main") {
+            const byAlign = { top: [], bottom: [], left: [], right: [], client: [] };
+            for (const f of sFields) {
+              const a = String((f.layout && f.layout.align) || "client").toLowerCase();
+              const key = (a in byAlign) ? a : "client";
+              byAlign[key].push(f);
+            }
+            const sumStrip = (arr) => arr.reduce((s, f) => s + _mw(f), 0);
+            const maxStrip = (arr) => arr.reduce((m, f) => Math.max(m, _mw(f)), 0);
+            const topW = maxStrip(byAlign.top);
+            const botW = maxStrip(byAlign.bottom);
+            const middleW =
+              sumStrip(byAlign.left) +
+              maxStrip(byAlign.client) +
+              sumStrip(byAlign.right);
+            return Math.max(topW, middleW, botW);
+          }
+          // Header / footer / other: max children min_width
+          let maxW = 0;
+          for (const f of sFields) {
+            const w = _mw(f);
+            if (w > maxW) maxW = w;
+          }
+          return maxW;
+        };
+
+        let totalMinContentWidth = 0;
+        for (const p of panels) {
+          const slotW = _computeSlotMinWidth(p.slot);
+          if (slotW > totalMinContentWidth) totalMinContentWidth = slotW;
+        }
+        // Modal chrome side: body padding 16px*2 + dialog border 2px +
+        // resize handle buffer 4px + minor buffer 4px = ~42px
+        const modalChromeWidth = 42;
+        const totalMinW = totalMinContentWidth + modalChromeWidth;
+
+        if (totalMinW > 0 && this._shell && this._shell.dialog) {
+          // Cap na 95vw (modal max-width = 95vw z _buildModalShell)
+          const viewportCapW = Math.floor(window.innerWidth * 0.95);
+          this._shell.dialog.style.minWidth = Math.min(totalMinW, viewportCapW) + "px";
+        }
       } catch (e) {
-        console.warn("[DesignFwForm] min height calc failed:", e);
+        console.warn("[DesignFwForm] min height/width calc failed:", e);
       }
 
       // Phase 38.4 Krok 14g-C (15.5.2026 rano, Marti's "videt v separatnim

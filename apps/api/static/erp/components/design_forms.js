@@ -7035,22 +7035,31 @@
             el.style.maxHeight = mx;
           }
         };
-        // alLeft panels (fixed width, full parent height)
-        // Krok 5-B (29.5.2026 odpoledne, Marti's "panely align left po cele
-        // vysce parent panelu"): Delphi alLeft semantics = vertical strip
-        // ze 100% parent vysky. Restore height:100% — s box-sizing:border-box
-        // (z _applyHeightConstraints) a margin:0 to NEHYBE overflow
-        // (predchozi obavy o circular sizing byly resene min-height na middle).
-        // Explicit layout.height z _applyHeightConstraints prebije pokud user
-        // nastavi specific value.
+        // alLeft panels (fixed width, stretch height via align-items)
+        // Krok 5-B (29.5.2026 odpoledne, Marti's "prevzeti vysky deti
+        // z vysky rodice"): DROP `height: 100%` — vedl k circular sizing
+        // problemu kdyz parent (MAIN-TOP) nema definovanou Height (content-
+        // sized → child 100% → cira reference → 0/intrinsic).
+        //
+        // Delphi alLeft semantics: vertical strip, vyska = parent vysky.
+        // V CSS: `align-self: stretch` (default v align-items:stretch row)
+        // dela equal height vsech middle children = container vyska.
+        //
+        // Pokud user chce stretch na MAIN-TOP vysku, MUSI nastavit Height
+        // na MAIN-TOP (Delphi paradigm: alTop bez Height = content-sized).
+        // Pak middle row (flex:1 1 auto v flex-column buildAlignLayout wrap)
+        // = MAIN-TOP vyska, children align-items:stretch = stejna vyska.
+        //
+        // Pokud user nastavi explicit Height na child → ten prebije stretch
+        // (helper _applyHeightConstraints uz aplikoval).
         for (const c of byAlign.left) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
-            // Stretch na parent height pokud user nenastavi explicit
+            // Explicit align-self:stretch jako pojistka (default ale jistota)
             if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
-              el.style.height = "100%";
+              el.style.alignSelf = "stretch";
             }
             middle.appendChild(el);
           }
@@ -7090,14 +7099,14 @@
           }
           middle.appendChild(clientWrap);
         }
-        // alRight panels (fixed width, full parent height) — parita s alLeft
+        // alRight panels (fixed width, stretch via align-items) — parita s alLeft
         for (const c of byAlign.right) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
             if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
-              el.style.height = "100%";
+              el.style.alignSelf = "stretch";
             }
             middle.appendChild(el);
           }

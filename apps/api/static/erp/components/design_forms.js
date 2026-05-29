@@ -7791,16 +7791,15 @@
             prodLbl.className = "erp-design-panel-label";
             prodLbl.textContent = panelCaption;
             prodLbl.style.cssText =
-              "display:inline-block;" +
-              "background:#0d1117;" +
-              "color:#7a8696;" +
+              "display:block;" +
+              "background:transparent;" +
+              "color:#8b95a5;" +
               "font-size:11px;" +
               "font-weight:600;" +
               "text-transform:uppercase;" +
               "letter-spacing:0.5px;" +
-              "padding:2px 8px;" +
-              "margin-bottom:8px;" +
-              (panelBorderMode === "top" ? "margin-top:-18px;" : "margin-top:-20px;");
+              "padding:0;" +
+              "margin:0 0 8px 0;";
             wrap.appendChild(prodLbl);
           }
 
@@ -7861,16 +7860,15 @@
             prodLbl.className = "erp-design-panel-label";
             prodLbl.textContent = panelCaption;
             prodLbl.style.cssText =
-              "display:inline-block;" +
-              "background:#0d1117;" +
-              "color:#7a8696;" +
+              "display:block;" +
+              "background:transparent;" +
+              "color:#8b95a5;" +
               "font-size:11px;" +
               "font-weight:600;" +
               "text-transform:uppercase;" +
               "letter-spacing:0.5px;" +
-              "padding:2px 8px;" +
-              "margin-bottom:8px;" +
-              (panelBorderMode === "top" ? "margin-top:-18px;" : "margin-top:-20px;");
+              "padding:0;" +
+              "margin:0 0 8px 0;";
             wrap.appendChild(prodLbl);
           }
         }
@@ -8089,18 +8087,15 @@
             lbl.className = "erp-design-groupbox-label";
             lbl.textContent = labelText;
             lbl.style.cssText =
-              "display:inline-block;" +
-              "background:#0d1117;" +
-              "color:#7a8696;" +
+              "display:block;" +
+              "background:transparent;" +
+              "color:#8b95a5;" +
               "font-size:11px;" +
               "font-weight:600;" +
               "text-transform:uppercase;" +
               "letter-spacing:0.5px;" +
-              "padding:2px 8px;" +
-              "margin-bottom:8px;" +
-              (borderMode === "top"
-                ? "margin-top:-18px;"
-                : "margin-top:-20px;");
+              "padding:0;" +
+              "margin:0 0 8px 0;";
             wrap.appendChild(lbl);
           }
         }

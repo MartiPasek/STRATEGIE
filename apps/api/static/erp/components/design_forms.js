@@ -1226,6 +1226,18 @@
       });
       document.body.appendChild(this._shell.overlay);
 
+      // Krok 5-B Fix #7 (29.5.2026 pozde, Marti's "udelej nahore nulovy
+      // space mezi hlavickou a tou linkou prvniho panelu, tak aby ta
+      // linka prvniho panelu splynula s linkou hlavicky"):
+      // Drop modal body padding-top → prvni panel sedi tesne pod modal
+      // header's border-bottom line. Plus prvni top panel v _buildAlignLayout
+      // ma drop border-top + margin-top (header line se stane "tou" linkou).
+      try {
+        if (this._shell && this._shell.body) {
+          this._shell.body.style.paddingTop = "0";
+        }
+      } catch (e) {}
+
       // Krok H+13 (27.5.2026 ráno): marker attribute pro helpers.js
       // _installFieldLabelRightClick global handler — skip uvnitř
       // DesignFwForm shell (vlastní per-label handler v _wrapFieldForDesign
@@ -7040,12 +7052,23 @@
         "position:relative;";  // pro alNone absolute children
 
       // alTop panels (full width strips, stacked top)
+      // Krok 5-B Fix #7 (29.5.2026 pozde, Marti's "linka prvniho panelu
+      // splynula s linkou hlavicky"): prvni top panel dropne margin-top +
+      // border-top + padding-top → modal header's border-bottom line se
+      // stane jedinou linkou nad caption. Caption sedi tesne pod ni.
+      let _topPanelIdx = 0;
       for (const c of byAlign.top) {
         const el = this._renderComponentTree(c, 0, 1);
         if (el) {
           _applySize(el, c, "h");
           el.style.width = "100%";
+          if (_topPanelIdx === 0) {
+            el.style.marginTop = "0";
+            el.style.borderTop = "none";
+            el.style.paddingTop = "0";
+          }
           wrap.appendChild(el);
+          _topPanelIdx++;
         }
       }
 

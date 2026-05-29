@@ -2623,10 +2623,70 @@
       const d = await r.json();
       if (!d.ok) throw new Error("entity-columns refresh: " + (d.error || "unknown"));
       this._columns = d.columns || [];
-      this._columnsAvailable = this._columns.filter(c => c.existing_comp_def_id == null);
-      this._columnsOnForm = this._columns.filter(c => c.existing_comp_def_id != null);
-      // Phase 38.4 Krok H+5 (26.5.2026): refresh existing_containers
-      this._existingContainers = d.existing_containers || [];
+      // Krok 5-B Fix #13 (29.5.2026 vecer, Marti's "pri presunu z
+      // Nezarazeno se neaktualizuje Jiz na forme"): mirror load() handler
+      // is_orphan split. Orphans (is_active=false) maji existing_comp_def_id
+      // != null, takze prosly do _columnsOnForm bez tohoto fixu.
+      const _allFieldsRefresh = d.existing_fields || [];
+      const _allContainersRefresh = d.existing_containers || [];
+      this._existingContainers = _allContainersRefresh.filter(c => !c.is_orphan);
+      this._existingFields = _allFieldsRefresh.filter(f => !f.is_orphan);
+      const _orphanFieldsRefresh = _allFieldsRefresh.filter(f => f.is_orphan);
+      const _orphanContsRefresh = _allContainersRefresh.filter(c => c.is_orphan);
+
+      const _unmatchedRefresh = this._columns.filter(c => c.existing_comp_def_id == null);
+      const _matchedRefresh = this._columns.filter(c => c.existing_comp_def_id != null);
+      const _matchedIdsRefresh = new Set(_matchedRefresh.map(c => c.existing_comp_def_id));
+      const _fieldsAsColsRefresh = this._existingFields
+        .filter(f => !_matchedIdsRefresh.has(f.comp_def_id))
+        .map(f => ({
+          name: f.name,
+          caption: f.caption,
+          caption_default: f.caption || f.name,
+          existing_comp_def_id: f.comp_def_id,
+          existing_parent_comp_def_id: f.parent_comp_def_id,
+          existing_sort_order: f.sort_order,
+          existing_label: f.caption,
+          suggested_type_id: f.type_id,
+          type_code: f.type_code,
+          _from_hierarchy: true,
+        }));
+      this._columnsOnForm = [..._matchedRefresh, ..._fieldsAsColsRefresh];
+
+      const _orphansToBucketRefresh = [
+        ..._orphanFieldsRefresh.map(f => ({
+          name: f.name,
+          caption: f.caption || f.name,
+          caption_default: f.caption || f.name,
+          existing_comp_def_id: f.comp_def_id,
+          existing_parent_comp_def_id: f.parent_comp_def_id,
+          existing_sort_order: f.sort_order,
+          existing_label: f.caption,
+          suggested_type_id: f.type_id,
+          suggested_type_code: f.type_code,
+          type_code: f.type_code,
+          is_active: f.is_active,
+          _from_orphan: true,
+          _orphan_reason: f.is_active === false ? "soft-deleted" : "parent soft-deleted",
+        })),
+        ..._orphanContsRefresh.map(c => ({
+          name: c.name,
+          caption: c.caption || c.name,
+          caption_default: c.caption || c.name,
+          existing_comp_def_id: c.comp_def_id,
+          existing_parent_comp_def_id: c.parent_comp_def_id,
+          existing_sort_order: c.sort_order,
+          existing_label: c.caption,
+          suggested_type_id: c.type_id,
+          suggested_type_code: c.type_code,
+          type_code: c.type_code,
+          is_active: c.is_active,
+          _from_orphan: true,
+          _is_container: true,
+          _orphan_reason: c.is_active === false ? "soft-deleted" : "parent soft-deleted",
+        })),
+      ];
+      this._columnsAvailable = [..._unmatchedRefresh, ..._orphansToBucketRefresh];
 
       // Krok H+5++++ (26.5.2026 vecer, Marti's "prohod radky pri zmene poradi"):
       // Backend vrací columns v information_schema order (alphabetic). Pro

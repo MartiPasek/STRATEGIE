@@ -566,21 +566,62 @@
         for (const ct of this._compTypes) this._compTypesById[ct.id] = ct;
         this._columns = ecData.columns || [];
         // Phase 38.4 Krok H+5 (26.5.2026): containers v "Jiz na forme"
-        this._existingContainers = ecData.existing_containers || [];
+        // Krok 5-B Fix #13 (29.5.2026 vecer, Marti's "soft-deleted musi
+        // byt v Nezarazeno pro obnoveni"): split podle is_orphan flag
+        // z backend (Fix #12+ commit 685b885). Active -> "Jiz na forme",
+        // orphans -> "Nezarazeno" bucket s _from_orphan=true marker.
+        const _allContsBackend = ecData.existing_containers || [];
+        this._existingContainers = _allContsBackend.filter(c => !c.is_orphan);
+        const _orphanContsList = _allContsBackend.filter(c => c.is_orphan);
         // Krok 5-B Fix (28.5.2026 vecer pozde, Marti's "komponenty pod
         // panelama a tabsheetama na 'Jiz na forme' nejsou videt"):
-        // backend ted vraci existing_fields = vsechny fields z hierarchy
-        // (mimo column whitelist matching). Pro TEST form fields s
-        // column_name z MSSQL st.CRM_Kontakt (FirmaText, KomunikaceZamID,
-        // Atraktivita, atd.) nematchnou data_set columns response →
-        // _columnsOnForm zustalo prazdne. Ted merge: column-matched
-        // (DB schema) + standalone (z DB hierarchy).
-        this._existingFields = ecData.existing_fields || [];
+        // backend ted vraci existing_fields = vsechny fields z hierarchy.
+        // Krok 5-B Fix #13 (29.5.2026): split fields podle is_orphan.
+        const _allFieldsBackend = ecData.existing_fields || [];
+        this._existingFields = _allFieldsBackend.filter(f => !f.is_orphan);
+        const _orphanFieldsList = _allFieldsBackend.filter(f => f.is_orphan);
 
         // Phase 38.4 Krok 14c+1: rozdeleni do dvou kolekci podle existing
-        this._columnsAvailable = this._columns.filter(
+        // Krok 5-B Fix #13: orphans pridat do _columnsAvailable jako
+        // column-like shape s _from_orphan=true marker pro Nezarazeno tab.
+        // Klik na orphan -> PATCH is_active=true (re-activate flow).
+        const _unmatchedCols = this._columns.filter(
           c => c.existing_comp_def_id == null
         );
+        const _orphansToBucket = [
+          ..._orphanFieldsList.map(f => ({
+            name: f.name,
+            caption: f.caption || f.name,
+            caption_default: f.caption || f.name,
+            existing_comp_def_id: f.comp_def_id,
+            existing_parent_comp_def_id: f.parent_comp_def_id,
+            existing_sort_order: f.sort_order,
+            existing_label: f.caption,
+            suggested_type_id: f.type_id,
+            suggested_type_code: f.type_code,
+            type_code: f.type_code,
+            is_active: f.is_active,
+            _from_orphan: true,
+            _orphan_reason: f.is_active === false ? "soft-deleted" : "parent soft-deleted",
+          })),
+          ..._orphanContsList.map(c => ({
+            name: c.name,
+            caption: c.caption || c.name,
+            caption_default: c.caption || c.name,
+            existing_comp_def_id: c.comp_def_id,
+            existing_parent_comp_def_id: c.parent_comp_def_id,
+            existing_sort_order: c.sort_order,
+            existing_label: c.caption,
+            suggested_type_id: c.type_id,
+            suggested_type_code: c.type_code,
+            type_code: c.type_code,
+            is_active: c.is_active,
+            _from_orphan: true,
+            _is_container: true,
+            _orphan_reason: c.is_active === false ? "soft-deleted" : "parent soft-deleted",
+          })),
+        ];
+        this._columnsAvailable = [..._unmatchedCols, ..._orphansToBucket];
         // Krok 5-B Fix: extract IDs uz pouzitych ve _columnsOnForm pro
         // dedup s _existingFields (column-matched fields by se mohly
         // objevit oboje).
@@ -2275,19 +2316,31 @@
 
     _renderColumnRow(col) {
       const row = document.createElement("div");
-      row.style.cssText =
-        "display:grid;grid-template-columns:24px 200px 1fr 160px;" +
+      // Krok 5-B Fix #13 (29.5.2026, Marti's "soft-deleted v Nezarazeno"):
+      // orphan rows = amber left border + tinted bg + reason badge.
+      const isOrphan = col._from_orphan === true;
+      const baseCss = "display:grid;grid-template-columns:24px 200px 1fr 160px;" +
         "align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid #1a2028;" +
         "cursor:pointer;transition:background 0.1s;";
-      row.addEventListener("mouseenter", () => row.style.background = "#141a20");
+      row.style.cssText = isOrphan
+        ? baseCss + "border-left:3px solid #d4b88a;background:rgba(212,184,138,0.05);"
+        : baseCss;
+      row.addEventListener("mouseenter", () => {
+        row.style.background = isOrphan ? "rgba(212,184,138,0.12)" : "#141a20";
+      });
       row.addEventListener("mouseleave", () => {
-        row.style.background = this._selected.has(col.name) ? "#1a2530" : "transparent";
+        if (this._selected.has(col.name)) {
+          row.style.background = "#1a2530";
+        } else {
+          row.style.background = isOrphan ? "rgba(212,184,138,0.05)" : "transparent";
+        }
       });
 
       // 1. Checkbox — Phase 38.4 Krok H+5 (26.5.2026, Marti's "orchestr"):
-      // Instant POST single column na check. Žádný submit button, žádný batch.
-      // Klik = okamžitě komponenta na formu + live sync (onComplete reload).
-      // Uncheck = no-op (jen UI affordance pro vizuální feedback).
+      // Instant POST single column na check. Klik = okamzite komponenta
+      // na formu + live sync (onComplete reload).
+      // Krok 5-B Fix #13 (29.5.2026): Orphan rows = PATCH is_active=true
+      // (re-activate existing comp_def) misto POST (create new).
       const cb = document.createElement("input");
       cb.type = "checkbox";
       cb.style.cssText = "width:16px;height:16px;cursor:pointer;";
@@ -2295,12 +2348,45 @@
         if (!cb.checked) {
           // Uncheck — jen UI state reset (komponenta uz na formu pres prvni
           // check + POST). Pro delete uziva X button v "Jiz na forme" tab.
-          row.style.background = "transparent";
+          row.style.background = isOrphan ? "rgba(212,184,138,0.05)" : "transparent";
           return;
         }
-        // Check → instant POST
+        // Check → instant POST (or PATCH for orphans = re-activate)
         cb.disabled = true;
         row.style.background = "#1a2530";
+
+        // Krok 5-B Fix #13: orphan re-activate path
+        if (isOrphan && col.existing_comp_def_id) {
+          try {
+            const r = await fetch(
+              "/api/v1/erp/design/comp-def/" + col.existing_comp_def_id,
+              {
+                method: "PATCH",
+                credentials: "include",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ field_changes: { is_active: true } }),
+              }
+            );
+            const d = await r.json().catch(() => ({}));
+            if (!r.ok || !d.ok) {
+              throw new Error(d.error || ("HTTP " + r.status));
+            }
+            _showToast("Obnoveno: " + (col.caption || col.name), "success", 1500);
+            if (typeof this.opts.onComplete === "function") {
+              this.opts.onComplete();
+            }
+            await this._reloadHierarchyState();
+            this._render();
+          } catch (e) {
+            _showToast("Obnoveni selhalo: " + (e.message || e), "error", 3000);
+            cb.disabled = false;
+            cb.checked = false;
+            row.style.background = "rgba(212,184,138,0.05)";
+          }
+          return;
+        }
+
+        // Standard POST path
         const typeId = this._typeOverrides[col.name] || col.suggested_type_id;
         try {
           const r = await fetch("/api/v1/erp/design/comp-def", {
@@ -2349,8 +2435,30 @@
       labelName.style.cssText = "font-family:ui-monospace,Consolas,monospace;font-size:11px;color:#9bb5d6;";
       labelName.textContent = col.name;
       const labelCap = document.createElement("div");
-      labelCap.style.cssText = "font-size:13px;color:#e8eef5;";
-      labelCap.textContent = col.caption_default;
+      labelCap.style.cssText = "font-size:13px;color:#e8eef5;display:flex;align-items:center;gap:6px;";
+      const capText = document.createElement("span");
+      capText.textContent = col.caption_default;
+      labelCap.appendChild(capText);
+      // Krok 5-B Fix #13 (29.5.2026): amber badge s orphan reason +
+      // container marker (panel/groupbox/tabsheet).
+      if (isOrphan) {
+        const orphanBadge = document.createElement("span");
+        orphanBadge.style.cssText =
+          "font-size:10px;padding:1px 6px;background:rgba(212,184,138,0.18);" +
+          "color:#d4b88a;border-radius:8px;letter-spacing:0.3px;" +
+          "text-transform:uppercase;font-weight:600;";
+        orphanBadge.textContent = "obnovit · " + (col._orphan_reason || "orphan");
+        labelCap.appendChild(orphanBadge);
+        if (col._is_container) {
+          const ctBadge = document.createElement("span");
+          ctBadge.style.cssText =
+            "font-size:10px;padding:1px 6px;background:rgba(168,140,212,0.15);" +
+            "color:#a88cd4;border-radius:8px;letter-spacing:0.3px;" +
+            "text-transform:uppercase;font-weight:600;";
+          ctBadge.textContent = col.type_code || "container";
+          labelCap.appendChild(ctBadge);
+        }
+      }
       labelWrap.appendChild(labelName);
       labelWrap.appendChild(labelCap);
 

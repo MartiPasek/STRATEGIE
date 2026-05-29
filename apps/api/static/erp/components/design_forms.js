@@ -3032,6 +3032,77 @@
 
       this._shell.body.appendChild(root);
 
+      // Phase 38.4 Krok 5-B Fix #9 (29.5.2026 pozde, Marti's "omezit
+      // minimalni velikost formu, tak aby respektoval minimalni vysku
+      // panelu"): compute total min height z panels[] + slotFields
+      // layouts. Set dialog.minHeight aby user nemohl resize pod
+      // content minimum (MAIN-BOTTOM by jinak overflowoval pod
+      // footer OK/Storno).
+      try {
+        const _slotDefaults = { header: 0, main: 0, footer: 50 };
+        const _computeSlotMinHeight = (slotKey) => {
+          const sFields = fieldsBySlot[slotKey] || [];
+          const baseline = _slotDefaults[slotKey] || 0;
+          if (sFields.length === 0) return baseline;
+          // Pro main slot s Delphi VCL align layout:
+          //   top strip = SUM(top panel min_heights)
+          //   middle row = MAX(left/client/right min_heights)
+          //   bottom strip = SUM(bottom panel min_heights)
+          if (slotKey === "main") {
+            const byAlign = { top: [], bottom: [], left: [], right: [], client: [] };
+            for (const f of sFields) {
+              const a = String((f.layout && f.layout.align) || "client").toLowerCase();
+              const key = (a in byAlign) ? a : "client";
+              byAlign[key].push(f);
+            }
+            const _mh = (f) => {
+              const v = f.layout && f.layout.min_height;
+              if (v == null) return 0;
+              if (typeof v === "number") return v;
+              const n = parseInt(v, 10);
+              return isNaN(n) ? 0 : n;
+            };
+            const sumStrip = (arr) => arr.reduce((s, f) => s + _mh(f), 0);
+            const maxMid = (arr) => arr.reduce((m, f) => Math.max(m, _mh(f)), 0);
+            const topH = sumStrip(byAlign.top);
+            const botH = sumStrip(byAlign.bottom);
+            const midH = Math.max(
+              maxMid(byAlign.left),
+              maxMid(byAlign.client),
+              maxMid(byAlign.right),
+              0
+            );
+            return Math.max(baseline, topH + midH + botH);
+          }
+          // Header / footer / other: max children min_height
+          let maxH = baseline;
+          for (const f of sFields) {
+            const v = f.layout && f.layout.min_height;
+            const n = typeof v === "number" ? v : parseInt(v, 10);
+            if (!isNaN(n) && n > maxH) maxH = n;
+          }
+          return maxH;
+        };
+
+        let totalMinContent = 0;
+        for (const p of panels) {
+          totalMinContent += _computeSlotMinHeight(p.slot);
+        }
+        // Modal chrome: header (~50px), body padding-bottom (~12px),
+        // root grid footer marginTop (7px), buffer (4px).
+        const modalChrome = 50 + 12 + 7 + 4;
+        const totalMin = totalMinContent + modalChrome;
+
+        if (totalMin > 0 && this._shell && this._shell.dialog) {
+          // Cap na 90vh (matchuje max-height z _buildModalShell) aby
+          // dialog na malych obrazovkach byl scrollable, ne off-screen.
+          const viewportCap = Math.floor(window.innerHeight * 0.9);
+          this._shell.dialog.style.minHeight = Math.min(totalMin, viewportCap) + "px";
+        }
+      } catch (e) {
+        console.warn("[DesignFwForm] min height calc failed:", e);
+      }
+
       // Phase 38.4 Krok 14g-C (15.5.2026 rano, Marti's "videt v separatnim
       // liste graficky schema toho layoutu"): floating right-side schema
       // tree panel. DESIGN mode only. Persistent state v localStorage
@@ -7940,7 +8011,7 @@
           rightLine.className = "erp-design-panel-right-line";
           rightLine.style.cssText =
             "position:absolute;" +
-            "top:22px;" +
+            "top:6px;" +
             "right:10px;" +
             "bottom:0;" +
             "width:1px;" +

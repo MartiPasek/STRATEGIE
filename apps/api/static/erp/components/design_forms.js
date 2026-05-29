@@ -6979,15 +6979,55 @@
       if (hasMiddle) {
         middle = document.createElement("div");
         middle.className = "erp-design-align-middle";
+        // Krok 5-B (29.5.2026, Marti's "panely kazdy jinak vysoky"):
+        // Middle row dostane explicit min-height z max(min_height) napric
+        // children, aby flex stretch melo defined height. Jinak align-items:
+        // stretch falls back na max(intrinsic_content_height), ktery se lisi
+        // mezi alLeft a alClient (alLeft mel "height:100%" hack, alClient
+        // flex:1 1 auto bez fixed height → ruzne intrinsic heights).
+        let middleMaxMinHeight = 0;
+        const _allMiddleChildren = [...byAlign.left, ...byAlign.client, ...byAlign.right];
+        for (const c of _allMiddleChildren) {
+          const mh = c && c.layout && c.layout.min_height;
+          if (typeof mh === "number" && mh > middleMaxMinHeight) {
+            middleMaxMinHeight = mh;
+          } else if (typeof mh === "string") {
+            const n = parseInt(mh, 10);
+            if (!isNaN(n) && n > middleMaxMinHeight) middleMaxMinHeight = n;
+          }
+        }
         middle.style.cssText =
-          "display:flex;flex-direction:row;" +
-          "flex:1 1 auto;min-height:0;min-width:0;";
-        // alLeft panels (full height, fixed width)
+          "display:flex;flex-direction:row;align-items:stretch;" +
+          "flex:1 1 auto;min-width:0;" +
+          (middleMaxMinHeight > 0 ? "min-height:" + middleMaxMinHeight + "px;" : "min-height:0;");
+        // Helper: apply layout.height/min_height/max_height to middle row child
+        // (alLeft/alRight/alClient). align-items:stretch dela equal height jen
+        // pokud zadny child nema explicit height OR vsichni maji stejnou.
+        // Krok 5-B: respect layout.height pokud user explicit set + min/max.
+        const _applyHeightConstraints = (el, c) => {
+          const layout = c.layout || {};
+          if (layout.height != null && layout.height !== "auto") {
+            const v = (typeof layout.height === "number") ? layout.height + "px" : String(layout.height);
+            el.style.height = v;
+          }
+          if (layout.min_height != null) {
+            const m = (typeof layout.min_height === "number") ? layout.min_height + "px" : String(layout.min_height);
+            el.style.minHeight = m;
+          }
+          if (layout.max_height != null && layout.max_height !== "auto") {
+            const mx = (typeof layout.max_height === "number") ? layout.max_height + "px" : String(layout.max_height);
+            el.style.maxHeight = mx;
+          }
+        };
+        // alLeft panels (fixed width, stretch height via flex align-items)
+        // Krok 5-B: DROP el.style.height = "100%" — vedlo k circular sizing
+        // problemu (parent flex:1 1 auto bez fixed height, "100%" se resolvuje
+        // na 0). Drz align-items:stretch + explicit middle min-height.
         for (const c of byAlign.left) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
-            el.style.height = "100%";
+            _applyHeightConstraints(el, c);
             middle.appendChild(el);
           }
         }
@@ -7003,16 +7043,11 @@
             const el = this._renderComponentTree(c, 0, byAlign.client.length);
             if (el) {
               el.style.flex = "1 1 auto";
-              el.style.minHeight = "0";
               el.style.minWidth = "0";
               const layout = c.layout || {};
               if (layout.min_width != null) {
                 el.style.minWidth = (typeof layout.min_width === "number")
                   ? layout.min_width + "px" : String(layout.min_width);
-              }
-              if (layout.min_height != null) {
-                el.style.minHeight = (typeof layout.min_height === "number")
-                  ? layout.min_height + "px" : String(layout.min_height);
               }
               // Krok 5-B (29.5.2026, Marti's "Max width omezit aby
               // nerozthoval pres celou obrazovku"): alClient panel
@@ -7021,21 +7056,23 @@
                 el.style.maxWidth = (typeof layout.max_width === "number")
                   ? layout.max_width + "px" : String(layout.max_width);
               }
-              if (layout.max_height != null && layout.max_height !== "auto") {
-                el.style.maxHeight = (typeof layout.max_height === "number")
-                  ? layout.max_height + "px" : String(layout.max_height);
-              }
+              // Krok 5-B (29.5.2026, Marti's "panely kazdy jinak vysoky"):
+              // Apply height constraints uniformly s alLeft/alRight via helper
+              // (height/min_height/max_height). align-items:stretch zajisti
+              // equal height napric middle row.
+              _applyHeightConstraints(el, c);
               clientWrap.appendChild(el);
             }
           }
           middle.appendChild(clientWrap);
         }
-        // alRight panels
+        // alRight panels (fixed width, stretch height via flex align-items)
+        // Krok 5-B: DROP el.style.height = "100%" — parita s alLeft fix.
         for (const c of byAlign.right) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
-            el.style.height = "100%";
+            _applyHeightConstraints(el, c);
             middle.appendChild(el);
           }
         }

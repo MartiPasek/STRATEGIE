@@ -9010,27 +9010,45 @@ def design_list_entity_columns(
         # ne direct pod form root.
         existing_by_name: dict[str, dict[str, object]] = {}
         if parent_comp_def_id is not None:
-            # Phase 38.4 Krok H+5+++ (26.5.2026 vecer, Marti's "sipky misto
-            # drag-drop"): rozsireno o parent_comp_def_id + sort_order pro
-            # frontend reorder/unnest tlacitka. Drag-drop UX neni spolehlivy
-            # (drop target ambiguity); explicit ↑ ↓ ← arrows are reliable.
+            # Phase 38.4 Krok 5-B Fix #12 (29.5.2026, Marti's "Mame
+            # architektonickej GAP — sirotky neviditelne kvuli cascade-by-
+            # soft-delete v recursive CTE walk"): nahradit recursive
+            # descendants walk za flat WHERE core_id query.
+            #
+            # Pred Fix #11 schema migration: parent_comp_def_id NULL = root
+            # marker, descendants walk filtroval is_active=true → child rows
+            # s inactive parent zmizely z palety (orphan = invisible).
+            #
+            # Po Fix #11 schema migration (28.5.2026):
+            #   - fw.comp_def.core_id denormalized na vsechny rows (trigger
+            #     auto-inherits z parent pri INSERT/UPDATE)
+            #   - fw.comp_def.root SMALLINT marker (1=primary, 2+=alt)
+            #   - CHECK chk_comp_def_single_parent: biconditional XOR
+            #     (root XOR parent_comp_def_id)
+            #
+            # Refactor doctrine: query ALL comp_def rows za core_id (vc.
+            # inactive parents/children), drop is_active filter — frontend
+            # rozezna orphans v Python aggregation pres parent_is_active flag.
+            # Resolve form root's core_id via inline JOIN — single round trip.
             existing_rows = ds_lec.execute(_sql_text_lec("""
-                WITH RECURSIVE descendants AS (
-                    SELECT id, name, caption, region_slot, type_id,
-                           parent_comp_def_id, sort_order, layout
-                    FROM fw.comp_def
-                    WHERE parent_comp_def_id = :pid
-                      AND is_active = true
-                    UNION ALL
-                    SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id,
-                           cd.parent_comp_def_id, cd.sort_order, cd.layout
-                    FROM fw.comp_def cd
-                    INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
-                    WHERE cd.is_active = true
-                )
-                SELECT * FROM descendants
+                SELECT cd.id, cd.name, cd.caption, cd.region_slot, cd.type_id,
+                       cd.parent_comp_def_id, cd.sort_order, cd.layout,
+                       cd.is_active, cd.root,
+                       parent.is_active AS parent_is_active
+                FROM fw.comp_def cd
+                JOIN fw.comp_def root_node ON root_node.id = :pid
+                LEFT JOIN fw.comp_def parent
+                       ON parent.id = cd.parent_comp_def_id
+                WHERE cd.core_id = root_node.core_id
             """), {"pid": parent_comp_def_id}).mappings().all()
             for ex_row in existing_rows:
+                # Skip self-row (form root) — neni field/component, je shell
+                if ex_row["id"] == parent_comp_def_id:
+                    continue
+                # Skip soft-deleted rows (is_active=false) — drop ze view,
+                # nelezou do existing_by_name ani orphans (jsou ucinne smazane).
+                if not ex_row["is_active"]:
+                    continue
                 key = (ex_row["name"] or "").lower().strip()
                 if key:
                     existing_by_name[key] = {
@@ -9044,6 +9062,12 @@ def design_list_entity_columns(
                         # = trigger jako na komponente"): layout JSONB pro
                         # always_new_row toggle state.
                         "layout": ex_row["layout"] or {},
+                        # Krok 5-B Fix #12 (29.5.2026): orphan detection flag.
+                        # parent_is_active=False AND root=NULL = orphan
+                        # (parent soft-deleted, child osamel).
+                        # parent_is_active=True OR root!=NULL = active na forme.
+                        "parent_is_active": ex_row["parent_is_active"],
+                        "root": ex_row["root"],
                     }
     finally:
         ds_lec.close()
@@ -9085,29 +9109,25 @@ def design_list_entity_columns(
     if parent_comp_def_id is not None:
         ds_lec2 = _gds_lec()
         try:
+            # Phase 38.4 Krok 5-B Fix #12 (29.5.2026): mirror First CTE
+            # refactor — drop recursive descendants walk, flat WHERE core_id
+            # query s parent_is_active flag pro orphan detection.
+            # Self-row (form root id == :pid) filtered v Python loop nize.
+            # is_active=false rows filtered taky v Python loop (drop ze view).
             cont_rows = ds_lec2.execute(_sql_text_lec("""
-                WITH RECURSIVE descendants AS (
-                    SELECT cd.id, cd.name, cd.caption, cd.region_slot,
-                           cd.type_id, cd.parent_comp_def_id, cd.sort_order,
-                           cd.layout,
-                           ct.code AS type_code, ct.label AS type_label,
-                           ct.kind AS type_kind
-                    FROM fw.comp_def cd
-                    JOIN fw.comp_type ct ON ct.id = cd.type_id
-                    WHERE cd.parent_comp_def_id = :pid
-                      AND cd.is_active = true
-                    UNION ALL
-                    SELECT cd.id, cd.name, cd.caption, cd.region_slot,
-                           cd.type_id, cd.parent_comp_def_id, cd.sort_order,
-                           cd.layout,
-                           ct.code, ct.label, ct.kind
-                    FROM fw.comp_def cd
-                    JOIN fw.comp_type ct ON ct.id = cd.type_id
-                    INNER JOIN descendants d ON cd.parent_comp_def_id = d.id
-                    WHERE cd.is_active = true
-                )
-                SELECT * FROM descendants
-                ORDER BY id ASC
+                SELECT cd.id, cd.name, cd.caption, cd.region_slot,
+                       cd.type_id, cd.parent_comp_def_id, cd.sort_order,
+                       cd.layout, cd.is_active, cd.root,
+                       parent.is_active AS parent_is_active,
+                       ct.code AS type_code, ct.label AS type_label,
+                       ct.kind AS type_kind
+                FROM fw.comp_def cd
+                JOIN fw.comp_type ct ON ct.id = cd.type_id
+                JOIN fw.comp_def root_node ON root_node.id = :pid
+                LEFT JOIN fw.comp_def parent
+                       ON parent.id = cd.parent_comp_def_id
+                WHERE cd.core_id = root_node.core_id
+                ORDER BY cd.id ASC
             """), {"pid": parent_comp_def_id}).mappings().all()
             # Krok 5-B Fix (28.5.2026 vecer pozde): split rows do containers
             # + fields. Drop WHERE filter v query — Marti's TEST form ma
@@ -9119,9 +9139,27 @@ def design_list_entity_columns(
             _CONTAINER_TYPE_CODES = ("panel", "groupbox", "pagecontrol", "tabsheet")
             fields_out = []
             for cont in cont_rows:
+                # Phase 38.4 Krok 5-B Fix #12 (29.5.2026): WHERE core_id query
+                # vraci VSE za core vc. (a) self-row form root, (b) soft-deleted
+                # rows, (c) orphans s inactive parent. Filter v Pythonu pro
+                # explicit semantics.
+                if cont["id"] == parent_comp_def_id:
+                    continue  # self-row (form root shell, not a field/container)
+                if not cont["is_active"]:
+                    continue  # soft-deleted (drop ze view)
                 is_container = (
                     cont["type_kind"] == "container"
                     or cont["type_code"] in _CONTAINER_TYPE_CODES
+                )
+                # Orphan detection (Marti's "sirotky" doctrine — Fix #11+#12):
+                #   parent_is_active=False AND root IS NULL = osamel,
+                #   ukazuje na soft-deleted parent. Frontend zobrazi v
+                #   "Nezarazeno" tabu jako orphan komponentu k re-parent.
+                #   parent_is_active=True OR root IS NOT NULL = aktivni
+                #   na forme (root marker = top-level v core).
+                is_orphan = (
+                    cont["root"] is None
+                    and cont["parent_is_active"] is False
                 )
                 if is_container:
                     containers_out.append({
@@ -9137,6 +9175,10 @@ def design_list_entity_columns(
                         "sort_order": cont["sort_order"],
                         # Krok H+5++++ (26.5.2026): layout pro pinned toggle.
                         "layout": cont["layout"] or {},
+                        # Krok 5-B Fix #12 (29.5.2026): orphan flag pro
+                        # frontend "Nezarazeno" tab bucket.
+                        "is_orphan": is_orphan,
+                        "root": cont["root"],
                     })
                 else:
                     # Field (edit, memo, date_modern, label_readonly, atd.):
@@ -9156,6 +9198,11 @@ def design_list_entity_columns(
                         "parent_comp_def_id": cont["parent_comp_def_id"],
                         "sort_order": cont["sort_order"],
                         "layout": layout,
+                        # Krok 5-B Fix #12 (29.5.2026): orphan flag pro
+                        # frontend "Nezarazeno" tab bucket. Active fields
+                        # s inactive parent = osamele, k re-parent na forme.
+                        "is_orphan": is_orphan,
+                        "root": cont["root"],
                     })
         finally:
             ds_lec2.close()

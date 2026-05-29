@@ -7757,12 +7757,12 @@
         if (panelBorderMode === "all") {
           prodBorderStyle = "border:1px solid #2a3340;border-radius:4px;";
           prodPaddingStyle = panelCaption
-            ? "padding:14px 12px 10px 12px;margin:6px 0;"
+            ? "padding:6px 12px 10px 12px;margin:6px 0;"
             : "padding:10px 12px;margin:6px 0;";
         } else if (panelBorderMode === "top") {
           prodBorderStyle = "border-top:1px solid #2a3340;";
           prodPaddingStyle = panelCaption
-            ? "padding:14px 0 4px 0;margin:6px 0 0 0;"
+            ? "padding:6px 0 4px 0;margin:6px 0 0 0;"
             : "padding:10px 0 4px 0;margin:6px 0 0 0;";
         }
         // 'none' → no border, no extra padding
@@ -8066,17 +8066,19 @@
           // zustavaji jako DESIGN-only identifier — bez drag affordance.
         } else {
           // PROD mode: existing visual styling (border-top / 'all')
+          // 29.5.2026: padding-top reduced to 6px when labelText present
+          // → caption sedi tesne pod border line (Marti's "hned pod tu linku")
           if (borderMode === "all") {
             wrap.style.cssText =
               "border:1px solid #2a3340;border-radius:4px;" +
-              "padding:14px 12px 10px 12px;" +
+              (labelText ? "padding:6px 12px 10px 12px;" : "padding:10px 12px;") +
               "margin:6px 0;" +
               "grid-column:1/-1;";
           } else {
             // 'top' default — jen linka nahore, padding-top
             wrap.style.cssText =
               "border-top:1px solid #2a3340;" +
-              "padding:10px 0 4px 0;" +
+              (labelText ? "padding:6px 0 4px 0;" : "padding:10px 0 4px 0;") +
               "margin:6px 0 0 0;" +
               "grid-column:1/-1;";
           }

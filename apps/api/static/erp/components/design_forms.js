@@ -7035,15 +7035,23 @@
             el.style.maxHeight = mx;
           }
         };
-        // alLeft panels (fixed width, stretch height via flex align-items)
-        // Krok 5-B: DROP el.style.height = "100%" — vedlo k circular sizing
-        // problemu (parent flex:1 1 auto bez fixed height, "100%" se resolvuje
-        // na 0). Drz align-items:stretch + explicit middle min-height.
+        // alLeft panels (fixed width, full parent height)
+        // Krok 5-B (29.5.2026 odpoledne, Marti's "panely align left po cele
+        // vysce parent panelu"): Delphi alLeft semantics = vertical strip
+        // ze 100% parent vysky. Restore height:100% — s box-sizing:border-box
+        // (z _applyHeightConstraints) a margin:0 to NEHYBE overflow
+        // (predchozi obavy o circular sizing byly resene min-height na middle).
+        // Explicit layout.height z _applyHeightConstraints prebije pokud user
+        // nastavi specific value.
         for (const c of byAlign.left) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
+            // Stretch na parent height pokud user nenastavi explicit
+            if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
+              el.style.height = "100%";
+            }
             middle.appendChild(el);
           }
         }
@@ -7082,13 +7090,15 @@
           }
           middle.appendChild(clientWrap);
         }
-        // alRight panels (fixed width, stretch height via flex align-items)
-        // Krok 5-B: DROP el.style.height = "100%" — parita s alLeft fix.
+        // alRight panels (fixed width, full parent height) — parita s alLeft
         for (const c of byAlign.right) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
+            if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
+              el.style.height = "100%";
+            }
             middle.appendChild(el);
           }
         }

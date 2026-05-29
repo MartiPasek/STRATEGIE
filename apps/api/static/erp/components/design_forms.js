@@ -5330,6 +5330,10 @@
       let containerHeightInput = null;
       let containerMinHeightInput = null;
       let containerBorderSelect = null;
+      // Krok 5-B (29.5.2026 vecer, Marti's "Mozna ze potrebujeme jeste Anchors"):
+      // Delphi Anchors property — doplnuje Align. akLeft+akTop+akBottom = panel
+      // snapuje vlevo + stretch vertikalne. Bez akBottom = fixed Height.
+      let containerAnchorChecks = null;
       if (isContainer) {
         // Align (Marti's "musim vzdy videt align")
         containerAlignSelect = document.createElement("select");
@@ -5386,6 +5390,69 @@
           containerBorderSelect.appendChild(opt);
         }
         basicPaneEl.appendChild(_row("Border mode", containerBorderSelect));
+
+        // Krok 5-B (29.5.2026 vecer, Marti's Object Inspector screenshot
+        // Anchors: [akLeft, akTop, akBottom]): Delphi Anchors property.
+        // Doplnuje Align. Vetsina kombinaci dava smysl:
+        //   - alLeft  + [akLeft, akTop, akBottom] = strip vlevo + stretch
+        //     vertikalne pres parent vysku (Marti's intent z TUserGroupBox)
+        //   - alLeft  + [akLeft, akTop]            = strip vlevo + fixed Height
+        //     (sedne k vrchu, neroztaze)
+        //   - alClient + [akLeft, akTop, akRight, akBottom] = fill all (default)
+        //
+        // Default anchors per Align (Delphi typical):
+        //   alLeft   → [left, top, bottom]
+        //   alRight  → [right, top, bottom]
+        //   alTop    → [left, top, right]
+        //   alBottom → [left, right, bottom]
+        //   alClient → [left, top, right, bottom]
+        //   alNone   → [left, top]
+        const _ANCHOR_DEFAULTS = {
+          left: ["left", "top", "bottom"],
+          right: ["right", "top", "bottom"],
+          top: ["left", "top", "right"],
+          bottom: ["left", "right", "bottom"],
+          client: ["left", "top", "right", "bottom"],
+          none: ["left", "top"],
+        };
+        const _currentAlign = (currentLayout.align || "client").toLowerCase();
+        const _currentAnchors = Array.isArray(currentLayout.anchors)
+          ? currentLayout.anchors.map(a => String(a).toLowerCase())
+          : (_ANCHOR_DEFAULTS[_currentAlign] || ["left", "top"]);
+
+        const anchorsWrap = document.createElement("div");
+        anchorsWrap.style.cssText =
+          "display:flex;gap:10px;align-items:center;flex-wrap:wrap;" +
+          "padding:6px 10px;background:#0a0e13;border:1px solid #2a3340;border-radius:3px;";
+        containerAnchorChecks = {};
+        ["left", "top", "right", "bottom"].forEach(name => {
+          const lbl = document.createElement("label");
+          lbl.style.cssText =
+            "display:flex;align-items:center;gap:4px;color:#cfd6df;" +
+            "font-size:12px;cursor:pointer;";
+          const cb = document.createElement("input");
+          cb.type = "checkbox";
+          cb.value = name;
+          cb.checked = _currentAnchors.indexOf(name) !== -1;
+          cb.style.cssText = "cursor:pointer;accent-color:#7ed4e8;";
+          lbl.appendChild(cb);
+          const txt = document.createElement("span");
+          txt.textContent = "ak" + name.charAt(0).toUpperCase() + name.slice(1);
+          lbl.appendChild(txt);
+          anchorsWrap.appendChild(lbl);
+          containerAnchorChecks[name] = cb;
+        });
+        basicPaneEl.appendChild(_row("Anchors", anchorsWrap));
+
+        // Anchors hint
+        const anchorsHint = document.createElement("div");
+        anchorsHint.style.cssText =
+          "padding:6px 10px;font-size:11px;color:#7a8696;font-style:italic;line-height:1.5;";
+        anchorsHint.innerHTML =
+          "💡 Delphi-style: <b>akTop + akBottom</b> = stretch vertikálně přes parent výšku. " +
+          "<b>akLeft + akRight</b> = stretch horizontálně. " +
+          "Bez opačných anchorů = fixed Height/Width.";
+        basicPaneEl.appendChild(anchorsHint);
       }
 
       // Placeholder — field-only
@@ -6019,8 +6086,19 @@
           // Krok 5-B (29.5.2026): container-specific layout save +
           // field-specific gated v if(!isContainer).
           if (isContainer) {
-            // Container-specific: align + height + min_height + border_mode
+            // Container-specific: align + height + min_height + border_mode + anchors
             if (containerAlignSelect) newLayout.align = containerAlignSelect.value;
+
+            // Anchors — Delphi paradigm (Marti's "Mozna potrebujeme Anchors")
+            if (containerAnchorChecks) {
+              const anchorsList = [];
+              ["left", "top", "right", "bottom"].forEach(name => {
+                const cb = containerAnchorChecks[name];
+                if (cb && cb.checked) anchorsList.push(name);
+              });
+              if (anchorsList.length > 0) newLayout.anchors = anchorsList;
+              else delete newLayout.anchors;
+            }
 
             // Height — parse like _openContainerSettings (int | 'auto' | '%')
             const _parseSize = (v) => {
@@ -7035,32 +7113,67 @@
             el.style.maxHeight = mx;
           }
         };
-        // alLeft panels (fixed width, stretch height via align-items)
-        // Krok 5-B (29.5.2026 odpoledne, Marti's "prevzeti vysky deti
-        // z vysky rodice"): DROP `height: 100%` — vedl k circular sizing
-        // problemu kdyz parent (MAIN-TOP) nema definovanou Height (content-
-        // sized → child 100% → cira reference → 0/intrinsic).
+        // Krok 5-B (29.5.2026 vecer, Marti's TUserGroupBox Object Inspector
+        // screenshot Anchors=[akLeft, akTop, akBottom]): Delphi Anchors
+        // property RIDI stretching behavior. akTop+akBottom = vertical
+        // stretch pres parent vysku. Bez akBottom = fixed Height (intrinsic
+        // OR explicit layout.height).
         //
-        // Delphi alLeft semantics: vertical strip, vyska = parent vysky.
-        // V CSS: `align-self: stretch` (default v align-items:stretch row)
-        // dela equal height vsech middle children = container vyska.
-        //
-        // Pokud user chce stretch na MAIN-TOP vysku, MUSI nastavit Height
-        // na MAIN-TOP (Delphi paradigm: alTop bez Height = content-sized).
-        // Pak middle row (flex:1 1 auto v flex-column buildAlignLayout wrap)
-        // = MAIN-TOP vyska, children align-items:stretch = stejna vyska.
-        //
-        // Pokud user nastavi explicit Height na child → ten prebije stretch
-        // (helper _applyHeightConstraints uz aplikoval).
+        // Defaults per Align (Delphi typical):
+        //   alLeft   → [left, top, bottom]    (vertical strip stretch)
+        //   alRight  → [right, top, bottom]   (vertical strip stretch)
+        //   alClient → [left, top, right, bottom] (all stretch)
+        //   alTop    → [left, top, right]     (horizontal strip)
+        //   alBottom → [left, right, bottom]  (horizontal strip)
+        const _ANCHOR_DEFAULTS_RENDER = {
+          left: ["left", "top", "bottom"],
+          right: ["right", "top", "bottom"],
+          top: ["left", "top", "right"],
+          bottom: ["left", "right", "bottom"],
+          client: ["left", "top", "right", "bottom"],
+          none: ["left", "top"],
+        };
+        const _resolveAnchors = (c) => {
+          const layout = c && c.layout || {};
+          if (Array.isArray(layout.anchors) && layout.anchors.length > 0) {
+            return layout.anchors.map(a => String(a).toLowerCase());
+          }
+          const align = String(layout.align || "client").toLowerCase();
+          return _ANCHOR_DEFAULTS_RENDER[align] || ["left", "top"];
+        };
+        // Apply vertical stretching based on anchors
+        // - akTop + akBottom → height:100% (stretch vertically across parent)
+        // - akTop only       → align-self:flex-start (snap to top, fixed h)
+        // - akBottom only    → align-self:flex-end (snap to bottom, fixed h)
+        // - neither          → align-self:center
+        const _applyVerticalAnchors = (el, c) => {
+          const layout = c && c.layout || {};
+          // Pokud user nastavil explicit Height, ten prebije anchors stretch
+          const hasExplicitHeight = layout.height != null && layout.height !== "auto";
+          if (hasExplicitHeight) return;
+          const anchors = _resolveAnchors(c);
+          const hasTop = anchors.indexOf("top") !== -1;
+          const hasBottom = anchors.indexOf("bottom") !== -1;
+          if (hasTop && hasBottom) {
+            // Stretch vertikalne — height:100% s box-sizing:border-box
+            // (z _applyHeightConstraints) zajisti zadny overflow.
+            el.style.height = "100%";
+            el.style.alignSelf = "stretch";
+          } else if (hasTop) {
+            el.style.alignSelf = "flex-start";
+          } else if (hasBottom) {
+            el.style.alignSelf = "flex-end";
+          } else {
+            el.style.alignSelf = "center";
+          }
+        };
+        // alLeft panels (fixed width, vertical anchors-driven)
         for (const c of byAlign.left) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
-            // Explicit align-self:stretch jako pojistka (default ale jistota)
-            if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
-              el.style.alignSelf = "stretch";
-            }
+            _applyVerticalAnchors(el, c);
             middle.appendChild(el);
           }
         }
@@ -7099,15 +7212,13 @@
           }
           middle.appendChild(clientWrap);
         }
-        // alRight panels (fixed width, stretch via align-items) — parita s alLeft
+        // alRight panels — parita s alLeft (anchors-driven)
         for (const c of byAlign.right) {
           const el = this._renderComponentTree(c, 0, 1);
           if (el) {
             _applySize(el, c, "w");
             _applyHeightConstraints(el, c);
-            if (!(c.layout && c.layout.height != null && c.layout.height !== "auto")) {
-              el.style.alignSelf = "stretch";
-            }
+            _applyVerticalAnchors(el, c);
             middle.appendChild(el);
           }
         }

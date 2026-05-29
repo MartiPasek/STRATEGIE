@@ -9141,25 +9141,30 @@ def design_list_entity_columns(
             for cont in cont_rows:
                 # Phase 38.4 Krok 5-B Fix #12 (29.5.2026): WHERE core_id query
                 # vraci VSE za core vc. (a) self-row form root, (b) soft-deleted
-                # rows, (c) orphans s inactive parent. Filter v Pythonu pro
-                # explicit semantics.
+                # rows, (c) orphans s inactive parent.
+                # Self-row filtered, soft-deleted PRESERVED jako is_orphan=true
+                # (Marti's "soft-deleted komponenty patri do Nezarazeno tabu,
+                # ne ze view drop" — 29.5.2026 vecer Fix #12+).
                 if cont["id"] == parent_comp_def_id:
                     continue  # self-row (form root shell, not a field/container)
-                if not cont["is_active"]:
-                    continue  # soft-deleted (drop ze view)
                 is_container = (
                     cont["type_kind"] == "container"
                     or cont["type_code"] in _CONTAINER_TYPE_CODES
                 )
-                # Orphan detection (Marti's "sirotky" doctrine — Fix #11+#12):
-                #   parent_is_active=False AND root IS NULL = osamel,
-                #   ukazuje na soft-deleted parent. Frontend zobrazi v
-                #   "Nezarazeno" tabu jako orphan komponentu k re-parent.
-                #   parent_is_active=True OR root IS NOT NULL = aktivni
-                #   na forme (root marker = top-level v core).
+                # Orphan detection (Marti's "sirotky" doctrine — Fix #11+#12+):
+                #   is_active=False = soft-deleted (Marti's X tlacitko v palete)
+                #     → orphan, available pro re-parent / re-activate
+                #   parent_is_active=False AND root IS NULL = active komponenta
+                #     s soft-deleted parent → orphan, parent zmizel
+                #   is_active=True AND (root IS NOT NULL OR parent_is_active=True)
+                #     = aktivni na forme (top-level root marker, nebo nested
+                #     v active container)
                 is_orphan = (
-                    cont["root"] is None
-                    and cont["parent_is_active"] is False
+                    (not cont["is_active"])
+                    or (
+                        cont["root"] is None
+                        and cont["parent_is_active"] is False
+                    )
                 )
                 if is_container:
                     containers_out.append({
@@ -9178,6 +9183,7 @@ def design_list_entity_columns(
                         # Krok 5-B Fix #12 (29.5.2026): orphan flag pro
                         # frontend "Nezarazeno" tab bucket.
                         "is_orphan": is_orphan,
+                        "is_active": cont["is_active"],
                         "root": cont["root"],
                     })
                 else:
@@ -9199,9 +9205,11 @@ def design_list_entity_columns(
                         "sort_order": cont["sort_order"],
                         "layout": layout,
                         # Krok 5-B Fix #12 (29.5.2026): orphan flag pro
-                        # frontend "Nezarazeno" tab bucket. Active fields
-                        # s inactive parent = osamele, k re-parent na forme.
+                        # frontend "Nezarazeno" tab bucket.
+                        # is_active=False = soft-deleted (kliknuti X v palete)
+                        # parent_is_active=False AND root=NULL = soft-deleted parent
                         "is_orphan": is_orphan,
+                        "is_active": cont["is_active"],
                         "root": cont["root"],
                     })
         finally:

@@ -7800,13 +7800,18 @@
         // ramečku (border+border-radius) na top+right edges only.
         // Zachováváme enum value "all" pro zpětnou kompatibilitu s DB,
         // jen měníme jeho vizuální interpretaci.
+        //
+        // Fix #8+ (29.5.2026 pozde): Marti's "ta linka vpravo se posunula
+        // kousek doleva, JEN TA LINKA (ne nadpis), a nahore bude
+        // zacinat soucasne s textem (nebude az nahoru)". Border-right
+        // se drop z inline stylu, nahrazeno absolute positioned child
+        // div nize (panel.cssText drop border-right). Padding-right se
+        // zvetsi aby content nekolidoval s inset right line.
         if (panelBorderMode === "all") {
-          prodBorderStyle =
-            "border-top:1px solid #2a3340;" +
-            "border-right:1px solid #2a3340;";
+          prodBorderStyle = "border-top:1px solid #2a3340;";
           prodPaddingStyle = panelCaption
-            ? "padding:6px 8px 4px 0;margin:6px 0 0 0;"
-            : "padding:10px 8px 4px 0;margin:6px 0 0 0;";
+            ? "padding:6px 18px 4px 0;margin:6px 0 0 0;"
+            : "padding:10px 18px 4px 0;margin:6px 0 0 0;";
         } else if (panelBorderMode === "top") {
           prodBorderStyle = "border-top:1px solid #2a3340;";
           prodPaddingStyle = panelCaption
@@ -7919,6 +7924,29 @@
               "margin:0 0 8px 0;";
             wrap.appendChild(prodLbl);
           }
+        }
+
+        // Fix #8+ (29.5.2026 pozde, Marti's "linka vpravo se posunula
+        // kousek doleva ... nahore bude zacinat soucasne s textem"):
+        // pro Top-Right mode pridame inset right line jako absolute
+        // positioned child. Border-right z inline stylu wrap byl dropped
+        // (viz prodBorderStyle pro 'all' mode vyse). Caption (nadpis)
+        // zustava na svém miste — JEN linka se posune. Top:22px sedi
+        // priblizne na urovni caption text top (po padding-top:6px +
+        // caption font-size:11px line-height ~1.4 = ~21px baseline).
+        if (panelBorderMode === "all") {
+          wrap.style.position = "relative";
+          const rightLine = document.createElement("div");
+          rightLine.className = "erp-design-panel-right-line";
+          rightLine.style.cssText =
+            "position:absolute;" +
+            "top:22px;" +
+            "right:10px;" +
+            "bottom:0;" +
+            "width:1px;" +
+            "background:#2a3340;" +
+            "pointer-events:none;";
+          wrap.appendChild(rightLine);
         }
 
         // Phase 38.4 Krok 14e-G (Marti's Q3, volba A memory-only):
@@ -8118,11 +8146,13 @@
           // → caption sedi tesne pod border line (Marti's "hned pod tu linku")
           // Fix #8 (29.5.2026 pozde): 'all' mení vizuál z plného ramečku
           // na top+right edges only (Marti's "Mod All prepiseme na Top-Right").
+          // Fix #8+: border-right drop z cssText (replaced by inset
+          // positioned child div nize). Padding-right zvetsen na 18px
+          // aby content nekolidoval s inset right line.
           if (borderMode === "all") {
             wrap.style.cssText =
               "border-top:1px solid #2a3340;" +
-              "border-right:1px solid #2a3340;" +
-              (labelText ? "padding:6px 8px 4px 0;" : "padding:10px 8px 4px 0;") +
+              (labelText ? "padding:6px 18px 4px 0;" : "padding:10px 18px 4px 0;") +
               "margin:6px 0 0 0;" +
               "grid-column:1/-1;";
           } else {
@@ -8150,6 +8180,25 @@
               "padding:0;" +
               "margin:0 0 8px 0;";
             wrap.appendChild(lbl);
+          }
+
+          // Fix #8+ (29.5.2026 pozde): pro Top-Right mode pridame
+          // inset right line jako absolute positioned child. Caption
+          // (label) zustava na svém miste — JEN linka se posune.
+          // Top:22px sedi priblizne na urovni label text top.
+          if (borderMode === "all") {
+            wrap.style.position = "relative";
+            const rightLine = document.createElement("div");
+            rightLine.className = "erp-design-groupbox-right-line";
+            rightLine.style.cssText =
+              "position:absolute;" +
+              "top:22px;" +
+              "right:10px;" +
+              "bottom:0;" +
+              "width:1px;" +
+              "background:#2a3340;" +
+              "pointer-events:none;";
+            wrap.appendChild(rightLine);
           }
         }
 

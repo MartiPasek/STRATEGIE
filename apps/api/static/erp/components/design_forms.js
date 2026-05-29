@@ -6915,14 +6915,26 @@
       }
 
       // Helper: apply size + min size constraint pro align panel
+      // Krok 5-B (29.5.2026 dopoledne, Marti's "Mam panel align left
+      // ten Max width nerespektuje"): refactor pro Width→Max width
+      // semantics z Krok 5-B settings popup sjednoceni.
+      //   - layout.width (LEGACY) — Delphi-style target width (alLeft Width)
+      //   - layout.max_width (NEW) — Marti's "Max width omezit aby nerozthoval"
+      //     Pro alLeft/alRight slouzi jako target width (Delphi Width property).
+      //     Pro alClient/alTop/alBottom slouzi jako CSS max-width upper bound.
+      //   - layout.min_width / layout.min_height — minimum constraint
+      // Priority: width (legacy) → max_width (new) pro target sizing.
       const _applySize = (el, c, axis) => {
         const layout = c.layout || {};
         const sizeKey = axis === "h" ? "height" : "width";
+        const maxKey = axis === "h" ? "max_height" : "max_width";
         const minKey = axis === "h" ? "min_height" : "min_width";
-        const size = layout[sizeKey];
+        // Target size: legacy 'width'/'height' OR new 'max_width'/'max_height'
+        // Marti's "Width jako Max width" semantics — pro alLeft je to width.
+        const sizeRaw = layout[sizeKey] != null ? layout[sizeKey] : layout[maxKey];
         const min = layout[minKey];
-        if (size != null && size !== "auto") {
-          const v = (typeof size === "number") ? size + "px" : String(size);
+        if (sizeRaw != null && sizeRaw !== "auto") {
+          const v = (typeof sizeRaw === "number") ? sizeRaw + "px" : String(sizeRaw);
           el.style.flex = "0 0 " + v;
         } else {
           el.style.flex = "0 0 auto";
@@ -6930,6 +6942,14 @@
         if (min != null) {
           const m = (typeof min === "number") ? min + "px" : String(min);
           el.style[axis === "h" ? "minHeight" : "minWidth"] = m;
+        }
+        // Marti's "Max width omezit aby nerozthoval pres obrazovku" —
+        // aplikujeme max-width / max-height jako CSS constraint pro VŠECHNY
+        // align panels (vcetne alClient/alTop/alBottom).
+        const maxRaw = layout[maxKey];
+        if (maxRaw != null && maxRaw !== "auto") {
+          const mx = (typeof maxRaw === "number") ? maxRaw + "px" : String(maxRaw);
+          el.style[axis === "h" ? "maxHeight" : "maxWidth"] = mx;
         }
       };
 
@@ -6993,6 +7013,17 @@
               if (layout.min_height != null) {
                 el.style.minHeight = (typeof layout.min_height === "number")
                   ? layout.min_height + "px" : String(layout.min_height);
+              }
+              // Krok 5-B (29.5.2026, Marti's "Max width omezit aby
+              // nerozthoval pres celou obrazovku"): alClient panel
+              // dostane max-width CSS constraint pokud je nastaveno.
+              if (layout.max_width != null && layout.max_width !== "auto") {
+                el.style.maxWidth = (typeof layout.max_width === "number")
+                  ? layout.max_width + "px" : String(layout.max_width);
+              }
+              if (layout.max_height != null && layout.max_height !== "auto") {
+                el.style.maxHeight = (typeof layout.max_height === "number")
+                  ? layout.max_height + "px" : String(layout.max_height);
               }
               clientWrap.appendChild(el);
             }

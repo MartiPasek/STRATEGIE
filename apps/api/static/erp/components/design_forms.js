@@ -779,14 +779,28 @@
         // text inputy, atd.) — Marti's "kazda komponenta jinak" priorita.
         onOpenSettings: (compDefId) => {
           try {
+            // Krok 5-B (29.5.2026, Marti's "sjednot tu dva ruzna okna
+            // parametru"): unified _openFieldSettings handles fields +
+            // containers. Container lookup z __renderCtx.byParent (kde
+            // jsou panel/groupbox/tabsheet/pagecontrol cached pri renderu).
             const fields = (this._spec && this._spec.fields) || [];
-            const field = fields.find(f => f.id === compDefId);
-            if (!field) {
-              console.warn("[DesignFwForm] onOpenSettings: field id=" + compDefId + " nenalezen v spec.fields");
+            let comp = fields.find(f => f.id === compDefId);
+            if (!comp) {
+              // Try containers — iterate byParent map
+              const ctx = this.__renderCtx || {};
+              const byParent = ctx.byParent || new Map();
+              for (const arr of byParent.values()) {
+                if (!Array.isArray(arr)) continue;
+                const found = arr.find(c => c && c.id === compDefId);
+                if (found) { comp = found; break; }
+              }
+            }
+            if (!comp) {
+              console.warn("[DesignFwForm] onOpenSettings: comp id=" + compDefId + " nenalezen v spec.fields ani v byParent containers");
               alert("Komponenta id=" + compDefId + " nebyla nalezena ve formuláři (možná smazána). Obnov paletu.");
               return;
             }
-            this._openFieldSettings(field);
+            this._openFieldSettings(comp);
           } catch (e) {
             console.error("[DesignFwForm] onOpenSettings failed:", e);
             alert("Settings popup selhal: " + (e.message || e));
@@ -3347,11 +3361,10 @@
         });
         settingsBtn.addEventListener("click", (ev) => {
           ev.stopPropagation();
-          if (isContainer) {
-            this._openContainerSettings(comp);
-          } else {
-            this._openFieldSettings(comp);
-          }
+          // Krok 5-B (29.5.2026, Marti's "sjednot ciste"):
+          // unified _openFieldSettings handles containers via isContainer
+          // detection. Drop legacy _openContainerSettings dispatch.
+          this._openFieldSettings(comp);
         });
         node.appendChild(settingsBtn);
 
@@ -5024,6 +5037,20 @@
       const _defaultTab = (opts && opts.defaultTab === "user") ? "user" : "component";
 
       const isEntityPicker = (field.comp_type_code === "entity_picker");
+      // Krok 5-B (29.5.2026, Marti's "sjednotit ty dva ruzna okna parametru"):
+      // detekce containers (panel/groupbox/tabsheet/pagecontrol). Pokud
+      // isContainer → render container-specific sekci (Align/Max width/Height/
+      // Min height/Border mode) misto field-specific (Placeholder/Length/
+      // Readonly/Required). Caption + Min width sdileno (vzdy renderovano).
+      // Width drop — Marti's Bod 1 "Width jako Max width (omezit aby se nam
+      // nerozthoval pres celou obrazovku)" → containery pouzivaji jen
+      // Max width (legacy layout.width → mapped na max_width pri load).
+      const isContainer = (
+        field.comp_type_code === "panel" ||
+        field.comp_type_code === "groupbox" ||
+        field.comp_type_code === "tabsheet" ||
+        field.comp_type_code === "pagecontrol"
+      );
       // Phase 38.4 Krok H+6 (26.5.2026, Marti's "Combobox: jak editovat
       // list, kdyz potrebuju pridat neco co jeste v DB neni"):
       // ComboBox/lookup editor pro layout.enum_values — manual add/edit/
@@ -5265,30 +5292,112 @@
         "color:#e8eef5;border-radius:3px;font-size:13px;width:100%;" +
         "box-sizing:border-box;";
 
-      // Info: DB column name (read-only display)
+      // Info: DB column name (field) / container name + type (container)
+      // Krok 5-B (29.5.2026): isContainer mode → DB sloupec irrelevant,
+      // zobraz comp_type + comp_def id + parent.
       const infoDb = document.createElement("div");
       infoDb.style.cssText =
         "padding:8px 10px;background:#0f141a;border:1px dashed #2a3340;" +
         "border-radius:3px;color:#7a8696;font-size:11px;line-height:1.5;";
-      infoDb.innerHTML = "🔗 DB sloupec: <code style=\"color:#7ed4e8;\">" + field.name +
-                         "</code>" + (field.region_slot ? " · panel: <code style=\"color:#a8b4c2;\">" + field.region_slot + "</code>" : "");
+      if (isContainer) {
+        infoDb.innerHTML = "▦ " + (field.comp_type_code || "container") +
+                           " · comp_def #<code style=\"color:#a88cd4;\">" + field.id + "</code>" +
+                           " · parent #<code style=\"color:#a8b4c2;\">" +
+                           (field.parent_comp_def_id || "—") + "</code>" +
+                           (field.name ? " · name: <code style=\"color:#7ed4e8;\">" + field.name + "</code>" : "");
+      } else {
+        infoDb.innerHTML = "🔗 DB sloupec: <code style=\"color:#7ed4e8;\">" + field.name +
+                           "</code>" + (field.region_slot ? " · panel: <code style=\"color:#a8b4c2;\">" + field.region_slot + "</code>" : "");
+      }
       basicPaneEl.appendChild(infoDb);
 
-      // Caption
+      // Caption — sdíleno field + container
       const captionInput = document.createElement("input");
       captionInput.type = "text";
       captionInput.style.cssText = _inputStyle;
       captionInput.value = field.caption || "";
-      captionInput.placeholder = field.name;
-      basicPaneEl.appendChild(_row("Caption (label)", captionInput));
+      captionInput.placeholder = isContainer
+        ? "(empty = invisible label u containeru)"
+        : field.name;
+      basicPaneEl.appendChild(_row(isContainer ? "Caption" : "Caption (label)", captionInput));
 
-      // Placeholder
-      const placeholderInput = document.createElement("input");
-      placeholderInput.type = "text";
-      placeholderInput.style.cssText = _inputStyle;
-      placeholderInput.value = currentLayout.placeholder || "";
-      placeholderInput.placeholder = "např. '—' nebo 'Zadej hodnotu...'";
-      basicPaneEl.appendChild(_row("Placeholder", placeholderInput));
+      // ────────────────────────────────────────────────────────────────
+      // Krok 5-B (29.5.2026, Marti's "sjednotit dva okna"):
+      // Container-specific section — Align / Max width / Height / Min height
+      // / Border mode. Vidí jen pro panel/groupbox/tabsheet/pagecontrol.
+      // ────────────────────────────────────────────────────────────────
+      let containerAlignSelect = null;
+      let containerHeightInput = null;
+      let containerMinHeightInput = null;
+      let containerBorderSelect = null;
+      if (isContainer) {
+        // Align (Marti's "musim vzdy videt align")
+        containerAlignSelect = document.createElement("select");
+        containerAlignSelect.style.cssText = _inputStyle;
+        const aligns = [
+          ["client", "alClient — fill remaining (default)"],
+          ["top", "alTop — full width strip nahore"],
+          ["bottom", "alBottom — full width strip dole"],
+          ["left", "alLeft — vertical strip vlevo"],
+          ["right", "alRight — vertical strip vpravo"],
+          ["none", "alNone — absolute (top/left/width/height)"],
+        ];
+        for (const [val, label] of aligns) {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = label;
+          if ((currentLayout.align || "client") === val) opt.selected = true;
+          containerAlignSelect.appendChild(opt);
+        }
+        basicPaneEl.appendChild(_row("Align", containerAlignSelect));
+
+        // Height
+        containerHeightInput = document.createElement("input");
+        containerHeightInput.type = "text";
+        containerHeightInput.style.cssText = _inputStyle;
+        containerHeightInput.value = currentLayout.height != null ? String(currentLayout.height) : "";
+        containerHeightInput.placeholder = "px (např. 60) | 'auto'";
+        basicPaneEl.appendChild(_row("Height", containerHeightInput));
+
+        // Min height
+        containerMinHeightInput = document.createElement("input");
+        containerMinHeightInput.type = "number";
+        containerMinHeightInput.min = "0";
+        containerMinHeightInput.style.cssText = _inputStyle;
+        containerMinHeightInput.value = currentLayout.min_height != null ? String(currentLayout.min_height) : "";
+        containerMinHeightInput.placeholder = "px (responsive constraint)";
+        basicPaneEl.appendChild(_row("Min height", containerMinHeightInput));
+
+        // Border mode
+        containerBorderSelect = document.createElement("select");
+        containerBorderSelect.style.cssText = _inputStyle;
+        const borderModes = [
+          ["none", "Žádný (default pro panel)"],
+          ["top", "Top — linka nahore (modern groupbox)"],
+          ["all", "All — full rámeček (Delphi compat)"],
+        ];
+        const _isGroupboxLike = (field.comp_type_code === "groupbox");
+        const currentBorder = currentLayout.border_mode || (_isGroupboxLike ? "top" : "none");
+        for (const [val, label] of borderModes) {
+          const opt = document.createElement("option");
+          opt.value = val;
+          opt.textContent = label;
+          if (currentBorder === val) opt.selected = true;
+          containerBorderSelect.appendChild(opt);
+        }
+        basicPaneEl.appendChild(_row("Border mode", containerBorderSelect));
+      }
+
+      // Placeholder — field-only
+      let placeholderInput = null;
+      if (!isContainer) {
+        placeholderInput = document.createElement("input");
+        placeholderInput.type = "text";
+        placeholderInput.style.cssText = _inputStyle;
+        placeholderInput.value = currentLayout.placeholder || "";
+        placeholderInput.placeholder = "např. '—' nebo 'Zadej hodnotu...'";
+        basicPaneEl.appendChild(_row("Placeholder", placeholderInput));
+      }
 
       // Phase 38.4 Krok 14f-N (14.5.2026 vecer, Marti's correction):
       // šířka komponenty na displeji — Min width / Max width (px).
@@ -5311,51 +5420,59 @@
       maxWidthInput.placeholder = "px (např. 300 — empty = bez limitu)";
       basicPaneEl.appendChild(_row("Max width", maxWidthInput));
 
-      // Phase 38.4 Krok 14f-M (text length validation, advanced):
-      // Max/Min length textu (HTML5 maxlength/minlength). Optional.
-      const maxLenInput = document.createElement("input");
-      maxLenInput.type = "number";
-      maxLenInput.min = "0";
-      maxLenInput.style.cssText = _inputStyle;
-      maxLenInput.value = currentLayout.max_length != null ? String(currentLayout.max_length) : "";
-      maxLenInput.placeholder = "max počet znaků (HTML5 maxlength, empty = bez limitu)";
-      basicPaneEl.appendChild(_row("Max length (text)", maxLenInput));
+      // Krok 5-B (29.5.2026): field-only sekce — Max length / Min length /
+      // Read-only / Required. Containery tyto fields nemaji (jsou structural).
+      let maxLenInput = null;
+      let minLenInput = null;
+      let roCheck = null;
+      let reqCheck = null;
+      if (!isContainer) {
+        // Phase 38.4 Krok 14f-M (text length validation, advanced):
+        // Max/Min length textu (HTML5 maxlength/minlength). Optional.
+        maxLenInput = document.createElement("input");
+        maxLenInput.type = "number";
+        maxLenInput.min = "0";
+        maxLenInput.style.cssText = _inputStyle;
+        maxLenInput.value = currentLayout.max_length != null ? String(currentLayout.max_length) : "";
+        maxLenInput.placeholder = "max počet znaků (HTML5 maxlength, empty = bez limitu)";
+        basicPaneEl.appendChild(_row("Max length (text)", maxLenInput));
 
-      const minLenInput = document.createElement("input");
-      minLenInput.type = "number";
-      minLenInput.min = "0";
-      minLenInput.style.cssText = _inputStyle;
-      minLenInput.value = currentLayout.min_length != null ? String(currentLayout.min_length) : "";
-      minLenInput.placeholder = "min počet znaků (validace pri submit, empty = bez minima)";
-      basicPaneEl.appendChild(_row("Min length (text)", minLenInput));
+        minLenInput = document.createElement("input");
+        minLenInput.type = "number";
+        minLenInput.min = "0";
+        minLenInput.style.cssText = _inputStyle;
+        minLenInput.value = currentLayout.min_length != null ? String(currentLayout.min_length) : "";
+        minLenInput.placeholder = "min počet znaků (validace pri submit, empty = bez minima)";
+        basicPaneEl.appendChild(_row("Min length (text)", minLenInput));
 
-      // Readonly checkbox
-      const roCheckWrap = document.createElement("div");
-      roCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
-      const roLbl = document.createElement("label");
-      roLbl.textContent = "Read-only";
-      roLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
-      roCheckWrap.appendChild(roLbl);
-      const roCheck = document.createElement("input");
-      roCheck.type = "checkbox";
-      roCheck.checked = !!currentLayout.readonly;
-      roCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
-      roCheckWrap.appendChild(roCheck);
-      basicPaneEl.appendChild(roCheckWrap);
+        // Readonly checkbox
+        const roCheckWrap = document.createElement("div");
+        roCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+        const roLbl = document.createElement("label");
+        roLbl.textContent = "Read-only";
+        roLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        roCheckWrap.appendChild(roLbl);
+        roCheck = document.createElement("input");
+        roCheck.type = "checkbox";
+        roCheck.checked = !!currentLayout.readonly;
+        roCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
+        roCheckWrap.appendChild(roCheck);
+        basicPaneEl.appendChild(roCheckWrap);
 
-      // Required checkbox
-      const reqCheckWrap = document.createElement("div");
-      reqCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
-      const reqLbl = document.createElement("label");
-      reqLbl.textContent = "Required";
-      reqLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
-      reqCheckWrap.appendChild(reqLbl);
-      const reqCheck = document.createElement("input");
-      reqCheck.type = "checkbox";
-      reqCheck.checked = !!currentLayout.required;
-      reqCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
-      reqCheckWrap.appendChild(reqCheck);
-      basicPaneEl.appendChild(reqCheckWrap);
+        // Required checkbox
+        const reqCheckWrap = document.createElement("div");
+        reqCheckWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+        const reqLbl = document.createElement("label");
+        reqLbl.textContent = "Required";
+        reqLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+        reqCheckWrap.appendChild(reqLbl);
+        reqCheck = document.createElement("input");
+        reqCheck.type = "checkbox";
+        reqCheck.checked = !!currentLayout.required;
+        reqCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
+        reqCheckWrap.appendChild(reqCheck);
+        basicPaneEl.appendChild(reqCheckWrap);
+      }
 
       // ════════════════════════════════════════════════════════════════════
       // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:25): Tab 2
@@ -5899,31 +6016,63 @@
             return;
           }
 
-          // Max/Min length — text content (HTML5 maxlength/minlength)
-          const newMaxLen = maxLenInput.value.trim() ? parseInt(maxLenInput.value, 10) : null;
-          const newMinLen = minLenInput.value.trim() ? parseInt(minLenInput.value, 10) : null;
-          if (newMaxLen == null || isNaN(newMaxLen) || newMaxLen <= 0) delete newLayout.max_length;
-          else newLayout.max_length = newMaxLen;
-          if (newMinLen == null || isNaN(newMinLen) || newMinLen < 0) delete newLayout.min_length;
-          else newLayout.min_length = newMinLen;
-          if (newLayout.min_length != null && newLayout.max_length != null &&
-              newLayout.min_length > newLayout.max_length) {
-            _showToast("Min length nesmí být větší než max length", "error", 3000);
-            saveBtn.disabled = false;
-            saveBtn.style.opacity = "1";
-            return;
+          // Krok 5-B (29.5.2026): container-specific layout save +
+          // field-specific gated v if(!isContainer).
+          if (isContainer) {
+            // Container-specific: align + height + min_height + border_mode
+            if (containerAlignSelect) newLayout.align = containerAlignSelect.value;
+
+            // Height — parse like _openContainerSettings (int | 'auto' | '%')
+            const _parseSize = (v) => {
+              const s = String(v || "").trim();
+              if (s === "") return null;
+              if (s === "auto") return "auto";
+              if (/%$/.test(s)) return s;
+              const n = parseInt(s, 10);
+              return isNaN(n) ? null : n;
+            };
+            const newHeight = containerHeightInput ? _parseSize(containerHeightInput.value) : null;
+            if (newHeight == null) delete newLayout.height;
+            else newLayout.height = newHeight;
+
+            const newMinH = (containerMinHeightInput && containerMinHeightInput.value.trim())
+              ? parseInt(containerMinHeightInput.value, 10) : null;
+            if (newMinH == null || isNaN(newMinH) || newMinH <= 0) delete newLayout.min_height;
+            else newLayout.min_height = newMinH;
+
+            if (containerBorderSelect) newLayout.border_mode = containerBorderSelect.value;
+
+            // Drop legacy 'width' key (Marti's Bod 1: Width → Max width).
+            // Max width zustava obecne v max_width (sdileno s field).
+            delete newLayout.width;
+          } else {
+            // Field-specific: Max/Min length + Placeholder + Readonly + Required
+            // Max/Min length — text content (HTML5 maxlength/minlength)
+            const newMaxLen = maxLenInput && maxLenInput.value.trim() ? parseInt(maxLenInput.value, 10) : null;
+            const newMinLen = minLenInput && minLenInput.value.trim() ? parseInt(minLenInput.value, 10) : null;
+            if (newMaxLen == null || isNaN(newMaxLen) || newMaxLen <= 0) delete newLayout.max_length;
+            else newLayout.max_length = newMaxLen;
+            if (newMinLen == null || isNaN(newMinLen) || newMinLen < 0) delete newLayout.min_length;
+            else newLayout.min_length = newMinLen;
+            if (newLayout.min_length != null && newLayout.max_length != null &&
+                newLayout.min_length > newLayout.max_length) {
+              _showToast("Min length nesmí být větší než max length", "error", 3000);
+              saveBtn.disabled = false;
+              saveBtn.style.opacity = "1";
+              return;
+            }
+
+            // Placeholder
+            const newPh = placeholderInput ? placeholderInput.value.trim() : "";
+            if (newPh) newLayout.placeholder = newPh;
+            else delete newLayout.placeholder;
+
+            // Readonly + required boolean flags
+            if (roCheck && roCheck.checked) newLayout.readonly = true;
+            else delete newLayout.readonly;
+            if (reqCheck && reqCheck.checked) newLayout.required = true;
+            else delete newLayout.required;
           }
-
-          // Placeholder
-          const newPh = placeholderInput.value.trim();
-          if (newPh) newLayout.placeholder = newPh;
-          else delete newLayout.placeholder;
-
-          // Readonly + required boolean flags
-          if (roCheck.checked) newLayout.readonly = true;
-          else delete newLayout.readonly;
-          if (reqCheck.checked) newLayout.required = true;
-          else delete newLayout.required;
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:30):
           // entity_picker tab "Komponenta" — merge 6 nových fields do
@@ -7458,7 +7607,7 @@
           });
           lbl.addEventListener("click", (ev) => {
             ev.stopPropagation();
-            this._openContainerSettings(container);
+            this._openFieldSettings(container);
           });
           // Krok H+8.1 (26.5.2026): dblclick handler DROPPED — reverse
           // orchestrace je teted pres document-level hover/click v open()
@@ -7474,7 +7623,7 @@
             }
             ev.preventDefault();
             ev.stopPropagation();
-            this._openContainerSettings(container);
+            this._openFieldSettings(container);
           });
 
           // Krok H+7 (26.5.2026): drag listeners DROPPED — Marti's
@@ -7633,7 +7782,7 @@
           });
           tag.addEventListener("click", (ev) => {
             ev.stopPropagation();
-            this._openContainerSettings(container);
+            this._openFieldSettings(container);
           });
           // Krok H+8.1 (26.5.2026): dblclick handler DROPPED — orchestrace
           // teted centralized v open() pres mouseover/click (hover + select).
@@ -7647,7 +7796,7 @@
             }
             ev.preventDefault();
             ev.stopPropagation();
-            this._openContainerSettings(container);
+            this._openFieldSettings(container);
           });
 
           // Krok H+7 (26.5.2026): drag listeners DROPPED. Reorder pres

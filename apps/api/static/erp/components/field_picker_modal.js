@@ -2358,13 +2358,19 @@
         // Krok 5-B Fix #13: orphan re-activate path
         if (isOrphan && col.existing_comp_def_id) {
           try {
+            const targetParentId = this._resolveTargetParentId();
             const r = await fetch(
-              "/api/v1/erp/design/comp-def/" + col.existing_comp_def_id,
+              "/api/v1/erp/design/comp_def/" + col.existing_comp_def_id,
               {
                 method: "PATCH",
                 credentials: "include",
                 headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ field_changes: { is_active: true } }),
+                body: JSON.stringify({
+                  field_changes: {
+                    is_active: true,
+                    parent_comp_def_id: targetParentId,
+                  },
+                }),
               }
             );
             const d = await r.json().catch(() => ({}));
@@ -2439,26 +2445,6 @@
       const capText = document.createElement("span");
       capText.textContent = col.caption_default;
       labelCap.appendChild(capText);
-      // Krok 5-B Fix #13 (29.5.2026): amber badge s orphan reason +
-      // container marker (panel/groupbox/tabsheet).
-      if (isOrphan) {
-        const orphanBadge = document.createElement("span");
-        orphanBadge.style.cssText =
-          "font-size:10px;padding:1px 6px;background:rgba(212,184,138,0.18);" +
-          "color:#d4b88a;border-radius:8px;letter-spacing:0.3px;" +
-          "text-transform:uppercase;font-weight:600;";
-        orphanBadge.textContent = "obnovit · " + (col._orphan_reason || "orphan");
-        labelCap.appendChild(orphanBadge);
-        if (col._is_container) {
-          const ctBadge = document.createElement("span");
-          ctBadge.style.cssText =
-            "font-size:10px;padding:1px 6px;background:rgba(168,140,212,0.15);" +
-            "color:#a88cd4;border-radius:8px;letter-spacing:0.3px;" +
-            "text-transform:uppercase;font-weight:600;";
-          ctBadge.textContent = col.type_code || "container";
-          labelCap.appendChild(ctBadge);
-        }
-      }
       labelWrap.appendChild(labelName);
       labelWrap.appendChild(labelCap);
 

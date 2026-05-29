@@ -2453,9 +2453,13 @@
         "grid-template-rows:auto 1fr auto;" +
         "flex:1 1 auto;" +
         "min-height:0;" +
-        // Marti's polish (13.5.2026 ~15:15): gap mezi panel rows na
-        // polovinu (14px → 7px) — compact spacing mezi header/main/footer.
-        "gap:7px;";
+        // Phase 38.4 Krok 5-B Fix #7 polish (29.5.2026 pozde, Marti's
+        // "jeste to chce nahoru"): gap:7px → 0. Header row je casto
+        // prazdny (0 height) ale grid gap se aplikuje i tak — 7px
+        // air gap pred main panelem. Drop gap → main sedi flush pod
+        // modal header. Footer dostane vlastni marginTop:7px nize
+        // (zachova viditelny gap nad OK/Storno).
+        "gap:0;";
 
       // Extract panels — template.layout (Krok 14b+3) > form.layout (legacy)
       let panels = [];
@@ -2767,6 +2771,12 @@
           sec.wrap.style.gridRow = "2";
         } else if (panel.slot === "footer") {
           sec.wrap.style.gridRow = "3";
+          // Krok 5-B Fix #7 polish (29.5.2026): root grid gap:0 (drop
+          // 7px artifact pred main). Footer zachova viditelny gap nad
+          // sebou (oddeleny od MAIN-CLIENT obsahu) pres vlastni
+          // marginTop. Bez tohoto by OK/Storno sedelo flush pod
+          // poslednim panelem.
+          sec.wrap.style.marginTop = "7px";
         }
 
         // Phase 38.4 Krok 14b+3: render template-level components (header/footer)
@@ -4812,12 +4822,15 @@
       body.appendChild(_row("Min height", minHeightInput));
 
       // layout.border_mode (relevant pro groupbox primarne)
+      // Fix #8 (29.5.2026 pozde, Marti's "Mod All prepiseme na Top-Right"):
+      // label změnen z "All — full rámeček" na "Top-Right — linka
+      // nahore a vpravo". Enum value "all" zachován pro DB kompatibilitu.
       const borderSelect = document.createElement("select");
       borderSelect.style.cssText = _inputStyle;
       const borderModes = [
         ["none", "Žádný (default pro panel)"],
-        ["top", "Top — linka nahore (modern groupbox)"],
-        ["all", "All — full rámeček (Delphi compat)"],
+        ["top", "Top — linka nahore"],
+        ["all", "Top-Right — linka nahore a vpravo"],
       ];
       const currentBorder = currentLayout.border_mode || (isGroupbox ? "top" : "none");
       for (const [val, label] of borderModes) {
@@ -5387,10 +5400,14 @@
         // Border mode
         containerBorderSelect = document.createElement("select");
         containerBorderSelect.style.cssText = _inputStyle;
+        // Phase 38.4 Krok 5-B Fix #8 (29.5.2026 pozde, Marti's "Mod All
+        // prepiseme na Top-Right"): label změnen z "All — full rámeček"
+        // na "Top-Right — linka nahore a vpravo". Enum value "all" zachován
+        // pro zpetnou kompatibilitu s DB (zadna migrace).
         const borderModes = [
           ["none", "Žádný (default pro panel)"],
-          ["top", "Top — linka nahore (modern groupbox)"],
-          ["all", "All — full rámeček (Delphi compat)"],
+          ["top", "Top — linka nahore"],
+          ["all", "Top-Right — linka nahore a vpravo"],
         ];
         const _isGroupboxLike = (field.comp_type_code === "groupbox");
         const currentBorder = currentLayout.border_mode || (_isGroupboxLike ? "top" : "none");
@@ -7777,11 +7794,19 @@
         // jako dodatek, ne místo PROD border)
         let prodBorderStyle = "";
         let prodPaddingStyle = "";
+        // Phase 38.4 Krok 5-B Fix #8 (29.5.2026 pozde, Marti's "Mod All
+        // prepiseme na Top-Right - linka nahore a vpravo a aplikujeme
+        // stejnym zpusobem"): border_mode="all" mení vizuál z plného
+        // ramečku (border+border-radius) na top+right edges only.
+        // Zachováváme enum value "all" pro zpětnou kompatibilitu s DB,
+        // jen měníme jeho vizuální interpretaci.
         if (panelBorderMode === "all") {
-          prodBorderStyle = "border:1px solid #2a3340;border-radius:4px;";
+          prodBorderStyle =
+            "border-top:1px solid #2a3340;" +
+            "border-right:1px solid #2a3340;";
           prodPaddingStyle = panelCaption
-            ? "padding:6px 12px 10px 12px;margin:6px 0;"
-            : "padding:10px 12px;margin:6px 0;";
+            ? "padding:6px 8px 4px 0;margin:6px 0 0 0;"
+            : "padding:10px 8px 4px 0;margin:6px 0 0 0;";
         } else if (panelBorderMode === "top") {
           prodBorderStyle = "border-top:1px solid #2a3340;";
           prodPaddingStyle = panelCaption
@@ -8091,11 +8116,14 @@
           // PROD mode: existing visual styling (border-top / 'all')
           // 29.5.2026: padding-top reduced to 6px when labelText present
           // → caption sedi tesne pod border line (Marti's "hned pod tu linku")
+          // Fix #8 (29.5.2026 pozde): 'all' mení vizuál z plného ramečku
+          // na top+right edges only (Marti's "Mod All prepiseme na Top-Right").
           if (borderMode === "all") {
             wrap.style.cssText =
-              "border:1px solid #2a3340;border-radius:4px;" +
-              (labelText ? "padding:6px 12px 10px 12px;" : "padding:10px 12px;") +
-              "margin:6px 0;" +
+              "border-top:1px solid #2a3340;" +
+              "border-right:1px solid #2a3340;" +
+              (labelText ? "padding:6px 8px 4px 0;" : "padding:10px 8px 4px 0;") +
+              "margin:6px 0 0 0;" +
               "grid-column:1/-1;";
           } else {
             // 'top' default — jen linka nahore, padding-top

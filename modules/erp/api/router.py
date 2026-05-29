@@ -4037,8 +4037,11 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             )
 
         # Optimistic lock — porovnat updated_at
+        # Krok 5-B Fix #13 (29.5.2026 vecer): skip check kdyz klient
+        # neposlal expected_updated_at (service mode, designer fast path).
+        # Marti's "je to jen update fieldu is_active a parent" doctrine.
         current_updated_at = current_row.get("updated_at")
-        if current_updated_at is not None:
+        if current_updated_at is not None and expected_updated_at:
             # Normalize obé na ISO bez milisecond fuzz
             current_iso = current_updated_at.isoformat() if hasattr(current_updated_at, 'isoformat') else str(current_updated_at)
             # Klient posle expected_updated_at jako string — porovnej ho s server's ISO

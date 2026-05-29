@@ -7726,26 +7726,69 @@
         }
 
         // Render container children — Krok 5.X dispatch nested_grid → child section.
-        for (let i = 0; i < children.length; i++) {
-          const childComp = children[i];
+        //
+        // Krok 5-B (29.5.2026 dopoledne, Marti's "PANEL TOP LEFT align=left
+        // se taze pres celou sirku ne strip vlevo"): Detect Delphi-style
+        // align mix v container children (panel/groupbox/tabsheet s align
+        // left/right/top/bottom). Pokud ano, route pres _buildAlignLayout
+        // (Delphi alignment reservations). Jinak simple loop (legacy).
+        //
+        // Pattern: alLeft+alClient siblings musi byt v flex-row layoutu,
+        // ne stack vertikalne. _buildAlignLayout handles reservations
+        // (alLeft + alRight reserved on sides, alClient fills remaining).
+        const _DELPHI_ALIGNS = new Set(["left", "right", "top", "bottom"]);
+        const _regularChildren = [];
+        const _nestedGridChildren = [];
+        for (const childComp of children) {
           if (childComp && childComp.comp_type_code === "nested_grid") {
-            const lay = childComp.layout || {};
-            const childKey = lay.child_key;
-            const childInfo = childKey ? childrenData[childKey] : null;
-            if (childInfo) {
-              const sec = this._renderChildSection(childKey, childInfo);
-              if (sec) wrap.appendChild(sec);
-            } else {
-              console.warn(
-                "[DesignFwForm] nested_grid #" + childComp.id +
-                " has no childInfo (child_key=" + childKey +
-                ", available: " + Object.keys(childrenData).join(",") + ")"
-              );
-            }
-            continue;
+            _nestedGridChildren.push(childComp);
+          } else {
+            _regularChildren.push(childComp);
           }
-          const childEl = this._renderComponentTree(childComp, i, children.length);
-          if (childEl) wrap.appendChild(childEl);
+        }
+        const _needsAlignLayout = _regularChildren.some(c => {
+          const a = String((c && c.layout && c.layout.align) || "client").toLowerCase();
+          return _DELPHI_ALIGNS.has(a);
+        });
+
+        if (_needsAlignLayout && _regularChildren.length > 0) {
+          // Delphi align layout: route children pres _buildAlignLayout
+          // ktery generuje top-strip + middle-row(left+client+right) + bottom-strip.
+          // Wrap si zachova flex-column (top → middle → bottom stacking).
+          // Need: wrap.style override na flex column (drop implicit grid).
+          wrap.style.display = "flex";
+          wrap.style.flexDirection = "column";
+          wrap.style.minHeight = "0";
+          wrap.style.minWidth = "0";
+          const alignLayout = this._buildAlignLayout(_regularChildren);
+          if (alignLayout) wrap.appendChild(alignLayout);
+        } else {
+          // Legacy simple loop — children appendovany direct (stack vertikalne
+          // nebo implicit grid podle useImplicitGrid baseStyle).
+          for (let i = 0; i < _regularChildren.length; i++) {
+            const childComp = _regularChildren[i];
+            const childEl = this._renderComponentTree(childComp, i, _regularChildren.length);
+            if (childEl) wrap.appendChild(childEl);
+          }
+        }
+
+        // Nested grids (TELEFONY/EMAILY pres fw.comp_def kind='container'):
+        // appendovat AFTER align layout (or after legacy loop). Marti's
+        // pattern z 27.5. - nested grids patri pod regular components.
+        for (const childComp of _nestedGridChildren) {
+          const lay = childComp.layout || {};
+          const childKey = lay.child_key;
+          const childInfo = childKey ? childrenData[childKey] : null;
+          if (childInfo) {
+            const sec = this._renderChildSection(childKey, childInfo);
+            if (sec) wrap.appendChild(sec);
+          } else {
+            console.warn(
+              "[DesignFwForm] nested_grid #" + childComp.id +
+              " has no childInfo (child_key=" + childKey +
+              ", available: " + Object.keys(childrenData).join(",") + ")"
+            );
+          }
         }
 
         return wrap;

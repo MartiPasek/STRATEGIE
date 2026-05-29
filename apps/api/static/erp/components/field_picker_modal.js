@@ -2381,7 +2381,6 @@
             if (typeof this.opts.onComplete === "function") {
               this.opts.onComplete();
             }
-            await this._reloadHierarchyState();
             this._render();
           } catch (e) {
             _showToast("Obnoveni selhalo: " + (e.message || e), "error", 3000);

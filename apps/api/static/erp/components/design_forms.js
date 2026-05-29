@@ -8467,14 +8467,50 @@
         case "date_modern": {
           // ErpDate komponenta (Phase B+6.7) — pokud zaregistrovana,
           // jinak fallback na _field s type='date'.
-          const el = _field(label, value, {
+          // Krok 5-B Fix #14 (29.5.2026, Marti's "Datum se nenacita"):
+          // HTML5 input type=date akceptuje pouze YYYY-MM-DD. Backend posila
+          // ruzne formaty (ISO timestamp, Czech 15.05.2026, Date object).
+          // Normalize value PRED predanim do _field, jinak input.value
+          // zustane prazdna po type='date' swap.
+          let _normalizedDate = "";
+          if (value != null && value !== "") {
+            const _rawStr = String(value).trim();
+            if (_rawStr) {
+              // ISO timestamp "2026-05-15T..." nebo "2026-05-15 ..."
+              if (/^\d{4}-\d{2}-\d{2}/.test(_rawStr)) {
+                _normalizedDate = _rawStr.slice(0, 10);
+              }
+              // Czech "15.05.2026" → "2026-05-15"
+              else if (/^\d{1,2}\.\d{1,2}\.\d{4}/.test(_rawStr)) {
+                const _m = _rawStr.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})/);
+                if (_m) {
+                  _normalizedDate = _m[3] + "-" + _m[2].padStart(2, "0") + "-" + _m[1].padStart(2, "0");
+                }
+              }
+              // Fallback: Date constructor parse
+              else {
+                try {
+                  const _d = new Date(_rawStr);
+                  if (!isNaN(_d.getTime())) {
+                    _normalizedDate = _d.toISOString().slice(0, 10);
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+          const el = _field(label, _normalizedDate, {
             fieldKey: fieldKey,
             readonly: readonly,
             onDirty: onDirty,
           });
           try {
             const input = el.querySelector("input");
-            if (input) input.type = "date";
+            if (input) {
+              input.type = "date";
+              // Force set value znovu pro pripad ze ErpInput placeholder
+              // override DOM (input.value setting po type swap).
+              if (_normalizedDate) input.value = _normalizedDate;
+            }
           } catch (e) {}
           return el;
         }

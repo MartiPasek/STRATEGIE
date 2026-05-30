@@ -1613,9 +1613,14 @@
                             payload.code === "panel" ||
                             payload.code === "groupbox";
         const isLabel = payload.code === "label" || payload.code === "label_readonly";
+        // Krok 5.Z (Marti 30.5.): grid_modern nemapuje DB sloupec formu (ma
+        // vlastni data_source). Direct create bez column pickeru — jinak by
+        // padal "Form nema data_entity_type — nelze ziskat columns" na formech
+        // bez entity. data_source + filter nastavi Marti pres ⚙ "Nastaveni gridu".
+        const isGrid = payload.code === "grid_modern";
 
         let nameToUse, captionToUse;
-        if (isContainer || isLabel) {
+        if (isContainer || isLabel || isGrid) {
           // No DB binding needed — direct create
           nameToUse = payload.code + "_" + Date.now().toString(36);
           captionToUse = payload.label;

@@ -5611,9 +5611,74 @@
       inHeight.type = "number"; inHeight.value = (layout.height_px != null ? layout.height_px : 400); inHeight.style.cssText = _is;
       body.appendChild(_mkRow("Výška (px)", inHeight, "použije se když align != client"));
 
-      const inDs = document.createElement("input");
-      inDs.type = "text"; inDs.value = layout.data_source_code || ""; inDs.style.cssText = _is;
-      body.appendChild(_mkRow("Data source (code)", inDs, "fw.data_source.code"));
+      // Krok 5.Z (30.5.2026, Marti: "v prvni rade by se nemelo vybirat
+      // datasource code, ale Datasource ID"): picker podle ID misto free-text
+      // code. ErpCatalogPicker -> /design/fw-data-source/list (mirror
+      // entity_picker pattern). Pri ulozeni PATCH data_source_id (FK) ->
+      // stabilni ds_<id> layoutKey (ukladani sestav sloupcu funguje bez
+      // _set_grid_ds_fk.sql) + layout.data_source_code odvozeny z vybraneho
+      // code (pro /data/{code} URL). kind auto-fill z operation_kinds.
+      // "fw self edited" — zadny rucni code, vyber vizualne. DataSource + op +
+      // dataset se stavi ve svych designerech (System tree), grid jen referuje.
+      let dsState = (comp.data_source_id != null)
+        ? { id: comp.data_source_id, code: layout.data_source_code || comp.data_source_code || null, name: comp.data_source_name || null }
+        : (layout.data_source_code ? { id: null, code: layout.data_source_code, name: null } : null);
+      const dsDisplay = document.createElement("input");
+      dsDisplay.type = "text"; dsDisplay.readOnly = true;
+      dsDisplay.style.cssText = _is + "flex:1;background:#0f1419;color:#cfd6df;cursor:default;";
+      const _refreshDsDisplay = () => {
+        if (dsState && (dsState.id != null || dsState.code)) {
+          dsDisplay.value = (dsState.id != null ? "#" + dsState.id + " · " : "") +
+            (dsState.name || dsState.code || "(?)");
+        } else {
+          dsDisplay.value = "(žádný — klikni 🔗)";
+        }
+      };
+      _refreshDsDisplay();
+      const dsPickBtn = document.createElement("button");
+      dsPickBtn.type = "button"; dsPickBtn.textContent = "🔗"; dsPickBtn.title = "Vybrat data source";
+      dsPickBtn.style.cssText =
+        "padding:6px 10px;background:#1a1f26;border:1px solid #2a3340;" +
+        "color:#8fb8d4;border-radius:3px;cursor:pointer;font-size:14px;flex:0 0 auto;";
+      dsPickBtn.addEventListener("click", () => {
+        if (typeof window.ErpCatalogPicker !== "function") {
+          if (typeof _showToast === "function") _showToast("ErpCatalogPicker není načtený", "error", 3000);
+          return;
+        }
+        const _p = new window.ErpCatalogPicker({
+          title: "🔗 Vybrat data source pro grid",
+          endpoint: "/api/v1/erp/design/fw-data-source/list?status=active&limit=500",
+          listKey: "data_sources",
+          coreId: 19,  // framework_data_sources core (mirror entity_picker)
+          idField: "id", labelField: "name", width: "920px",
+          initialSelectedId: (dsState && dsState.id != null) ? dsState.id : null,
+          columns: [
+            { headerName: "ID", field: "id", width: 80, type: "numericColumn" },
+            { headerName: "Code", field: "code", width: 280 },
+            { headerName: "Název", field: "name", flex: 1, minWidth: 200 },
+            { headerName: "Operace", field: "operation_kinds", width: 160 },
+          ],
+          onSelect: (row) => {
+            dsState = { id: row.id, code: row.code || null, name: row.name || null };
+            _refreshDsDisplay();
+            // auto-fill kind z operation_kinds (select-detail > select)
+            const oks = String(row.operation_kinds || "");
+            if (oks.indexOf("select-detail") !== -1) selKind.value = "select-detail";
+            else if (oks.indexOf("select") !== -1) selKind.value = "select";
+          },
+        });
+        _p.open();
+      });
+      const dsClearBtn = document.createElement("button");
+      dsClearBtn.type = "button"; dsClearBtn.textContent = "🚫"; dsClearBtn.title = "Zrušit binding";
+      dsClearBtn.style.cssText =
+        "padding:6px 10px;background:#1a1f26;border:1px solid #2a3340;" +
+        "color:#d48787;border-radius:3px;cursor:pointer;font-size:14px;flex:0 0 auto;";
+      dsClearBtn.addEventListener("click", () => { dsState = null; _refreshDsDisplay(); });
+      const dsWrap = document.createElement("div");
+      dsWrap.style.cssText = "display:flex;gap:6px;align-items:center;";
+      dsWrap.appendChild(dsPickBtn); dsWrap.appendChild(dsClearBtn); dsWrap.appendChild(dsDisplay);
+      body.appendChild(_mkRow("Data source", dsWrap, "vyber z fw.data_source podle ID (ne ručně code)"));
 
       const inFf = document.createElement("input");
       inFf.type = "text"; inFf.value = layout.filter_field || ""; inFf.style.cssText = _is;
@@ -5661,7 +5726,7 @@
         newLayout.align = selAlign.value;
         const hp = parseInt(inHeight.value, 10);
         newLayout.height_px = (!isNaN(hp) && hp > 0) ? hp : 400;
-        newLayout.data_source_code = inDs.value.trim() || null;
+        newLayout.data_source_code = (dsState && dsState.code) ? dsState.code : null;
         newLayout.filter_field = inFf.value.trim() || null;
         if (selFs.value) newLayout.filter_source = selFs.value; else delete newLayout.filter_source;
         if (selKind.value) newLayout.kind = selKind.value; else delete newLayout.kind;
@@ -5674,6 +5739,8 @@
             body: JSON.stringify({
               layout: newLayout,
               caption: (inTitle.value.trim() || comp.caption || null),
+              // Krok 5.Z: FK na fw.data_source -> stabilni ds_<id> layoutKey.
+              data_source_id: (dsState && dsState.id != null) ? dsState.id : null,
             }),
           });
           const d = await r.json().catch(() => ({}));

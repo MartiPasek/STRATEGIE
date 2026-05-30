@@ -5771,11 +5771,12 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               layout: newLayout,
-              // Krok 5.Z (30.5.2026, Marti: "kdyz label smazu, NULL se do gridu
-              // nepropise, zustane stary text"): caption kopiruje Titulek PRESNE,
-              // zadny || comp.caption fallback. Smazani Titulku -> caption=null +
-              // layout.title=null -> titleUser prazdny -> header skryty.
-              caption: (inTitle.value.trim() || null),
+              // Krok 5.Z (30.5.2026, Marti: "kdyz label smazu, zustane stary
+              // text"): caption kopiruje Titulek PRESNE (empty string, NE null
+              // — backend vyzaduje string, "" = invisible label doctrine
+              // Krok 14f-D). Smazani Titulku -> caption="" + layout.title=null
+              // -> titleUser prazdny -> header skryty.
+              caption: inTitle.value.trim(),
               // Krok 5.Z: FK na fw.data_source -> stabilni ds_<id> layoutKey.
               data_source_id: (dsState && dsState.id != null) ? dsState.id : null,
             }),

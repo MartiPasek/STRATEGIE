@@ -8354,7 +8354,9 @@
           const isActive = (ts.id === activeTsId);
           const tabBtn = document.createElement("button");
           tabBtn.type = "button";
+          tabBtn.className = "erp-pc-tab";
           tabBtn.dataset.tabsheetId = String(ts.id);
+          tabBtn.dataset.pcId = String(pcId);
           tabBtn.style.cssText =
             "padding:8px 14px;background:transparent;border:none;outline:none;" +
             "border-bottom:2px solid " + (isActive ? "#7ed4e8" : "transparent") + ";" +
@@ -8428,36 +8430,34 @@
           // Click → switch active tab
           tabBtn.addEventListener("click", () => {
             this._activeTabSheets[pcId] = ts.id;
-            // Krok 5.Z (30.5.2026, Marti: "pri prepinani tabu se recreatuji
-            // gridy v jinem regionu, problem s nacitanim"): re-render JEN tento
-            // pagecontrol node, ne cely form. Full this._render() znicil +
-            // recreatoval VSECHNY ErpDataGrid (i mimo tabsheety) -> re-fetch +
-            // MCP rate limit. Lokalni swap: najdi stary pcWrap, nahrad novym
-            // (cte aktualizovany _activeTabSheets). Fallback na _render pri chybe.
+            // Krok 5.Z (30.5.2026, Marti: "kdyz neco pisu do jednoho sheetu a
+            // prepnu do druheho, prijdu o zmeny — resetuji se"): VSECHNY
+            // tabsheety jsou v DOM jako .erp-pc-pane (neaktivni display:none).
+            // Prepnuti = JEN toggle visibility panu + aktivni styl tab buttonu.
+            // ZADNY re-render -> field DOM (a rozeditovane hodnoty) persistuji.
+            // Bonus: embedded gridy se uz nerecreatuji (zadny re-fetch / MCP
+            // rate limit) — proto padl drivejsi lokalni pcWrap swap.
             try {
-              const _oldPc = document.querySelector(
+              const _pc = document.querySelector(
                 '.erp-design-pagecontrol[data-comp-def-id="' + container.id + '"]'
               );
-              if (_oldPc && _oldPc.parentNode && this.__renderCtx) {
-                const _newPc = this._renderContainerNode(container);
-                if (_newPc) {
-                  // Krok 5.Z (30.5.2026, Marti: "pri prepinani sheetu se memo
-                  // smrskne — alClient se neaplikuje"): _renderContainerNode
-                  // standalone MINE _buildAlignLayout client bucket, ktery na
-                  // prvni render nastavil flex:1 + min-height na pcWrap. Bez
-                  // toho nova pcWrap nema vysku -> contentArea + memo se
-                  // smrsknou. Zkopiruj layout styly ze stare pcWrap na novou.
-                  ["flex", "minHeight", "maxHeight", "height", "minWidth",
-                   "maxWidth", "alignSelf", "boxSizing", "marginTop",
-                   "marginBottom"].forEach(function (p) {
-                    if (_oldPc.style[p]) _newPc.style[p] = _oldPc.style[p];
-                  });
-                  _oldPc.parentNode.replaceChild(_newPc, _oldPc);
-                  return;
-                }
+              if (_pc) {
+                _pc.querySelectorAll(".erp-pc-pane").forEach(function (pane) {
+                  if (pane.dataset.pcId !== String(pcId)) return;  // nested pc guard
+                  pane.style.display =
+                    (pane.dataset.tabsheetId === String(ts.id)) ? "flex" : "none";
+                });
+                _pc.querySelectorAll(".erp-pc-tab").forEach(function (btn) {
+                  if (btn.dataset.pcId !== String(pcId)) return;  // nested pc guard
+                  const _act = (btn.dataset.tabsheetId === String(ts.id));
+                  btn.style.borderBottomColor = _act ? "#7ed4e8" : "transparent";
+                  btn.style.color = _act ? "#e8eef5" : "#8a96a4";
+                  btn.style.fontWeight = _act ? "600" : "400";
+                });
+                return;
               }
             } catch (e) {
-              console.error("[pagecontrol] local tab switch failed, fallback _render:", e);
+              console.error("[pagecontrol] tab toggle failed, fallback _render:", e);
             }
             this._render();
           });
@@ -8656,13 +8656,26 @@
           "flex:1 1 auto;padding:12px;display:flex;flex-direction:column;" +
           "gap:8px;min-height:0;min-width:0;overflow:auto;";
 
-        const activeTs = tabsheets.find(ts => ts.id === activeTsId);
-        if (activeTs) {
-          const tsChildren = byParent.get(activeTs.id) || [];
+        // Krok 5.Z (30.5.2026, Marti: "prepnuti tabu resetuje rozeditovane
+        // fieldy"): render VSECHNY tabsheety jako .erp-pc-pane, neaktivni
+        // display:none. Tab switch (click handler vyse) jen toggle visibility
+        // -> field DOM + editace persistuji napric prepinanim. Drive se
+        // renderoval jen aktivni tabsheet -> switch zahodil DOM + editace.
+        for (const ts of tabsheets) {
+          const tsPane = document.createElement("div");
+          tsPane.className = "erp-pc-pane";
+          tsPane.dataset.tabsheetId = String(ts.id);
+          tsPane.dataset.pcId = String(pcId);
+          const _isActivePane = (ts.id === activeTsId);
+          tsPane.style.cssText =
+            "flex:1 1 auto;flex-direction:column;gap:8px;min-height:0;" +
+            "min-width:0;" + (_isActivePane ? "display:flex;" : "display:none;");
+          const tsChildren = byParent.get(ts.id) || [];
           for (let i = 0; i < tsChildren.length; i++) {
             const childEl = this._renderComponentTree(tsChildren[i], i, tsChildren.length);
-            if (childEl) contentArea.appendChild(childEl);
+            if (childEl) tsPane.appendChild(childEl);
           }
+          contentArea.appendChild(tsPane);
         }
         pcWrap.appendChild(contentArea);
         return pcWrap;

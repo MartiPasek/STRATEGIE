@@ -4911,8 +4911,15 @@
       const filterSource = layout.filter_source || null;
       let filterValue = null;
       if (filterSource === ":master_id") {
+        // Data-driven: PK editovaneho row (komponenty editovaneho core).
         filterValue = (this._spec && this._spec.data && this._spec.data.id != null)
           ? this._spec.data.id : null;
+      } else if (filterSource === ":self_core_id") {
+        // Krok 5.Z Volba B (Marti 30.5.): forms vlastni core (self-ref). Grid
+        // ukazuje komponenty CORE k nemuz tento form patri (this._spec.core.id),
+        // bez ohledu na editovany row. Pro "Core setting -> Vazby = moje komponenty".
+        filterValue = (this._spec && this._spec.core && this._spec.core.id != null)
+          ? this._spec.core.id : null;
       }
       // Future tokens (:form_root_id, :runtime_<x>) zde.
 
@@ -4938,10 +4945,11 @@
         "grid-column:1 / -1;width:100%;height:" + heightPx + "px;box-sizing:border-box;";
       sec.grid.appendChild(host);
 
-      // Guard: filter required ale row jeste neulozena (CREATE mode, data.id=null).
-      if (filterField && filterSource === ":master_id" && filterValue == null) {
+      // Guard: filter required ale token se neresolvoval (CREATE mode data.id=null
+      // pro :master_id, nebo chybejici core pro :self_core_id).
+      if (filterField && filterSource && filterValue == null) {
         host.innerHTML = '<div style="padding:12px;color:#8a96a4;font-size:12px;">' +
-          'ℹ Uložte záznam nejdřív — embedded grid se zobrazí po přiřazení ID.</div>';
+          'ℹ Filtr nedostupný — záznam ještě nemá přiřazené ID.</div>';
         return sec.wrap;
       }
 

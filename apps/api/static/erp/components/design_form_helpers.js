@@ -490,6 +490,27 @@
       ".erp-design-modal .erp-field-design[data-design-color] select {\n" +
       "  color: var(--field-color, inherit) !important;\n" +
       "}\n" +
+      // Krok 5.Z (30.5.2026, Marti: "memo alClient nevyplni panel — pridej
+      // fill"): memo s layout.fill=true dostane class erp-field-memo-fill.
+      // Memo wrap flex:1 + textarea height:100% (!important prebije ErpMemo
+      // auto-resize inline height). :has() propaguje flex:1 na DESIGN wrapper.
+      // Funguje kdyz je memo v flex-column kontejneru (tabsheet contentArea /
+      // panel flex-column) — vyplni jeho vysku jako alClient.
+      ".erp-design-modal .erp-field-memo-fill {\n" +
+      "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo,\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo-input {\n" +
+      "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
+      "  display: flex; flex-direction: column;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-memo-fill textarea {\n" +
+      "  flex: 1 1 auto !important; height: 100% !important;\n" +
+      "  min-height: 0 !important; resize: none !important;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-design-wrap:has(.erp-field-memo-fill) {\n" +
+      "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
+      "}\n" +
       // Krok 14a-A1o (12.5.2026 vecer): section title (GroupBox header)
       // color override — stejny pattern jako field text. Cilime na cely
       // header element (i jeho user/system spans), aby color zustal i

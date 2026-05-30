@@ -6326,6 +6326,8 @@
       let minLenInput = null;
       let roCheck = null;
       let reqCheck = null;
+      // Krok 5.Z (30.5.2026, Marti: memo fill): "Roztáhnout (fill)" jen pro memo.
+      let fillCheck = null;
       if (!isContainer) {
         // Phase 38.4 Krok 14f-M (text length validation, advanced):
         // Max/Min length textu (HTML5 maxlength/minlength). Optional.
@@ -6372,6 +6374,25 @@
         reqCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
         reqCheckWrap.appendChild(reqCheck);
         basicPaneEl.appendChild(reqCheckWrap);
+
+        // Krok 5.Z (30.5.2026, Marti: "memo alClient nevyplni panel — pridej
+        // fill"): "Roztáhnout (fill)" checkbox JEN pro memo. Zapnuto -> memo
+        // wrap flex:1 + textarea height:100% (vyplni vysku tab/panel flex-column
+        // kontejneru, jako alClient). Leaf fieldy jinak fill nemaji.
+        if (field && field.comp_type_code === "memo") {
+          const fillWrap = document.createElement("div");
+          fillWrap.style.cssText = "display:grid;grid-template-columns:130px 1fr;gap:10px;align-items:center;";
+          const fillLbl = document.createElement("label");
+          fillLbl.textContent = "Roztáhnout (fill)";
+          fillLbl.style.cssText = "color:#a8b4c2;font-size:12px;";
+          fillWrap.appendChild(fillLbl);
+          fillCheck = document.createElement("input");
+          fillCheck.type = "checkbox";
+          fillCheck.checked = !!currentLayout.fill;
+          fillCheck.style.cssText = "width:18px;height:18px;cursor:pointer;justify-self:start;";
+          fillWrap.appendChild(fillCheck);
+          basicPaneEl.appendChild(fillWrap);
+        }
       }
 
       // ════════════════════════════════════════════════════════════════════
@@ -6989,6 +7010,9 @@
             else delete newLayout.readonly;
             if (reqCheck && reqCheck.checked) newLayout.required = true;
             else delete newLayout.required;
+            // Krok 5.Z memo fill flag (jen memo ma fillCheck)
+            if (fillCheck && fillCheck.checked) newLayout.fill = true;
+            else delete newLayout.fill;
           }
 
           // Phase 38.4 Krok 14g Etapa F Krok 5.J-A (16.5.2026 ~23:30):
@@ -9289,11 +9313,15 @@
         case "memo": {
           // Textarea — pokud _memo helper zaregistrovan
           if (typeof _memo === "function") {
-            return _memo(label, value, {
+            const memoEl = _memo(label, value, {
               fieldKey: fieldKey,
               readonly: readonly,
               onDirty: onDirty,
             });
+            // Krok 5.Z (30.5.2026, Marti memo fill): layout.fill -> class
+            // erp-field-memo-fill -> CSS flex:1 + textarea height:100%.
+            if (memoEl && fieldLayout.fill) memoEl.classList.add("erp-field-memo-fill");
+            return memoEl;
           }
           // Fallback: _field but multiline (cosmetic — height: 60px)
           const el = _field(label, value, {

@@ -1171,16 +1171,29 @@
       // marker query — kdykoliv otevreny existing modal, no-op re-open
       // bez ohledu na callsite path.
       try {
+        // Smart re-open guard (30.5.2026, Marti's volba B = modal stack):
+        // - existing s STEJNYM coreId → block (true re-open)
+        // - existing s JINYM coreId → allow (stacked modal, Centrala 1 pattern)
         var _existing = document.querySelector('[data-design-fw-form-root="1"]');
         if (_existing) {
-          console.warn(
-            "[DesignFwForm] re-open ignored — instance already open. " +
-            "Close existing modal (X / Esc / OK) first. " +
-            "(opts.coreId=" + this.opts.coreId +
-            ", opts.coreCode=" + this.opts.coreCode +
-            ", opts.rowId=" + this.opts.rowId + ")"
-          );
-          return;
+          var _existingCoreId = _existing.dataset.designFwFormCoreId;
+          var _newCoreId = String(this.opts.coreId);
+          if (_existingCoreId === _newCoreId) {
+            console.warn(
+              "[DesignFwForm] re-open ignored — instance with SAME coreId already open. " +
+              "Close existing modal (X / Esc / OK) first. " +
+              "(opts.coreId=" + this.opts.coreId +
+              ", opts.coreCode=" + this.opts.coreCode +
+              ", opts.rowId=" + this.opts.rowId + ")"
+            );
+            return;
+          } else {
+            console.info(
+              "[DesignFwForm] stacked modal — existing coreId=" + _existingCoreId +
+              " vs new coreId=" + _newCoreId + " — allow (Marti's volba B)"
+            );
+            // Fall through to open
+          }
         }
       } catch (e) { /* fail-safe — querySelector pad → continue (puvodni behavior) */ }
 
@@ -1277,6 +1290,9 @@
       try {
         if (this._shell && this._shell.overlay) {
           this._shell.overlay.dataset.designFwFormRoot = "1";
+          // Smart re-open guard (30.5.2026, Marti's volba B = modal stack):
+          // ulož coreId do marker. Guard pak rozliší stejný vs jiný core.
+          this._shell.overlay.dataset.designFwFormCoreId = String(this.opts.coreId);
         }
       } catch (e) {}
 

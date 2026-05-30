@@ -8520,13 +8520,20 @@
         // panel children), apply CSS grid auto-fit pro side-by-side layout.
         // Pokud panel ma container children (groupbox), zustane flex column
         // (groupbox samotny dela inner grid).
+        // Krok 5.Z (30.5.2026, Marti's "nejde roztahnout pres alClient"):
+        // embedded grid_modern child potrebuje flex-column panel (NE implicit
+        // CSS grid), jinak grid sec.wrap flex:1 nema flex kontext a nezvetsi
+        // se na vysku panelu. grid_modern proto NENI "leaf field" pro layout
+        // ucely — chova se jako container child (drzi panel flex-column).
+        const hasGridChild = children.some(c => c.comp_type_code === "grid_modern");
         const hasContainerChild = children.some(c =>
           c.comp_type_code === "panel" || c.comp_type_code === "groupbox"
         );
         const hasLeafChild = children.some(c =>
-          c.comp_type_code !== "panel" && c.comp_type_code !== "groupbox"
+          c.comp_type_code !== "panel" && c.comp_type_code !== "groupbox" &&
+          c.comp_type_code !== "grid_modern"
         );
-        const useImplicitGrid = !hasContainerChild && hasLeafChild;
+        const useImplicitGrid = !hasContainerChild && !hasGridChild && hasLeafChild;
         // Krok 5-B (29.5.2026 odpoledne, Marti's "panel prelejza svoje
         // hranice"): box-sizing:border-box univerzalne pro panel wraps —
         // pokud user nastavi Height/Max width, hodnota INCLUDES padding+border

@@ -2834,10 +2834,28 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # AG Grid features (filter/sort/copy/layout). Layout JSONB nese
         # data_source_code + filter_field + filter_source (:master_id) +
         # height_px + title + context_menu.
+        # Krok 5.Z (30.5.2026, Marti: "na nestes gridech ma byt core_id tech
+        # prehledu detailu, ne 72 formulare"). overview_core_id = fw.core, jehoz
+        # ROOT grid (parent_comp_def_id IS NULL) bezi nad STEJNYM data_source
+        # jako tento nested grid. Tj. core "prehledu", ktery nested grid zrcadli
+        # (CRM Kontakty / CRM Akce). Footer pill + Core setting na nested gridu
+        # pak ukaze identitu prehledu, ne parent formu.
         embedded_grids_rows = ds.execute(_sql_fwid("""
             SELECT cd.id AS comp_def_id, cd.parent_comp_def_id, cd.name,
                    cd.caption, cd.layout, cd.sort_order, cd.data_source_id,
-                   ds.code AS data_source_code, ds.name AS data_source_name
+                   ds.code AS data_source_code, ds.name AS data_source_name,
+                   (
+                     SELECT root.core_id
+                     FROM fw.comp_def root
+                     JOIN fw.comp_type rct ON rct.id = root.type_id
+                     WHERE root.data_source_id = cd.data_source_id
+                       AND root.parent_comp_def_id IS NULL
+                       AND root.core_id IS NOT NULL
+                       AND root.is_active = true
+                       AND rct.code IN ('grid_modern', 'list', 'list_root')
+                     ORDER BY root.core_id ASC
+                     LIMIT 1
+                   ) AS overview_core_id
             FROM fw.comp_def cd
             JOIN fw.comp_type ct ON ct.id = cd.type_id
             LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id

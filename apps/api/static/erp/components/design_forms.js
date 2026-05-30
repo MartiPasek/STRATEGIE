@@ -5068,6 +5068,12 @@
       const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
         ? layout.height_px : 360;
       const editCoreId = (layout.edit_core_id != null) ? layout.edit_core_id : null;
+      // Krok 5.Z (30.5.2026): core "prehledu", ktery tento nested grid zrcadli
+      // (backend resolvuje pres data_source_id -> root grid core). Footer pill
+      // + Core setting na nested gridu ukazuji identitu PREHLEDU, ne parent
+      // formu. Viz fw_form_load_by_id embedded_grids subselect overview_core_id.
+      const overviewCoreId = (comp && comp.overview_core_id != null)
+        ? comp.overview_core_id : null;
 
       // CRUD gating: create/edit potrebuji edit form core. Bez edit_core_id
       // jen 'refresh' (display-first milestone). Marti's "drz jednoduchost" —
@@ -5181,17 +5187,17 @@
             compact: true,
             disableColumnFlex: true,
             coreInfo: {
-              // Krok 5.Z (30.5.2026, Marti: "na nested gridech se nezobrazuje
-              // vlevo dole core_id:row_id" + "Core setting predava jiny id").
-              // coreInfo.coreId je SDILENY dvema konzumenty:
-              //   1) pill v paticce (core_id:row_id),
-              //   2) akce "Core setting" -> DesignFwForm(coreId:49, rowId:coreId).
-              // Musi to byt SKUTECNY fw.core.id (NE data_source_id!), jinak
-              // Core setting inspektuje spatny zaznam. Master grid posila page
-              // core_id (page_render.js). Nested grid: edit_core_id gridu, jinak
-              // fallback na core formulare (_coreId) -> vzdy realny core, pill
-              // se vzdy zobrazi; row_id doplni _updateCoreInfoPill na cellFocused.
-              coreId: (editCoreId != null) ? editCoreId : _coreId,
+              // Krok 5.Z (30.5.2026, Marti: "na nested gridech ma byt core_id
+              // tech prehledu detailu, ne 72 formulare"). coreInfo.coreId je
+              // SDILENY: 1) pill v paticce (core_id:row_id), 2) akce "Core
+              // setting" -> DesignFwForm(coreId:49, rowId:coreId). Pro nested
+              // grid je spravna identita core PREHLEDU, ktery grid zrcadli:
+              //   1) overviewCoreId (backend resolve pres data_source -> root grid),
+              //   2) editCoreId (edit form gridu, fallback),
+              //   3) _coreId (parent form, last-resort, nikdy data_source_id!).
+              // Master grid posila vlastni page core_id (page_render.js).
+              coreId: (overviewCoreId != null) ? overviewCoreId
+                    : (editCoreId != null) ? editCoreId : _coreId,
               refId: filterValue,
               coreLabel: title,
             },

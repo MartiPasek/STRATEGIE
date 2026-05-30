@@ -8806,9 +8806,19 @@
             _regularChildren.push(childComp);
           }
         }
+        // Krok 5.Z (30.5.2026, Marti's "panel #374 nerespektuje alClient ani
+        // min height 200"): trigger align layout i pro CONTAINER dite s
+        // align=client. Bez tohoto vsechny-client container deti spadnou do
+        // legacy simple loop -> zadny flex:1 (nevyplni parent) A zadny
+        // _applyHeightConstraints (ignoruje min/max height). client container
+        // MUSI do _buildAlignLayout client bucketu (flex:1 1 auto + height
+        // constraints). Leaf fieldy (default client, NON-container)
+        // NEtriggeruji -> zustanou v implicit gridu (pole vedle sebe).
+        const _CONTAINER_CODES_AL = new Set(["panel", "groupbox", "pagecontrol"]);
         const _needsAlignLayout = _regularChildren.some(c => {
           const a = String((c && c.layout && c.layout.align) || "client").toLowerCase();
-          return _DELPHI_ALIGNS.has(a);
+          const isContainer = _CONTAINER_CODES_AL.has(c && c.comp_type_code);
+          return _DELPHI_ALIGNS.has(a) || (isContainer && a === "client");
         });
 
         if (_needsAlignLayout && _regularChildren.length > 0) {

@@ -5002,11 +5002,17 @@
       // gridu, data_source_op_detail.js pouziva ds_44). Vyzaduje comp_def.
       // data_source_id FK set (_phase_krok5z_set_grid_ds_fk.sql). Bez FK ->
       // layoutKey null -> grid bez ulozitelne sestavy (autoColumns), render OK.
+      // FK set -> ds_<data_source_id> (separatni od standalone core_73, scope
+      // na data_source). FK null -> fallback core_<form core id> (vzdy validni
+      // format, toolbar sestav VZDY zobrazen). Bez fallbacku by layoutKey=null
+      // -> ErpDataGrid skryje cely layout toolbar (Marti's "zmizelo ukladani
+      // sestav z paticky"). Doporuceno spustit _phase_krok5z_set_grid_ds_fk.sql
+      // pro stabilni ds_<id> klic.
       const _dsId = (comp && comp.data_source_id != null) ? comp.data_source_id : null;
-      const layoutKey = (_dsId != null) ? ("ds_" + _dsId) : null;
-      const layoutUrl = layoutKey
-        ? ("/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list")
-        : null;
+      const _coreId = (this._spec && this._spec.core && this._spec.core.id != null)
+        ? this._spec.core.id : "0";
+      const layoutKey = (_dsId != null) ? ("ds_" + _dsId) : ("core_" + _coreId);
+      const layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list";
 
       let gridInst = null;
       const _fetchData = function () {

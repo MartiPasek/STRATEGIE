@@ -216,7 +216,7 @@
             return Promise.reject(new Error("no_core_id"));
           }
           try {
-            var fwfCS = new DesignFwForm({ coreId: 49, rowId: null });
+            var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
             if (typeof fwfCS.open === "function") fwfCS.open();
             return Promise.resolve();
           } catch (e) {

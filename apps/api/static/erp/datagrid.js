@@ -4200,7 +4200,7 @@
           return;
         }
         try {
-          var fwfCS = new window.DesignFwForm({ coreId: 49, rowId: null });
+          var fwfCS = new window.DesignFwForm({ coreId: 49, rowId: ci.coreId });
           if (typeof fwfCS.open === "function") fwfCS.open();
         } catch (e) {
           console.error("[grid pill menu] Core setting open failed:", e);

@@ -5771,7 +5771,11 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               layout: newLayout,
-              caption: (inTitle.value.trim() || comp.caption || null),
+              // Krok 5.Z (30.5.2026, Marti: "kdyz label smazu, NULL se do gridu
+              // nepropise, zustane stary text"): caption kopiruje Titulek PRESNE,
+              // zadny || comp.caption fallback. Smazani Titulku -> caption=null +
+              // layout.title=null -> titleUser prazdny -> header skryty.
+              caption: (inTitle.value.trim() || null),
               // Krok 5.Z: FK na fw.data_source -> stabilni ds_<id> layoutKey.
               data_source_id: (dsState && dsState.id != null) ? dsState.id : null,
             }),

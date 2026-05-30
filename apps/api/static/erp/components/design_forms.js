@@ -9136,7 +9136,11 @@
       const fieldKey = (this._spec.core.code || "fw_form") + "." + field.name;
       const compType = field.comp_type_code;
       const fieldLayout = field.layout || {};
-      const label = field.caption || field.name;
+      // Krok 5.Z (30.5.2026, Marti: "i kdyz ma Label null, vykresluje nazev
+      // fieldu"): caption null/prazdny -> ZADNY label (ne fallback na technicky
+      // field.name). Stejne jako grid titleUser fix. Pole pak nema nadpis.
+      const label = (field.caption != null && String(field.caption).trim() !== "")
+        ? field.caption : "";
       // Krok 14b+8 (13.5.2026 ~21:00, Marti's "v design form modu musi byt
       // komponenty RO"): v DESIGN mode vsechny fields readonly bez ohledu
       // na fieldLayout.readonly. Uzivatel vidi pozici/strukturu, ale

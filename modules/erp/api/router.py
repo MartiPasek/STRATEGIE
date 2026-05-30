@@ -2778,6 +2778,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 "data": None,
                 "template": None,
                 "children": {},
+                "embedded_grids": [],
                 "empty_container": True,
                 "origin": origin_payload,
             }))
@@ -2823,6 +2824,30 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             ORDER BY depth ASC, region_slot ASC, sort_order ASC, id ASC
         """), {"form_id": form_dict["id"]}).mappings().all()
         fields_list = [dict(f) for f in fields_rows]
+
+        # Krok 5.Z (30.5.2026, Marti's "Klasickou komponentu gridu 306 pro
+        # nase vseobecne pouziti"): embedded grid_modern komponenty (children
+        # comp_def s ct.code='grid_modern' AND parent_comp_def_id IS NOT NULL).
+        # Render pattern analog ErpEntityPicker — inline ErpDataGrid uvnitr
+        # form tabu (autoColumns, layoutKey persistent, Excel mode CRUD).
+        # Pivot z comp_type=304 (nested_grid, HTML <table>) na 306 kvuli
+        # AG Grid features (filter/sort/copy/layout). Layout JSONB nese
+        # data_source_code + filter_field + filter_source (:master_id) +
+        # height_px + title + context_menu.
+        embedded_grids_rows = ds.execute(_sql_fwid("""
+            SELECT cd.id AS comp_def_id, cd.parent_comp_def_id, cd.name,
+                   cd.caption, cd.layout, cd.sort_order, cd.data_source_id,
+                   ds.code AS data_source_code, ds.name AS data_source_name
+            FROM fw.comp_def cd
+            JOIN fw.comp_type ct ON ct.id = cd.type_id
+            LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
+            WHERE cd.core_id = :cid
+              AND ct.code = 'grid_modern'
+              AND cd.parent_comp_def_id IS NOT NULL
+              AND cd.is_active = true
+            ORDER BY cd.sort_order ASC, cd.id ASC
+        """), {"cid": core_id}).mappings().all()
+        embedded_grids = [dict(r) for r in embedded_grids_rows]
 
         # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID
         # je truth" doctrine): ID-first resolve s code fallback. Marti's
@@ -3179,6 +3204,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             "data": data_row,
             "template": template_dict,
             "children": children_dict,
+            "embedded_grids": embedded_grids,
             "empty_container": False,
             "origin": origin_payload,
         }))

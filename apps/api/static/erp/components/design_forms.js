@@ -4823,6 +4823,14 @@
       if (CONTAINER_CODES.has(code)) {
         return this._renderContainerNode(comp);
       }
+      // Krok 5.Z (30.5.2026, Marti's "Klasickou komponentu gridu 306 pro nase
+      // vseobecne pouziti"): embedded grid_modern uvnitr form (tab/panel/
+      // groupbox) → inline ErpDataGrid. Render pattern analog master-detail
+      // Volba A (data_source_op_detail.js, 24.5.). Pivot z 304 (nested_grid
+      // HTML <table>) na 306 kvuli AG Grid features (filter/sort/copy/layout).
+      if (code === "grid_modern") {
+        return this._renderEmbeddedGridSection(comp);
+      }
       // Krok 5.X (27.5.2026): nested_grid je rendered INSIDE _renderContainerNode
       // panel branch (special _renderChildSection dispatch). Pokud nested_grid
       // padne sem (komponenta s parent != panel), skip — sirota, no render.
@@ -4858,6 +4866,165 @@
           (err && err.message ? err.message : String(err));
         return placeholder;
       }
+    }
+
+    // ════════════════════════════════════════════════════════════════
+    // Krok 5.Z (30.5.2026) — Embedded grid_modern (306) uvnitr form
+    // ════════════════════════════════════════════════════════════════
+    // Marti's mandate: "Klasickou komponentu gridu 306 pro nase vseobecne
+    // pouziti... Obdobnym zpusobem jako entity pickup." Render pattern analog
+    // master-detail Volba A (data_source_op_detail.js, 24.5.2026): Promise.all
+    // pre-fetch (data + saved layout) → new window.ErpDataGrid(host, {...}) s
+    // initialLayout authority (uniform parity, pixel-perfect widths od prvniho
+    // renderu, zadny container-fit override race).
+    //
+    // Layout JSONB (Volba A striktni deklarace):
+    //   data_source_code — fw.data_source.code (napr. framework_comp_def_overview)
+    //   filter_field     — SQL named param (napr. filter_core_id, NE column name!)
+    //   filter_source    — runtime token (:master_id → this._spec.data.id)
+    //   height_px        — vyska gridu (default 360)
+    //   title            — section header label
+    //   context_menu     — CRUD akce (gated na edit_core_id presence)
+    //   edit_core_id     — fw.core pro edit/create form (optional, display-first
+    //                      milestone bez nej → jen 'refresh')
+    _renderEmbeddedGridSection(comp) {
+      const layout = (comp && comp.layout) || {};
+      const dataSourceCode = layout.data_source_code || comp.data_source_code || null;
+      const title = layout.title || comp.caption || comp.data_source_name || dataSourceCode || "Grid";
+
+      const sec = _sectionBuild(title, "embedded:" + comp.id);
+
+      if (!dataSourceCode) {
+        console.warn("[DesignFwForm] embedded grid_modern #" + comp.id +
+          " missing data_source_code (layout + FK both null)");
+        const warnEl = document.createElement("div");
+        warnEl.style.cssText = "grid-column:1 / -1;padding:12px;color:#e57373;font-size:12px;";
+        warnEl.textContent = "⚠ Embedded grid #" + comp.id +
+          " nema data_source_code (layout.data_source_code ani FK).";
+        sec.grid.appendChild(warnEl);
+        return sec.wrap;
+      }
+
+      // Filter substitution — :master_id → editovana row PK (this._spec.data.id).
+      // Pro Core setting 49 editujici core 49 je data.id=49 → filter_core_id=49.
+      const filterField = layout.filter_field || null;
+      const filterSource = layout.filter_source || null;
+      let filterValue = null;
+      if (filterSource === ":master_id") {
+        filterValue = (this._spec && this._spec.data && this._spec.data.id != null)
+          ? this._spec.data.id : null;
+      }
+      // Future tokens (:form_root_id, :runtime_<x>) zde.
+
+      const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
+        ? layout.height_px : 360;
+      const editCoreId = (layout.edit_core_id != null) ? layout.edit_core_id : null;
+
+      // CRUD gating: create/edit potrebuji edit form core. Bez edit_core_id
+      // jen 'refresh' (display-first milestone). Marti's "drz jednoduchost" —
+      // display first, CRUD retrofit. Pri wired edit_core_id se akce z layout
+      // context_menu automaticky aktivuji.
+      let contextMenuActions = Array.isArray(layout.context_menu)
+        ? layout.context_menu.slice() : ["refresh"];
+      if (editCoreId == null) {
+        contextMenuActions = contextMenuActions.filter(a => a === "refresh");
+        if (contextMenuActions.length === 0) contextMenuActions = ["refresh"];
+      }
+
+      // Host div — full-width uvnitr section grid (auto-fit columns override).
+      const host = document.createElement("div");
+      host.className = "erp-embedded-grid-host";
+      host.style.cssText =
+        "grid-column:1 / -1;width:100%;height:" + heightPx + "px;box-sizing:border-box;";
+      sec.grid.appendChild(host);
+
+      // Guard: filter required ale row jeste neulozena (CREATE mode, data.id=null).
+      if (filterField && filterSource === ":master_id" && filterValue == null) {
+        host.innerHTML = '<div style="padding:12px;color:#8a96a4;font-size:12px;">' +
+          'ℹ Uložte záznam nejdřív — embedded grid se zobrazí po přiřazení ID.</div>';
+        return sec.wrap;
+      }
+
+      if (typeof window.ErpDataGrid !== "function") {
+        host.innerHTML = '<div style="padding:12px;color:#e57373;font-size:12px;">' +
+          '⚠ ErpDataGrid komponenta není načtena (datagrid.js missing).</div>';
+        return sec.wrap;
+      }
+
+      // Data fetch URL — kind defaults 'select' (is_default op). Filter pres
+      // SQL named param (filter_field), NE master_id (to je jen layout token).
+      let dataUrl = "/api/v1/erp/data/" + encodeURIComponent(dataSourceCode);
+      if (filterField && filterValue != null) {
+        dataUrl += "?" + encodeURIComponent(filterField) + "=" + encodeURIComponent(filterValue);
+      }
+      const layoutKey = "embedded_" +
+        (this._spec && this._spec.core ? this._spec.core.id : "0") + "_" + comp.id;
+      const layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list";
+
+      let gridInst = null;
+      const _fetchData = function () {
+        return fetch(dataUrl, { credentials: "same-origin" })
+          .then(function (r) { return r.json(); });
+      };
+
+      Promise.all([
+        _fetchData(),
+        fetch(layoutUrl, { credentials: "same-origin" })
+          .then(function (r) { return r.json(); })
+          .catch(function () { return null; }),
+      ]).then(function (results) {
+        const dataJson = results[0];
+        const layoutList = results[1];
+        const rows = (dataJson && dataJson.ok && Array.isArray(dataJson.rows)) ? dataJson.rows : [];
+        const initialLayout = (layoutList && layoutList.ok && layoutList.effective_default)
+          ? layoutList.effective_default : null;
+        try {
+          gridInst = new window.ErpDataGrid(host, {
+            rowData: rows,
+            layoutKey: layoutKey,
+            initialLayout: initialLayout,
+            autoColumns: true,
+            enableFilters: true,
+            rowSelection: "single",
+            compact: true,
+            disableColumnFlex: true,
+            coreInfo: {
+              coreId: editCoreId,
+              refId: filterValue,
+              coreLabel: title,
+            },
+            gridActions: {
+              has_insert: false,
+              has_edit: false,
+              has_delete: false,
+              edit_core_id: editCoreId,
+            },
+            contextMenuActions: contextMenuActions,
+            onRefresh: function () {
+              return _fetchData().then(function (j) {
+                if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
+                  gridInst.gridApi.setGridOption("rowData", j.rows);
+                  try {
+                    if (typeof gridInst.markFresh === "function") gridInst.markFresh();
+                  } catch (_e) { /* fail-safe */ }
+                }
+              }).catch(function (e) {
+                console.warn("[embedded_grid onRefresh] #" + comp.id, e);
+              });
+            },
+          });
+        } catch (e) {
+          console.error("[DesignFwForm] embedded grid #" + comp.id + " init failed:", e);
+          host.innerHTML = '<div style="padding:12px;color:#e57373;font-size:12px;">' +
+            'Chyba inicializace gridu: ' + (e && e.message ? e.message : String(e)) + '</div>';
+        }
+      }).catch(function (e) {
+        console.error("[DesignFwForm] embedded grid #" + comp.id + " fetch failed:", e);
+        host.innerHTML = '<div style="padding:12px;color:#e57373;font-size:12px;">' +
+          'Chyba načtení dat: ' + (e && e.message ? e.message : String(e)) + '</div>';
+      });
+
+      return sec.wrap;
     }
 
     // ════════════════════════════════════════════════════════════════

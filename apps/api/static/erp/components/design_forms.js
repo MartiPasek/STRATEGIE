@@ -4945,12 +4945,14 @@
         if (contextMenuActions.length === 0) contextMenuActions = ["refresh"];
       }
 
-      // Host div — full-width uvnitr section grid (auto-fit columns override).
+      // Host div — block kontejner s definitivni vyskou (NE grid-item v sec.grid,
+      // jinak .erp-ag-grid flex:1/height:100% nema vuci cemu resolvovat -> AG
+      // Grid zkolabuje na 0px a nevidet hlavicku). Append do sec.wrap (block).
       const host = document.createElement("div");
       host.className = "erp-embedded-grid-host";
       host.style.cssText =
-        "grid-column:1 / -1;width:100%;height:" + heightPx + "px;box-sizing:border-box;";
-      sec.grid.appendChild(host);
+        "width:100%;height:" + heightPx + "px;box-sizing:border-box;";
+      sec.wrap.appendChild(host);
 
       // Guard: filter required ale token se neresolvoval (CREATE mode data.id=null
       // pro :master_id, nebo chybejici core pro :self_core_id).
@@ -5003,6 +5005,7 @@
         try {
           gridInst = new window.ErpDataGrid(host, {
             rowData: rows,
+            height: heightPx + "px",
             layoutKey: layoutKey,
             initialLayout: initialLayout,
             autoColumns: true,

@@ -4996,9 +4996,17 @@
       const _kind = layout.kind || null;
       if (_kind) _qs.push("kind=" + encodeURIComponent(_kind));
       if (_qs.length) dataUrl += "?" + _qs.join("&");
-      const layoutKey = "embedded_" +
-        (this._spec && this._spec.core ? this._spec.core.id : "0") + "_" + comp.id;
-      const layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list";
+      // Krok 5.Z (Marti 30.5.): layoutKey MUSI byt 'core_<id>' nebo 'ds_<id>'
+      // (datagrid.js _layoutApiBase + backend _parse_scope_key). Embedded grid
+      // je bound na data_source -> ds_<comp.data_source_id> (konvence nested
+      // gridu, data_source_op_detail.js pouziva ds_44). Vyzaduje comp_def.
+      // data_source_id FK set (_phase_krok5z_set_grid_ds_fk.sql). Bez FK ->
+      // layoutKey null -> grid bez ulozitelne sestavy (autoColumns), render OK.
+      const _dsId = (comp && comp.data_source_id != null) ? comp.data_source_id : null;
+      const layoutKey = (_dsId != null) ? ("ds_" + _dsId) : null;
+      const layoutUrl = layoutKey
+        ? ("/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list")
+        : null;
 
       let gridInst = null;
       const _fetchData = function () {
@@ -5008,9 +5016,11 @@
 
       Promise.all([
         _fetchData(),
-        fetch(layoutUrl, { credentials: "same-origin" })
-          .then(function (r) { return r.json(); })
-          .catch(function () { return null; }),
+        layoutUrl
+          ? fetch(layoutUrl, { credentials: "same-origin" })
+              .then(function (r) { return r.json(); })
+              .catch(function () { return null; })
+          : Promise.resolve(null),
       ]).then(function (results) {
         const dataJson = results[0];
         const layoutList = results[1];

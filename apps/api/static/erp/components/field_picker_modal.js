@@ -1804,10 +1804,14 @@
       const meta = document.createElement("div");
       meta.style.cssText = "color:#8a96a4;font-size:11px;";
       const ct = this._compTypesById[col.existing_type_id];
+      // Krok 5.Z (30.5.2026, Marti's "identifikace gridu"): fallback na
+      // col.type_label (backend existing_fields ho posila) pro typy mimo
+      // _compTypesById — grid_modern (preview_html NULL, neni v addable
+      // palette) -> "Grid (modern)" misto "type#101".
       meta.innerHTML =
         "<span style=\"background:#1f2530;padding:2px 6px;border-radius:3px;margin-right:6px;\">" +
         (col.existing_region_slot || "main") + "</span>" +
-        (ct ? ct.label : "type#" + col.existing_type_id);
+        (ct ? ct.label : (col.type_label || ("type#" + col.existing_type_id)));
 
       // 3. Type dropdown — Phase 38.4 Krok H+5 (26.5.2026, Marti's "menit
       // dynamicky"): change comp_type live na existing field. PATCH
@@ -1824,6 +1828,18 @@
         opt.textContent = ct.label + " (id=" + ct.id + ")";
         if (ct.id === col.existing_type_id) opt.selected = true;
         typeSel.appendChild(opt);
+      }
+      // Krok 5.Z (30.5.2026): pokud current type neni v _compTypes (grid_modern
+      // a jine structural typy bez preview_html), inject synthetic selected
+      // option, at dropdown ukaze spravny typ misto defaultu "Edit (id=2)".
+      if (col.existing_type_id != null && !this._compTypesById[col.existing_type_id]) {
+        const synthOpt = document.createElement("option");
+        synthOpt.value = String(col.existing_type_id);
+        synthOpt.textContent =
+          (col.type_label || ("type#" + col.existing_type_id)) +
+          " (id=" + col.existing_type_id + ")";
+        synthOpt.selected = true;
+        typeSel.insertBefore(synthOpt, typeSel.firstChild);
       }
       typeSel.addEventListener("change", async () => {
         const newId = parseInt(typeSel.value, 10);

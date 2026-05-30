@@ -5011,30 +5011,47 @@
         return sec.wrap;
       }
 
-      // Filter substitution — :master_id → editovana row PK (this._spec.data.id).
-      // Pro Core setting 49 editujici core 49 je data.id=49 → filter_core_id=49.
-      const filterField = layout.filter_field || null;
-      const filterSource = layout.filter_source || null;
+      // ════════════════════════════════════════════════════════════════
+      // Krok 5.Z (30.5.2026, Marti's "vyssi kontrola, bezpecneji"): filter
+      // ENFORCED na render urovni. Dve doktriny:
+      //
+      //  1) filter_source je REDUNDANTNI — "to je stale stejne, jen
+      //     s dvojteckou" (Marti). Derived = ':' + filter_field. Needuje se
+      //     samostatny token, neukladame ho rucne. Edituje se JEN filter_field
+      //     (parametr gridu).
+      //
+      //  2) select-detail VZDY filtruje per-master. Pokud filter_field chybi,
+      //     ENFORCED default 'master_id' (konvence detail data_setu
+      //     :master_id). Tim zadny select-detail grid nepropadne na tiche
+      //     0 radku kvuli zapomenutemu filtru — kontrola je v kodu, ne
+      //     v disciplineu uzivatele. (Marti-AI doctrine "bezpecnost pres
+      //     probuzeni, ne pres ticho".)
+      //
+      // Value resolution dle field:
+      //   self_core_id -> core k nemuz form patri (this._spec.core.id)
+      //   master_id / cokoli jineho -> editovany master row PK (opts.rowId)
+      // ════════════════════════════════════════════════════════════════
+      const _kind = layout.kind || null;
+      let filterField = layout.filter_field || null;
+      if (!filterField && _kind === "select-detail") filterField = "master_id";
+      // Derived source (legacy explicit layout.filter_source jen jako fallback
+      // kdyby filter_field chybel u non-detail gridu).
+      const filterSource = filterField ? (":" + filterField) : (layout.filter_source || null);
       let filterValue = null;
-      if (filterSource === ":master_id") {
-        // Krok 5.Z Volba (2) (Marti 30.5.: "Core setting je vzdy o (2)") —
-        // komponenty EDITOVANEHO core. opts.rowId = PK editovaneho core
-        // (URL param /fw-form/by-id/{coreId}/{rowId}, reliable). Fallback
-        // this._spec.data.id (kdyby opts.rowId chybel). rowId=0 (CREATE) ->
-        // filter_core_id=0 -> 0 komponent (novy core jeste zadne nema).
+      if (filterField === "self_core_id" || filterSource === ":self_core_id") {
+        // self-ref: CORE k nemuz form patri, bez ohledu na editovany row.
+        filterValue = (this._spec && this._spec.core && this._spec.core.id != null)
+          ? this._spec.core.id : null;
+      } else if (filterField) {
+        // master_id (a vsechno ostatni) -> PK editovaneho masteru. opts.rowId
+        // reliable (URL /fw-form/by-id/{coreId}/{rowId}), fallback _spec.data.id.
+        // CREATE (rowId=0/null) -> null -> guard nize ("Filtr nedostupny").
         const _editedId = (this.opts && this.opts.rowId != null && this.opts.rowId !== "")
           ? this.opts.rowId
           : ((this._spec && this._spec.data && this._spec.data.id != null)
               ? this._spec.data.id : null);
         filterValue = _editedId;
-      } else if (filterSource === ":self_core_id") {
-        // Krok 5.Z Volba B (Marti 30.5.): forms vlastni core (self-ref). Grid
-        // ukazuje komponenty CORE k nemuz tento form patri (this._spec.core.id),
-        // bez ohledu na editovany row. Pro "Core setting -> Vazby = moje komponenty".
-        filterValue = (this._spec && this._spec.core && this._spec.core.id != null)
-          ? this._spec.core.id : null;
       }
-      // Future tokens (:form_root_id, :runtime_<x>) zde.
 
       const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
         ? layout.height_px : 360;
@@ -5099,7 +5116,6 @@
       if (filterField && filterValue != null) {
         _qs.push(encodeURIComponent(filterField) + "=" + encodeURIComponent(filterValue));
       }
-      const _kind = layout.kind || null;
       if (_kind) _qs.push("kind=" + encodeURIComponent(_kind));
       if (_qs.length) dataUrl += "?" + _qs.join("&");
       // Krok 5.Z (Marti 30.5.): layoutKey MUSI byt 'core_<id>' nebo 'ds_<id>'
@@ -5661,10 +5677,16 @@
           onSelect: (row) => {
             dsState = { id: row.id, code: row.code || null, name: row.name || null };
             _refreshDsDisplay();
-            // auto-fill kind z operation_kinds (select-detail > select)
+            // auto-fill kind z operation_kinds (select-detail > select).
+            // Pri select-detail predvyplnit i filter_field=master_id (jen kdyz
+            // prazdny — neprepisovat user override). filter_source derived pri save.
             const oks = String(row.operation_kinds || "");
-            if (oks.indexOf("select-detail") !== -1) selKind.value = "select-detail";
-            else if (oks.indexOf("select") !== -1) selKind.value = "select";
+            if (oks.indexOf("select-detail") !== -1) {
+              selKind.value = "select-detail";
+              if (!inFf.value.trim()) inFf.value = "master_id";
+            } else if (oks.indexOf("select") !== -1) {
+              selKind.value = "select";
+            }
           },
         });
         _p.open();
@@ -5680,15 +5702,17 @@
       dsWrap.appendChild(dsPickBtn); dsWrap.appendChild(dsClearBtn); dsWrap.appendChild(dsDisplay);
       body.appendChild(_mkRow("Data source", dsWrap, "vyber z fw.data_source podle ID (ne ručně code)"));
 
+      // Krok 5.Z (30.5.2026, Marti: "filter_source ani neresit — je to stale
+      // stejne, jen s dvojteckou"): edituje se JEN filter_field. filter_source
+      // se odvodi (':' + filter_field) pri ulozeni — zadny samostatny dropdown.
+      // select-detail prefill 'master_id' (konvence detail data_setu).
       const inFf = document.createElement("input");
-      inFf.type = "text"; inFf.value = layout.filter_field || ""; inFf.style.cssText = _is;
-      body.appendChild(_mkRow("Filtr — sloupec (SQL param)", inFf, "např. master_id"));
-
-      const selFs = _mkSelect([
-        ["", "(žádný)"], [":master_id", ":master_id (editovaný core)"],
-        [":self_core_id", ":self_core_id (core formu)"],
-      ], layout.filter_source || "");
-      body.appendChild(_mkRow("Filtr — zdroj (token)", selFs));
+      inFf.type = "text";
+      inFf.value = layout.filter_field ||
+        (String(layout.kind || "") === "select-detail" ? "master_id" : "");
+      inFf.style.cssText = _is;
+      body.appendChild(_mkRow("Filtr — sloupec (SQL param)", inFf,
+        "select-detail → master_id (zdroj se odvodí jako :master_id)"));
 
       const selKind = _mkSelect([
         ["", "(default select)"], ["select", "select"], ["select-detail", "select-detail"],
@@ -5727,8 +5751,10 @@
         const hp = parseInt(inHeight.value, 10);
         newLayout.height_px = (!isNaN(hp) && hp > 0) ? hp : 400;
         newLayout.data_source_code = (dsState && dsState.code) ? dsState.code : null;
+        // filter_source derived z filter_field (Marti: "jen s dvojteckou").
         newLayout.filter_field = inFf.value.trim() || null;
-        if (selFs.value) newLayout.filter_source = selFs.value; else delete newLayout.filter_source;
+        if (newLayout.filter_field) newLayout.filter_source = ":" + newLayout.filter_field;
+        else delete newLayout.filter_source;
         if (selKind.value) newLayout.kind = selKind.value; else delete newLayout.kind;
         const cm = inCm.value.split(",").map(s => s.trim()).filter(Boolean);
         newLayout.context_menu = cm.length ? cm : ["refresh"];

@@ -8551,9 +8551,16 @@
         // pokud user nastavi Height/Max width, hodnota INCLUDES padding+border
         // (predtim content-box = explicit height byl jen content, padding +
         // border + margin se pridavaly NAD a vedlo to k overflow).
+        // Krok 5.Z (30.5.2026, Marti's "fieldy alignovat up, nikoli alClient —
+        // nahustene od shora jako v Komunikace"): align-content:start. Default
+        // CSS grid align-content se chova jako stretch -> radky se roztahnou na
+        // vysku panelu (ten je v middle-row align-items:stretch stejne vysoky
+        // jako sousedi) a fieldy (align-items:start) zustanou nahore zvetsenych
+        // bunek = mezery. align-content:start radky nahusti nahoru, prazdne
+        // misto zustane dole.
         const baseStyle = useImplicitGrid
           ? "display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));" +
-            "gap:6px 14px;align-items:start;min-width:0;position:relative;" +
+            "gap:6px 14px;align-items:start;align-content:start;min-width:0;position:relative;" +
             "box-sizing:border-box;"
           : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;" +
             "box-sizing:border-box;";

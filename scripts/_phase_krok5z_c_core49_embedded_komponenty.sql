@@ -88,7 +88,7 @@ BEGIN
     jsonb_build_object(
       'data_source_code', 'framework_comp_def_overview',
       'filter_field', 'filter_core_id',
-      'filter_source', ':self_core_id',
+      'filter_source', ':master_id',
       'height_px', 400,
       'title', 'Komponenty core (per core_id)',
       'context_menu', jsonb_build_array('refresh')

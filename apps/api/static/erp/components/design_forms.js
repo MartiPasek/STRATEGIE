@@ -4911,9 +4911,16 @@
       const filterSource = layout.filter_source || null;
       let filterValue = null;
       if (filterSource === ":master_id") {
-        // Data-driven: PK editovaneho row (komponenty editovaneho core).
-        filterValue = (this._spec && this._spec.data && this._spec.data.id != null)
-          ? this._spec.data.id : null;
+        // Krok 5.Z Volba (2) (Marti 30.5.: "Core setting je vzdy o (2)") —
+        // komponenty EDITOVANEHO core. opts.rowId = PK editovaneho core
+        // (URL param /fw-form/by-id/{coreId}/{rowId}, reliable). Fallback
+        // this._spec.data.id (kdyby opts.rowId chybel). rowId=0 (CREATE) ->
+        // filter_core_id=0 -> 0 komponent (novy core jeste zadne nema).
+        const _editedId = (this.opts && this.opts.rowId != null && this.opts.rowId !== "")
+          ? this.opts.rowId
+          : ((this._spec && this._spec.data && this._spec.data.id != null)
+              ? this._spec.data.id : null);
+        filterValue = _editedId;
       } else if (filterSource === ":self_core_id") {
         // Krok 5.Z Volba B (Marti 30.5.): forms vlastni core (self-ref). Grid
         // ukazuje komponenty CORE k nemuz tento form patri (this._spec.core.id),

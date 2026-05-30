@@ -4073,8 +4073,14 @@
           'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
           '✨ Vytvořit edit jádro</button>'
         : '';
+      // Marti's 30.5.2026 ranní: "Core setting" prepended NAD design-core
+      // (universal inspector pro fw.core metadata aktualniho core,
+      // hardcoded coreId=49). Klik → DesignFwForm({coreId:49, rowId:ci.coreId}).
       var actions =
         '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
+        '<button type="button" data-erp-menu-action="core-setting" ' +
+          'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+          '⚙️ Core setting</button>' +
         '<button type="button" data-erp-menu-action="design-core" ' +
           'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
           '🎨 Otevřít Design jádra</button>' +
@@ -4178,6 +4184,27 @@
               alert(errMsg);
             }
           });
+        return;
+      }
+      if (action === "core-setting") {
+        // Marti's 30.5.2026 ranní: open Core setting inspector
+        // (DesignFwForm s hardcoded coreId=49) pro current grid's core_id.
+        menu.remove();
+        if (ci.coreId == null) {
+          alert("⚠ Core setting: chybí coreId v grid contextu");
+          return;
+        }
+        if (typeof window.DesignFwForm !== "function") {
+          console.error("[grid pill menu] DesignFwForm not loaded");
+          alert("⚠ Core setting: DesignFwForm modul není načtený");
+          return;
+        }
+        try {
+          var fwfCS = new window.DesignFwForm({ coreId: ci.coreId, rowId: null });
+          if (typeof fwfCS.open === "function") fwfCS.open();
+        } catch (e) {
+          console.error("[grid pill menu] Core setting open failed:", e);
+        }
         return;
       }
       if (action === "copy-id") {

@@ -126,7 +126,7 @@
             return;
           }
           try {
-            var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
+            var fwfCS = new DesignFwForm({ coreId: ctx.coreId, rowId: null });
             if (typeof fwfCS.open === "function") fwfCS.open();
           } catch (e) {
             console.error("[form pill menu] Core setting open failed:", e);

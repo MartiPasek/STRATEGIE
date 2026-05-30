@@ -89,9 +89,16 @@ def _classify_action(tool_name: str) -> str:
         "strategie_create_schema", "strategie_create_table",
         "strategie_alter_table", "strategie_drop_table",
         "strategie_insert_row", "strategie_update_row", "strategie_delete_row",
-        "strategie_query_raw",
     }:
         return "insert"  # share rate limit bucket s eurosoft writes (rozumný tempo)
+    # Krok 5.Z (30.5.2026, Marti rate_limit_exceeded pri otevreni formu s
+    # nested gridy): strategie_query_raw je READ-ONLY (regex guard SELECT/WITH
+    # v strategie_tools). Drive byl v "insert" bucketu (10/min) — ERP runtime
+    # ho ale pouziva pro form load + grid reads (eurosoft_strategie_query_raw),
+    # takze 3+ cteni na otevreni formu narazely na write limit. -> "read"
+    # bucket (60/min). DDL/DML strategie_* zustavaji "insert".
+    if tool_name == "strategie_query_raw":
+        return "read"
     # Phase 38.4 (11.5.2026): filesystem write/delete = "insert" bucket
     if tool_name in {"eurosoft_file_write", "eurosoft_file_delete"}:
         return "insert"

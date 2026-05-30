@@ -82,8 +82,14 @@
     info += '</div>';
 
     var pillText = String(ctx.coreId != null ? ctx.coreId : "?") + ":" + (ctx.rowId != null ? ctx.rowId : "");
+    // Marti's 30.5.2026 ranní: "Core setting" prepended NAD design-core
+    // (universal inspector pro fw.core metadata aktualniho core,
+    // hardcoded coreId=49). Klik → DesignFwForm({coreId:49, rowId:ctx.coreId}).
     var actions =
       '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
+      '<button type="button" data-form-menu-action="core-setting" ' +
+        'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
+        '⚙️ Core setting</button>' +
       '<button type="button" data-form-menu-action="design-core" ' +
         'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
         '🎨 Otevřít Design jádra</button>' +
@@ -109,6 +115,22 @@
               setTimeout(function () { try { menu.remove(); } catch (e) {} }, 1200);
             });
           } catch (e) { menu.remove(); }
+          return;
+        }
+        if (action === "core-setting") {
+          // Marti's 30.5.2026 ranní: otevre Core setting inspector
+          // (DesignFwForm s hardcoded coreId=49) pro current form core_id.
+          menu.remove();
+          if (ctx.coreId == null) {
+            alert("⚠ Core setting: chybí coreId v contextu formu");
+            return;
+          }
+          try {
+            var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
+            if (typeof fwfCS.open === "function") fwfCS.open();
+          } catch (e) {
+            console.error("[form pill menu] Core setting open failed:", e);
+          }
           return;
         }
         if (action === "design-core") {

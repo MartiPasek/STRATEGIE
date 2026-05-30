@@ -360,7 +360,9 @@
           // contextMenuActions = declarative list available action types,
           // ne filter per has_*. Drz "stejne zobrazit, stejne funkce" napric
           // master + detail + picker.
-          const _ctxMenuActions = ["create", "edit", "delete", "refresh"];
+          // Marti's 30.5.2026 ranní: "Core setting" prepended nahoře
+          // (inspector fw.core metadat aktualniho core, hardcoded id=49).
+          const _ctxMenuActions = ["core-setting", "create", "edit", "delete", "refresh"];
           // Register edit form coreId pro gridCode (drz Marti "fw self
           // edited" doctrine 11.5. — DesignFwForm vola registry lookup).
           if (_gridActionsForCtx && _gridActionsForCtx.edit_core_id

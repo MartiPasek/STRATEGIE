@@ -197,6 +197,34 @@
     // ACTION REGISTRY — single truth source
     // ════════════════════════════════════════════════════════════════════
     var ACTIONS = {
+      // Marti's 30.5.2026 ranní doctrine: "Core setting" — universal
+      // inspector pro fw.core metadata aktualniho core. Hardcoded
+      // coreId=49 (existujici "Editace: Zeme" inspector core).
+      // Klik: otevre DesignFwForm s coreId=49, rowId=current core_id.
+      "core-setting": {
+        key: "core-setting",
+        icon: "⚙️",
+        label: "Core setting",
+        hint: "Inspector metadat aktuálního jádra (fw.core)",
+        cssClass: "erp-action-core-setting",
+        destructive: false,
+        requiresRow: false,
+        handler: function (ctx) {
+          if (ctx.coreId == null) {
+            alert("⚠ Core setting: chybí coreId v contextu (grid " +
+                  (ctx.gridCode || "?") + ")");
+            return Promise.reject(new Error("no_core_id"));
+          }
+          try {
+            var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
+            if (typeof fwfCS.open === "function") fwfCS.open();
+            return Promise.resolve();
+          } catch (e) {
+            console.error("[Core setting] DesignFwForm failed:", e);
+            return Promise.reject(e);
+          }
+        },
+      },
       create: {
         key: "create",
         icon: "➕",

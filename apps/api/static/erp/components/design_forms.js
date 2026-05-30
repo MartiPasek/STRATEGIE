@@ -5182,12 +5182,16 @@
             disableColumnFlex: true,
             coreInfo: {
               // Krok 5.Z (30.5.2026, Marti: "na nested gridech se nezobrazuje
-              // vlevo dole core_id:row_id"): pill se renderuje jen kdyz coreId
-              // != null. Detail gridy maji edit_core_id NULL -> pill chybel.
-              // Fallback na data_source_id (_dsId) jako per-grid identita ->
-              // pill se vzdy zobrazi; row_id se doplni pri vyberu radku
-              // (_updateCoreInfoPill na cellFocused).
-              coreId: (editCoreId != null) ? editCoreId : _dsId,
+              // vlevo dole core_id:row_id" + "Core setting predava jiny id").
+              // coreInfo.coreId je SDILENY dvema konzumenty:
+              //   1) pill v paticce (core_id:row_id),
+              //   2) akce "Core setting" -> DesignFwForm(coreId:49, rowId:coreId).
+              // Musi to byt SKUTECNY fw.core.id (NE data_source_id!), jinak
+              // Core setting inspektuje spatny zaznam. Master grid posila page
+              // core_id (page_render.js). Nested grid: edit_core_id gridu, jinak
+              // fallback na core formulare (_coreId) -> vzdy realny core, pill
+              // se vzdy zobrazi; row_id doplni _updateCoreInfoPill na cellFocused.
+              coreId: (editCoreId != null) ? editCoreId : _coreId,
               refId: filterValue,
               coreLabel: title,
             },

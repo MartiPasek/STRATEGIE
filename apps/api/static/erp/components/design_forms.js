@@ -4901,12 +4901,113 @@
 
       if (!dataSourceCode) {
         console.warn("[DesignFwForm] embedded grid_modern #" + comp.id +
-          " missing data_source_code (layout + FK both null)");
-        const warnEl = document.createElement("div");
-        warnEl.style.cssText = "grid-column:1 / -1;padding:12px;color:#e57373;font-size:12px;";
-        warnEl.textContent = "⚠ Embedded grid #" + comp.id +
-          " nema data_source_code (layout.data_source_code ani FK).";
-        sec.grid.appendChild(warnEl);
+          " missing data_source_code (layout + FK both null) -> dummy grid");
+        // Krok 5.Z (30.5.2026, Marti: "Zkusis osetrit vykresleni gridu i bez
+        // datasourcu? Treba s Dummy selectem, ktery v gridu nahlasi co mu
+        // schazi?"). Misto holeho cerveneho warningu vykreslime "dummy grid"
+        // — fake hlavicka + skeleton radky (vypada jako grid) + overlay panel
+        // s checklistem chybejici konfigurace + CTA "Nastavit grid" ->
+        // _openGridSettings. "fw self edited" — uzivatel doplni data_source
+        // pres UI bez SQL.
+        const _ff = (comp.layout && comp.layout.filter_field) || null;
+        const _fs = (comp.layout && comp.layout.filter_source) || null;
+        const _filterPartial = (!!_ff) !== (!!_fs); // XOR = neuplny filtr
+
+        const frame = document.createElement("div");
+        frame.style.cssText =
+          "grid-column:1 / -1;position:relative;border:1px dashed #3a4452;" +
+          "border-radius:5px;background:#0f141a;overflow:hidden;min-height:200px;";
+
+        // Fake grid hlavicka (4 placeholder sloupce)
+        const fakeHdr = document.createElement("div");
+        fakeHdr.style.cssText =
+          "display:flex;border-bottom:1px solid #2a3340;background:#161c24;opacity:0.55;";
+        for (let i = 0; i < 4; i++) {
+          const th = document.createElement("div");
+          th.style.cssText =
+            "flex:1;padding:8px 10px;font-size:11px;color:#5d6975;" +
+            "border-right:1px solid #222a33;text-transform:uppercase;letter-spacing:0.5px;";
+          th.textContent = "Sloupec " + (i + 1);
+          fakeHdr.appendChild(th);
+        }
+        frame.appendChild(fakeHdr);
+
+        // Skeleton radky (3x mock, grey bars ruzne sirky)
+        for (let r = 0; r < 3; r++) {
+          const tr = document.createElement("div");
+          tr.style.cssText = "display:flex;border-bottom:1px solid #1a212a;opacity:0.4;";
+          for (let c = 0; c < 4; c++) {
+            const td = document.createElement("div");
+            td.style.cssText = "flex:1;padding:9px 10px;border-right:1px solid #1a212a;";
+            const bar = document.createElement("div");
+            bar.style.cssText =
+              "height:8px;border-radius:3px;background:#2a3340;width:" +
+              (45 + ((r * 13 + c * 21) % 45)) + "%;";
+            td.appendChild(bar);
+            tr.appendChild(td);
+          }
+          frame.appendChild(tr);
+        }
+
+        // Overlay panel — co gridu schazi + CTA na nastaveni
+        const ovl = document.createElement("div");
+        ovl.style.cssText =
+          "position:absolute;inset:0;display:flex;align-items:center;" +
+          "justify-content:center;background:rgba(15,20,26,0.78);";
+        const panel = document.createElement("div");
+        panel.style.cssText =
+          "max-width:420px;text-align:center;padding:18px 22px;background:#1a2028;" +
+          "border:1px solid #2a3340;border-radius:6px;box-shadow:0 4px 18px rgba(0,0,0,0.4);";
+
+        const icon = document.createElement("div");
+        icon.style.cssText = "font-size:26px;margin-bottom:6px;";
+        icon.textContent = "⚙";
+        panel.appendChild(icon);
+
+        const head = document.createElement("div");
+        head.style.cssText = "font-size:13px;font-weight:600;color:#cfd6df;margin-bottom:8px;";
+        head.textContent = "Grid #" + comp.id + " není nakonfigurován";
+        panel.appendChild(head);
+
+        // Checklist co schazi
+        const list = document.createElement("div");
+        list.style.cssText =
+          "text-align:left;display:inline-block;font-size:12px;color:#8a96a4;" +
+          "line-height:1.7;margin-bottom:14px;";
+        const _item = function (ok, label, hint) {
+          const row = document.createElement("div");
+          const mark = ok ? "✓" : "✗";
+          const col = ok ? "#5fb37a" : "#e57373";
+          const ms = document.createElement("span");
+          ms.style.cssText = "color:" + col + ";font-weight:700;margin-right:7px;";
+          ms.textContent = mark;
+          row.appendChild(ms);
+          const txt = document.createElement("span");
+          txt.textContent = label + (hint ? " — " + hint : "");
+          row.appendChild(txt);
+          return row;
+        };
+        list.appendChild(_item(false, "Zdroj dat (data_source_code)", "chybí"));
+        if (_filterPartial) {
+          list.appendChild(_item(false, "Filtr", "neúplný (vyplň filter_field i filter_source)"));
+        }
+        panel.appendChild(list);
+
+        const cta = document.createElement("button");
+        cta.type = "button";
+        cta.textContent = "⚙ Nastavit grid";
+        cta.style.cssText =
+          "padding:8px 18px;background:#2a6b3a;border:1px solid #3a8b4a;color:#e8f5e8;" +
+          "border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;";
+        cta.addEventListener("click", () => {
+          try { this._openGridSettings(comp); }
+          catch (e) { console.error("[DesignFwForm] dummy grid CTA failed:", e); }
+        });
+        panel.appendChild(cta);
+
+        ovl.appendChild(panel);
+        frame.appendChild(ovl);
+        sec.grid.appendChild(frame);
         return sec.wrap;
       }
 

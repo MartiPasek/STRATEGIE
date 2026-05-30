@@ -88,6 +88,7 @@
     var actions =
       '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
       '<button type="button" data-form-menu-action="core-setting" ' +
+        'title="Otevře form 49 (Core inspector) s rowId=' + (ctx.coreId == null ? "?" : ctx.coreId) + ' — načte fw.core záznam id=' + (ctx.coreId == null ? "?" : ctx.coreId) + '" ' +
         'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
         '⚙️ Core setting</button>' +
       '<button type="button" data-form-menu-action="design-core" ' +
@@ -120,16 +121,25 @@
         if (action === "core-setting") {
           // Marti's 30.5.2026 ranní: otevre Core setting inspector
           // (DesignFwForm s hardcoded coreId=49) pro current form core_id.
+          console.info("[Core setting · FORM pill] click — ctx:", ctx);
           menu.remove();
           if (ctx.coreId == null) {
+            console.warn("[Core setting · FORM pill] coreId=null in ctx, abort");
             alert("⚠ Core setting: chybí coreId v contextu formu");
             return;
           }
+          console.info("[Core setting · FORM pill] new DesignFwForm({ coreId: 49, rowId: " + ctx.coreId + " })");
           try {
             var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
-            if (typeof fwfCS.open === "function") fwfCS.open();
+            console.info("[Core setting · FORM pill] constructor OK, calling open()");
+            if (typeof fwfCS.open === "function") {
+              fwfCS.open();
+              console.info("[Core setting · FORM pill] open() returned");
+            } else {
+              console.warn("[Core setting · FORM pill] fwfCS.open is not a function:", fwfCS);
+            }
           } catch (e) {
-            console.error("[form pill menu] Core setting open failed:", e);
+            console.error("[Core setting · FORM pill] DesignFwForm failed:", e);
           }
           return;
         }

@@ -215,12 +215,13 @@
                   (ctx.gridCode || "?") + ")");
             return Promise.reject(new Error("no_core_id"));
           }
+          console.info("[Core setting · grid row context] open form 49 with rowId=" + ctx.coreId, ctx);
           try {
             var fwfCS = new DesignFwForm({ coreId: 49, rowId: ctx.coreId });
             if (typeof fwfCS.open === "function") fwfCS.open();
             return Promise.resolve();
           } catch (e) {
-            console.error("[Core setting] DesignFwForm failed:", e);
+            console.error("[Core setting · grid row context] DesignFwForm failed:", e);
             return Promise.reject(e);
           }
         },

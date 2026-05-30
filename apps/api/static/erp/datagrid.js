@@ -4079,6 +4079,7 @@
       var actions =
         '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
         '<button type="button" data-erp-menu-action="core-setting" ' +
+          'title="Otevře form 49 (Core inspector) s rowId=' + (ci.coreId == null ? "?" : ci.coreId) + ' — načte fw.core záznam id=' + (ci.coreId == null ? "?" : ci.coreId) + '" ' +
           'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
           '⚙️ Core setting</button>' +
         '<button type="button" data-erp-menu-action="design-core" ' +
@@ -4189,21 +4190,30 @@
       if (action === "core-setting") {
         // Marti's 30.5.2026 ranní: open Core setting inspector
         // (DesignFwForm s hardcoded coreId=49) pro current grid's core_id.
+        console.info("[Core setting · GRID pill] click — ci:", ci);
         menu.remove();
         if (ci.coreId == null) {
+          console.warn("[Core setting · GRID pill] coreId=null in ci, abort");
           alert("⚠ Core setting: chybí coreId v grid contextu");
           return;
         }
         if (typeof window.DesignFwForm !== "function") {
-          console.error("[grid pill menu] DesignFwForm not loaded");
+          console.error("[Core setting · GRID pill] window.DesignFwForm not loaded");
           alert("⚠ Core setting: DesignFwForm modul není načtený");
           return;
         }
+        console.info("[Core setting · GRID pill] new window.DesignFwForm({ coreId: 49, rowId: " + ci.coreId + " })");
         try {
           var fwfCS = new window.DesignFwForm({ coreId: 49, rowId: ci.coreId });
-          if (typeof fwfCS.open === "function") fwfCS.open();
+          console.info("[Core setting · GRID pill] constructor OK, calling open()");
+          if (typeof fwfCS.open === "function") {
+            fwfCS.open();
+            console.info("[Core setting · GRID pill] open() returned");
+          } else {
+            console.warn("[Core setting · GRID pill] fwfCS.open is not a function:", fwfCS);
+          }
         } catch (e) {
-          console.error("[grid pill menu] Core setting open failed:", e);
+          console.error("[Core setting · GRID pill] DesignFwForm failed:", e);
         }
         return;
       }

@@ -8188,12 +8188,62 @@
       if (code === "pagecontrol") {
         const tabsheets = children.filter(c => c.comp_type_code === "tabsheet");
         if (tabsheets.length === 0) {
-          // No tabsheets — render empty placeholder (DESIGN hint)
+          // No tabsheets — placeholder + (DESIGN) ➕ Pridat zalozku.
+          // Krok 5.Z (30.5.2026, Marti: "jak do nej dostanu sheety?"): prazdny
+          // pagecontrol nema tab strip (ten nese ➕ button z Krok 5.J-B4),
+          // takze prvni zalozka nesla pridat z UI. Pridame ➕ primo do
+          // placeholderu. Po vytvoreni prvniho tabsheetu se uz renderuje
+          // normalni tab strip s jeho vlastnim ➕.
           const empty = document.createElement("div");
           empty.style.cssText =
             "padding:24px;text-align:center;color:#8a96a4;font-size:12px;" +
-            "border:1px dashed #2a3340;border-radius:4px;";
-          empty.textContent = "📑 PageControl #" + container.id + " — žádný tabsheet uvnitr.";
+            "border:1px dashed #2a3340;border-radius:4px;" +
+            "display:flex;flex-direction:column;align-items:center;gap:10px;";
+          const emptyMsg = document.createElement("div");
+          emptyMsg.textContent = "📑 PageControl #" + container.id + " — žádná záložka uvnitr.";
+          empty.appendChild(emptyMsg);
+          if (this._formDesignMode === true) {
+            const selfPc = this;
+            const addFirstBtn = document.createElement("button");
+            addFirstBtn.type = "button";
+            addFirstBtn.textContent = "➕ Přidat záložku";
+            addFirstBtn.style.cssText =
+              "padding:6px 14px;background:#0a1410;border:1px solid #2e6b2e;" +
+              "color:#7ed47e;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;";
+            addFirstBtn.addEventListener("click", async () => {
+              const caption = prompt("Název nové záložky:", "Tab 1");
+              if (caption == null) return;  // cancel
+              const trimmed = caption.trim();
+              if (!trimmed) {
+                if (typeof _showToast === "function") _showToast("Název nesmí být prázdný", "error", 2500);
+                return;
+              }
+              try {
+                const r = await fetch("/api/v1/erp/design/comp-def", {
+                  method: "POST",
+                  credentials: "include",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    parent_comp_def_id: container.id,
+                    name: "tab_" + Date.now(),
+                    caption: trimmed,
+                    type_id: 16,  // tabsheet (Krok 13 Delphi compat)
+                    region_slot: "main",
+                  }),
+                });
+                if (!r.ok) {
+                  const eb = await r.json().catch(() => ({}));
+                  throw new Error(eb.error || ("HTTP " + r.status));
+                }
+                if (typeof _showToast === "function") _showToast("Záložka přidána", "success", 2000);
+                await selfPc._reloadSpec();
+              } catch (e) {
+                console.error("[pagecontrol] add first tab failed:", e);
+                if (typeof _showToast === "function") _showToast("Přidání selhalo: " + (e.message || e), "error", 3500);
+              }
+            });
+            empty.appendChild(addFirstBtn);
+          }
           return empty;
         }
 

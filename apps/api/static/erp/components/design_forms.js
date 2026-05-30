@@ -4948,10 +4948,25 @@
       // Host div — block kontejner s definitivni vyskou (NE grid-item v sec.grid,
       // jinak .erp-ag-grid flex:1/height:100% nema vuci cemu resolvovat -> AG
       // Grid zkolabuje na 0px a nevidet hlavicku). Append do sec.wrap (block).
+      //
+      // Krok 5.Z align (Marti 30.5.: "ma i align alClient? aby se roztahl na
+      // cely panel?"): layout.align='client' -> grid vyplni cely tab/panel
+      // (flex:1, min-height:0 v flex-column kontejneru). Jinak fixni height_px.
+      // Delphi alClient paralela — grid jako client-aligned komponenta.
+      const align = String(layout.align || "none").toLowerCase();
+      const isClient = (align === "client");
       const host = document.createElement("div");
       host.className = "erp-embedded-grid-host";
-      host.style.cssText =
-        "width:100%;height:" + heightPx + "px;box-sizing:border-box;";
+      if (isClient) {
+        sec.wrap.style.flex = "1 1 auto";
+        sec.wrap.style.display = "flex";
+        sec.wrap.style.flexDirection = "column";
+        sec.wrap.style.minHeight = "0";
+        sec.wrap.style.marginBottom = "0";
+        host.style.cssText = "width:100%;flex:1 1 auto;min-height:0;box-sizing:border-box;";
+      } else {
+        host.style.cssText = "width:100%;height:" + heightPx + "px;box-sizing:border-box;";
+      }
       sec.wrap.appendChild(host);
 
       // Guard: filter required ale token se neresolvoval (CREATE mode data.id=null
@@ -5005,7 +5020,9 @@
         try {
           gridInst = new window.ErpDataGrid(host, {
             rowData: rows,
-            height: heightPx + "px",
+            // alClient -> null (host je flex:1, ErpDataGrid neset fixni height
+            // -> .erp-ag-grid height:100%/flex:1 vyplni flex parenta). Jinak px.
+            height: isClient ? null : (heightPx + "px"),
             layoutKey: layoutKey,
             initialLayout: initialLayout,
             autoColumns: true,
@@ -5391,7 +5408,171 @@
     // (merge with existing). After save → _reloadSpec + re-render.
     // Re-render automaticky pouzije nove layout.max_length pres _renderField.
     // ════════════════════════════════════════════════════════════════
+    // ════════════════════════════════════════════════════════════════
+    // Krok 5.Z (30.5.2026) — Grid settings popup (grid_modern params)
+    // ════════════════════════════════════════════════════════════════
+    // Marti's "nastaveni parametru gridu jako u ostatnich komponent" +
+    // "ma i align alClient? aby se roztahl na cely panel?". Edituje
+    // comp_def.layout JSONB (title/align/height_px/data_source_code/
+    // filter_field/filter_source/kind/context_menu), PATCH /comp-def/update.
+    // "fw self edited" — grid konfigurovatelny z UI bez SQL.
+    _openGridSettings(comp) {
+      const layout = Object.assign({}, comp.layout || {});
+
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;" +
+        "display:flex;align-items:center;justify-content:center;";
+      const modal = document.createElement("div");
+      modal.style.cssText =
+        "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
+        "min-width:460px;max-width:560px;color:#e8eef5;font-size:13px;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+
+      const header = document.createElement("div");
+      header.style.cssText =
+        "padding:12px 16px;background:#1a2028;border-bottom:1px solid #2a3340;" +
+        "display:flex;align-items:center;justify-content:space-between;";
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText = "font-weight:600;font-size:14px;";
+      titleEl.innerHTML = "⚙ Nastavení gridu <span style=\"color:#7ed4e8;font-size:11px;font-weight:400;\">grid_modern · #" + comp.id + "</span>";
+      header.appendChild(titleEl);
+      const closeBtn = document.createElement("button");
+      closeBtn.type = "button"; closeBtn.textContent = "✕";
+      closeBtn.style.cssText = "background:transparent;border:none;color:#8a96a4;font-size:18px;cursor:pointer;padding:0;line-height:1;";
+      const _close = () => { if (overlay.parentNode) document.body.removeChild(overlay); };
+      closeBtn.addEventListener("click", _close);
+      header.appendChild(closeBtn);
+      modal.appendChild(header);
+
+      const body = document.createElement("div");
+      body.style.cssText = "padding:16px;display:flex;flex-direction:column;gap:10px;max-height:70vh;overflow:auto;";
+      const _is = "padding:6px 8px;background:#0f1419;border:1px solid #2a3340;color:#e8eef5;border-radius:3px;font-size:12px;width:100%;box-sizing:border-box;";
+      const _mkRow = (labelText, inputEl, hint) => {
+        const row = document.createElement("div");
+        row.style.cssText = "display:flex;flex-direction:column;gap:3px;";
+        const lab = document.createElement("label");
+        lab.textContent = labelText;
+        lab.style.cssText = "font-size:11px;color:#8a96a4;font-weight:600;";
+        row.appendChild(lab); row.appendChild(inputEl);
+        if (hint) {
+          const h = document.createElement("div");
+          h.textContent = hint;
+          h.style.cssText = "font-size:10px;color:#5d6975;";
+          row.appendChild(h);
+        }
+        return row;
+      };
+      const _mkSelect = (pairs, cur) => {
+        const sel = document.createElement("select");
+        sel.style.cssText = _is;
+        for (const [v, t] of pairs) {
+          const o = document.createElement("option");
+          o.value = v; o.textContent = t;
+          if (String(cur || "") === v) o.selected = true;
+          sel.appendChild(o);
+        }
+        return sel;
+      };
+
+      const inTitle = document.createElement("input");
+      inTitle.type = "text"; inTitle.value = layout.title || ""; inTitle.style.cssText = _is;
+      body.appendChild(_mkRow("Titulek", inTitle));
+
+      const selAlign = _mkSelect([
+        ["none", "none (fixní výška)"], ["client", "client (vyplní celý panel)"],
+        ["top", "top"], ["bottom", "bottom"], ["left", "left"], ["right", "right"],
+      ], (layout.align || "none").toLowerCase());
+      body.appendChild(_mkRow("Zarovnání (align)", selAlign, "client = grid se roztáhne na celý tab/panel"));
+
+      const inHeight = document.createElement("input");
+      inHeight.type = "number"; inHeight.value = (layout.height_px != null ? layout.height_px : 400); inHeight.style.cssText = _is;
+      body.appendChild(_mkRow("Výška (px)", inHeight, "použije se když align != client"));
+
+      const inDs = document.createElement("input");
+      inDs.type = "text"; inDs.value = layout.data_source_code || ""; inDs.style.cssText = _is;
+      body.appendChild(_mkRow("Data source (code)", inDs, "fw.data_source.code"));
+
+      const inFf = document.createElement("input");
+      inFf.type = "text"; inFf.value = layout.filter_field || ""; inFf.style.cssText = _is;
+      body.appendChild(_mkRow("Filtr — sloupec (SQL param)", inFf, "např. master_id"));
+
+      const selFs = _mkSelect([
+        ["", "(žádný)"], [":master_id", ":master_id (editovaný core)"],
+        [":self_core_id", ":self_core_id (core formu)"],
+      ], layout.filter_source || "");
+      body.appendChild(_mkRow("Filtr — zdroj (token)", selFs));
+
+      const selKind = _mkSelect([
+        ["", "(default select)"], ["select", "select"], ["select-detail", "select-detail"],
+      ], layout.kind || "");
+      body.appendChild(_mkRow("Operace (kind)", selKind, "select-detail = per-master detail data_set"));
+
+      const inCm = document.createElement("input");
+      inCm.type = "text";
+      inCm.value = Array.isArray(layout.context_menu) ? layout.context_menu.join(",") : (layout.context_menu || "refresh");
+      inCm.style.cssText = _is;
+      body.appendChild(_mkRow("Kontext menu", inCm, "čárkami: refresh,create,edit,delete"));
+
+      modal.appendChild(body);
+
+      const footer = document.createElement("div");
+      footer.style.cssText = "padding:12px 16px;background:#1a2028;border-top:1px solid #2a3340;display:flex;justify-content:flex-end;gap:8px;";
+      const cancelBtn = document.createElement("button");
+      cancelBtn.type = "button"; cancelBtn.textContent = "Zrušit";
+      cancelBtn.style.cssText = "padding:7px 16px;background:transparent;border:1px solid #2a3340;color:#8a96a4;border-radius:4px;cursor:pointer;font-size:13px;";
+      cancelBtn.addEventListener("click", _close);
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button"; saveBtn.textContent = "💾 Uložit";
+      saveBtn.style.cssText = "padding:7px 16px;background:#2a6b3a;border:1px solid #3a8b4a;color:#e8f5e8;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;";
+      footer.appendChild(cancelBtn); footer.appendChild(saveBtn);
+      modal.appendChild(footer);
+
+      overlay.appendChild(modal);
+      overlay.addEventListener("click", (e) => { if (e.target === overlay) _close(); });
+      document.body.appendChild(overlay);
+
+      saveBtn.addEventListener("click", async () => {
+        saveBtn.disabled = true;
+        const newLayout = Object.assign({}, layout);
+        newLayout.title = inTitle.value.trim() || null;
+        newLayout.align = selAlign.value;
+        const hp = parseInt(inHeight.value, 10);
+        newLayout.height_px = (!isNaN(hp) && hp > 0) ? hp : 400;
+        newLayout.data_source_code = inDs.value.trim() || null;
+        newLayout.filter_field = inFf.value.trim() || null;
+        if (selFs.value) newLayout.filter_source = selFs.value; else delete newLayout.filter_source;
+        if (selKind.value) newLayout.kind = selKind.value; else delete newLayout.kind;
+        const cm = inCm.value.split(",").map(s => s.trim()).filter(Boolean);
+        newLayout.context_menu = cm.length ? cm : ["refresh"];
+        try {
+          const r = await fetch("/api/v1/erp/design/comp-def/update/" + comp.id, {
+            method: "PATCH", credentials: "include",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              layout: newLayout,
+              caption: (inTitle.value.trim() || comp.caption || null),
+            }),
+          });
+          const d = await r.json().catch(() => ({}));
+          if (!r.ok || !d.ok) throw new Error(d.error || ("HTTP " + r.status));
+          if (typeof _showToast === "function") _showToast("Grid nastaven", "success", 2000);
+          _close();
+          if (typeof this._reloadSpec === "function") await this._reloadSpec();
+        } catch (e) {
+          console.error("[DesignFwForm] _openGridSettings save failed:", e);
+          if (typeof _showToast === "function") _showToast("Uložení selhalo: " + (e.message || e), "error", 3500);
+          saveBtn.disabled = false;
+        }
+      });
+    }
+
     _openFieldSettings(field, opts) {
+      // Krok 5.Z (30.5.2026): grid_modern ma vlastni settings popup (data_source,
+      // filter, kind, align, height) misto field caption/label/placeholder.
+      if (field && field.comp_type_code === "grid_modern") {
+        return this._openGridSettings(field);
+      }
       const currentLayout = field.layout || {};
 
       const overlay = document.createElement("div");

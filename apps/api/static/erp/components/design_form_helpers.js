@@ -423,7 +423,7 @@
       // Krok 14a-A1n #1 (12.5.2026 vecer): vsechny inputs/dropdowns/formlist
       // maji forced 32px height — sjednoceno napric komponentami.
       ".erp-design-modal .erp-field-design {\n" +
-      "  min-height: 56px;\n" +
+      "  min-height: 46px;\n" +  // Krok 5.Z (30.5.2026): 56->46 kompaktnejsi (Marti "fieldy moc velky")
       "  box-sizing: border-box;\n" +
       "}\n" +
       ".erp-design-modal .erp-field-design > *,\n" +
@@ -441,9 +441,32 @@
       ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-formlist-trigger,\n" +
       ".erp-design-modal .erp-field-design:not(.erp-field-memo) > select,\n" +
       ".erp-design-modal .erp-field-design:not(.erp-field-memo) > input {\n" +
-      "  height: 32px !important;\n" +
-      "  min-height: 32px !important;\n" +
-      "  line-height: 1.4;\n" +
+      "  height: 28px !important;\n" +  // Krok 5.Z (30.5.2026): 32->28 kompaktni
+      "  min-height: 28px !important;\n" +
+      "  line-height: 1.3;\n" +
+      "  font-size: 12px;\n" +
+      "}\n" +
+      // Krok 5.Z (30.5.2026, Marti: "fieldy moc velky, zjemnit; prevezmi
+      // velikost+design z palety, napr. Dropdown Edit id=2"): editable field
+      // appearance — kompaktni padding + bg/border/text barvy z palety dropdownu
+      // (padding:4px 8px; bg:#1f2530; border:1px solid #2a3340; color:#cfd6df;
+      // font 12px; radius 3px). Cilime jen na control box (input/dropdown-trigger/
+      // formlist-trigger/select), NE na wrapper (.erp-input). Pozn.: readonly
+      // fieldy nejsou vizualne odlisene (B+10++++ 6.5. zrusil readonly visual,
+      // je to jen save gate), takze styl plati uniformne na vsechny editable.
+      // [data-design-color] override (nize) ma prednost pro custom barvy textu.
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-input-input,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-input input,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-dropdown-trigger,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) .erp-formlist-trigger,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) > select,\n" +
+      ".erp-design-modal .erp-field-design:not(.erp-field-memo) > input {\n" +
+      "  background: #1f2530 !important;\n" +
+      "  border: 1px solid #2a3340 !important;\n" +
+      "  border-radius: 3px !important;\n" +
+      "  color: #cfd6df !important;\n" +
+      "  padding: 3px 8px !important;\n" +
+      "  font-size: 12px !important;\n" +
       "}\n" +
       ".erp-design-modal .erp-input-label,\n" +
       ".erp-design-modal .erp-dropdown-label,\n" +

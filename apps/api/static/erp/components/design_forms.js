@@ -4966,12 +4966,19 @@
         return sec.wrap;
       }
 
-      // Data fetch URL — kind defaults 'select' (is_default op). Filter pres
-      // SQL named param (filter_field), NE master_id (to je jen layout token).
+      // Data fetch URL — master-detail konvence (Marti 30.5.): embedded grid
+      // (detail) pouziva layout.kind='select-detail' + filter_field='master_id'
+      // -> per-master data_set s simple "WHERE cd.core_id = :master_id".
+      // layout.kind default null -> runner default 'select' (standalone list).
+      // Filter param name z filter_field, hodnota z filter_source resolveru.
       let dataUrl = "/api/v1/erp/data/" + encodeURIComponent(dataSourceCode);
+      const _qs = [];
       if (filterField && filterValue != null) {
-        dataUrl += "?" + encodeURIComponent(filterField) + "=" + encodeURIComponent(filterValue);
+        _qs.push(encodeURIComponent(filterField) + "=" + encodeURIComponent(filterValue));
       }
+      const _kind = layout.kind || null;
+      if (_kind) _qs.push("kind=" + encodeURIComponent(_kind));
+      if (_qs.length) dataUrl += "?" + _qs.join("&");
       const layoutKey = "embedded_" +
         (this._spec && this._spec.core ? this._spec.core.id : "0") + "_" + comp.id;
       const layoutUrl = "/api/v1/erp/grid-layout/" + encodeURIComponent(layoutKey) + "/list";

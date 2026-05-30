@@ -1,44 +1,51 @@
 -- ════════════════════════════════════════════════════════════════════════
--- Krok 5.Z FIX — obnova :filter_core_id bind param v framework_comp_def_select
+-- Krok 5.Z FIX v2 — funkcni :filter_core_id bind v framework_comp_def_select
 -- ════════════════════════════════════════════════════════════════════════
 -- Datum: 30.5.2026
 -- Autor: Claude (Sonnet 4.6)
 --
--- PROBLEM: zivy data_set framework_comp_def_select (id=47) ma WHERE klauzuli
---   WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)   -- vzdy TRUE -> 294
--- Bind param :filter_core_id byl historicky prepsan na literal NULL (stara
--- verze runneru pustila MSSQL substituci _substitute_mssql_params na PG
--- data_setu s param=None -> ':filter_core_id' -> 'NULL', a self-heal
--- (_apply_column_aliases) to pri prejmenovani cd.layout->cd.layout_mode
--- zabetonoval do sql_text).
+-- ROOT CAUSE (z fw.diag_log 30.5. 11:12): forma ':filter_core_id::int'
+-- NEFUNGUJE v runneru ->
+--   psycopg2.errors.SyntaxError: syntax error at or near ":"
+--   WHERE (:filter_core_id::int IS NULL OR cd.core_id = :filter_core_id::int)
+-- Duvody:
+--   1) Fix H regex v _normalize_params (r":(\w+)") chyti z '::int' falesny
+--      bind param 'int' -> params={filter_core_id, int} -> rozbity render.
+--   2) '::' mate SQLAlchemy text() bind parser -> psycopg2 dostane ':' literal.
+-- TOTO byl puvodni duvod korupce na 'NULL::int' (nekdo obesel bind param
+-- jeho odstranenim -> filtr zabit -> vzdy 294).
 --
--- FIX: chirurgicky REPLACE JEN broken WHERE klauzule -> obnova bind param.
---   Zachova self-healnuty column list (cd.layout_mode atd.) beze zmeny.
---   Idempotentni (LIKE guard) — re-run neudela nic pokud uz opraveno.
+-- FIX: konvence z funkcnich data_setu (_phase38_4_krok11e):
+--   WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)
+--   - CAST(...) na IS NULL strane (PG neumi odvodit typ bare paramu pri IS NULL)
+--   - bare :filter_core_id na porovnani (PG odvodi int z cd.core_id sloupce)
+--   - ZADNE '::' -> Fix H najde jen 'filter_core_id', SQLAlchemy bindne cleanly
 --
--- DURABILITY: aktualni PG execute path (run_data_source) bind params
---   NEPREPISUJE — _substitute_mssql_params bezi jen pri db_type='mssql'
---   (a fw.comp_def je PG). _apply_column_aliases prepisuje jen 'alias.col'
---   patterny (NE ':param'). Takze :filter_core_id po opravce vydrzi.
+-- Robustni: dva REPLACE pokryji oba mozne soucasne stavy
+--   (:filter_core_id::int  NEBO  NULL::int) -> oba na CAST formu.
+-- Idempotentni: pokud uz CAST forma, zadny REPLACE nematchne -> no-op.
 --
 -- ⚠ GOTCHA #111 (DBeaver bind dialog): skript obsahuje ':filter_core_id'.
---   DBeaver muze nabidnout bind dialog — VZDY Cancel/Ignore (neni to bind,
---   je to text literal ktery vkladame do sql_text). Pripadne v DBeaveru
---   docasne vypni "Use bind variables" (SQL Editor preferences).
+--   DBeaver muze nabidnout bind dialog — VZDY Cancel/Ignore.
 -- ════════════════════════════════════════════════════════════════════════
 
 BEGIN;
 
 UPDATE fw.data_set
 SET sql_text = REPLACE(
-  sql_text,
-  'WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)',
-  'WHERE (:filter_core_id::int IS NULL OR cd.core_id = :filter_core_id::int)'
-)
+      REPLACE(
+        sql_text,
+        'WHERE (:filter_core_id::int IS NULL OR cd.core_id = :filter_core_id::int)',
+        'WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)'
+      ),
+      'WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)',
+      'WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)'
+    )
 WHERE code = 'framework_comp_def_select'
-  AND sql_text LIKE '%WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)%';
+  AND (sql_text LIKE '%:filter_core_id::int%'
+       OR sql_text LIKE '%WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)%');
 
 COMMIT;
 
--- ── Verify (spust po commitu) — ocekavej WHERE s :filter_core_id ──────────
--- SELECT code, sql_text FROM fw.data_set WHERE code = 'framework_comp_def_select';
+-- ── Verify (spust po commitu) — ocekavej CAST(:filter_core_id AS int) ─────
+-- SELECT sql_text FROM fw.data_set WHERE code = 'framework_comp_def_select';

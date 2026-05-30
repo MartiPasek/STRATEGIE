@@ -9313,6 +9313,9 @@ def design_list_entity_columns(
                         "type_id": cont["type_id"],
                         "type_code": cont["type_code"],
                         "type_label": cont["type_label"],
+                        # Krok 5.Z (30.5.2026): region_slot pro palette badge
+                        # (frontend existing_region_slot, default 'main' fallback).
+                        "region_slot": cont["region_slot"],
                         "parent_comp_def_id": cont["parent_comp_def_id"],
                         "sort_order": cont["sort_order"],
                         "layout": layout,

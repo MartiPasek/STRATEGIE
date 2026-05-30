@@ -644,7 +644,16 @@
             existing_sort_order: f.sort_order,
             existing_label: f.caption,
             suggested_type_id: f.type_id,
+            // Krok 5.Z (30.5.2026, Marti's "identifikace gridu na palete"):
+            // render (_renderOnFormRow) cte col.existing_type_id pro type badge
+            // + dropdown selected. Bez nej -> "type#undefined" + dropdown default
+            // "Edit (id=2)". Mapuj f.type_id i sem (ne jen suggested_type_id).
+            // Opravuje grid_modern (Grid (modern)) i vsechna ostatni hierarchy
+            // pole (version, created_at, ...) co ukazovala type#undefined.
+            existing_type_id: f.type_id,
+            existing_region_slot: f.region_slot,
             type_code: f.type_code,
+            type_label: f.type_label,
             // Marker: tento field neni z DB column whitelist, je z hierarchy.
             // (Krok 5-B Fix — pro budouci debug visibility.)
             _from_hierarchy: true,

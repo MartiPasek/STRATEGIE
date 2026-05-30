@@ -8386,6 +8386,26 @@
           // Click → switch active tab
           tabBtn.addEventListener("click", () => {
             this._activeTabSheets[pcId] = ts.id;
+            // Krok 5.Z (30.5.2026, Marti: "pri prepinani tabu se recreatuji
+            // gridy v jinem regionu, problem s nacitanim"): re-render JEN tento
+            // pagecontrol node, ne cely form. Full this._render() znicil +
+            // recreatoval VSECHNY ErpDataGrid (i mimo tabsheety) -> re-fetch +
+            // MCP rate limit. Lokalni swap: najdi stary pcWrap, nahrad novym
+            // (cte aktualizovany _activeTabSheets). Fallback na _render pri chybe.
+            try {
+              const _oldPc = document.querySelector(
+                '.erp-design-pagecontrol[data-comp-def-id="' + container.id + '"]'
+              );
+              if (_oldPc && _oldPc.parentNode && this.__renderCtx) {
+                const _newPc = this._renderContainerNode(container);
+                if (_newPc) {
+                  _oldPc.parentNode.replaceChild(_newPc, _oldPc);
+                  return;
+                }
+              }
+            } catch (e) {
+              console.error("[pagecontrol] local tab switch failed, fallback _render:", e);
+            }
             this._render();
           });
 

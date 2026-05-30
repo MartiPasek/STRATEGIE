@@ -496,15 +496,22 @@
       // auto-resize inline height). :has() propaguje flex:1 na DESIGN wrapper.
       // Funguje kdyz je memo v flex-column kontejneru (tabsheet contentArea /
       // panel flex-column) — vyplni jeho vysku jako alClient.
+      // Krok 5.Z fill flex chain — skutecne ErpMemo classy (memo.js):
+      //   .erp-field-memo-fill > .erp-memo-wrapper > .erp-memo-row > .erp-memo-textarea
+      // Kazdy clanek flex:1 + min-height:0; textarea height:100% (!important
+      // prebije _autoResize inline height). wrapper flex-column (label/row/footer).
       ".erp-design-modal .erp-field-memo-fill {\n" +
       "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
       "}\n" +
-      ".erp-design-modal .erp-field-memo-fill .erp-memo,\n" +
-      ".erp-design-modal .erp-field-memo-fill .erp-memo-input {\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo-wrapper {\n" +
       "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
-      "  display: flex; flex-direction: column;\n" +
+      "  display: flex !important; flex-direction: column !important;\n" +
       "}\n" +
-      ".erp-design-modal .erp-field-memo-fill textarea {\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo-row {\n" +
+      "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
+      "  display: flex !important;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo-textarea {\n" +
       "  flex: 1 1 auto !important; height: 100% !important;\n" +
       "  min-height: 0 !important; resize: none !important;\n" +
       "}\n" +

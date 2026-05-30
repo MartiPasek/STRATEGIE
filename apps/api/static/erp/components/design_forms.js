@@ -6141,6 +6141,9 @@
       // Delphi Anchors property — doplnuje Align. akLeft+akTop+akBottom = panel
       // snapuje vlevo + stretch vertikalne. Bez akBottom = fixed Height.
       let containerAnchorChecks = null;
+      // Krok 5.Z (30.5.2026, Marti's "2 sloupce siroky+uzky / zakazat reflow 2->1"):
+      // grid_template — ovladnuti sloupcu field gridu uvnitr panelu.
+      let containerGridTemplateInput = null;
       if (isContainer) {
         // Align (Marti's "musim vzdy videt align")
         containerAlignSelect = document.createElement("select");
@@ -6201,6 +6204,20 @@
           containerBorderSelect.appendChild(opt);
         }
         basicPaneEl.appendChild(_row("Border mode", containerBorderSelect));
+
+        // Krok 5.Z (30.5.2026, Marti's "2 sloupce siroky+uzky / zakazat reflow"):
+        // grid_template — CSS grid-template-columns pro field grid uvnitr panelu.
+        //   prazdne     -> repeat(auto-fit, minmax(220px,1fr)) (default responsive)
+        //   "2"         -> repeat(2, 1fr) fixni 2 stejne sloupce (zadny reflow 2->1)
+        //   "2fr 1fr"   -> prvni siroky, druhy uzky
+        //   "260px 1fr" -> prvni fixni px, druhy vyplni
+        containerGridTemplateInput = document.createElement("input");
+        containerGridTemplateInput.type = "text";
+        containerGridTemplateInput.style.cssText = _inputStyle;
+        containerGridTemplateInput.value = currentLayout.grid_template != null
+          ? String(currentLayout.grid_template) : "";
+        containerGridTemplateInput.placeholder = "prázdné=auto · 2=dva stejné · 2fr 1fr=široký+úzký · 260px 1fr";
+        basicPaneEl.appendChild(_row("Sloupce polí (grid)", containerGridTemplateInput));
 
         // Krok 5-B (29.5.2026 vecer, Marti's Object Inspector screenshot
         // Anchors: [akLeft, akTop, akBottom]): Delphi Anchors property.
@@ -6930,6 +6947,12 @@
             else newLayout.min_height = newMinH;
 
             if (containerBorderSelect) newLayout.border_mode = containerBorderSelect.value;
+
+            // Krok 5.Z grid_template — sloupce field gridu (prazdne = auto reflow)
+            const _gtVal = containerGridTemplateInput
+              ? containerGridTemplateInput.value.trim() : "";
+            if (_gtVal) newLayout.grid_template = _gtVal;
+            else delete newLayout.grid_template;
 
             // Drop legacy 'width' key (Marti's Bod 1: Width → Max width).
             // Max width zustava obecne v max_width (sdileno s field).
@@ -8558,8 +8581,16 @@
         // jako sousedi) a fieldy (align-items:start) zustanou nahore zvetsenych
         // bunek = mezery. align-content:start radky nahusti nahoru, prazdne
         // misto zustane dole.
+        // Krok 5.Z (30.5.2026, Marti's "2 sloupce siroky+uzky / zakazat reflow"):
+        // layout.grid_template prebije default auto-fit:
+        //   prazdne   -> repeat(auto-fit, minmax(220px,1fr)) (responsive reflow)
+        //   "2"       -> repeat(2, 1fr) fixni 2 stejne sloupce (zadny reflow)
+        //   "2fr 1fr" -> prvni siroky, druhy uzky; "260px 1fr" -> prvni fixni
+        let _gridCols = "repeat(auto-fit, minmax(220px, 1fr))";
+        const _gt = (layout.grid_template != null) ? String(layout.grid_template).trim() : "";
+        if (_gt) _gridCols = /^\d+$/.test(_gt) ? ("repeat(" + _gt + ", 1fr)") : _gt;
         const baseStyle = useImplicitGrid
-          ? "display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));" +
+          ? "display:grid;grid-template-columns:" + _gridCols + ";" +
             "gap:6px 14px;align-items:start;align-content:start;min-width:0;position:relative;" +
             "box-sizing:border-box;"
           : "display:flex;flex-direction:column;min-height:0;min-width:0;position:relative;" +

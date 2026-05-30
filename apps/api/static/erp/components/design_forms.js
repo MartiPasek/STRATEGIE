@@ -6288,9 +6288,23 @@
         basicPaneEl.appendChild(anchorsHint);
       }
 
+      // Krok 5.Z (30.5.2026, Marti: editovatelny column_name v ⚙): data binding
+      // override. Field binduje na data[column_name]; pri prazdnem pada na
+      // technicky comp.name (skoro nikdy nesedi s SQL aliasem -> "—"). Editem
+      // se rozhozeny binding opravi z UI bez SQL.
+      let colNameInput = null;
       // Placeholder — field-only
       let placeholderInput = null;
       if (!isContainer) {
+        // DB sloupec (column_name) — editovatelny klic do dat (SQL alias)
+        colNameInput = document.createElement("input");
+        colNameInput.type = "text";
+        colNameInput.style.cssText = _inputStyle;
+        colNameInput.value = currentLayout.column_name || "";
+        colNameInput.placeholder = "klíč v datech (SQL alias) · prázdné = název pole '" +
+          (field.name || "") + "'";
+        basicPaneEl.appendChild(_row("Data sloupec (column_name)", colNameInput));
+
         placeholderInput = document.createElement("input");
         placeholderInput.type = "text";
         placeholderInput.style.cssText = _inputStyle;
@@ -6999,6 +7013,11 @@
               saveBtn.style.opacity = "1";
               return;
             }
+
+            // Krok 5.Z column_name override (data binding klic, prazdne = fallback comp.name)
+            const _colName = colNameInput ? colNameInput.value.trim() : "";
+            if (_colName) newLayout.column_name = _colName;
+            else delete newLayout.column_name;
 
             // Placeholder
             const newPh = placeholderInput ? placeholderInput.value.trim() : "";

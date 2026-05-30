@@ -8266,6 +8266,7 @@
         pcWrap.dataset.compTypeCode = "pagecontrol";
         pcWrap.style.cssText =
           "display:flex;flex-direction:column;gap:0;min-height:0;min-width:0;" +
+          "width:100%;" +  // Krok 5.Z (30.5.2026): vyplni sirku kontejneru (Marti's "do sirky")
           "border:1px solid #2a3340;border-radius:4px;background:#0f141a;";
 
         // Tab strip
@@ -8615,13 +8616,21 @@
         // CSS grid), jinak grid sec.wrap flex:1 nema flex kontext a nezvetsi
         // se na vysku panelu. grid_modern proto NENI "leaf field" pro layout
         // ucely — chova se jako container child (drzi panel flex-column).
+        // Krok 5.Z (30.5.2026, Marti: "page control se neroztahne na cely panel
+        // do sirky"): pagecontrol + tabsheet jsou CONTAINERY (jako panel/
+        // groupbox) — NE leaf field. Bez tohoto panel s pagecontrol ditetem
+        // pouzil implicit grid (sloupec ~220px) misto flex-column full-width
+        // -> pagecontrol se neroztahl. Drzi flex-column -> pagecontrol je
+        // full-width blok + (align=client) ho _buildAlignLayout vyplni.
         const hasGridChild = children.some(c => c.comp_type_code === "grid_modern");
         const hasContainerChild = children.some(c =>
-          c.comp_type_code === "panel" || c.comp_type_code === "groupbox"
+          c.comp_type_code === "panel" || c.comp_type_code === "groupbox" ||
+          c.comp_type_code === "pagecontrol" || c.comp_type_code === "tabsheet"
         );
         const hasLeafChild = children.some(c =>
           c.comp_type_code !== "panel" && c.comp_type_code !== "groupbox" &&
-          c.comp_type_code !== "grid_modern"
+          c.comp_type_code !== "grid_modern" &&
+          c.comp_type_code !== "pagecontrol" && c.comp_type_code !== "tabsheet"
         );
         const useImplicitGrid = !hasContainerChild && !hasGridChild && hasLeafChild;
         // Krok 5-B (29.5.2026 odpoledne, Marti's "panel prelejza svoje

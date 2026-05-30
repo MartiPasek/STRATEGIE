@@ -5068,12 +5068,14 @@
       const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
         ? layout.height_px : 360;
       const editCoreId = (layout.edit_core_id != null) ? layout.edit_core_id : null;
-      // Krok 5.Z (30.5.2026): core "prehledu", ktery tento nested grid zrcadli
-      // (backend resolvuje pres data_source_id -> root grid core). Footer pill
-      // + Core setting na nested gridu ukazuji identitu PREHLEDU, ne parent
-      // formu. Viz fw_form_load_by_id embedded_grids subselect overview_core_id.
-      const overviewCoreId = (comp && comp.overview_core_id != null)
-        ? comp.overview_core_id : null;
+      // Krok 5.Z (30.5.2026, Marti: "72 tam byt nemaji, momentalne NULL, core
+      // nested gridu jeste neexistuje"). gridCoreId = VLASTNI core nested gridu
+      // (backend CASE: NULL dokud grid jen dedi core formu). Footer pill +
+      // Core setting pouziji TENTO core, ne parent form _coreId. NULL -> pill
+      // core cast schovana (zadne spatne 72). Az nested gridy dostanou vlastni
+      // core (zitra: nested detail jadra pro insert/edit), pill je ukaze sam.
+      const gridCoreId = (comp && comp.grid_core_id != null)
+        ? comp.grid_core_id : null;
 
       // CRUD gating: create/edit potrebuji edit form core. Bez edit_core_id
       // jen 'refresh' (display-first milestone). Marti's "drz jednoduchost" —
@@ -5186,18 +5188,23 @@
             rowSelection: "single",
             compact: true,
             disableColumnFlex: true,
+            // Krok 5.Z (30.5.2026, Marti: "bez core_id nema co CRUD na gridu
+            // delat, to je spravne"): crudToolbar zustava 'auto'. Dokud nested
+            // grid nema vlastni core (coreId=null), _shouldRenderCrudToolbar
+            // hasCoreId gate toolbar (➕✏️🗑️🔄) schova — CRUD nema co delat.
+            // Az dostane vlastni core (zitra: nested detail jadra), toolbar
+            // se objevi s funkcnim CRUD. Layout footer (pill + ukladani sestav)
+            // bezi na layoutKey -> zustava i bez core.
             coreInfo: {
-              // Krok 5.Z (30.5.2026, Marti: "na nested gridech ma byt core_id
-              // tech prehledu detailu, ne 72 formulare"). coreInfo.coreId je
-              // SDILENY: 1) pill v paticce (core_id:row_id), 2) akce "Core
-              // setting" -> DesignFwForm(coreId:49, rowId:coreId). Pro nested
-              // grid je spravna identita core PREHLEDU, ktery grid zrcadli:
-              //   1) overviewCoreId (backend resolve pres data_source -> root grid),
-              //   2) editCoreId (edit form gridu, fallback),
-              //   3) _coreId (parent form, last-resort, nikdy data_source_id!).
-              // Master grid posila vlastni page core_id (page_render.js).
-              coreId: (overviewCoreId != null) ? overviewCoreId
-                    : (editCoreId != null) ? editCoreId : _coreId,
+              // Krok 5.Z (30.5.2026, Marti: "72 tam byt nemaji, momentalne
+              // NULL"). coreInfo.coreId je SDILENY: 1) pill v paticce
+              // (core_id:row_id), 2) akce "Core setting". Pro nested grid =
+              // VLASTNI core gridu (gridCoreId). Dokud grid jen dedi core formu,
+              // backend posila NULL -> coreId null -> pill core cast schovana
+              // (zadne 72), Core setting na nested gridu zatim bez core (do
+              // zalozeni nested detail jader). ZADNY fallback na _coreId (to byl
+              // ten spatny 72). Master grid posila vlastni core_id (page_render).
+              coreId: gridCoreId,
               refId: filterValue,
               coreLabel: title,
             },

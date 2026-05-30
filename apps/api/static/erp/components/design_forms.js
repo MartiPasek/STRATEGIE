@@ -1609,9 +1609,14 @@
         // parametrizace ke kteremu DB fieldu to patri"): otevri column
         // picker pro non-container, non-label types. Container/label
         // skip — direct create s auto-name.
+        // Krok 5.Z (30.5.2026, Marti: "pridat do preview Page control"):
+        // pagecontrol + tabsheet jsou containery -> direct create (bez column
+        // pickeru), jinak by drop z Preview padal na "Form nema data_entity_type".
         const isContainer = payload.is_container === true ||
                             payload.code === "panel" ||
-                            payload.code === "groupbox";
+                            payload.code === "groupbox" ||
+                            payload.code === "pagecontrol" ||
+                            payload.code === "tabsheet";
         const isLabel = payload.code === "label" || payload.code === "label_readonly";
         // Krok 5.Z (Marti 30.5.): grid_modern nemapuje DB sloupec formu (ma
         // vlastni data_source). Direct create bez column pickeru — jinak by

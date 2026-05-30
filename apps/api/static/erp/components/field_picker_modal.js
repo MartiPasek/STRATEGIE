@@ -974,7 +974,9 @@
           ["label", "edit", "checkbox", "combobox", "memo", "number",
            "checkbox_modern", "date_modern", "datetime", "lookup",
            "lookup_multi", "file", "label_readonly", "groupbox",
-           "pagecontrol", "tabsheet", "button", "richedit"].includes(ct.code)
+           "pagecontrol", "tabsheet", "button", "richedit",
+           // Krok 5.Z (Marti 30.5.): grid_modern do Preview gallery (addable).
+           "grid_modern"].includes(ct.code)
         );
 
         // Hint

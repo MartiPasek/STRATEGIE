@@ -1,51 +1,59 @@
 -- ════════════════════════════════════════════════════════════════════════
--- Krok 5.Z FIX v2 — funkcni :filter_core_id bind v framework_comp_def_select
+-- Krok 5.Z FIX v3 — framework_comp_def_select CAST (BIND-PROOF, bez : dialogu)
 -- ════════════════════════════════════════════════════════════════════════
 -- Datum: 30.5.2026
 -- Autor: Claude (Sonnet 4.6)
 --
--- ROOT CAUSE (z fw.diag_log 30.5. 11:12): forma ':filter_core_id::int'
--- NEFUNGUJE v runneru ->
---   psycopg2.errors.SyntaxError: syntax error at or near ":"
---   WHERE (:filter_core_id::int IS NULL OR cd.core_id = :filter_core_id::int)
--- Duvody:
---   1) Fix H regex v _normalize_params (r":(\w+)") chyti z '::int' falesny
---      bind param 'int' -> params={filter_core_id, int} -> rozbity render.
---   2) '::' mate SQLAlchemy text() bind parser -> psycopg2 dostane ':' literal.
--- TOTO byl puvodni duvod korupce na 'NULL::int' (nekdo obesel bind param
--- jeho odstranenim -> filtr zabit -> vzdy 294).
---
--- FIX: konvence z funkcnich data_setu (_phase38_4_krok11e):
+-- ROOT CAUSE: ':filter_core_id::int' NEFUNGUJE v runneru (psycopg2 SyntaxError
+-- "at or near :"). Fix H regex chyti z '::int' falesny param 'int', '::' mate
+-- SQLAlchemy parser. Spravna forma (konvence _phase38_4_krok11e):
 --   WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)
---   - CAST(...) na IS NULL strane (PG neumi odvodit typ bare paramu pri IS NULL)
---   - bare :filter_core_id na porovnani (PG odvodi int z cd.core_id sloupce)
---   - ZADNE '::' -> Fix H najde jen 'filter_core_id', SQLAlchemy bindne cleanly
 --
--- Robustni: dva REPLACE pokryji oba mozne soucasne stavy
---   (:filter_core_id::int  NEBO  NULL::int) -> oba na CAST formu.
--- Idempotentni: pokud uz CAST forma, zadny REPLACE nematchne -> no-op.
+-- Tento skript SET cely sql_text na spravnou formu. Stavi text pres chr(58)
+-- (=dvojtecka), takze DBeaver NEVIDI ':filter_core_id' literalne -> ZADNY
+-- bind dialog (gotcha #111 obejito). Deterministicke — nezalezi na soucasnem
+-- (rozbitem) stavu sql_text.
 --
--- ⚠ GOTCHA #111 (DBeaver bind dialog): skript obsahuje ':filter_core_id'.
---   DBeaver muze nabidnout bind dialog — VZDY Cancel/Ignore.
+-- Tento data_set patri PREHLEDU Komponent (core 73). Embedded grid (detail)
+-- pouziva separatni framework_comp_def_detail (viz _phase_krok5z_detail_dataset.sql).
 -- ════════════════════════════════════════════════════════════════════════
 
-BEGIN;
+DO $$
+DECLARE
+  c text := chr(58);   -- ':'
+  v_sql text;
+BEGIN
+  v_sql :=
+'SELECT
+  cd.id,
+  cd.core_id,
+  cd.parent_comp_def_id,
+  cd.type_id,
+  ct.code AS type_code,
+  COALESCE(ct.label, ct.code) AS type_label,
+  cd.name,
+  cd.caption,
+  cd.sort_order,
+  cd.is_active,
+  cd.root,
+  cd.data_source_id,
+  cd.layout_mode,
+  cd.region_slot,
+  cd.created_at,
+  cd.updated_at,
+  cd.created_by_text,
+  cd.updated_by_text
+FROM fw.comp_def cd
+LEFT JOIN fw.comp_type ct ON ct.id = cd.type_id
+WHERE (CAST(' || c || 'filter_core_id AS int) IS NULL OR cd.core_id = ' || c || 'filter_core_id)
+ORDER BY cd.core_id, cd.sort_order NULLS LAST, cd.id';
 
-UPDATE fw.data_set
-SET sql_text = REPLACE(
-      REPLACE(
-        sql_text,
-        'WHERE (:filter_core_id::int IS NULL OR cd.core_id = :filter_core_id::int)',
-        'WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)'
-      ),
-      'WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)',
-      'WHERE (CAST(:filter_core_id AS int) IS NULL OR cd.core_id = :filter_core_id)'
-    )
-WHERE code = 'framework_comp_def_select'
-  AND (sql_text LIKE '%:filter_core_id::int%'
-       OR sql_text LIKE '%WHERE (NULL::int IS NULL OR cd.core_id = NULL::int)%');
+  UPDATE fw.data_set
+  SET sql_text = v_sql
+  WHERE code = 'framework_comp_def_select';
 
-COMMIT;
+  RAISE NOTICE 'framework_comp_def_select sql_text -> CAST forma (% znaku).', length(v_sql);
+END $$;
 
--- ── Verify (spust po commitu) — ocekavej CAST(:filter_core_id AS int) ─────
+-- ── Verify (spust po behu) — ocekavej CAST(:filter_core_id AS int) ───────
 -- SELECT sql_text FROM fw.data_set WHERE code = 'framework_comp_def_select';

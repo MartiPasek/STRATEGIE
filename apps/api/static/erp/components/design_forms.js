@@ -5181,7 +5181,13 @@
             compact: true,
             disableColumnFlex: true,
             coreInfo: {
-              coreId: editCoreId,
+              // Krok 5.Z (30.5.2026, Marti: "na nested gridech se nezobrazuje
+              // vlevo dole core_id:row_id"): pill se renderuje jen kdyz coreId
+              // != null. Detail gridy maji edit_core_id NULL -> pill chybel.
+              // Fallback na data_source_id (_dsId) jako per-grid identita ->
+              // pill se vzdy zobrazi; row_id se doplni pri vyberu radku
+              // (_updateCoreInfoPill na cellFocused).
+              coreId: (editCoreId != null) ? editCoreId : _dsId,
               refId: filterValue,
               coreLabel: title,
             },

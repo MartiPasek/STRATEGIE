@@ -4895,9 +4895,16 @@
     _renderEmbeddedGridSection(comp) {
       const layout = (comp && comp.layout) || {};
       const dataSourceCode = layout.data_source_code || comp.data_source_code || null;
+      // title = plny fallback pro coreInfo.coreLabel (footer pill) — vzdy
+      // neco smysluplneho, i kdyz user label nevyplnen.
       const title = layout.title || comp.caption || comp.data_source_name || dataSourceCode || "Grid";
-
-      const sec = _sectionBuild(title, "embedded:" + comp.id);
+      // Krok 5.Z (30.5.2026, Marti: "pokud neni vyplnen label gridu, nezobrazovat
+      // jej, aby se grid posunul nahoru"): header sekce se renderuje JEN kdyz
+      // user vyplnil vlastni label (layout.title / caption). Bez nej prazdny
+      // titleUser -> _sectionBuild header preskoci. data_source_name/code/"Grid"
+      // se NEbere jako viditelny label (je to jen fallback pro footer pill).
+      const titleUser = (layout.title || comp.caption || "").trim();
+      const sec = _sectionBuild(titleUser, "embedded:" + comp.id);
 
       if (!dataSourceCode) {
         console.warn("[DesignFwForm] embedded grid_modern #" + comp.id +

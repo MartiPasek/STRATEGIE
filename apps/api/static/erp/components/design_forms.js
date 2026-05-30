@@ -8399,6 +8399,17 @@
               if (_oldPc && _oldPc.parentNode && this.__renderCtx) {
                 const _newPc = this._renderContainerNode(container);
                 if (_newPc) {
+                  // Krok 5.Z (30.5.2026, Marti: "pri prepinani sheetu se memo
+                  // smrskne — alClient se neaplikuje"): _renderContainerNode
+                  // standalone MINE _buildAlignLayout client bucket, ktery na
+                  // prvni render nastavil flex:1 + min-height na pcWrap. Bez
+                  // toho nova pcWrap nema vysku -> contentArea + memo se
+                  // smrsknou. Zkopiruj layout styly ze stare pcWrap na novou.
+                  ["flex", "minHeight", "maxHeight", "height", "minWidth",
+                   "maxWidth", "alignSelf", "boxSizing", "marginTop",
+                   "marginBottom"].forEach(function (p) {
+                    if (_oldPc.style[p]) _newPc.style[p] = _oldPc.style[p];
+                  });
                   _oldPc.parentNode.replaceChild(_newPc, _oldPc);
                   return;
                 }
@@ -8595,6 +8606,10 @@
 
         // Content area — render active tabsheet children
         const contentArea = document.createElement("div");
+        // Krok 5.Z (30.5.2026, Marti: "zrusit padding aby nebyl dvojity ramecek"):
+        // class erp-pc-content -> CSS :has(.erp-field-memo-fill) padding:0
+        // (fill memo vyplni edge-to-edge, jen pagecontrol border = single frame).
+        contentArea.className = "erp-pc-content";
         contentArea.style.cssText =
           "flex:1 1 auto;padding:12px;display:flex;flex-direction:column;" +
           "gap:8px;min-height:0;min-width:0;overflow:auto;";

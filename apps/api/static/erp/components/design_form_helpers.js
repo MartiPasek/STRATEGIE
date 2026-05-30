@@ -518,6 +518,15 @@
       ".erp-design-modal .erp-field-design-wrap:has(.erp-field-memo-fill) {\n" +
       "  flex: 1 1 auto !important; min-height: 0 !important;\n" +
       "}\n" +
+      // Krok 5.Z (30.5.2026, Marti: "zrusit padding aby nebyl dvojity ramecek"):
+      // fill memo v pagecontrol tabu -> contentArea padding:0 (memo edge-to-edge)
+      // + zrusit vlastni border textarey -> jen pagecontrol border = single frame.
+      ".erp-design-modal .erp-pc-content:has(.erp-field-memo-fill) {\n" +
+      "  padding: 0 !important;\n" +
+      "}\n" +
+      ".erp-design-modal .erp-field-memo-fill .erp-memo-textarea {\n" +
+      "  border: none !important; border-radius: 0 !important;\n" +
+      "}\n" +
       // Krok 14a-A1o (12.5.2026 vecer): section title (GroupBox header)
       // color override — stejny pattern jako field text. Cilime na cely
       // header element (i jeho user/system spans), aby color zustal i

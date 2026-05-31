@@ -3336,6 +3336,299 @@ async def fw_form_state_resolve(core_id: int, req: Request) -> JSONResponse:
         ds.close()
 
 
+# ════════════════════════════════════════════════════════════════════════════
+# FW Component State Rules — authoring CRUD (31.5.2026, #2 design-mode UI)
+# docs/fw_component_state_rules.md §8. Unikátní prefix /fw-state-* (žádná kolize
+# s /fw-form/{core_code}/{parent_id}/...). Soft-delete (is_active=FALSE) — GRANT
+# strategie nemá DELETE (doctrine #11). Audit = přihlášený user (Marti), ne
+# hardcoded Marti-AI.
+# ════════════════════════════════════════════════════════════════════════════
+
+_STATE_PROP_PALETTE = frozenset({
+    "visible", "sort_order", "parent", "required", "readonly",
+    "color", "background", "bold", "italic", "underline", "strikethrough",
+})
+
+
+def _sr_audit(uid: int) -> tuple[int | None, str]:
+    """Caller display pro audit (core session lookup). (id, text)."""
+    if not uid:
+        return None, "Unknown"
+    from core.database_core import get_core_session as _gcs_sra
+    from modules.core.infrastructure.models_core import User as _U_sra
+    cs = _gcs_sra()
+    try:
+        u = cs.query(_U_sra).filter_by(id=uid).first()
+        if not u:
+            return uid, "Unknown"
+        if u.short_name and u.short_name.strip():
+            return uid, u.short_name.strip()
+        nm = " ".join(filter(None, [u.first_name, u.last_name])).strip()
+        return uid, nm or "Unknown"
+    finally:
+        cs.close()
+
+
+@api_router.get("/fw-state-discriminators/{core_id:int}")
+def fw_state_discriminators_list(core_id: int, req: Request) -> JSONResponse:
+    """List řídicích polí (raw: id/source/priority/label/is_active) pro authoring."""
+    from core.database_data import get_data_session as _gds_sdl
+    from sqlalchemy import text as _t_sdl
+    ds = _gds_sdl()
+    try:
+        rows = ds.execute(_t_sdl(
+            "SELECT id, field_name, source, priority, label, is_active "
+            "FROM fw.form_discriminator WHERE form_core_id = :cid "
+            "ORDER BY priority ASC, id ASC"
+        ), {"cid": core_id}).mappings().all()
+        return JSONResponse({"ok": True, "core_id": core_id,
+                             "discriminators": [dict(r) for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/fw-state-discriminators/{core_id:int}")
+async def fw_state_discriminator_create(core_id: int, req: Request) -> JSONResponse:
+    """Upsert řídicí pole (ON CONFLICT form_core_id+field_name → update)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    body = await req.json()
+    field_name = (body.get("field_name") or "").strip()
+    source = (body.get("source") or "column").strip()
+    if not field_name:
+        return JSONResponse({"ok": False, "error": "field_name required"}, status_code=400)
+    if source not in ("column", "context"):
+        return JSONResponse({"ok": False, "error": "source musí být column|context"}, status_code=400)
+    try:
+        priority = int(body.get("priority") if body.get("priority") is not None else 200)
+    except (TypeError, ValueError):
+        priority = 200
+    label = body.get("label")
+    audit_uid, audit_text = _sr_audit(uid)
+    from core.database_data import get_data_session as _gds_sdc
+    from sqlalchemy import text as _t_sdc
+    ds = _gds_sdc()
+    try:
+        row = ds.execute(_t_sdc(
+            "INSERT INTO fw.form_discriminator "
+            "(form_core_id, field_name, source, priority, label, is_active, "
+            " created_by_id, created_by_text, updated_by_id, updated_by_text) "
+            "VALUES (:cid, :fn, :src, :prio, :lbl, TRUE, :uid, :txt, :uid, :txt) "
+            "ON CONFLICT (form_core_id, field_name) DO UPDATE SET "
+            "  source = EXCLUDED.source, priority = EXCLUDED.priority, "
+            "  label = EXCLUDED.label, is_active = TRUE, "
+            "  updated_by_id = :uid, updated_by_text = :txt "
+            "RETURNING id, field_name, source, priority, label, is_active"
+        ), {"cid": core_id, "fn": field_name, "src": source, "prio": priority,
+            "lbl": label, "uid": audit_uid, "txt": audit_text}).mappings().first()
+        ds.commit()
+        return JSONResponse({"ok": True, "discriminator": dict(row)})
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[fw_state_discriminator_create] core=%s failed: %r", core_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.patch("/fw-state-discriminator/{discr_id:int}")
+async def fw_state_discriminator_patch(discr_id: int, req: Request) -> JSONResponse:
+    """Update priority/label/source/is_active řídicího pole."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    body = await req.json()
+    sets = []
+    params = {"id": discr_id}
+    if body.get("priority") is not None:
+        try:
+            params["prio"] = int(body["priority"]); sets.append("priority = :prio")
+        except (TypeError, ValueError):
+            pass
+    if "label" in body:
+        sets.append("label = :lbl"); params["lbl"] = body["label"]
+    if body.get("source") in ("column", "context"):
+        sets.append("source = :src"); params["src"] = body["source"]
+    if "is_active" in body:
+        sets.append("is_active = :act"); params["act"] = bool(body["is_active"])
+    if not sets:
+        return JSONResponse({"ok": False, "error": "no fields to update"}, status_code=400)
+    audit_uid, audit_text = _sr_audit(uid)
+    sets.append("updated_by_id = :uid"); params["uid"] = audit_uid
+    sets.append("updated_by_text = :txt"); params["txt"] = audit_text
+    from core.database_data import get_data_session as _gds_sdp
+    from sqlalchemy import text as _t_sdp
+    ds = _gds_sdp()
+    try:
+        row = ds.execute(_t_sdp(
+            "UPDATE fw.form_discriminator SET " + ", ".join(sets) +
+            " WHERE id = :id "
+            "RETURNING id, field_name, source, priority, label, is_active"
+        ), params).mappings().first()
+        ds.commit()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+        return JSONResponse({"ok": True, "discriminator": dict(row)})
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[fw_state_discriminator_patch] id=%s failed: %r", discr_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.delete("/fw-state-discriminator/{discr_id:int}")
+async def fw_state_discriminator_delete(discr_id: int, req: Request) -> JSONResponse:
+    """Soft-delete řídicí pole + jeho overrides (is_active=FALSE; GRANT bez DELETE)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    audit_uid, audit_text = _sr_audit(uid)
+    from core.database_data import get_data_session as _gds_sdd
+    from sqlalchemy import text as _t_sdd
+    ds = _gds_sdd()
+    try:
+        ds.execute(_t_sdd(
+            "UPDATE fw.comp_state_override SET is_active = FALSE, "
+            "updated_by_id = :uid, updated_by_text = :txt "
+            "WHERE form_discriminator_id = :id AND is_active = TRUE"
+        ), {"id": discr_id, "uid": audit_uid, "txt": audit_text})
+        row = ds.execute(_t_sdd(
+            "UPDATE fw.form_discriminator SET is_active = FALSE, "
+            "updated_by_id = :uid, updated_by_text = :txt "
+            "WHERE id = :id RETURNING id"
+        ), {"id": discr_id, "uid": audit_uid, "txt": audit_text}).first()
+        ds.commit()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+        return JSONResponse({"ok": True, "id": discr_id})
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[fw_state_discriminator_delete] id=%s failed: %r", discr_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.get("/fw-state-overrides/{core_id:int}")
+def fw_state_overrides_list(core_id: int, req: Request) -> JSONResponse:
+    """List raw override řádků pro jádro (JOIN discriminator).
+
+    Volitelné filtry: ?comp_def_id= ?discriminator_id= ?value=
+    """
+    from core.database_data import get_data_session as _gds_sol
+    from sqlalchemy import text as _t_sol
+    qp = dict(req.query_params)
+    where = ["d.form_core_id = :cid", "o.is_active = TRUE", "d.is_active = TRUE"]
+    params = {"cid": core_id}
+    if qp.get("comp_def_id"):
+        try:
+            params["comp"] = int(qp["comp_def_id"]); where.append("o.comp_def_id = :comp")
+        except ValueError:
+            pass
+    if qp.get("discriminator_id"):
+        try:
+            params["did"] = int(qp["discriminator_id"]); where.append("o.form_discriminator_id = :did")
+        except ValueError:
+            pass
+    if qp.get("value") not in (None, ""):
+        where.append("o.discriminator_value = :val"); params["val"] = str(qp["value"])
+    ds = _gds_sol()
+    try:
+        rows = ds.execute(_t_sol(
+            "SELECT o.id, o.comp_def_id, o.form_discriminator_id, "
+            "       o.discriminator_value, o.prop_name, o.prop_value, "
+            "       d.field_name AS discriminator_field "
+            "FROM fw.comp_state_override o "
+            "JOIN fw.form_discriminator d ON d.id = o.form_discriminator_id "
+            "WHERE " + " AND ".join(where) +
+            " ORDER BY o.comp_def_id, o.form_discriminator_id, "
+            "          o.discriminator_value, o.prop_name"
+        ), params).mappings().all()
+        return JSONResponse({"ok": True, "overrides": [dict(r) for r in rows]})
+    finally:
+        ds.close()
+
+
+@api_router.post("/fw-state-override")
+async def fw_state_override_upsert(req: Request) -> JSONResponse:
+    """Upsert jeden override (comp_def + discriminator + value + prop_name).
+
+    ON CONFLICT na uq_comp_state_override → update prop_value + reaktivace.
+    Prázdná hodnota prop_value (None/"") s daným prop → uloží NULL (= 'bez
+    efektu' jako reset jen té vlastnosti). Pro úplné zrušení použij DELETE.
+    """
+    uid = _get_uid(req)
+    _require_parent(uid)
+    body = await req.json()
+    try:
+        comp_def_id = int(body.get("comp_def_id"))
+        discr_id = int(body.get("form_discriminator_id"))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "comp_def_id + form_discriminator_id required"}, status_code=400)
+    value = body.get("discriminator_value")
+    if value is None:
+        return JSONResponse({"ok": False, "error": "discriminator_value required"}, status_code=400)
+    value = str(value)
+    prop_name = (body.get("prop_name") or "").strip()
+    if prop_name not in _STATE_PROP_PALETTE:
+        return JSONResponse({"ok": False, "error": "prop_name musí být z palety: " + ", ".join(sorted(_STATE_PROP_PALETTE))}, status_code=400)
+    prop_value = body.get("prop_value")
+    if prop_value is not None:
+        prop_value = str(prop_value)
+    audit_uid, audit_text = _sr_audit(uid)
+    from core.database_data import get_data_session as _gds_sou
+    from sqlalchemy import text as _t_sou
+    ds = _gds_sou()
+    try:
+        row = ds.execute(_t_sou(
+            "INSERT INTO fw.comp_state_override "
+            "(comp_def_id, form_discriminator_id, discriminator_value, prop_name, "
+            " prop_value, is_active, created_by_id, created_by_text, "
+            " updated_by_id, updated_by_text) "
+            "VALUES (:comp, :did, :val, :pn, :pv, TRUE, :uid, :txt, :uid, :txt) "
+            "ON CONFLICT (comp_def_id, form_discriminator_id, discriminator_value, prop_name) "
+            "DO UPDATE SET prop_value = EXCLUDED.prop_value, is_active = TRUE, "
+            "  updated_by_id = :uid, updated_by_text = :txt "
+            "RETURNING id, comp_def_id, form_discriminator_id, "
+            "          discriminator_value, prop_name, prop_value"
+        ), {"comp": comp_def_id, "did": discr_id, "val": value, "pn": prop_name,
+            "pv": prop_value, "uid": audit_uid, "txt": audit_text}).mappings().first()
+        ds.commit()
+        return JSONResponse({"ok": True, "override": dict(row)})
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[fw_state_override_upsert] failed: %r", exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
+@api_router.delete("/fw-state-override/{ovr_id:int}")
+async def fw_state_override_delete(ovr_id: int, req: Request) -> JSONResponse:
+    """Soft-delete jeden override (is_active=FALSE)."""
+    uid = _get_uid(req)
+    _require_parent(uid)
+    audit_uid, audit_text = _sr_audit(uid)
+    from core.database_data import get_data_session as _gds_sod
+    from sqlalchemy import text as _t_sod
+    ds = _gds_sod()
+    try:
+        row = ds.execute(_t_sod(
+            "UPDATE fw.comp_state_override SET is_active = FALSE, "
+            "updated_by_id = :uid, updated_by_text = :txt "
+            "WHERE id = :id RETURNING id"
+        ), {"id": ovr_id, "uid": audit_uid, "txt": audit_text}).first()
+        ds.commit()
+        if not row:
+            return JSONResponse({"ok": False, "error": "not found"}, status_code=404)
+        return JSONResponse({"ok": True, "id": ovr_id})
+    except Exception as exc:
+        ds.rollback()
+        logger.warning("[fw_state_override_delete] id=%s failed: %r", ovr_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.get("/fw-form/{core_code}/{parent_id}/children/{child_key}")
 def fw_form_children_list(
     core_code: str, parent_id: int, child_key: str, req: Request

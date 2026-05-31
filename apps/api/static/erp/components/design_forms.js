@@ -85,6 +85,15 @@
     // Marti's 30.5.2026 ranní: "Core setting" prepended NAD design-core
     // (universal inspector pro fw.core metadata aktualniho core,
     // hardcoded coreId=49). Klik → DesignFwForm({coreId:49, rowId:ctx.coreId}).
+    // Krok 5.Z (31.5.2026): "Vyřešit save bindingy" — DESIGN mode only,
+    // jen reálné fw.core (coreId >= 0, ne hardcoded synthetic záporné).
+    var _dmOn = (typeof window !== "undefined" && window._erpDesignMode === true);
+    var _resolveBtn = (_dmOn && ctx.coreId != null && ctx.coreId >= 0)
+      ? '<button type="button" data-form-menu-action="resolve-bindings" ' +
+          'title="Spustí sqlglot lineage nad SELECT data_source a předvyplní layout.save bindingy na fieldech (multi-table absolutní identifikace cíle uložení). Nejdřív dry-run preview." ' +
+          'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#7ad4a8;cursor:pointer;font-size:11px;">' +
+          '🔗 Vyřešit save bindingy</button>'
+      : '';
     var actions =
       '<div style="border-top:1px solid #2a3a5a;padding:4px 0;font-family:system-ui,sans-serif;">' +
       '<button type="button" data-form-menu-action="core-setting" ' +
@@ -94,6 +103,7 @@
       '<button type="button" data-form-menu-action="design-core" ' +
         'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
         '🎨 Otevřít Design jádra</button>' +
+      _resolveBtn +
       '<button type="button" data-form-menu-action="copy-id" ' +
         'style="display:block;width:100%;text-align:left;padding:6px 12px;background:transparent;border:none;color:#e8eef5;cursor:pointer;font-size:11px;">' +
         '📋 Kopírovat <code style="color:#7aa8d4;">' + _esc(pillText) + '</code></button>' +
@@ -106,6 +116,15 @@
       mb.addEventListener("click", function (ev) {
         ev.stopPropagation();
         var action = mb.getAttribute("data-form-menu-action");
+        if (action === "resolve-bindings") {
+          menu.remove();
+          if (ctx.coreId == null || ctx.coreId < 0) {
+            alert("⚠ Vyřešit bindingy: form nemá platný coreId.");
+            return;
+          }
+          _resolveSaveBindingsFlow(ctx.coreId, ctx.coreLabel);
+          return;
+        }
         if (action === "copy-id") {
           try {
             navigator.clipboard.writeText(pillText).then(function () {
@@ -189,6 +208,156 @@
       }
     };
     setTimeout(function () { document.addEventListener("click", closeFn, true); }, 0);
+  }
+
+  // ── Krok 5.Z (31.5.2026): Resolve save bindings UI flow ──────────────────
+  // Spustí backend sqlglot lineage resolver nad SELECT data_source aktuálního
+  // core. Dry-run preview → modal s navrženými bindingy (per field → schema.
+  // table.column + row_key) → Aplikovat zapíše layout.save na fieldy.
+  // Gated DESIGN mode (button visible jen když window._erpDesignMode === true).
+  function _resolveSaveBindingsFlow(coreId, coreLabel) {
+    var toast = (window.erpShowToast || function (m) { console.info(m); });
+    var base = "/api/v1/erp/design/core/" + coreId + "/resolve-save-bindings";
+    fetch(base + "?dry_run=true", { method: "POST", credentials: "include" })
+      .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        var j = res.j || {};
+        if (!res.ok || !j.ok) {
+          toast("Resolve bindingů selhal: " + (j.error || "HTTP chyba"), "error", 4000);
+          return;
+        }
+        if (!j.matched) {
+          toast("Resolve: 0 bindingů — žádný field se nespároval se SELECT sloupci.", "warn", 4000);
+          return;
+        }
+        _showResolveBindingsModal(coreId, coreLabel, j);
+      })
+      .catch(function (e) {
+        toast("Resolve bindingů — síťová chyba: " + (e.message || e), "error", 4000);
+      });
+  }
+
+  function _showResolveBindingsModal(coreId, coreLabel, data) {
+    var toast = (window.erpShowToast || function (m) { console.info(m); });
+    function _esc(s) {
+      var d = document.createElement("div");
+      d.textContent = String(s == null ? "" : s);
+      return d.innerHTML;
+    }
+    function _rowKeyChips(rk) {
+      if (!rk) return "";
+      return Object.keys(rk).map(function (k) {
+        var v = rk[k];
+        var isId = (v === "@id");
+        return '<span style="display:inline-block;background:' + (isId ? "#2a3a5a" : "#3a3320") +
+          ";color:" + (isId ? "#7aa8d4" : "#d4b88a") +
+          ';border-radius:3px;padding:1px 6px;margin:0 4px 0 0;font-size:10px;">' +
+          _esc(k) + "=" + _esc(v) + "</span>";
+      }).join("");
+    }
+    var binds = data.bindings || [];
+    var groups = {};   // "schema.table" → [binding]
+    var readonly = [];
+    binds.forEach(function (b) {
+      var s = b.save || {};
+      if (s.readonly) { readonly.push(b); return; }
+      var key = (s.schema ? s.schema + "." : "") + (s.table || "?");
+      (groups[key] = groups[key] || []).push(b);
+    });
+
+    var body = "";
+    body += '<div style="margin-bottom:10px;color:#a8b4c2;font-size:12px;">' +
+      'Core <code style="color:#7aa8d4;">' + _esc(coreId) + '</code> · data_source <code style="color:#7aa8d4;">' +
+      _esc(data.data_source_id) + '</code> · connection <code style="color:#7aa8d4;">' + _esc(data.connection_id) +
+      '</code> · <b style="color:#7ad4a8;">' + _esc(data.matched) + '</b> bindingů</div>';
+
+    Object.keys(groups).sort().forEach(function (tbl) {
+      body += '<div style="margin:10px 0 4px;font-weight:600;color:#7ad4a8;font-size:12px;">→ ' + _esc(tbl) + '</div>';
+      body += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+      groups[tbl].forEach(function (b) {
+        var s = b.save || {};
+        body += '<tr style="border-bottom:1px solid #232a34;">' +
+          '<td style="padding:4px 8px;color:#cfd6df;vertical-align:top;">' + _esc(b.output_column) +
+            '<div style="color:#6a7686;font-size:10px;">' + _esc(b.name) + " · #" + _esc(b.comp_def_id) + "</div></td>" +
+          '<td style="padding:4px 8px;color:#7aa8d4;font-family:ui-monospace,monospace;vertical-align:top;">' + _esc(s.column) + "</td>" +
+          '<td style="padding:4px 8px;vertical-align:top;">' + _rowKeyChips(s.row_key) + "</td>" +
+          "</tr>";
+      });
+      body += "</table>";
+    });
+
+    if (readonly.length) {
+      body += '<div style="margin:12px 0 4px;font-weight:600;color:#9a7686;font-size:12px;">⊘ Readonly (neukládá se)</div>';
+      body += '<table style="width:100%;border-collapse:collapse;font-size:11px;">';
+      readonly.forEach(function (b) {
+        var s = b.save || {};
+        body += '<tr style="border-bottom:1px solid #232a34;">' +
+          '<td style="padding:4px 8px;color:#9aa2ac;">' + _esc(b.output_column) +
+            '<div style="color:#6a7686;font-size:10px;">' + _esc(b.name) + " · #" + _esc(b.comp_def_id) + "</div></td>" +
+          '<td style="padding:4px 8px;color:#6a7686;">' + _esc(s.reason || "") + "</td>" +
+          "</tr>";
+      });
+      body += "</table>";
+    }
+
+    var unmatched = data.unmatched_outputs || [];
+    if (unmatched.length) {
+      body += '<div style="margin:12px 0 4px;font-weight:600;color:#7a8696;font-size:12px;">' +
+        "Bez fieldu (" + unmatched.length + ") — SELECT sloupce co nemají comp_def</div>" +
+        '<div style="color:#6a7686;font-size:10px;line-height:1.6;">' +
+        unmatched.map(function (u) { return _esc(u); }).join(", ") + "</div>";
+    }
+
+    var overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10050;display:flex;align-items:center;justify-content:center;";
+    var dialog = document.createElement("div");
+    dialog.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:720px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.5);";
+    dialog.innerHTML =
+      '<div style="padding:10px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;justify-content:space-between;background:#141a20;">' +
+        '<div style="font-size:14px;font-weight:600;color:#e8eef5;">🔗 Save bindingy — ' + _esc(coreLabel || ("core " + coreId)) + "</div>" +
+        '<button type="button" data-rsb="close" style="background:transparent;border:none;color:#9aa2ac;font-size:18px;cursor:pointer;line-height:1;">×</button>' +
+      "</div>" +
+      '<div style="padding:12px 16px;overflow:auto;flex:1 1 auto;">' + body + "</div>" +
+      '<div style="padding:10px 16px;border-top:1px solid #2a3340;display:flex;gap:8px;justify-content:flex-end;background:#141a20;">' +
+        '<button type="button" data-rsb="apply" style="background:#2a6a4a;border:1px solid #3a8a5a;color:#fff;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;">Aplikovat (' + _esc(data.matched) + ")</button>" +
+        '<button type="button" data-rsb="cancel" style="background:#2a3340;border:1px solid #3a4452;color:#cfd6df;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:13px;">Zrušit</button>' +
+      "</div>";
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    function close() {
+      try { overlay.remove(); } catch (e) {}
+      document.removeEventListener("keydown", escFn);
+    }
+    var escFn = function (e) { if (e.key === "Escape") close(); };
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+    dialog.querySelector('[data-rsb="close"]').addEventListener("click", close);
+    dialog.querySelector('[data-rsb="cancel"]').addEventListener("click", close);
+    dialog.querySelector('[data-rsb="apply"]').addEventListener("click", function () {
+      var applyBtn = this;
+      applyBtn.disabled = true;
+      applyBtn.textContent = "Aplikuji…";
+      fetch("/api/v1/erp/design/core/" + coreId + "/resolve-save-bindings?dry_run=false",
+            { method: "POST", credentials: "include" })
+        .then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+        .then(function (res) {
+          var j = res.j || {};
+          if (!res.ok || !j.ok) {
+            toast("Apply selhal: " + (j.error || "HTTP chyba"), "error", 4000);
+            applyBtn.disabled = false;
+            applyBtn.textContent = "Aplikovat (" + data.matched + ")";
+            return;
+          }
+          toast("✓ Aplikováno " + j.applied + " bindingů na core " + coreId, "success", 3000);
+          close();
+        })
+        .catch(function (e) {
+          toast("Apply — síťová chyba: " + (e.message || e), "error", 4000);
+          applyBtn.disabled = false;
+          applyBtn.textContent = "Aplikovat (" + data.matched + ")";
+        });
+    });
+    document.addEventListener("keydown", escFn);
   }
 
   class DesignFwForm {

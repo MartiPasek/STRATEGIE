@@ -3450,6 +3450,7 @@
       // náhled effective layoutu). Volá se po každém renderu (přežije
       // re-render, obnoví náhled pokud byl zapnutý).
       this._syncStateBar();
+      this._applyDefaultValues();
 
       // Phase 38.4 Krok 5-B Fix #9 (29.5.2026 pozde, Marti's "omezit
       // minimalni velikost formu, tak aby respektoval minimalni vysku
@@ -8739,6 +8740,7 @@
             const el = self._shell.body.querySelector('[data-comp-def-id="' + f.id + '"]');
             if (el) self._applyStateOverrides(el, f);
           });
+          self._applyDefaultValues();
         })
         .catch(function (e) { console.warn("[state-resolve] failed:", e); });
     }
@@ -8862,6 +8864,30 @@
 
     _clearStatePreview() {
       this._applyOverridesMapToDom({});
+    }
+
+    // FW State Rules #5 (31.5.2026): default_value prefill. JEN v CREATE módu
+    // (rowId==null) a JEN pro prázdná pole — nepřepíše uživatele ani edit data.
+    // Volá se po renderu (create) a po živém přepočtu (změna řídicího pole →
+    // kontextové defaults per akce). Hodnota, ne styl → mimo _applyStateOverrides.
+    _applyDefaultValues() {
+      if (this._formDesignMode === true) return;
+      if (this.opts.rowId != null) return;
+      if (!this._shell || !this._shell.body) return;
+      const sp = this._spec || {};
+      const fields = Array.isArray(sp.fields) ? sp.fields : [];
+      fields.forEach((f) => {
+        if (!f || f.id == null) return;
+        const dv = (f.state_overrides || {}).default_value;
+        if (dv == null || dv === "") return;
+        const el = this._shell.body.querySelector('[data-comp-def-id="' + f.id + '"]');
+        if (!el) return;
+        const inp = el.querySelector("input, textarea, select");
+        if (!inp) return;
+        if (inp.value != null && inp.value !== "") return;
+        inp.value = dv;
+        try { inp.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) { /* fail-safe */ }
+      });
     }
 
     // ── FW State Rules #2-C: per-pole tvorba pravidla v settings popupu ──────
@@ -8991,6 +9017,18 @@
         l._set = (v) => { if (v) { chk.checked = true; ci.value = v; } else { chk.checked = false; } sync(); };
         return l;
       };
+      const mkText = (label, ph) => {
+        const l = document.createElement("label");
+        l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
+        l.appendChild(document.createTextNode(label));
+        const i = document.createElement("input");
+        i.type = "text"; i.placeholder = ph || "";
+        i.style.cssText = inS;
+        l.appendChild(i);
+        l._get = () => i.value;
+        l._set = (v) => { i.value = (v != null ? v : ""); };
+        return l;
+      };
       const ctl = {};
       ctl.visible = mkSel("Viditelnost", [["", "beze změny"], ["false", "skrýt"]]);
       ctl.readonly = mkSel("Readonly", [["", "beze změny"], ["true", "ano"], ["false", "ne"]]);
@@ -9003,7 +9041,8 @@
       ctl.label_color = mkColor("Barva labelu", "#c4a8e8");
       ctl.background = mkColor("Pozadí komponenty", "#2a1a1a");
       ctl.cell_background = mkColor("Pozadí buňky", "#1f1f2e");
-      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "label_color", "background", "cell_background"];
+      ctl.default_value = mkText("Výchozí hodnota (nový záznam)", "");
+      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "label_color", "background", "cell_background", "default_value"];
       PROPS.forEach((k) => pal.appendChild(ctl[k]));
       wrap.appendChild(pal);
 

@@ -8596,77 +8596,101 @@
     _applyStateOverrides(fieldEl, comp) {
       if (!fieldEl) return;
       const so = (comp && comp.state_overrides) || {};
-      // SURGICKÝ reset — resetuj JEN props, které jsme dříve sami nastavili
-      // (sledováno v dataset.soApplied). Pole bez stavového pravidla se NEDOTKNE
-      // (žádné display="" → žádný reflow layoutu panelu). Fix 31.5.2026:
-      // dřívější unconditional display="" přepisoval inline display layout
-      // enginu → 2-sloupcový panel padal do 1 sloupce při změně řídicího pole.
+      const IMP = "important";
+      const inputs = Array.from(fieldEl.querySelectorAll("input, textarea, select"));
+      const labelEl = fieldEl.querySelector(".erp-input-label");
+      const cellBox = fieldEl.querySelector(".erp-input-row");
+      const textNodes = [fieldEl].concat(inputs);
+
+      // ── SURGICKÝ reset — jen co jsme dříve nastavili (dataset.soApplied) ──
       const prev = fieldEl.dataset.soApplied ? fieldEl.dataset.soApplied.split(",") : [];
-      const inputs = fieldEl.querySelectorAll("input, textarea, select");
+      const has = (p) => prev.indexOf(p) !== -1;
       if (prev.length) {
-        const has = (p) => prev.indexOf(p) !== -1;
         if (has("display")) fieldEl.style.display = "";
-        const _clr = (n) => {
-          if (has("color")) n.style.color = "";
-          if (has("background") || has("cell_background")) n.style.background = "";
-          if (has("bold")) { n.style.fontWeight = ""; n.style.webkitTextStroke = ""; }
-          if (has("italic")) n.style.fontStyle = "";
-          if (has("underline") || has("strikethrough")) n.style.textDecoration = "";
-        };
-        _clr(fieldEl);
-        inputs.forEach((i) => {
-          _clr(i);
-          if (has("readonly")) { i.readOnly = false; i.disabled = false; }
-          if (has("required")) i.required = false;
-        });
-        if (has("required")) fieldEl.classList.remove("erp-state-required");
+        if (has("color")) { fieldEl.style.color = ""; inputs.forEach((i) => { i.style.color = ""; }); }
+        if (has("label_color") && labelEl) labelEl.style.color = "";
+        if (has("background")) { fieldEl.style.background = ""; fieldEl.style.borderRadius = ""; fieldEl.style.padding = ""; }
+        if (has("cell_background")) {
+          if (cellBox) { cellBox.style.background = ""; cellBox.style.borderRadius = ""; }
+          inputs.forEach((i) => { i.style.background = ""; });
+        }
+        if (has("bold")) textNodes.forEach((n) => { n.style.fontWeight = ""; n.style.webkitTextStroke = ""; });
+        if (has("italic")) textNodes.forEach((n) => { n.style.fontStyle = ""; });
+        if (has("underline") || has("strikethrough")) inputs.forEach((i) => { i.style.textDecoration = ""; });
+        if (has("readonly")) inputs.forEach((i) => { i.readOnly = false; i.disabled = false; });
+        if (has("required")) { inputs.forEach((i) => { i.required = false; }); fieldEl.classList.remove("erp-state-required"); }
         delete fieldEl.dataset.soApplied;
       }
-      // APPLY current — zaznamenej, co jsme nastavili
+
+      // ── APPLY ──
       const applied = [];
       if (so.visible === "false") {
         fieldEl.style.display = "none";
         fieldEl.dataset.soApplied = "display";
         return;
       }
-      // !important — form inputy mají font-weight/atd. v CSS s !important
-      // (proto grid používá erp-fmt-* s !important). Inline bez important by
-      // prohrál. Reset (style.x="") inline declaration odstraní bez ohledu na flag.
-      const _fmt = (node, isWrapper) => {
-        if (so.color) node.style.setProperty("color", so.color, "important");
-        const _bg = isWrapper ? so.background : so.cell_background;
-        if (_bg) node.style.setProperty("background", _bg, "important");
-        if (so.bold === "true") {
-          // font-weight pro fonty s bold řezem (DM Sans) + text-stroke jako
-          // faux-bold fallback pro fonty BEZ bold řezu (DM Mono, který má jen
-          // 300/400/500 → font-weight nic nedělá). text-stroke zesílí glyfy
-          // u jakéhokoli fontu. Barva stroke = currentColor (zdědí color
-          // override pokud je nastaven). Form 31.5.2026: grid (DM Sans) bold
-          // šel, form pole ne → faux-bold to sjednotí.
-          node.style.setProperty("font-weight", "800", "important");
-          node.style.setProperty("-webkit-text-stroke", "0.4px currentColor", "important");
+      // Barva hodnoty (value) — input + cascade na label z wrapperu.
+      if (so.color) {
+        fieldEl.style.setProperty("color", so.color, IMP);
+        inputs.forEach((i) => i.style.setProperty("color", so.color, IMP));
+        applied.push("color");
+      }
+      // Barva labelu (samostatně — přebije color cascade na labelu). [bod 4]
+      if (so.label_color && labelEl) {
+        labelEl.style.setProperty("color", so.label_color, IMP);
+        applied.push("label_color");
+      }
+      // Pozadí komponenty (wrapper) — box jako v design mode (padding + radius). [bod 2]
+      if (so.background) {
+        fieldEl.style.setProperty("background", so.background, IMP);
+        fieldEl.style.setProperty("border-radius", "5px", IMP);
+        fieldEl.style.setProperty("padding", "5px 6px", IMP);
+        applied.push("background");
+      }
+      // Pozadí buňky (vstupní box) — méně zaoblené (3px). [bod 1]
+      if (so.cell_background) {
+        if (cellBox) {
+          cellBox.style.setProperty("background", so.cell_background, IMP);
+          cellBox.style.setProperty("border-radius", "3px", IMP);
+        } else {
+          inputs.forEach((i) => i.style.setProperty("background", so.cell_background, IMP));
         }
-        if (so.italic === "true") node.style.setProperty("font-style", "italic", "important");
-        const td = [];
-        if (so.underline === "true") td.push("underline");
-        if (so.strikethrough === "true") td.push("line-through");
-        if (td.length) node.style.setProperty("text-decoration", td.join(" "), "important");
-      };
-      _fmt(fieldEl, true);
-      inputs.forEach((i) => {
-        _fmt(i, false);
-        if (so.readonly === "true") { if (i.tagName === "SELECT") i.disabled = true; else i.readOnly = true; }
-        if (so.required === "true") i.required = true;
-      });
-      if (so.color) applied.push("color");
-      if (so.background) applied.push("background");
-      if (so.cell_background) applied.push("cell_background");
-      if (so.bold === "true") applied.push("bold");
-      if (so.italic === "true") applied.push("italic");
-      if (so.underline === "true") applied.push("underline");
-      if (so.strikethrough === "true") applied.push("strikethrough");
-      if (so.readonly === "true") applied.push("readonly");
-      if (so.required === "true") { applied.push("required"); fieldEl.classList.add("erp-state-required"); }
+        applied.push("cell_background");
+      }
+      // Bold / kurzíva — value + label (Marti: bold na labelu se líbí).
+      // !important — form inputy mají font-weight v CSS s !important; navíc
+      // text-stroke jako faux-bold pro fonty bez bold řezu (DM Mono).
+      if (so.bold === "true") {
+        textNodes.forEach((n) => {
+          n.style.setProperty("font-weight", "800", IMP);
+          n.style.setProperty("-webkit-text-stroke", "0.4px currentColor", IMP);
+        });
+        applied.push("bold");
+      }
+      if (so.italic === "true") {
+        textNodes.forEach((n) => n.style.setProperty("font-style", "italic", IMP));
+        applied.push("italic");
+      }
+      // Podtržení / přeškrtnutí — JEN buňka (value), NE label. [bod 3]
+      const td = [];
+      if (so.underline === "true") td.push("underline");
+      if (so.strikethrough === "true") td.push("line-through");
+      if (td.length) {
+        inputs.forEach((i) => i.style.setProperty("text-decoration", td.join(" "), IMP));
+        if (so.underline === "true") applied.push("underline");
+        if (so.strikethrough === "true") applied.push("strikethrough");
+      }
+      // Readonly / required
+      if (so.readonly === "true") {
+        inputs.forEach((i) => { if (i.tagName === "SELECT") i.disabled = true; else i.readOnly = true; });
+        applied.push("readonly");
+      }
+      if (so.required === "true") {
+        inputs.forEach((i) => { i.required = true; });
+        fieldEl.classList.add("erp-state-required");
+        applied.push("required");
+      }
+
       if (applied.length) fieldEl.dataset.soApplied = applied.join(",");
     }
 
@@ -8976,9 +9000,10 @@
       ctl.underline = mkSel("Podtržení", [["", "beze změny"], ["true", "ano"]]);
       ctl.strikethrough = mkSel("Přeškrtnutí", [["", "beze změny"], ["true", "ano"]]);
       ctl.color = mkColor("Barva textu", "#e57373");
+      ctl.label_color = mkColor("Barva labelu", "#c4a8e8");
       ctl.background = mkColor("Pozadí komponenty", "#2a1a1a");
       ctl.cell_background = mkColor("Pozadí buňky", "#1f1f2e");
-      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "background", "cell_background"];
+      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "label_color", "background", "cell_background"];
       PROPS.forEach((k) => pal.appendChild(ctl[k]));
       wrap.appendChild(pal);
 

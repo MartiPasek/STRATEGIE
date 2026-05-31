@@ -360,6 +360,133 @@
     document.addEventListener("keydown", escFn);
   }
 
+  // ══════════════════════════════════════════════════════════════════════
+  // FW State Rules — registr řídicích polí (31.5.2026, #2-B modal "2").
+  // Správa fw.form_discriminator pro jádro: list + add + priorita/popis +
+  // soft-delete. Orchestrace s in-context lištou (Marti: "co ne v 1, do 2").
+  // ══════════════════════════════════════════════════════════════════════
+  function _showStateRulesModal(coreId, coreLabel, fields, onChanged) {
+    var toast = (window.erpShowToast || function (m) { console.info(m); });
+    function _esc(s) { var d = document.createElement("div"); d.textContent = String(s == null ? "" : s); return d.innerHTML; }
+
+    var overlay = document.createElement("div");
+    overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:10050;display:flex;align-items:center;justify-content:center;";
+    var dialog = document.createElement("div");
+    dialog.style.cssText = "background:#1a1f26;border:1px solid #2a3340;border-radius:6px;width:780px;max-width:94vw;max-height:88vh;display:flex;flex-direction:column;color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.5);";
+    dialog.innerHTML =
+      '<div style="padding:10px 16px;border-bottom:1px solid #2a3340;display:flex;align-items:center;justify-content:space-between;background:#141a20;">' +
+        '<div style="font-size:14px;font-weight:600;color:#c4a8e8;">⚡ Řídicí pole — ' + _esc(coreLabel || ("core " + coreId)) + '</div>' +
+        '<button type="button" data-srm="close" style="background:transparent;border:none;color:#9aa2ac;font-size:18px;cursor:pointer;line-height:1;">×</button>' +
+      '</div>' +
+      '<div style="padding:12px 16px;overflow:auto;flex:1 1 auto;" data-srm="body"><div style="color:#6a7686;">Načítám…</div></div>';
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+    var bodyEl = dialog.querySelector('[data-srm="body"]');
+    var changed = false;
+
+    function close() { try { overlay.remove(); } catch (e) {} document.removeEventListener("keydown", escFn); if (changed && typeof onChanged === "function") onChanged(); }
+    var escFn = function (e) { if (e.key === "Escape") close(); };
+    overlay.addEventListener("click", function (e) { if (e.target === overlay) close(); });
+    dialog.querySelector('[data-srm="close"]').addEventListener("click", close);
+    document.addEventListener("keydown", escFn);
+
+    // Pole formu (column_name nebo name) → datalist pro 'column' zdroj.
+    var colOpts = (fields || []).map(function (f) {
+      return (f.layout && f.layout.column_name) || f.name;
+    }).filter(function (v, i, a) { return v && a.indexOf(v) === i; });
+
+    function render(list) {
+      var rows = (list || []).filter(function (d) { return d.is_active; });
+      var h = '';
+      h += '<div style="margin-bottom:8px;color:#a8b4c2;font-size:12px;line-height:1.5;">Pole, jejichž hodnota řídí stav ostatních komponent (visible/barva/bold/readonly…). Vyšší <b>priorita</b> vyhrává při kolizi. Doporučeno: <code style="color:#7aa8d4;">_mode</code>=100, doménové (<code style="color:#7aa8d4;">IDakce</code>)=200, <code style="color:#7aa8d4;">stav</code>=900.</div>';
+      if (!rows.length) {
+        h += '<div style="color:#6a7686;padding:8px 0;">Zatím žádné řídicí pole. Přidej první níže.</div>';
+      } else {
+        h += '<table style="width:100%;border-collapse:collapse;font-size:12px;"><thead><tr style="color:#7a8696;text-align:left;border-bottom:1px solid #2a3340;">' +
+          '<th style="padding:4px 6px;">Pole</th><th style="padding:4px 6px;width:90px;">Zdroj</th><th style="padding:4px 6px;width:80px;">Priorita</th><th style="padding:4px 6px;">Popis</th><th style="padding:4px 6px;width:36px;"></th></tr></thead><tbody>';
+        rows.forEach(function (d) {
+          h += '<tr data-did="' + d.id + '" style="border-bottom:1px solid #232a34;">' +
+            '<td style="padding:4px 6px;color:#cfd6df;font-family:ui-monospace,monospace;">' + _esc(d.field_name) + '</td>' +
+            '<td style="padding:4px 6px;color:#9aa2ac;">' + _esc(d.source) + '</td>' +
+            '<td style="padding:4px 6px;"><input type="number" data-srm-prio="' + d.id + '" value="' + _esc(d.priority) + '" style="width:64px;background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:3px 5px;font-size:12px;"></td>' +
+            '<td style="padding:4px 6px;"><input type="text" data-srm-label="' + d.id + '" value="' + _esc(d.label || "") + '" style="width:100%;background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:3px 5px;font-size:12px;"></td>' +
+            '<td style="padding:4px 6px;text-align:center;"><button type="button" data-srm-del="' + d.id + '" title="Smazat" style="background:transparent;border:none;color:#c46;font-size:14px;cursor:pointer;">🗑</button></td>' +
+            '</tr>';
+        });
+        h += '</tbody></table>';
+        h += '<div style="font-size:10px;color:#6a7686;margin:4px 0 0;">Priorita/popis se uloží po opuštění políčka.</div>';
+      }
+      h += '<div style="margin-top:12px;padding:10px;background:#10151b;border:1px dashed #2a3340;border-radius:4px;">' +
+        '<div style="font-weight:600;color:#c4a8e8;margin-bottom:8px;font-size:12px;">+ Nové řídicí pole</div>' +
+        '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">' +
+          '<label style="font-size:11px;color:#9aa2ac;">Zdroj<br><select data-srm-new="source" style="background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:4px 6px;font-size:12px;"><option value="column">column (z řádku)</option><option value="context">context (mode/role)</option></select></label>' +
+          '<label style="font-size:11px;color:#9aa2ac;">Pole<br><input list="srm-cols" data-srm-new="field" placeholder="IDakce / _mode" style="background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:4px 6px;font-size:12px;width:170px;"></label>' +
+          '<label style="font-size:11px;color:#9aa2ac;">Priorita<br><input type="number" data-srm-new="prio" value="200" style="width:70px;background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:4px 6px;font-size:12px;"></label>' +
+          '<label style="font-size:11px;color:#9aa2ac;">Popis<br><input type="text" data-srm-new="label" placeholder="Typ akce" style="background:#0f1419;border:1px solid #2a3340;color:#cfd6df;border-radius:3px;padding:4px 6px;font-size:12px;width:160px;"></label>' +
+          '<button type="button" data-srm="add" style="background:#3a2a58;border:1px solid #6a4aa8;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">+ Přidat</button>' +
+        '</div>' +
+        '<datalist id="srm-cols">' + colOpts.map(function (c) { return '<option value="' + _esc(c) + '">'; }).join("") + '</datalist>' +
+      '</div>';
+      bodyEl.innerHTML = h;
+      wire();
+    }
+
+    function load() {
+      fetch("/api/v1/erp/fw-state-discriminators/" + coreId, { credentials: "include" })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { render((j && j.discriminators) || []); })
+        .catch(function (e) { bodyEl.innerHTML = '<div style="color:#c66;">Chyba načtení: ' + _esc(e.message || e) + '</div>'; });
+    }
+
+    function wire() {
+      var addBtn = bodyEl.querySelector('[data-srm="add"]');
+      if (addBtn) addBtn.addEventListener("click", function () {
+        var field = (bodyEl.querySelector('[data-srm-new="field"]').value || "").trim();
+        var source = bodyEl.querySelector('[data-srm-new="source"]').value;
+        var prio = bodyEl.querySelector('[data-srm-new="prio"]').value;
+        var label = bodyEl.querySelector('[data-srm-new="label"]').value;
+        if (!field) { toast("Zadej název pole", "error", 2500); return; }
+        addBtn.disabled = true;
+        fetch("/api/v1/erp/fw-state-discriminators/" + coreId, {
+          method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ field_name: field, source: source, priority: Number(prio) || 200, label: label || null }),
+        }).then(function (r) { return r.json(); }).then(function (j) {
+          if (!j.ok) { toast("Chyba: " + (j.error || "?"), "error", 3500); addBtn.disabled = false; return; }
+          toast("✓ Přidáno: " + field, "success", 2000); changed = true; load();
+        }).catch(function (e) { toast("Síťová chyba: " + (e.message || e), "error", 3500); addBtn.disabled = false; });
+      });
+      bodyEl.querySelectorAll('[data-srm-del]').forEach(function (b) {
+        b.addEventListener("click", function () {
+          var did = b.getAttribute("data-srm-del");
+          if (!window.confirm("Smazat řídicí pole? (i jeho stavová pravidla se deaktivují)")) return;
+          fetch("/api/v1/erp/fw-state-discriminator/" + did, { method: "DELETE", credentials: "include" })
+            .then(function (r) { return r.json(); }).then(function (j) {
+              if (!j.ok) { toast("Chyba: " + (j.error || "?"), "error", 3500); return; }
+              toast("✓ Smazáno", "success", 1800); changed = true; load();
+            }).catch(function (e) { toast("Síťová chyba: " + (e.message || e), "error", 3500); });
+        });
+      });
+      bodyEl.querySelectorAll('[data-srm-prio],[data-srm-label]').forEach(function (inp) {
+        inp.addEventListener("change", function () {
+          var did = inp.getAttribute("data-srm-prio") || inp.getAttribute("data-srm-label");
+          var row = bodyEl.querySelector('tr[data-did="' + did + '"]');
+          if (!row) return;
+          var prio = row.querySelector('[data-srm-prio]').value;
+          var label = row.querySelector('[data-srm-label]').value;
+          fetch("/api/v1/erp/fw-state-discriminator/" + did, {
+            method: "PATCH", credentials: "include", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ priority: Number(prio) || 200, label: label }),
+          }).then(function (r) { return r.json(); }).then(function (j) {
+            if (!j.ok) { toast("Uložení selhalo: " + (j.error || "?"), "error", 3000); }
+            else { toast("✓ Uloženo", "success", 1200); changed = true; }
+          }).catch(function (e) { toast("Síťová chyba", "error", 2500); });
+        });
+      });
+    }
+
+    load();
+  }
+
   class DesignFwForm {
     constructor(opts) {
       this.opts = opts || {};
@@ -419,6 +546,7 @@
       // "core nenese entitu, nese ji obsah").
       this._updateFormSaveSizeBtn();  // Krok 14b+11: 💾 Velikost button visibility
       this._updateFormDetectMinBtn(); // Krok 14b+12: 📐 Min button visibility
+      this._updateFormStateRulesBtn(); // #2-B: ⚡ Stavy button visibility
       if (this._spec) {
         // Re-render body (zachovat header) — hints + click handlers nove
         this._render();
@@ -580,6 +708,19 @@
         this._detectAndSaveMinSize();
       });
 
+      // FW State Rules (31.5.2026, #2-B): ⚡ Stavy button — správa řídicích
+      // polí (registr fw.form_discriminator). Visible jen v DESIGN mode.
+      const stateBtn = document.createElement("button");
+      stateBtn.type = "button";
+      stateBtn.className = "erp-form-design-staterules";
+      stateBtn.textContent = "⚡ Stavy";
+      stateBtn.title = "Řídicí pole stavových pravidel — která pole řídí visible/barvu/readonly… ostatních.";
+      this._formStateRulesBtn = stateBtn;
+      this._updateFormStateRulesBtn();
+      stateBtn.addEventListener("click", () => {
+        this._openStateRulesModal();
+      });
+
       // Phase 38.4 Krok 14g-D (15.5.2026 rano, Marti's volba A simple
       // undo): ↶ Zpět button. Visible jen v DESIGN mode. Click → pop
       // last undoStack entry + execute inverse.
@@ -623,14 +764,40 @@
         rightActions.insertBefore(addBtn, sysToggle);
         rightActions.insertBefore(saveSizeBtn, sysToggle);
         rightActions.insertBefore(detectMinBtn, sysToggle);
+        rightActions.insertBefore(stateBtn, sysToggle);
       } else {
         // Fallback: prepend (reverse order)
+        rightActions.insertBefore(stateBtn, rightActions.firstChild);
         rightActions.insertBefore(detectMinBtn, rightActions.firstChild);
         rightActions.insertBefore(saveSizeBtn, rightActions.firstChild);
         rightActions.insertBefore(addBtn, rightActions.firstChild);
         rightActions.insertBefore(undoBtn, rightActions.firstChild);
         rightActions.insertBefore(toggle, rightActions.firstChild);
       }
+    }
+
+    _updateFormStateRulesBtn() {
+      if (!this._formStateRulesBtn) return;
+      const on = this._formDesignMode === true;
+      const visible = on && !!(this._spec && this._spec.core && this._spec.core.id != null);
+      this._formStateRulesBtn.style.cssText =
+        "background:#3a2a58;border:1px solid #6a4aa8;color:#c4a8e8;" +
+        "padding:4px 10px;border-radius:3px;cursor:pointer;font-size:11px;" +
+        "font-weight:600;" +
+        (visible ? "" : "display:none;");
+    }
+
+    _openStateRulesModal() {
+      const core = (this._spec && this._spec.core) || {};
+      const coreId = (core.id != null) ? core.id : this.opts.coreId;
+      const coreLabel = core.label || core.code || "";
+      const fields = (this._spec && this._spec.fields) || [];
+      if (coreId == null) { _showToast("Core ID chybí", "error"); return; }
+      _showStateRulesModal(coreId, coreLabel, fields, () => {
+        // Registr se změnil → reload spec, aby form load přinesl nové
+        // discriminators (a živý přepočet je viděl).
+        try { this._reloadSpec(); } catch (e) { /* fail-safe */ }
+      });
     }
 
     _updateFormDetectMinBtn() {

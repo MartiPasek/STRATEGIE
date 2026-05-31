@@ -5391,6 +5391,41 @@
             gridCode: gridCode,
             gridActions: gridActions,
             contextMenuActions: contextMenuActions,
+            // Krok 5.Z (31.5.2026, Marti: "double click na vete pro U"):
+            // dvojklik na řádek = Oprava, kódově stejně jako page_render.js
+            // (ř.521). Otevře edit form (editCoreId) se row id jako stacked
+            // modal. row.id || row.ID (MSSQL/MCP uppercase parita).
+            onRowDoubleClick: function (rowData, ev) {
+              if (editCoreId == null) {
+                console.info("[embedded_grid dblclick] no edit_core_id — no-op");
+                return;
+              }
+              var _rid = rowData ? (rowData.id != null ? rowData.id : rowData.ID) : null;
+              if (_rid == null) return;
+              if (typeof window.DesignFwForm !== "function") {
+                console.warn("[embedded_grid dblclick] DesignFwForm not loaded");
+                return;
+              }
+              try {
+                var fwf = new window.DesignFwForm({
+                  coreId: editCoreId,
+                  rowId: _rid,
+                  onSaveSuccess: function () {
+                    return _fetchData().then(function (j) {
+                      if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {
+                        gridInst.gridApi.setGridOption("rowData", j.rows);
+                        try {
+                          if (typeof gridInst.markFresh === "function") gridInst.markFresh();
+                        } catch (_e) { /* fail-safe */ }
+                      }
+                    }).catch(function () { /* fail-safe */ });
+                  },
+                });
+                if (typeof fwf.open === "function") fwf.open();
+              } catch (e) {
+                console.error("[embedded_grid dblclick] DesignFwForm open failed:", e);
+              }
+            },
             onRefresh: function () {
               return _fetchData().then(function (j) {
                 if (j && j.ok && Array.isArray(j.rows) && gridInst && gridInst.gridApi) {

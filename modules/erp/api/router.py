@@ -3253,6 +3253,37 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # Phase fw.core slim 20.5.2026: template_id sloupec dropnut (Marti's 2A)
         template_dict = None
 
+        # FW Component State Rules (31.5.2026): effective stavové overrides per
+        # komponenta podle hodnot řídicích polí (discriminators) — viz
+        # docs/fw_component_state_rules.md. Fail-soft: chyba → form bez stavů.
+        try:
+            _discr_rows = ds.execute(_sql_fwid(
+                "SELECT field_name, source FROM fw.form_discriminator "
+                "WHERE form_core_id = :cid AND is_active = TRUE"
+            ), {"cid": core_id}).mappings().all()
+            if _discr_rows:
+                _is_new = not (row_id and row_id > 0)
+                _discr_values = {}
+                for _dr in _discr_rows:
+                    _fn = _dr["field_name"]
+                    if _dr["source"] == "context":
+                        if _fn in ("_mode", "mode"):
+                            _discr_values[_fn] = "new" if _is_new else "edit"
+                        # další context fields (role, device…) — doplnit dle potřeby
+                    else:  # 'column' — hodnota z editovaného řádku
+                        if isinstance(data_row, dict) and data_row.get(_fn) is not None:
+                            _discr_values[_fn] = str(data_row[_fn])
+                if _discr_values:
+                    from modules.erp.application.comp_resolver import resolve_state_overrides
+                    _state_ovr = resolve_state_overrides(ds, core_id, _discr_values)
+                    if _state_ovr:
+                        for _f in fields_list:
+                            _ov = _state_ovr.get(_f.get("id"))
+                            if _ov:
+                                _f["state_overrides"] = _ov
+        except Exception as _e_sr:
+            logger.warning("[fw_form_load_by_id] state overrides core=%s failed: %r", core_id, _e_sr)
+
         return JSONResponse(jsonable_encoder({
             "ok": True,
             "core": rd,

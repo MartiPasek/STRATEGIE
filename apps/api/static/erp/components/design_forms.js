@@ -8391,6 +8391,37 @@
       return wrap;
     }
 
+    // FW Component State Rules (31.5.2026): aplikuj effective stavové overrides
+    // (comp.state_overrides z backendu — resolve_state_overrides) na field el.
+    // PROD only; v DESIGN modu base (editace). Paleta: color/background/bold/
+    // italic/underline/strikethrough + readonly/required. (visible řeší
+    // _renderLeafField přímo nerenderem; sort_order/parent = budoucí fáze.)
+    // Inline styly (CSS erp-fmt-* jsou scoped jen na grid) — self-contained.
+    _applyStateOverrides(fieldEl, comp) {
+      const so = comp && comp.state_overrides;
+      if (!so || !fieldEl) return;
+      const _fmt = (node, withBg) => {
+        if (so.color) node.style.color = so.color;
+        if (withBg && so.background) node.style.background = so.background;
+        if (so.bold === "true") node.style.fontWeight = "700";
+        if (so.italic === "true") node.style.fontStyle = "italic";
+        const td = [];
+        if (so.underline === "true") td.push("underline");
+        if (so.strikethrough === "true") td.push("line-through");
+        if (td.length) node.style.textDecoration = td.join(" ");
+      };
+      _fmt(fieldEl, true);
+      fieldEl.querySelectorAll("input, textarea, select").forEach((i) => {
+        _fmt(i, false);
+        if (so.readonly === "true") {
+          if (i.tagName === "SELECT") i.disabled = true;
+          else i.readOnly = true;
+        }
+        if (so.required === "true") i.required = true;
+      });
+      if (so.required === "true") fieldEl.classList.add("erp-state-required");
+    }
+
     _renderLeafField(comp, idx, total) {
       const ctx = this.__renderCtx || {};
       const data = ctx.data || {};
@@ -8407,10 +8438,19 @@
       // comp.name je interni FW identifier (drag-drop, parent_comp_def_id
       // refs). Marti: "PascalCase MSSQL columns musi byt v data dict
       // bez prevodu".
+      // FW state rules: visible=false skryje pole (PROD only; DESIGN ukáže vše).
+      const _so = comp.state_overrides || null;
+      if (_so && _so.visible === "false" && this._formDesignMode !== true) {
+        return null;
+      }
       const dataKey = (comp.layout && comp.layout.column_name) || comp.name;
       const value = data[dataKey];
       const fieldEl = this._renderField(comp, value, D);
       if (!fieldEl) return null;
+      // FW state rules: aplikuj formátování/chování (PROD only).
+      if (_so && this._formDesignMode !== true) {
+        this._applyStateOverrides(fieldEl, comp);
+      }
 
       // Krok 14b+10 (13.5.2026 ~22:00, Marti's "always-left" property):
       // apply grid-column-start:1 pokud layout.always_new_row === true.

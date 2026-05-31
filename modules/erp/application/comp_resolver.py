@@ -409,3 +409,73 @@ def apply_resolved_props_to_columndef(
             column_def[ag_key] = value
 
     return column_def
+
+
+# ════════════════════════════════════════════════════════════════════════
+# FW Component State Rules (31.5.2026) — stavové overrides per discriminator
+# ════════════════════════════════════════════════════════════════════════
+# Design doc: docs/fw_component_state_rules.md
+# Oddělené od Krok 9 (scope override) — dedikovaná vrstva NAD comp_def.layout.
+# Vrací per comp_def effective override {prop_name: prop_value} podle aktuálních
+# hodnot řídicích polí (discriminators) formu, mergnuté podle priority
+# (fw.form_discriminator.priority ASC → nejvyšší vyhrává, last-wins).
+
+def resolve_state_overrides(
+    session: Session,
+    form_core_id: int,
+    discr_values: dict[str, str],
+) -> dict[int, dict[str, str]]:
+    """
+    form_core_id  — fw.core formu (např. 82 akce edit).
+    discr_values  — {field_name: current_value} pro řídicí pole formu; caller je
+                    naplní z editovaného řádku (source='column') + kontextu
+                    (source='context', např. _mode=new/edit). Hodnoty jako string.
+
+    Vrací {comp_def_id: {prop_name: prop_value}} — effective stavové overrides.
+    {} pokud form nemá discriminatory nebo žádný match.
+
+    Resolution: načti aktivní comp_state_override pro aktivní discriminatory formu,
+    vyfiltruj ty, jejichž discriminator_value == aktuální hodnota daného řídicího
+    pole, a mergni per comp_def v pořadí priority (ASC → nejvyšší aplikovaná
+    naposled = vyhrává). Tie-break: o.id (deterministické).
+
+    Nikdy nehází — při chybě vrací {} (form se vyrenderuje bez stavových pravidel).
+    """
+    if not discr_values:
+        return {}
+    try:
+        rows = session.execute(
+            _sql_text(
+                """
+                SELECT o.comp_def_id, o.prop_name, o.prop_value,
+                       o.discriminator_value, o.id AS ovr_id,
+                       d.field_name, d.priority
+                FROM fw.comp_state_override o
+                JOIN fw.form_discriminator d ON d.id = o.form_discriminator_id
+                WHERE d.form_core_id = :core_id
+                  AND d.is_active = TRUE
+                  AND o.is_active = TRUE
+                ORDER BY o.comp_def_id, d.priority ASC, o.id ASC
+                """
+            ),
+            {"core_id": form_core_id},
+        ).fetchall()
+    except Exception as e:  # tabulky nemusí existovat / DB chyba → fail-soft
+        import logging
+        logging.getLogger("erp.comp_resolver").warning(
+            "[resolve_state_overrides] core=%s failed: %r — skip", form_core_id, e
+        )
+        return {}
+
+    out: dict[int, dict[str, str]] = {}
+    for r in rows:
+        d = dict(r._mapping)
+        cur = discr_values.get(d["field_name"])
+        if cur is None:
+            continue
+        if str(cur) != str(d["discriminator_value"]):
+            continue
+        # ORDER BY priority ASC → pozdější (vyšší priorita) přepíše dřívější
+        out.setdefault(d["comp_def_id"], {})[d["prop_name"]] = d["prop_value"]
+
+    return out

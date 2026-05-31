@@ -6339,7 +6339,7 @@
         return btn;
       };
 
-      const userTabBtn = _mkTab("Uživatel", _defaultTab === "user");
+      const userTabBtn = _mkTab("Pravidla", _defaultTab === "user");
       const componentTabBtn = _mkTab("Komponenta", _defaultTab !== "user");
       tabBar.appendChild(userTabBtn);
       tabBar.appendChild(componentTabBtn);
@@ -6365,7 +6365,7 @@
 
       // FW State Rules #2-C: sekce tvorby pravidla (jen pokud form ma ridici pole)
       const _srSec = this._buildStateRuleSection(field);
-      if (_srSec) basicPaneEl.appendChild(_srSec);
+      if (_srSec) userPaneEl.appendChild(_srSec);
 
       // Wire tab switching
       const _switchTab = (toUser) => {
@@ -8610,6 +8610,9 @@
         if (has("display")) fieldEl.style.display = "";
         if (has("color")) { fieldEl.style.color = ""; inputs.forEach((i) => { i.style.color = ""; }); }
         if (has("label_color") && labelEl) labelEl.style.color = "";
+        if (has("label_text") && labelEl && labelEl.dataset.srOrigText != null) labelEl.textContent = labelEl.dataset.srOrigText;
+        if (has("hint")) fieldEl.title = "";
+        if (has("inside_hint")) inputs.forEach((i) => { if (i.dataset.srOrigPlaceholder != null) i.setAttribute("placeholder", i.dataset.srOrigPlaceholder); });
         if (has("background")) { fieldEl.style.background = ""; fieldEl.style.borderRadius = ""; fieldEl.style.padding = ""; }
         if (has("cell_background")) {
           if (cellBox) { cellBox.style.background = ""; cellBox.style.borderRadius = ""; }
@@ -8640,6 +8643,24 @@
       if (so.label_color && labelEl) {
         labelEl.style.setProperty("color", so.label_color, IMP);
         applied.push("label_color");
+      }
+      // Uživatelský název (label) + hint — display props (tab Pravidla). [bod 4]
+      if (so.label_text != null && so.label_text !== "" && labelEl) {
+        if (labelEl.dataset.srOrigText == null) labelEl.dataset.srOrigText = labelEl.textContent;
+        labelEl.textContent = so.label_text;
+        applied.push("label_text");
+      }
+      if (so.hint != null && so.hint !== "") {
+        fieldEl.title = so.hint;
+        applied.push("hint");
+      }
+      // Inside hint = placeholder uvnitř pole (jako chat). [Marti 31.5.]
+      if (so.inside_hint != null && so.inside_hint !== "") {
+        inputs.forEach((i) => {
+          if (i.dataset.srOrigPlaceholder == null) i.dataset.srOrigPlaceholder = (i.getAttribute("placeholder") || "");
+          i.setAttribute("placeholder", so.inside_hint);
+        });
+        applied.push("inside_hint");
       }
       // Pozadí komponenty (wrapper) — box jako v design mode (padding + radius). [bod 2]
       if (so.background) {
@@ -8886,7 +8907,7 @@
         if (!inp) return;
         if (inp.value != null && inp.value !== "") return;
         inp.value = dv;
-        try { inp.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) { /* fail-safe */ }
+        try { inp.dispatchEvent(new Event("input", { bubbles: true })); inp.dispatchEvent(new Event("change", { bubbles: true })); } catch (e) { /* fail-safe */ }
       });
     }
 
@@ -8925,111 +8946,95 @@
           .then((j) => self._buildStateRuleBody(wrap, compId, coreId, ((j && j.discriminators) || []).filter((d) => d.is_active)))
           .catch((e) => { wrap.innerHTML = '<div style="color:#c66;font-size:11px;">Chyba: ' + (e.message || e) + '</div>'; });
       });
+      det.open = true;
       return det;
     }
 
     _buildStateRuleBody(wrap, compId, coreId, discrs) {
       const self = this;
-      const toast = (window.erpShowToast || function (m) { console.info(m); });
       wrap.innerHTML = "";
       const inS = "background:#0f1419;border:1px solid #3a2a58;color:#cfd6df;border-radius:3px;padding:3px 6px;font-size:12px;";
+      const PRESETS = ["#e57373", "#f0a05a", "#e8c95a", "#7ed47e", "#5ab0d4", "#8c7ed4", "#d47ec4", "#cfd6df", "#9aa2ac"];
 
-      // Mode: statické (default, bez řídicího pole) vs podmíněné (řídicí pole = hodnota)
+      // Typ: statické (default) vs podmíněné
       const modeRow = document.createElement("div");
       modeRow.style.cssText = "display:flex;gap:14px;align-items:center;font-size:12px;color:#c4a8e8;";
       const mkRadio = (val, label) => {
         const l = document.createElement("label");
         l.style.cssText = "display:inline-flex;align-items:center;gap:4px;cursor:pointer;";
-        const r = document.createElement("input");
-        r.type = "radio"; r.name = "sr-mode-" + compId; r.value = val;
-        l.appendChild(r); l.appendChild(document.createTextNode(label));
-        l._radio = r;
-        return l;
+        const r = document.createElement("input"); r.type = "radio"; r.name = "sr-mode-" + compId; r.value = val;
+        l.appendChild(r); l.appendChild(document.createTextNode(label)); l._radio = r; return l;
       };
       const rStatic = mkRadio("static", "Statické (default)");
       const rCond = mkRadio("cond", "Podmíněné");
-      modeRow.appendChild(document.createTextNode("Typ:"));
-      modeRow.appendChild(rStatic);
-      modeRow.appendChild(rCond);
+      modeRow.appendChild(document.createTextNode("Typ:")); modeRow.appendChild(rStatic); modeRow.appendChild(rCond);
       wrap.appendChild(modeRow);
 
-      // Conditional layer row (discriminator + value)
+      // Vrstva (discriminator + hodnota)
       const layerRow = document.createElement("div");
       layerRow.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
-      const dSel = document.createElement("select");
-      dSel.style.cssText = inS;
-      discrs.forEach((d) => {
-        const o = document.createElement("option");
-        o.value = String(d.id);
-        o.textContent = (d.label || d.field_name);
-        dSel.appendChild(o);
-      });
-      const valInp = document.createElement("input");
-      valInp.type = "text";
-      valInp.placeholder = "hodnota (např. 3)";
-      valInp.style.cssText = inS + "width:120px;";
-      layerRow.appendChild(document.createTextNode("Když "));
-      layerRow.appendChild(dSel);
-      layerRow.appendChild(document.createTextNode("="));
-      layerRow.appendChild(valInp);
+      const dSel = document.createElement("select"); dSel.style.cssText = inS;
+      discrs.forEach((d) => { const o = document.createElement("option"); o.value = String(d.id); o.textContent = (d.label || d.field_name); dSel.appendChild(o); });
+      const valInp = document.createElement("input"); valInp.type = "text"; valInp.placeholder = "hodnota (např. 3)"; valInp.style.cssText = inS + "width:120px;";
+      layerRow.appendChild(document.createTextNode("Když ")); layerRow.appendChild(dSel); layerRow.appendChild(document.createTextNode("=")); layerRow.appendChild(valInp);
       wrap.appendChild(layerRow);
+      if (!discrs.length) rCond.style.display = "none";
 
-      const hasDiscr = discrs.length > 0;
-      if (!hasDiscr) { rCond.style.display = "none"; }
+      const note = document.createElement("div");
+      note.style.cssText = "font-size:10px;color:#6a7686;min-height:13px;";
 
-      // Palette
+      // Paleta — auto-save po každé změně (žádné tlačítko). [bod 7]
       const pal = document.createElement("div");
-      pal.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;";
+      pal.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:7px 12px;";
+      const ctl = {};
+      let onAnyChange = () => {};   // přiřazeno níž
+
       const mkSel = (label, opts) => {
         const l = document.createElement("label");
         l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
         l.appendChild(document.createTextNode(label));
-        const s = document.createElement("select");
-        s.style.cssText = inS;
+        const s = document.createElement("select"); s.style.cssText = inS;
         opts.forEach((o) => { const op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; s.appendChild(op); });
         l.appendChild(s);
-        l._get = () => s.value;
-        l._set = (v) => { s.value = (v != null ? v : ""); };
-        return l;
-      };
-      const mkColor = (label, dflt) => {
-        const l = document.createElement("label");
-        l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
-        l.appendChild(document.createTextNode(label));
-        const row = document.createElement("div");
-        row.style.cssText = "display:flex;align-items:center;gap:6px;";
-        const chk = document.createElement("input");
-        chk.type = "checkbox";
-        const ci = document.createElement("input");
-        ci.type = "color";
-        ci.value = dflt || "#e57373";
-        ci.disabled = true;
-        ci.style.cssText = "width:44px;height:24px;border:1px solid #3a2a58;border-radius:3px;background:#0f1419;cursor:pointer;padding:0;";
-        const hex = document.createElement("span");
-        hex.style.cssText = "font-size:10px;color:#6a7686;font-family:ui-monospace,monospace;";
-        hex.textContent = "—";
-        const sync = () => { ci.disabled = !chk.checked; hex.textContent = chk.checked ? ci.value : "—"; };
-        chk.addEventListener("change", sync);
-        ci.addEventListener("input", () => { hex.textContent = ci.value; });
-        row.appendChild(chk); row.appendChild(ci); row.appendChild(hex);
-        l.appendChild(row);
-        l._get = () => (chk.checked ? ci.value : "");
-        l._set = (v) => { if (v) { chk.checked = true; ci.value = v; } else { chk.checked = false; } sync(); };
+        s.addEventListener("change", () => onAnyChange(l._prop));
+        l._get = () => s.value; l._set = (v) => { s.value = (v != null ? v : ""); };
         return l;
       };
       const mkText = (label, ph) => {
         const l = document.createElement("label");
         l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
         l.appendChild(document.createTextNode(label));
-        const i = document.createElement("input");
-        i.type = "text"; i.placeholder = ph || "";
-        i.style.cssText = inS;
+        const i = document.createElement("input"); i.type = "text"; i.placeholder = ph || ""; i.style.cssText = inS;
         l.appendChild(i);
-        l._get = () => i.value;
-        l._set = (v) => { i.value = (v != null ? v : ""); };
+        i.addEventListener("change", () => onAnyChange(l._prop));
+        l._get = () => i.value; l._set = (v) => { i.value = (v != null ? v : ""); };
         return l;
       };
-      const ctl = {};
+      // Color: checkbox-čtvereček (klik jen na něm) [6] + vždy aktivní picker [8]
+      // + preset swatches [5] + auto-check po výběru [9].
+      const mkColor = (label, dflt) => {
+        const l = document.createElement("div");
+        l.style.cssText = "display:flex;flex-direction:column;gap:3px;font-size:11px;color:#9aa2ac;";
+        const cap = document.createElement("span"); cap.textContent = label; l.appendChild(cap);
+        const row = document.createElement("div"); row.style.cssText = "display:flex;align-items:center;gap:4px;flex-wrap:wrap;";
+        const chk = document.createElement("input"); chk.type = "checkbox"; chk.style.cssText = "cursor:pointer;margin:0;flex:none;"; chk.title = "Aktivovat / zrušit";
+        const ci = document.createElement("input"); ci.type = "color"; ci.value = dflt || "#e57373";
+        ci.style.cssText = "width:32px;height:22px;border:1px solid #3a2a58;border-radius:3px;background:#0f1419;cursor:pointer;padding:0;flex:none;";
+        row.appendChild(chk); row.appendChild(ci);
+        PRESETS.forEach((c) => {
+          const sw = document.createElement("button"); sw.type = "button"; sw.title = c;
+          sw.style.cssText = "width:15px;height:15px;border-radius:50%;border:1px solid #00000066;background:" + c + ";cursor:pointer;padding:0;flex:none;";
+          sw.addEventListener("click", () => { ci.value = c; chk.checked = true; onAnyChange(l._prop); });
+          row.appendChild(sw);
+        });
+        l.appendChild(row);
+        chk.addEventListener("change", () => onAnyChange(l._prop));
+        ci.addEventListener("input", () => { chk.checked = true; onAnyChange(l._prop); });
+        l._get = () => (chk.checked ? ci.value : "");
+        l._set = (v) => { if (v) { chk.checked = true; ci.value = v; } else { chk.checked = false; } };
+        return l;
+      };
+
       ctl.visible = mkSel("Viditelnost", [["", "beze změny"], ["false", "skrýt"]]);
       ctl.readonly = mkSel("Readonly", [["", "beze změny"], ["true", "ano"], ["false", "ne"]]);
       ctl.required = mkSel("Povinné", [["", "beze změny"], ["true", "ano"], ["false", "ne"]]);
@@ -9041,86 +9046,74 @@
       ctl.label_color = mkColor("Barva labelu", "#c4a8e8");
       ctl.background = mkColor("Pozadí komponenty", "#2a1a1a");
       ctl.cell_background = mkColor("Pozadí buňky", "#1f1f2e");
+      ctl.label_text = mkText("Uživatelský název (label)", "");
+      ctl.hint = mkText("Hint (popis při hoveru)", "");
+      ctl.inside_hint = mkText("Inside hint (text v poli)", "");
       ctl.default_value = mkText("Výchozí hodnota (nový záznam)", "");
-      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "label_color", "background", "cell_background", "default_value"];
-      PROPS.forEach((k) => pal.appendChild(ctl[k]));
+      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "label_color", "background", "cell_background", "label_text", "hint", "inside_hint", "default_value"];
+      PROPS.forEach((k) => { ctl[k]._prop = k; pal.appendChild(ctl[k]); });
       wrap.appendChild(pal);
+      wrap.appendChild(note);
 
       let loaded = {};
       const setControls = (rows) => {
         const m = {};
         (rows || []).forEach((r) => { m[r.prop_name] = r.prop_value; });
         loaded = m;
-        PROPS.forEach((p) => { ctl[p]._set(m[p] != null ? m[p] : ""); });
+        PROPS.forEach((p) => ctl[p]._set(m[p] != null ? m[p] : ""));
       };
-
       const isStatic = () => rStatic._radio.checked;
-
+      // Živá projekce na komponentu (i v design módu) — hned vidět změnu. [7]
+      const reapply = () => {
+        const el = self._shell && self._shell.body && self._shell.body.querySelector('[data-comp-def-id="' + compId + '"]');
+        if (el) self._applyStateOverrides(el, { state_overrides: Object.assign({}, loaded) });
+      };
       const loadOverrides = () => {
         if (isStatic()) {
           fetch("/api/v1/erp/fw-state-overrides/" + coreId + "?comp_def_id=" + compId + "&static=1", { credentials: "include" })
-            .then((r) => r.json()).then((j) => setControls((j && j.overrides) || [])).catch(() => setControls([]));
+            .then((r) => r.json()).then((j) => { setControls((j && j.overrides) || []); reapply(); }).catch(() => { setControls([]); });
           return;
         }
         const did = dSel.value, val = valInp.value;
         if (!did || val === "") { setControls([]); return; }
         fetch("/api/v1/erp/fw-state-overrides/" + coreId + "?comp_def_id=" + compId + "&discriminator_id=" + did + "&value=" + encodeURIComponent(val), { credentials: "include" })
-          .then((r) => r.json()).then((j) => setControls((j && j.overrides) || [])).catch(() => setControls([]));
+          .then((r) => r.json()).then((j) => { setControls((j && j.overrides) || []); reapply(); }).catch(() => { setControls([]); });
       };
 
-      const applyMode = () => {
-        layerRow.style.display = isStatic() ? "none" : "flex";
-        loadOverrides();
+      // AUTO-SAVE jedné property po každé změně + okamžitá projekce. [7]
+      onAnyChange = (prop) => {
+        if (!prop) return;
+        const stat = isStatic();
+        let did = null, val = null;
+        if (!stat) {
+          did = dSel.value; val = valInp.value;
+          if (!did || val === "") { note.textContent = "Vyber řídicí pole + hodnotu"; return; }
+        }
+        const cur = ctl[prop]._get();
+        const finish = (ok) => {
+          if (ok) {
+            if (cur !== "") loaded[prop] = cur; else delete loaded[prop];
+            reapply();
+            note.textContent = "✓ uloženo";
+            setTimeout(() => { if (note.textContent === "✓ uloženo") note.textContent = ""; }, 1200);
+          } else { note.textContent = "chyba uložení"; }
+        };
+        if (cur !== "") {
+          const payload = { comp_def_id: Number(compId), prop_name: prop, prop_value: cur };
+          if (!stat) { payload.form_discriminator_id = Number(did); payload.discriminator_value = String(val); }
+          fetch("/api/v1/erp/fw-state-override", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) })
+            .then((r) => r.json()).then((j) => finish(!!j.ok)).catch(() => finish(false));
+        } else if (loaded[prop] != null) {
+          self._deleteStateOverrideRow(coreId, compId, stat ? null : did, stat ? null : val, prop).then(() => finish(true)).catch(() => finish(false));
+        }
       };
+
+      const applyMode = () => { layerRow.style.display = isStatic() ? "none" : "flex"; loadOverrides(); };
       rStatic._radio.addEventListener("change", applyMode);
       rCond._radio.addEventListener("change", applyMode);
       dSel.addEventListener("change", loadOverrides);
       valInp.addEventListener("change", loadOverrides);
 
-      const btnRow = document.createElement("div");
-      btnRow.style.cssText = "display:flex;gap:8px;align-items:center;margin-top:2px;";
-      const saveBtn = document.createElement("button");
-      saveBtn.type = "button";
-      saveBtn.textContent = "💾 Uložit pravidlo";
-      saveBtn.style.cssText = "background:#3a2a58;border:1px solid #6a4aa8;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;";
-      const note = document.createElement("span");
-      note.style.cssText = "color:#6a7686;font-size:11px;";
-      btnRow.appendChild(saveBtn);
-      btnRow.appendChild(note);
-      wrap.appendChild(btnRow);
-
-      saveBtn.addEventListener("click", () => {
-        const stat = isStatic();
-        let did = null, val = null;
-        if (!stat) {
-          did = dSel.value; val = valInp.value;
-          if (!did || val === "") { toast("Vyber řídicí pole a hodnotu", "error", 2500); return; }
-        }
-        const ops = [];
-        PROPS.forEach((p) => {
-          const cur = ctl[p]._get();
-          const had = (loaded[p] != null);
-          if (cur !== "") {
-            const payload = { comp_def_id: Number(compId), prop_name: p, prop_value: cur };
-            if (!stat) { payload.form_discriminator_id = Number(did); payload.discriminator_value = String(val); }
-            ops.push(fetch("/api/v1/erp/fw-state-override", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) }).then((r) => r.json()));
-          } else if (had) {
-            ops.push(self._deleteStateOverrideRow(coreId, compId, stat ? null : did, stat ? null : val, p));
-          }
-        });
-        if (!ops.length) { toast("Žádná vlastnost nenastavena", "info", 2000); return; }
-        saveBtn.disabled = true; note.textContent = "Ukládám…";
-        Promise.all(ops).then(() => {
-          saveBtn.disabled = false; note.textContent = "✓ Uloženo";
-          toast("✓ Pravidlo uloženo", "success", 1800);
-          self._reloadSpec().catch(() => {});
-        }).catch((e) => {
-          saveBtn.disabled = false; note.textContent = "Chyba";
-          toast("Uložení selhalo: " + (e.message || e), "error", 3500);
-        });
-      });
-
-      // Default mode: statické (Marti's "default když není pravidlo")
       rStatic._radio.checked = true;
       applyMode();
     }

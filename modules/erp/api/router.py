@@ -3348,7 +3348,7 @@ async def fw_form_state_resolve(core_id: int, req: Request) -> JSONResponse:
 
 _STATE_PROP_PALETTE = frozenset({
     "visible", "sort_order", "parent", "required", "readonly",
-    "color", "label_color", "background", "cell_background", "bold", "italic", "underline", "strikethrough", "default_value",
+    "color", "label_color", "background", "cell_background", "bold", "italic", "underline", "strikethrough", "default_value", "label_text", "hint", "inside_hint",
 })
 
 

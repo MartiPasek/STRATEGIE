@@ -8452,15 +8452,18 @@
         fieldEl.dataset.soApplied = "display";
         return;
       }
+      // !important — form inputy mají font-weight/atd. v CSS s !important
+      // (proto grid používá erp-fmt-* s !important). Inline bez important by
+      // prohrál. Reset (style.x="") inline declaration odstraní bez ohledu na flag.
       const _fmt = (node, withBg) => {
-        if (so.color) node.style.color = so.color;
-        if (withBg && so.background) node.style.background = so.background;
-        if (so.bold === "true") node.style.fontWeight = "700";
-        if (so.italic === "true") node.style.fontStyle = "italic";
+        if (so.color) node.style.setProperty("color", so.color, "important");
+        if (withBg && so.background) node.style.setProperty("background", so.background, "important");
+        if (so.bold === "true") node.style.setProperty("font-weight", "700", "important");
+        if (so.italic === "true") node.style.setProperty("font-style", "italic", "important");
         const td = [];
         if (so.underline === "true") td.push("underline");
         if (so.strikethrough === "true") td.push("line-through");
-        if (td.length) node.style.textDecoration = td.join(" ");
+        if (td.length) node.style.setProperty("text-decoration", td.join(" "), "important");
       };
       _fmt(fieldEl, true);
       inputs.forEach((i) => {

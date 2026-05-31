@@ -441,41 +441,71 @@ def resolve_state_overrides(
 
     Nikdy nehází — při chybě vrací {} (form se vyrenderuje bez stavových pravidel).
     """
-    if not discr_values:
-        return {}
+    import logging
+    out: dict[int, dict[str, str]] = {}
+
+    # 1) Statická (base) vrstva — overrides BEZ řídicího pole (form_discriminator_id
+    #    IS NULL). Aplikuje se VŽDY (i bez discriminatorů / bez discr_values), jako
+    #    nejnižší priorita. Scope = komponenty tohoto formu (comp_def.core_id =
+    #    form_core_id). Aktivní pravidla (níže) ji přebijí. (Krok 2, 31.5.2026 —
+    #    Marti's "default když není pravidlo aktivní".)
     try:
-        rows = session.execute(
+        static_rows = session.execute(
             _sql_text(
                 """
-                SELECT o.comp_def_id, o.prop_name, o.prop_value,
-                       o.discriminator_value, o.id AS ovr_id,
-                       d.field_name, d.priority
+                SELECT o.comp_def_id, o.prop_name, o.prop_value, o.id AS ovr_id
                 FROM fw.comp_state_override o
-                JOIN fw.form_discriminator d ON d.id = o.form_discriminator_id
-                WHERE d.form_core_id = :core_id
-                  AND d.is_active = TRUE
+                JOIN fw.comp_def c ON c.id = o.comp_def_id
+                WHERE c.core_id = :core_id
+                  AND o.form_discriminator_id IS NULL
                   AND o.is_active = TRUE
-                ORDER BY o.comp_def_id, d.priority ASC, o.id ASC
+                ORDER BY o.comp_def_id, o.id ASC
                 """
             ),
             {"core_id": form_core_id},
         ).fetchall()
+        for r in static_rows:
+            d = dict(r._mapping)
+            out.setdefault(d["comp_def_id"], {})[d["prop_name"]] = d["prop_value"]
     except Exception as e:  # tabulky nemusí existovat / DB chyba → fail-soft
-        import logging
         logging.getLogger("erp.comp_resolver").warning(
-            "[resolve_state_overrides] core=%s failed: %r — skip", form_core_id, e
+            "[resolve_state_overrides] static core=%s failed: %r — skip", form_core_id, e
         )
-        return {}
 
-    out: dict[int, dict[str, str]] = {}
-    for r in rows:
-        d = dict(r._mapping)
-        cur = discr_values.get(d["field_name"])
-        if cur is None:
-            continue
-        if str(cur) != str(d["discriminator_value"]):
-            continue
-        # ORDER BY priority ASC → pozdější (vyšší priorita) přepíše dřívější
-        out.setdefault(d["comp_def_id"], {})[d["prop_name"]] = d["prop_value"]
+    # 2) Stavová pravidla — overrides vázané na řídicí pole. Match podle aktuální
+    #    hodnoty + merge per comp v pořadí priority ASC (vyšší vyhrává, přebije i
+    #    statickou vrstvu).
+    if discr_values:
+        try:
+            rows = session.execute(
+                _sql_text(
+                    """
+                    SELECT o.comp_def_id, o.prop_name, o.prop_value,
+                           o.discriminator_value, o.id AS ovr_id,
+                           d.field_name, d.priority
+                    FROM fw.comp_state_override o
+                    JOIN fw.form_discriminator d ON d.id = o.form_discriminator_id
+                    WHERE d.form_core_id = :core_id
+                      AND d.is_active = TRUE
+                      AND o.is_active = TRUE
+                    ORDER BY o.comp_def_id, d.priority ASC, o.id ASC
+                    """
+                ),
+                {"core_id": form_core_id},
+            ).fetchall()
+        except Exception as e:
+            logging.getLogger("erp.comp_resolver").warning(
+                "[resolve_state_overrides] rules core=%s failed: %r — skip", form_core_id, e
+            )
+            rows = []
+        for r in rows:
+            d = dict(r._mapping)
+            cur = discr_values.get(d["field_name"])
+            if cur is None:
+                continue
+            if str(cur) != str(d["discriminator_value"]):
+                continue
+            # ORDER BY priority ASC → pozdější (vyšší priorita) přepíše dřívější
+            out.setdefault(d["comp_def_id"], {})[d["prop_name"]] = d["prop_value"]
 
     return out

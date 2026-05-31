@@ -3262,13 +3262,13 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                 "SELECT field_name, source FROM fw.form_discriminator "
                 "WHERE form_core_id = :cid AND is_active = TRUE"
             ), {"cid": core_id}).mappings().all()
+            _discr_values = {}
             if _discr_rows:
                 _discriminators_out = [
                     {"field_name": _dr["field_name"], "source": _dr["source"]}
                     for _dr in _discr_rows
                 ]
                 _is_new = not (row_id and row_id > 0)
-                _discr_values = {}
                 for _dr in _discr_rows:
                     _fn = _dr["field_name"]
                     if _dr["source"] == "context":
@@ -3278,14 +3278,16 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
                     else:  # 'column' — hodnota z editovaného řádku
                         if isinstance(data_row, dict) and data_row.get(_fn) is not None:
                             _discr_values[_fn] = str(data_row[_fn])
-                if _discr_values:
-                    from modules.erp.application.comp_resolver import resolve_state_overrides
-                    _state_ovr = resolve_state_overrides(ds, core_id, _discr_values)
-                    if _state_ovr:
-                        for _f in fields_list:
-                            _ov = _state_ovr.get(_f.get("id"))
-                            if _ov:
-                                _f["state_overrides"] = _ov
+            # Resolve VŽDY (i bez discriminatorů / hodnot) — statická (default)
+            # vrstva (form_discriminator_id IS NULL) se aplikuje pořád; aktivní
+            # pravidla z _discr_values ji přebijí. (Krok 2 static default.)
+            from modules.erp.application.comp_resolver import resolve_state_overrides
+            _state_ovr = resolve_state_overrides(ds, core_id, _discr_values)
+            if _state_ovr:
+                for _f in fields_list:
+                    _ov = _state_ovr.get(_f.get("id"))
+                    if _ov:
+                        _f["state_overrides"] = _ov
         except Exception as _e_sr:
             logger.warning("[fw_form_load_by_id] state overrides core=%s failed: %r", core_id, _e_sr)
 
@@ -3517,22 +3519,44 @@ def fw_state_overrides_list(core_id: int, req: Request) -> JSONResponse:
     from core.database_data import get_data_session as _gds_sol
     from sqlalchemy import text as _t_sol
     qp = dict(req.query_params)
-    where = ["d.form_core_id = :cid", "o.is_active = TRUE", "d.is_active = TRUE"]
-    params = {"cid": core_id}
-    if qp.get("comp_def_id"):
-        try:
-            params["comp"] = int(qp["comp_def_id"]); where.append("o.comp_def_id = :comp")
-        except ValueError:
-            pass
-    if qp.get("discriminator_id"):
-        try:
-            params["did"] = int(qp["discriminator_id"]); where.append("o.form_discriminator_id = :did")
-        except ValueError:
-            pass
-    if qp.get("value") not in (None, ""):
-        where.append("o.discriminator_value = :val"); params["val"] = str(qp["value"])
     ds = _gds_sol()
     try:
+        if qp.get("static"):
+            # Statické (default) overrides — bez řídicího pole
+            # (form_discriminator_id IS NULL). Scope dle comp_def_id (frontend
+            # ho vždy posílá pro per-pole sekci). Žádný JOIN na discriminator.
+            where = ["o.form_discriminator_id IS NULL", "o.is_active = TRUE"]
+            params = {}
+            if qp.get("comp_def_id"):
+                try:
+                    params["comp"] = int(qp["comp_def_id"]); where.append("o.comp_def_id = :comp")
+                except ValueError:
+                    pass
+            rows = ds.execute(_t_sol(
+                "SELECT o.id, o.comp_def_id, o.form_discriminator_id, "
+                "       o.discriminator_value, o.prop_name, o.prop_value, "
+                "       NULL AS discriminator_field "
+                "FROM fw.comp_state_override o "
+                "WHERE " + " AND ".join(where) +
+                " ORDER BY o.comp_def_id, o.prop_name"
+            ), params).mappings().all()
+            return JSONResponse({"ok": True, "overrides": [dict(r) for r in rows]})
+
+        # Podmíněné (discriminator-bound) overrides
+        where = ["d.form_core_id = :cid", "o.is_active = TRUE", "d.is_active = TRUE"]
+        params = {"cid": core_id}
+        if qp.get("comp_def_id"):
+            try:
+                params["comp"] = int(qp["comp_def_id"]); where.append("o.comp_def_id = :comp")
+            except ValueError:
+                pass
+        if qp.get("discriminator_id"):
+            try:
+                params["did"] = int(qp["discriminator_id"]); where.append("o.form_discriminator_id = :did")
+            except ValueError:
+                pass
+        if qp.get("value") not in (None, ""):
+            where.append("o.discriminator_value = :val"); params["val"] = str(qp["value"])
         rows = ds.execute(_t_sol(
             "SELECT o.id, o.comp_def_id, o.form_discriminator_id, "
             "       o.discriminator_value, o.prop_name, o.prop_value, "
@@ -3561,13 +3585,23 @@ async def fw_state_override_upsert(req: Request) -> JSONResponse:
     body = await req.json()
     try:
         comp_def_id = int(body.get("comp_def_id"))
-        discr_id = int(body.get("form_discriminator_id"))
     except (TypeError, ValueError):
-        return JSONResponse({"ok": False, "error": "comp_def_id + form_discriminator_id required"}, status_code=400)
-    value = body.get("discriminator_value")
-    if value is None:
-        return JSONResponse({"ok": False, "error": "discriminator_value required"}, status_code=400)
-    value = str(value)
+        return JSONResponse({"ok": False, "error": "comp_def_id required"}, status_code=400)
+    # form_discriminator_id null/0/chybí → STATICKÉ (default) pravidlo (Krok 2):
+    # override bez řídicího pole, discriminator_value = NULL, aplikuje se vždy.
+    _raw_did = body.get("form_discriminator_id")
+    if _raw_did in (None, "", 0, "0"):
+        discr_id = None
+        value = None
+    else:
+        try:
+            discr_id = int(_raw_did)
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "form_discriminator_id musí být int nebo null (static)"}, status_code=400)
+        value = body.get("discriminator_value")
+        if value is None:
+            return JSONResponse({"ok": False, "error": "discriminator_value required (pro podmíněné pravidlo)"}, status_code=400)
+        value = str(value)
     prop_name = (body.get("prop_name") or "").strip()
     if prop_name not in _STATE_PROP_PALETTE:
         return JSONResponse({"ok": False, "error": "prop_name musí být z palety: " + ", ".join(sorted(_STATE_PROP_PALETTE))}, status_code=400)
@@ -3585,7 +3619,7 @@ async def fw_state_override_upsert(req: Request) -> JSONResponse:
             " prop_value, is_active, created_by_id, created_by_text, "
             " updated_by_id, updated_by_text) "
             "VALUES (:comp, :did, :val, :pn, :pv, TRUE, :uid, :txt, :uid, :txt) "
-            "ON CONFLICT (comp_def_id, form_discriminator_id, discriminator_value, prop_name) "
+            "ON CONFLICT ON CONSTRAINT uq_comp_state_override "
             "DO UPDATE SET prop_value = EXCLUDED.prop_value, is_active = TRUE, "
             "  updated_by_id = :uid, updated_by_text = :txt "
             "RETURNING id, comp_def_id, form_discriminator_id, "

@@ -6043,6 +6043,182 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                 status_code=400,
             )
 
+    # ─────────────────────────────────────────────────────────────────────
+    # Krok #11 — cross-connection INSERT routing (31.5.2026, Marti: "Co ma
+    # PostgreSQL co delat s insertem pres MCP. Bez toho dal jit nemuzeme").
+    # CRM data zijou v MSSQL DB_EC, ne v PostgreSQL. design_insert_entity byl
+    # PG-only → insert na MSSQL core hazel "relation st.X does not exist".
+    # Fix: MSSQL vetev = zrcadlo design_patch_entity UPDATE vetve. Insert pres
+    # MCP eurosoft_strategie_insert_row do DB_EC. Audit (Vytvoril/DatPorizeni/
+    # Zmenil/DatZmeny) autofill jen pokud sloupce existuji (defense in depth).
+    # ─────────────────────────────────────────────────────────────────────
+    _db_type_insert = (entity_config.get("db_type") or "pg").lower()
+    _dc_code_insert = entity_config.get("dc_code") or ""
+    if _db_type_insert == "mssql":
+        import json as _json_insert_mssql
+        try:
+            from modules.conversation.application.eurosoft_mcp_client import (
+                get_eurosoft_mcp_client,
+                get_mssql_columns_cached as _get_mssql_cols_ins,
+            )
+            from modules.auth.application.audit_actor import (
+                resolve_audit_actor as _audit_resolve_ins,
+                resolve_tenant_id_from_dc_code as _audit_tenant_from_dc_ins,
+            )
+            from datetime import datetime as _dt_insert_audit
+
+            mcp = get_eurosoft_mcp_client()
+            if mcp is None:
+                logger.warning(
+                    "[design_insert_entity] MCP client None "
+                    "(eurosoft_mcp_enabled=False?) — MSSQL insert abort"
+                )
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "MCP client neni dostupny (eurosoft_mcp_enabled=False?). "
+                            "MSSQL insert flow vyzaduje MCP."
+                        ),
+                    },
+                    status_code=503,
+                )
+
+            # dc_code = 'eurosoft_db_ec' → MCP db_name = 'DB_EC' (parity s patch)
+            mcp_db_name = "DB_EC"
+            if _dc_code_insert and _dc_code_insert.lower().startswith("eurosoft_"):
+                mcp_db_name = _dc_code_insert[len("eurosoft_"):].upper()
+
+            # Audit actor (mssql_text = user_tenants.db_login). NULL → fail visible.
+            _audit_tenant_id_ins = _audit_tenant_from_dc_ins(_dc_code_insert)
+            audit_mssql_text_ins = None
+            if _audit_tenant_id_ins:
+                try:
+                    _ds_audit_ins = _gds_insert()
+                    try:
+                        audit_mssql_ins = _audit_resolve_ins(
+                            uid=uid,
+                            target_tenant_id=_audit_tenant_id_ins,
+                            target_db_kind="mssql",
+                            ds=_ds_audit_ins,
+                        )
+                    finally:
+                        _ds_audit_ins.close()
+                    audit_mssql_text_ins = audit_mssql_ins["mssql_text"]
+                except ValueError as _audit_ins_exc:
+                    logger.exception(
+                        f"design_insert_entity MSSQL audit resolve failed: {_audit_ins_exc}"
+                    )
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": f"MSSQL audit actor resolve failed: {_audit_ins_exc}",
+                        },
+                        status_code=500,
+                    )
+            else:
+                logger.warning(
+                    "[design_insert_entity] MSSQL audit: tenant_id neresolved "
+                    "z dc_code=%r — insert bez Vytvoril/Zmenil autofill",
+                    _dc_code_insert,
+                )
+
+            # Build data — field_changes (column → value), drop id column
+            data_ins = {k: v for k, v in field_changes.items() if k != id_column}
+
+            # Audit autofill (jen pokud sloupce existuji — Centrala 1 idiom:
+            # Vytvoril/DatPorizeni = created, Zmenil/DatZmeny = changed; pri
+            # insertu novy radek = obojí now).
+            try:
+                _mssql_cols_ins = _get_mssql_cols_ins(
+                    mcp_db_name, schema_name, table_name
+                )
+                _colset_ins = {str(c).lower() for c in (_mssql_cols_ins or [])}
+                _now_ins = _dt_insert_audit.now().strftime("%Y-%m-%d %H:%M:%S")
+                for _ac, _av in (
+                    ("DatPorizeni", _now_ins),
+                    ("DatZmeny", _now_ins),
+                    ("Vytvoril", audit_mssql_text_ins),
+                    ("Zmenil", audit_mssql_text_ins),
+                ):
+                    if (
+                        _av is not None
+                        and _ac.lower() in _colset_ins
+                        and _ac not in data_ins
+                    ):
+                        data_ins[_ac] = _av
+            except Exception as _cols_ins_exc:
+                logger.warning(
+                    "[design_insert_entity] MSSQL column introspect failed "
+                    "(%s.%s db=%s): %r — insert bez audit autofill",
+                    schema_name, table_name, mcp_db_name, _cols_ins_exc,
+                )
+
+            if not data_ins:
+                return JSONResponse(
+                    {"ok": False, "error": "Zadne sloupce k insertu (data prazdne)."},
+                    status_code=400,
+                )
+
+            ins_json = mcp.call_tool_sync(
+                "eurosoft_strategie_insert_row",
+                {
+                    "schema": schema_name,
+                    "table": table_name,
+                    "data": data_ins,
+                    "db_name": mcp_db_name,
+                },
+                conversation_id=None,
+            )
+            ins = (
+                _json_insert_mssql.loads(ins_json)
+                if isinstance(ins_json, str) else ins_json
+            )
+            if not (isinstance(ins, dict) and ins.get("ok")):
+                err_msg = (
+                    (ins or {}).get("error")
+                    if isinstance(ins, dict) else str(ins)
+                )
+                logger.warning(
+                    "[design_insert_entity] MSSQL insert failed %s.%s db=%s: %r",
+                    schema_name, table_name, mcp_db_name, ins,
+                )
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            f"MSSQL INSERT failed "
+                            f"({schema_name}.{table_name}): {err_msg}"
+                        ),
+                    },
+                    status_code=500,
+                )
+
+            _new_id_ins = ins.get("id")
+            logger.info(
+                "[design_insert_entity] MSSQL inserted %s.%s db=%s id=%s cols=%s",
+                schema_name, table_name, mcp_db_name, _new_id_ins,
+                sorted(data_ins.keys()),
+            )
+            return JSONResponse({
+                "ok": True,
+                "id": _new_id_ins,
+                "created_at": None,
+                "created_by_id": uid,
+                "created_by_text": audit_mssql_text_ins,
+            })
+        except Exception as _ins_mssql_exc:
+            logger.exception(
+                f"design_insert_entity MSSQL branch failed: {_ins_mssql_exc}"
+            )
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "error": f"MSSQL INSERT failed: {str(_ins_mssql_exc)[:300]}",
+                },
+                status_code=500,
+            )
+
     # Caller display name (mirror PATCH pattern)
     caller_display = "Unknown"
     if uid:

@@ -6123,8 +6123,71 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                     _dc_code_insert,
                 )
 
-            # Build data — field_changes (column → value), drop id column
-            data_ins = {k: v for k, v in field_changes.items() if k != id_column}
+            # ── Resolve field → real DB column via layout.save (PARITY s UPDATE).
+            # Asymetrie kterou Marti nasel (31.5.): UPDATE resolvuje fieldy na
+            # realne sloupce pres save binding (column_name 'fld_test_*' jsou jen
+            # placeholdery), INSERT puvodne posilal raw keys → MSSQL "invalid
+            # column". Fix: mirror patch _field_layout_map resolution. INSERT
+            # zapisuje jen BASE tabulku (related tabulky = nested, az po master
+            # insertu — chicken-egg s master ID).
+            _field_layout_map_ins = {}
+            _resolve_core_id_ins = entity_config.get("core_id")
+            if _resolve_core_id_ins:
+                try:
+                    _ds_lay_ins = _gds_insert()
+                    try:
+                        _rows_lay_ins = _ds_lay_ins.execute(
+                            _sql_text_insert(
+                                "SELECT name, layout FROM fw.comp_def "
+                                "WHERE core_id = :cid AND parent_comp_def_id IS NOT NULL "
+                                "AND is_active = true"
+                            ),
+                            {"cid": _resolve_core_id_ins},
+                        ).mappings().all()
+                        for _r in _rows_lay_ins:
+                            _field_layout_map_ins[_r["name"]] = _r["layout"] or {}
+                    finally:
+                        _ds_lay_ins.close()
+                except Exception as _lay_ins_exc:
+                    logger.warning(
+                        "[design_insert_entity] MSSQL layout resolve failed "
+                        "(core_id=%s): %r — fallback column_name",
+                        _resolve_core_id_ins, _lay_ins_exc,
+                    )
+
+            data_ins = {}
+            _skipped_ins = []
+            for _fk_name, _fk_val in field_changes.items():
+                if _fk_name == id_column:
+                    continue
+                _lay = _field_layout_map_ins.get(_fk_name) or {}
+                _save = _lay.get("save") if isinstance(_lay, dict) else None
+                if isinstance(_save, dict) and _save.get("readonly"):
+                    _skipped_ins.append((_fk_name, "readonly"))
+                    continue
+                if isinstance(_save, dict) and _save.get("table"):
+                    _s_schema = _save.get("schema") or schema_name
+                    _s_table = _save["table"]
+                    _s_col = _save.get("column") or _fk_name
+                    # INSERT jen base tabulka (related = nested, post-master)
+                    if (_s_schema, _s_table) != (schema_name, table_name):
+                        _skipped_ins.append(
+                            (_fk_name, f"related:{_s_schema}.{_s_table}")
+                        )
+                        continue
+                    data_ins[_s_col] = _fk_val
+                else:
+                    # base fallback (layout.column_name → fld_test_*, zpetna kompat)
+                    _s_col = (
+                        _lay.get("column_name") if isinstance(_lay, dict) else None
+                    ) or _fk_name
+                    data_ins[_s_col] = _fk_val
+            if _skipped_ins:
+                logger.info(
+                    "[design_insert_entity] MSSQL skip fields "
+                    "(readonly/related): %s",
+                    _skipped_ins,
+                )
 
             # Audit autofill (jen pokud sloupce existuji — Centrala 1 idiom:
             # Vytvoril/DatPorizeni = created, Zmenil/DatZmeny = changed; pri
@@ -6175,8 +6238,14 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                 if isinstance(ins_json, str) else ins_json
             )
             if not (isinstance(ins, dict) and ins.get("ok")):
+                # Server vraci error='internal_error' + message/exception_repr
+                # (real MSSQL detail, napr. "Invalid column name 'X'"). Vytahni
+                # message → Marti uvidi KTERY sloupec vadi (jeho 31.5. pozadavek
+                # "uzivatelsky zjistit, ktere pole ho zajima").
                 err_msg = (
-                    (ins or {}).get("error")
+                    (ins.get("message")
+                     or ins.get("exception_repr")
+                     or ins.get("error"))
                     if isinstance(ins, dict) else str(ins)
                 )
                 logger.warning(

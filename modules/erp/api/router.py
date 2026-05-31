@@ -6169,6 +6169,11 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                         _lits[_rk_k] = _rk_v
                 return _lits, _idc
 
+            # Base fieldy (schema_name.table_name) → master row; jejich row_key
+            # {ID:@id} = self-PK (auto-gen identity) → ignorujeme. Related fieldy
+            # (jina tabulka, napr CRM_Kontakt_Akce) → groups s @id (master ID
+            # doplnime po base insertu) + literaly (IDakce=16).
+            _base_data_fields = {}
             _ins_groups = {}
             _skipped_ins = []
             for _fk_name, _fk_val in field_changes.items():
@@ -6191,6 +6196,12 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                         _lay.get("column_name") if isinstance(_lay, dict) else None
                     ) or _fk_name
                     _g_lits, _g_idc = {}, []
+                # BASE tabulka = master row → sloupec do base, row_key
+                # (self-PK @id) ignorujeme (ID auto-gen identity).
+                if (_g_schema, _g_table) == (schema_name, table_name):
+                    _base_data_fields[_g_col] = _fk_val
+                    continue
+                # RELATED tabulka → group dle (schema, table, literals, id_cols).
                 _gkey = (
                     _g_schema, _g_table,
                     tuple(sorted(_g_lits.items())), tuple(sorted(_g_idc)),
@@ -6215,13 +6226,11 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
             # po base insertu = partial (master vznikne) → 500 s info.
             _now_ins = _dt_insert_audit.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Ensure base group existuje (anchor pro related — i kdyz uziv
-            # nezmenil zadne base pole, napr. vyplnil jen firemni Akce pole).
-            _base_gkey_ins = (schema_name, table_name, (), ())
-            _base_grp = _ins_groups.setdefault(_base_gkey_ins, {
-                "schema": schema_name, "table": table_name,
-                "data": {}, "id_cols": [],
-            })
+            # Base data = master row sloupce (z _base_data_fields, naplnene
+            # v grouping loop). Anchor pro related — i kdyz uziv nezmenil zadne
+            # base pole (vyplnil jen firemni Akce pole), audit nize zajisti
+            # aspon 1 sloupec.
+            _base_data = _base_data_fields
 
             # Audit do base group (best-effort introspect; fallback optimistic
             # Autor/DatPorizeni — CRM_Kontakt je ma per SSMS 31.5.).
@@ -6243,16 +6252,16 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                 ("Zmenil", audit_mssql_text_ins),
                 ("DatZmeny", _now_ins),
             ):
-                if _av is None or _ac in _base_grp["data"]:
+                if _av is None or _ac in _base_data:
                     continue
                 if _colset_ins is None:
                     if _ac in ("Autor", "DatPorizeni"):
-                        _base_grp["data"][_ac] = _av
+                        _base_data[_ac] = _av
                 elif _ac.lower() in _colset_ins:
-                    _base_grp["data"][_ac] = _av
+                    _base_data[_ac] = _av
             # base musi mit aspon 1 sloupec (strategie_insert_row vyzaduje data)
-            if not _base_grp["data"]:
-                _base_grp["data"]["DatPorizeni"] = _now_ins
+            if not _base_data:
+                _base_data["DatPorizeni"] = _now_ins
 
             def _mcp_insert_row(_schema, _table, _data):
                 _j = mcp.call_tool_sync(
@@ -6275,7 +6284,7 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
 
             # 1) base insert → master ID
             _base_res = _mcp_insert_row(
-                schema_name, table_name, _base_grp["data"]
+                schema_name, table_name, _base_data
             )
             if not (isinstance(_base_res, dict) and _base_res.get("ok")):
                 logger.warning(
@@ -6291,10 +6300,9 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
             _master_id = _base_res.get("id")
 
             # 2) related groups (resolve @id → master ID)
+            # Vsechny _ins_groups jsou related (base fieldy jsou v _base_data).
             _related_ins = []
             for _gk, _grp in _ins_groups.items():
-                if _gk == _base_gkey_ins:
-                    continue
                 _rdata = dict(_grp["data"])
                 for _idcol in _grp["id_cols"]:
                     _rdata[_idcol] = _master_id
@@ -6304,16 +6312,25 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                     _grp["schema"], _grp["table"], _rdata
                 )
                 if not (isinstance(_rel_res, dict) and _rel_res.get("ok")):
+                    # MSSQL conversion error nepojmenuje sloupec → surface
+                    # poslane sloupce+hodnoty, at Marti vidi ktery sloupec
+                    # dostal spatnou hodnotu (napr. '((0))' do bit sloupce).
+                    _rdata_dump = ", ".join(
+                        f"{_dk}={_dv!r}" for _dk, _dv in _rdata.items()
+                    )
                     logger.warning(
                         "[design_insert_entity] related insert failed "
-                        "%s.%s: %r",
-                        _grp["schema"], _grp["table"], _rel_res,
+                        "%s.%s data={%s}: %r",
+                        _grp["schema"], _grp["table"], _rdata_dump, _rel_res,
                     )
                     return JSONResponse(
-                        {"ok": False, "id": _master_id, "error": (
+                        {"ok": False, "id": _master_id,
+                         "data_sent": {_dk: str(_dv) for _dk, _dv in _rdata.items()},
+                         "error": (
                             f"Base zalozen (id={_master_id}), ale related "
                             f"INSERT ({_grp['schema']}.{_grp['table']}) "
-                            f"selhal: {_ins_err(_rel_res)}")},
+                            f"selhal: {_ins_err(_rel_res)}\n\nPoslane sloupce: "
+                            f"{{{_rdata_dump}}}")},
                         status_code=500,
                     )
                 _related_ins.append(

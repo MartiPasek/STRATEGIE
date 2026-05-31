@@ -8608,7 +8608,7 @@
         if (has("display")) fieldEl.style.display = "";
         const _clr = (n) => {
           if (has("color")) n.style.color = "";
-          if (has("background")) n.style.background = "";
+          if (has("background") || has("cell_background")) n.style.background = "";
           if (has("bold")) { n.style.fontWeight = ""; n.style.webkitTextStroke = ""; }
           if (has("italic")) n.style.fontStyle = "";
           if (has("underline") || has("strikethrough")) n.style.textDecoration = "";
@@ -8632,9 +8632,10 @@
       // !important — form inputy mají font-weight/atd. v CSS s !important
       // (proto grid používá erp-fmt-* s !important). Inline bez important by
       // prohrál. Reset (style.x="") inline declaration odstraní bez ohledu na flag.
-      const _fmt = (node, withBg) => {
+      const _fmt = (node, isWrapper) => {
         if (so.color) node.style.setProperty("color", so.color, "important");
-        if (withBg && so.background) node.style.setProperty("background", so.background, "important");
+        const _bg = isWrapper ? so.background : so.cell_background;
+        if (_bg) node.style.setProperty("background", _bg, "important");
         if (so.bold === "true") {
           // font-weight pro fonty s bold řezem (DM Sans) + text-stroke jako
           // faux-bold fallback pro fonty BEZ bold řezu (DM Mono, který má jen
@@ -8659,6 +8660,7 @@
       });
       if (so.color) applied.push("color");
       if (so.background) applied.push("background");
+      if (so.cell_background) applied.push("cell_background");
       if (so.bold === "true") applied.push("bold");
       if (so.italic === "true") applied.push("italic");
       if (so.underline === "true") applied.push("underline");
@@ -8974,8 +8976,9 @@
       ctl.underline = mkSel("Podtržení", [["", "beze změny"], ["true", "ano"]]);
       ctl.strikethrough = mkSel("Přeškrtnutí", [["", "beze změny"], ["true", "ano"]]);
       ctl.color = mkColor("Barva textu", "#e57373");
-      ctl.background = mkColor("Pozadí", "#2a1a1a");
-      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "background"];
+      ctl.background = mkColor("Pozadí komponenty", "#2a1a1a");
+      ctl.cell_background = mkColor("Pozadí buňky", "#1f1f2e");
+      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "background", "cell_background"];
       PROPS.forEach((k) => pal.appendChild(ctl[k]));
       wrap.appendChild(pal);
 

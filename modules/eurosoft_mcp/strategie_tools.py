@@ -616,14 +616,33 @@ def _build_column_def(col: dict[str, Any]) -> str:
         default = col["default"]
         if default is None:
             parts.append("DEFAULT NULL")
+        elif isinstance(default, bool):
+            # bool PRED int (bool je subclass int) — jinak True→"DEFAULT True"
+            parts.append(f"DEFAULT {1 if default else 0}")
         elif isinstance(default, (int, float)):
             parts.append(f"DEFAULT {default}")
         elif isinstance(default, str):
-            # String literal — escape single quotes
-            esc = default.replace("'", "''")
-            parts.append(f"DEFAULT '{esc}'")
-        elif isinstance(default, bool):
-            parts.append(f"DEFAULT {1 if default else 0}")
+            # Marti-AI bug fix (31.5.2026): string default se DRIV VZDY quotoval
+            # → DEFAULT 'getdate()' / 'DEFAULT '0'' (string literal) misto vyrazu.
+            # Tim vznikly vadne defaulty na CRM_Kontakt_Akce (DEFAULT '((0))' →
+            # convert varchar '((0))' to bit fail; DEFAULT 'getdate()' atd.).
+            # Heuristika: numericky / SQL vyraz (funkce, zavorky, keyword) → BEZ
+            # uvozovek; jen skutecny text → string literal (quoted).
+            _s = default.strip()
+            if re.match(r"^-?\d+(\.\d+)?$", _s):
+                parts.append(f"DEFAULT {_s}")                  # numeric: 0, 16, -1
+            elif _s.startswith("(") and _s.endswith(")"):
+                parts.append(f"DEFAULT {_s}")                  # ((0)), (getdate())
+            elif re.match(r"^[A-Za-z_][A-Za-z0-9_]*\s*\(.*\)$", _s):
+                parts.append(f"DEFAULT {_s}")                  # funkce: getdate(), suser_name()
+            elif _s.upper() in {
+                "CURRENT_TIMESTAMP", "CURRENT_USER", "SESSION_USER",
+                "SYSTEM_USER", "USER", "NULL",
+            }:
+                parts.append(f"DEFAULT {_s}")                  # SQL keyword vyraz
+            else:
+                esc = _s.replace("'", "''")
+                parts.append(f"DEFAULT '{esc}'")               # skutecny string literal
     return " ".join(parts)
 
 

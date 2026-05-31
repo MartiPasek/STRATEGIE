@@ -8419,25 +8419,39 @@
     _applyStateOverrides(fieldEl, comp) {
       if (!fieldEl) return;
       const so = (comp && comp.state_overrides) || {};
-      // RESET (idempotent — pro živý re-apply): vyčisti override-set inline styly,
-      // display + so-readonly/required markery. Base styling je z CSS (ne inline),
-      // takže clear inline = návrat na base. Base readonly (ne přes override) se
-      // nedotkne (řeší jen so-marked).
-      fieldEl.style.display = "";
-      const _clear = (n) => {
-        n.style.color = ""; n.style.background = "";
-        n.style.fontWeight = ""; n.style.fontStyle = ""; n.style.textDecoration = "";
-      };
-      _clear(fieldEl);
-      fieldEl.querySelectorAll("input, textarea, select").forEach((i) => {
-        _clear(i);
-        if (i.dataset.soReadonly === "1") { i.readOnly = false; i.disabled = false; delete i.dataset.soReadonly; }
-        if (i.dataset.soRequired === "1") { i.required = false; delete i.dataset.soRequired; }
-      });
-      fieldEl.classList.remove("erp-state-required");
-      // visible=false → skryj (ostatní overrides irelevantní)
-      if (so.visible === "false") { fieldEl.style.display = "none"; return; }
-      // APPLY current
+      // SURGICKÝ reset — resetuj JEN props, které jsme dříve sami nastavili
+      // (sledováno v dataset.soApplied). Pole bez stavového pravidla se NEDOTKNE
+      // (žádné display="" → žádný reflow layoutu panelu). Fix 31.5.2026:
+      // dřívější unconditional display="" přepisoval inline display layout
+      // enginu → 2-sloupcový panel padal do 1 sloupce při změně řídicího pole.
+      const prev = fieldEl.dataset.soApplied ? fieldEl.dataset.soApplied.split(",") : [];
+      const inputs = fieldEl.querySelectorAll("input, textarea, select");
+      if (prev.length) {
+        const has = (p) => prev.indexOf(p) !== -1;
+        if (has("display")) fieldEl.style.display = "";
+        const _clr = (n) => {
+          if (has("color")) n.style.color = "";
+          if (has("background")) n.style.background = "";
+          if (has("bold")) n.style.fontWeight = "";
+          if (has("italic")) n.style.fontStyle = "";
+          if (has("underline") || has("strikethrough")) n.style.textDecoration = "";
+        };
+        _clr(fieldEl);
+        inputs.forEach((i) => {
+          _clr(i);
+          if (has("readonly")) { i.readOnly = false; i.disabled = false; }
+          if (has("required")) i.required = false;
+        });
+        if (has("required")) fieldEl.classList.remove("erp-state-required");
+        delete fieldEl.dataset.soApplied;
+      }
+      // APPLY current — zaznamenej, co jsme nastavili
+      const applied = [];
+      if (so.visible === "false") {
+        fieldEl.style.display = "none";
+        fieldEl.dataset.soApplied = "display";
+        return;
+      }
       const _fmt = (node, withBg) => {
         if (so.color) node.style.color = so.color;
         if (withBg && so.background) node.style.background = so.background;
@@ -8449,15 +8463,20 @@
         if (td.length) node.style.textDecoration = td.join(" ");
       };
       _fmt(fieldEl, true);
-      fieldEl.querySelectorAll("input, textarea, select").forEach((i) => {
+      inputs.forEach((i) => {
         _fmt(i, false);
-        if (so.readonly === "true") {
-          if (i.tagName === "SELECT") i.disabled = true; else i.readOnly = true;
-          i.dataset.soReadonly = "1";
-        }
-        if (so.required === "true") { i.required = true; i.dataset.soRequired = "1"; }
+        if (so.readonly === "true") { if (i.tagName === "SELECT") i.disabled = true; else i.readOnly = true; }
+        if (so.required === "true") i.required = true;
       });
-      if (so.required === "true") fieldEl.classList.add("erp-state-required");
+      if (so.color) applied.push("color");
+      if (so.background) applied.push("background");
+      if (so.bold === "true") applied.push("bold");
+      if (so.italic === "true") applied.push("italic");
+      if (so.underline === "true") applied.push("underline");
+      if (so.strikethrough === "true") applied.push("strikethrough");
+      if (so.readonly === "true") applied.push("readonly");
+      if (so.required === "true") { applied.push("required"); fieldEl.classList.add("erp-state-required"); }
+      if (applied.length) fieldEl.dataset.soApplied = applied.join(",");
     }
 
     // FW State Rules živý přepočet (31.5.2026): při změně řídicího pole přečti

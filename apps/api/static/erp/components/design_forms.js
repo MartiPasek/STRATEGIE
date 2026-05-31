@@ -6234,16 +6234,29 @@
       }
       const currentLayout = field.layout || {};
 
+      // FW State Rules #2-C++ (31.5.2026): floating + draggable + singleton panel.
+      const _prevFs = document.querySelector('[data-fs-settings="1"]');
+      if (_prevFs) {
+        try {
+          const pm = _prevFs.querySelector('[data-fs-modal="1"]');
+          if (pm && pm.style.left) DesignFwForm._fsPos = { left: pm.style.left, top: pm.style.top };
+        } catch (e) { /* fail-safe */ }
+        try { document.body.removeChild(_prevFs); } catch (e) {}
+      }
+      const _fsPos = DesignFwForm._fsPos || { left: "calc(100vw - 560px)", top: "78px" };
+
       const overlay = document.createElement("div");
+      overlay.setAttribute("data-fs-settings", "1");
       overlay.style.cssText =
-        "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:10001;" +
-        "display:flex;align-items:center;justify-content:center;";
+        "position:fixed;inset:0;z-index:10001;pointer-events:none;";
 
       const modal = document.createElement("div");
+      modal.setAttribute("data-fs-modal", "1");
       modal.style.cssText =
+        "position:absolute;left:" + _fsPos.left + ";top:" + _fsPos.top + ";pointer-events:auto;" +
         "background:#141a20;border:1px solid #2a3340;border-radius:6px;" +
-        "min-width:440px;max-width:540px;color:#e8eef5;font-size:13px;" +
-        "box-shadow:0 8px 32px rgba(0,0,0,0.6);overflow:hidden;";
+        "width:520px;max-width:96vw;max-height:90vh;overflow:auto;color:#e8eef5;font-size:13px;" +
+        "box-shadow:0 8px 32px rgba(0,0,0,0.6);";
 
       // Header
       const header = document.createElement("div");
@@ -6264,6 +6277,27 @@
       closeBtn.addEventListener("click", () => document.body.removeChild(overlay));
       header.appendChild(closeBtn);
       modal.appendChild(header);
+
+      // Drag — panel lze chytit za hlavičku a přesunout myší kamkoli. [Marti #1]
+      header.style.cursor = "move"; header.style.userSelect = "none";
+      (function () {
+        let drg = false, sx = 0, sy = 0, ol = 0, ot = 0;
+        header.addEventListener("mousedown", (ev) => {
+          if (ev.target === closeBtn) return;
+          const r = modal.getBoundingClientRect();
+          drg = true; ol = r.left; ot = r.top; sx = ev.clientX; sy = ev.clientY;
+          modal.style.left = ol + "px"; modal.style.top = ot + "px";
+          ev.preventDefault();
+        });
+        const mv = (ev) => { if (drg) { modal.style.left = (ol + ev.clientX - sx) + "px"; modal.style.top = (ot + ev.clientY - sy) + "px"; } };
+        const up = () => { if (drg) { drg = false; DesignFwForm._fsPos = { left: modal.style.left, top: modal.style.top }; } };
+        document.addEventListener("mousemove", mv);
+        document.addEventListener("mouseup", up);
+        const _mo = new MutationObserver(() => {
+          if (!document.body.contains(overlay)) { document.removeEventListener("mousemove", mv); document.removeEventListener("mouseup", up); _mo.disconnect(); }
+        });
+        _mo.observe(document.body, { childList: true });
+      })();
 
       // Phase 38.4 Krok H+13 (27.5.2026 ráno, Marti's "sloučit ty parametry
       // komponent do dvou listu"): UNIFIED 2-tab modal pro VŠECHNY komponenty.

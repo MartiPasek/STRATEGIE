@@ -6263,11 +6263,35 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
             if not _base_data:
                 _base_data["DatPorizeni"] = _now_ins
 
+            import re as _re_ins_default
+
+            def _unwrap_sql_default(_v):
+                # SQL Server COLUMN_DEFAULT leak: default_value misset na raw
+                # SQL vyraz '((0))' / "('text')" → unwrap na hodnotu (jinak
+                # conversion fail napr. '((0))' -> bit). Marti 31.5.: "do
+                # fieldu Splneno leze default 0".
+                if not isinstance(_v, str):
+                    return _v
+                _s = _v.strip()
+                _mnum = _re_ins_default.match(r"^\(+\s*(-?\d+)\s*\)+$", _s)
+                if _mnum:
+                    return int(_mnum.group(1))
+                _mstr = _re_ins_default.match(
+                    r"^\(+\s*N?'(.*)'\s*\)+$", _s, _re_ins_default.DOTALL
+                )
+                if _mstr:
+                    return _mstr.group(1)
+                return _v
+
             def _mcp_insert_row(_schema, _table, _data):
+                _clean = {
+                    _ck: _unwrap_sql_default(_cv)
+                    for _ck, _cv in _data.items()
+                }
                 _j = mcp.call_tool_sync(
                     "eurosoft_strategie_insert_row",
                     {"schema": _schema, "table": _table,
-                     "data": _data, "db_name": mcp_db_name},
+                     "data": _clean, "db_name": mcp_db_name},
                     conversation_id=None,
                 )
                 return (

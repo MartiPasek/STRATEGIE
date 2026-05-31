@@ -514,8 +514,17 @@ async def request_id_middleware(request: Request, call_next):
                 "/.aws/", "/.docker/", "/.kube/",
                 "/api/jsonws/", "/console/",
             )
-            _is_scanner_noise = _status == 404 and any(
-                _path.startswith(_pat) for _pat in _scanner_paths
+            # Extension-based scanner skip (Marti 31.5. 22h: flood /info.php,
+            # /abc.php, /wp-trackback.php, /randkeyword.PhP7…). Aplikace žádné
+            # .php/.asp/.jsp/.cgi nepodává → jakákoli 404 na ně = bot scan.
+            _scanner_exts = (
+                ".php", ".php7", ".phtml", ".asp", ".aspx",
+                ".jsp", ".cgi", ".env", ".bak", ".sql", ".ini",
+            )
+            _plc = _path.lower()
+            _is_scanner_noise = _status == 404 and (
+                any(_path.startswith(_pat) for _pat in _scanner_paths)
+                or any(_plc.endswith(_ext) for _ext in _scanner_exts)
             )
             _skip = _is_auth_gate_401 or _is_post_root_405 or _is_scanner_noise
             if not _skip:

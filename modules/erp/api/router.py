@@ -3676,6 +3676,138 @@ async def fw_form_children_archive(
 # ────────────────────────────────────────────────────────────────────
 
 
+@api_router.post("/design/core/{core_id}/resolve-save-bindings")
+async def design_resolve_save_bindings(core_id: int, req: Request) -> JSONResponse:
+    """
+    Krok 5.Z (31.5.2026): sqlglot lineage → predvyplni layout.save na fieldech.
+
+    Vezme root data_source SELECT daneho core, pres sqlglot column-lineage
+    odvodi pro kazdy field jeho absolutni save souradnici (connection_id +
+    schema + table + column + row_key) a zapise ji do fw.comp_def.layout.save.
+    Vyrazy / outer-apply / nejasny klic -> readonly:true.
+
+    Query: ?dry_run=true (default true) — jen preview, NEzapisuje.
+           ?dry_run=false — zapise layout.save (merge) do comp_def.
+
+    Matchuje field -> output column pres (layout.column_name OR name),
+    case-insensitive. Field bez matche se nedotkne (zustane base fallback).
+    Reusable — Marti muze re-runnout po zmene SELECTu (fw self edited).
+    """
+    from core.database_data import get_data_session as _gds_rsb
+    from sqlalchemy import text as _sql_rsb
+    import json as _json_rsb
+
+    uid = _get_uid(req)
+    _require_parent(uid)
+
+    dry_run = (req.query_params.get("dry_run", "true").lower() != "false")
+
+    try:
+        from modules.erp.application.sql_lineage import resolve_save_bindings
+    except Exception as _imp_e:
+        return JSONResponse(
+            {"ok": False, "error": f"sql_lineage import failed: {_imp_e}"},
+            status_code=500,
+        )
+
+    ds = _gds_rsb()
+    try:
+        # 1) root data_source core -> select op data_set SQL + db_connection_id
+        root = ds.execute(_sql_rsb(
+            "SELECT data_source_id FROM fw.comp_def "
+            "WHERE core_id = :cid AND parent_comp_def_id IS NULL "
+            "AND data_source_id IS NOT NULL ORDER BY id LIMIT 1"
+        ), {"cid": core_id}).mappings().first()
+        if not root:
+            return JSONResponse(
+                {"ok": False, "error": f"core {core_id} nema root comp_def s data_source"},
+                status_code=404,
+            )
+        dsid = root["data_source_id"]
+        op = ds.execute(_sql_rsb(
+            "SELECT dset.sql_text, dset.db_connection_id "
+            "FROM fw.data_source_op o JOIN fw.data_set dset ON dset.id = o.data_set_id "
+            "WHERE o.data_source_id = :dsid AND o.operation_kind = 'select' "
+            "ORDER BY o.is_default DESC NULLS LAST, o.id LIMIT 1"
+        ), {"dsid": dsid}).mappings().first()
+        if not op or not op["sql_text"]:
+            return JSONResponse(
+                {"ok": False, "error": f"data_source {dsid} nema select op s SQL"},
+                status_code=404,
+            )
+        conn_id = op["db_connection_id"]
+
+        # 2) lineage
+        bindings = resolve_save_bindings(op["sql_text"])
+        if not bindings:
+            return JSONResponse(
+                {"ok": False, "error": "sqlglot nevratil zadne bindings (parse fail?)"},
+                status_code=422,
+            )
+        # case-insensitive lookup
+        bind_ci = {k.lower(): (k, v) for k, v in bindings.items()}
+
+        # 3) active leaf fieldy core
+        fields = ds.execute(_sql_rsb(
+            "SELECT id, name, layout FROM fw.comp_def "
+            "WHERE core_id = :cid AND parent_comp_def_id IS NOT NULL "
+            "AND is_active = true"
+        ), {"cid": core_id}).mappings().all()
+
+        preview = []
+        applied = 0
+        for f in fields:
+            lay = f["layout"] or {}
+            if not isinstance(lay, dict):
+                continue
+            out_key = (lay.get("column_name") or f["name"] or "")
+            match = bind_ci.get(out_key.lower())
+            if not match:
+                continue
+            _src_out, b = match
+            save_binding = {
+                "connection_id": conn_id,
+                "schema": b["schema"],
+                "table": b["table"],
+                "column": b["column"],
+                "row_key": b["row_key"],
+                "readonly": bool(b["readonly"]),
+            }
+            if b.get("reason"):
+                save_binding["reason"] = b["reason"]
+            preview.append({
+                "comp_def_id": f["id"], "name": f["name"],
+                "output_column": out_key, "save": save_binding,
+            })
+            if not dry_run:
+                ds.execute(_sql_rsb(
+                    "UPDATE fw.comp_def "
+                    "SET layout = COALESCE(layout, '{}'::jsonb) "
+                    "    || jsonb_build_object('save', CAST(:b AS jsonb)) "
+                    "WHERE id = :id"
+                ), {"b": _json_rsb.dumps(save_binding), "id": f["id"]})
+                applied += 1
+        if not dry_run:
+            ds.commit()
+
+        return JSONResponse(jsonable_encoder({
+            "ok": True, "core_id": core_id, "data_source_id": dsid,
+            "connection_id": conn_id, "dry_run": dry_run,
+            "matched": len(preview), "applied": applied,
+            "bindings": preview,
+            "unmatched_outputs": sorted(
+                set(bindings.keys())
+                - {p["output_column"] for p in preview}
+            ),
+        }))
+    except Exception as exc:
+        ds.rollback()
+        logger.exception("[design_resolve_save_bindings] core=%s failed: %s", core_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=500)
+    finally:
+        ds.close()
+
+
 @api_router.patch("/design/{entity_type}/{row_id}")
 async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JSONResponse:
     """Save flow PATCH endpoint pro DesignFwForm OK button.
@@ -3936,18 +4068,14 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
             # Pre-introspect target columns (cached)
             _mssql_cols = _get_mssql_cols(mcp_db_name, schema_name, table_name)
 
-            # ── Krok 5-B Fix #15 (30.5.2026, Marti's "ciselne hodnoty
-            # se ukladaji, ale text hodi chybu"): resolve fieldKey → real
-            # DB column_name z fw.comp_def.layout JSONB. Frontend posila
-            # field.name jako klic, ale Marti's test grid (a obecne joined
-            # source fields) maji layout.column_name override.
-            #
-            # Strategy: pokud entity_config ma core_id (Krok 5.N-1
-            # ID-based path), query fw.comp_def WHERE core_id = X AND
-            # parent_comp_def_id IS NOT NULL (leaf fields, ne containers).
-            # Build {name: layout.column_name OR name} map. Resolve
-            # _patch_data keys pres map.
-            _column_name_map = {}
+            # ── Krok 5-B Fix #15 (30.5.2026) + Krok 5.Z (31.5.2026):
+            # fieldKey → DB column + cilova tabulka z fw.comp_def.layout.
+            # Krok 5.Z (31.5.2026, Marti: "identifikace fieldu absolutni —
+            # vicero tabulek/databazi/serveru"): per-field layout.save binding.
+            # {schema, table, column, row_key{col:'@id'|literal}, readonly}.
+            # Fieldy bez save -> base entita (schema_name/table_name, WHERE
+            # id_column=row_id) + column_name fallback (zpetna kompat).
+            _field_layout_map = {}   # field name -> layout dict
             _resolve_core_id = entity_config.get("core_id")
             if _resolve_core_id:
                 try:
@@ -3955,113 +4083,176 @@ async def design_patch_entity(entity_type: str, row_id: int, req: Request) -> JS
                     try:
                         _rows_resolve = _ds_resolve.execute(
                             _sql_text_patch(
-                                "SELECT name, COALESCE(layout->>'column_name', name) AS col "
-                                "FROM fw.comp_def "
+                                "SELECT name, layout FROM fw.comp_def "
                                 "WHERE core_id = :cid AND parent_comp_def_id IS NOT NULL "
                                 "AND is_active = true"
                             ),
                             {"cid": _resolve_core_id},
                         ).mappings().all()
-                        _column_name_map = {r["name"]: r["col"] for r in _rows_resolve}
+                        for _r in _rows_resolve:
+                            _field_layout_map[_r["name"]] = _r["layout"] or {}
                     finally:
                         _ds_resolve.close()
                 except Exception as _resolve_exc:
                     logger.warning(
-                        "[design_patch_entity] MSSQL column_name resolve failed "
-                        "(core_id=%s): %r — proceeding bez resolve (verbatim keys)",
+                        "[design_patch_entity] MSSQL layout resolve failed "
+                        "(core_id=%s): %r — fallback base entita",
                         _resolve_core_id, _resolve_exc,
                     )
-                    _column_name_map = {}
+                    _field_layout_map = {}
 
-            # Build data dict s autofill + column_name resolve
-            _patch_data = {}
+            def _resolve_rk(_row_key, _rid):
+                """row_key tokeny -> hodnoty (@id -> row_id, literaly as-is)."""
+                _o = {}
+                for _k, _v in (_row_key or {}).items():
+                    _o[_k] = int(_rid) if _v == "@id" else _v
+                return _o
+
+            # Seskup dirty fieldy podle absolutni souradnice (schema,table,row_key).
+            # group value: {schema, table, where(resolved), data{col:val}}
+            _save_groups = {}
+            _skipped_fields = []
             for _fk_name, _fk_val in field_changes.items():
-                # Resolve via map (fallback na verbatim pokud nema override)
-                _real_col = _column_name_map.get(_fk_name, _fk_name)
-                _patch_data[_real_col] = _fk_val
-            if _column_name_map:
-                logger.info(
-                    "[design_patch_entity] MSSQL column_name resolve: %s → %s",
-                    list(field_changes.keys()), list(_patch_data.keys()),
+                _lay = _field_layout_map.get(_fk_name) or {}
+                _save = _lay.get("save") if isinstance(_lay, dict) else None
+                if isinstance(_save, dict) and _save.get("readonly"):
+                    _skipped_fields.append((_fk_name, "readonly"))
+                    continue
+                if isinstance(_save, dict) and _save.get("table"):
+                    _g_schema = _save.get("schema") or schema_name
+                    _g_table = _save["table"]
+                    _g_col = _save.get("column") or _fk_name
+                    _g_rk = _resolve_rk(_save.get("row_key"), row_id)
+                    if not _g_rk:
+                        # bez klice = NIKDY neukladat (jinak UPDATE bez WHERE!)
+                        _skipped_fields.append((_fk_name, "no_row_key"))
+                        continue
+                else:
+                    # base entita fallback (puvodni chovani + column_name)
+                    _g_schema = schema_name
+                    _g_table = table_name
+                    _g_col = (
+                        _lay.get("column_name") if isinstance(_lay, dict) else None
+                    ) or _fk_name
+                    _g_rk = {id_column: int(row_id)}
+                _gkey = (_g_schema, _g_table, tuple(sorted(_g_rk.items())))
+                _grp = _save_groups.setdefault(
+                    _gkey,
+                    {"schema": _g_schema, "table": _g_table, "where": _g_rk, "data": {}},
                 )
+                _grp["data"][_g_col] = _fk_val
 
-            if _mssql_cols and audit_mssql_text:
+            # Audit autofill (Zmenil/DatZmeny) jen do base-entita skupiny,
+            # pokud existuje a sloupce existuji.
+            _base_gkey = (
+                schema_name, table_name,
+                tuple(sorted({id_column: int(row_id)}.items())),
+            )
+            if audit_mssql_text and _mssql_cols and _base_gkey in _save_groups:
                 if "Zmenil" in _mssql_cols:
-                    _patch_data["Zmenil"] = audit_mssql_text
+                    _save_groups[_base_gkey]["data"]["Zmenil"] = audit_mssql_text
                 if "DatZmeny" in _mssql_cols:
-                    # ISO 8601 — MSSQL DATETIME parsuje ISO format
-                    _patch_data["DatZmeny"] = _dt_audit.now().isoformat(timespec="seconds")
+                    _save_groups[_base_gkey]["data"]["DatZmeny"] = (
+                        _dt_audit.now().isoformat(timespec="seconds")
+                    )
 
-            # UPDATE row via MCP eurosoft_strategie_update_row
-            upd_json = mcp.call_tool_sync(
-                "eurosoft_strategie_update_row",
-                {
-                    "schema": schema_name,
-                    "table": table_name,
-                    "id": int(row_id),
-                    "data": _patch_data,
-                    "db_name": mcp_db_name,
-                },
-                conversation_id=None,
-            )
-            upd = (
-                _json_patch_mssql.loads(upd_json)
-                if isinstance(upd_json, str) else upd_json
-            )
-            if not (isinstance(upd, dict) and upd.get("ok")):
-                err_msg = (
-                    (upd or {}).get("error")
-                    if isinstance(upd, dict)
-                    else str(upd)
+            if _skipped_fields:
+                logger.info(
+                    "[design_patch_entity] MSSQL skip fields (readonly/no-key): %s",
+                    _skipped_fields,
                 )
-                logger.warning(
-                    "[design_patch_entity] MSSQL MCP update failed %s.%s id=%s db=%s: %r",
-                    schema_name, table_name, row_id, mcp_db_name, upd,
-                )
-                return JSONResponse(
-                    {"ok": False, "error": f"MSSQL UPDATE failed: {err_msg}"},
-                    status_code=500,
-                )
-
-            affected = upd.get("affected", 0)
-            logger.info(
-                "[design_patch_entity] MSSQL row updated via MCP: %s.%s id=%s db=%s (affected=%s, fields=%s)",
-                schema_name, table_name, row_id, mcp_db_name,
-                affected, sorted(field_changes.keys()),
-            )
-
-            # ── Krok 5-B Fix #16 (30.5.2026, Marti's "tvarilo se to jako
-            # OK, ale field se neupdatnul"): silent success detection.
-            # MCP eurosoft_strategie_update_row vraci ok=true i kdyz
-            # affected=0 (silently dropped unknown column nebo WHERE
-            # nematchne). Drz "Bezpecnost pres probuzeni, ne pres ticho"
-            # doctrine (Marti-AI 9.5. master tier insight #9).
-            #
-            # Edge case: affected=0 + field_changes empty = valid no-op
-            # (jen audit autofill bez user changes) — skip 422.
-            if affected == 0 and field_changes:
-                _diagnostic_keys = sorted(_patch_data.keys())
-                logger.warning(
-                    "[design_patch_entity] MSSQL UPDATE affected=0 ALE field_changes "
-                    "non-empty! Probably MCP silent column drop. %s.%s id=%s, "
-                    "resolved keys=%s, original field_changes=%s",
-                    schema_name, table_name, row_id,
-                    _diagnostic_keys, sorted(field_changes.keys()),
-                )
+            if not _save_groups:
                 return JSONResponse(
                     {
                         "ok": False,
                         "error": (
-                            f"MSSQL UPDATE probehl ale 0 rows affected. "
-                            f"Mozne priciny: (1) sloupce {_diagnostic_keys} "
-                            f"neexistuji v {schema_name}.{table_name} — "
-                            f"zkontroluj fw.comp_def.layout.column_name vs "
-                            f"information_schema.columns; (2) row id={row_id} "
-                            f"neexistuje; (3) hodnoty se nezmenily oproti DB."
+                            "Zadne ukladatelne fieldy — vse read-only nebo bez "
+                            "row_key. Zkontroluj layout.save bindingy."
                         ),
                     },
                     status_code=422,
                 )
+            logger.info(
+                "[design_patch_entity] MSSQL save groups: %s",
+                [(g["schema"], g["table"], g["where"], sorted(g["data"].keys()))
+                 for g in _save_groups.values()],
+            )
+
+            # UPDATE per skupina (multi-table) via MCP. Kazda skupina =
+            # jedna tabulka + svuj composite WHERE (row_key). Krok 5.Z.
+            # POZN: skupiny commitují nezavisle (MCP per-call commit) — neni
+            # cross-table atomicita. Pri chybe vraci 500/422 (fail visible);
+            # base skupina uz mohla projit (partial save) — zatim akceptovatelne.
+            affected = 0
+            for _grp in _save_groups.values():
+                if not _grp["data"]:
+                    continue
+                upd_json = mcp.call_tool_sync(
+                    "eurosoft_strategie_update_row",
+                    {
+                        "schema": _grp["schema"],
+                        "table": _grp["table"],
+                        "data": _grp["data"],
+                        "where": _grp["where"],
+                        "db_name": mcp_db_name,
+                    },
+                    conversation_id=None,
+                )
+                upd = (
+                    _json_patch_mssql.loads(upd_json)
+                    if isinstance(upd_json, str) else upd_json
+                )
+                if not (isinstance(upd, dict) and upd.get("ok")):
+                    err_msg = (
+                        (upd or {}).get("error")
+                        if isinstance(upd, dict) else str(upd)
+                    )
+                    logger.warning(
+                        "[design_patch_entity] MSSQL group update failed %s.%s where=%s db=%s: %r",
+                        _grp["schema"], _grp["table"], _grp["where"], mcp_db_name, upd,
+                    )
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": (
+                                f"MSSQL UPDATE failed "
+                                f"({_grp['schema']}.{_grp['table']}): {err_msg}"
+                            ),
+                        },
+                        status_code=500,
+                    )
+                _grp_aff = upd.get("affected", 0)
+                affected += _grp_aff
+                logger.info(
+                    "[design_patch_entity] MSSQL group updated %s.%s where=%s "
+                    "affected=%s cols=%s",
+                    _grp["schema"], _grp["table"], _grp["where"],
+                    _grp_aff, sorted(_grp["data"].keys()),
+                )
+                # Silent-success detection per skupina (Marti-AI 9.5. "bezpecnost
+                # pres probuzeni, ne pres ticho"). affected=0 = related radek
+                # neexistuje / sloupec drop / hodnoty stejne.
+                if _grp_aff == 0:
+                    logger.warning(
+                        "[design_patch_entity] MSSQL group affected=0 %s.%s where=%s cols=%s",
+                        _grp["schema"], _grp["table"], _grp["where"],
+                        sorted(_grp["data"].keys()),
+                    )
+                    return JSONResponse(
+                        {
+                            "ok": False,
+                            "error": (
+                                f"UPDATE {_grp['schema']}.{_grp['table']} "
+                                f"WHERE {_grp['where']} probehl ale 0 rows affected. "
+                                f"Mozne priciny: (1) cilovy radek s timto klicem "
+                                f"neexistuje (napr. souvisejici Akce IDAkce=16 pro "
+                                f"tento kontakt zatim neni zalozena); (2) sloupce "
+                                f"{sorted(_grp['data'].keys())} neexistuji v tabulce; "
+                                f"(3) hodnoty se nezmenily oproti DB."
+                            ),
+                        },
+                        status_code=422,
+                    )
 
             # Re-fetch updated row pro response (frontend needs fresh values)
             fetched_row = None

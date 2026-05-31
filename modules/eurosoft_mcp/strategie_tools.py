@@ -1225,18 +1225,23 @@ async def strategie_insert_row(
 async def strategie_update_row(
     schema: str,
     table: str,
-    id: int,
-    data: dict[str, Any],
+    id: int | None = None,
+    data: dict[str, Any] | None = None,
     db_name: str | None = None,
+    where: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
-    UPDATE single row by id.
+    UPDATE single row.
 
     Args:
       schema, table: target table
-      id: row PK
+      id: row PK (WHERE [id] = id) — backward-compat single-key path.
       data: column → new_value dict
       db_name: target DB. None = DB_ST. "DB_EC" = pouze schema 'st' (DML check).
+      where: composite klíč {col: val, ...} → WHERE col1=? AND col2=?
+             (Krok 5.Z multi-table save — absolutni row_key, napr.
+             {"IDHlav": 11341, "IDAkce": 16}). Pokud zadan, ma prednost
+             pred `id`. Identifikuje radek v related tabulce, ne jen base PK.
     """
     target_db = resolve_db_name(db_name)
     _validate_identifier(schema, "schema")
@@ -1247,14 +1252,28 @@ async def strategie_update_row(
     qname = _qualified_name(schema, table)
 
     set_parts: list[str] = []
-    params: list[Any] = []
+    set_params: list[Any] = []
     for col, val in data.items():
         _validate_identifier(col, "column")
         set_parts.append(f"{quote_identifier(col)} = ?")
-        params.append(val)
-    params.append(id)
+        set_params.append(val)
 
-    sql = f"UPDATE {qname} SET {', '.join(set_parts)} WHERE [id] = ?"
+    # WHERE: composite `where` dict ma prednost; fallback na single `id`.
+    where_parts: list[str] = []
+    where_params: list[Any] = []
+    if where:
+        for wcol, wval in where.items():
+            _validate_identifier(wcol, "where_column")
+            where_parts.append(f"{quote_identifier(wcol)} = ?")
+            where_params.append(wval)
+    elif id is not None:
+        where_parts.append("[id] = ?")
+        where_params.append(id)
+    else:
+        raise ValueError("strategie_update_row: musi byt zadan `id` nebo `where`")
+
+    params = set_params + where_params
+    sql = f"UPDATE {qname} SET {', '.join(set_parts)} WHERE {' AND '.join(where_parts)}"
     conn = get_connection(db_name=target_db)
     cur = conn.cursor()
     try:
@@ -1268,9 +1287,12 @@ async def strategie_update_row(
                 schema=schema,
                 table=table,
                 affected=affected,
-                extra={"row_id": id, "columns": list(data.keys())},
+                extra={"row_id": id, "where": where, "columns": list(data.keys())},
             )
-        return {"ok": True, "db_name": target_db, "schema": schema, "table": table, "id": id, "affected": affected}
+        return {
+            "ok": True, "db_name": target_db, "schema": schema, "table": table,
+            "id": id, "where": where, "affected": affected,
+        }
     except Exception:
         conn.rollback()
         raise
@@ -1715,7 +1737,11 @@ STRATEGIE_TOOL_SPECS = [
     {
         "name": "strategie_update_row",
         "description": (
-            "UPDATE row by id v target DB tabulce. Vrací affected count.\n\n"
+            "UPDATE row v target DB tabulce. Vrací affected count.\n\n"
+            "Identifikace radku: bud `id` (WHERE [id]=id), NEBO `where` "
+            "(composite klic {col:val,...} → WHERE col1=? AND col2=?). "
+            "`where` ma prednost — pro related tabulky (napr. "
+            "{\"IDHlav\":11341,\"IDAkce\":16}).\n\n"
             "DB_EC: pouze schema 'st' (customer's dbo netknout)."
         ),
         "inputSchema": {
@@ -1726,8 +1752,15 @@ STRATEGIE_TOOL_SPECS = [
                 "id": {"type": "integer"},
                 "data": {"type": "object"},
                 "db_name": _DB_NAME_PARAM,
+                "where": {
+                    "type": "object",
+                    "description": (
+                        "Composite row key {col: val, ...} → WHERE col1=? AND "
+                        "col2=?. Ma prednost pred `id`. Pro related/multi-table."
+                    ),
+                },
             },
-            "required": ["schema", "table", "id", "data"],
+            "required": ["schema", "table", "data"],
         },
     },
     {

@@ -140,6 +140,22 @@ def get_cursor(
 
     try:
         yield cur
+        # Krok 5.Z (30.5.2026, Marti "nejaky lock, grids nenacitaji"):
+        # connection ma autocommit=False + je SDILENA persistentni (per db).
+        # SELECT otevre implicitni transakci; bez commitu zustava OTEVRENA
+        # na sdilenem spojeni navzdy -> drzi zamky -> blokuje dalsi cteni
+        # (sql_execute_failed). Po uspesnem ctenim transakci ukonci commitem
+        # (pro SELECT datove no-op, jen close txn). Pri chybe rollback.
+        try:
+            conn.commit()
+        except Exception:
+            pass
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
     finally:
         try:
             cur.close()

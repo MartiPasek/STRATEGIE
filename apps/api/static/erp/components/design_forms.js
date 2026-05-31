@@ -3445,6 +3445,12 @@
 
       this._shell.body.appendChild(root);
 
+      // FW State Rules #2-B (31.5.2026): in-context lišta náhledu stavu —
+      // v DESIGN mode nad formem (výběr kombinace řídicích polí + 👁 živý
+      // náhled effective layoutu). Volá se po každém renderu (přežije
+      // re-render, obnoví náhled pokud byl zapnutý).
+      this._syncStateBar();
+
       // Phase 38.4 Krok 5-B Fix #9 (29.5.2026 pozde, Marti's "omezit
       // minimalni velikost formu, tak aby respektoval minimalni vysku
       // panelu"): compute total min height z panels[] + slotFields
@@ -8705,6 +8711,127 @@
           });
         })
         .catch(function (e) { console.warn("[state-resolve] failed:", e); });
+    }
+
+    // ── FW State Rules #2-B: in-context lišta náhledu (DESIGN mode) ──────────
+    // Lišta nad formem se selektory hodnot řídicích polí. 👁 Náhled zap →
+    // /state-resolve pro zvolenou kombinaci → aplikuje effective overrides
+    // v design modu (Marti SEES výsledek). Vyp → reset na base.
+    _syncStateBar() {
+      if (!this._shell || !this._shell.body) return;
+      const body = this._shell.body;
+      const old = body.querySelector(".erp-state-bar");
+      if (old) old.remove();
+      const sp = this._spec || {};
+      const discrs = Array.isArray(sp.discriminators) ? sp.discriminators : [];
+      if (this._formDesignMode !== true || !discrs.length) return;
+      if (!this._stateBarVals) this._stateBarVals = {};
+
+      const bar = document.createElement("div");
+      bar.className = "erp-state-bar";
+      bar.style.cssText =
+        "display:flex;align-items:center;gap:10px;flex-wrap:wrap;" +
+        "padding:6px 10px;margin:0 0 6px;background:#1a1426;" +
+        "border:1px solid #3a2a58;border-radius:4px;font-size:11px;color:#c4a8e8;";
+
+      const title = document.createElement("span");
+      title.textContent = "⚡ Náhled stavu:";
+      title.style.cssText = "font-weight:600;white-space:nowrap;";
+      bar.appendChild(title);
+
+      discrs.forEach((d) => {
+        const fn = d.field_name;
+        const lab = document.createElement("label");
+        lab.style.cssText = "display:inline-flex;align-items:center;gap:4px;color:#9aa2ac;white-space:nowrap;";
+        lab.appendChild(document.createTextNode((d.label || fn) + ":"));
+        const isMode = (d.source === "context" && (fn === "_mode" || fn === "mode"));
+        let inp;
+        if (isMode) {
+          inp = document.createElement("select");
+          ["edit", "new"].forEach((v) => {
+            const o = document.createElement("option"); o.value = v; o.textContent = v; inp.appendChild(o);
+          });
+        } else {
+          inp = document.createElement("input");
+          inp.type = "text";
+          inp.placeholder = "—";
+        }
+        inp.setAttribute("data-sb-field", fn);
+        inp.style.cssText =
+          "background:#0f1419;border:1px solid #3a2a58;color:#cfd6df;" +
+          "border-radius:3px;padding:2px 6px;font-size:11px;" +
+          (isMode ? "" : "width:96px;");
+        if (this._stateBarVals[fn] != null) inp.value = this._stateBarVals[fn];
+        inp.addEventListener("input", () => { this._stateBarVals[fn] = inp.value; });
+        inp.addEventListener("change", () => {
+          this._stateBarVals[fn] = inp.value;
+          if (this._statePreviewOn) this._applyStatePreview();
+        });
+        lab.appendChild(inp);
+        bar.appendChild(lab);
+      });
+
+      const prevBtn = document.createElement("button");
+      prevBtn.type = "button";
+      this._stateBarPreviewBtn = prevBtn;
+      const styleBtn = () => {
+        prevBtn.textContent = this._statePreviewOn ? "👁 Náhled: zap" : "👁 Náhled: vyp";
+        prevBtn.style.cssText =
+          "background:" + (this._statePreviewOn ? "#3a2a58" : "#1f1a2a") + ";" +
+          "border:1px solid #6a4aa8;color:#c4a8e8;padding:3px 10px;border-radius:3px;" +
+          "cursor:pointer;font-size:11px;font-weight:600;white-space:nowrap;";
+      };
+      styleBtn();
+      prevBtn.addEventListener("click", () => {
+        this._statePreviewOn = !this._statePreviewOn;
+        styleBtn();
+        if (this._statePreviewOn) this._applyStatePreview();
+        else this._clearStatePreview();
+      });
+      bar.appendChild(prevBtn);
+
+      const hint = document.createElement("span");
+      hint.textContent = "vybraná kombinace = co uvidí uživatel";
+      hint.style.cssText = "color:#6a7686;";
+      bar.appendChild(hint);
+
+      body.insertBefore(bar, body.firstChild);
+      // přežití re-renderu: pokud byl náhled zapnutý, znovu aplikuj
+      if (this._statePreviewOn) this._applyStatePreview();
+    }
+
+    _applyOverridesMapToDom(ovMap) {
+      if (!this._shell || !this._shell.body) return;
+      const map = ovMap || {};
+      const els = this._shell.body.querySelectorAll("[data-comp-def-id]");
+      els.forEach((el) => {
+        const id = parseInt(el.dataset.compDefId, 10);
+        this._applyStateOverrides(el, { state_overrides: map[id] || {} });
+      });
+    }
+
+    _applyStatePreview() {
+      const sp = this._spec || {};
+      const coreId = (sp.core && sp.core.id != null) ? sp.core.id : this.opts.coreId;
+      if (coreId == null) return;
+      const vals = {};
+      Object.keys(this._stateBarVals || {}).forEach((k) => {
+        const v = this._stateBarVals[k];
+        if (v != null && v !== "") vals[k] = String(v);
+      });
+      const self = this;
+      fetch("/api/v1/erp/fw-form/" + encodeURIComponent(coreId) + "/state-resolve", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discr_values: vals }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) { if (j && j.ok) self._applyOverridesMapToDom(j.overrides || {}); })
+        .catch(function (e) { console.warn("[state-preview] failed:", e); });
+    }
+
+    _clearStatePreview() {
+      this._applyOverridesMapToDom({});
     }
 
     _renderLeafField(comp, idx, total) {

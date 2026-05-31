@@ -2847,13 +2847,14 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # gridy dostanou vlastni core_id, musi se prepnout na parent_comp_def_id
         # tree traversal (zitra rano refactor).
         # Krok 5.Z (31.5.2026): discovery embedded gridů přes parent_comp_def_id
-        # tree traversal (NE cd.core_id). Marti: "nemuze mit core 72, nechodily
-        # by edity/inserty jader, musi mit core vlastni" → nested grid má VLASTNÍ
-        # core_id (master přehled). Staré WHERE cd.core_id=:cid by ho po migraci
-        # nenašlo. Traversal je shodný s fields_list (~ř. 2793) — od form rootu
-        # rekurzivně dolů, grid se najde bez ohledu na vlastní core_id.
-        # grid_core_id = cd.core_id (vlastní master core); CASE → NULL dokud grid
-        # nemá vlastní core (== form core = ještě nemigrováno).
+        # tree traversal (shodný s fields_list ~ř. 2793) — robustní, najde grid
+        # bez ohledu na jeho core_id. NUTNÉ: nested grid má teď VLASTNÍ core_id
+        # (≠ form 72), staré WHERE cd.core_id=:cid by ho minulo.
+        #
+        # grid_core_id = cd.core_id přímo. Trigger comp_def_inherit_core_id má
+        # od 31.5. výjimku pro grid_modern (nested grid smí vlastní core), takže
+        # grid nese svůj master přehled core (Akce 79 / Osoby 80). Pill ho čte
+        # odtud, CRUD přes layout.edit_core_id (frontend ř. 5239).
         embedded_grids_rows = ds.execute(_sql_fwid("""
             WITH RECURSIVE form_tree AS (
                 SELECT cd.id, cd.parent_comp_def_id
@@ -2868,8 +2869,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             SELECT cd.id AS comp_def_id, cd.parent_comp_def_id, cd.name,
                    cd.caption, cd.layout, cd.sort_order, cd.data_source_id,
                    ds.code AS data_source_code, ds.name AS data_source_name,
-                   CASE WHEN cd.core_id = :cid THEN NULL ELSE cd.core_id END
-                       AS grid_core_id
+                   cd.core_id AS grid_core_id
             FROM form_tree ft
             JOIN fw.comp_def cd ON cd.id = ft.id
             JOIN fw.comp_type ct ON ct.id = cd.type_id
@@ -2878,7 +2878,7 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
               AND cd.parent_comp_def_id IS NOT NULL
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC
-        """), {"form_id": form_dict["id"], "cid": core_id}).mappings().all()
+        """), {"form_id": form_dict["id"]}).mappings().all()
         embedded_grids = [dict(r) for r in embedded_grids_rows]
 
         # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID

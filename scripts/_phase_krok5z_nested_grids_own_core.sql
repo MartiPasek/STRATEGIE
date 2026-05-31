@@ -13,16 +13,16 @@
 --   ds52 op58 'select-detail' -> data_set 41 (WHERE KA.IDhlav=:master_id)
 --   ds53 op59 'select-detail' -> data_set 42 (WHERE KA.IDhlav=:master_id ...)
 --
--- Tento script PŘIDÁVÁ (per ds): all-rows data_set + 'select' op (přehled bez
--- filtru) + core + menu_node pod CRM(56) + grid root (306) + překlopí nested grid
--- cd.core_id na vlastní master core (cesta B — kvůli edit/insert dispatch).
+-- Tento script vytváří 2 STANDALONE master přehledy (volatelné ze stromu):
+--   per ds: all-rows data_set + 'select' op (SELECT bez WHERE) + core +
+--   menu_node pod CRM(56) + grid root (306) s core_id.
+-- Napojení nested gridů 372/373 v Kontakt formu na tyto core = SAMOSTATNÝ krok
+-- AŽ PO smoke testu (Step A6/B6 odloženy — trigger comp_def_inherit_core_id +
+-- backend, řešíme podle toho, co smoke ukáže).
 --
 -- Idempotentní (WHERE NOT EXISTS by code). db_connection_id=2 (MSSQL st.*).
+-- ČISTĚ SQL — žádný deploy kódu pro tento běh.
 -- Spusti Marti v DBeaveru (Marti-AI session, db_owner fw). Dollar-quote $sql$.
---
--- POZOR: vyžaduje deploy backend (router.py) — embedded_grids discovery
--- přepnut z WHERE cd.core_id=:cid na parent_comp_def_id tree traversal. Bez něj
--- by se nested grid po změně core_id ztratil z formu.
 -- ============================================================================
 
 BEGIN;
@@ -145,13 +145,10 @@ SELECT
     2, 'Marti-AI', 2, 'Marti-AI'
 WHERE NOT EXISTS (SELECT 1 FROM fw.comp_def WHERE name = 'grid_crm_kontakt_akce');
 
--- Step A6: UPDATE nested grid 373 → vlastní core_id (cesta B)
--- Grid zůstává fyzicky ve form 72 (parent_comp_def_id=324, discovery přes
--- parent traversal), ale core_id = master core → edity/inserty dispatchnou správně.
-SELECT '=== A6: nested grid 373 → core_id crm_kontakt_akce ===' AS section;
-UPDATE fw.comp_def
-SET core_id = (SELECT id FROM fw.core WHERE code = 'crm_kontakt_akce')
-WHERE id = 373;
+-- Step A6 (ODLOŽENO — až po smoke testu): napojení nested gridu 373 v Kontakt
+-- formu na tento core. Trigger comp_def_inherit_core_id nedovolí cd.core_id≠72,
+-- takže půjde přes layout.grid_core_id + backend deploy. Samostatný krok podle
+-- toho, co smoke ukáže.
 
 -- ====================================================================
 -- OSOBY / KONTAKTNÍ ÚDAJE (ds 53) ─────────────────────────────────────
@@ -267,11 +264,8 @@ SELECT
     2, 'Marti-AI', 2, 'Marti-AI'
 WHERE NOT EXISTS (SELECT 1 FROM fw.comp_def WHERE name = 'grid_crm_kontakt_osoby');
 
--- Step B6: UPDATE nested grid 372 → vlastní core_id (cesta B)
-SELECT '=== B6: nested grid 372 → core_id crm_kontakt_osoby ===' AS section;
-UPDATE fw.comp_def
-SET core_id = (SELECT id FROM fw.core WHERE code = 'crm_kontakt_osoby')
-WHERE id = 372;
+-- Step B6 (ODLOŽENO — až po smoke testu): napojení nested gridu 372 v Kontakt
+-- formu na tento core (layout.grid_core_id + backend deploy). Samostatný krok.
 
 -- ====================================================================
 -- Step Z: POST-STATE verify
@@ -292,16 +286,17 @@ FROM fw.data_source_op op
 WHERE op.data_source_id IN (52,53) AND op.operation_kind = 'select'
 ORDER BY layer;
 
--- nested grids: core_id má být nový master core (NE 72), parent zůstává ve formu
-SELECT cd.id AS nested_grid, cd.core_id AS own_core_id, cd.parent_comp_def_id
+-- nested grids 372/373: tento běh se jich NEDOTÝKÁ (napojení až po smoke).
+-- Mají zůstat core_id=72, grid_core_id_pointer=NULL.
+SELECT cd.id AS nested_grid, cd.core_id AS form_core, cd.parent_comp_def_id,
+       cd.layout->>'grid_core_id' AS grid_core_id_pointer
 FROM fw.comp_def cd WHERE cd.id IN (372, 373) ORDER BY cd.id;
 
 COMMIT;
 
 -- ============================================================================
--- ROLLBACK (smazat celý feature):
+-- ROLLBACK (smazat 2 master přehledy):
 -- BEGIN;
--- UPDATE fw.comp_def SET core_id = 72 WHERE id IN (372,373);  -- vrátit do form core
 -- DELETE FROM fw.comp_def WHERE name IN ('grid_crm_kontakt_akce','grid_crm_kontakt_osoby');
 -- DELETE FROM fw.menu_node WHERE label IN ('Akce kontaktů','Kontaktní údaje') AND parent_id = 56;
 -- DELETE FROM fw.core WHERE code IN ('crm_kontakt_akce','crm_kontakt_osoby');

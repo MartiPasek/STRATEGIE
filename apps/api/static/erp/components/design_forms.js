@@ -8458,7 +8458,7 @@
       const _fmt = (node, withBg) => {
         if (so.color) node.style.setProperty("color", so.color, "important");
         if (withBg && so.background) node.style.setProperty("background", so.background, "important");
-        if (so.bold === "true") node.style.setProperty("font-weight", "700", "important");
+        if (so.bold === "true") node.style.setProperty("font-weight", "800", "important");
         if (so.italic === "true") node.style.setProperty("font-style", "italic", "important");
         const td = [];
         if (so.underline === "true") td.push("underline");

@@ -3256,12 +3256,17 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # FW Component State Rules (31.5.2026): effective stavové overrides per
         # komponenta podle hodnot řídicích polí (discriminators) — viz
         # docs/fw_component_state_rules.md. Fail-soft: chyba → form bez stavů.
+        _discriminators_out = []   # zpřístupněno frontendu pro živý přepočet
         try:
             _discr_rows = ds.execute(_sql_fwid(
                 "SELECT field_name, source FROM fw.form_discriminator "
                 "WHERE form_core_id = :cid AND is_active = TRUE"
             ), {"cid": core_id}).mappings().all()
             if _discr_rows:
+                _discriminators_out = [
+                    {"field_name": _dr["field_name"], "source": _dr["source"]}
+                    for _dr in _discr_rows
+                ]
                 _is_new = not (row_id and row_id > 0)
                 _discr_values = {}
                 for _dr in _discr_rows:
@@ -3295,7 +3300,38 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
             "embedded_grids": embedded_grids,
             "empty_container": False,
             "origin": origin_payload,
+            "discriminators": _discriminators_out,
         }))
+    finally:
+        ds.close()
+
+
+@api_router.post("/fw-form/{core_id}/state-resolve")
+async def fw_form_state_resolve(core_id: int, req: Request) -> JSONResponse:
+    """FW State Rules — živý přepočet (31.5.2026).
+
+    Body: {"discr_values": {field_name: value, ...}} — aktuální hodnoty řídicích
+    polí (frontend je čte z živých inputů + kontextu mode). Vrací
+    {"overrides": {comp_def_id: {prop_name: prop_value}}} — effective stavové
+    overrides. Volá se při změně řídicího pole (insert flow / dynamický form).
+    Fail-soft: chyba → prázdné overrides.
+    """
+    from core.database_data import get_data_session as _gds_sr
+    ds = _gds_sr()
+    try:
+        try:
+            body = await req.json()
+        except Exception:
+            body = {}
+        discr_values = (body or {}).get("discr_values") or {}
+        if not isinstance(discr_values, dict):
+            discr_values = {}
+        from modules.erp.application.comp_resolver import resolve_state_overrides
+        overrides = resolve_state_overrides(ds, core_id, {str(k): str(v) for k, v in discr_values.items()})
+        return JSONResponse({"ok": True, "core_id": core_id, "overrides": overrides})
+    except Exception as exc:
+        logger.warning("[fw_form_state_resolve] core=%s failed: %r", core_id, exc)
+        return JSONResponse({"ok": False, "error": str(exc), "overrides": {}}, status_code=200)
     finally:
         ds.close()
 

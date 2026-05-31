@@ -2776,6 +2776,25 @@
       // "Cannot access 'D' before initialization")
       this.__renderCtx = { byParent, data, onDirty: D };
 
+      // FW State Rules živý přepočet (31.5.2026): delegovaný change listener —
+      // při změně řídicího pole (column discriminator) přepočti overrides.
+      // __srWired guard = wire jen jednou (přežije re-render). Context
+      // discriminatory (_mode) se nemění za běhu, jen column.
+      if (this._shell && this._shell.body && !this._shell.body.__srWired) {
+        this._shell.body.__srWired = true;
+        this._shell.body.addEventListener("change", (ev) => {
+          const sp2 = this._spec || {};
+          const discrs2 = Array.isArray(sp2.discriminators) ? sp2.discriminators : [];
+          if (!discrs2.length) return;
+          const host = (ev.target && ev.target.closest) ? ev.target.closest("[data-comp-col]") : null;
+          if (!host) return;
+          const col = host.dataset.compCol;
+          if (discrs2.some((d) => d.source !== "context" && d.field_name === col)) {
+            this._recomputeStateOverrides();
+          }
+        });
+      }
+
       // Phase 38.4 Krok 14f-G (14.5.2026 vecer, Marti's "dropnul jsem
       // novy panel, zkopirovaly se gridy"): reset flag per _render cycle.
       // Child sections (TELEFONY/EMAILY) renderujeme JEN v prvnim alClient
@@ -8398,8 +8417,27 @@
     // _renderLeafField přímo nerenderem; sort_order/parent = budoucí fáze.)
     // Inline styly (CSS erp-fmt-* jsou scoped jen na grid) — self-contained.
     _applyStateOverrides(fieldEl, comp) {
-      const so = comp && comp.state_overrides;
-      if (!so || !fieldEl) return;
+      if (!fieldEl) return;
+      const so = (comp && comp.state_overrides) || {};
+      // RESET (idempotent — pro živý re-apply): vyčisti override-set inline styly,
+      // display + so-readonly/required markery. Base styling je z CSS (ne inline),
+      // takže clear inline = návrat na base. Base readonly (ne přes override) se
+      // nedotkne (řeší jen so-marked).
+      fieldEl.style.display = "";
+      const _clear = (n) => {
+        n.style.color = ""; n.style.background = "";
+        n.style.fontWeight = ""; n.style.fontStyle = ""; n.style.textDecoration = "";
+      };
+      _clear(fieldEl);
+      fieldEl.querySelectorAll("input, textarea, select").forEach((i) => {
+        _clear(i);
+        if (i.dataset.soReadonly === "1") { i.readOnly = false; i.disabled = false; delete i.dataset.soReadonly; }
+        if (i.dataset.soRequired === "1") { i.required = false; delete i.dataset.soRequired; }
+      });
+      fieldEl.classList.remove("erp-state-required");
+      // visible=false → skryj (ostatní overrides irelevantní)
+      if (so.visible === "false") { fieldEl.style.display = "none"; return; }
+      // APPLY current
       const _fmt = (node, withBg) => {
         if (so.color) node.style.color = so.color;
         if (withBg && so.background) node.style.background = so.background;
@@ -8414,12 +8452,61 @@
       fieldEl.querySelectorAll("input, textarea, select").forEach((i) => {
         _fmt(i, false);
         if (so.readonly === "true") {
-          if (i.tagName === "SELECT") i.disabled = true;
-          else i.readOnly = true;
+          if (i.tagName === "SELECT") i.disabled = true; else i.readOnly = true;
+          i.dataset.soReadonly = "1";
         }
-        if (so.required === "true") i.required = true;
+        if (so.required === "true") { i.required = true; i.dataset.soRequired = "1"; }
       });
       if (so.required === "true") fieldEl.classList.add("erp-state-required");
+    }
+
+    // FW State Rules živý přepočet (31.5.2026): při změně řídicího pole přečti
+    // aktuální hodnoty discriminatorů (context mode + column z inputů), zavolej
+    // /state-resolve, a incrementálně re-aplikuj overrides na všechna pole (bez
+    // re-renderu → žádná ztráta hodnot/focusu). Insert flow: vyber akci → pole
+    // se objeví hned.
+    _recomputeStateOverrides() {
+      if (this._formDesignMode === true) return;
+      const sp = this._spec || {};
+      const discrs = Array.isArray(sp.discriminators) ? sp.discriminators : [];
+      if (!discrs.length || !this._shell || !this._shell.body) return;
+      const isNew = (this.opts.rowId == null);
+      const vals = {};
+      discrs.forEach((d) => {
+        if (d.source === "context") {
+          if (d.field_name === "_mode" || d.field_name === "mode") {
+            vals[d.field_name] = isNew ? "new" : "edit";
+          }
+        } else {
+          const sel = (window.CSS && CSS.escape) ? CSS.escape(d.field_name) : d.field_name;
+          const host = this._shell.body.querySelector('[data-comp-col="' + sel + '"]');
+          if (host) {
+            const inp = host.querySelector("input, textarea, select");
+            if (inp && inp.value != null && inp.value !== "") vals[d.field_name] = String(inp.value);
+          }
+        }
+      });
+      const coreId = (sp.core && sp.core.id != null) ? sp.core.id : this.opts.coreId;
+      if (coreId == null) return;
+      const self = this;
+      fetch("/api/v1/erp/fw-form/" + encodeURIComponent(coreId) + "/state-resolve", {
+        method: "POST", credentials: "same-origin",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ discr_values: vals }),
+      })
+        .then(function (r) { return r.json(); })
+        .then(function (j) {
+          if (!j || !j.ok) return;
+          const ov = j.overrides || {};
+          const fields = Array.isArray(sp.fields) ? sp.fields : [];
+          fields.forEach(function (f) {
+            if (!f || f.id == null) return;
+            f.state_overrides = ov[f.id] || {};
+            const el = self._shell.body.querySelector('[data-comp-def-id="' + f.id + '"]');
+            if (el) self._applyStateOverrides(el, f);
+          });
+        })
+        .catch(function (e) { console.warn("[state-resolve] failed:", e); });
     }
 
     _renderLeafField(comp, idx, total) {
@@ -8438,17 +8525,17 @@
       // comp.name je interni FW identifier (drag-drop, parent_comp_def_id
       // refs). Marti: "PascalCase MSSQL columns musi byt v data dict
       // bez prevodu".
-      // FW state rules: visible=false skryje pole (PROD only; DESIGN ukáže vše).
-      const _so = comp.state_overrides || null;
-      if (_so && _so.visible === "false" && this._formDesignMode !== true) {
-        return null;
-      }
       const dataKey = (comp.layout && comp.layout.column_name) || comp.name;
       const value = data[dataKey];
       const fieldEl = this._renderField(comp, value, D);
       if (!fieldEl) return null;
-      // FW state rules: aplikuj formátování/chování (PROD only).
-      if (_so && this._formDesignMode !== true) {
+      // FW state rules (31.5.2026): tag pro živý přepočet + apply (PROD only;
+      // DESIGN ukáže base pro editaci). Render-all — visible=false → display:none
+      // přes _applyStateOverrides (NE return null), aby živý přepočet uměl pole
+      // zase zobrazit bez re-renderu.
+      try { fieldEl.dataset.compDefId = String(comp.id); } catch (_e) { /* fail-safe */ }
+      if (dataKey) { try { fieldEl.dataset.compCol = String(dataKey); } catch (_e) { /* fail-safe */ } }
+      if (this._formDesignMode !== true && comp.state_overrides) {
         this._applyStateOverrides(fieldEl, comp);
       }
 

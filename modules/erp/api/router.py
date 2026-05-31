@@ -6155,7 +6155,21 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                         _resolve_core_id_ins, _lay_ins_exc,
                     )
 
-            data_ins = {}
+            # Group fieldy podle save coordinate (schema, table, row_key).
+            # Master-detail: base group (CRM_Kontakt) + related groups
+            # (CRM_Kontakt_Akce s row_key {IDHlav:@id, IDakce:16}). @id = master
+            # ID doplnime az PO base insertu (chicken-egg).
+            def _rk_template_ins(_rk):
+                """row_key dict → (literal_cols, id_cols[]). @id = master ID."""
+                _lits, _idc = {}, []
+                for _rk_k, _rk_v in (_rk or {}).items():
+                    if _rk_v == "@id":
+                        _idc.append(_rk_k)
+                    else:
+                        _lits[_rk_k] = _rk_v
+                return _lits, _idc
+
+            _ins_groups = {}
             _skipped_ins = []
             for _fk_name, _fk_val in field_changes.items():
                 if _fk_name == id_column:
@@ -6166,144 +6180,158 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                     _skipped_ins.append((_fk_name, "readonly"))
                     continue
                 if isinstance(_save, dict) and _save.get("table"):
-                    _s_schema = _save.get("schema") or schema_name
-                    _s_table = _save["table"]
-                    _s_col = _save.get("column") or _fk_name
-                    # INSERT jen base tabulka (related = nested, post-master)
-                    if (_s_schema, _s_table) != (schema_name, table_name):
-                        _skipped_ins.append(
-                            (_fk_name, f"related:{_s_schema}.{_s_table}")
-                        )
-                        continue
-                    data_ins[_s_col] = _fk_val
+                    _g_schema = _save.get("schema") or schema_name
+                    _g_table = _save["table"]
+                    _g_col = _save.get("column") or _fk_name
+                    _g_lits, _g_idc = _rk_template_ins(_save.get("row_key"))
                 else:
-                    # base fallback (layout.column_name → fld_test_*, zpetna kompat)
-                    _s_col = (
+                    _g_schema = schema_name
+                    _g_table = table_name
+                    _g_col = (
                         _lay.get("column_name") if isinstance(_lay, dict) else None
                     ) or _fk_name
-                    data_ins[_s_col] = _fk_val
+                    _g_lits, _g_idc = {}, []
+                _gkey = (
+                    _g_schema, _g_table,
+                    tuple(sorted(_g_lits.items())), tuple(sorted(_g_idc)),
+                )
+                _grp = _ins_groups.setdefault(_gkey, {
+                    "schema": _g_schema, "table": _g_table,
+                    "data": dict(_g_lits), "id_cols": _g_idc,
+                })
+                _grp["data"][_g_col] = _fk_val
             if _skipped_ins:
                 logger.info(
-                    "[design_insert_entity] MSSQL skip fields "
-                    "(readonly/related): %s",
+                    "[design_insert_entity] MSSQL skip fields (readonly): %s",
                     _skipped_ins,
                 )
 
-            # Empty-data check PRED audit/describe — pokud zadne pole neproslo
-            # resoluci (vse readonly / related table), vrat 400 HNED (jinak by
-            # se cekalo 30s na describe_table timeout pro nic). Plus skip detail
-            # → Marti vidi KTERE pole se preskocilo a proc (jeho 31.5. pozadavek
-            # "uzivatelsky zjistit, ktere pole ho zajima").
-            if not data_ins:
-                return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": (
-                            "Zadne sloupce k insertu — vsechna vyplnena pole byla "
-                            "preskocena pri prekladu na DB sloupec (readonly nebo "
-                            "save binding miri na jinou tabulku nez base "
-                            f"{schema_name}.{table_name}). Zkontroluj save (⚙) u: "
-                            + (", ".join(f"{n} [{r}]" for n, r in _skipped_ins)
-                               if _skipped_ins else "(zadne dirty pole prislo)")
-                        ),
-                        "skipped_fields": [
-                            {"field": n, "reason": r} for n, r in _skipped_ins
-                        ],
-                    },
-                    status_code=400,
-                )
+            # ── Master-detail INSERT (31.5.2026, Marti "A souhlasim"):
+            # 1) base group (schema_name.table_name) → master ID.
+            # 2) related groups (jina tabulka, row_key @id) → @id=master ID +
+            #    literaly (napr IDakce=16) → insert. Tim vznikne i Akce radek,
+            #    ktery SELECT (outer join IDakce=16) cte → read = write konzist.
+            # Bez cross-table transakce (MCP per-call commit); pri related fail
+            # po base insertu = partial (master vznikne) → 500 s info.
+            _now_ins = _dt_insert_audit.now().strftime("%Y-%m-%d %H:%M:%S")
 
-            # Audit autofill (jen pokud sloupce existuji — Centrala 1 idiom:
-            # Vytvoril/DatPorizeni = created, Zmenil/DatZmeny = changed; pri
-            # insertu novy radek = obojí now).
+            # Ensure base group existuje (anchor pro related — i kdyz uziv
+            # nezmenil zadne base pole, napr. vyplnil jen firemni Akce pole).
+            _base_gkey_ins = (schema_name, table_name, (), ())
+            _base_grp = _ins_groups.setdefault(_base_gkey_ins, {
+                "schema": schema_name, "table": table_name,
+                "data": {}, "id_cols": [],
+            })
+
+            # Audit do base group (best-effort introspect; fallback optimistic
+            # Autor/DatPorizeni — CRM_Kontakt je ma per SSMS 31.5.).
             try:
                 _mssql_cols_ins = _get_mssql_cols_ins(
                     mcp_db_name, schema_name, table_name
                 )
                 _colset_ins = {str(c).lower() for c in (_mssql_cols_ins or [])}
-                _now_ins = _dt_insert_audit.now().strftime("%Y-%m-%d %H:%M:%S")
-                # Real DB_EC sloupce (z Martiho SSMS 31.5.): Autor=created-by,
-                # DatPorizeni=created, Zmenil=changed-by, DatZmeny=changed.
-                # Vsechny nullable → audit nice-to-have, ne povinne. Vytvoril
-                # ponechan pro jine tabulky (inject jen pokud sloupec existuje).
-                for _ac, _av in (
-                    ("Autor", audit_mssql_text_ins),
-                    ("Vytvoril", audit_mssql_text_ins),
-                    ("DatPorizeni", _now_ins),
-                    ("Zmenil", audit_mssql_text_ins),
-                    ("DatZmeny", _now_ins),
-                ):
-                    if (
-                        _av is not None
-                        and _ac.lower() in _colset_ins
-                        and _ac not in data_ins
-                    ):
-                        data_ins[_ac] = _av
             except Exception as _cols_ins_exc:
                 logger.warning(
-                    "[design_insert_entity] MSSQL column introspect failed "
-                    "(%s.%s db=%s): %r — insert bez audit autofill",
-                    schema_name, table_name, mcp_db_name, _cols_ins_exc,
+                    "[design_insert_entity] describe base %s.%s failed: %r "
+                    "— optimistic audit (Autor/DatPorizeni)",
+                    schema_name, table_name, _cols_ins_exc,
+                )
+                _colset_ins = None
+            for _ac, _av in (
+                ("Autor", audit_mssql_text_ins),
+                ("DatPorizeni", _now_ins),
+                ("Zmenil", audit_mssql_text_ins),
+                ("DatZmeny", _now_ins),
+            ):
+                if _av is None or _ac in _base_grp["data"]:
+                    continue
+                if _colset_ins is None:
+                    if _ac in ("Autor", "DatPorizeni"):
+                        _base_grp["data"][_ac] = _av
+                elif _ac.lower() in _colset_ins:
+                    _base_grp["data"][_ac] = _av
+            # base musi mit aspon 1 sloupec (strategie_insert_row vyzaduje data)
+            if not _base_grp["data"]:
+                _base_grp["data"]["DatPorizeni"] = _now_ins
+
+            def _mcp_insert_row(_schema, _table, _data):
+                _j = mcp.call_tool_sync(
+                    "eurosoft_strategie_insert_row",
+                    {"schema": _schema, "table": _table,
+                     "data": _data, "db_name": mcp_db_name},
+                    conversation_id=None,
+                )
+                return (
+                    _json_insert_mssql.loads(_j)
+                    if isinstance(_j, str) else _j
                 )
 
-            if not data_ins:
-                return JSONResponse(
-                    {"ok": False, "error": "Zadne sloupce k insertu (data prazdne)."},
-                    status_code=400,
+            def _ins_err(_r):
+                return (
+                    (_r.get("message") or _r.get("exception_repr")
+                     or _r.get("error"))
+                    if isinstance(_r, dict) else str(_r)
                 )
 
-            ins_json = mcp.call_tool_sync(
-                "eurosoft_strategie_insert_row",
-                {
-                    "schema": schema_name,
-                    "table": table_name,
-                    "data": data_ins,
-                    "db_name": mcp_db_name,
-                },
-                conversation_id=None,
+            # 1) base insert → master ID
+            _base_res = _mcp_insert_row(
+                schema_name, table_name, _base_grp["data"]
             )
-            ins = (
-                _json_insert_mssql.loads(ins_json)
-                if isinstance(ins_json, str) else ins_json
-            )
-            if not (isinstance(ins, dict) and ins.get("ok")):
-                # Server vraci error='internal_error' + message/exception_repr
-                # (real MSSQL detail, napr. "Invalid column name 'X'"). Vytahni
-                # message → Marti uvidi KTERY sloupec vadi (jeho 31.5. pozadavek
-                # "uzivatelsky zjistit, ktere pole ho zajima").
-                err_msg = (
-                    (ins.get("message")
-                     or ins.get("exception_repr")
-                     or ins.get("error"))
-                    if isinstance(ins, dict) else str(ins)
-                )
+            if not (isinstance(_base_res, dict) and _base_res.get("ok")):
                 logger.warning(
-                    "[design_insert_entity] MSSQL insert failed %s.%s db=%s: %r",
-                    schema_name, table_name, mcp_db_name, ins,
+                    "[design_insert_entity] base insert failed %s.%s: %r",
+                    schema_name, table_name, _base_res,
                 )
                 return JSONResponse(
-                    {
-                        "ok": False,
-                        "error": (
-                            f"MSSQL INSERT failed "
-                            f"({schema_name}.{table_name}): {err_msg}"
-                        ),
-                    },
+                    {"ok": False, "error": (
+                        f"MSSQL INSERT base ({schema_name}.{table_name}): "
+                        f"{_ins_err(_base_res)}")},
                     status_code=500,
                 )
+            _master_id = _base_res.get("id")
 
-            _new_id_ins = ins.get("id")
+            # 2) related groups (resolve @id → master ID)
+            _related_ins = []
+            for _gk, _grp in _ins_groups.items():
+                if _gk == _base_gkey_ins:
+                    continue
+                _rdata = dict(_grp["data"])
+                for _idcol in _grp["id_cols"]:
+                    _rdata[_idcol] = _master_id
+                if not _rdata:
+                    continue
+                _rel_res = _mcp_insert_row(
+                    _grp["schema"], _grp["table"], _rdata
+                )
+                if not (isinstance(_rel_res, dict) and _rel_res.get("ok")):
+                    logger.warning(
+                        "[design_insert_entity] related insert failed "
+                        "%s.%s: %r",
+                        _grp["schema"], _grp["table"], _rel_res,
+                    )
+                    return JSONResponse(
+                        {"ok": False, "id": _master_id, "error": (
+                            f"Base zalozen (id={_master_id}), ale related "
+                            f"INSERT ({_grp['schema']}.{_grp['table']}) "
+                            f"selhal: {_ins_err(_rel_res)}")},
+                        status_code=500,
+                    )
+                _related_ins.append(
+                    {"table": _grp["table"], "id": _rel_res.get("id")}
+                )
+
             logger.info(
-                "[design_insert_entity] MSSQL inserted %s.%s db=%s id=%s cols=%s",
-                schema_name, table_name, mcp_db_name, _new_id_ins,
-                sorted(data_ins.keys()),
+                "[design_insert_entity] MSSQL master-detail OK master=%s.%s "
+                "id=%s related=%s",
+                schema_name, table_name, _master_id, _related_ins,
             )
             return JSONResponse({
                 "ok": True,
-                "id": _new_id_ins,
+                "id": _master_id,
                 "created_at": None,
                 "created_by_id": uid,
                 "created_by_text": audit_mssql_text_ins,
+                "related": _related_ins,
             })
         except Exception as _ins_mssql_exc:
             logger.exception(

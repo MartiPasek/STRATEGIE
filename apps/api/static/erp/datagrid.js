@@ -3034,7 +3034,7 @@
     _makeRefreshFn(api) {
       const self = this;
       const _api = api || self.gridApi;
-      return async function () {
+      return async function (_saveResult) {
         // ── CAPTURE state PRED refresh (P18) ──────────────────────────
         let savedId = null;
         let savedColId = null;
@@ -3115,6 +3115,15 @@
           }
           try { self._updateSaveButton(); } catch (_eUsb) {}
           try { self._syncDirtyRegistration(); } catch (_eSync) {}
+        }
+
+        // ── LOCATE new record po CREATE (Marti 31.5. #1: "neotevirat
+        // formular, jen lokalizovat vetu"). refreshFn dostane saveResult
+        // (POST /design/{core} response s novym id) → override savedId →
+        // Tier A exact-match nize vybere novy radek + ensureNodeVisible. ──
+        if (_saveResult && _saveResult.id != null) {
+          savedId = _saveResult.id;
+          savedRowIndex = null;  // ID-based locate, ignoruj stary index
         }
 
         // ── RESTORE state PO refresh (P18 3-tier fallback) ────────────

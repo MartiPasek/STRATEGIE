@@ -4145,6 +4145,60 @@
     //   4. 200 -> green toast "Uloženo" + close modal
     //   5. 409 -> dialog "Někdo jiný mezitím změnil řádek. Načíst znovu?"
     //   6. Jiná chyba -> error toast, modal zůstane otevřený (user může retry)
+    // Insert chyba — user-friendly: které povinné sloupce chybí (NOT NULL bez
+    // hodnoty/defaultu), s labely + jestli jsou na formu + návodem. [Marti]
+    _showInsertMissingDialog(cols) {
+      const self = this;
+      const fields = (this._spec && this._spec.fields) || [];
+      const esc = (s) => String(s == null ? "" : s).replace(/</g, "&lt;");
+      const items = (cols || []).map((col) => {
+        const f = fields.find((x) => ((x.layout && x.layout.column_name) || x.name) === col);
+        return { col: col, label: f ? (f.caption || col) : col, id: f ? f.id : null, onForm: !!f };
+      });
+      items.forEach((it) => {
+        if (it.id != null && self._shell && self._shell.body) {
+          const el = self._shell.body.querySelector('[data-comp-def-id="' + it.id + '"]');
+          if (el) {
+            const inp = el.querySelector("input, textarea, select");
+            if (inp) {
+              inp.style.outline = "2px solid #e57373"; inp.style.outlineOffset = "1px";
+              const _clr = () => { inp.style.outline = ""; inp.style.outlineOffset = ""; inp.removeEventListener("input", _clr); };
+              inp.addEventListener("input", _clr);
+            }
+            try { el.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
+          }
+        }
+      });
+      const rows = items.map((it) =>
+        '<div style="padding:4px 0;border-bottom:1px solid #232a34;">' +
+        '<b style="color:#e8eef5;">' + esc(it.label) + '</b> ' +
+        '<code style="color:#7aa8d4;font-size:11px;">' + esc(it.col) + '</code>' +
+        (it.onForm ? '' : ' <span style="color:#d49a6a;font-size:11px;">— není na formuláři</span>') +
+        '</div>'
+      ).join("");
+      const ov = document.createElement("div");
+      ov.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:11000;display:flex;align-items:center;justify-content:center;";
+      const dl = document.createElement("div");
+      dl.style.cssText = "background:#1a1f26;border:1px solid #6a4aa8;border-radius:6px;width:560px;max-width:94vw;color:#cfd6df;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,0.5);";
+      dl.innerHTML =
+        '<div style="padding:12px 16px;border-bottom:1px solid #2a3340;font-weight:600;color:#c4a8e8;">⚠ Nelze vytvořit záznam — chybí povinná pole</div>' +
+        '<div style="padding:12px 16px;">' +
+          '<div style="color:#a8b4c2;margin-bottom:8px;">Tyto sloupce jsou v DB <b>NOT NULL</b> a nemají hodnotu ani výchozí:</div>' +
+          rows +
+          '<div style="color:#8a96a4;font-size:12px;margin-top:10px;line-height:1.55;">Řešení: vyplň je, nebo v tabu <b style="color:#c4a8e8;">Pravidla</b> nastav pro pole <b>Výchozí hodnotu</b> (statickou), případně označ jako <b>Povinné</b> (upozorní dřív). „Není na formuláři" → přidej ho (➕ Pole) nebo mu dej default přes pravidlo.</div>' +
+        '</div>' +
+        '<div style="padding:10px 16px;border-top:1px solid #2a3340;display:flex;justify-content:flex-end;">' +
+          '<button type="button" data-imd="ok" style="background:#3a2a58;border:1px solid #6a4aa8;color:#fff;padding:6px 16px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;">Rozumím</button>' +
+        '</div>';
+      ov.appendChild(dl);
+      document.body.appendChild(ov);
+      const close = () => { try { ov.remove(); } catch (e) {} document.removeEventListener("keydown", _esc); };
+      const _esc = (e) => { if (e.key === "Escape") close(); };
+      ov.addEventListener("click", (e) => { if (e.target === ov) close(); });
+      dl.querySelector('[data-imd="ok"]').addEventListener("click", close);
+      document.addEventListener("keydown", _esc);
+    }
+
     async _handleSaveAndClose(btnEl) {
       // Validace povinných polí (required) — fokus + zvýraznění prvního prázdného,
       // přeruší uložení. Platí v create i edit. [Marti #3]
@@ -4403,10 +4457,16 @@
 
           if (!r.ok) {
             const errData = await r.json().catch(() => ({}));
-            alert(
-              "Uložení " + entityType + " selhalo: HTTP " + r.status + "\\n" +
-              (errData.error || "(žádný error message)")
-            );
+            let _miss = Array.isArray(errData.missing_columns) ? errData.missing_columns.slice() : [];
+            if (!_miss.length) {
+              const _m = /null value in column "([^"]+)"/.exec(errData.error || "");
+              if (_m) _miss = [_m[1]];
+            }
+            if (_isCreateSave && _miss.length) {
+              this._showInsertMissingDialog(_miss);
+            } else {
+              alert("Uložení " + entityType + " selhalo: HTTP " + r.status + " — " + (errData.error || "(žádný error message)"));
+            }
             btnEl.disabled = false;
             btnEl.innerHTML = originalHtml;
             return;

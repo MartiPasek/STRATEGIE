@@ -2846,21 +2846,39 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         # POZN: discovery deti formu je zatim pres cd.core_id = :cid; az nested
         # gridy dostanou vlastni core_id, musi se prepnout na parent_comp_def_id
         # tree traversal (zitra rano refactor).
+        # Krok 5.Z (31.5.2026): discovery embedded gridů přes parent_comp_def_id
+        # tree traversal (NE cd.core_id). Marti: "nemuze mit core 72, nechodily
+        # by edity/inserty jader, musi mit core vlastni" → nested grid má VLASTNÍ
+        # core_id (master přehled). Staré WHERE cd.core_id=:cid by ho po migraci
+        # nenašlo. Traversal je shodný s fields_list (~ř. 2793) — od form rootu
+        # rekurzivně dolů, grid se najde bez ohledu na vlastní core_id.
+        # grid_core_id = cd.core_id (vlastní master core); CASE → NULL dokud grid
+        # nemá vlastní core (== form core = ještě nemigrováno).
         embedded_grids_rows = ds.execute(_sql_fwid("""
+            WITH RECURSIVE form_tree AS (
+                SELECT cd.id, cd.parent_comp_def_id
+                FROM fw.comp_def cd
+                WHERE cd.parent_comp_def_id = :form_id AND cd.is_active = true
+                UNION ALL
+                SELECT child.id, child.parent_comp_def_id
+                FROM fw.comp_def child
+                JOIN form_tree ft ON child.parent_comp_def_id = ft.id
+                WHERE child.is_active = true
+            )
             SELECT cd.id AS comp_def_id, cd.parent_comp_def_id, cd.name,
                    cd.caption, cd.layout, cd.sort_order, cd.data_source_id,
                    ds.code AS data_source_code, ds.name AS data_source_name,
                    CASE WHEN cd.core_id = :cid THEN NULL ELSE cd.core_id END
                        AS grid_core_id
-            FROM fw.comp_def cd
+            FROM form_tree ft
+            JOIN fw.comp_def cd ON cd.id = ft.id
             JOIN fw.comp_type ct ON ct.id = cd.type_id
             LEFT JOIN fw.data_source ds ON ds.id = cd.data_source_id
-            WHERE cd.core_id = :cid
-              AND ct.code = 'grid_modern'
+            WHERE ct.code = 'grid_modern'
               AND cd.parent_comp_def_id IS NOT NULL
               AND cd.is_active = true
             ORDER BY cd.sort_order ASC, cd.id ASC
-        """), {"cid": core_id}).mappings().all()
+        """), {"form_id": form_dict["id"], "cid": core_id}).mappings().all()
         embedded_grids = [dict(r) for r in embedded_grids_rows]
 
         # Phase 38.4 Krok 5.N-1 (17.5.2026, Marti's "code je optional, ID

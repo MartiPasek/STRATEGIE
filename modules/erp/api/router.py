@@ -2827,6 +2827,29 @@ def fw_form_load_by_id(core_id: int, row_id: int, req: Request) -> JSONResponse:
         """), {"form_id": form_dict["id"]}).mappings().all()
         fields_list = [dict(f) for f in fields_rows]
 
+        # Krok 5.Z (31.5.2026, Marti: "melo by to byt kodove stejne!!!"):
+        # grid_actions per nested grid — CODE-PARITA se standalone prehledem.
+        # Standalone (page_render) cte rootCd.grid_actions (derived z data_source
+        # ops: has_insert/edit/delete + edit_core_id). Nested grid potreboval
+        # totez, jinak mel CRUD hardcoded false. Spocti z ops jeho data_source.
+        for _f in fields_list:
+            if _f.get("comp_type_code") == "grid_modern" and _f.get("data_source_id"):
+                _ga = ds.execute(_sql_fwid("""
+                    SELECT bool_or(operation_kind = 'insert') AS has_insert,
+                           bool_or(operation_kind = 'edit')   AS has_edit,
+                           bool_or(operation_kind = 'delete') AS has_delete,
+                           MAX(core_id) FILTER (WHERE operation_kind = 'edit') AS edit_core_id
+                    FROM fw.data_source_op
+                    WHERE data_source_id = :dsid
+                """), {"dsid": _f["data_source_id"]}).mappings().first()
+                if _ga:
+                    _f["grid_actions"] = {
+                        "has_insert": bool(_ga["has_insert"]),
+                        "has_edit": bool(_ga["has_edit"]),
+                        "has_delete": bool(_ga["has_delete"]),
+                        "edit_core_id": _ga["edit_core_id"],
+                    }
+
         # Krok 5.Z (30.5.2026, Marti's "Klasickou komponentu gridu 306 pro
         # nase vseobecne pouziti"): embedded grid_modern komponenty (children
         # comp_def s ct.code='grid_modern' AND parent_comp_def_id IS NOT NULL).

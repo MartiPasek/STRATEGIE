@@ -5236,26 +5236,37 @@
 
       const heightPx = (typeof layout.height_px === "number" && layout.height_px > 0)
         ? layout.height_px : 360;
-      const editCoreId = (layout.edit_core_id != null) ? layout.edit_core_id : null;
-      // Krok 5.Z (30.5.2026, Marti: "72 tam byt nemaji, momentalne NULL, core
-      // nested gridu jeste neexistuje"). gridCoreId = VLASTNI core nested gridu
-      // (backend CASE: NULL dokud grid jen dedi core formu). Footer pill +
-      // Core setting pouziji TENTO core, ne parent form _coreId. NULL -> pill
-      // core cast schovana (zadne spatne 72). Az nested gridy dostanou vlastni
-      // core (zitra: nested detail jadra pro insert/edit), pill je ukaze sam.
+      // Krok 5.Z (31.5.2026, Marti: "melo by to byt kodove stejne!!!"):
+      // CRUD code-parita se standalone prehledem (page_render.js). gridActions
+      // z backendu (comp.grid_actions, derived z data_source ops). Fallback na
+      // layout.edit_core_id pro legacy.
+      const gridActions = (comp && comp.grid_actions) ? comp.grid_actions : {
+        has_insert: false, has_edit: false, has_delete: false,
+        edit_core_id: (layout.edit_core_id != null ? layout.edit_core_id : null),
+      };
+      const editCoreId = (gridActions.edit_core_id != null) ? gridActions.edit_core_id : null;
+
+      // gridCoreId = VLASTNI core nested gridu (pill + Core setting). Z backendu
+      // (fields_list cd.core_id). Master grid posila vlastni core_id.
       const gridCoreId = (comp && comp.grid_core_id != null)
         ? comp.grid_core_id : null;
 
-      // CRUD gating: create/edit potrebuji edit form core. Bez edit_core_id
-      // jen 'refresh' (display-first milestone). Marti's "drz jednoduchost" —
-      // display first, CRUD retrofit. Pri wired edit_core_id se akce z layout
-      // context_menu automaticky aktivuji.
-      let contextMenuActions = Array.isArray(layout.context_menu)
-        ? layout.context_menu.slice() : ["refresh"];
-      if (editCoreId == null) {
-        contextMenuActions = contextMenuActions.filter(a => a === "refresh");
-        if (contextMenuActions.length === 0) contextMenuActions = ["refresh"];
+      // gridCode pro ErpGridActions registry (dispatch edit/create form).
+      const gridCode = (comp && comp.name) ? comp.name
+        : (gridCoreId != null ? ("core_" + gridCoreId) : null);
+
+      // Register edit form coreId (Marti "fw self edited" doctrine — DesignFwForm
+      // vola registry lookup). Stejne jako page_render.js.
+      if (editCoreId != null && gridCode
+          && window.ErpGridActions
+          && typeof window.ErpGridActions.registerEditForm === "function") {
+        window.ErpGridActions.registerEditForm(gridCode, editCoreId);
       }
+
+      // contextMenuActions = VZDY deklarativni list (jako page_render). Enable
+      // stav resi datagrid.js z gridActions stateMap. Drz "stejne zobrazit,
+      // stejne funkce" napric master + nested.
+      const contextMenuActions = ["create", "edit", "delete", "refresh"];
 
       // Host div — block kontejner s definitivni vyskou (NE grid-item v sec.grid,
       // jinak .erp-ag-grid flex:1/height:100% nema vuci cemu resolvovat -> AG
@@ -5377,12 +5388,8 @@
               refId: filterValue,
               coreLabel: title,
             },
-            gridActions: {
-              has_insert: false,
-              has_edit: false,
-              has_delete: false,
-              edit_core_id: editCoreId,
-            },
+            gridCode: gridCode,
+            gridActions: gridActions,
             contextMenuActions: contextMenuActions,
             onRefresh: function () {
               return _fetchData().then(function (j) {

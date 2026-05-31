@@ -6189,6 +6189,30 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                     _skipped_ins,
                 )
 
+            # Empty-data check PRED audit/describe — pokud zadne pole neproslo
+            # resoluci (vse readonly / related table), vrat 400 HNED (jinak by
+            # se cekalo 30s na describe_table timeout pro nic). Plus skip detail
+            # → Marti vidi KTERE pole se preskocilo a proc (jeho 31.5. pozadavek
+            # "uzivatelsky zjistit, ktere pole ho zajima").
+            if not data_ins:
+                return JSONResponse(
+                    {
+                        "ok": False,
+                        "error": (
+                            "Zadne sloupce k insertu — vsechna vyplnena pole byla "
+                            "preskocena pri prekladu na DB sloupec (readonly nebo "
+                            "save binding miri na jinou tabulku nez base "
+                            f"{schema_name}.{table_name}). Zkontroluj save (⚙) u: "
+                            + (", ".join(f"{n} [{r}]" for n, r in _skipped_ins)
+                               if _skipped_ins else "(zadne dirty pole prislo)")
+                        ),
+                        "skipped_fields": [
+                            {"field": n, "reason": r} for n, r in _skipped_ins
+                        ],
+                    },
+                    status_code=400,
+                )
+
             # Audit autofill (jen pokud sloupce existuji — Centrala 1 idiom:
             # Vytvoril/DatPorizeni = created, Zmenil/DatZmeny = changed; pri
             # insertu novy radek = obojí now).
@@ -6198,11 +6222,16 @@ async def design_insert_entity(core_id: int, req: Request) -> JSONResponse:
                 )
                 _colset_ins = {str(c).lower() for c in (_mssql_cols_ins or [])}
                 _now_ins = _dt_insert_audit.now().strftime("%Y-%m-%d %H:%M:%S")
+                # Real DB_EC sloupce (z Martiho SSMS 31.5.): Autor=created-by,
+                # DatPorizeni=created, Zmenil=changed-by, DatZmeny=changed.
+                # Vsechny nullable → audit nice-to-have, ne povinne. Vytvoril
+                # ponechan pro jine tabulky (inject jen pokud sloupec existuje).
                 for _ac, _av in (
-                    ("DatPorizeni", _now_ins),
-                    ("DatZmeny", _now_ins),
+                    ("Autor", audit_mssql_text_ins),
                     ("Vytvoril", audit_mssql_text_ins),
+                    ("DatPorizeni", _now_ins),
                     ("Zmenil", audit_mssql_text_ins),
+                    ("DatZmeny", _now_ins),
                 ):
                     if (
                         _av is not None

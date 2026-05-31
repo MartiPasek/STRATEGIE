@@ -6362,6 +6362,10 @@
         "flex-direction:column;gap:10px;";
       bodyInner.appendChild(basicPaneEl);
 
+      // FW State Rules #2-C: sekce tvorby pravidla (jen pokud form ma ridici pole)
+      const _srSec = this._buildStateRuleSection(field);
+      if (_srSec) basicPaneEl.appendChild(_srSec);
+
       // Wire tab switching
       const _switchTab = (toUser) => {
         userPaneEl.style.display = toUser ? "flex" : "none";
@@ -8832,6 +8836,189 @@
 
     _clearStatePreview() {
       this._applyOverridesMapToDom({});
+    }
+
+    // ── FW State Rules #2-C: per-pole tvorba pravidla v settings popupu ──────
+    // <details> sekce (collapsed) v tabu Komponenta. Po rozbalení načte řídicí
+    // pole (s id), nechá vybrat vrstvu (discriminator + hodnota) + paletu
+    // vlastností, uloží override (POST /fw-state-override). Null pokud form
+    // nemá řídicí pole. Vlastní save (izolovaně od split-save popupu).
+    _buildStateRuleSection(field) {
+      const sp = this._spec || {};
+      const coreId = (sp.core && sp.core.id != null) ? sp.core.id : this.opts.coreId;
+      const discrsLite = Array.isArray(sp.discriminators) ? sp.discriminators : [];
+      if (coreId == null || !discrsLite.length || field == null || field.id == null) return null;
+      const compId = field.id;
+      const self = this;
+
+      const det = document.createElement("details");
+      det.className = "erp-sr-section";
+      det.style.cssText = "border:1px solid #3a2a58;border-radius:4px;background:#15101e;margin-bottom:4px;";
+      const sum = document.createElement("summary");
+      sum.textContent = "⚡ Stavové pravidlo";
+      sum.style.cssText = "cursor:pointer;padding:7px 10px;font-weight:600;color:#c4a8e8;font-size:12px;";
+      det.appendChild(sum);
+
+      const wrap = document.createElement("div");
+      wrap.style.cssText = "padding:8px 10px;display:flex;flex-direction:column;gap:8px;border-top:1px solid #2a2440;";
+      wrap.innerHTML = '<div style="color:#6a7686;font-size:11px;">Načítám řídicí pole…</div>';
+      det.appendChild(wrap);
+
+      let built = false;
+      det.addEventListener("toggle", () => {
+        if (!det.open || built) return;
+        built = true;
+        fetch("/api/v1/erp/fw-state-discriminators/" + coreId, { credentials: "include" })
+          .then((r) => r.json())
+          .then((j) => self._buildStateRuleBody(wrap, compId, coreId, ((j && j.discriminators) || []).filter((d) => d.is_active)))
+          .catch((e) => { wrap.innerHTML = '<div style="color:#c66;font-size:11px;">Chyba: ' + (e.message || e) + '</div>'; });
+      });
+      return det;
+    }
+
+    _buildStateRuleBody(wrap, compId, coreId, discrs) {
+      const self = this;
+      const toast = (window.erpShowToast || function (m) { console.info(m); });
+      if (!discrs.length) {
+        wrap.innerHTML = '<div style="color:#6a7686;font-size:11px;">Žádné řídicí pole. Přidej přes ⚡ Stavy v hlavičce.</div>';
+        return;
+      }
+      wrap.innerHTML = "";
+      const inS = "background:#0f1419;border:1px solid #3a2a58;color:#cfd6df;border-radius:3px;padding:3px 6px;font-size:12px;";
+
+      const layerRow = document.createElement("div");
+      layerRow.style.cssText = "display:flex;gap:6px;align-items:center;flex-wrap:wrap;";
+      const dSel = document.createElement("select");
+      dSel.style.cssText = inS;
+      discrs.forEach((d) => {
+        const o = document.createElement("option");
+        o.value = String(d.id);
+        o.textContent = (d.label || d.field_name);
+        dSel.appendChild(o);
+      });
+      const valInp = document.createElement("input");
+      valInp.type = "text";
+      valInp.placeholder = "hodnota (např. 3)";
+      valInp.style.cssText = inS + "width:120px;";
+      layerRow.appendChild(document.createTextNode("Když "));
+      layerRow.appendChild(dSel);
+      layerRow.appendChild(document.createTextNode("="));
+      layerRow.appendChild(valInp);
+      wrap.appendChild(layerRow);
+
+      const pal = document.createElement("div");
+      pal.style.cssText = "display:grid;grid-template-columns:1fr 1fr;gap:6px 10px;";
+      const mkSel = (label, opts) => {
+        const l = document.createElement("label");
+        l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
+        l.appendChild(document.createTextNode(label));
+        const s = document.createElement("select");
+        s.style.cssText = inS;
+        opts.forEach((o) => { const op = document.createElement("option"); op.value = o[0]; op.textContent = o[1]; s.appendChild(op); });
+        l.appendChild(s);
+        l._input = s;
+        return l;
+      };
+      const mkText = (label, ph) => {
+        const l = document.createElement("label");
+        l.style.cssText = "display:flex;flex-direction:column;gap:2px;font-size:11px;color:#9aa2ac;";
+        l.appendChild(document.createTextNode(label));
+        const i = document.createElement("input");
+        i.type = "text";
+        i.placeholder = ph || "";
+        i.style.cssText = inS;
+        l.appendChild(i);
+        l._input = i;
+        return l;
+      };
+      const ctl = {};
+      ctl.visible = mkSel("Viditelnost", [["", "beze změny"], ["false", "skrýt"]]);
+      ctl.readonly = mkSel("Readonly", [["", "beze změny"], ["true", "ano"], ["false", "ne"]]);
+      ctl.required = mkSel("Povinné", [["", "beze změny"], ["true", "ano"], ["false", "ne"]]);
+      ctl.bold = mkSel("Tučně", [["", "beze změny"], ["true", "ano"]]);
+      ctl.italic = mkSel("Kurzíva", [["", "beze změny"], ["true", "ano"]]);
+      ctl.underline = mkSel("Podtržení", [["", "beze změny"], ["true", "ano"]]);
+      ctl.strikethrough = mkSel("Přeškrtnutí", [["", "beze změny"], ["true", "ano"]]);
+      ctl.color = mkText("Barva textu", "#e57373");
+      ctl.background = mkText("Pozadí", "#2a1a1a");
+      const PROPS = ["visible", "readonly", "required", "bold", "italic", "underline", "strikethrough", "color", "background"];
+      PROPS.forEach((k) => pal.appendChild(ctl[k]));
+      wrap.appendChild(pal);
+
+      let loaded = {};
+      const setControls = (rows) => {
+        const m = {};
+        (rows || []).forEach((r) => { m[r.prop_name] = r.prop_value; });
+        loaded = m;
+        PROPS.forEach((p) => { ctl[p]._input.value = (m[p] != null ? m[p] : ""); });
+      };
+      const loadOverrides = () => {
+        const did = dSel.value;
+        const val = valInp.value;
+        if (!did || val === "") { setControls([]); return; }
+        fetch("/api/v1/erp/fw-state-overrides/" + coreId + "?comp_def_id=" + compId + "&discriminator_id=" + did + "&value=" + encodeURIComponent(val), { credentials: "include" })
+          .then((r) => r.json())
+          .then((j) => setControls((j && j.overrides) || []))
+          .catch(() => setControls([]));
+      };
+      dSel.addEventListener("change", loadOverrides);
+      valInp.addEventListener("change", loadOverrides);
+
+      const btnRow = document.createElement("div");
+      btnRow.style.cssText = "display:flex;gap:8px;align-items:center;margin-top:2px;";
+      const saveBtn = document.createElement("button");
+      saveBtn.type = "button";
+      saveBtn.textContent = "💾 Uložit pravidlo";
+      saveBtn.style.cssText = "background:#3a2a58;border:1px solid #6a4aa8;color:#fff;padding:5px 12px;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;";
+      const note = document.createElement("span");
+      note.style.cssText = "color:#6a7686;font-size:11px;";
+      btnRow.appendChild(saveBtn);
+      btnRow.appendChild(note);
+      wrap.appendChild(btnRow);
+
+      saveBtn.addEventListener("click", () => {
+        const did = dSel.value;
+        const val = valInp.value;
+        if (!did || val === "") { toast("Vyber řídicí pole a hodnotu", "error", 2500); return; }
+        const ops = [];
+        PROPS.forEach((p) => {
+          const cur = ctl[p]._input.value;
+          const had = (loaded[p] != null);
+          if (cur !== "") {
+            ops.push(fetch("/api/v1/erp/fw-state-override", {
+              method: "POST", credentials: "include", headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ comp_def_id: Number(compId), form_discriminator_id: Number(did), discriminator_value: String(val), prop_name: p, prop_value: cur }),
+            }).then((r) => r.json()));
+          } else if (had) {
+            ops.push(self._deleteStateOverrideRow(coreId, compId, did, val, p));
+          }
+        });
+        if (!ops.length) { toast("Žádná vlastnost nenastavena", "info", 2000); return; }
+        saveBtn.disabled = true;
+        note.textContent = "Ukládám…";
+        Promise.all(ops).then(() => {
+          saveBtn.disabled = false;
+          note.textContent = "✓ Uloženo";
+          toast("✓ Pravidlo uloženo", "success", 1800);
+          self._reloadSpec().catch(() => {});
+        }).catch((e) => {
+          saveBtn.disabled = false;
+          note.textContent = "Chyba";
+          toast("Uložení selhalo: " + (e.message || e), "error", 3500);
+        });
+      });
+
+      loadOverrides();
+    }
+
+    _deleteStateOverrideRow(coreId, compId, did, val, prop) {
+      return fetch("/api/v1/erp/fw-state-overrides/" + coreId + "?comp_def_id=" + compId + "&discriminator_id=" + did + "&value=" + encodeURIComponent(val), { credentials: "include" })
+        .then((r) => r.json())
+        .then((j) => {
+          const row = ((j && j.overrides) || []).find((o) => o.prop_name === prop);
+          if (!row) return null;
+          return fetch("/api/v1/erp/fw-state-override/" + row.id, { method: "DELETE", credentials: "include" }).then((r) => r.json());
+        });
     }
 
     _renderLeafField(comp, idx, total) {

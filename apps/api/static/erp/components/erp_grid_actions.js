@@ -70,15 +70,6 @@
       // "duplicate sections in same area" actually 2 modals stacked).
       // Detection via dataset marker designFwFormRoot=1 (set v open()
       // line 1134). Re-open → no-op + warn.
-      var existing = document.querySelector('[data-design-fw-form-root="1"]');
-      if (existing) {
-        console.warn(
-          "[ErpGridActions] DesignFwForm already open — ignore re-open " +
-          "(gridCode=" + gridCode + ", rowId=" + rowId + ", mode=" + mode + "). " +
-          "Close existing modal (X / Esc / OK) first."
-        );
-        return Promise.resolve();
-      }
       var coreId = _lookupEditFormCore(gridCode);
       if (!coreId) {
         alert(
@@ -89,6 +80,21 @@
           "Marti's doctrine: 'fw self edited' — žádný hardcoded editor."
         );
         return Promise.reject(new Error("no_edit_form_registered"));
+      }
+      // Smart re-open guard (31.5.2026, parita s DesignFwForm.open ř.~1346,
+      // Marti's volba B = modal stack): blokuj JEN existing se STEJNYM coreId
+      // (true double-click re-open). JINY coreId → allow (stacked modal — edit
+      // form z nested gridu otevreny nad parent formem). Puvodni blanket guard
+      // blokoval JAKYKOLIV otevreny form → nested grid CRUD "nereagoval na C/U".
+      var _existingSame = document.querySelector(
+        '[data-design-fw-form-root="1"][data-design-fw-form-core-id="' + coreId + '"]'
+      );
+      if (_existingSame) {
+        console.warn(
+          "[ErpGridActions] edit form coreId=" + coreId + " already open — ignore " +
+          "re-open (gridCode=" + gridCode + ", rowId=" + rowId + "). Close it first."
+        );
+        return Promise.resolve();
       }
       if (typeof global.DesignFwForm !== "function") {
         alert("⚠ DesignFwForm komponenta není načtena.");

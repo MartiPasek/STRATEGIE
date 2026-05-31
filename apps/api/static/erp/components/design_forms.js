@@ -4146,6 +4146,36 @@
     //   5. 409 -> dialog "Někdo jiný mezitím změnil řádek. Načíst znovu?"
     //   6. Jiná chyba -> error toast, modal zůstane otevřený (user může retry)
     async _handleSaveAndClose(btnEl) {
+      // Validace povinných polí (required) — fokus + zvýraznění prvního prázdného,
+      // přeruší uložení. Platí v create i edit. [Marti #3]
+      if (this._shell && this._shell.body) {
+        const _reqs = this._shell.body.querySelectorAll(
+          "input[required]:not([readonly]):not([disabled]), textarea[required]:not([readonly]):not([disabled]), select[required]:not([disabled])"
+        );
+        for (let _ri = 0; _ri < _reqs.length; _ri++) {
+          const _inp = _reqs[_ri];
+          const _v = (_inp.value == null ? "" : String(_inp.value)).trim();
+          if (_v === "" || _v === "—") {
+            try {
+              _inp.scrollIntoView({ block: "center", behavior: "smooth" });
+              _inp.focus();
+              _inp.style.outline = "2px solid #e57373";
+              _inp.style.outlineOffset = "1px";
+              const _clr = () => { _inp.style.outline = ""; _inp.style.outlineOffset = ""; _inp.removeEventListener("input", _clr); _inp.removeEventListener("change", _clr); };
+              _inp.addEventListener("input", _clr);
+              _inp.addEventListener("change", _clr);
+            } catch (e) { /* fail-safe */ }
+            let _lbl = "";
+            try {
+              const _w = _inp.closest("[data-comp-def-id]") || _inp.closest(".erp-field") || _inp.parentElement;
+              const _le = _w && _w.querySelector(".erp-input-label");
+              _lbl = _le ? _le.textContent : "";
+            } catch (e) { /* fail-safe */ }
+            _showToast("Vyplň povinné pole" + (_lbl ? ": " + _lbl : ""), "error", 3000);
+            return;
+          }
+        }
+      }
       // Visual: btn disabled + "Ukládám..." během PATCH
       // (preserve HTML innerHTML aby icon mohl být restored při error revert)
       const originalHtml = btnEl.innerHTML;
@@ -6458,7 +6488,6 @@
         "border-radius:3px;color:#cfd6df;font-size:13px;";
       userLabelInp.addEventListener("input", () => { _userDirty = true; });
       userLabelWrap.appendChild(userLabelInp);
-      userPaneEl.appendChild(userLabelWrap);
 
       // 2. Hint textarea
       const userHintWrap = document.createElement("div");
@@ -6477,7 +6506,6 @@
         "resize:vertical;line-height:1.5;";
       userHintArea.addEventListener("input", () => { _userDirty = true; });
       userHintWrap.appendChild(userHintArea);
-      userPaneEl.appendChild(userHintWrap);
 
       // 3. Barva pole swatches
       const userColorWrap = document.createElement("div");
@@ -6521,7 +6549,6 @@
       };
       _renderUserSwatches();
       userColorWrap.appendChild(userSwatches);
-      userPaneEl.appendChild(userColorWrap);
 
       // 4. "Vrátit na výchozí" link button (clear all overrides)
       const userClearWrap = document.createElement("div");
@@ -6542,7 +6569,6 @@
         _userDirty = true;
       });
       userClearWrap.appendChild(userClearBtn);
-      userPaneEl.appendChild(userClearWrap);
 
       // Persistence note
       const userNote = document.createElement("div");
@@ -6551,7 +6577,6 @@
       userNote.textContent =
         "Tab Uživatel se ukládá do prohlížeče (localStorage) — viditelné jen tobě. " +
         "Tab Komponenta jde do DB (sdílené napříč všemi).";
-      userPaneEl.appendChild(userNote);
 
       body.appendChild(bodyInner);
 

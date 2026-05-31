@@ -8432,7 +8432,7 @@
         const _clr = (n) => {
           if (has("color")) n.style.color = "";
           if (has("background")) n.style.background = "";
-          if (has("bold")) n.style.fontWeight = "";
+          if (has("bold")) { n.style.fontWeight = ""; n.style.webkitTextStroke = ""; }
           if (has("italic")) n.style.fontStyle = "";
           if (has("underline") || has("strikethrough")) n.style.textDecoration = "";
         };
@@ -8458,7 +8458,16 @@
       const _fmt = (node, withBg) => {
         if (so.color) node.style.setProperty("color", so.color, "important");
         if (withBg && so.background) node.style.setProperty("background", so.background, "important");
-        if (so.bold === "true") node.style.setProperty("font-weight", "800", "important");
+        if (so.bold === "true") {
+          // font-weight pro fonty s bold řezem (DM Sans) + text-stroke jako
+          // faux-bold fallback pro fonty BEZ bold řezu (DM Mono, který má jen
+          // 300/400/500 → font-weight nic nedělá). text-stroke zesílí glyfy
+          // u jakéhokoli fontu. Barva stroke = currentColor (zdědí color
+          // override pokud je nastaven). Form 31.5.2026: grid (DM Sans) bold
+          // šel, form pole ne → faux-bold to sjednotí.
+          node.style.setProperty("font-weight", "800", "important");
+          node.style.setProperty("-webkit-text-stroke", "0.4px currentColor", "important");
+        }
         if (so.italic === "true") node.style.setProperty("font-style", "italic", "important");
         const td = [];
         if (so.underline === "true") td.push("underline");

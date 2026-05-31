@@ -6307,7 +6307,9 @@
       //                        + enum_values editor (PATCH /comp-def/update)
       // opts.defaultTab = "user" | "component" (default "component").
       // Pravý klik na label → "user", pravý klik na wrap nebo ⚙ → "component".
-      const _defaultTab = (opts && opts.defaultTab === "user") ? "user" : "component";
+      // Zapamatovaná aktivní záložka má přednost (singleton refresh mezi
+      // komponentami nepřeskočí na druhou). [Marti #1]
+      const _defaultTab = DesignFwForm._fsActiveTab || ((opts && opts.defaultTab === "user") ? "user" : "component");
 
       const isEntityPicker = (field.comp_type_code === "entity_picker");
       // Krok 5-B (29.5.2026, Marti's "sjednotit ty dva ruzna okna parametru"):
@@ -6403,6 +6405,7 @@
 
       // Wire tab switching
       const _switchTab = (toUser) => {
+        DesignFwForm._fsActiveTab = toUser ? "user" : "component";
         userPaneEl.style.display = toUser ? "flex" : "none";
         basicPaneEl.style.display = toUser ? "none" : "flex";
         userTabBtn.style.borderBottomColor = toUser ? "#7ed4e8" : "transparent";
@@ -8693,6 +8696,9 @@
         inputs.forEach((i) => {
           if (i.dataset.srOrigPlaceholder == null) i.dataset.srOrigPlaceholder = (i.getAttribute("placeholder") || "");
           i.setAttribute("placeholder", so.inside_hint);
+          try { i.placeholder = so.inside_hint; } catch (e) { /* fail-safe */ }
+          // prázdný marker "—" by jinak přebil placeholder → zobraz hint
+          if (i.value === "—") i.value = "";
         });
         applied.push("inside_hint");
       }

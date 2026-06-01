@@ -401,6 +401,7 @@ def main():
             return base
 
         cur = conn.cursor()
+        form_created = False
         try:
             # ── Step 6: form root (vytvořit / najít) ───────────────────────
             cur.execute("""
@@ -413,6 +414,7 @@ def main():
                 root_id = r[0]
                 print(f"  = form root #{root_id} (existuje, inkrementální režim)")
             else:
+                form_created = True
                 form_caption = c_label or 'Editace záznamu'
                 cur.execute("""
                     INSERT INTO fw.comp_def (
@@ -533,6 +535,19 @@ def main():
 
             conn.commit()
             cur.close()
+
+            # Strojově čitelný souhrn pro frontend info-popup (parsuje __SUMMARY__).
+            summary = {
+                "core_id": core_id,
+                "core_label": c_label or c_code or f"id={core_id}",
+                "form_created": form_created,
+                "root_id": root_id,
+                "client_id": client_id,
+                "added": [fld for _, fld in added],
+                "skipped": skipped,
+                "field_source": src,
+            }
+            print("__SUMMARY__" + json.dumps(summary, ensure_ascii=False))
 
             print("─" * 70)
             print(f"✓ HOTOVO (COMMIT) — core #{core_id} → form #{root_id} "

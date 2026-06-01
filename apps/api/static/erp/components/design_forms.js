@@ -2745,32 +2745,128 @@
             ).then(function (rr) { return rr.json(); });
 
             if (r && r.ok) {
-              // Success — toast + reload form (re-fetch spec)
+              // Marti 1.6.2026: misto ticheho reloadu → informacni popup
+              // "co script udelal" → OK → otevri jadro s komponentami.
+              // Summary parsujeme z __SUMMARY__{json} markeru ve stdout.
+              var _summary = null;
               try {
-                _showToast(
-                  "Root komponenty vygenerovány — načítám…",
-                  "success",
-                  2500
-                );
-              } catch (e) {}
-              // Reload: zavri + znovu otevri stejny coreId
-              try {
-                self._shell.close();
-              } catch (e) {}
-              // Re-open po krátké pauze (modal cleanup race)
-              setTimeout(function () {
-                try {
-                  const fwf2 = new global.DesignFwForm({
-                    coreId: core.id,
-                    rowId: self.opts.rowId,  // null pro CREATE mode
-                    mode: self.opts.mode,
-                    onSaveSuccess: self.opts.onSaveSuccess,
-                  });
-                  if (typeof fwf2.open === "function") fwf2.open();
-                } catch (e) {
-                  console.error("[H+5] Re-open after generate failed:", e);
+                var _so = String(r.stdout || "");
+                var _mk = _so.indexOf("__SUMMARY__");
+                if (_mk >= 0) {
+                  var _line = _so.slice(_mk + "__SUMMARY__".length);
+                  var _nl = _line.indexOf("\n");
+                  if (_nl >= 0) _line = _line.slice(0, _nl);
+                  _summary = JSON.parse(_line.trim());
                 }
-              }, 400);
+              } catch (e) { _summary = null; }
+
+              // Reopen helper — zavri prazdny shell + znovu otevri stejny coreId.
+              var _reopenCore = function () {
+                try { self._shell.close(); } catch (e) {}
+                setTimeout(function () {
+                  try {
+                    var fwf2 = new global.DesignFwForm({
+                      coreId: core.id,
+                      rowId: self.opts.rowId,   // null pro CREATE mode
+                      mode: self.opts.mode,
+                      onSaveSuccess: self.opts.onSaveSuccess,
+                    });
+                    if (typeof fwf2.open === "function") fwf2.open();
+                  } catch (e) {
+                    console.error("[gen] Re-open after generate failed:", e);
+                  }
+                }, 350);
+              };
+
+              // ── Info popup ──────────────────────────────────────────────
+              var ov = document.createElement("div");
+              ov.style.cssText =
+                "position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:200000;" +
+                "display:flex;align-items:center;justify-content:center;";
+              var dlg = document.createElement("div");
+              dlg.style.cssText =
+                "background:#1a1f26;border:1px solid #2a3340;border-radius:8px;" +
+                "width:520px;max-width:94vw;color:#cfd6df;font-size:13px;" +
+                "box-shadow:0 16px 50px rgba(0,0,0,0.6);overflow:hidden;";
+
+              var bodyHtml = "";
+              if (_summary) {
+                var added = Array.isArray(_summary.added) ? _summary.added : [];
+                var skipped = Array.isArray(_summary.skipped) ? _summary.skipped : [];
+                if (_summary.form_created) {
+                  bodyHtml +=
+                    '<div style="margin-bottom:8px;">' +
+                    '✓ Vytvořen <strong>form</strong> + <strong>horní panel</strong> ' +
+                    '(align:top) + <strong>spodní panel</strong> (align:client).</div>';
+                } else {
+                  bodyHtml +=
+                    '<div style="margin-bottom:8px;color:#8a96a4;">' +
+                    'Form i panely už existovaly — inkrementální doplnění.</div>';
+                }
+                if (added.length) {
+                  bodyHtml +=
+                    '<div style="margin-bottom:6px;"><strong style="color:#7fc77f;">+ Přidáno ' +
+                    added.length + ' komponent</strong> (edit) do spodního panelu:</div>' +
+                    '<div style="font-size:12px;color:#a8c5dc;line-height:1.7;margin-bottom:8px;">' +
+                    added.map(function (f) { return _esc(f); }).join(", ") + '</div>';
+                } else {
+                  bodyHtml +=
+                    '<div style="margin-bottom:8px;color:#8a96a4;">' +
+                    'Žádný nový field — vše už bylo vygenerováno.</div>';
+                }
+                if (skipped.length) {
+                  bodyHtml +=
+                    '<div style="font-size:11px;color:#6a7684;">' +
+                    '= Přeskočeno ' + skipped.length + ' už existujících: ' +
+                    skipped.map(function (f) { return _esc(f); }).join(", ") + '</div>';
+                }
+                if (_summary.field_source) {
+                  bodyHtml +=
+                    '<div style="font-size:10px;color:#5a6674;margin-top:10px;">' +
+                    'Zdroj fieldů: ' + _esc(_summary.field_source) + '</div>';
+                }
+              } else {
+                // Fallback — bez summary markeru: ukaž konec stdout.
+                var tail = String(r.stdout || "").slice(-700);
+                bodyHtml =
+                  '<div style="margin-bottom:8px;">Skript doběhl úspěšně.</div>' +
+                  '<pre style="font-size:11px;color:#8a96a4;background:#11151b;' +
+                  'border:1px solid #2a3340;border-radius:4px;padding:8px;' +
+                  'max-height:240px;overflow:auto;white-space:pre-wrap;">' +
+                  _esc(tail) + '</pre>';
+              }
+
+              dlg.innerHTML =
+                '<div style="padding:14px 18px;border-bottom:1px solid #2a3340;' +
+                'background:#141a20;font-size:14px;font-weight:600;color:#e8eef5;">' +
+                '🪄 Komponenty vygenerovány</div>' +
+                '<div style="padding:18px;line-height:1.55;">' + bodyHtml + '</div>';
+
+              var ftr = document.createElement("div");
+              ftr.style.cssText =
+                "padding:12px 18px;border-top:1px solid #2a3340;background:#141a20;" +
+                "display:flex;justify-content:flex-end;gap:8px;";
+              var okBtn = document.createElement("button");
+              okBtn.type = "button";
+              okBtn.textContent = "OK — otevřít jádro";
+              okBtn.style.cssText =
+                "background:var(--accent,#4f8ef7);border:none;color:#fff;" +
+                "padding:8px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:600;";
+              okBtn.addEventListener("click", function () {
+                try { ov.remove(); } catch (e) {}
+                _reopenCore();
+              });
+              ftr.appendChild(okBtn);
+              dlg.appendChild(ftr);
+              ov.appendChild(dlg);
+              ov.addEventListener("keydown", function (ev) {
+                if (ev.key === "Enter" || ev.key === "Escape") {
+                  try { ov.remove(); } catch (e) {}
+                  _reopenCore();
+                }
+              });
+              document.body.appendChild(ov);
+              try { okBtn.focus(); } catch (e) {}
             } else {
               // Error — show toast + restore buttons
               const errMsg = (r && r.error) || "unknown";

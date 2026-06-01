@@ -3323,6 +3323,16 @@
   loginEmail.addEventListener('keydown', e => { if (e.key === 'Enter') loginPassword.focus(); });
   loginPassword.addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
 
+  // 1.6.2026 (Marti, /erp login redirect): vrať ?return param jen pokud je
+  // same-origin relativní cesta (/erp) — ochrana proti open-redirectu.
+  function _getReturnParam() {
+    try {
+      const r = new URLSearchParams(window.location.search).get('return');
+      if (r && r.charAt(0) === '/' && r.charAt(1) !== '/') return r;
+    } catch (e) {}
+    return null;
+  }
+
   async function doLogin() {
     const email = loginEmail.value.trim();
     const password = loginPassword.value;
@@ -3366,6 +3376,9 @@
       loginPassword.value = '';
       // Auth sync: ulozime marker (per-tab sessionStorage) + broadcast do ostatnich tabu
       setAuthMarker(currentUser.user_id, currentUser.email, currentUser.first_name, currentUser.last_name);
+      // 1.6.2026: po loginu zpět na ?return (např. /erp)
+      const _retLogin = _getReturnParam();
+      if (_retLogin) { window.location.href = _retLogin; return; }
       await showApp();
     } catch (e) {
       loginError.textContent = 'Chyba spojení.';
@@ -10889,7 +10902,12 @@
     // Zkus auto-login přes cookie. Pokud selže, ukaž login screen
     // a předvyplň poslední použitý email (localStorage).
     const loggedIn = await tryAutoLogin();
-    if (loggedIn) return;
+    if (loggedIn) {
+      // 1.6.2026: už přihlášen + ?return (např. /erp) → rovnou tam
+      const _retAuto = _getReturnParam();
+      if (_retAuto) { window.location.href = _retAuto; return; }
+      return;
+    }
 
     loginScreen.style.display = 'flex';
     try {

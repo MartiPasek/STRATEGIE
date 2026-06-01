@@ -205,8 +205,16 @@ def _is_eurosoft_active(user_id: int) -> bool:
 
 
 @router.get("/", response_class=HTMLResponse)
-def erp_home(req: Request) -> HTMLResponse:
-    """Phase B nástřel: 3-pane workspace (sidebar tree + main pane prehled+jadro)."""
+def erp_home(req: Request):
+    """Phase B nástřel: 3-pane workspace (sidebar tree + main pane prehled+jadro).
+
+    1.6.2026 (Marti, Pavel Zeman bug): bez session NEhážeme holý 401
+    "Nejsi přihlášen" (ERP nemá login dialog), ale přesměrujeme na chat
+    login s ?return=/erp → po přihlášení se uživatel vrátí zpět na /erp.
+    """
+    from fastapi.responses import RedirectResponse
+    if not req.cookies.get("user_id"):
+        return RedirectResponse(url="/?return=%2Ferp", status_code=302)
     uid = _get_uid(req)
     _require_erp_member(uid)
     return HTMLResponse(content=_render_workspace_page(uid))

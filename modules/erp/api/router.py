@@ -7422,17 +7422,28 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
             pass
 
     # log_event START
+    # Marti 1.6.2026: loguj i PARAMETRY, se kterými se artefakt spustil
+    # (POST body context = SANDBOX_CONTEXT, např. {coreId, coreCode, rowId,
+    # gridCode, ...}) — pro diagnostiku gridů vidět, co skript reálně cílí.
+    _ctx_preview_sx = (
+        _sandbox_ctx_json_sx if len(_sandbox_ctx_json_sx) <= 400
+        else (_sandbox_ctx_json_sx[:400] + "…")
+    )
     try:
         _log_event_sx(
             level="info",
             source="py",
             module_id=f"sandbox.execute.{artifact_code}",
-            message=f"Artifact START: {artifact_code} (type={artifact_type})",
+            message=(
+                f"Artifact START: {artifact_code} (type={artifact_type}) "
+                f"params={_ctx_preview_sx}"
+            ),
             extra={
                 "artifact_id": artifact_id,
                 "artifact_code": artifact_code,
                 "artifact_type": artifact_type,
                 "uid": uid,
+                "params": _sandbox_ctx_json_sx,
             },
         )
     except Exception:
@@ -7477,7 +7488,8 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
                 module_id=f"sandbox.execute.{artifact_code}",
                 message=(
                     f"Artifact FINISH: {artifact_code} "
-                    f"(ok={result.ok}, runtime_ms={result.runtime_ms})"
+                    f"(ok={result.ok}, runtime_ms={result.runtime_ms}) "
+                    f"params={_ctx_preview_sx}"
                 ),
                 extra={
                     "artifact_id": artifact_id,
@@ -7487,6 +7499,7 @@ async def sandbox_execute_artifact(artifact_code: str, req: Request) -> JSONResp
                     "stderr_len": len(result.stderr or ""),
                     "error": result.error,
                     "error_kind": result.error_kind,
+                    "params": _sandbox_ctx_json_sx,
                 },
             )
         except Exception:
